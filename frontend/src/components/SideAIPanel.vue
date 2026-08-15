@@ -422,6 +422,15 @@
             <span>{{ t('courseWorkspace.personalization.reviewCount', '请核对 {count} 个受影响课程块').replace('{count}', String(personalizationOperations.length)) }}</span>
           </div>
 
+          <!-- Section-level blast radius, derived from the plan's own
+               `affected_section_ids` so the number cannot drift from what the
+               domain will actually change on confirm. -->
+          <CourseImpactPreview
+            v-if="personalizationOperations.length"
+            :affected-section-ids="personalizationAffectedSectionIds"
+            :sections="courseStore.nodes"
+          />
+
           <div v-if="personalizationOperations.length" class="personalization-diff-list">
             <article
               v-for="(operation, index) in personalizationOperations"
@@ -509,6 +518,19 @@
                 </div>
               </div>
 
+              <div
+                v-if="message.status === 'failed' && message.failure_code"
+                class="model-failure"
+                data-testid="ai-model-failure"
+                role="status"
+              >
+                <AlertCircle :size="14" />
+                <div>
+                  <strong>{{ modelFailureLabel(message.failure_code) }}</strong>
+                  <small>{{ modelFailureHint(message.failure_retryable) }}</small>
+                </div>
+              </div>
+
               <p
                 v-if="message.retrieval_status"
                 :class="['message-retrieval-status', `is-${message.retrieval_status}`]"
@@ -558,7 +580,7 @@
               <div v-if="message.receipt" :class="['action-receipt', `is-${message.receipt.status}`]">
                 <CheckCircle2 v-if="message.receipt.status === 'succeeded'" :size="16" />
                 <AlertCircle v-else :size="16" />
-                <span>{{ message.receipt.summary }}</span>
+                <span>{{ receiptLabel(message.receipt) }}</span>
                 <button
                   v-if="message.receipt.status === 'succeeded' && message.receipt.undo_capability === 'archive_record'"
                   type="button"
@@ -657,7 +679,8 @@ import {
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
-import { useAITeacherStore, type AIMessage } from '../stores/aiTeacher'
+import CourseImpactPreview from './CourseImpactPreview.vue'
+import { useAITeacherStore, type AIActionReceipt, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import {
@@ -684,6 +707,7 @@ import type {
 } from '../types/changeProposal'
 import logger from '../utils/logger'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
+import { modelFailureHint, modelFailureLabel } from '../utils/ai-teacher-failures'
 
 const props = defineProps<{
   visible: boolean
@@ -768,6 +792,24 @@ const personalizationOperations = computed(() => (
   ) || []
 ))
 const personalizationApplied = computed(() => personalizationPlan.value?.status === 'applied')
+
+/**
+ * Sections the pending plan will touch.
+ *
+ * Prefers the plan's own `affected_section_ids` — the field the domain derives
+ * when it applies the change — so the preview and the write agree. Falls back
+ * to the operations' target sections only when the plan omits it, and never
+ * invents a section that no operation targets.
+ */
+const personalizationAffectedSectionIds = computed(() => {
+  const declared = (personalizationPlan.value?.impact_summary?.affected_section_ids || [])
+    .map(String)
+    .filter(Boolean)
+  if (declared.length) return declared
+  return personalizationOperations.value
+    .map(operation => String(operation.target_section_id || ''))
+    .filter(Boolean)
+})
 const representationSyncUnitCount = computed(() => (
   (changeProposalsStore.lastRepresentationSync?.rebuilt || []).reduce(
     (total: number, item: Record<string, any>) => total + (item.rebuilt_unit_ids?.length || 0),
@@ -1438,6 +1480,31 @@ function retrievalStatusLabel(status: AIMessage['retrieval_status'], message?: A
   return detail ? `${detail} · ${fallback}` : fallback
 }
 
+// The backend returns one receipt for every confirm/undo outcome and carries the
+// meaning in `result_code`. Translate from that code so both languages describe
+// the same outcome; `summary` is only the server-side Chinese audit line.
+const RECEIPT_RESULT_COPY: Record<string, [string, string]> = {
+  note_created: ['courseWorkspace.aiTeacher.receipt.noteCreated', '已保存为笔记'],
+  issue_created: ['courseWorkspace.aiTeacher.receipt.issueCreated', '已标记为待解决问题'],
+  review_task_created: ['courseWorkspace.aiTeacher.receipt.reviewTaskCreated', '已创建复习任务'],
+  bookmark_created: ['courseWorkspace.aiTeacher.receipt.bookmarkCreated', '已创建书签'],
+  runtime_action_opened: ['courseWorkspace.aiTeacher.receipt.runtimeActionOpened', '已准备打开当前学习任务'],
+  record_archived: ['courseWorkspace.aiTeacher.receipt.recordArchived', '已撤销并归档学习记录'],
+  proposal_expired: ['courseWorkspace.aiTeacher.receipt.proposalExpired', '这条建议已过期，请重新发起'],
+  runtime_changed: ['courseWorkspace.aiTeacher.receipt.runtimeChanged', '学习状态已变化，请重新计算建议'],
+  undo_target_changed: ['courseWorkspace.aiTeacher.receipt.undoTargetChanged', '这条记录创建后被改动过，已保留你的修改'],
+  proposal_rejected: ['courseWorkspace.aiTeacher.receipt.proposalRejected', '这条建议已被拒绝，不会执行'],
+  action_failed: ['courseWorkspace.aiTeacher.receipt.actionFailed', '这次动作没有完成，学习状态未改变'],
+  undo_not_supported: ['courseWorkspace.aiTeacher.receipt.undoNotSupported', '这个动作没有可撤销的对象'],
+  undo_target_missing: ['courseWorkspace.aiTeacher.receipt.undoTargetMissing', '原学习记录已不存在，无需撤销'],
+}
+
+function receiptLabel(receipt: AIActionReceipt) {
+  const copy = receipt.result_code ? RECEIPT_RESULT_COPY[receipt.result_code] : undefined
+  if (copy) return t(copy[0], copy[1])
+  return receipt.summary || t('courseWorkspace.aiTeacher.receipt.unknown', '动作已处理')
+}
+
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
@@ -1713,6 +1780,10 @@ onUnmounted(() => {
 .message-retrieval-status { width:max-content; max-width:100%; margin:0; border-radius:999px; padding:3px 7px; color:#475569; background:#f1f5f9; font-size:9px; }
 .message-retrieval-status.is-completed { color:#166534; background:#dcfce7; }
 .message-retrieval-status.is-failed_fallback_local { color:#9a3412; background:#ffedd5; }
+.model-failure { min-width:0; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:start; gap:7px; padding:8px 9px; border-left:3px solid var(--lz-danger); border-radius:0 8px 8px 0; color:#991b1b; background:var(--lz-danger-soft); }
+.model-failure > div { min-width:0; display:grid; gap:2px; }
+.model-failure strong { font-size:10px; line-height:1.4; overflow-wrap:anywhere; }
+.model-failure small { color:#a75757; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
 .message-commands button { min-height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid #e0e7ff; border-radius: 7px; color: var(--lz-brand-strong); background: #fff; font-size: 9px; cursor: pointer; }
 .message-commands button:hover { background: #f5f3ff; }
 

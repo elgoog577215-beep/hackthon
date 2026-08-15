@@ -90,17 +90,19 @@ class ProviderCapacityController:
 
     def __init__(self, provider_id: str) -> None:
         self.provider_id = provider_id
-        self.initial_limit = _env_int("AI_PROVIDER_INITIAL_CONCURRENCY", 2)
+        self.initial_limit = _env_int("AI_PROVIDER_INITIAL_CONCURRENCY", 4)
         self.max_limit = max(
             self.initial_limit,
-            _env_int("AI_PROVIDER_MAX_CONCURRENCY", 4),
+            _env_int("AI_PROVIDER_MAX_CONCURRENCY", 16),
         )
         self.successes_to_grow = _env_int(
             "AI_PROVIDER_SUCCESSES_TO_GROW", 3
         )
         self.start_interval_seconds = _env_float(
-            "AI_PROVIDER_START_INTERVAL_SECONDS", 0.5
+            "AI_PROVIDER_START_INTERVAL_SECONDS", 0.1
         )
+        self.post_request_interval_seconds = 0.0
+        self.wait_during_cooldown = False
         self.rate_limit_backoff_seconds = _env_float(
             "AI_PROVIDER_RATE_LIMIT_BACKOFF_SECONDS", 2.0,
             minimum=0.1,
@@ -111,6 +113,40 @@ class ProviderCapacityController:
         self._provider_in_flight = 0
         self._provider_success_streak = 0
         self._next_provider_start = 0.0
+
+    async def configure_last_resort(
+        self,
+        *,
+        max_concurrency: int,
+        start_interval_seconds: float,
+        post_request_interval_seconds: float,
+    ) -> None:
+        """Apply a conservative profile to a credential-scoped fallback.
+
+        Last-resort credentials are commonly shared, burst-sensitive pools.
+        The profile is monotonic: later callers cannot accidentally loosen a
+        controller that another caller has already constrained.
+        """
+        async with self._condition:
+            resolved_limit = max(1, int(max_concurrency))
+            self.initial_limit = min(self.initial_limit, resolved_limit)
+            self.max_limit = min(self.max_limit, resolved_limit)
+            self._provider_limit = min(
+                self._provider_limit,
+                resolved_limit,
+            )
+            self.start_interval_seconds = max(
+                self.start_interval_seconds,
+                max(0.0, float(start_interval_seconds)),
+            )
+            self.post_request_interval_seconds = max(
+                self.post_request_interval_seconds,
+                max(0.0, float(post_request_interval_seconds)),
+            )
+            self.wait_during_cooldown = True
+            for state in self._models.values():
+                state.limit = min(state.limit, resolved_limit)
+            self._condition.notify_all()
 
     def _state(self, model_id: str) -> ModelCapacityState:
         return self._models.setdefault(
@@ -128,12 +164,20 @@ class ProviderCapacityController:
             async with self._condition:
                 state = self._state(model_id)
                 now = time.monotonic()
-                if state.cooldown_until > now:
+                if (
+                    state.cooldown_until > now
+                    and not self.wait_during_cooldown
+                ):
                     raise ModelCapacityCoolingDown(
                         model_id,
                         state.cooldown_until - now,
                     )
-                ready_at = self._next_provider_start
+                ready_at = max(
+                    self._next_provider_start,
+                    state.cooldown_until
+                    if self.wait_during_cooldown
+                    else 0.0,
+                )
                 if (
                     state.in_flight < state.limit
                     and self._provider_in_flight < self._provider_limit
@@ -172,6 +216,10 @@ class ProviderCapacityController:
             self._provider_in_flight = max(
                 0,
                 self._provider_in_flight - 1,
+            )
+            self._next_provider_start = max(
+                self._next_provider_start,
+                time.monotonic() + self.post_request_interval_seconds,
             )
             self._condition.notify_all()
 
@@ -243,6 +291,10 @@ class ProviderCapacityController:
         return {
             "provider": self.provider_id,
             "start_interval_seconds": self.start_interval_seconds,
+            "post_request_interval_seconds": (
+                self.post_request_interval_seconds
+            ),
+            "wait_during_cooldown": self.wait_during_cooldown,
             "limit": self._provider_limit,
             "in_flight": self._provider_in_flight,
             "models": {

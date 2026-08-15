@@ -312,6 +312,113 @@ async def test_section_request_upgrades_existing_role_and_inserts_missing_role_a
 
 
 @pytest.mark.asyncio
+async def test_manual_section_plan_is_also_guarded_by_knowledge_semantics(tmp_path):
+    """A teacher-requested plan needs the same knowledge guard as an evidence one.
+
+    Manual requests reach the course through the same commit, so leaving them
+    unpinned would keep a hole open on the path teachers actually use.
+    """
+    course = _section_growth_course()
+    storage = _MemoryCourseStorage(course)
+    document_repository = CourseDocumentRepository(storage)
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    state = await generate_section_evolution_plan(
+        course,
+        user_id="student-growth",
+        section_id="section-1",
+        instruction="太简单了，强化理论推导与实战讲解",
+        request_id="request-growth-knowledge",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        generator=_SectionGenerator(),
+    )
+    plan = state.change_sets[0]
+    pins = plan.impact_summary["knowledge_revision_pins"]
+
+    assert pins["schema_version"] == "course_evolution_knowledge_pins_v1"
+    assert pins["available"] is True
+    assert any(key.startswith("point:") for key in pins["revisions"])
+    # Bounded, not a whole-base snapshot.
+    assert "course_knowledge_base" not in pins["revisions"]
+
+    # Redefining the pinned knowledge must block this plan too.
+    mutated = deepcopy(course)
+    renamed = False
+    for node in mutated["nodes"]:
+        for group in node.get("knowledge_structure") or []:
+            for point in group.get("knowledge_points") or []:
+                if node["node_id"] == "section-1":
+                    point["name"] = f"{point['name']}（已重定义）"
+                    point["statement"] = "这一条已经被知识维护者改写。"
+                    renamed = True
+    assert renamed, "fixture has no section-1 knowledge point to redefine"
+
+    with pytest.raises(ValueError) as failure:
+        await asyncio.to_thread(
+            accept_change_set,
+            mutated,
+            user_id="student-growth",
+            change_set_id=plan.change_set_id,
+            selected_scope="current",
+            repository=evolution_repository,
+            document_repository=document_repository,
+        )
+    assert "knowledge" in str(failure.value).lower()
+    stale = evolution_repository.load(
+        "student-growth", course["course_id"],
+    ).change_sets[0]
+    assert stale.status == "stale"
+    assert stale.impact_summary["knowledge_drift"]["verdict"] == "conflict"
+
+
+@pytest.mark.asyncio
+async def test_block_level_request_is_also_guarded_by_knowledge_semantics(tmp_path):
+    """The block-scope path needs the same knowledge guard as the other two.
+
+    Found on the real machine: a block-level adjustment produced a plan whose
+    ``knowledge_revision_pins`` were absent entirely, so a rename of the very
+    knowledge the rewritten block teaches could not make it stale. Evidence and
+    section paths were already covered; this was the remaining hole.
+    """
+    course = _section_growth_course()
+    storage = _MemoryCourseStorage(course)
+    document_repository = CourseDocumentRepository(storage)
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+    candidate_repository = BlockRegenerationCandidateRepository(tmp_path / "candidates")
+    before, _canonical = document_repository.load_document(course["course_id"])
+    target = next(
+        block for block in before.blocks
+        if block.section_id == "section-1" and block.status != "retired"
+    )
+
+    state = await generate_course_adjustment_plan(
+        course,
+        user_id="student-block-knowledge",
+        section_id=target.section_id,
+        block_id=target.block_id,
+        instruction="这里讲得太抽象，请更直观",
+        request_id="request-block-knowledge-1",
+        expected_document_revision=before.document_revision,
+        expected_block_revision=target.internal_revision,
+        direction="simplify",
+        scope_selection="current_block",
+        repository=evolution_repository,
+        document_repository=document_repository,
+        candidate_repository=candidate_repository,
+        generator=_CountingBlockGenerator(),
+    )
+    plan = state.change_sets[0]
+    pins = plan.impact_summary.get("knowledge_revision_pins")
+
+    assert pins is not None, "block-scope plan carries no knowledge pins at all"
+    assert pins["available"] is True, (
+        f"block-scope plan must pin its knowledge; reason={pins.get('reason')!r}"
+    )
+    assert any(key.startswith("point:") for key in pins["revisions"])
+
+
+@pytest.mark.asyncio
 async def test_current_block_request_uses_course_evolution_plan_and_one_atomic_apply(
     tmp_path,
 ):

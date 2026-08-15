@@ -8,6 +8,21 @@ on:
         required: false
         default: "什么是面向对象编程 例子"
         type: string
+      probe_ai_model:
+        description: "Send one minimal PPT story request and print sanitized routing telemetry"
+        required: false
+        default: false
+        type: boolean
+      export_v6_replay:
+        description: "Export a sanitized Story/Visual/template replay fixture for one V6 task"
+        required: false
+        default: false
+        type: boolean
+      v6_replay_task_id:
+        description: "V6 task ID to export when export_v6_replay is enabled"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -36,16 +51,19 @@ jobs:
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Inspect retrieval path
+        continue-on-error: ${{ inputs.export_v6_replay }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
           DIAGNOSTIC_QUERY: ${{ inputs.query }}
+          PROBE_AI_MODEL: ${{ inputs.probe_ai_model }}
         run: |
           set -euo pipefail
           remote_query="$(printf '%q' "$DIAGNOSTIC_QUERY")"
+          remote_probe="$(printf '%q' "$PROBE_AI_MODEL")"
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "LINGZHI_DIAGNOSTIC_QUERY=$remote_query bash -s" <<'REMOTE'
+            "LINGZHI_DIAGNOSTIC_QUERY=$remote_query LINGZHI_PROBE_AI_MODEL=$remote_probe bash -s" <<'REMOTE'
           set -euo pipefail
           echo "== service =="
           systemctl is-active lingzhi || true
@@ -80,6 +98,357 @@ jobs:
           . /opt/lingzhi/state/.env
           set +a
           cd /opt/lingzhi/hackthon/backend
+
+          echo "== latest V6 failure structure (no course content) =="
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import collections
+          import json
+          import re
+          from pathlib import Path
+
+          from course_presentation_graph import block_artifact_kinds, block_source_text
+          from dependencies import get_course_document_repository
+
+
+          root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
+          matches = []
+          for path in root.glob("*.json"):
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError):
+                  continue
+              if payload.get("failure"):
+                  matches.append((str(payload.get("updated_at") or ""), path, payload))
+          if not matches:
+              print(json.dumps({"found": False}, sort_keys=True))
+              raise SystemExit(0)
+
+          _updated_at, candidate_path, candidate = max(matches, key=lambda item: item[0])
+          failure = candidate.get("failure") or {}
+          checkpoint_path = root / "checkpoints" / candidate_path.name
+          checkpoint = {}
+          if checkpoint_path.exists():
+              checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          story_payload = candidate.get("story_plan") or checkpoint.get("story_plan") or {}
+          pages = story_payload.get("pages") or []
+          if not pages:
+              pages = [
+                  page
+                  for batch in (story_payload.get("batches") or checkpoint.get("story_batches") or [])
+                  for page in (batch.get("pages") or [])
+              ]
+          page_id = str(failure.get("page_id") or "")
+          base_page_id = re.sub(r"--continuation-\d+$", "", page_id)
+          failure_page_matches = [
+              item for item in pages
+              if str(item.get("page_id") or "") in {page_id, base_page_id}
+          ]
+          page = next(
+              (
+                  item for item in pages
+                  if str(item.get("page_id") or "") in {page_id, base_page_id}
+              ),
+              {},
+          )
+          visual_payload = candidate.get("visual_plan") or checkpoint.get("visual_plan") or {}
+          decisions = visual_payload.get("decisions") or []
+          failure_visual_matches = [
+              item for item in decisions
+              if str(item.get("page_id") or "") in {page_id, base_page_id}
+          ]
+          visual = next(
+              (item for item in decisions if str(item.get("page_id") or "") == page_id),
+              {},
+          )
+          graph = candidate.get("course_presentation_graph") or checkpoint.get("course_presentation_graph") or {}
+          units = graph.get("units") or []
+          unit = next(
+              (
+                  item for item in units
+                  if str(item.get("teaching_unit_id") or "")
+                  == str(page.get("teaching_unit_id") or "")
+              ),
+              {},
+          )
+          source_ids = [str(item) for item in (page.get("source_block_ids") or [])]
+          graph_kinds = unit.get("primary_block_kinds") or {}
+          graph_roles = unit.get("primary_block_roles") or {}
+          graph_artifacts = unit.get("primary_block_artifacts") or {}
+          graph_texts = unit.get("primary_block_texts") or {}
+          graph_kind_counts = collections.Counter(
+              str(graph_kinds.get(block_id) or "unknown")
+              for block_id in source_ids
+          )
+          document, canonical = get_course_document_repository().load_document(
+              str(candidate.get("course_id") or "")
+          )
+          actual_blocks = {
+              block.block_id: block
+              for block in document.blocks
+              if block.status == "final"
+          }
+          actual_kind_counts = collections.Counter(
+              str(actual_blocks[block_id].kind if block_id in actual_blocks else "missing")
+              for block_id in source_ids
+          )
+          source_shapes = [
+              {
+                  "graph_kind": str(graph_kinds.get(block_id) or ""),
+                  "graph_role": str(graph_roles.get(block_id) or ""),
+                  "graph_artifacts": sorted(str(item) for item in graph_artifacts.get(block_id) or []),
+                  "graph_text_chars": len(str(graph_texts.get(block_id) or "")),
+                  "actual_present": block_id in actual_blocks,
+                  "actual_kind": str(actual_blocks[block_id].kind if block_id in actual_blocks else ""),
+                  "actual_payload_keys": (
+                      sorted(str(key) for key in (actual_blocks[block_id].payload or {}))
+                      if block_id in actual_blocks else []
+                  ),
+                  "actual_artifacts": (
+                      sorted(block_artifact_kinds(actual_blocks[block_id]))
+                      if block_id in actual_blocks else []
+                  ),
+                  "actual_text_chars": (
+                      len(block_source_text(actual_blocks[block_id]))
+                      if block_id in actual_blocks else 0
+                  ),
+              }
+              for block_id in source_ids
+          ]
+          print(json.dumps({
+              "found": True,
+              "updated_at": candidate.get("updated_at"),
+              "failure_stage": failure.get("stage"),
+              "failure_code": failure.get("code"),
+              "failure_message": failure.get("message"),
+              "failure_page_id": page_id,
+              "failure_base_page_id": base_page_id,
+              "failure_batch_id": failure.get("batch_id"),
+              "checkpoint_contract": checkpoint.get("build_contract_version"),
+              "story_page_count": len(pages),
+              "failure_page_present": bool(page),
+              "failure_page_match_count": len(failure_page_matches),
+              "failure_page_match_layouts": [
+                  str(item.get("template_layout_id") or "").rsplit("/", 1)[-1]
+                  for item in failure_page_matches
+              ],
+              "failure_visual_match_count": len(failure_visual_matches),
+              "failure_visual_match_layouts": [
+                  str(item.get("resolved_template_layout_id") or "").rsplit("/", 1)[-1]
+                  for item in failure_visual_matches
+              ],
+              "story_layout_slug": str(page.get("template_layout_id") or "").rsplit("/", 1)[-1],
+              "source_block_count": len(source_ids),
+              "course_document_canonical": bool(canonical),
+              "course_revision_matches_graph": (
+                  str(document.document_revision or "")
+                  == str(graph.get("source_document_revision") or "")
+              ),
+              "graph_kind_counts": dict(sorted(graph_kind_counts.items())),
+              "actual_kind_counts": dict(sorted(actual_kind_counts.items())),
+              "source_shapes": source_shapes,
+              "visual_decision": visual.get("decision"),
+              "visual_layout_slug": str(visual.get("resolved_template_layout_id") or "").rsplit("/", 1)[-1],
+              "visual_degraded": bool(visual.get("degraded")),
+              "visual_reason": visual.get("degradation_reason"),
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+          echo "== latest V6 story underfill structure (no course content) =="
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from course_presentation_graph import CoursePresentationGraphV1
+          from slide_deck_v6 import (
+              SlideStoryPlanV3,
+              _presentation_summary_text,
+              _unit_source_text_for_blocks,
+              prepare_story_plan_for_final_compilation,
+              validate_slide_story_plan_v3,
+          )
+          from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+          root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
+          matches = []
+          for path in root.glob("*.json"):
+              try:
+                  payload = json.loads(path.read_text(encoding="utf-8"))
+              except (OSError, json.JSONDecodeError):
+                  continue
+              failure = payload.get("failure") or {}
+              if failure.get("code") == "story_page_underfilled":
+                  matches.append((str(payload.get("updated_at") or ""), path, payload))
+          if not matches:
+              print(json.dumps({"found": False}, sort_keys=True))
+              raise SystemExit(0)
+
+          _updated_at, candidate_path, candidate = max(matches, key=lambda item: item[0])
+          failure = candidate.get("failure") or {}
+          checkpoint_path = root / "checkpoints" / candidate_path.name
+          checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          graph = CoursePresentationGraphV1.model_validate(
+              candidate.get("course_presentation_graph")
+              or checkpoint["course_presentation_graph"]
+          )
+          story_payload = candidate.get("story_plan") or checkpoint.get("story_plan")
+          if story_payload is None:
+              story_payload = {
+                  "schema_version": "slide_story_plan_v3",
+                  "source_document_revision": graph.source_document_revision,
+                  "template_digest": str(checkpoint.get("template_digest") or ""),
+                  "batches": checkpoint.get("story_batches") or [],
+              }
+          story = SlideStoryPlanV3.model_validate(story_payload)
+          template = compile_builtin_template_layout_contract_v1(
+              str(checkpoint.get("theme") or "qizhi-classroom")
+          )
+          before_error = ""
+          validated_page_id = ""
+          try:
+              validate_slide_story_plan_v3(story, graph, template)
+          except Exception as error:
+              before_error = getattr(getattr(error, "failure", None), "code", type(error).__name__)
+              validated_page_id = str(
+                  getattr(getattr(error, "failure", None), "page_id", "") or ""
+              )
+          candidate_page_id = str(failure.get("page_id") or "")
+          page_id = validated_page_id or candidate_page_id
+          page = next((item for item in story.pages if item.page_id == page_id), None)
+          if page is None:
+              print(json.dumps({
+                  "found": True,
+                  "updated_at": candidate.get("updated_at"),
+                  "failure_stage": failure.get("stage"),
+                  "failure_code": failure.get("code"),
+                  "checkpoint_contract": checkpoint.get("build_contract_version"),
+                  "checkpoint_story_pages": len(story.pages),
+                  "candidate_failure_page_present": any(
+                      item.page_id == candidate_page_id for item in story.pages
+                  ),
+                  "validation_before_prepare": before_error or "passed",
+                  "validated_failure_page_present": any(
+                      item.page_id == validated_page_id for item in story.pages
+                  ),
+              }, ensure_ascii=False, sort_keys=True))
+              raise SystemExit(0)
+          unit = next(
+              item for item in graph.units
+              if item.teaching_unit_id == page.teaching_unit_id
+          )
+          layout = template.get_layout(page.template_layout_id)
+          body_slots = [slot for slot in layout.slots if slot.slot_kind == "body"]
+          summary_text = _presentation_summary_text(page.summary)
+          source_text = _presentation_summary_text(
+              _unit_source_text_for_blocks(unit, page.source_block_ids)
+          )
+          visual_payload = checkpoint.get("visual_plan") or candidate.get("visual_plan") or {}
+          visual = next(
+              (
+                  item for item in visual_payload.get("decisions") or []
+                  if str(item.get("page_id") or "") == page_id
+              ),
+              {},
+          )
+          prepared = prepare_story_plan_for_final_compilation(story, graph, template)
+          prepared_page = next(item for item in prepared.pages if item.page_id == page_id)
+          after_error = ""
+          try:
+              validate_slide_story_plan_v3(prepared, graph, template)
+          except Exception as error:
+              after_error = getattr(getattr(error, "failure", None), "code", type(error).__name__)
+          print(json.dumps({
+              "found": True,
+              "updated_at": candidate.get("updated_at"),
+              "failure_stage": failure.get("stage"),
+              "failure_code": failure.get("code"),
+              "checkpoint_contract": checkpoint.get("build_contract_version"),
+              "layout_slug": layout.layout_slug,
+              "body_slot_count": len(body_slots),
+              "body_min_chars": body_slots[0].min_chars if len(body_slots) == 1 else 0,
+              "body_max_chars": body_slots[0].max_chars if len(body_slots) == 1 else 0,
+              "summary_chars": len(summary_text),
+              "source_chars": len(source_text),
+              "validation_before_prepare": before_error or "passed",
+              "prepared_summary_chars": len(_presentation_summary_text(prepared_page.summary)),
+              "validation_after_prepare": after_error or "passed",
+              "visual_decision": visual.get("decision"),
+              "visual_layout_slug": str(visual.get("resolved_template_layout_id") or "").rsplit("/", 1)[-1],
+              "visual_degraded": bool(visual.get("degraded")),
+              "visual_reason": visual.get("degradation_reason"),
+          }, ensure_ascii=False, sort_keys=True))
+          PY
+
+          if [ "$LINGZHI_PROBE_AI_MODEL" = "true" ]; then
+            /opt/lingzhi/.venv/bin/python - <<'PY'
+          import asyncio
+          import json
+
+          from ai_base import AIBase
+          from ai_provider_route import provider_route_snapshot
+
+
+          async def probe_ai_model(
+              *,
+              model_role: str,
+              use_fast_model: bool,
+          ) -> None:
+              provider = AIBase(provider_profile="ppt")
+              telemetry = []
+              status = "failed"
+              error_code = ""
+              try:
+                  response = await provider._call_llm(
+                      json.dumps({"probe": model_role}),
+                      system_prompt='Return only this JSON object: {"ok":true}',
+                      use_fast_model=use_fast_model,
+                      enable_thinking=False,
+                      retry_count=1,
+                      max_attempts=3,
+                      max_tokens=64,
+                      reject_truncated=True,
+                      raise_on_failure=True,
+                      json_mode=True,
+                      model_role=model_role,
+                      telemetry_sink=telemetry.append,
+                  )
+                  parsed = provider._extract_json(response or "") or {}
+                  status = "completed" if parsed.get("ok") is True else "invalid_json"
+              except Exception as error:
+                  error_code = type(error).__name__
+
+              attempts = [
+                  {
+                      "model_id": str(item.get("model_id") or ""),
+                      "provider_route": str(item.get("provider_route") or "primary"),
+                      "status": str(item.get("status") or "unknown"),
+                      "error_code": str(item.get("error_code") or ""),
+                      "duration_ms": int(item.get("duration_ms") or 0),
+                  }
+                  for item in telemetry
+                  if isinstance(item, dict)
+              ]
+              print(f"{model_role}_model_probe", json.dumps({
+                  "status": status,
+                  "error_code": error_code,
+                  "attempts": attempts,
+                  "provider_route": provider_route_snapshot(),
+              }, ensure_ascii=False, sort_keys=True))
+              if status != "completed":
+                  raise SystemExit(1)
+
+
+          asyncio.run(probe_ai_model(
+              model_role="ppt_story",
+              use_fast_model=False,
+          ))
+          asyncio.run(probe_ai_model(
+              model_role="ppt_visual",
+              use_fast_model=True,
+          ))
+          PY
+          fi
+
           /opt/lingzhi/.venv/bin/python - <<'PY'
           import asyncio
           import json
@@ -142,3 +511,109 @@ jobs:
                   }, ensure_ascii=False))
           PY
           REMOTE
+
+      - name: Export sanitized V6 template replay
+        if: ${{ inputs.export_v6_replay }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+          V6_REPLAY_TASK_ID: ${{ inputs.v6_replay_task_id }}
+        run: |
+          set -euo pipefail
+          [[ "$V6_REPLAY_TASK_ID" =~ ^[A-Za-z0-9_-]+$ ]]
+          remote_output="/tmp/lingzhi-v6-replay-${GITHUB_RUN_ID}.json"
+          remote_task="$(printf '%q' "$V6_REPLAY_TASK_ID")"
+          remote_path="$(printf '%q' "$remote_output")"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "LINGZHI_V6_REPLAY_TASK_ID=$remote_task LINGZHI_V6_REPLAY_OUTPUT=$remote_path bash -s" <<'REMOTE'
+          set -euo pipefail
+          set -a
+          . /opt/lingzhi/state/.env
+          set +a
+          cd /opt/lingzhi/hackthon/backend
+          /opt/lingzhi/.venv/bin/python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from dependencies import get_course_document_repository
+
+
+          task_id = os.environ["LINGZHI_V6_REPLAY_TASK_ID"]
+          output = Path(os.environ["LINGZHI_V6_REPLAY_OUTPUT"])
+          root = Path("/opt/lingzhi/state/backend-data/slide_deck_v6_candidates")
+          checkpoint_path = root / "checkpoints" / f"{task_id}.json"
+          candidate_path = root / f"{task_id}.json"
+          checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+          candidate = (
+              json.loads(candidate_path.read_text(encoding="utf-8"))
+              if candidate_path.exists()
+              else {}
+          )
+          course_id = str(checkpoint.get("course_id") or candidate.get("course_id") or "")
+          document, canonical = get_course_document_repository().load_document(course_id)
+          if not canonical:
+              raise RuntimeError("V6 replay export requires the canonical course document")
+
+          def scrub(value):
+              if isinstance(value, dict):
+                  return {
+                      key: scrub(item)
+                      for key, item in value.items()
+                      if key not in {
+                          "ai_batch_diagnostics",
+                          "provider_raw_response",
+                          "raw_response",
+                          "request_payload",
+                          "prompt",
+                      }
+                  }
+              if isinstance(value, list):
+                  return [scrub(item) for item in value]
+              if isinstance(value, str):
+                  return value.replace(task_id, "replay-task").replace(
+                      course_id,
+                      "replay-course",
+                  )
+              return value
+
+          payload = scrub({
+              "schema_version": "slide_deck_v6_template_replay_v1",
+              "build_contract_version": checkpoint.get("build_contract_version"),
+              "template_id": checkpoint.get("template_id"),
+              "template_version": checkpoint.get("template_version"),
+              "template_digest": checkpoint.get("template_digest"),
+              "theme_id": checkpoint.get("theme_id") or "qizhi-classroom",
+              "document": document.model_dump(mode="json"),
+              "course_presentation_graph": checkpoint.get("course_presentation_graph") or {},
+              "story_plan": checkpoint.get("story_plan") or candidate.get("story_plan") or {},
+              "visual_plan": checkpoint.get("visual_plan") or candidate.get("visual_plan") or {},
+          })
+          output.write_text(
+              json.dumps(payload, ensure_ascii=False, indent=2),
+              encoding="utf-8",
+          )
+          print(json.dumps({
+              "replay_exported": True,
+              "story_pages": len((payload.get("story_plan") or {}).get("pages") or []),
+              "visual_decisions": len((payload.get("visual_plan") or {}).get("decisions") or []),
+              "bytes": output.stat().st_size,
+          }, sort_keys=True))
+          PY
+          REMOTE
+          scp -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_output" \
+            "$RUNNER_TEMP/v6-template-replay.json"
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "rm -f -- $remote_path"
+
+      - name: Upload sanitized V6 template replay
+        if: ${{ inputs.export_v6_replay }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: v6-template-replay-${{ inputs.v6_replay_task_id }}
+          path: ${{ runner.temp }}/v6-template-replay.json
+          retention-days: 1

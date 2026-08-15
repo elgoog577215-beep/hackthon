@@ -1,5 +1,60 @@
 <template>
   <section class="answer-renderer" :data-mode="mode">
+    <div v-if="stepwiseOffered" class="stepwise-switch">
+      <!-- Stepwise is an offer, never a requirement: the student can always go
+           back to writing one whole answer, and switching keeps what they wrote. -->
+      <button
+        type="button"
+        class="stepwise-toggle"
+        :class="{ active: stepwiseActive }"
+        :disabled="disabled"
+        :aria-pressed="stepwiseActive"
+        data-testid="stepwise-toggle"
+        @click="toggleStepwise"
+      >
+        {{ stepwiseActive ? t('courseWorkspace.practice.stepwiseOff', '改为整体作答') : t('courseWorkspace.practice.stepwiseOn', '分步作答') }}
+      </button>
+      <span class="stepwise-note">
+        {{ t('courseWorkspace.practice.stepwiseNote', '分步只是表达方式，不影响掌握判定；你也可以直接整体作答。') }}
+      </span>
+    </div>
+
+    <div v-if="stepwiseActive" class="stepwise-editor" data-testid="stepwise-editor">
+      <div v-for="(step, index) in stepDrafts" :key="index" class="stepwise-step">
+        <label>
+          <span class="step-label">
+            {{ t('courseWorkspace.practice.stepLabel', '第 {index} 步').replace('{index}', String(index + 1)) }}
+          </span>
+          <textarea
+            class="step-input"
+            :value="step.text"
+            :disabled="disabled"
+            :placeholder="t('courseWorkspace.practice.stepPlaceholder', '写下这一步做了什么，以及依据')"
+            @input="updateStep(index, $event)"
+          />
+        </label>
+        <button
+          v-if="stepDrafts.length > 1"
+          type="button"
+          class="step-remove"
+          :disabled="disabled"
+          :aria-label="t('courseWorkspace.practice.removeStep', '删除这一步')"
+          @click="removeStep(index)"
+        >
+          ×
+        </button>
+      </div>
+      <button
+        type="button"
+        class="step-add"
+        :disabled="disabled || stepDrafts.length >= maxSteps"
+        data-testid="stepwise-add"
+        @click="addStep"
+      >
+        {{ t('courseWorkspace.practice.addStep', '添加一步') }}
+      </button>
+    </div>
+
     <div v-if="mode === 'choice' && normalizedOptions.length" class="choice-list">
       <label
         v-for="option in normalizedOptions"
@@ -39,7 +94,7 @@
 
     <div v-else-if="mode === 'code'" class="code-answer">
       <label>
-        <span>编程语言</span>
+        <span>{{ t('courseWorkspace.practice.codeLanguage', '编程语言') }}</span>
         <select
           :value="draft.language || contract?.language || allowedLanguages[0]"
           :disabled="disabled"
@@ -51,7 +106,7 @@
         </select>
       </label>
       <label>
-        <span>代码</span>
+        <span>{{ t('courseWorkspace.practice.codeAnswer', '代码') }}</span>
         <textarea
           class="code-editor"
           spellcheck="false"
@@ -61,11 +116,11 @@
         />
       </label>
       <button type="button" class="run-command" :disabled="disabled || running || !draft.code" @click="runPreview">
-        {{ running ? '运行中…' : '运行代码' }}
+        {{ running ? t('courseWorkspace.practice.codeRunning', '运行中…') : t('courseWorkspace.practice.codeRun', '运行代码') }}
       </button>
       <pre v-if="runOutput" class="run-output">{{ runOutput }}</pre>
       <label v-if="fields.some(field => field.field_id === 'test_evidence')">
-        <span>测试说明</span>
+        <span>{{ t('courseWorkspace.practice.codeTestEvidence', '测试说明') }}</span>
         <textarea
           :value="draft.test_evidence || ''"
           :disabled="disabled"
@@ -76,7 +131,7 @@
 
     <div v-else-if="mode === 'structured_fields'" class="field-grid">
       <label v-for="field in fields" :key="field.field_id">
-        <span>{{ field.label }}<b v-if="field.required" aria-label="必填">*</b></span>
+        <span>{{ field.label }}<b v-if="field.required" v-bind:aria-label="t('courseWorkspace.practice.requiredField', '必填')">*</b></span>
         <textarea
           v-if="field.kind === 'rich_text' || field.kind === 'code'"
           :class="{ 'code-editor': field.kind === 'code' }"
@@ -110,6 +165,9 @@
 import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../utils/http'
+import { t } from '../shared/i18n'
+
+const MAX_STEPS = 20
 
 type AnswerField = {
   field_id: string
@@ -175,29 +233,29 @@ const fields = computed<AnswerField[]>(() => {
   if (Array.isArray(supplied) && supplied.length) return supplied
   if (mode.value === 'numeric_unit') {
     return [
-      { field_id: 'value', kind: 'number', label: '数值', required: true },
-      { field_id: 'unit', kind: 'short_text', label: '单位', required: true },
-      { field_id: 'work', kind: 'rich_text', label: '计算过程', required: true },
+      { field_id: 'value', kind: 'number', label: t('courseWorkspace.practice.fieldValue', '数值'), required: true },
+      { field_id: 'unit', kind: 'short_text', label: t('courseWorkspace.practice.fieldUnit', '单位'), required: true },
+      { field_id: 'work', kind: 'rich_text', label: t('courseWorkspace.practice.fieldWork', '计算过程'), required: true },
     ]
   }
   if (mode.value === 'code') {
     return [
-      { field_id: 'code', kind: 'code', label: '代码', required: true },
-      { field_id: 'test_evidence', kind: 'rich_text', label: '测试说明' },
+      { field_id: 'code', kind: 'code', label: t('courseWorkspace.practice.codeAnswer', '代码'), required: true },
+      { field_id: 'test_evidence', kind: 'rich_text', label: t('courseWorkspace.practice.codeTestEvidence', '测试说明') },
     ]
   }
   if (mode.value === 'structured_fields') {
     if (props.questionType === 'debugging_trace') {
       return [
-        { field_id: 'trace', kind: 'rich_text', label: '执行轨迹', required: true },
-        { field_id: 'diagnosis', kind: 'rich_text', label: '问题定位', required: true },
-        { field_id: 'result_check', kind: 'rich_text', label: '结果检查', required: true },
+        { field_id: 'trace', kind: 'rich_text', label: t('courseWorkspace.practice.fieldTrace', '执行轨迹'), required: true },
+        { field_id: 'diagnosis', kind: 'rich_text', label: t('courseWorkspace.practice.fieldDiagnosis', '问题定位'), required: true },
+        { field_id: 'result_check', kind: 'rich_text', label: t('courseWorkspace.practice.fieldResultCheck', '结果检查'), required: true },
       ]
     }
     return [
-      { field_id: 'answer', kind: 'rich_text', label: '作答', required: true },
-      { field_id: 'evidence', kind: 'rich_text', label: '依据', required: true },
-      { field_id: 'result_check', kind: 'rich_text', label: '结果检查', required: true },
+      { field_id: 'answer', kind: 'rich_text', label: t('courseWorkspace.practice.fieldAnswer', '作答'), required: true },
+      { field_id: 'evidence', kind: 'rich_text', label: t('courseWorkspace.practice.fieldEvidence', '依据'), required: true },
+      { field_id: 'result_check', kind: 'rich_text', label: t('courseWorkspace.practice.fieldResultCheck', '结果检查'), required: true },
     ]
   }
   return []
@@ -211,6 +269,82 @@ const allowedLanguages = computed<string[]>(() => (
     ? props.contract.allowed_languages
     : ['python', 'javascript']
 ))
+
+// --- Stepwise answering (J3) ------------------------------------------------
+// The backend treats a payload with no usable `steps` as a whole answer, so the
+// degradation path costs nothing here: dropping the steps key is enough.
+const maxSteps = MAX_STEPS
+const stepwiseOffered = computed(() => (
+  Boolean(props.contract?.stepwise) && mode.value !== 'choice'
+))
+const submittedSteps = computed<Array<Record<string, any>>>(() => (
+  Array.isArray(draft.value.steps) ? draft.value.steps : []
+))
+// Only the student turns stepwise on/off; never infer it from an empty draft, or
+// the editor would collapse the moment they clear their first step.
+const stepwiseOptOut = ref(false)
+const stepwiseActive = computed(() => (
+  stepwiseOffered.value && !stepwiseOptOut.value && submittedSteps.value.length > 0
+))
+const stepDrafts = computed(() => (
+  submittedSteps.value.length
+    ? submittedSteps.value.map((step, index) => ({
+      text: String(step?.text ?? ''),
+      step_index: Number(step?.step_index) || index + 1,
+      step_id: String(step?.step_id ?? ''),
+    }))
+    : [{ text: '', step_index: 1, step_id: '' }]
+))
+
+function writeSteps(steps: Array<Record<string, any>>) {
+  const next = { ...draft.value }
+  if (!steps.length) {
+    // No steps at all is exactly the whole-answer shape the backend expects.
+    delete next.steps
+  } else {
+    next.steps = steps.map((step, index) => ({
+      ...step,
+      step_index: index + 1,
+    }))
+  }
+  emit('update:modelValue', next)
+}
+
+function toggleStepwise() {
+  if (stepwiseActive.value) {
+    // Leaving stepwise must not throw away what the student already wrote: fold
+    // the steps into the free-text answer instead of deleting them.
+    const written = stepDrafts.value.map(step => step.text.trim()).filter(Boolean)
+    const merged = [String(draft.value.text || '').trim(), ...written]
+      .filter(Boolean)
+      .join('\n')
+    stepwiseOptOut.value = true
+    const next: Record<string, any> = { ...draft.value, text: merged }
+    delete next.steps
+    emit('update:modelValue', next)
+    return
+  }
+  stepwiseOptOut.value = false
+  writeSteps([{ text: '', step_index: 1, step_id: '' }])
+}
+
+function updateStep(index: number, event: Event) {
+  const target = event.target as HTMLTextAreaElement
+  const steps = stepDrafts.value.map((step, position) => (
+    position === index ? { ...step, text: target.value } : step
+  ))
+  writeSteps(steps)
+}
+
+function addStep() {
+  if (stepDrafts.value.length >= MAX_STEPS) return
+  writeSteps([...stepDrafts.value, { text: '', step_index: 0, step_id: '' }])
+}
+
+function removeStep(index: number) {
+  const steps = stepDrafts.value.filter((_step, position) => position !== index)
+  writeSteps(steps.length ? steps : [{ text: '', step_index: 1, step_id: '' }])
+}
 
 function optionId(option: Record<string, any>) {
   return String(
@@ -278,14 +412,14 @@ async function runPreview() {
     })
     runOutput.value = [response.data?.output, response.data?.error]
       .filter(Boolean)
-      .join('\n') || '运行完成，无输出'
+      .join('\n') || t('courseWorkspace.practice.codeNoOutput', '运行完成，无输出')
     setValue('run_result', {
       status: response.data?.error ? 'failed' : 'completed',
       output: runOutput.value.slice(0, 32768),
     })
   } catch {
-    runOutput.value = '运行失败'
-    ElMessage.error('代码运行失败')
+    runOutput.value = t('courseWorkspace.practice.codeRunFailed', '运行失败')
+    ElMessage.error(t('courseWorkspace.practice.codeRunFailedToast', '代码运行失败'))
   } finally {
     running.value = false
   }
@@ -294,6 +428,19 @@ async function runPreview() {
 
 <style scoped>
 .answer-renderer { display: grid; gap: 14px; }
+.stepwise-switch { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.stepwise-toggle { border: 1px solid #94a3b8; border-radius: 8px; padding: 7px 14px; background: #fff; color: #334155; font: inherit; cursor: pointer; }
+.stepwise-toggle.active { border-color: #397d76; background: #f0fdfa; color: #397d76; font-weight: 650; }
+.stepwise-toggle:disabled { opacity: .55; cursor: not-allowed; }
+.stepwise-note { color: #64748b; font-size: .86rem; line-height: 1.5; }
+.stepwise-editor { display: grid; gap: 10px; padding: 13px; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; }
+.stepwise-step { display: flex; align-items: flex-start; gap: 8px; }
+.stepwise-step label { flex: 1; display: grid; gap: 6px; color: #334155; font-weight: 650; }
+.step-label { color: #397d76; font-size: .9rem; }
+.step-input { min-height: 76px; }
+.step-remove { flex: none; margin-top: 26px; width: 32px; height: 32px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #b45309; font-size: 1.1rem; line-height: 1; cursor: pointer; }
+.step-add { justify-self: start; border: 1px dashed #94a3b8; border-radius: 8px; padding: 8px 14px; background: #fff; color: #334155; font: inherit; cursor: pointer; }
+.step-add:disabled { opacity: .55; cursor: not-allowed; }
 .choice-list, .field-grid, .code-answer { display: grid; gap: 12px; }
 .choice-list label { display: flex; align-items: flex-start; gap: 10px; padding: 13px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; cursor: pointer; }
 .choice-list label.selected { border-color: #397d76; background: #f0fdfa; box-shadow: 0 0 0 1px #397d76; }
@@ -311,5 +458,9 @@ textarea { min-height: 120px; resize: vertical; line-height: 1.65; }
 @media (max-width: 700px) {
   .numeric-grid { grid-template-columns: 1fr; }
   .numeric-grid label:last-child { grid-column: auto; }
+  .stepwise-switch { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .stepwise-toggle { width: 100%; }
+  .stepwise-editor { padding: 10px; }
+  .step-remove { margin-top: 24px; }
 }
 </style>

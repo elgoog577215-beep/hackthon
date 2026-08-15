@@ -27,23 +27,57 @@ export interface AIActionProposal {
   undo_capability?: string
 }
 
+export type AIReceiptResultCode =
+  | 'note_created'
+  | 'issue_created'
+  | 'review_task_created'
+  | 'bookmark_created'
+  | 'runtime_action_opened'
+  | 'record_archived'
+  | 'proposal_expired'
+  | 'runtime_changed'
+  | 'undo_target_changed'
+  | 'proposal_rejected'
+  | 'action_failed'
+  | 'undo_not_supported'
+  | 'undo_target_missing'
+
 export interface AIActionReceipt {
   receipt_id: string
   proposal_id: string
-  status: string
+  status: 'succeeded' | 'failed' | 'stale'
+  /** Machine-readable outcome; the localized copy is derived from this, not from `summary`. */
+  result_code?: AIReceiptResultCode
+  schema_version?: string
   action_type: string
   affected_refs: Array<Record<string, any>>
   summary: string
   failure_reason?: string
   undo_capability: string
   runtime_revision_after?: string
+  undo_of_receipt_id?: string
 }
+
+export type AIModelFailureCode =
+  | 'model_not_configured'
+  | 'model_auth_failed'
+  | 'model_quota_exhausted'
+  | 'model_request_too_large'
+  | 'model_rate_limited'
+  | 'model_timeout'
+  | 'model_response_truncated'
+  | 'model_unavailable'
+  | 'cancelled'
 
 export interface AIMessage {
   message_id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   status?: 'streaming' | 'complete' | 'failed'
+  /** Which classified model failure produced a `failed` turn. */
+  failure_code?: AIModelFailureCode
+  /** Whether retrying the same question could plausibly succeed. */
+  failure_retryable?: boolean
   context_ref?: AIContextRef
   task_ref?: Record<string, any>
   sources?: Array<Record<string, any>>
@@ -84,6 +118,27 @@ export interface SendAIMessagePayload {
 
 export type AIAnswerFeedback = 'resolved' | 'unclear'
 
+/**
+ * Natural pauses at which a proactive suggestion may be offered. Deliberately
+ * excludes reading — the owner's decision (2026-08-12) is that the AI never
+ * interrupts mid-paragraph.
+ */
+export type SuggestionMoment = 'section_completed' | 'practice_submitted' | 'course_entered'
+
+export interface AISuggestion {
+  trigger_id: string
+  trigger_type: string
+  moment: SuggestionMoment
+  node_id: string
+  scope_ref: Record<string, any>
+  severity: 'high' | 'medium'
+  eligible_action: string
+  runtime_action: Record<string, any>
+  dedupe_key: string
+  runtime_revision_id: string
+  expires_at?: string
+}
+
 export interface SubmitAIAnswerFeedbackPayload {
   nodeId?: string
   nodeName?: string
@@ -92,6 +147,25 @@ export interface SubmitAIAnswerFeedbackPayload {
 }
 
 const cacheKey = (courseId: string) => `ai_teacher_cache_v1:${courseId}`
+
+/**
+ * The learning session the interruption budget is counted against. Shared with
+ * `learningSession.ts` so "2 per session" means the same session the rest of
+ * the learning shell uses. The budget itself lives on the server; this is only
+ * the key it is counted under.
+ */
+function learningSessionId() {
+  try {
+    const key = 'learning_session_id'
+    const current = sessionStorage.getItem(key)
+    if (current) return current
+    const created = `session-${crypto.randomUUID()}`
+    sessionStorage.setItem(key, created)
+    return created
+  } catch {
+    return ''
+  }
+}
 
 export const useAITeacherStore = defineStore('aiTeacher', () => {
   const courseId = ref('')
@@ -102,6 +176,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   const retrievalUpdating = ref(false)
   const error = ref<string | null>(null)
   const currentContext = ref<Record<string, any> | null>(null)
+  const suggestion = ref<AISuggestion | null>(null)
   const abortController = ref<AbortController | null>(null)
   let requestSequence = 0
 
@@ -345,9 +420,15 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     } catch (sendError: any) {
       if (controller.signal.aborted || sendError?.name === 'AbortError') {
         assistantMessage.status = 'failed'
+        assistantMessage.failure_code = 'cancelled'
+        assistantMessage.failure_retryable = true
         assistantMessage.content ||= '已停止生成'
       } else {
+        // A transport-level failure never reached the classifier, so report the
+        // generic retryable code rather than pretending to know the cause.
         assistantMessage.status = 'failed'
+        assistantMessage.failure_code = 'model_unavailable'
+        assistantMessage.failure_retryable = true
         assistantMessage.content ||= 'AI 老师暂时不可用，课程和正式学习任务仍可继续使用。'
         error.value = sendError?.message || 'assistant_failed'
       }
@@ -403,7 +484,12 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       assistantMessage.receipt = data
       assistantMessage.receipt_id = data.receipt_id
     } else if (eventName === 'error') {
+      // The backend classifies the provider failure; keep the code so the UI
+      // can say whether retrying is worth it, and keep any partial answer the
+      // learner already read rather than replacing it with the error text.
       assistantMessage.status = 'failed'
+      assistantMessage.failure_code = data.code || 'model_unavailable'
+      assistantMessage.failure_retryable = data.retryable !== false
       assistantMessage.content ||= data.message || 'AI teacher unavailable'
     }
   }
@@ -448,12 +534,18 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       idempotency_key: `web:${target.proposal_id}`,
     })
-    message.receipt = response.data
-    message.receipt_id = response.data.receipt_id
-    target.status = response.data.status === 'succeeded' ? 'succeeded' : response.data.status
-    await useLearningProgressStore().loadRuntime(courseId.value, target.target_ref?.node_id)
+    const receipt = response.data as AIActionReceipt
+    message.receipt = receipt
+    message.receipt_id = receipt.receipt_id
+    // A refused confirm (expired, rejected, runtime moved) still returns a
+    // receipt. Reflect its real status so the proposal card stops offering
+    // "confirm" on an action the server has already declined to run.
+    target.status = receipt.status === 'succeeded' ? 'succeeded' : receipt.status
+    if (receipt.status === 'succeeded') {
+      await useLearningProgressStore().loadRuntime(courseId.value, target.target_ref?.node_id)
+    }
     persistCache()
-    return response.data as AIActionReceipt
+    return receipt
   }
 
   async function submitAnswerFeedback(
@@ -491,10 +583,91 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       idempotency_key: `web:undo:${message.receipt.receipt_id}`,
     })
-    message.receipt = response.data
-    await useLearningProgressStore().loadRuntime(courseId.value, message.context_ref?.node_id)
+    const receipt = response.data as AIActionReceipt
+    message.receipt = receipt
+    message.receipt_id = receipt.receipt_id
+    // A refused undo leaves the original record untouched, so only a real
+    // archive needs the runtime reloaded.
+    if (receipt.status === 'succeeded') {
+      await useLearningProgressStore().loadRuntime(courseId.value, message.context_ref?.node_id)
+    }
     persistCache()
-    return response.data as AIActionReceipt
+    return receipt
+  }
+
+  /**
+   * Ask the server whether a proactive suggestion is justified at this moment.
+   *
+   * `moment` must be a natural pause — finishing a section, submitting a
+   * practice attempt, or entering the course. Reading is deliberately not one:
+   * every candidate here is a strong runtime action that keeps until the
+   * learner comes up for air, so interrupting a paragraph buys nothing.
+   *
+   * All three gates (timing, frequency budget, refusal window) are enforced
+   * server-side. This function only asks; it never decides.
+   */
+  async function checkSuggestion(moment: SuggestionMoment, nodeId?: string) {
+    if (!courseId.value) return null
+    try {
+      const response = await http.get('/api/ai-teacher/trigger', {
+        params: {
+          course_id: courseId.value,
+          node_id: nodeId || '',
+          moment,
+          session_id: learningSessionId(),
+        },
+      })
+      const candidate = (response.data?.candidate || null) as AISuggestion | null
+      suggestion.value = candidate
+      return candidate
+    } catch (suggestionError) {
+      // A proactive suggestion is a nicety; never surface its failure.
+      logger.warn('Failed to check AI teacher suggestion', suggestionError)
+      return null
+    }
+  }
+
+  /** Spend one unit of the interruption budget once the card is really visible. */
+  async function markSuggestionShown(candidate: AISuggestion) {
+    if (!candidate?.trigger_id || !courseId.value) return
+    try {
+      await http.post('/api/ai-teacher/trigger/shown', {
+        course_id: courseId.value,
+        trigger_id: candidate.trigger_id,
+        dedupe_key: candidate.dedupe_key || '',
+        node_id: candidate.node_id || '',
+        session_id: learningSessionId(),
+        moment: candidate.moment || '',
+      })
+    } catch (shownError) {
+      logger.warn('Failed to record AI teacher suggestion delivery', shownError)
+    }
+  }
+
+  /** Clear the local card. Persistent suppression is the reject endpoint's job. */
+  function dismissSuggestion() {
+    suggestion.value = null
+  }
+
+  /**
+   * Tell the server the learner refused this suggestion.
+   *
+   * Must be persisted, not just cleared locally: the archived action protocol
+   * requires a refusal to survive a refresh and follow the learner to another
+   * device. `not_now` additionally gets a 24-hour floor server-side.
+   */
+  async function suppressSuggestion(candidate: AISuggestion, reason: 'not_now' | 'never') {
+    if (!candidate?.dedupe_key || !courseId.value) return
+    try {
+      await http.post('/api/ai-teacher/trigger/suppress', {
+        course_id: courseId.value,
+        dedupe_key: candidate.dedupe_key,
+        runtime_revision_id: candidate.runtime_revision_id || '',
+        reason,
+      })
+    } catch (suppressError) {
+      logger.warn('Failed to record AI teacher suggestion refusal', suppressError)
+    }
   }
 
   return {
@@ -508,6 +681,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     retrievalUpdating,
     error,
     currentContext,
+    suggestion,
     load,
     createConversation,
     selectConversation,
@@ -520,5 +694,9 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     submitAnswerFeedback,
     rejectProposal,
     undoReceipt,
+    checkSuggestion,
+    markSuggestionShown,
+    dismissSuggestion,
+    suppressSuggestion,
   }
 })

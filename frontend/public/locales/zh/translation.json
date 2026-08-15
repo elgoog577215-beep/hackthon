@@ -247,7 +247,20 @@
     "publish": "发布到我的模板",
     "creating": "正在分析模板…",
     "publishing": "正在发布…",
-    "ready": "预览已就绪"
+    "ready": "预览已就绪",
+    "extractionSummary": "已分析 {slides} 页、{boxes} 个文本框、{images} 个图片素材。",
+    "referencePptxHint": "建议包含封面、章节、内容、练习、图表或代码、结束页",
+    "logoHint": "PNG / SVG / JPEG / WebP",
+    "referenceImages": "风格参考图（可选）",
+    "referenceImagesHint": "可上传 2–5 张背景或装饰参考图",
+    "selectedImages": "已选择 {count} 张",
+    "widescreenNotice": "原模板为 4:3，发布后会适配为 16:9。请确认代表页预览的安全区。",
+    "representativePage": "{role}代表页",
+    "pageNumber": "第 {count} 页",
+    "editablePreview": "可编辑文本 · {theme}",
+    "restart": "重新填写",
+    "roles": { "cover": "封面", "chapter": "章节", "objectives": "目标", "definition": "定义", "process": "推演", "practice": "练习", "evidence": "证据", "recap": "复盘" },
+    "themes": { "qizhi": "启智课堂", "academic": "学术编辑", "grid": "网格笔记", "modern": "现代几何", "dark": "深色科技" }
   },
   "pptWorkspace": {
     "open": "打开 PPT 工作台",
@@ -309,6 +322,8 @@
     "completeCourseLogic": "补全课程逻辑",
     "completingCourseLogic": "正在补全课程逻辑…",
     "previousVersionPageQuality": "上一版本本页质量",
+    "resumeCheckpoint": "从保存点继续",
+    "rebuildCurrent": "重新生成当前组合",
     "build": "生成完整课件",
     "untitledCourse": "课程演示",
     "targetSchema": "目标",
@@ -913,7 +928,9 @@
       "wholeCourseHint": "AI 解析语义后匹配相关节点",
       "matchedSummary": "AI 识别 {roles}，匹配 {count} 个节点",
       "blockSummary": "AI 只处理当前内容，不扩展到其他位置",
-      "currentSummary": "AI 只在本节内处理：{roles}"
+      "currentSummary": "AI 只在本节内处理：{roles}",
+      "currentChapter": "影响本章相关内容",
+      "currentChapterHint": "AI 在本章范围内匹配相关节点；确认前不会修改课程"
     },
     "review": {
       "eyebrow": "课程调整审阅",
@@ -1036,7 +1053,8 @@
       "targetedPractice": "针对性练习",
       "animation": "分步演示",
       "fold": "折叠已会内容",
-      "reorder": "重组学习顺序"
+      "reorder": "重组学习顺序",
+      "resequence": "跨章节重排"
     },
     "sectionGrowth": {
       "stepsLabel": "课程生长六步",
@@ -1080,13 +1098,37 @@
         "example": "例子讲解",
         "checkpoint": "理解检查",
         "concept": "核心概念"
-      }
+      },
+      "generateChapter": "解析并生成本章影响预览"
     },
     "effects": {
       "effective": "原判断获得新证据支持，继续观察后续迁移",
       "ineffective": "后续证据显示需要调整",
       "harmful": "后续证据显示有副作用，建议回退",
       "insufficient": "等待独立复验：后续同能力正式题"
+    },
+    "applying": "正在写入课程…",
+    "reverification": {
+      "title": "独立复验",
+      "open": "复验窗口进行中",
+      "openDetail": "已等待 {days} 天，还在 {window} 天窗口内，等待独立新题作答。",
+      "expired": "无样本，无法判定",
+      "expiredDetail": "已等待 {days} 天，仍无独立样本。这需要人工判断，不能据此认为调整已生效或应当回退。",
+      "satisfied": "已有独立样本",
+      "satisfiedDetail": "窗口内已收到 {count} 条独立新题作答，效果结论以这些样本为准。",
+      "noSample": "无样本",
+      "retakeExcluded": "原题重测不计入复验样本"
+    },
+    "applyingDetail": "已确认，正在提交课程修订；完成前不会重复提议。",
+    "declined": "你已排除的调整",
+    "declinedDetail": "这些条目在本次审阅中被你排除，短期内不会再次提议。",
+    "declinedCooldown": "冷却至 {date}",
+    "knowledgeDrift": {
+      "title": "课程知识已变化",
+      "detail": "生成这个方案时依据的课程知识已经被修改，方案不再对应当前知识含义，需要重新生成后再确认。",
+      "changed": "已变化的知识点：{labels}",
+      "changedUnnamed": "已变化的知识点无法命名（可能已被拆分、合并或删除）",
+      "regenerate": "重新生成方案"
     }
   },
   "learningNavigator": {
@@ -1432,12 +1474,14 @@
     "title": "知识库",
     "subtitle": "沿课程路径查看原子知识、能力与关系",
     "courseCoverage": "本课覆盖",
+    "noExternalGrounding": "本课程无外部资料依据，全部知识由模型生成，发布前请自行复核",
     "relationCount": "知识关系",
     "mappingRate": "路径覆盖",
     "relationCoverage": "关系覆盖",
     "qualityScore": "质量",
     "sources": "来源",
     "sourceMaterial": "资料来源",
+    "sourceWeb": "联网检索来源",
     "sourceModel": "模型推断",
     "candidateRelations": "候选关系",
     "notEnabled": "条未启用",
@@ -1869,7 +1913,10 @@
       "growthMoreSections": "还有 {count} 个小节将在本章继续生长",
       "growthStarting": "正在找到这门课的生长主线",
       "growthStartingHelp": "先确定整体章节和每章职责，随后小节会在它们的最终位置逐个出现。",
-      "growthNodeProgress": "{completed}/{total} 个小节"
+      "growthNodeProgress": "{completed}/{total} 个小节",
+      "authError": "AI 服务暂时无法完成身份校验。",
+      "timeoutError": "AI 服务响应超时，本阶段尚未完成。",
+      "unavailableError": "AI 服务暂时不可用，本阶段尚未完成。"
     },
     "outlineReview": {
       "ariaLabel": "课程目录确认",
@@ -2270,7 +2317,8 @@
       "exam": {
         "label": "考试冲刺",
         "detail": "根据考纲、薄弱点和剩余时间安排复习"
-      }
+      },
+      "comingSoon": "即将开放"
     },
     "project": {
       "title": "定义你的实战项目",
@@ -2797,7 +2845,49 @@
         "resume": "返回课程练习",
         "needsSupportTitle": "当前证据不足以继续自动补救",
         "needsSupportBody": "记录已经保留，可以让 AI 老师结合完整过程进一步判断。"
-      }
+      },
+      "stepwiseOn": "分步作答",
+      "stepwiseOff": "改为整体作答",
+      "stepwiseNote": "分步只是表达方式，不影响掌握判定；你也可以直接整体作答。",
+      "stepLabel": "第 {index} 步",
+      "stepPlaceholder": "写下这一步做了什么，以及依据",
+      "addStep": "添加一步",
+      "removeStep": "删除这一步",
+      "codeLanguage": "编程语言",
+      "codeAnswer": "代码",
+      "codeRun": "运行代码",
+      "codeRunning": "运行中…",
+      "codeTestEvidence": "测试说明",
+      "codeNoOutput": "运行完成，无输出",
+      "codeRunFailed": "运行失败",
+      "codeRunFailedToast": "代码运行失败",
+      "requiredField": "必填",
+      "fieldValue": "数值",
+      "fieldUnit": "单位",
+      "fieldWork": "计算过程",
+      "fieldTrace": "执行轨迹",
+      "fieldDiagnosis": "问题定位",
+      "fieldResultCheck": "结果检查",
+      "fieldAnswer": "作答",
+      "fieldEvidence": "依据",
+      "guidanceTitle": "AI 老师引导",
+      "guidanceEvidenceNote": "引导只提问、不给答案；用得越多，本次作答作为独立掌握证据越弱。",
+      "guidanceYou": "你",
+      "guidanceTeacher": "AI 老师",
+      "guidancePlaceholder": "说说你现在卡在哪一步，以及你用了什么条件",
+      "guidanceSend": "继续追问",
+      "guidanceSending": "正在思考…",
+      "guidanceExhausted": "本题引导轮次已用完，请先自己往下写一步。",
+      "guidanceScreened": "这一轮引导没有通过安全检查，已换成一个不泄露答案的问题，本轮不计入求助。",
+      "guidanceUnavailable": "AI 老师暂时不可用，本轮不计入求助。",
+      "guidanceDegraded": "这一轮没能生成有效引导，本轮不计入求助。",
+      "aiSupportSummary": "在正式练习中打开 AI 老师",
+      "stepwiseResultTitle": "逐步判定",
+      "stepwiseFirstFlawed": "推导从第 {index} 步开始出问题",
+      "stepwiseNoFlaw": "没有发现出错的步骤",
+      "stepCorrect": "这一步成立",
+      "stepFlawed": "这一步有问题",
+      "stepUnclear": "这一步看不出依据"
     },
     "practiceAnalysis": {
       "title": "题目解析与本次判断",
@@ -3102,7 +3192,55 @@
       "retrievalOff": "当前会话已关闭",
       "retrievalStarted": "正在联网检索",
       "retrievalCompleted": "联网核验完成",
-      "retrievalFailed": "联网检索失败，本回答未完成外部核验"
+      "retrievalFailed": "联网检索失败，本回答未完成外部核验",
+      "receipt": {
+        "noteCreated": "已保存为笔记",
+        "issueCreated": "已标记为待解决问题",
+        "reviewTaskCreated": "已创建复习任务",
+        "bookmarkCreated": "已创建书签",
+        "runtimeActionOpened": "已准备打开当前学习任务",
+        "recordArchived": "已撤销并归档学习记录",
+        "proposalExpired": "这条建议已过期，请重新发起",
+        "runtimeChanged": "学习状态已变化，请重新计算建议",
+        "undoTargetChanged": "这条记录创建后被改动过，已保留你的修改",
+        "proposalRejected": "这条建议已被拒绝，不会执行",
+        "actionFailed": "这次动作没有完成，学习状态未改变",
+        "undoNotSupported": "这个动作没有可撤销的对象",
+        "undoTargetMissing": "原学习记录已不存在，无需撤销",
+        "unknown": "动作已处理"
+      },
+      "failure": {
+        "notConfigured": "AI 老师尚未配置模型",
+        "authFailed": "AI 模型认证失败",
+        "quotaExhausted": "AI 模型额度已用完",
+        "requestTooLarge": "这次提问的上下文过大，请缩小选区",
+        "rateLimited": "AI 模型当前繁忙",
+        "timeout": "AI 模型响应超时",
+        "truncated": "回答被长度限制截断，内容不完整",
+        "unavailable": "AI 老师暂时不可用",
+        "cancelled": "已停止生成",
+        "retryHint": "课程与正式学习任务不受影响，可以重试。",
+        "noRetryHint": "重试无法解决，请联系管理员；课程与正式学习任务不受影响。"
+      },
+      "suggestion": {
+        "title": "AI 老师建议",
+        "eyebrow": "AI 老师注意到",
+        "body": "这一步依据你的正式学习记录，确认前不会改变任何内容。",
+        "explain": "看看为什么",
+        "notNow": "暂时不要",
+        "never": "不再提醒",
+        "neverHint": "不再就这件事提醒我",
+        "actions": {
+          "confirmVersionChange": "课程有更新等待你确认",
+          "resumeDiagnostic": "你有一次诊断没有完成",
+          "resumeRemediation": "你有一次补救练习没有完成",
+          "resumeValidation": "你有一次独立验证没有完成",
+          "resolveDiagnosticSupport": "有一条诊断结论等待你处理",
+          "resolveBlockingIssue": "有一个问题正挡住后面的学习",
+          "startDueReview": "有一项复习到期了",
+          "generic": "有一个学习任务等待继续"
+        }
+      }
     },
     "sources": {
       "title": "本节来源",
@@ -3284,6 +3422,12 @@
         "reviewAgain": "再次复习",
         "complete": "完成复习"
       }
+    },
+    "impactPreview": {
+      "count": "将影响 {count} 个小节",
+      "countOne": "将影响 {count} 个小节",
+      "unknownSection": "不在当前目录中",
+      "note": "确认前不会修改正式课程。"
     }
   },
   "courseAvailability": {
@@ -3360,6 +3504,21 @@
     "shortcut": "Ctrl / ⌘ + Enter 保存",
     "cancel": "取消",
     "save": "保存笔记"
+  },
+  "questionBank": {
+    "centerTitle": "课程题库质量管理",
+    "courseList": "课程列表",
+    "searchCourse": "搜索课程",
+    "noCourses": "没有可管理的课程",
+    "currentCourse": "当前课程",
+    "title": "课程题库质量管理",
+    "refreshCourses": "刷新课程",
+    "regenerateHelp": "新题通过质量检查后才会替换当前题库",
+    "notBuilt": "该课程尚未整理题库，请点击“重新整理”。",
+    "loadFailed": "题库读取失败，请稍后重试。",
+    "rebuildMissing": "重新整理题库",
+    "regeneratingCourse": "正在重新生成课程题目",
+    "regenerateCourse": "重新生成整门课程题目"
   },
   "assessmentGeneration": {
     "label": "题目生成方式",

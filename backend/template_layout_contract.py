@@ -7,6 +7,13 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from course_document import stable_hash
+from slide_layout_geometry import (
+    BALANCED_TWO_COLUMN_BODY_V1,
+    DIAGRAM_SOURCE_PANEL_V1,
+    FIGURE_SOURCE_PANEL_V1,
+    FORMULA_SOURCE_PANEL_V1,
+    HORIZONTAL_PROCESS_CARDS_V1,
+)
 from slide_theme import load_slide_theme_pack
 
 
@@ -25,6 +32,7 @@ class TemplateSlotContractV1(_StrictModel):
         "eyebrow",
         "body",
         "items",
+        "steps",
         "code",
         "formula",
         "table",
@@ -32,10 +40,19 @@ class TemplateSlotContractV1(_StrictModel):
         "notes",
     ]
     required: bool = True
+    min_chars: int = Field(default=0, ge=0)
     max_chars: int = Field(default=0, ge=0)
     max_items: int = Field(default=0, ge=0)
     max_lines: int = Field(default=0, ge=0)
     max_rows: int = Field(default=0, ge=0)
+    continuation_max_chars: int = Field(default=0, ge=0)
+    continuation_max_lines: int = Field(default=0, ge=0)
+    split_wrapped_lines: int = Field(default=0, ge=0)
+    full_wrapped_lines: int = Field(default=0, ge=0)
+    split_column_chars: int = Field(default=0, ge=0)
+    full_column_chars: int = Field(default=0, ge=0)
+    wide_min_columns: int = Field(default=0, ge=0)
+    capacity_profile: str = ""
     source_roles: list[str] = Field(default_factory=list)
 
 
@@ -75,16 +92,103 @@ class TemplateLayoutPackContractV1(_StrictModel):
         return next((item for item in self.layouts if item.template_layout_id == layout_id), None)
 
 
+def template_layout_contract_matrix(
+    template: TemplateLayoutPackContractV1,
+) -> list[dict[str, Any]]:
+    """Expose the closed layout/slot/capacity/continuation contract for audits."""
+
+    return [
+        {
+            "template_layout_id": layout.template_layout_id,
+            "layout_slug": layout.layout_slug,
+            "teaching_intents": list(layout.teaching_intents),
+            "artifact_kinds": list(layout.artifact_kinds),
+            "required_slots": [
+                {
+                    "slot_id": slot.slot_id,
+                    "slot_kind": slot.slot_kind,
+                    "source_roles": list(slot.source_roles),
+                    "min_chars": slot.min_chars,
+                    "max_chars": slot.max_chars,
+                    "max_items": slot.max_items,
+                    "max_lines": slot.max_lines,
+                    "max_rows": slot.max_rows,
+                    "continuation_max_chars": slot.continuation_max_chars,
+                    "continuation_max_lines": slot.continuation_max_lines,
+                    "split_wrapped_lines": slot.split_wrapped_lines,
+                    "full_wrapped_lines": slot.full_wrapped_lines,
+                    "split_column_chars": slot.split_column_chars,
+                    "full_column_chars": slot.full_column_chars,
+                    "wide_min_columns": slot.wide_min_columns,
+                    "capacity_profile": slot.capacity_profile,
+                }
+                for slot in layout.slots
+                if slot.required
+            ],
+            "optional_slots": [
+                {
+                    "slot_id": slot.slot_id,
+                    "slot_kind": slot.slot_kind,
+                    "source_roles": list(slot.source_roles),
+                    "min_chars": slot.min_chars,
+                    "max_chars": slot.max_chars,
+                    "max_items": slot.max_items,
+                    "max_lines": slot.max_lines,
+                    "max_rows": slot.max_rows,
+                    "continuation_max_chars": slot.continuation_max_chars,
+                    "continuation_max_lines": slot.continuation_max_lines,
+                    "split_wrapped_lines": slot.split_wrapped_lines,
+                    "full_wrapped_lines": slot.full_wrapped_lines,
+                    "split_column_chars": slot.split_column_chars,
+                    "full_column_chars": slot.full_column_chars,
+                    "wide_min_columns": slot.wide_min_columns,
+                    "capacity_profile": slot.capacity_profile,
+                }
+                for slot in layout.slots
+                if not slot.required
+            ],
+            "safe_continuation_layout_slugs": list(
+                layout.safe_continuation_layout_slugs
+            ),
+        }
+        for layout in template.layouts
+    ]
+
+
 _SLOT_SOURCE_ROLES: dict[str, set[str]] = {
     "driving_question": {"orientation", "objective", "checkpoint", "activity"},
+    "steps": {
+        "activity",
+        "application",
+        "checkpoint",
+        "example",
+        "orientation",
+        "reasoning",
+        "transfer",
+    },
     "task": {"activity", "checkpoint", "orientation"},
-    "prompt": {"activity", "checkpoint", "orientation", "example"},
+    "prompt": {
+        "activity",
+        "checkpoint",
+        "orientation",
+        "example",
+        "misconception",
+        "counterexample",
+    },
     "criteria": {"feedback", "summary", "objective"},
-    "feedback": {"feedback", "answer", "remediation"},
+    "feedback": {"feedback", "remediation"},
     "annotation": {"concept", "reasoning", "feedback", "remediation"},
     "derivation": {"reasoning", "example"},
     "reasoning": {"reasoning", "example"},
-    "interpretation": {"reasoning", "feedback", "summary"},
+    "interpretation": {
+        "activity",
+        "checkpoint",
+        "concept",
+        "example",
+        "reasoning",
+        "feedback",
+        "summary",
+    },
     "explanation": {"concept", "reasoning", "feedback"},
     "symptom": {"misconception", "counterexample"},
     "cause": {"reasoning", "misconception"},
@@ -98,24 +202,44 @@ def _slot(
     kind: str,
     *,
     required: bool = True,
+    min_chars: int = 0,
     chars: int = 0,
     items: int = 0,
     lines: int = 0,
     rows: int = 0,
+    continuation_chars: int = 0,
+    continuation_lines: int = 0,
+    split_wrapped_lines: int = 0,
+    full_wrapped_lines: int = 0,
+    split_column_chars: int = 0,
+    full_column_chars: int = 0,
+    wide_min_columns: int = 0,
+    capacity_profile: str = "",
 ) -> dict[str, Any]:
     return {
         "slot_id": slot_id,
         "slot_kind": kind,
         "required": required,
+        "min_chars": min_chars,
         "max_chars": chars,
         "max_items": items,
         "max_lines": lines,
         "max_rows": rows,
+        "continuation_max_chars": continuation_chars,
+        "continuation_max_lines": continuation_lines,
+        "split_wrapped_lines": split_wrapped_lines,
+        "full_wrapped_lines": full_wrapped_lines,
+        "split_column_chars": split_column_chars,
+        "full_column_chars": full_column_chars,
+        "wide_min_columns": wide_min_columns,
+        "capacity_profile": capacity_profile,
         "source_roles": sorted(_SLOT_SOURCE_ROLES.get(slot_id, set())),
     }
 
 
-_TITLE = _slot("title", "title", chars=42)
+_TITLE = _slot("title", "title", chars=42, lines=2)
+_COVER_TITLE = _slot("title", "title", chars=42, lines=3)
+_CHAPTER_TITLE = _slot("title", "title", chars=28, lines=2)
 _EYEBROW = _slot("eyebrow", "eyebrow", required=False, chars=24)
 _NOTES = _slot("source_notes", "notes", chars=0)
 
@@ -123,12 +247,12 @@ _NOTES = _slot("source_notes", "notes", chars=0)
 _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "cover-minimal": {
         "intents": ["orientation"],
-        "slots": [_TITLE, _slot("subtitle", "body", required=False, chars=90), _NOTES],
+        "slots": [_COVER_TITLE, _slot("subtitle", "body", required=False, chars=90), _NOTES],
         "continuations": [],
     },
     "chapter-entry": {
         "intents": ["orientation", "concept_explanation"],
-        "slots": [_EYEBROW, _TITLE, _slot("driving_question", "body", chars=120), _NOTES],
+        "slots": [_EYEBROW, _CHAPTER_TITLE, _slot("driving_question", "body", chars=120), _NOTES],
         "continuations": ["content-stack"],
     },
     "agenda-path": {
@@ -143,8 +267,24 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             "practice_feedback",
             "recap",
             "worked_example",
+            "misconception_repair",
         ],
-        "slots": [_EYEBROW, _TITLE, _slot("body", "body", chars=520), _NOTES],
+        "slots": [
+            _EYEBROW,
+            _TITLE,
+            # Static characters/lines are last guards. The shared profile
+            # measures the renderer's actual single/two-column geometry and
+            # reserves a full bottom line against Office/font drift.
+            _slot(
+                "body",
+                "body",
+                min_chars=120,
+                chars=650,
+                lines=30,
+                capacity_profile=BALANCED_TWO_COLUMN_BODY_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["content-stack"],
     },
     "concept-pair": {
@@ -160,7 +300,20 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "process-flow": {
         "intents": ["mechanism", "process", "artifact_explanation"],
         "artifact_kinds": ["diagram"],
-        "slots": [_TITLE, _slot("steps", "items", items=6, chars=360), _slot("flow", "visual", required=False), _NOTES],
+        # Static bounds are only a last guard. The profile below measures each
+        # 1-5 card combination with the renderer's real width/font/height cost.
+        "slots": [
+            _TITLE,
+            _slot(
+                "steps",
+                "steps",
+                items=5,
+                chars=360,
+                capacity_profile=HORIZONTAL_PROCESS_CARDS_V1,
+            ),
+            _slot("flow", "visual", required=False),
+            _NOTES,
+        ],
         "continuations": ["process-flow", "content-stack"],
     },
     "worked-example": {
@@ -170,48 +323,155 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "practice-prompt": {
         "intents": ["practice_feedback"],
-        "slots": [_TITLE, _slot("task", "body", chars=280), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
-        "continuations": ["practice-prompt", "practice-feedback"],
+        "slots": [_TITLE, _slot("task", "steps", items=5, chars=420, lines=12), _slot("criteria", "items", required=False, items=5, chars=220), _NOTES],
+        "continuations": [
+            "practice-prompt",
+            "practice-feedback",
+            "content-stack",
+        ],
+    },
+    "practice-code": {
+        "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
+        "artifact_kinds": ["code"],
+        "slots": [
+            _TITLE,
+            _slot("code", "code", lines=12, chars=380),
+            _slot("task", "steps", items=7, chars=294, lines=12),
+            _NOTES,
+        ],
+        "continuations": ["practice-code", "practice-prompt", "evidence-code"],
+        "base_layout": "practice-prompt",
+    },
+    "practice-formula": {
+        "intents": ["artifact_explanation", "practice_feedback", "mechanism"],
+        "artifact_kinds": ["formula"],
+        "slots": [
+            _TITLE,
+            _slot("formula", "formula", chars=300),
+            _slot("task", "steps", items=7, chars=294, lines=12),
+            _NOTES,
+        ],
+        "continuations": ["practice-formula", "practice-prompt", "evidence-formula"],
+        "base_layout": "practice-prompt",
+    },
+    "practice-table": {
+        "intents": ["artifact_explanation", "practice_feedback", "comparison"],
+        "artifact_kinds": ["table"],
+        "slots": [
+            _TITLE,
+            _slot(
+                "table",
+                "table",
+                rows=5,
+                chars=560,
+                split_wrapped_lines=7,
+                full_wrapped_lines=7,
+                split_column_chars=14,
+                full_column_chars=20,
+                wide_min_columns=3,
+            ),
+            _slot("task", "steps", items=7, chars=294, lines=12),
+            _NOTES,
+        ],
+        "continuations": ["practice-table", "practice-prompt", "evidence-table"],
+        "base_layout": "practice-prompt",
     },
     "practice-feedback": {
         "intents": ["practice_feedback", "misconception_repair"],
-        "slots": [_TITLE, _slot("prompt", "body", chars=220), _slot("feedback", "body", chars=300), _NOTES],
-        "continuations": ["practice-feedback"],
+        "slots": [_TITLE, _slot("prompt", "body", chars=220, lines=12), _slot("feedback", "body", chars=300, lines=12), _NOTES],
+        "continuations": ["practice-feedback", "content-stack"],
     },
     "evidence-code": {
         "intents": ["artifact_explanation", "worked_example", "mechanism"],
         "artifact_kinds": ["code"],
-        "slots": [_TITLE, _slot("code", "code", lines=28, chars=1800), _slot("annotation", "body", chars=220), _NOTES],
-        "continuations": ["evidence-code"],
+        "slots": [
+            _TITLE,
+            _slot(
+                "code",
+                "code",
+                lines=13,
+                chars=400,
+                continuation_lines=13,
+                continuation_chars=650,
+            ),
+            _slot("annotation", "body", required=False, chars=160),
+            _NOTES,
+        ],
+        "continuations": ["evidence-code", "content-stack"],
     },
     "evidence-formula": {
         "intents": ["artifact_explanation", "mechanism", "worked_example"],
         "artifact_kinds": ["formula"],
-        "slots": [_TITLE, _slot("formula", "formula", chars=420), _slot("derivation", "body", chars=360), _NOTES],
-        "continuations": ["evidence-formula"],
+        "slots": [
+            _TITLE,
+            _slot("formula", "formula", chars=420),
+            _slot(
+                "derivation",
+                "body",
+                chars=360,
+                capacity_profile=FORMULA_SOURCE_PANEL_V1,
+            ),
+            _NOTES,
+        ],
+        "continuations": ["evidence-formula", "content-stack"],
     },
     "evidence-table": {
         "intents": ["artifact_explanation", "comparison", "worked_example", "misconception_repair"],
         "artifact_kinds": ["table", "data"],
-        "slots": [_TITLE, _slot("table", "table", rows=10, chars=900), _slot("interpretation", "body", chars=220), _NOTES],
-        "continuations": ["evidence-table"],
+        "slots": [
+            _TITLE,
+            _slot(
+                "table",
+                "table",
+                rows=10,
+                chars=900,
+                split_wrapped_lines=9,
+                full_wrapped_lines=8,
+                split_column_chars=18,
+                full_column_chars=36,
+                wide_min_columns=3,
+            ),
+            _slot("interpretation", "body", required=False, chars=140),
+            _NOTES,
+        ],
+        "continuations": ["evidence-table", "content-stack"],
     },
     "evidence-figure": {
         "intents": ["artifact_explanation", "worked_example", "concept_explanation"],
         "artifact_kinds": ["image", "experiment", "source_excerpt"],
-        "slots": [_TITLE, _slot("visual", "visual"), _slot("interpretation", "body", chars=260), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot("visual", "visual"),
+            _slot(
+                "interpretation",
+                "body",
+                chars=260,
+                capacity_profile=FIGURE_SOURCE_PANEL_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["evidence-figure", "content-stack"],
     },
     "evidence-diagram": {
         "intents": ["artifact_explanation", "mechanism", "concept_explanation"],
         "artifact_kinds": ["diagram"],
-        "slots": [_TITLE, _slot("diagram", "visual"), _slot("explanation", "body", chars=240), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot("diagram", "visual"),
+            _slot(
+                "explanation",
+                "body",
+                chars=240,
+                capacity_profile=DIAGRAM_SOURCE_PANEL_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["evidence-diagram", "content-stack"],
     },
     "misconception-repair": {
         "intents": ["misconception_repair"],
         "slots": [_TITLE, _slot("symptom", "body", chars=170), _slot("cause", "body", chars=170), _slot("repair", "body", chars=220), _NOTES],
-        "continuations": ["misconception-repair"],
+        "continuations": ["misconception-repair", "content-stack"],
     },
     "chapter-recap": {
         "intents": ["recap"],
@@ -244,6 +504,11 @@ def compile_builtin_template_layout_contract_v1(theme_id: str) -> TemplateLayout
             artifact_kinds=list(spec.get("artifact_kinds") or []),
             slots=[TemplateSlotContractV1.model_validate(item) for item in spec["slots"]],
             safe_continuation_layout_slugs=list(spec.get("continuations") or []),
+            base_layout_id=(
+                f"{prefix}/{spec['base_layout']}"
+                if spec.get("base_layout")
+                else ""
+            ),
         )
         for slug, spec in _LAYOUT_SPECS.items()
     ]
@@ -364,4 +629,5 @@ __all__ = [
     "TemplateSlotContractV1",
     "compile_builtin_template_layout_contract_v1",
     "compile_personal_template_layout_contract_v1",
+    "template_layout_contract_matrix",
 ]

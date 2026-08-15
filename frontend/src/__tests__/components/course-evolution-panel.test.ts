@@ -285,6 +285,170 @@ describe('CourseEvolutionPanel', () => {
     expect(undo).toHaveBeenCalledWith('plan-1')
   })
 
+  it('知识语义变化导致方案失效时说明原因，不让候选静默消失', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'stale',
+        impact_summary: {
+          ...plan.impact_summary,
+          knowledge_drift: {
+            verdict: 'conflict',
+            reason: 'pinned_knowledge_revision_changed',
+            changed_keys: ['point:ckp_abc'],
+            removed_keys: [],
+            changed_labels: ['矩阵复合含义'],
+            requires_user_resolution: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const drift = wrapper.get('.knowledge-drift').text()
+
+    expect(drift).toContain('课程知识已变化')
+    expect(drift).toContain('需要重新生成')
+    expect(wrapper.get('.knowledge-drift-changed').text()).toContain('矩阵复合含义')
+    // 失效不等于"已应用"，也不该出现撤销入口
+    expect(wrapper.find('.applied-growth').exists()).toBe(false)
+  })
+
+  it('知识点改名后拿不到当前名称时如实说明，不编造知识点名字', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'stale',
+        impact_summary: {
+          ...plan.impact_summary,
+          knowledge_drift: {
+            verdict: 'conflict',
+            reason: 'pinned_knowledge_removed',
+            changed_keys: [],
+            removed_keys: ['point:ckp_gone'],
+            changed_labels: [],
+            requires_user_resolution: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const changed = wrapper.get('.knowledge-drift-changed').text()
+
+    expect(changed).toContain('无法命名')
+    expect(changed).toContain('拆分')
+  })
+
+  it('复验窗口到期时如实显示无样本，不呈现为调整无效', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'insufficient_evidence',
+          verification_level: 'not_verified',
+          recommended_action: 'collect_more_evidence',
+          reverification_window: {
+            status: 'expired',
+            window_days: 14,
+            elapsed_days: 21,
+            independent_sample_count: 0,
+            conclusion: 'no_independent_sample',
+            requires_human_review: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const windowText = wrapper.get('.reverification-window').text()
+
+    expect(windowText).toContain('已等待 21 天')
+    expect(windowText).toContain('仍无独立样本')
+    expect(windowText).toContain('人工判断')
+    // 到期不得被写成"无效"或"已改善"，也不得出现回退/调整按钮语义
+    expect(windowText).not.toContain('无效')
+    expect(windowText).not.toContain('改善')
+    expect(wrapper.get('.applied-growth').text()).not.toContain('建议回退')
+    expect(wrapper.get('.applied-growth button').text()).toContain('撤销')
+  })
+
+  it('复验窗口进行中显示仍在等待，不给出任何效果结论', () => {
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'insufficient_evidence',
+          verification_level: 'not_verified',
+          reverification_window: {
+            status: 'open',
+            window_days: 14,
+            elapsed_days: 3,
+            independent_sample_count: 0,
+            conclusion: 'awaiting_independent_sample',
+            requires_human_review: false,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const windowText = wrapper.get('.reverification-window').text()
+
+    expect(windowText).toContain('已等待 3 天')
+    expect(windowText).toContain('14 天窗口内')
+    expect(windowText).not.toContain('无效')
+  })
+
+  it('英文模式下复验窗口到期同样如实呈现且无中文残留', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
+      ok: true,
+      json: async () => String(input).includes('/en/')
+        ? enMessages
+        : zhMessages,
+    })))
+    await setLocale('en')
+    useCourseEvolutionStore().applyPayload('course-1', {
+      evidence_items: evidence,
+      hypotheses: [],
+      course_evolution_plans: [{
+        ...plan,
+        status: 'applied',
+        effect_evaluation: {
+          status: 'insufficient_evidence',
+          verification_level: 'not_verified',
+          reverification_window: {
+            status: 'expired',
+            window_days: 14,
+            elapsed_days: 30,
+            independent_sample_count: 0,
+            conclusion: 'no_independent_sample',
+            requires_human_review: true,
+          },
+        },
+      }],
+    })
+
+    const wrapper = mount(CourseEvolutionPanel, { props: { courseId: 'course-1' } })
+    const windowText = wrapper.get('.reverification-window').text()
+
+    expect(windowText).toContain('30 days')
+    expect(windowText).toContain('no independent sample')
+    expect(windowText).toContain('human decision')
+    expect(windowText).not.toMatch(/[一-鿿]/)
+    await setLocale('zh')
+  })
+
   it('一次独立复验通过只显示初步支持，不冒充持续确认', () => {
     useCourseEvolutionStore().applyPayload('course-1', {
       evidence_items: evidence,
@@ -413,7 +577,11 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.get('.apply-selected').text()).toContain('应用所选 2 项')
   })
 
-  it('在输入旁让用户先选择当前小节或全课程硬范围', async () => {
+  it('学生侧范围上限是本章，不提供全课程入口', async () => {
+    // Owner decision 2026-08-12 (Q6): AI-initiated change tops out at the
+    // current chapter. Whole-course edits go through the teacher authoring
+    // chain instead, so the student-side entry is removed — the backend
+    // capability itself is untouched.
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -426,15 +594,43 @@ describe('CourseEvolutionPanel', () => {
     })
 
     expect(wrapper.get('[data-scope="current_section"]').attributes('aria-checked')).toBe('true')
-    await wrapper.get('[data-scope="whole_course"]').trigger('click')
-    await wrapper.get('.section-growth-request input').setValue('以后所有例子都讲得详细一点')
+    expect(wrapper.find('[data-scope="current_chapter"]').exists()).toBe(true)
+    expect(wrapper.find('[data-scope="whole_course"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('应用到全课程')
+
+    await wrapper.get('[data-scope="current_chapter"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('这一章的例子都讲得详细一点')
     await wrapper.get('.generate-plan').trigger('click')
 
     expect(createPlan).toHaveBeenCalledWith(
       's1',
-      '以后所有例子都讲得详细一点',
-      'whole_course',
+      '这一章的例子都讲得详细一点',
+      'current_chapter',
     )
+  })
+
+  it('没有任何免确认直接应用的小范围路径', async () => {
+    // Owner decision Q5 explicitly excluded option (c): there is no scope,
+    // however narrow, that applies without the learner confirming.
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    vi.spyOn(store, 'createSectionPlan').mockResolvedValue({} as any)
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1' },
+    })
+
+    await wrapper.get('[data-scope="current_section"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('把这一节讲清楚')
+    await wrapper.get('.generate-plan').trigger('click')
+    await flushPromises()
+
+    // Generating a candidate must never apply it.
+    expect(accept).not.toHaveBeenCalled()
   })
 
   it('从块级优化转入全课程方案时自动打开逐项影响审阅', () => {
@@ -636,7 +832,10 @@ describe('CourseEvolutionPanel', () => {
       })
 
       expect(wrapper.text()).toContain('Current section only')
-      expect(wrapper.text()).toContain('Apply across course')
+      expect(wrapper.text()).toContain('Affect related content in this chapter')
+      // The whole-course entry is no longer offered to students (owner
+      // decision 2026-08-12 Q6); an existing whole-course plan still renders.
+      expect(wrapper.text()).not.toContain('Apply across course')
       expect(wrapper.get('.whole-course-scan-summary').text()).toContain('Review, include, or exclude 2 nodes')
       await wrapper.get('.whole-course-scan-summary').trigger('click')
       expect(wrapper.get('.review-workbench').text()).toContain('Course adjustment review')
@@ -706,7 +905,7 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.source-requirement').exists()).toBe(false)
   })
 
-  it('点击全课程生成后立即打开实时扫描弹窗，而不是等待完整结果返回', async () => {
+  it('点击本章生成后立即打开实时扫描弹窗，而不是等待完整结果返回', async () => {
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -722,8 +921,8 @@ describe('CourseEvolutionPanel', () => {
       global: { stubs: { Teleport: true } },
     })
 
-    await wrapper.get('[data-scope="whole_course"]').trigger('click')
-    await wrapper.get('.section-growth-request input').setValue('以后所有例子都讲得详细一点')
+    await wrapper.get('[data-scope="current_chapter"]').trigger('click')
+    await wrapper.get('.section-growth-request input').setValue('这一章的例子都讲得详细一点')
     void wrapper.get('.generate-plan').trigger('click')
     await flushPromises()
 
@@ -736,7 +935,7 @@ describe('CourseEvolutionPanel', () => {
     wrapper.unmount()
   })
 
-  it('全课程入口遇到强学习证据时绑定真实生长方案，不让审阅弹窗停在扫描态', async () => {
+  it('广域入口遇到强学习证据时绑定真实生长方案，不让审阅弹窗停在扫描态', async () => {
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -757,7 +956,7 @@ describe('CourseEvolutionPanel', () => {
       global: { stubs: { Teleport: true } },
     })
 
-    await wrapper.get('[data-scope="whole_course"]').trigger('click')
+    await wrapper.get('[data-scope="current_chapter"]').trigger('click')
     await wrapper.get('.section-growth-request input').setValue(strongEvidence[0].summary)
     await wrapper.get('.generate-plan').trigger('click')
     await flushPromises()

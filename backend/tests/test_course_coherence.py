@@ -154,18 +154,20 @@ def test_prompt_context_exposes_current_responsibility_without_copying_course():
     course["course_coherence_contract"] = compile_course_coherence_contract(course)
 
     context = course_coherence_prompt_context(course, "L2-1-2")
-    _, system_prompt = CoursePromptComposer().build_content_prompt(
+    user_prompt, system_prompt = CoursePromptComposer().build_content_prompt(
         course_data=course,
         node=course["nodes"][2],
         context="无资料",
     )
+    # 节点专属内容现在在 user 消息里，模型收到的是两段拼接。
+    full_prompt = system_prompt + user_prompt
 
     assert "必须承接：1.1 函数表示" in context
     assert "本节唯一推进：能够从函数图像判断单调性和最值" in context
     assert "留给后续节点展开：函数建模" in context
     assert "本节之后实际进入：1.3 实际建模" in context
-    assert "## 全课总编契约" in system_prompt
-    assert context in system_prompt
+    assert "## 全课总编契约" in full_prompt
+    assert context in full_prompt
 
 
 def test_content_prompt_exposes_stable_module_heading_and_role_contract():
@@ -180,13 +182,14 @@ def test_content_prompt_exposes_stable_module_heading_and_role_contract():
         "prompt_instruction": "说明学习者完成后能做什么",
     }]
 
-    _, system_prompt = CoursePromptComposer().build_content_prompt(
+    user_prompt, system_prompt = CoursePromptComposer().build_content_prompt(
         course_data=course,
         node=node,
         context="无资料",
     )
 
-    assert "必需模块 `## 本节任务` [角色=objective]" in system_prompt
+    # 模块契约是节点专属的，现在在 user 消息里；输出规则仍在 system。
+    assert "必需模块 `## 本节任务` [角色=objective]" in user_prompt
     assert "当前节点名称已经由页面显示" in system_prompt
     assert "`###` 及更深标题只用于模块内部" in system_prompt
 
@@ -356,3 +359,126 @@ async def test_coherence_repair_only_accepts_a_candidate_that_removes_blocking_i
     assert final_report["passed"] is True
     assert repaired["nodes"][1]["node_content"].endswith(duplicate)
     assert duplicate not in repaired["nodes"][3]["node_content"]
+
+
+def test_final_report_exposes_a_render_dimension_across_nodes():
+    """L3e: every other section is a content dimension; render needs its own.
+
+    Before this the report had six sections and none of them could express
+    "the teaching content is sound but it renders as LaTeX source".
+    """
+    course = _course()
+    report = build_final_course_quality_report(course, job_id="render-clean")
+
+    render = report["render_quality"]
+    assert render["dimension"] == "render"
+    assert render["passed"] is True
+    assert render["failing_node_ids"] == []
+
+
+def test_final_report_names_the_nodes_whose_rendering_is_broken():
+    course = _course()
+    # An unwrapped display environment: `$$` count stays even, so only the
+    # dedicated check catches it.
+    course["nodes"][1]["node_content"] += (
+        "\n\n$$\nf(x)=\n$$\n"
+        "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
+        "$$\ny=1\n$$"
+    )
+
+    report = build_final_course_quality_report(course, job_id="render-broken")
+
+    render = report["render_quality"]
+    assert render["passed"] is False
+    assert course["nodes"][1]["node_id"] in render["failing_node_ids"]
+    assert render["issue_count"] > 0
+
+def test_content_prompts_share_one_stable_course_prefix_across_nodes():
+    """全课各节的 system prompt 必须逐字节相同，节点专属内容只出现在 user 消息。
+
+    这样可缓存前缀覆盖整个 system 段，且不依赖"节点内容恰好开头相同"这种巧合。
+    """
+    course = _course()
+    course["course_coherence_contract"] = compile_course_coherence_contract(
+        course
+    )
+    composer = CoursePromptComposer()
+    sections = [
+        node for node in course["nodes"] if node.get("node_level") == 2
+    ]
+    pairs = [
+        composer.build_content_prompt(
+            course_data=course,
+            node=node,
+            context="",
+        )
+        for node in sections
+    ]
+    system_prompts = {system for _user, system in pairs}
+
+    # 核心不变量：system 段与节点无关。
+    assert len(system_prompts) == 1
+    system_prompt = system_prompts.pop()
+    assert len(system_prompt) > 1200
+
+    # 全课共享块留在 system。
+    for heading in (
+        "## 输出契约",
+        "## 课程",
+        "## 课程块编排画像",
+        "## 全课难度能力契约",
+        "## 当前课程知识身份边界",
+        "## 当前课程教学边界",
+    ):
+        assert heading in system_prompt
+
+    # 节点专属块与节点名都不得留在 system。
+    for node in sections:
+        assert node["node_name"] not in system_prompt
+    for heading in (
+        "## 总体教案对本节的引领",
+        "## 本节学科课型",
+        "## 当前节点契约",
+        "## 当前课程知识库契约",
+        "## 全课总编契约",
+        "## 当前节点难度契约",
+        "## 当前节点证据契约",
+        "## 本节教学模块",
+        "## 持久化上下文",
+    ):
+        assert heading not in system_prompt
+        assert all(heading in user for user, _system in pairs)
+
+    # 指令仍在 user 末尾，节点专属内容在它之前。
+    for (user, _system), node in zip(pairs, sections, strict=True):
+        assert user.rstrip().endswith("只输出 Markdown。")
+        assert user.index("## 当前节点契约") < user.index("撰写「")
+
+
+def test_incorrect_next_section_claim_is_removed_locally():
+    from course_coherence import remove_incorrect_next_section_claim
+
+    content = (
+        "## 函数图像性质\n\n"
+        "本节利用图像判断单调性和最值，并说明判断边界。\n"
+        "下一节我们将学习如何从函数图像判断单调性和最值。\n\n"
+        "## 独立任务\n\n请分析一个新图像并写出单调区间。"
+    )
+    excerpt = "下一节我们将学习如何从函数图像判断单调性和最值。"
+
+    repaired = remove_incorrect_next_section_claim(content, excerpt)
+
+    assert "下一节" not in repaired
+    # 其余正文一字不动。
+    assert "本节利用图像判断单调性和最值" in repaired
+    assert "## 独立任务" in repaired
+    assert "请分析一个新图像并写出单调区间。" in repaired
+
+
+def test_unlocatable_claim_leaves_content_for_model_repair():
+    from course_coherence import remove_incorrect_next_section_claim
+
+    content = "## 正文\n\n本节没有任何预告句。"
+
+    assert remove_incorrect_next_section_claim(content, "下一节讲别的") == content
+    assert remove_incorrect_next_section_claim(content, "") == content

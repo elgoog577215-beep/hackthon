@@ -12,6 +12,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from web_content_safety import assess_sensitivity, needs_teacher_review
 from web_retrieval import (
     RetrievalRequest,
     admitted_sources,
@@ -303,6 +304,11 @@ def _is_excluded(candidate: dict[str, Any], excluded: set[str]) -> bool:
     )
 
 
+def canonical_source_url(value: Any) -> str:
+    """公开归一化入口：持久剔除名单与本次过滤必须用同一套规则比对。"""
+    return _canonical_url(value)
+
+
 def _canonical_url(value: Any) -> str:
     """URL 归一化，便于教师逐条剔除时稳定比对（忽略末尾斜杠与大小写）。"""
     raw = str(value or "").strip()
@@ -319,19 +325,55 @@ def _canonical_url(value: Any) -> str:
     return f"{canonical}?{parsed.query}" if parsed.query else canonical
 
 
+def ui_source_summaries(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """给教师复核用的来源摘要：只出可展示字段，不带正文。
+
+    教师要逐条剔除，靠的是 `source_id`/`url`，两者都要原样带出去，
+    否则前端拿不到可回传的剔除凭据。正文（`text`）体积大且不需要展示，
+    留在候选里供生成使用，不进这份摘要。
+    """
+    summaries: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        summaries.append({
+            "source_id": str(candidate.get("source_id") or ""),
+            "url": str(candidate.get("url") or ""),
+            "domain": str(candidate.get("domain") or ""),
+            "title": str(candidate.get("title") or ""),
+            "credibility": str(candidate.get("credibility") or "low"),
+            "retrieved_at": str(candidate.get("retrieved_at") or ""),
+            "license": str(candidate.get("license") or ""),
+            "reuse_policy": str(candidate.get("reuse_policy") or ""),
+            "sensitivity": candidate.get("sensitivity") or {},
+            "accepted_for_generation": bool(
+                candidate.get("accepted_for_generation")
+            ),
+        })
+    return summaries
+
+
 def candidate_from_source(source: dict[str, Any]) -> dict[str, Any]:
     """把网关的 `retrieval_source_v1` 转成落地候选。
 
     正文已由网关清洗与截断，这里不再重复清洗，只做资料链需要的字段映射。
     """
     trust_tier = str(source.get("trust_tier") or "tier_c")
+    title = str(source.get("title") or "")
+    excerpt = str(source.get("excerpt") or "")
+    # P0 内容安全：只标记不拒绝。命中敏感主题的来源仍留在候选里，
+    # 但从"自动进链"降为"需教师确认"（accepted_for_generation=False）。
+    sensitivity = assess_sensitivity(title, excerpt)
+    accepted = bool(source.get("accepted_for_generation")) and not needs_teacher_review(sensitivity)
     return {
         "source_id": str(source.get("source_id") or ""),
         "url": str(source.get("url") or ""),
         "canonical_url": str(source.get("canonical_url") or ""),
         "domain": str(source.get("domain") or ""),
-        "title": str(source.get("title") or ""),
-        "text": str(source.get("excerpt") or ""),
+        "title": title,
+        "text": excerpt,
         "published_date": str(source.get("published_date") or ""),
         "license": str(source.get("license") or ""),
         "reuse_policy": str(source.get("reuse_policy") or "summary_only"),
@@ -342,6 +384,8 @@ def candidate_from_source(source: dict[str, Any]) -> dict[str, Any]:
         "retrieved_at": str(source.get("retrieved_at") or ""),
         "provider": str(source.get("provider") or ""),
         "relevance": source.get("relevance"),
+        "sensitivity": sensitivity,
+        "accepted_for_generation": accepted,
     }
 
 
@@ -407,10 +451,12 @@ def candidate_to_binding(candidate: dict[str, Any], asset_id: str) -> dict[str, 
 
 __all__ = [
     "MIN_USABLE_TEXT_CHARS",
+    "canonical_source_url",
     "candidate_from_source",
     "candidate_to_binding",
     "candidate_to_markdown",
     "derive_search_queries",
     "discover_web_materials",
     "safe_query_term",
+    "ui_source_summaries",
 ]

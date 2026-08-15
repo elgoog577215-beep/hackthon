@@ -37,6 +37,7 @@ from content_blocks import (
 from course_coherence import (
     compile_course_coherence_contract,
     evaluate_course_coherence,
+    remove_incorrect_next_section_claim,
 )
 from course_composition import (
     attach_composition_to_plan,
@@ -151,6 +152,7 @@ from course_teaching_plan_v3 import (
 )
 from course_type_contracts import apply_course_type_brief, resolve_course_type
 from learner_context import DEFAULT_USER_ID
+from evidence_package import freeze_evidence_package
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
@@ -198,6 +200,39 @@ def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any
         {key: item[key] for key in EVIDENCE_INDEX_FIELDS if key in item}
         for item in catalog
     ]
+
+
+def _stamp_evidence_revision(
+    target: dict[str, Any] | None,
+    source: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """把证据修订 ID 从 plan 盖到另一个阶段产物上（E1 验收用）。
+
+    教案是独立的 V3 对象而非 plan 的副本，且它的 `revision_id` 由自身内容
+    哈希得出——所以不能在组装时塞字段（会改变教案修订），只能在这里补盖。
+    """
+    if not isinstance(target, dict) or not isinstance(source, dict):
+        return target
+    revision = str(source.get("evidence_package_revision_id") or "")
+    if revision:
+        target["evidence_package_revision_id"] = revision
+    return target
+
+
+def _semantic_retry_budget() -> int:
+    """How many times the teaching plan may retry its failed units.
+
+    A retry only re-runs the batches that fell back to local compilation, so
+    each extra pass is cheap.  One retry was too few: a course fails as a
+    whole when any single batch is still non-AI after that pass, and the odds
+    of one clean pass drop as the batch count grows, which is why larger
+    courses failed far more often than the per-batch success rate suggests.
+    """
+    try:
+        value = int(os.getenv("COURSE_TEACHING_PLAN_SEMANTIC_RETRIES", "3"))
+    except (TypeError, ValueError):
+        value = 3
+    return max(1, min(6, value))
 
 
 def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
@@ -363,6 +398,7 @@ class CourseService(AIBase):
             "web_question_enrichment",
             "web_material_ingest",
             "web_material_search",
+            "evidence_package",
             "requirements",
             "subject_pedagogy_profile",
             "difficulty_profile",
@@ -410,7 +446,7 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
     ) -> dict[str, Any]:
         """经团队检索网关取回联网资料；任何失败都降级为不联网，不阻断生成。"""
-        from web_material_search import discover_web_materials
+        from web_material_search import discover_web_materials, ui_source_summaries
         from web_retrieval import resolve_retrieval_policy
 
         policy = resolve_retrieval_policy(generation_request or {})
@@ -443,7 +479,7 @@ class CourseService(AIBase):
             )
         except Exception as exc:  # 联网是增强项，失败必须降级而不是失败生成
             logger.warning("web material search failed, degrading to offline: %s", exc)
-            return {
+            degraded_report = {
                 "enabled": True,
                 "status": "degraded",
                 "degraded": True,
@@ -452,6 +488,19 @@ class CourseService(AIBase):
                 "rejected": [],
                 "message_code": "web_search_unavailable",
             }
+            # 降级必须**告知**，不能静默：原来这里直接 return，前端拿不到
+            # web_search 明细，教师看不到任何"本次未用联网资料"的提示。
+            await self._notify_phase(
+                on_phase,
+                "material_processing",
+                8,
+                "联网检索失败，本次仅使用已有资料",
+                phase_progress=10,
+                phase_detail={
+                    "web_search": {**degraded_report, "sources": []},
+                },
+            )
+            return degraded_report
 
         accepted = len(report.get("candidates") or [])
         await self._notify_phase(
@@ -464,7 +513,15 @@ class CourseService(AIBase):
                 else "联网检索未找到可用资料，将仅使用已有资料"
             ),
             phase_progress=10,
-            phase_detail={"web_search": {k: v for k, v in report.items() if k != "candidates"}},
+            # 正文（candidates[].text）不外发，但采纳来源必须以 `sources` 出去：
+            # 前端复核面板读的就是这个键，缺了它教师只能看到关键词和被拒项，
+            # 采纳列表永远是空的，也就无从逐条剔除。
+            phase_detail={
+                "web_search": {
+                    **{k: v for k, v in report.items() if k != "candidates"},
+                    "sources": ui_source_summaries(report.get("candidates") or []),
+                }
+            },
         )
         return report
 
@@ -753,6 +810,8 @@ class CourseService(AIBase):
             "web_material_search": artifacts.get(
                 "web_material_search", {"enabled": False}
             ),
+            # E1：各阶段引用同一份证据修订的凭据。
+            "evidence_package": artifacts.get("evidence_package", {}),
             "subject_pedagogy_profile": profile.to_dict(),
             "difficulty_profile": difficulty_profile.to_dict(),
             "difficulty_gap_assessment": gap_assessment.to_dict(),
@@ -882,13 +941,27 @@ class CourseService(AIBase):
                 **(plan_constraint_report.get("actual") or {}),
             },
         )
+        # E1：先冻结证据包，再做小节级绑定。此后目录/知识图谱/教案/正文/练习
+        # 都引用同一个 package_revision_id，避免各阶段各取一份证据。
+        evidence_package = freeze_evidence_package(
+            course_id=course_id,
+            evidence=artifacts.get("evidence_catalog") or [],
+            bindings=artifacts.get("material_bindings") or [],
+        )
+        artifacts["evidence_package"] = evidence_package.model_dump(mode="json")
+        artifacts["evidence_package_revision_id"] = evidence_package.package_revision_id
         plan, evidence_coverage_plan = attach_evidence_to_plan(
             plan,
             evidence=artifacts.get("evidence_catalog") or [],
             bindings=artifacts.get("material_bindings") or [],
             strategy=grounding_strategy,
         )
+        evidence_coverage_plan["package_revision_id"] = evidence_package.package_revision_id
         artifacts["evidence_coverage_plan"] = evidence_coverage_plan
+        # 把修订 ID 盖在 plan 上：plan 会流向目录、教案、正文与练习产物，
+        # 盖一次即可让各阶段产物都能自证"我用的是哪一份证据"。
+        # 这是 E1 验收（各阶段引用同一修订）能被独立核对的前提。
+        plan["evidence_package_revision_id"] = evidence_package.package_revision_id
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
@@ -986,6 +1059,8 @@ class CourseService(AIBase):
             "web_material_search": artifacts.get(
                 "web_material_search", {"enabled": False}
             ),
+            # E1：各阶段引用同一份证据修订的凭据。
+            "evidence_package": artifacts.get("evidence_package", {}),
             "course_blueprint": outline_blueprint,
             "course_outline_constraint_report": plan_constraint_report,
             "blueprint_validation_report": validate_blueprint(outline_blueprint),
@@ -1433,7 +1508,7 @@ class CourseService(AIBase):
                 "resumed": True,
             })
             course_data.update({
-                "course_teaching_plan": official_plan,
+                "course_teaching_plan": _stamp_evidence_revision(official_plan, planned_course),
                 "course_plan": deepcopy(planned_course),
                 "knowledge_relations": deepcopy(
                     planned_course.get("knowledge_relations") or []
@@ -1604,9 +1679,17 @@ class CourseService(AIBase):
                     accumulated = normalized_checkpoint
                     processed_sections = list(checkpoint_sections)
                     resumed_chunk_count = checkpoint_chunk_count
-            for chunk_index, chunk_sections in enumerate(chunks, start=1):
-                if chunk_index <= resumed_chunk_count:
-                    continue
+            async def request_skeleton_chunk(
+                chunk_index: int,
+                chunk_sections: list[dict[str, Any]],
+                prior_snapshot: dict[str, Any],
+            ) -> dict[str, Any]:
+                """Build and fire one shard against a frozen prior snapshot.
+
+                Shards inside one wave cannot see each other, so this only
+                reads ``prior_snapshot``.  Key minting stays authoritative in
+                the local merge, which runs later in directory order.
+                """
                 chunk_context = build_compact_planning_context(
                     chunk_sections,
                     composition_style=str(
@@ -1618,7 +1701,7 @@ class CourseService(AIBase):
                     ),
                 )
                 prior_registry = list(
-                    accumulated.get("knowledge_registry") or []
+                    prior_snapshot.get("knowledge_registry") or []
                 )
                 chunk_context["new_knowledge_key_start"] = (
                     len(prior_registry) + 1
@@ -1693,7 +1776,6 @@ class CourseService(AIBase):
                 failure_reason = ""
                 part: dict[str, Any] = {}
                 if selected is not None:
-                    prompt_detail_levels.append(selected.detail_level)
                     await self._notify_phase(
                         on_phase,
                         "course_teaching_plan_skeleton",
@@ -1747,7 +1829,30 @@ class CourseService(AIBase):
                     )
                 else:
                     failure_reason = "chunk_prompt_did_not_fit"
+                return {
+                    "chunk_index": chunk_index,
+                    "chunk_sections": chunk_sections,
+                    "chunk_levels": chunk_levels,
+                    "prompts": prompts,
+                    "selected": selected,
+                    "part": part,
+                    "failure_reason": failure_reason,
+                }
 
+            async def settle_skeleton_chunk(
+                result: dict[str, Any],
+            ) -> None:
+                """Merge one shard, then correct or locally compile it."""
+                nonlocal accumulated
+                chunk_index = int(result["chunk_index"])
+                chunk_sections = result["chunk_sections"]
+                chunk_levels = result["chunk_levels"]
+                prompts = result["prompts"]
+                selected = result["selected"]
+                part = result["part"]
+                failure_reason = str(result["failure_reason"] or "")
+                if selected is not None:
+                    prompt_detail_levels.append(selected.detail_level)
                 candidate = merge_teaching_skeleton_part(
                     accumulated,
                     part,
@@ -1893,6 +1998,42 @@ class CourseService(AIBase):
                     "fallback_units": deepcopy(fallback_units),
                 })
                 await self._notify_checkpoint(on_checkpoint, course_data)
+
+            pending_chunks = [
+                (index, sections)
+                for index, sections in enumerate(chunks, start=1)
+                if index > resumed_chunk_count
+            ]
+            # Shards inside one wave run concurrently; each wave still starts
+            # from every earlier wave's frozen knowledge, so cross-shard reuse
+            # and prerequisites keep their directory-order meaning.
+            wave_size = max(1, self._teaching_plan_budget.concurrency)
+            for offset in range(0, len(pending_chunks), wave_size):
+                wave = pending_chunks[offset:offset + wave_size]
+                prior_snapshot = deepcopy(accumulated)
+                wave_results = await asyncio.gather(
+                    *(
+                        request_skeleton_chunk(
+                            index,
+                            sections,
+                            prior_snapshot,
+                        )
+                        for index, sections in wave
+                    ),
+                    return_exceptions=True,
+                )
+                failure = next(
+                    (
+                        item
+                        for item in wave_results
+                        if isinstance(item, BaseException)
+                    ),
+                    None,
+                )
+                if failure is not None:
+                    raise failure
+                for result in wave_results:
+                    await settle_skeleton_chunk(result)
             final_report = validate_teaching_plan_skeleton_v3(
                 accumulated,
                 sections=planning_sections,
@@ -2341,11 +2482,24 @@ class CourseService(AIBase):
                                 skeleton=skeleton,
                                 sections=planning_sections,
                             )
+                model_blocking_codes: list[str] = []
                 if not batch_report.get("passed"):
                     generation_source = "deterministic_local_fallback"
                     fallback_reason = (
                         fallback_reason or "model_output_failed_validation"
                     )
+                    # Capture why the model output was rejected before the
+                    # local fallback report overwrites it.  Without this the
+                    # only surviving trace is the generic
+                    # "model_output_failed_validation", which makes a batch
+                    # that keeps failing impossible to diagnose after the run.
+                    model_blocking_codes = [
+                        str(issue.get("code") or "")
+                        for issue in (
+                            batch_report.get("blocking_issues") or []
+                        )
+                        if isinstance(issue, dict) and issue.get("code")
+                    ][:8]
                     batch = compile_fallback_teaching_batch(
                         batch_spec=spec,
                         skeleton=skeleton,
@@ -2368,7 +2522,27 @@ class CourseService(AIBase):
                             "unit": batch_id,
                             "reason": fallback_reason,
                             "section_ids": list(section_ids),
+                            "model_blocking_codes": list(
+                                model_blocking_codes
+                            ),
                         })
+                        # fallback_units is cleared once a retry rescues the
+                        # batch, which loses the evidence for the common case
+                        # (fails once, then recovers).  Keep an append-only
+                        # history so failure codes can be studied without
+                        # having to reproduce a whole-course failure.
+                        history = teaching_stage.setdefault(
+                            "batch_failure_history", []
+                        )
+                        if len(history) < 200:
+                            history.append({
+                                "unit": batch_id,
+                                "attempt": semantic_retry_count + 1,
+                                "reason": fallback_reason,
+                                "model_blocking_codes": list(
+                                    model_blocking_codes
+                                ),
+                            })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {
                         "status": "completed",
@@ -2585,7 +2759,7 @@ class CourseService(AIBase):
         teaching_stage.pop("failed_batch_id", None)
         teaching_stage.pop("failed_batch_ids", None)
         course_data.update({
-            "course_teaching_plan": course_teaching_plan,
+            "course_teaching_plan": _stamp_evidence_revision(course_teaching_plan, planned_course),
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(
                 planned_course.get("knowledge_relations") or []
@@ -2606,7 +2780,7 @@ class CourseService(AIBase):
             )
         await self._notify_checkpoint(on_checkpoint, course_data)
         if fallback_units:
-            if semantic_retry_count < 1:
+            if semantic_retry_count < _semantic_retry_budget():
                 teaching_stage["semantic_retry_count"] = (
                     semantic_retry_count + 1
                 )
@@ -2785,6 +2959,14 @@ class CourseService(AIBase):
                 preserved_batch_count += 1
             else:
                 generation_source = "deterministic_local_fallback"
+                # 在本地兜底报告覆盖之前，先留下模型被拒的具体校验码。
+                # 与批次生成路径同样的盲区：不留就只剩一个笼统 reason，
+                # 事后无法回答"模型到底违反了哪条校验"。
+                model_blocking_codes = [
+                    str(issue.get("code") or "")
+                    for issue in (batch_report.get("blocking_issues") or [])
+                    if isinstance(issue, dict) and issue.get("code")
+                ][:8]
                 batch = compile_fallback_teaching_batch(
                     batch_spec=spec,
                     skeleton=skeleton,
@@ -2800,7 +2982,17 @@ class CourseService(AIBase):
                     "unit": batch_id,
                     "reason": reason,
                     "section_ids": list(spec.get("section_ids") or []),
+                    "model_blocking_codes": list(model_blocking_codes),
                 })
+                history = teaching_stage.setdefault(
+                    "batch_failure_history", []
+                )
+                if len(history) < 200:
+                    history.append({
+                        "unit": batch_id,
+                        "reason": reason,
+                        "model_blocking_codes": list(model_blocking_codes),
+                    })
             if not batch_report.get("passed"):
                 raise AIProviderRequestError(
                     "本地详细教案编译失败；这是生成编排器错误"
@@ -2884,7 +3076,7 @@ class CourseService(AIBase):
         })
         course_data.update({
             "course_teaching_plan_skeleton": skeleton,
-            "course_teaching_plan": course_teaching_plan,
+            "course_teaching_plan": _stamp_evidence_revision(course_teaching_plan, planned_course),
             "course_plan": deepcopy(planned_course),
             "knowledge_relations": deepcopy(
                 planned_course.get("knowledge_relations") or []
@@ -3036,7 +3228,11 @@ class CourseService(AIBase):
         call_task = asyncio.create_task(self._call_llm(
             user_prompt,
             system_prompt,
-            retry_count=1,
+            # One retry inside the call: a single provider hiccup (truncated
+            # output, empty stream) otherwise discards the whole course run,
+            # and every stage above this only recovers at checkpoint level.
+            # `max_attempts` still caps the real number of provider requests.
+            retry_count=2,
             enable_thinking=enable_thinking,
             max_tokens=max_output_tokens,
             max_input_tokens=max_input_tokens,
@@ -4532,6 +4728,12 @@ class CourseService(AIBase):
             if card.get("source_id") in cited_source_ids
         ]
         node["citation_invalid_refs"] = invalid_citations
+        # 记录本节**可用**来源总量（不是已引用量），供质量门判定
+        # "有资料却零引用"。只有已引用的会留在 citation_map/source_cards 里，
+        # 光看它们无法区分"没来源"与"有来源但没用"。
+        node["available_source_ids"] = sorted(
+            {str(value) for value in citation_map.values() if value}
+        )
         grounding_contract = node.get("grounding_contract") or {}
         allowed_ids = set(grounding_contract.get("required_evidence_ids") or []) | set(
             grounding_contract.get("optional_evidence_ids") or []
@@ -4592,17 +4794,29 @@ class CourseService(AIBase):
                 **issue,
                 "suggestion": _coherence_repair_suggestion(issue),
             }
-            repair_user, repair_system = self._prompt_composer.build_repair_prompt(
-                course_data=working,
-                node=node,
-                content=str(node.get("node_content") or ""),
-                issues=[repair_issue],
-            )
-            repaired = await self._call_llm(
-                repair_user,
-                repair_system,
-                enable_thinking=True,
-            )
+            # Deleting one mis-stated "下一节" sentence is a pure text edit the
+            # detector already located; only pay for a model rewrite when the
+            # local edit cannot resolve it.
+            repaired = ""
+            if issue.get("code") == "coherence:incorrect_next_section_handoff":
+                locally_repaired = remove_incorrect_next_section_claim(
+                    str(node.get("node_content") or ""),
+                    str(issue.get("excerpt") or ""),
+                )
+                if locally_repaired != str(node.get("node_content") or ""):
+                    repaired = locally_repaired
+            if not repaired:
+                repair_user, repair_system = self._prompt_composer.build_repair_prompt(
+                    course_data=working,
+                    node=node,
+                    content=str(node.get("node_content") or ""),
+                    issues=[repair_issue],
+                )
+                repaired = await self._call_llm(
+                    repair_user,
+                    repair_system,
+                    enable_thinking=True,
+                )
             if not repaired:
                 continue
             repaired_raw = self.clean_response_text(repaired)
@@ -5744,6 +5958,10 @@ class CourseService(AIBase):
 2. 每个概念组至少拆出两个原子知识点；知识点必须有独立命题、条件或边界、可观察能力和掌握标准。
 3. 所有知识名称与关系只在当前课程内去重和复用，不得跨课程继承身份。
 4. 不生成提升点；易错点没有可靠内容时允许为空，禁止模板填充。
+5. 掌握标准的 `required_independence` 与 `required_transfer` 是**按知识点选择**的，
+   不要所有标准都填同一个值：入口性定义通常 `guided`+`recall` 或
+   `independent`+`procedure`，需要迁移到新情境的能力才用 `variation`/`novel`。
+   `observable_performance` 必须是可观察的做题或操作表现，不写「理解××」。
 
 ## 输出格式
 ```json
@@ -5768,8 +5986,8 @@ class CourseService(AIBase):
             "mastery_criteria": [{{
               "name": "掌握标准",
               "observable_performance": "独立可验证表现",
-              "required_independence": "independent",
-              "required_transfer": "variation",
+              "required_independence": "scaffolded|guided|independent 三选一，按本知识点实际要求选",
+              "required_transfer": "recall|procedure|variation|novel 四选一，按本知识点实际要求选",
               "verification_method": "验证方法"
             }}],
             "aliases": [],

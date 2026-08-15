@@ -18,19 +18,29 @@
 - [x] 3.2 Enforce 100% primary-block coverage, order/dependency preservation, known IDs and grounded factual tokens; fail the whole candidate on any story-batch failure.
 - [x] 3.3 Implement `slide_visual_plan_v2` schemas, bounded concurrency, source-backed decisions and page-level degradations.
 - [x] 3.4 Mark allowed degradations `v6_needs_manual_edit`; hard-fail subject, source, capacity and template loss.
+- [x] 3.5 Make source-grounded, Markdown-free page summaries an explicit LLM output contract bounded by the selected template slot.
+- [x] 3.6 Add selective visual replanning that targets only degraded pages and preserves healthy decisions inside partially resumed chapter batches.
 
 ## 4. Final compiler and orchestration
 
-- [x] 4.1 Implement `slide_deck_v6`, 1～3 page unit allocation, typed slot materialization and full-source speaker notes.
+- [x] 4.1 Implement `slide_deck_v6`, dynamic template-safe unit page allocation, typed slot materialization and full-source speaker notes.
 - [x] 4.2 Make Web and PPTX adapters consume only the resolved V6 template contract.
 - [x] 4.3 Implement final fidelity, subject, grammar, capacity, render and export gates with structured failures.
 - [x] 4.4 Route all build entries through one durable V6 orchestrator and atomically retain the last published version on failure.
+- [x] 4.5 Compile Markdown, code and tables into template-safe visible projections while retaining complete source text in speaker notes.
+- [x] 4.6 Preserve complete table-cell semantics with full-width/wide selection, row pagination with repeated headers, oversized-row detail pages and a no-generated-ellipsis gate.
+- [x] 4.7 Compile source-bound full-course agenda pages from ordered top-level sections without distorting formal block coverage.
+- [x] 4.8 Preserve semantic paragraph boundaries in body projection and add a vertical numbered practice-sequence composition for Web/PPTX.
+- [x] 4.9 Select the full-width table family for dense three-column evidence and size exported rows from measured wrapped text.
+- [x] 4.10 Add atomic published-V6 visual repair with frozen story/template/source checks, race protection and last-good-version retention.
+- [x] 4.11 Remove the teaching page-count cap, paginate code/steps/tables/prose without semantic loss, preserve sole-body and artifact-support source text, and gate visible artifact/prose fidelity plus generated ellipses.
 
 ## 5. Adaptive progress
 
 - [x] 5.1 Add failing tests for weighted progress, monotonic discovery, 99% publication cap, heartbeat and restart recovery.
 - [x] 5.2 Implement persisted `slide_build_progress_v2` manifests and five-second events.
 - [x] 5.3 Replace frontend stage inference with server-owned work counts, provider wait/retry and failure details.
+- [x] 5.4 Add the degraded-page repair API, durable task monitoring and workbench action without triggering a full rebuild.
 
 ## 6. Validation and rollout
 

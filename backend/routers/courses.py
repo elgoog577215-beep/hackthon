@@ -28,6 +28,11 @@ from storage_utils import save_course_compat
 from task_manager import TaskManager
 from learner_context import resolve_user_id
 from learning_snapshots import learning_snapshot_repository
+from web_material_curation import (
+    CURATION_METADATA_KEY,
+    load_course_exclusions,
+    normalize_exclusions,
+)
 
 router = APIRouter(tags=["courses"])
 
@@ -39,6 +44,17 @@ router = APIRouter(tags=["courses"])
 class CustomInstructionRequest(BaseModel):
     """Request body for setting a custom instruction on a node."""
     instruction: str
+
+
+class RenderDiagnosticsRequest(BaseModel):
+    """What the browser saw when it rendered a node's body.
+
+    Posted by the frontend after it validates content with the real renderer
+    (``utils/render-validation.ts``). The backend cannot run KaTeX, so this is
+    the only way a genuine render failure reaches the publication gate.
+    """
+    math_failure_count: int = 0
+    block_failure_count: int = 0
 
 
 class NodeConfigUpdateRequest(BaseModel):
@@ -54,6 +70,12 @@ class NodeConfigUpdateRequest(BaseModel):
 class CourseDocumentMigrationRequest(BaseModel):
     source_checksum: str
     confirm: bool = False
+
+
+class WebMaterialCurationRequest(BaseModel):
+    """教师剔除的联网来源，按课程持久保存。"""
+    excluded_source_ids: list[str] = []
+    excluded_urls: list[str] = []
 
 
 # =============================================================================
@@ -190,6 +212,29 @@ async def skip_node(
     return {"status": "skipped"}
 
 
+@router.post("/courses/{course_id}/nodes/{node_id}/render-diagnostics")
+async def report_node_render_diagnostics(
+    course_id: str,
+    node_id: str,
+    req: RenderDiagnosticsRequest,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    """Accept the browser's real-render verdict for one node.
+
+    Idempotent by design: re-reporting overwrites, so a fixed node clears its
+    render issues instead of accumulating stale ones.
+    """
+    task_id = tm._find_active_task(course_id)
+    if not task_id:
+        raise HTTPException(status_code=404, detail="No active task for this course")
+    stored = await tm.record_node_render_diagnostics(
+        task_id,
+        node_id,
+        req.model_dump(),
+    )
+    return {"status": "recorded", "render_diagnostics": stored}
+
+
 @router.post("/courses/{course_id}/nodes/{node_id}/retry")
 async def retry_node(
     course_id: str,
@@ -269,3 +314,30 @@ async def update_node_config(
 
     await save_course_compat(storage, course_id, tree_data)
     return {"status": "config_updated", "config": config}
+
+
+@router.get("/courses/{course_id}/web-material-curation")
+async def get_web_material_curation(
+    course_id: str,
+    repository=Depends(get_course_document_repository),
+):
+    """读回该课程已持久化的联网来源剔除名单。"""
+    await get_course_or_404(course_id)
+    raw = await run_in_threadpool(repository.load_raw, course_id)
+    return load_course_exclusions(raw)
+
+
+@router.put("/courses/{course_id}/web-material-curation")
+async def update_web_material_curation(
+    course_id: str,
+    body: WebMaterialCurationRequest,
+    repository=Depends(get_course_document_repository),
+):
+    """保存剔除名单；下一轮生成会自动带上，不必教师每次重勾。"""
+    await get_course_or_404(course_id)
+    exclusions = normalize_exclusions(body.model_dump())
+    await repository.update_metadata(
+        course_id,
+        {CURATION_METADATA_KEY: exclusions},
+    )
+    return {"status": "curation_updated", **exclusions}

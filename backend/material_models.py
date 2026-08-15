@@ -172,8 +172,54 @@ class EvidenceCoveragePlan(BaseModel):
     node_contracts: dict[str, NodeGroundingContract] = Field(default_factory=dict)
 
 
+class EvidenceSourceRef(BaseModel):
+    """单条证据的来源标识，供知识点级绑定与 UI 溯源使用。"""
+
+    evidence_id: str
+    asset_id: str
+    origin: Literal["material", "web_search"] = "material"
+    url: str = ""
+    retrieved_at: str = ""
+    credibility: Literal["high", "medium", "low", ""] = ""
+    reuse_policy: str = ""
+    rights_basis: str = ""
+
+
+class EvidenceSupplement(BaseModel):
+    """E2 补搜记录：为单个知识点补充的证据，追加而不改动已冻结单元。"""
+
+    supplement_id: str
+    schema_version: Literal["evidence_supplement_v1"] = "evidence_supplement_v1"
+    knowledge_key: str
+    queries: list[str] = Field(default_factory=list)
+    unit_ids: list[str] = Field(default_factory=list)
+    status: Literal["ready", "no_results", "unavailable", "skipped"] = "ready"
+    created_at: str = ""
+
+
+class EvidencePackage(BaseModel):
+    """冻结的证据包：目录/知识图谱/教案/正文/练习共同引用的同一份证据修订。
+
+    冻结后 `units` 不可变，因此 `package_revision_id` 稳定；E2 的补搜结果
+    以 `supplements` 追加，各阶段引用的修订 ID 不会漂移。
+    """
+
+    schema_version: Literal["evidence_package_v1"] = "evidence_package_v1"
+    package_revision_id: str = ""
+    course_id: str = ""
+    frozen_at: str = ""
+    status: Literal["draft", "frozen"] = "draft"
+    units: list[EvidenceUnit] = Field(default_factory=list)
+    source_index: dict[str, EvidenceSourceRef] = Field(default_factory=dict)
+    supplements: list[EvidenceSupplement] = Field(default_factory=list)
+    coverage: dict[str, Any] = Field(default_factory=dict)
+
+
 __all__ = [
     "CoverageGap",
+    "EvidencePackage",
+    "EvidenceSourceRef",
+    "EvidenceSupplement",
     "DocumentBlock",
     "DocumentLocator",
     "EvidenceConflict",

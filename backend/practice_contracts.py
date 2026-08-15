@@ -7,6 +7,8 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from hint_leakage import measure_deepest_hint_overlap
+from stepwise_answers import derive_stepwise_capability, reference_steps
 from reasoning_paths import compile_reasoning_support
 from solution_presentation import present_solution_value
 
@@ -14,8 +16,21 @@ DEFAULT_PRACTICE_BATCH_SIZE = 3
 DEFAULT_PRACTICE_QUESTION_TYPE = "single_choice"
 
 
-INPUT_MODES = {
+# 「question_type -> 作答输入模式」的映射。
+#
+# 曾经它也叫 INPUT_MODES，与 assessment_blueprint / assessment_compiler 里的
+# 同名集合**同名不同义**——那两个是「合法模式的集合」，这个是映射。三处同名
+# 让人以为是一份东西，实际内容还不一致，最终导致本映射产出的
+# structured_text / code_and_text / language_response 被质量门判为非法模式。
+# 现改名消歧；**值域必须 ⊆ assessment_input_modes.INPUT_MODES**（有守卫用例）。
+INPUT_MODE_BY_QUESTION_TYPE = {
     "single_choice": "choice",
+    # 三个新作答形态（H1a/H1b）。缺了它们，一道没带 input_contract 的多选/判断题
+    # 会退化成 rich_text（大题），学生看到的是一个文本框而不是选项——静默降级，
+    # 不报错。由 lz-course-gen 的契约核查发现。
+    "multiple_choice": "choice",
+    "true_false": "choice",
+    "fill_blank": "short_text",
     "worked_solution": "rich_text",
     "implementation_task": "code_and_text",
     "evidence_analysis": "structured_text",
@@ -198,7 +213,7 @@ def enrich_question_contract(
         "input_contract"
     ):
         item["input_contract"] = {
-            "mode": INPUT_MODES.get(question_type, "rich_text"),
+            "mode": INPUT_MODE_BY_QUESTION_TYPE.get(question_type, "rich_text"),
             "required": True,
             "supports_attachments": question_type in {
                 "implementation_task",
@@ -240,6 +255,19 @@ def enrich_question_contract(
         answer_spec["criteria"] = criteria
         item["answer_spec"] = answer_spec
     _complete_hint_policy(item)
+    # Stepwise capability must be derived on this path too, not only in
+    # assessment_compiler: legacy/asset-backed questions (course assets, final
+    # assessment, remediation) all come through here, and without this the
+    # stepwise answer UI would simply never appear for them.
+    #
+    # Count the compiled reasoning path, not `criteria`: open-ended legacy items
+    # frequently carry no criteria at all, while _legacy_reasoning_support has
+    # just filled in the actual derivation they will be graded against.
+    item["input_contract"]["stepwise"] = derive_stepwise_capability(
+        input_mode=str(item["input_contract"].get("mode") or ""),
+        reference_step_count=len(reference_steps(item)),
+        existing=item["input_contract"].get("stepwise"),
+    )
     method = "deterministic" if answer_spec.get("correct_answer") is not None or answer_spec.get("correct_option_id") is not None else "rubric_ai"
     if not isinstance(item.get("grading_policy"), dict) or not item.get(
         "grading_policy"
@@ -586,9 +614,24 @@ def _complete_hint_policy(item: dict[str, Any]) -> None:
         "requires_unseen_equivalent_validation": True,
     })
     contract.setdefault("frozen_with_item_revision", True)
+    answer_spec = item.get("answer_spec") or {}
+    overlap = measure_deepest_hint_overlap(
+        contract.get("levels") or [],
+        {
+            "solution_spec": answer_spec.get("solution_spec") or {},
+            "canonical_answer": answer_spec.get("canonical_answer"),
+            "legacy_answer_spec": {
+                "correct_answer": answer_spec.get("correct_answer"),
+            },
+        },
+    )
     contract.setdefault("leakage_check", {
-        "passed": _legacy_hint_does_not_reveal_answer(item),
+        "passed": (
+            _legacy_hint_does_not_reveal_answer(item)
+            and not overlap.get("leaked")
+        ),
         "checked_at_compile_time": True,
+        "deepest_hint_overlap": overlap,
     })
 
 

@@ -30,6 +30,7 @@ from slide_deck_v5 import (
     _bounded_title,
     _chapter_recap_slide,
     _enrich_practice_feedback_slides_v5,
+    _paginate_slide_block_capacity_v5,
     _split_practice_feedback_capacity_v5,
     _subject_artifact_layout_v5,
     _title_with_continuation_sequence,
@@ -3388,6 +3389,32 @@ def test_v5_build_signature_invalidates_all_teaching_semantic_policies() -> None
     )
 
 
+def test_v5_build_signature_locks_template_manifest_version() -> None:
+    request = {
+        "generation_request": {
+            "template_pack": {
+                "pack_id": "pptp-demo",
+                "version": 2,
+                "manifest_digest": "digest-v2",
+            }
+        }
+    }
+    first = build_signature_v5(
+        document=_document(1), course_data=request,
+        mode="teaching", theme="academic-editorial",
+    )
+    request["generation_request"]["template_pack"]["manifest_digest"] = "digest-v3"
+    second = build_signature_v5(
+        document=_document(1), course_data=request,
+        mode="teaching", theme="academic-editorial",
+    )
+
+    assert first["template_pack_id"] == "pptp-demo"
+    assert first["template_pack_version"] == 2
+    assert first["template_manifest_digest"] == "digest-v2"
+    assert first["signature"] != second["signature"]
+
+
 def test_v5_promotes_long_title_detail_into_supporting_copy() -> None:
     slide = apply_page_contract_v5({
         "unit_id": "classification-title",
@@ -3525,3 +3552,25 @@ def test_quality_gate_blocks_mixed_question_and_chapter_transition() -> None:
     assert "mixed_narrative_jobs" in {
         issue["code"] for issue in v5_contract_issues([slide])
     }
+
+
+def test_block_capacity_balances_continuations_instead_of_leaving_a_sparse_tail() -> None:
+    source = {
+        "unit_id": "slide:v5:balanced-continuation",
+        "layout": "concept",
+        "title": "核对任务",
+        "blocks": [
+            {
+                "block_id": f"block-{index}",
+                "type": "statement",
+                "content": f"核对项 {index}",
+            }
+            for index in range(7)
+        ],
+        "quality": {},
+    }
+
+    pages = _paginate_slide_block_capacity_v5([source], block_capacity=3)
+
+    assert [len(page["blocks"]) for page in pages] == [3, 2, 2]
+    assert all(page["blocks"] for page in pages)

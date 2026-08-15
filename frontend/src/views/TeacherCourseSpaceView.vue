@@ -1,7 +1,7 @@
 <template>
   <main class="course-library teacher-space" :class="{ 'teacher-space--embedded': embedded }">
     <header v-if="!embedded" class="library-header">
-      <div>
+      <div class="library-header__copy">
         <p>{{ t('teacherCourseSpace.eyebrow', '教师课程空间') }}</p>
         <h1>{{ t('teacherCourseSpace.title', '课程文件库') }}</h1>
         <span>{{ t('teacherCourseSpace.subtitle', '按课程、学年和目录保存原始资料。') }}</span>
@@ -533,7 +533,7 @@ onMounted(refresh)
   width: 100%;
   height: 100%;
   overflow: auto;
-  padding: 30px clamp(18px, 4vw, 54px) 48px;
+  padding: 24px clamp(18px, 4vw, 54px) 38px;
   border: 1px solid rgba(255,255,255,.82);
   border-radius: var(--lz-radius-surface);
   background: rgba(255,255,255,.76);
@@ -543,13 +543,20 @@ onMounted(refresh)
   max-width: 1280px;
   margin: 0 auto;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
 }
+.library-header__copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0 12px;
+}
 .library-header p,
 .folder-workbench__heading p {
-  margin: 0 0 7px;
+  margin: 0;
   color: var(--lz-brand);
   font-size: 12px;
   font-weight: 700;
@@ -557,16 +564,19 @@ onMounted(refresh)
 .library-header h1 {
   margin: 0;
   color: #312e81;
-  font-size: clamp(25px, 3vw, 32px);
+  font-size: clamp(23px, 2.4vw, 28px);
   line-height: 1.2;
 }
-.library-header > div:first-child > span,
+.library-header__copy > span,
 .folder-workbench__heading span {
   display: block;
-  margin-top: 8px;
+  margin-top: 5px;
   color: var(--lz-text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
+.library-header__copy p,
+.library-header__copy h1 { grid-row: 1; }
+.library-header__copy > span { grid-column: 2; }
 .library-actions,
 .folder-actions {
   display: flex;
@@ -632,7 +642,7 @@ onMounted(refresh)
 .knowledge-space {
   max-width: 1280px;
   min-height: 560px;
-  margin: 28px auto 0;
+  margin: 18px auto 0;
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
   overflow: hidden;
@@ -644,17 +654,17 @@ onMounted(refresh)
   min-height: 0;
 }
 .knowledge-space--first-run {
-  max-width: 980px;
+  max-width: 1100px;
   grid-template-columns: minmax(0, 1fr);
 }
 .workspace-create {
   min-width: 0;
-  padding: 26px 30px 30px;
+  padding: 22px 26px 24px;
 }
 .workspace-create__copy {
   display: grid;
   gap: 5px;
-  padding-bottom: 18px;
+  padding-bottom: 14px;
   border-bottom: 1px solid var(--lz-border);
 }
 .workspace-create__copy strong {
@@ -669,7 +679,7 @@ onMounted(refresh)
   display: grid;
   grid-template-columns: minmax(220px, 1.5fr) minmax(150px, .8fr) 156px;
   gap: 15px 14px;
-  padding-top: 20px;
+  padding-top: 16px;
 }
 .create-field {
   min-width: 0;
@@ -953,6 +963,7 @@ onMounted(refresh)
 .teacher-space--embedded .folder-workbench__heading{padding-top:16px}
 @media (max-width: 760px) {
   .course-library { padding: 22px 20px 40px; border: 0; border-radius: 0; box-shadow: none; }
+  .library-header__copy { display: block; }
   .library-header,
   .folder-workbench__heading { align-items: flex-start; flex-direction: column; }
   .knowledge-space,

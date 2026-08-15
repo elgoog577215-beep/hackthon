@@ -108,6 +108,12 @@
           :acting="generationActionBusy"
           @resume="resumeGenerationTask"
         />
+        <AITeacherSuggestion
+          :suggestion="aiTeacherStore.suggestion"
+          @shown="aiTeacherStore.markSuggestionShown"
+          @accept="acceptSuggestion"
+          @decline="declineSuggestion"
+        />
         <ContentArea
           ref="contentAreaRef"
           :side-ai-panel-visible="aiVisible"
@@ -280,8 +286,9 @@ import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
 import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
-import { useAITeacherStore } from '../stores/aiTeacher'
+import { useAITeacherStore, type AISuggestion } from '../stores/aiTeacher'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
@@ -534,6 +541,8 @@ async function loadPublishedLearningContext(courseId: string) {
   await aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined)
   loadedLearningCourseId.value = courseId
   void changeProposalsStore.fetchChangeProposals(courseId)
+  // Natural pause #3: arriving at the course, before any reading has started.
+  void aiTeacherStore.checkSuggestion('course_entered', String(route.params.nodeId || '') || undefined)
 }
 
 watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
@@ -774,6 +783,29 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   aiEntrypoint.value = payload?.text ? 'selection' : 'global'
   aiVisible.value = true
   if (isNarrow.value) navigatorOpen.value = false
+}
+
+/** Accepting only opens the AI panel to explain the action — it executes nothing. */
+function acceptSuggestion(candidate: AISuggestion) {
+  aiTeacherStore.dismissSuggestion()
+  openAi({
+    text: '',
+    nodeId: candidate.node_id || courseStore.currentNode?.node_id || '',
+  })
+  aiPrefill.value = t(
+    'courseWorkspace.aiTeacher.explainRuntimePrompt',
+    '请解释为什么我现在应该执行这个学习动作，并说明依据：',
+  )
+}
+
+/**
+ * Refusals go to the server, not just to local state: the archived protocol
+ * requires them to hold across a refresh and on another device, and `not_now`
+ * additionally carries a 24-hour floor so evidence churn cannot revive it.
+ */
+async function declineSuggestion(payload: { suggestion: AISuggestion; reason: 'not_now' | 'never' }) {
+  aiTeacherStore.dismissSuggestion()
+  await aiTeacherStore.suppressSuggestion(payload.suggestion, payload.reason)
 }
 
 function openBlockImprovement(target: CourseBlockEditTarget) {
@@ -1080,6 +1112,8 @@ async function refreshAfterGrade() {
   if (courseStore.currentCourseId) {
     await workspaceStore.loadMistakeBook(courseStore.currentCourseId).catch(() => undefined)
   }
+  // Natural pause #2: a practice attempt was just submitted and graded.
+  void aiTeacherStore.checkSuggestion('practice_submitted', courseStore.currentNode?.node_id)
 }
 
 async function handleContinuationAction(action: NextLearningAction) {
@@ -1094,6 +1128,8 @@ async function handleContinuationAction(action: NextLearningAction) {
     if (node) selectNode(node)
     if (action.action_type === 'complete_reading' && node) {
       await learningProgressStore.completeReading(courseStore.currentCourseId, node.node_id)
+      // Natural pause #1: the learner just finished a section.
+      void aiTeacherStore.checkSuggestion('section_completed', node.node_id)
     } else if (isWorkspaceTaskAction(action)) {
       workspaceStore.prepareLearningAction(action)
       openTask(node)
@@ -1137,7 +1173,7 @@ function closeMobileSurfaces() {
 
 <style scoped>
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
-.navigator-surface { flex: 0 0 280px; }
+.navigator-surface { flex: 0 0 292px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
 .teacher-preview-bar{min-height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;border-bottom:1px solid var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:10px}.teacher-preview-bar span,.teacher-preview-bar button{display:flex;align-items:center;gap:6px}.teacher-preview-bar button{height:28px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}
 .learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }

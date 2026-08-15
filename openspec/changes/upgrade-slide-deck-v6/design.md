@@ -11,7 +11,7 @@ V6 采用“课程语义先行、模板合同后置、故事严格、视觉弹�
 - 每个正式课程块都有一个主要可见表达位置，完整原文进入讲者备注并保持来源绑定。
 - 页面顺序忠于课程顺序和正式教学依赖，禁止为填满页面跨主题拼接。
 - 代码、公式、表格、数据、实验、原文等学科特征素材与条件、解释、结果形成原子教学组合。
-- 每个教学单元使用 1～3 张模板安全页，每页只有一个主要教学任务。
+- 每个教学单元使用内容所需数量的模板安全页，不设教学业务页数上限；每页只有一个主要教学任务。
 - 最新已发布模板版本成为唯一布局合同，浏览器与 PPTX 不再各自推断。
 - 故事 AI 失败硬失败；视觉 AI 只允许来源完整的页面级降级。
 - 进度可解释、可恢复、每 5 秒心跳且在发布前不超过 99%。
@@ -73,7 +73,7 @@ Story planning runs in ordered chapter batches through the existing `AIBase` pro
 
 - select supplied teaching unit IDs and compatible template layout IDs;
 - write bounded source-faithful titles, summaries and transitions;
-- split one teaching unit into 1～3 safe pages without changing dependencies;
+- split one teaching unit into as many declared safe pages as its complete source requires without changing dependencies;
 - preserve unit order and 100% primary block coverage.
 
 The validator rejects unknown IDs, omitted primary blocks, duplicate primary ownership, order inversions, ungrounded protected tokens and unsupported factual assertions. Any rejected or unavailable story batch fails the entire V6 candidate; accepted batches are never silently replaced by a deterministic story.
@@ -90,7 +90,9 @@ Missing required subject artifacts, invalid data, unsupported identifiers, capac
 
 The final contract stores pages, resolved template layout IDs, typed slots, source block/teaching unit bindings, subject artifacts, speaker notes, visual decisions, renderer adapters and per-page quality. Web/PPTX adapters receive this contract without consulting story intent or legacy layout aliases.
 
-Full block text, full code and supplemental detail are stored in speaker notes with exact block/revision bindings. Canvas copy remains a source-faithful presentation expression, not a verbatim prose wall.
+Full block text, full code and supplemental detail are stored in speaker notes with exact block/revision bindings. Canvas copy remains a source-faithful presentation expression. Code、显式步骤、表格和仅有一个正文块的页面不得用摘要替换原文；容量不足时必须按完整行、完整步骤、完整表格行或无损文字边界续页，而不是截断内容。实现可以保留仅用于异常输入的有限安全上限，但该上限不是教学页数策略。
+
+Table projection is semantic before geometric. The compiler measures wrapped cell demand, prefers a declared full-width/wide variant for dense tables, and otherwise paginates complete rows with repeated headers. A row that cannot remain complete becomes a source-bound detail page. Generated ellipses, lost protected tokens and pre-render cell truncation are hard failures even when object bounds do not overflow.
 
 ### `slide_build_progress_v2`
 
@@ -111,6 +113,7 @@ Every failure contains `stage`, `code`, `message`, `retryable`, and optional `ch
 ## Quality Gates
 
 - formal block visible coverage 100%; full-text note binding 100%;
+- visible code/formula/table fidelity 100%; visible prose fidelity 100%; ordered-step fidelity 100%; no generated ellipsis absent from source;
 - course order and dependency order preserved; no cross-topic merge;
 - all visible facts, numbers, formulas and code identifiers traceable;
 - subject contract satisfied for characteristic artifacts;

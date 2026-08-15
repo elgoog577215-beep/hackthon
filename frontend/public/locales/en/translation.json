@@ -247,7 +247,20 @@
     "publish": "Publish to My templates",
     "creating": "Analyzing template…",
     "publishing": "Publishing…",
-    "ready": "Preview ready"
+    "ready": "Preview ready",
+    "extractionSummary": "Analyzed {slides} slides, {boxes} text boxes, and {images} image assets.",
+    "referencePptxHint": "Include a cover, chapter, content, practice, chart or code, and ending slide when possible",
+    "logoHint": "PNG / SVG / JPEG / WebP",
+    "referenceImages": "Style references (optional)",
+    "referenceImagesHint": "Upload 2–5 background or decoration references",
+    "selectedImages": "{count} selected",
+    "widescreenNotice": "This source is 4:3 and will be adapted to 16:9. Confirm the safe areas in the preview before publishing.",
+    "representativePage": "{role} representative",
+    "pageNumber": "Slide {count}",
+    "editablePreview": "Editable text · {theme}",
+    "restart": "Start over",
+    "roles": { "cover": "Cover", "chapter": "Chapter", "objectives": "Objectives", "definition": "Definition", "process": "Reasoning", "practice": "Practice", "evidence": "Evidence", "recap": "Recap" },
+    "themes": { "qizhi": "Qizhi Classroom", "academic": "Academic Editorial", "grid": "Grid Notebook", "modern": "Modern Geometric", "dark": "Dark Tech" }
   },
   "pptWorkspace": {
     "open": "Open PPT workspace",
@@ -309,6 +322,8 @@
     "completeCourseLogic": "Complete course logic",
     "completingCourseLogic": "Completing course logic…",
     "previousVersionPageQuality": "Previous version slide quality",
+    "resumeCheckpoint": "Resume from checkpoint",
+    "rebuildCurrent": "Regenerate current combination",
     "build": "Generate full deck",
     "untitledCourse": "Course presentation",
     "targetSchema": "Target",
@@ -913,7 +928,9 @@
       "wholeCourseHint": "AI interprets the request and matches relevant nodes",
       "matchedSummary": "AI identified {roles} and matched {count} nodes",
       "blockSummary": "AI changes only the current content and does not expand elsewhere",
-      "currentSummary": "AI will only handle these roles in this section: {roles}"
+      "currentSummary": "AI will only handle these roles in this section: {roles}",
+      "currentChapter": "Affect related content in this chapter",
+      "currentChapterHint": "The AI matches nodes within this chapter only. Nothing changes until you confirm."
     },
     "review": {
       "eyebrow": "Course adjustment review",
@@ -1036,7 +1053,8 @@
       "targetedPractice": "Targeted practice",
       "animation": "Step animation",
       "fold": "Fold mastered content",
-      "reorder": "Reorganize learning order"
+      "reorder": "Reorganize learning order",
+      "resequence": "Cross-chapter resequence"
     },
     "sectionGrowth": {
       "stepsLabel": "Six course growth steps",
@@ -1080,13 +1098,37 @@
         "example": "Worked example",
         "checkpoint": "Understanding check",
         "concept": "Core concept"
-      }
+      },
+      "generateChapter": "Analyze and preview this chapter's impact"
     },
     "effects": {
       "effective": "New evidence supports the diagnosis; transfer will keep being observed",
       "ineffective": "Later evidence suggests another adjustment",
       "harmful": "Later evidence shows side effects; rollback is recommended",
       "insufficient": "Waiting for independent validation on a later formal task"
+    },
+    "applying": "Writing to the course…",
+    "reverification": {
+      "title": "Independent re-verification",
+      "open": "Re-verification window open",
+      "openDetail": "Waited {days} days, still inside the {window}-day window, awaiting an independent new task.",
+      "expired": "No sample — no verdict possible",
+      "expiredDetail": "Waited {days} days with no independent sample. This needs a human decision; it does not mean the change worked or should be rolled back.",
+      "satisfied": "Independent sample collected",
+      "satisfiedDetail": "{count} independent new-task attempts arrived in the window; the effect verdict rests on those samples.",
+      "noSample": "No sample",
+      "retakeExcluded": "Retaking the original task does not count as a re-verification sample"
+    },
+    "applyingDetail": "Confirmed and committing the course revision; it will not be proposed again until this finishes.",
+    "declined": "Adjustments you excluded",
+    "declinedDetail": "You excluded these items during review, so they will not be proposed again for now.",
+    "declinedCooldown": "On hold until {date}",
+    "knowledgeDrift": {
+      "title": "Course knowledge changed",
+      "detail": "The course knowledge this plan was built from has been edited, so the plan no longer matches what the knowledge now means. Regenerate it before confirming.",
+      "changed": "Changed knowledge points: {labels}",
+      "changedUnnamed": "The changed knowledge points cannot be named (they may have been split, merged, or removed)",
+      "regenerate": "Regenerate plan"
     }
   },
   "learningNavigator": {
@@ -1432,12 +1474,14 @@
     "title": "Knowledge library",
     "subtitle": "Explore atomic knowledge, skills, and relations along the course path",
     "courseCoverage": "Course coverage",
+    "noExternalGrounding": "This course has no external material grounding. All knowledge was generated by the model — review before publishing.",
     "relationCount": "relations",
     "mappingRate": "Path coverage",
     "relationCoverage": "Relation coverage",
     "qualityScore": "Quality",
     "sources": "Sources",
     "sourceMaterial": "Course materials",
+    "sourceWeb": "Web search source",
     "sourceModel": "Model inference",
     "candidateRelations": "Candidate relations",
     "notEnabled": "not enabled",
@@ -1869,7 +1913,10 @@
       "growthMoreSections": "{count} more sections will continue growing in this chapter",
       "growthStarting": "Finding the growth path for this course",
       "growthStartingHelp": "The system first defines the chapters and each chapter's responsibility. Sections then appear one by one in their final positions.",
-      "growthNodeProgress": "{completed}/{total} sections"
+      "growthNodeProgress": "{completed}/{total} sections",
+      "authError": "The AI service could not authenticate.",
+      "timeoutError": "The AI service timed out before this stage completed.",
+      "unavailableError": "The AI service is temporarily unavailable, so this stage did not complete."
     },
     "outlineReview": {
       "ariaLabel": "Course outline confirmation",
@@ -2270,7 +2317,8 @@
       "exam": {
         "label": "Exam sprint",
         "detail": "Prioritize the syllabus and weak areas within the time available"
-      }
+      },
+      "comingSoon": "Coming soon"
     },
     "project": {
       "title": "Define your project",
@@ -2797,7 +2845,49 @@
         "resume": "Return to course practice",
         "needsSupportTitle": "Current evidence cannot support further automatic remediation",
         "needsSupportBody": "The record is preserved for the AI tutor to review with the full process."
-      }
+      },
+      "stepwiseOn": "Answer step by step",
+      "stepwiseOff": "Switch to one answer",
+      "stepwiseNote": "Working step by step is just a way of writing; it does not affect your mastery result. You can answer as a whole instead.",
+      "stepLabel": "Step {index}",
+      "stepPlaceholder": "Write what you did in this step, and why it holds",
+      "addStep": "Add a step",
+      "removeStep": "Remove this step",
+      "codeLanguage": "Language",
+      "codeAnswer": "Code",
+      "codeRun": "Run code",
+      "codeRunning": "Running…",
+      "codeTestEvidence": "Test notes",
+      "codeNoOutput": "Finished with no output",
+      "codeRunFailed": "Run failed",
+      "codeRunFailedToast": "Could not run the code",
+      "requiredField": "Required",
+      "fieldValue": "Value",
+      "fieldUnit": "Unit",
+      "fieldWork": "Working",
+      "fieldTrace": "Execution trace",
+      "fieldDiagnosis": "Problem location",
+      "fieldResultCheck": "Result check",
+      "fieldAnswer": "Answer",
+      "fieldEvidence": "Evidence",
+      "guidanceTitle": "AI tutor guidance",
+      "guidanceEvidenceNote": "Guidance only asks questions, it never gives the answer. The more you use it, the weaker this attempt counts as evidence of independent mastery.",
+      "guidanceYou": "You",
+      "guidanceTeacher": "AI tutor",
+      "guidancePlaceholder": "Tell the tutor which step you are stuck on, and what conditions you used",
+      "guidanceSend": "Ask a follow-up",
+      "guidanceSending": "Thinking…",
+      "guidanceExhausted": "No guidance rounds left on this question. Try writing the next step yourself first.",
+      "guidanceScreened": "This round did not pass the safety check, so it was replaced with a question that does not reveal the answer. It does not count against you.",
+      "guidanceUnavailable": "The AI tutor is unavailable right now. This round does not count against you.",
+      "guidanceDegraded": "No usable guidance came back this round. It does not count against you.",
+      "aiSupportSummary": "Opened the AI tutor during formal practice",
+      "stepwiseResultTitle": "Step-by-step verdict",
+      "stepwiseFirstFlawed": "The derivation first breaks at step {index}",
+      "stepwiseNoFlaw": "No faulty step found",
+      "stepCorrect": "This step holds",
+      "stepFlawed": "This step has a problem",
+      "stepUnclear": "No visible basis for this step"
     },
     "practiceAnalysis": {
       "title": "Question analysis and this judgment",
@@ -3102,7 +3192,55 @@
       "retrievalOff": "Disabled for this conversation",
       "retrievalStarted": "Searching the web",
       "retrievalCompleted": "Web verification complete",
-      "retrievalFailed": "Web retrieval failed; this answer was not externally verified"
+      "retrievalFailed": "Web retrieval failed; this answer was not externally verified",
+      "receipt": {
+        "noteCreated": "Saved as a note",
+        "issueCreated": "Marked as an open question",
+        "reviewTaskCreated": "Review task created",
+        "bookmarkCreated": "Bookmark created",
+        "runtimeActionOpened": "Ready to open your current learning task",
+        "recordArchived": "Undone and the learning record archived",
+        "proposalExpired": "This suggestion has expired. Ask again to get a fresh one",
+        "runtimeChanged": "Your learning state changed. Recalculate this suggestion",
+        "undoTargetChanged": "This record was edited after it was created, so your edit was kept",
+        "proposalRejected": "This suggestion was declined and will not run",
+        "actionFailed": "This action did not complete. Your learning state is unchanged",
+        "undoNotSupported": "This action has nothing to undo",
+        "undoTargetMissing": "The original learning record no longer exists, so there is nothing to undo",
+        "unknown": "Action handled"
+      },
+      "failure": {
+        "notConfigured": "No model is configured for the AI tutor",
+        "authFailed": "The AI model rejected our credentials",
+        "quotaExhausted": "The AI model quota is used up",
+        "requestTooLarge": "This question carries too much context. Narrow your selection",
+        "rateLimited": "The AI model is busy right now",
+        "timeout": "The AI model timed out",
+        "truncated": "The answer was cut off by a length limit and is incomplete",
+        "unavailable": "The AI tutor is temporarily unavailable",
+        "cancelled": "Generation stopped",
+        "retryHint": "Your course and formal learning tasks are unaffected. You can retry.",
+        "noRetryHint": "Retrying will not help; please contact an administrator. Your course and formal learning tasks are unaffected."
+      },
+      "suggestion": {
+        "title": "AI tutor suggestion",
+        "eyebrow": "Your AI tutor noticed",
+        "body": "This is based on your formal learning record. Nothing changes until you confirm.",
+        "explain": "Show me why",
+        "notNow": "Not now",
+        "never": "Stop reminding me",
+        "neverHint": "Never remind me about this again",
+        "actions": {
+          "confirmVersionChange": "A course update is waiting for your confirmation",
+          "resumeDiagnostic": "You have an unfinished diagnostic",
+          "resumeRemediation": "You have an unfinished remediation exercise",
+          "resumeValidation": "You have an unfinished independent check",
+          "resolveDiagnosticSupport": "A diagnostic result is waiting for you",
+          "resolveBlockingIssue": "An open question is blocking what comes next",
+          "startDueReview": "A review is due",
+          "generic": "A learning task is waiting to continue"
+        }
+      }
     },
     "sources": {
       "title": "Section sources",
@@ -3284,6 +3422,12 @@
         "reviewAgain": "Review again",
         "complete": "Complete"
       }
+    },
+    "impactPreview": {
+      "count": "Affects {count} sections",
+      "countOne": "Affects {count} section",
+      "unknownSection": "not in the current outline",
+      "note": "Nothing in the published course changes until you confirm."
     }
   },
   "courseAvailability": {
@@ -3360,6 +3504,21 @@
     "shortcut": "Ctrl / ⌘ + Enter to save",
     "cancel": "Cancel",
     "save": "Save note"
+  },
+  "questionBank": {
+    "centerTitle": "Course question-bank quality",
+    "courseList": "Courses",
+    "searchCourse": "Search courses",
+    "noCourses": "No courses available",
+    "currentCourse": "Current course",
+    "title": "Course question-bank quality",
+    "refreshCourses": "Refresh courses",
+    "regenerateHelp": "New questions replace the current bank only after passing quality checks.",
+    "notBuilt": "This course does not have a prepared question bank yet. Build it to continue.",
+    "loadFailed": "The question bank could not be loaded. Try again shortly.",
+    "rebuildMissing": "Build question bank",
+    "regeneratingCourse": "Rebuilding course questions",
+    "regenerateCourse": "Regenerate course questions"
   },
   "assessmentGeneration": {
     "label": "Question generation mode",

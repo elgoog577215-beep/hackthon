@@ -607,6 +607,9 @@ describe('QuestionBankReviewPanel', () => {
     const button = wrapper.get(
       '[data-testid="rebuild-missing-question-bank"]',
     )
+    expect(
+      wrapper.find('[data-testid="rebuild-course-question-bank"]').exists(),
+    ).toBe(false)
     await button.trigger('click')
     await flushPromises()
 

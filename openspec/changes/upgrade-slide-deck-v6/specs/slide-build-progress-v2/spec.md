@@ -50,6 +50,23 @@ The system SHALL restore progress from the persisted work manifest rather than a
 - **THEN** completed items remain complete and pending items continue
 - **AND** progress does not reset to an earlier fixed milestone
 
+#### Scenario: Retryable build failure is resumed
+- **WHEN** a V6 build fails with `retryable=true` and its frozen course revision, template digest, mode and theme still match the persisted checkpoint
+- **THEN** the same task resumes from the saved work manifest and accepted AI batch outputs
+- **AND** only interrupted or failed work items are returned to pending state
+- **AND** completed work and the displayed high-water percentage are preserved
+
+#### Scenario: Saved progress is incompatible or incomplete
+- **WHEN** a failed task has no persisted V6 checkpoint or progress manifest, or its frozen source/template identity no longer matches
+- **THEN** the task is not advertised as resumable
+- **AND** a new build is required instead of combining stale progress with changed inputs
+
+#### Scenario: A published deck starts selective visual repair
+- **WHEN** the teacher retries degraded V6 pages
+- **THEN** the server seeds a new durable work manifest from accepted story and healthy visual checkpoints
+- **AND** only target visual batches, materialization, render, quality and atomic publication remain as active work
+- **AND** browser refresh restores that repair task by its normal task ID
+
 ### Requirement: Frontend Displays Backend Progress Facts
 The frontend SHALL render the server-provided V2 work manifest, diagnostics and terminal state and SHALL NOT maintain an independent percentage-by-stage mapping for V6.
 

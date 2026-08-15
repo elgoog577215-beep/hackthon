@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import math
 import os
 import re
 import shutil
 import subprocess
 import tempfile
+from copy import deepcopy
 from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
@@ -15,6 +15,14 @@ from typing import Any
 
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
+from slide_layout_geometry import (
+    BALANCED_TWO_COLUMN_BODY_V1,
+    HORIZONTAL_PROCESS_CARDS_V1,
+    balanced_two_column_body_metrics,
+    diagram_node_layout_metrics,
+    horizontal_process_card_metrics,
+    wrapped_line_count,
+)
 from slide_theme import load_slide_theme_pack, slide_theme_asset_path
 
 THEMES: dict[str, dict[str, Any]] = {
@@ -195,7 +203,7 @@ def export_structured_slide_deck(
     output_path: str | Path,
     *,
     require_quality: bool = True,
-    theme: str = "qingfeng-classroom",
+    theme: str | dict[str, Any] = "qingfeng-classroom",
     asset_repository: SlideAssetRepository | None = None,
     course_data: dict[str, Any] | None = None,
 ) -> Path:
@@ -319,28 +327,12 @@ def _paragraph_minimum_font_size_pt(paragraph: Any) -> float:
 
 
 def _wrapped_line_count(text: str, *, width_pt: float, font_size_pt: float) -> int:
-    if not text:
-        return 1
-    dpi_scale = 96 / 72
-    font = _audit_font(max(8, round(font_size_pt * dpi_scale)))
-    maximum_width = max(1.0, width_pt * dpi_scale)
-    lines = 0
-    for logical_line in str(text).splitlines() or [""]:
-        if not logical_line:
-            lines += 1
-            continue
-        current_width = 0.0
-        lines += 1
-        for character in logical_line:
-            try:
-                character_width = float(font.getlength(character))
-            except AttributeError:
-                character_width = float(font.getbbox(character)[2])
-            if current_width and current_width + character_width > maximum_width:
-                lines += 1
-                current_width = 0.0
-            current_width += character_width
-    return lines
+    return wrapped_line_count(
+        text,
+        width_pt=width_pt,
+        font_size_pt=font_size_pt,
+        font_loader=_audit_font,
+    )
 
 
 def _text_frame_audit(shape: Any) -> dict[str, Any]:
@@ -378,12 +370,84 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
         after = float(paragraph.space_after.pt) if paragraph.space_after else 0.0
         required_height += line_count * font_size * 1.22 + before + after
     return {
-        "overflow": required_height > max(height_pt * 1.18, height_pt + 2.0),
+        # Keep only a small allowance for font-metric variance.  The previous
+        # 18% tolerance let text visibly escape its semantic card while still
+        # remaining inside the slide canvas (for example, dense two-column
+        # bodies rendered by LibreOffice).
+        "overflow": required_height > max(height_pt * 1.02, height_pt + 2.0),
         "required_height_pt": round(required_height, 2),
         "available_height_pt": round(height_pt, 2),
         "minimum_font_size_pt": 18.0 if minimum_size == 10**9 else minimum_size,
         "maximum_wrapped_lines": maximum_lines,
     }
+
+
+def _table_cell_audits(shape: Any) -> list[dict[str, Any]]:
+    if not getattr(shape, "has_table", False):
+        return []
+    table = shape.table
+    audits: list[dict[str, Any]] = []
+    for row_index, row in enumerate(table.rows):
+        for column_index, cell in enumerate(row.cells):
+            if not str(cell.text or "").strip():
+                continue
+            width_pt = max(
+                1.0,
+                (
+                    int(table.columns[column_index].width)
+                    - int(cell.margin_left or 0)
+                    - int(cell.margin_right or 0)
+                ) / 12700,
+            )
+            height_pt = max(
+                1.0,
+                (
+                    int(row.height)
+                    - int(cell.margin_top or 0)
+                    - int(cell.margin_bottom or 0)
+                ) / 12700,
+            )
+            required_height = 0.0
+            minimum_size = 10**9
+            maximum_lines = 1
+            for paragraph in cell.text_frame.paragraphs:
+                font_size = _paragraph_font_size_pt(paragraph)
+                minimum_size = min(
+                    minimum_size,
+                    _paragraph_minimum_font_size_pt(paragraph),
+                )
+                line_count = _wrapped_line_count(
+                    paragraph.text or "",
+                    width_pt=width_pt,
+                    font_size_pt=font_size,
+                )
+                maximum_lines = max(maximum_lines, line_count)
+                before = (
+                    float(paragraph.space_before.pt)
+                    if paragraph.space_before
+                    else 0.0
+                )
+                after = (
+                    float(paragraph.space_after.pt)
+                    if paragraph.space_after
+                    else 0.0
+                )
+                required_height += line_count * font_size * 1.22 + before + after
+            if required_height > max(height_pt * 1.02, height_pt + 2.0):
+                audits.append({
+                    "severity": "critical",
+                    "code": "exported_table_cell_overflow",
+                    "shape_name": str(shape.name or ""),
+                    "row": row_index + 1,
+                    "column": column_index + 1,
+                    "required_height_pt": round(required_height, 2),
+                    "available_height_pt": round(height_pt, 2),
+                    "minimum_font_size_pt": (
+                        18.0 if minimum_size == 10**9 else minimum_size
+                    ),
+                    "maximum_wrapped_lines": maximum_lines,
+                })
+    return audits
 
 
 def _normalized_ocr_text(value: object) -> str:
@@ -567,6 +631,8 @@ def audit_exported_pptx(
                 })
             if int(shape.width) > 0 and int(shape.height) > 0:
                 visible_object_count += 1
+            for table_issue in _table_cell_audits(shape):
+                issues.append({"page": slide_index, **table_issue})
             if getattr(shape, "has_text_frame", False) and str(shape.text or "").strip():
                 text_shapes.append(shape)
                 text_audit = _text_frame_audit(shape)
@@ -578,7 +644,15 @@ def audit_exported_pptx(
                     0.6 <= top_inches < 1.95
                     and text_audit["minimum_font_size_pt"] >= 28
                 )
-                if text_audit["overflow"]:
+                title_metric_variance_fits = bool(
+                    is_title
+                    and text_audit["required_height_pt"]
+                    <= max(
+                        text_audit["available_height_pt"] * 1.06,
+                        text_audit["available_height_pt"] + 4.0,
+                    )
+                )
+                if text_audit["overflow"] and not title_metric_variance_fits:
                     issues.append({
                         "severity": "critical",
                         "code": "exported_text_frame_overflow",
@@ -586,12 +660,48 @@ def audit_exported_pptx(
                         "shape_name": str(shape.name or ""),
                         **text_audit,
                     })
-                if is_title and text_audit["maximum_wrapped_lines"] > 1:
+                body_line_match = re.search(
+                    r"\[v6-body-max-lines=(\d+)\]",
+                    str(shape.name or ""),
+                )
+                if (
+                    body_line_match
+                    and text_audit["maximum_wrapped_lines"]
+                    > max(1, int(body_line_match.group(1)))
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_body_capacity_exceeded",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                        "maximum_wrapped_lines": text_audit[
+                            "maximum_wrapped_lines"
+                        ],
+                        "allowed_wrapped_lines": max(
+                            1,
+                            int(body_line_match.group(1)),
+                        ),
+                    })
+                title_line_match = re.search(
+                    r"\[v6-title-max-lines=(\d+)\]",
+                    str(shape.name or ""),
+                )
+                title_line_limit = (
+                    max(1, int(title_line_match.group(1)))
+                    if title_line_match
+                    else 1
+                )
+                if (
+                    is_title
+                    and text_audit["maximum_wrapped_lines"] > title_line_limit
+                ):
                     issues.append({
                         "severity": "critical",
                         "code": "exported_title_unexpected_wrap",
                         "page": slide_index,
                         "shape_name": str(shape.name or ""),
+                        "maximum_wrapped_lines": text_audit["maximum_wrapped_lines"],
+                        "allowed_wrapped_lines": title_line_limit,
                     })
                 if (
                     not is_footer
@@ -713,7 +823,16 @@ def audit_exported_pptx(
     }
 
 
-def validate_theme(theme: str) -> dict[str, str]:
+def validate_theme(theme: str | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(theme, dict):
+        required = {"surface", "title", "body_font", "title_font"}
+        missing = sorted(required.difference(theme))
+        if missing:
+            raise ValueError(
+                "Compiled slide theme is missing required tokens: "
+                + ", ".join(missing)
+            )
+        return deepcopy(theme)
     try:
         return THEMES[theme]
     except KeyError as exc:
@@ -738,6 +857,8 @@ V5_LAYOUT_RENDERER_NAMES = {
     "worked-example": "_render_worked_example",
     "parallel-examples": "_render_parallel_examples",
     "question-prompt": "_render_question_prompt",
+    "practice-sequence": "_render_process",
+    "practice-artifact": "_render_practice_artifact",
     "practice-feedback": "_render_practice_feedback",
     "chapter-recap": "_render_chapter_recap",
     "course-synthesis": "_render_course_synthesis",
@@ -906,7 +1027,7 @@ def _render_relational_visual(
     from pptx.enum.shapes import MSO_CONNECTOR
     from pptx.util import Inches
 
-    nodes = list(visual.get("nodes") or [])[:5]
+    nodes = list(visual.get("nodes") or [])[:6]
     edges = list(visual.get("edges") or [])[:10]
     composition = unit.composition or "split-visual"
     visual_left = composition in {"figure-first", "diagram-full"}
@@ -925,56 +1046,38 @@ def _render_relational_visual(
         radius=True,
         line=theme["chart_bg"],
     )
-    _text(
-        slide,
-        _visual_caption(visual),
-        diagram_x + 0.32,
-        2.15,
-        diagram_w - 0.64,
-        0.34,
-        11,
-        theme["accent"],
-        bold=True,
-    )
+    caption = _visual_caption(visual)
+    if " ".join(caption.split()).casefold() != " ".join(unit.title.split()).casefold():
+        _text(
+            slide,
+            caption,
+            diagram_x + 0.32,
+            2.12,
+            diagram_w - 0.64,
+            0.42,
+            16,
+            theme["accent"],
+            bold=True,
+        )
     if not nodes:
         return
-    vertical = str((visual.get("parameters") or {}).get("direction") or "") == "vertical"
+    direction = str(
+        (visual.get("parameters") or {}).get("direction") or "vertical"
+    )
+    node_metrics = diagram_node_layout_metrics(
+        [str(node.get("label") or "").strip() for node in nodes],
+        direction=direction,
+    )
+    if not node_metrics["fits"]:
+        raise ValueError("diagram_node_render_capacity_exceeded")
     positions: dict[str, tuple[float, float, float, float]] = {}
-    if vertical:
-        gap = 0.07
-        available_height = 3.62
-        node_h = min(
-            0.72,
-            (available_height - gap * max(0, len(nodes) - 1)) / max(1, len(nodes)),
+    for node, box in zip(nodes, node_metrics["node_boxes"]):
+        positions[str(node.get("node_id"))] = (
+            diagram_x + box["x"],
+            1.92 + box["y"],
+            box["width"],
+            box["height"],
         )
-        for index, node in enumerate(nodes):
-            positions[str(node.get("node_id"))] = (
-                diagram_x + 0.55,
-                2.62 + index * (node_h + gap),
-                diagram_w - 1.1,
-                node_h,
-            )
-    else:
-        columns = 2 if len(nodes) > 3 else 1
-        if columns == 1:
-            node_w = (diagram_w - 1.1 - max(0, len(nodes) - 1) * 0.18) / len(nodes)
-            for index, node in enumerate(nodes):
-                positions[str(node.get("node_id"))] = (
-                    diagram_x + 0.55 + index * (node_w + 0.18),
-                    3.25,
-                    node_w,
-                    1.28,
-                )
-        else:
-            node_w = (diagram_w - 1.28) / 2
-            for index, node in enumerate(nodes):
-                row, column = divmod(index, 2)
-                positions[str(node.get("node_id"))] = (
-                    diagram_x + 0.46 + column * (node_w + 0.22),
-                    2.78 + row * 1.52,
-                    node_w,
-                    1.12,
-                )
 
     # Connectors are deliberately created first so they remain behind nodes.
     edge_labels: list[tuple[str, float, float]] = []
@@ -1019,7 +1122,7 @@ def _render_relational_visual(
         x, y, width, height = positions[node_id]
         primary = str(node.get("emphasis") or "") == "primary"
         full_label = str(node.get("label") or "")
-        visible_label = _diagram_label(full_label, maximum=18)
+        visible_label = " ".join(full_label.split())
         label_size = 16
         shape = _shape(
             slide,
@@ -1328,6 +1431,151 @@ def _render_code_visual(
     _source_panel(slide, supporting, 8.7, 1.92, 3.86, 4.62, theme)
 
 
+def _render_table_row_detail(
+    slide: Any,
+    headers: list[str],
+    row: list[str],
+    theme: dict[str, str],
+) -> None:
+    """Render one oversized source row as readable labeled evidence fields."""
+
+    pairs = [
+        (
+            headers[index] if index < len(headers) else f"字段 {index + 1}",
+            value,
+        )
+        for index, value in enumerate(row)
+    ]
+    if not pairs:
+        return
+    available_height = 4.48
+    gap = 0.08
+    usable_height = available_height - gap * max(0, len(pairs) - 1)
+    value_fonts = [17 if len(value) <= 72 else 16 for _label, value in pairs]
+    required_heights = [
+        max(
+            0.58,
+            _wrapped_line_count(
+                _display_text(label),
+                width_pt=2.15 * 72.0,
+                font_size_pt=16,
+            )
+            * 16
+            * 1.22
+            / 72.0
+            + 0.28,
+            _wrapped_line_count(
+                _display_text(value),
+                width_pt=8.75 * 72.0,
+                font_size_pt=value_font,
+            )
+            * value_font
+            * 1.22
+            / 72.0
+            + 0.22,
+        )
+        for (label, value), value_font in zip(pairs, value_fonts)
+    ]
+    required_total = sum(required_heights)
+    if required_total > usable_height:
+        raise ValueError("table_row_detail_render_capacity_exceeded")
+    extra_height = (usable_height - required_total) / max(1, len(pairs))
+    heights = [height + extra_height for height in required_heights]
+    y = 1.94
+    for index, ((label, value), value_font, height) in enumerate(
+        zip(pairs, value_fonts, heights)
+    ):
+        _shape(
+            slide,
+            0.8,
+            y,
+            11.76,
+            height,
+            theme["surface"],
+            radius=True,
+            line=theme["chart_bg"],
+        )
+        _shape(slide, 0.8, y, 0.08, height, theme["accent"], radius=False)
+        _text(
+            slide,
+            label,
+            1.1,
+            y + 0.16,
+            2.15,
+            max(0.3, height - 0.28),
+            16,
+            theme["accent"],
+            bold=True,
+        )
+        _text(
+            slide,
+            value,
+            3.35,
+            y + 0.12,
+            8.75,
+            max(0.36, height - 0.22),
+            value_font,
+            theme["ink"],
+            bold=len(value) <= 48,
+        )
+        y += height + gap
+
+
+def _table_support_text(blocks: list[SlideBlockSpec]) -> str:
+    return "\n".join(
+        [
+            *(
+                item
+                for block in blocks
+                for item in block.items
+                if str(item).strip()
+            ),
+            *(
+                block.content
+                for block in blocks
+                if str(block.content or "").strip()
+            ),
+        ]
+    ).strip()
+
+
+def _required_table_height_inches(
+    headers: list[str],
+    rows: list[list[str]],
+    *,
+    width: float,
+    font_size: int = 16,
+    cell_horizontal_margin: float = 0.1,
+    cell_vertical_margin: float = 0.07,
+) -> float:
+    column_count = max(1, len(headers), max((len(row) for row in rows), default=0))
+    values = [headers or ["Comparison"], *rows]
+    column_text_width_pt = max(
+        12.0,
+        (width / column_count - cell_horizontal_margin * 2) * 72.0,
+    )
+    required_height_pt = 0.0
+    for row_values in values:
+        maximum_lines = max(
+            1,
+            max(
+                (
+                    _wrapped_line_count(
+                        _display_text(str(row_values[column_index])),
+                        width_pt=column_text_width_pt,
+                        font_size_pt=font_size,
+                    )
+                    for column_index in range(min(column_count, len(row_values)))
+                ),
+                default=1,
+            ),
+        )
+        required_height_pt += (
+            maximum_lines * font_size * 1.22 + cell_vertical_margin * 2 * 72.0
+        )
+    return required_height_pt / 72.0
+
+
 def _render_table_visual(
     slide: Any,
     unit: SlideSpec,
@@ -1337,17 +1585,117 @@ def _render_table_visual(
     parameters = visual.get("parameters") or {}
     parameter_rows = parameters.get("rows") or []
     if parameter_rows:
+        if (
+            str(unit.quality.get("v6_layout_variant") or "")
+            == "table-row-detail"
+            and len(parameter_rows) == 1
+        ):
+            _render_table_row_detail(
+                slide,
+                [str(value) for value in parameters.get("headers") or []],
+                [str(value) for value in parameter_rows[0]],
+                theme,
+            )
+            return
+        supporting_blocks = [
+            block for block in unit.blocks
+            if not block.metadata.get("table_source")
+        ]
+        support_mode = str(unit.quality.get("v6_artifact_support_mode") or "")
+        split_support = bool(supporting_blocks and support_mode == "split")
+        band_support = bool(supporting_blocks and support_mode == "band")
+        table_width = 7.18 if split_support else 11.78
+        table_height = 3.28 if band_support else 4.62
+        support_band_y = 5.30
+        support_band_height = 1.58
+        if band_support:
+            required_table_height = _required_table_height_inches(
+                [str(value) for value in parameters.get("headers") or []],
+                [[str(value) for value in row] for row in parameter_rows],
+                width=table_width,
+            )
+            # The template's summary band has more vertical capacity than most
+            # summaries need.  Lend only that verified slack to the table while
+            # preserving a gap and the fixed footer-safe lower boundary.
+            support_text = _table_support_text(supporting_blocks)
+            required_support_height = max(
+                0.72,
+                _wrapped_line_count(
+                    support_text,
+                    width_pt=9.55 * 72.0,
+                    font_size_pt=16,
+                ) * 16 * 1.22 / 72.0 + 0.20,
+            )
+            support_band_height = min(1.58, max(0.78, required_support_height))
+            support_band_y = 6.88 - support_band_height
+            table_height = min(
+                required_table_height + 0.02,
+                support_band_y - 1.92 - 0.10,
+            )
         _table(
             slide,
             [str(value) for value in parameters.get("headers") or ["顺序", "课程原文要点"]],
             [[str(value) for value in row] for row in parameter_rows],
             0.78,
             1.92,
-            7.18,
-            4.62,
+            table_width,
+            table_height,
             theme,
         )
-        _source_panel(slide, unit, 8.2, 1.92, 4.36, 4.62, theme)
+        if split_support:
+            supporting = SlideSpec.model_validate({
+                **unit.model_dump(mode="json"),
+                "blocks": [
+                    block.model_dump(mode="json") for block in supporting_blocks
+                ],
+            })
+            _source_panel(slide, supporting, 8.2, 1.92, 4.36, 4.62, theme)
+        elif band_support:
+            support_text = _table_support_text(supporting_blocks)
+            support_label = next(
+                (
+                    str(block.title or "").strip()
+                    for block in supporting_blocks
+                    if str(block.title or "").strip()
+                ),
+                "" if _uses_source_only_audience_labels(unit) else "SUMMARY",
+            )
+            _shape(
+                slide,
+                0.78,
+                support_band_y,
+                11.78,
+                support_band_height,
+                theme["surface"],
+                radius=True,
+                line=theme["chart_bg"],
+            )
+            if support_label:
+                _text(
+                    slide,
+                    support_label.upper(),
+                    1.08,
+                    support_band_y + support_band_height / 2 - 0.14,
+                    1.45,
+                    0.28,
+                    10,
+                    theme["accent"],
+                    bold=True,
+                    font=theme["body_font"],
+                    east_asian_font=theme["body_east_asian_font"],
+                )
+            _text(
+                slide,
+                support_text,
+                2.6 if support_label else 1.08,
+                support_band_y + 0.10,
+                9.55 if support_label else 11.08,
+                support_band_height - 0.18,
+                16,
+                theme["ink"],
+                font=theme["body_font"],
+                east_asian_font=theme["body_east_asian_font"],
+            )
         return
     block = next(
         (
@@ -1717,6 +2065,10 @@ def _semantic_panel(
     return panel
 
 
+def _uses_source_only_audience_labels(unit: SlideSpec) -> bool:
+    return str(unit.quality.get("audience_label_policy") or "") == "source_only"
+
+
 def _render_authored_cover(
     slide: Any,
     unit: SlideSpec,
@@ -1727,17 +2079,21 @@ def _render_authored_cover(
     """Render the authored Qizhi cover when the theme ships a cover visual."""
     if not _add_theme_visual_asset(slide, theme, "cover"):
         return False
-    _text(
-        slide,
-        unit.eyebrow or "课堂演示",
-        0.92,
-        0.72,
-        4.0,
-        0.38,
-        14,
-        theme["accent"],
-        bold=True,
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "课堂演示"
     )
+    if eyebrow:
+        _text(
+            slide,
+            eyebrow,
+            0.92,
+            0.72,
+            4.0,
+            0.38,
+            14,
+            theme["accent"],
+            bold=True,
+        )
     title_size = 35 if len(unit.title) > 10 else 44 if len(unit.title) > 6 else 50
     _text(
         slide,
@@ -1753,13 +2109,16 @@ def _render_authored_cover(
         east_asian_font=theme["title_east_asian_font"],
     )
     if unit.subtitle:
+        subtitle_y = 3.80 if minimal else 3.86
+        subtitle_width = 7.55 if minimal else 6.85
+        subtitle_height = 1.02 if minimal else 0.58
         _text(
             slide,
             unit.subtitle,
             0.94,
-            3.86,
-            6.85,
-            0.58,
+            subtitle_y,
+            subtitle_width,
+            subtitle_height,
             17,
             theme["muted"],
         )
@@ -1778,7 +2137,18 @@ def _render_authored_cover(
             )
             _shape(slide, 1.14, 4.84, 0.07, 0.58, theme["green"], radius=False)
             _text(slide, message, 1.43, 4.76, 5.98, 0.68, 17, theme["ink"], bold=True)
-    _text(slide, "启智课堂", 11.10, 0.72, 1.32, 0.34, 13, "FFFFFF", bold=True, align="center")
+    _text(
+        slide,
+        str(theme.get("label") or "启智课堂"),
+        11.10,
+        0.72,
+        1.32,
+        0.34,
+        13,
+        "FFFFFF",
+        bold=True,
+        align="center",
+    )
     _text(slide, "同源课程课件 · 可继续编辑", 0.94, 6.62, 4.8, 0.28, 10, theme["muted"])
     return True
 
@@ -1790,7 +2160,11 @@ def _render_cover(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _shape(slide, 10.82, 0.0, 2.513, 7.5, theme["accent_soft"], radius=False)
     _shape(slide, 11.35, 0.72, 1.04, 1.04, theme["green"], radius=True)
     _text(slide, "灵知", 11.35, 0.99, 1.04, 0.34, 15, "FFFFFF", bold=True, align="center")
-    _text(slide, unit.eyebrow or "课程演示", 0.92, 0.72, 4.0, 0.38, 14, theme["accent"], bold=True)
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "课程演示"
+    )
+    if eyebrow:
+        _text(slide, eyebrow, 0.92, 0.72, 4.0, 0.38, 14, theme["accent"], bold=True)
     cover_title_size = 42 if len(unit.title) > 32 else 46 if len(unit.title) > 22 else 50
     _text(
         slide, unit.title, 0.92, 1.22, 9.15, 2.6, cover_title_size, theme["title"], bold=True,
@@ -1809,17 +2183,21 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
     if _render_authored_cover(slide, unit, theme, minimal=True):
         return
     _shape(slide, 0.82, 0.76, 0.12, 0.72, theme["accent"], radius=False)
-    _text(
-        slide,
-        unit.eyebrow or "课程课件",
-        1.12,
-        0.86,
-        3.6,
-        0.34,
-        13,
-        theme["accent"],
-        bold=True,
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "课程课件"
     )
+    if eyebrow:
+        _text(
+            slide,
+            eyebrow,
+            1.12,
+            0.86,
+            3.6,
+            0.34,
+            13,
+            theme["accent"],
+            bold=True,
+        )
     title_size = 38 if len(unit.title) > 34 else 44 if len(unit.title) > 22 else 50
     _text(
         slide,
@@ -1836,7 +2214,7 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
     )
     _shape(slide, 0.88, 5.5, 3.25, 0.06, theme["accent"], radius=False)
     if unit.subtitle:
-        _text(slide, unit.subtitle, 0.9, 5.78, 8.4, 0.45, 16, theme["muted"])
+        _text(slide, unit.subtitle, 0.9, 5.72, 10.9, 0.92, 16, theme["muted"])
 
 
 def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -1872,7 +2250,8 @@ def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) 
     if unit.subtitle:
         _shape(slide, 0.92, 4.72, 5.65, 0.05, theme["accent"], radius=False)
         _text(slide, unit.subtitle, 0.94, 5.04, 7.3, 0.7, 20, theme["ink"], bold=True)
-    _text(slide, "COURSE", 9.72, 1.08, 2.4, 0.42, 14, theme["accent"], bold=True)
+    if not _uses_source_only_audience_labels(unit):
+        _text(slide, "COURSE", 9.72, 1.08, 2.4, 0.42, 14, theme["accent"], bold=True)
     _text(
         slide,
         "概念\n方法\n应用",
@@ -1951,9 +2330,14 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
 def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     if _add_theme_visual_asset(slide, theme, "chapter"):
         chapter_number = _chapter_number(unit.title)
-        _text(slide, "CHAPTER", 0.64, 0.88, 2.5, 0.34, 12, "FFFFFF", bold=True)
+        if not _uses_source_only_audience_labels(unit):
+            _text(slide, "CHAPTER", 0.64, 0.88, 2.5, 0.34, 12, "FFFFFF", bold=True)
         _text(slide, chapter_number, 0.64, 1.48, 2.62, 1.35, 54, "FFFFFF", bold=True)
-        _text(slide, unit.eyebrow or "章节转场", 4.48, 1.02, 2.4, 0.32, 12, theme["green"], bold=True)
+        eyebrow = unit.eyebrow or (
+            "" if _uses_source_only_audience_labels(unit) else "章节转场"
+        )
+        if eyebrow:
+            _text(slide, eyebrow, 4.48, 1.02, 2.4, 0.32, 12, theme["green"], bold=True)
         _text(
             slide,
             unit.title,
@@ -1973,19 +2357,23 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             or unit.teaching_job
             or unit.takeaway
         )
-        _shape(slide, 4.48, 3.42, 0.08, 1.32, theme["accent"], radius=False)
+        _shape(slide, 4.48, 3.42, 0.08, 2.43, theme["accent"], radius=False)
         _text(slide, "本章主线", 4.82, 3.47, 1.5, 0.30, 11, theme["accent"], bold=True)
-        _text(slide, chapter_message, 4.82, 3.92, 6.72, 0.95, 17, theme["ink"], bold=True)
+        _text(slide, chapter_message, 4.82, 3.92, 6.72, 1.75, 17, theme["ink"], bold=True)
         return
     _shape(slide, 0.0, 0.0, 4.05, 7.5, theme["accent_soft"], radius=False)
     chapter_number = _chapter_number(unit.title)
     _text(slide, chapter_number, 0.72, 1.15, 2.5, 1.35, 54, theme["accent"], bold=True)
-    _text(slide, unit.eyebrow or "章节转场", 4.65, 1.08, 2.3, 0.32, 12, theme["green"], bold=True)
+    eyebrow = unit.eyebrow or (
+        "" if _uses_source_only_audience_labels(unit) else "章节转场"
+    )
+    if eyebrow:
+        _text(slide, eyebrow, 4.65, 1.08, 2.3, 0.32, 12, theme["green"], bold=True)
     _text(
         slide, unit.title, 4.65, 1.62, 7.55, 1.4, 35, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
     )
-    _shape(slide, 4.65, 3.45, 6.95, 1.55, theme["canvas"], radius=True, line=theme["chart_bg"])
+    _shape(slide, 4.65, 3.45, 6.95, 2.5, theme["canvas"], radius=True, line=theme["chart_bg"])
     _text(slide, "本章主线", 4.98, 3.78, 1.4, 0.3, 11, theme["accent"], bold=True)
     chapter_message = (
         unit.key_message
@@ -1993,7 +2381,7 @@ def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         or unit.teaching_job
         or unit.takeaway
     )
-    _text(slide, chapter_message, 4.98, 4.12, 6.18, 0.62, 16, theme["ink"], bold=True)
+    _text(slide, chapter_message, 4.98, 4.12, 6.18, 1.75, 16, theme["ink"], bold=True)
 
 
 def _render_objective(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2273,6 +2661,7 @@ def _render_editorial_body(
     theme: dict[str, str],
     *,
     heading_already_rendered: bool = False,
+    body_capacity_profile: str = "",
 ) -> None:
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme)
@@ -2286,18 +2675,36 @@ def _render_editorial_body(
         if value
     ]
     body = "\n\n".join(values)
+    body_metrics = (
+        balanced_two_column_body_metrics(body)
+        if body_capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+        else None
+    )
+    if body_metrics is not None and not body_metrics["fits"]:
+        raise ValueError("template_slot_capacity_exceeded")
     _shape(slide, 0.86, 1.92, 0.1, 4.32, theme["accent"], radius=False)
-    _text(
+    body_shape = _text(
         slide,
         body,
         1.34,
         2.3,
         10.75,
         3.55,
-        26 if len(body) <= 90 else 22 if len(body) <= 180 else 17,
+        26 if len(body) <= 90 else 22 if len(body) <= 180 else 16,
         theme["ink"],
     )
+    if body_metrics is not None:
+        body_shape.name = (
+            f"{body_shape.name} [v6-body-capacity={body_capacity_profile}] "
+            f"[v6-body-max-lines={body_metrics['maximum_safe_lines']}]"
+        )
     _shape(slide, 1.34, 6.13, 4.35, 0.025, theme["chart_bg"], radius=False)
+
+
+def _balanced_two_column_body(value: str) -> list[str]:
+    """Use the same deterministic split already proved by template capacity."""
+
+    return list(balanced_two_column_body_metrics(value)["segments"])
 
 
 def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2308,20 +2715,25 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         for value in (block.items or [block.content])
         if value
     ]
+    body_capacity_profile = str(
+        unit.quality.get("v6_capacity_profile") or ""
+    )
+    body_metrics = None
     if len(values) == 1:
-        paragraphs = [item for item in values[0].split("\n\n") if item.strip()]
-        if len(paragraphs) > 1:
-            split_at = (len(paragraphs) + 1) // 2
-            values = [
-                "\n\n".join(paragraphs[:split_at]),
-                "\n\n".join(paragraphs[split_at:]),
-            ]
+        body_metrics = balanced_two_column_body_metrics(values[0])
+        if (
+            body_capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+            and not body_metrics["fits"]
+        ):
+            raise ValueError("template_slot_capacity_exceeded")
+        values = list(body_metrics["segments"])
     if len(values) < 2:
         _render_editorial_body(
             slide,
             unit,
             theme,
             heading_already_rendered=True,
+            body_capacity_profile=body_capacity_profile,
         )
         return
     labels = ("依据", "推论")
@@ -2342,11 +2754,30 @@ def _render_two_column(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
         ),
     )
     for index, value in enumerate(values[:2]):
-        x = 0.82 + index * 5.92
+        x = 0.68 + index * 6.05
         style = styles[index]
-        _semantic_panel(slide, x, 1.9, 5.58, 4.38, style)
-        _text(slide, labels[index], x + 0.34, 2.2, 1.2, 0.32, 12, style["accent"], bold=True)
-        _text(slide, value, x + 0.34, 2.82, 4.9, 2.85, 17, style["text"])
+        _semantic_panel(slide, x, 1.88, 5.92, 5.0, style)
+        _text(slide, labels[index], x + 0.3, 2.04, 1.2, 0.25, 12, style["accent"], bold=True)
+        body_shape = _text(
+            slide,
+            value,
+            x + 0.3,
+            2.34,
+            5.32,
+            4.42,
+            16,
+            style["text"],
+        )
+        if (
+            body_capacity_profile == BALANCED_TWO_COLUMN_BODY_V1
+            and body_metrics is not None
+        ):
+            body_shape.name = (
+                f"{body_shape.name} "
+                f"[v6-body-capacity={body_capacity_profile}] "
+                f"[v6-body-max-lines={body_metrics['maximum_safe_lines']}] "
+                f"[v6-body-column={index + 1}]"
+            )
 
 
 def _render_case_study(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2541,7 +2972,14 @@ def _render_comparison(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> No
 
 def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
-    items = _all_items(unit)[:5] or [block.content for block in unit.blocks if block.content][:5]
+    all_items = _all_items(unit) or [
+        block.content for block in unit.blocks if block.content
+    ]
+    capacity_profile = str(unit.quality.get("v6_capacity_profile") or "")
+    if capacity_profile == HORIZONTAL_PROCESS_CARDS_V1:
+        items = all_items
+    else:
+        items = all_items[:5]
     if str(unit.quality.get("task_prompt_mode") or "") == "action":
         _text(
             slide,
@@ -2554,41 +2992,116 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             theme["accent"],
             bold=True,
         )
-        weights = [max(1, min(3, math.ceil(len(item) / 70))) for item in items]
-        total_weight = max(1, sum(weights))
-        available_height = 4.0
-        gap = 0.08
+        step_parts = [_split_ordered_step(item) for item in items]
+        title_fonts = [18 if len(title) <= 28 else 16 for title, _detail in step_parts]
+        detail_font = 16
+        required_heights: list[float] = []
+        for (title, detail), title_font in zip(step_parts, title_fonts):
+            title_width = 3.08 if detail else 10.2
+            title_lines = _wrapped_line_count(
+                _display_text(title),
+                width_pt=title_width * 72.0,
+                font_size_pt=title_font,
+            )
+            detail_lines = (
+                _wrapped_line_count(
+                    _display_text(detail),
+                    width_pt=7.05 * 72.0,
+                    font_size_pt=detail_font,
+                )
+                if detail
+                else 0
+            )
+            required_heights.append(max(
+                0.58,
+                title_lines * title_font * 1.22 / 72.0 + 0.16,
+                detail_lines * detail_font * 1.22 / 72.0 + 0.16,
+            ))
+        # Use the full template-safe content area.  The former 4.08-inch limit
+        # left unused space above the footer and then compressed valid multi-line
+        # steps into frames shorter than their text on wider CJK fonts.
+        available_height = 4.60
+        gap = 0.04
         usable_height = available_height - gap * max(0, len(items) - 1)
-        y = 2.22
-        for index, (item, weight) in enumerate(zip(items, weights), start=1):
-            height = usable_height * weight / total_weight
-            _shape(slide, 0.86, y, 0.58, height, theme["accent_soft"], radius=True)
+        y = 2.20
+        required_total = max(0.01, sum(required_heights))
+        if required_total <= usable_height:
+            extra_height = (usable_height - required_total) / max(1, len(items))
+            heights = [height + extra_height for height in required_heights]
+        else:
+            raise ValueError("ordered_process_render_capacity_exceeded")
+        centers: list[float] = []
+        cursor = y
+        for height in heights:
+            centers.append(cursor + height / 2)
+            cursor += height + gap
+        if len(centers) > 1:
+            _shape(
+                slide,
+                1.16,
+                centers[0],
+                0.035,
+                centers[-1] - centers[0],
+                theme["chart_bg"],
+                radius=False,
+            )
+        for index, ((title, detail), height, title_font) in enumerate(
+            zip(step_parts, heights, title_fonts),
+            start=1,
+        ):
+            center_y = y + height / 2
+            if index < len(items):
+                _shape(
+                    slide,
+                    1.72,
+                    y + height - 0.015,
+                    10.38,
+                    0.015,
+                    theme["chart_bg"],
+                    radius=False,
+                )
+            _circle(slide, 0.88, center_y - 0.28, 0.56, theme["accent"])
             _text(
                 slide,
                 f"{index:02d}",
-                0.86,
-                y + max(0.08, (height - 0.22) / 2),
-                0.58,
+                0.88,
+                center_y - 0.10,
+                0.56,
                 0.22,
                 11,
-                theme["accent"],
+                "FFFFFF",
                 bold=True,
                 align="center",
                 font="Aptos Mono",
             )
             _text(
                 slide,
-                item,
-                1.72,
+                title,
+                1.78,
                 y + 0.08,
-                10.25,
-                max(0.36, height - 0.16),
-                17 if len(item) <= 80 else 16,
+                3.08 if detail else 10.2,
+                max(0.46, height - 0.14),
+                title_font,
                 theme["ink"],
-                bold=len(item) <= 80,
+                bold=True,
             )
+            if detail:
+                _text(
+                    slide,
+                    detail,
+                    5.02,
+                    y + 0.08,
+                    7.05,
+                    max(0.48, height - 0.14),
+                    detail_font,
+                    theme["muted"],
+                )
             y += height + gap
         return
+    if capacity_profile == HORIZONTAL_PROCESS_CARDS_V1:
+        metrics = horizontal_process_card_metrics(items)
+        if not metrics["fits"]:
+            raise ValueError("horizontal_process_render_capacity_exceeded")
     width = (11.7 - max(0, len(items) - 1) * 0.24) / max(1, len(items))
     style = _theme_text_box_style(
         theme,
@@ -2610,9 +3123,161 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
             _text(slide, "→", x + width + 0.01, 3.68, 0.22, 0.35, 17, theme["muted"], bold=True, align="center")
 
 
+def _render_practice_artifact(
+    slide: Any,
+    unit: SlideSpec,
+    theme: dict[str, str],
+) -> None:
+    """Render ordered actions beside their source-backed characteristic artifact."""
+
+    _heading(slide, unit, theme)
+    process = _find_block(unit, "process")
+    steps = list(process.items if process else [])[:7]
+    artifact_kind = str(unit.quality.get("v6_practice_artifact_kind") or "")
+
+    _text(
+        slide,
+        str(unit.quality.get("prompt_label") or "执行并核验"),
+        0.82,
+        1.90,
+        2.0,
+        0.25,
+        11,
+        theme["accent"],
+        bold=True,
+    )
+    step_line_counts = [
+        _wrapped_line_count(value, width_pt=3.70 * 72, font_size_pt=16)
+        for value in steps
+    ]
+    minimum_heights = [
+        # Allocate the real text-frame line height. Dividing by 1.18 here used
+        # to make every row smaller than its text and allowed adjacent steps
+        # to overlap even while the slide itself stayed inside the canvas.
+        max(0.44, line_count * 16 * 1.22 / 72 + 0.02)
+        for line_count in step_line_counts
+    ]
+    remaining_height = max(0.0, 3.98 - sum(minimum_heights))
+    row_heights = [
+        height + remaining_height / max(1, len(minimum_heights))
+        for height in minimum_heights
+    ]
+    first_center = 2.34 + (row_heights[0] / 2 if row_heights else 0)
+    last_center = 2.34 + sum(row_heights[:-1]) + (row_heights[-1] / 2 if row_heights else 0)
+    if len(steps) > 1:
+        _shape(
+            slide,
+            1.06,
+            first_center,
+            0.025,
+            last_center - first_center,
+            theme["chart_bg"],
+            radius=False,
+        )
+    y = 2.34
+    for index, (value, row_height) in enumerate(zip(steps, row_heights), start=1):
+        center_y = y + row_height / 2
+        if index < len(steps):
+            _shape(
+                slide,
+                1.48,
+                y + row_height - 0.012,
+                3.72,
+                0.012,
+                theme["chart_bg"],
+                radius=False,
+            )
+        _circle(slide, 0.82, center_y - 0.22, 0.44, theme["accent"])
+        _text(
+            slide,
+            f"{index:02d}",
+            0.82,
+            center_y - 0.07,
+            0.44,
+            0.16,
+            9,
+            "FFFFFF",
+            bold=True,
+            align="center",
+            font="Aptos Mono",
+        )
+        _text(
+            slide,
+            value,
+            1.48,
+            y + 0.01,
+            3.72,
+            max(0.38, row_height - 0.02),
+            16,
+            theme["ink"],
+            bold=len(value) <= 28,
+        )
+        y += row_height
+
+    _shape(slide, 5.48, 1.94, 0.025, 4.48, theme["chart_bg"], radius=False)
+    artifact_x, artifact_y, artifact_w, artifact_h = 5.82, 1.94, 6.70, 4.48
+    if artifact_kind == "code":
+        code = _find_block(unit, "code")
+        _shape(slide, artifact_x, artifact_y, artifact_w, artifact_h, theme["code"], radius=True)
+        _text(slide, "SOURCE", 6.16, 2.20, 1.2, 0.25, 10, "AEB6D0", bold=True, font=CODE_FONT)
+        _text(
+            slide,
+            code.content if code else "",
+            6.16,
+            2.66,
+            6.02,
+            3.28,
+            16,
+            "F5F7FF",
+            font=CODE_FONT,
+            east_asian_font=theme["body_east_asian_font"],
+        )
+    elif artifact_kind == "formula":
+        visual = next((item for item in unit.visuals if item.get("kind") == "formula"), {})
+        formula = str((visual.get("parameters") or {}).get("formula") or "")
+        _shape(slide, artifact_x, artifact_y, artifact_w, artifact_h, theme["canvas"], radius=True, line=theme["chart_bg"])
+        _text(slide, "关键公式", 6.16, 2.20, 1.4, 0.25, 11, theme["accent"], bold=True)
+        _text(
+            slide,
+            _format_formula_text(formula),
+            6.16,
+            3.05,
+            6.02,
+            1.75,
+            26 if len(formula) <= 72 else 21,
+            theme["title"],
+            align="center",
+            font=theme["math_font"],
+            east_asian_font=theme["body_east_asian_font"],
+        )
+    elif artifact_kind == "table":
+        visual = next((item for item in unit.visuals if item.get("kind") == "table"), {})
+        parameters = visual.get("parameters") or {}
+        _text(slide, "核验对照", 5.86, 1.94, 1.4, 0.25, 11, theme["accent"], bold=True)
+        _table(
+            slide,
+            [str(value) for value in parameters.get("headers") or []],
+            [[str(value) for value in row] for row in parameters.get("rows") or []],
+            artifact_x,
+            2.34,
+            artifact_w,
+            4.08,
+            theme,
+        )
+
+
+def _split_ordered_step(value: str) -> tuple[str, str]:
+    clean = str(value or "").strip()
+    parts = re.split(r"\s*[:：]\s*", clean, maxsplit=1)
+    if len(parts) == 2 and parts[0] and parts[1] and len(parts[0]) <= 42:
+        return parts[0].strip(), parts[1].strip()
+    return clean, ""
+
+
 def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     code = _find_block(unit, "code")
+    code_text = code.content if code else ""
     insight_blocks = [block for block in unit.blocks if block is not code]
     items = [
         item
@@ -2633,7 +3298,17 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _semantic_panel(slide, 0.76, 1.75, code_panel_width, 4.72, evidence_style, rail=False)
     language = str(code.metadata.get("language") or "code") if code else "code"
     _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(slide, code.content if code else "", 1.05, 2.48, code_text_width, 3.6, 16, evidence_style["text"], font="Aptos Mono")
+    _text(
+        slide,
+        code_text,
+        1.05,
+        2.48,
+        code_text_width,
+        3.6,
+        16,
+        evidence_style["text"],
+        font="Aptos Mono",
+    )
     if not items:
         return
     note_style = _theme_text_box_style(
@@ -2645,7 +3320,7 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     )
     _semantic_panel(slide, 8.52, 1.75, 4.04, 4.72, note_style)
     _text(slide, "阅读线索", 8.86, 2.08, 1.7, 0.32, 12, note_style["accent"], bold=True)
-    _bullets(slide, items, 8.86, 2.65, 3.32, 3.1, 16, note_style["text"], note_style["accent"])
+    _bullets(slide, items, 8.86, 2.48, 3.32, 3.65, 16, note_style["text"], note_style["accent"])
 
 
 def _render_misconception(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -3144,14 +3819,19 @@ def _balanced_text_columns(value: str) -> tuple[str, str]:
 
 def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     heading_mode = str(unit.quality.get("heading_mode") or "full")
-    eyebrow = str(
-        unit.quality.get("section_label")
-        if heading_mode == "hidden"
-        else unit.eyebrow or unit.slide_purpose
-    )
+    section_label = str(unit.quality.get("section_label") or "").strip()
+    if _uses_source_only_audience_labels(unit):
+        eyebrow = section_label or str(unit.eyebrow or "").strip()
+    else:
+        eyebrow = str(
+            section_label
+            if heading_mode == "hidden"
+            else unit.eyebrow or unit.slide_purpose
+        )
     heading = _display_heading(unit)
     heading_size = 35
-    _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
+    if eyebrow:
+        _text(slide, eyebrow, 0.78, 0.42, 8.8, 0.22, 11, theme["accent"], bold=True)
     _text(
         slide, heading, 0.78, 0.70, 11.72, 1.16, heading_size, theme["title"], bold=True,
         font=theme["title_font"], east_asian_font=theme["title_east_asian_font"],
@@ -3161,8 +3841,11 @@ def _heading(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 
 
 def _footer(slide: Any, unit: SlideSpec, page: int, total: int, theme: dict[str, str]) -> None:
-    section = unit.section_id or "COURSE"
-    _text(slide, section, 0.78, 7.1, 2.4, 0.2, 8, theme["muted"], font="Aptos Mono")
+    section = unit.section_id or (
+        "" if _uses_source_only_audience_labels(unit) else "COURSE"
+    )
+    if section:
+        _text(slide, section, 0.78, 7.1, 2.4, 0.2, 8, theme["muted"], font="Aptos Mono")
     image_source = str(unit.quality.get("image_source_short") or "").strip()
     if image_source:
         _text(
@@ -3216,6 +3899,24 @@ def _shape(
         shape.line.fill.background()
     if radius and hasattr(shape, "adjustments") and len(shape.adjustments):
         shape.adjustments[0] = 0.08
+    return shape
+
+
+def _circle(slide: Any, x: float, y: float, size: float, fill: str) -> Any:
+    from pptx.dml.color import RGBColor
+    from pptx.enum.shapes import MSO_SHAPE
+    from pptx.util import Inches
+
+    shape = slide.shapes.add_shape(
+        MSO_SHAPE.OVAL,
+        Inches(x),
+        Inches(y),
+        Inches(size),
+        Inches(size),
+    )
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = RGBColor.from_string(fill)
+    shape.line.fill.background()
     return shape
 
 
@@ -3298,7 +3999,7 @@ def _table(
     theme: dict[str, str],
 ) -> None:
     from pptx.dml.color import RGBColor
-    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
     from pptx.util import Inches, Pt
 
     column_count = max(1, len(headers), max((len(row) for row in rows), default=0))
@@ -3314,6 +4015,45 @@ def _table(
     for column in table.columns:
         column.width = Inches(width / column_count)
     values = [headers or ["比较项"], *rows]
+    font_size = 16
+    cell_horizontal_margin = 0.1
+    cell_vertical_margin = 0.07
+    column_text_width_pt = max(
+        12.0,
+        (width / column_count - cell_horizontal_margin * 2) * 72.0,
+    )
+    required_row_heights_pt: list[float] = []
+    for row_index in range(row_count):
+        row_values = values[row_index] if row_index < len(values) else []
+        maximum_lines = max(
+            1,
+            max(
+                (
+                    _wrapped_line_count(
+                        _display_text(str(row_values[column_index])),
+                        width_pt=column_text_width_pt,
+                        font_size_pt=font_size,
+                    )
+                    for column_index in range(min(column_count, len(row_values)))
+                ),
+                default=1,
+            ),
+        )
+        required_row_heights_pt.append(
+            maximum_lines * font_size * 1.22 + cell_vertical_margin * 2 * 72.0
+        )
+    available_height_pt = height * 72.0
+    required_height_pt = sum(required_row_heights_pt)
+    if required_height_pt <= available_height_pt:
+        extra_per_row = (available_height_pt - required_height_pt) / row_count
+        row_heights_pt = [value + extra_per_row for value in required_row_heights_pt]
+    else:
+        # Shrinking rows below their measured requirement creates a valid PPTX
+        # file with clipped cells.  Capacity must instead be handled by the V6
+        # compiler's safe pagination contract and surfaced if it is violated.
+        raise ValueError("table_render_capacity_exceeded")
+    for row, row_height_pt in zip(table.rows, row_heights_pt):
+        row.height = Pt(row_height_pt)
     for row_index in range(row_count):
         for column_index in range(column_count):
             cell = table.cell(row_index, column_index)
@@ -3328,11 +4068,12 @@ def _table(
                 if row_index == 0
                 else (theme["surface"] if row_index % 2 else theme["canvas"])
             )
-            cell.margin_left = cell.margin_right = Inches(0.1)
-            cell.margin_top = cell.margin_bottom = Inches(0.07)
+            cell.margin_left = cell.margin_right = Inches(cell_horizontal_margin)
+            cell.margin_top = cell.margin_bottom = Inches(cell_vertical_margin)
+            cell.vertical_anchor = MSO_ANCHOR.MIDDLE
             paragraph = cell.text_frame.paragraphs[0]
             _configure_font(paragraph.font, BODY_FONT)
-            paragraph.font.size = Pt(16)
+            paragraph.font.size = Pt(font_size)
             paragraph.font.bold = row_index == 0
             paragraph.font.color.rgb = RGBColor.from_string(theme["accent"] if row_index == 0 else theme["ink"])
             paragraph.alignment = PP_ALIGN.LEFT

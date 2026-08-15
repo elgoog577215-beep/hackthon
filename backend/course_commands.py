@@ -161,10 +161,16 @@ class CourseCommandService:
         retire_block_ids: list[str] | None = None,
         restore_block_ids: list[str] | None = None,
         reorderings: list[dict[str, str]] | None = None,
+        section_moves: list[dict[str, str]] | None = None,
         reason: str = "",
         actor: str = "system",
     ) -> dict[str, Any]:
-        """Apply a reviewed multi-block course change in one document commit."""
+        """Apply a reviewed multi-block course change in one document commit.
+
+        ``section_moves`` lets a reviewed plan reorder the catalog in the same
+        commit as its block edits, so a cross-chapter adjustment cannot land
+        half-applied with the body moved but the outline unchanged.
+        """
         operation = {
             "command_id": command_id,
             "operation": "apply_course_evolution_plan",
@@ -174,6 +180,8 @@ class CourseCommandService:
         }
 
         def mutation(document) -> None:
+            for move in section_moves or []:
+                _apply_section_move(document, move)
             blocks_by_id = {block.block_id: block for block in document.blocks}
             replaced_ids: set[str] = set()
             for item in replacements or []:
@@ -312,6 +320,60 @@ class CourseCommandService:
             mutation=mutation,
         )
 
+    async def move_section(
+        self,
+        course_id: str,
+        *,
+        command_id: str,
+        expected_document_revision: str,
+        expected_section_structure_revision: str,
+        section_id: str,
+        after_section_id: str = "",
+        reason: str = "",
+        actor: str = "system",
+    ) -> dict[str, Any]:
+        """Move one section in the catalog, the single source of course structure.
+
+        Structural change belongs here rather than in the body or the teaching
+        plan: only the catalog owns section order, and only this command carries
+        the structure-revision check that makes a concurrent outline edit fail
+        loudly instead of being silently overwritten. Blocks are untouched — they
+        keep their section ownership and their order within it.
+        """
+        operation = {
+            "command_id": command_id,
+            "operation": "move_section",
+            "affected_block_ids": [],
+            "reason": reason,
+            "actor": actor,
+        }
+
+        def mutation(document) -> None:
+            target = next(
+                (item for item in document.sections if item.section_id == section_id),
+                None,
+            )
+            if target is None:
+                raise CourseDocumentConflict("Course section not found")
+            if _section_structure_revision(target) != expected_section_structure_revision:
+                raise CourseDocumentConflict("Course section structure revision changed")
+            _apply_section_move(
+                document,
+                {"section_id": section_id, "after_section_id": after_section_id},
+            )
+            operation["affected_block_ids"] = [
+                block.block_id
+                for block in document.blocks
+                if block.section_id == section_id and block.status != "retired"
+            ]
+
+        return await self.repository.apply_command(
+            course_id,
+            expected_revision=expected_document_revision,
+            operation=operation,
+            mutation=mutation,
+        )
+
     async def delete_block(
         self,
         course_id: str,
@@ -415,3 +477,50 @@ def _objective_revision(section: CourseSection) -> str:
         },
         prefix="cor_",
     )
+
+
+def _section_structure_revision(section: CourseSection) -> str:
+    """Mirror the ``section_structure:`` key of the course revision vector."""
+    return stable_hash(section.model_dump(mode="json"), prefix="cssr_")
+
+
+def _apply_section_move(document, move: dict[str, str]) -> None:
+    """Reposition one section in the catalog and renumber contiguously.
+
+    Shared by the standalone command and the reviewed operation group so both
+    paths order the catalog identically.
+    """
+    section_id = str(move.get("section_id") or "")
+    after_section_id = str(move.get("after_section_id") or "")
+    target = next(
+        (item for item in document.sections if item.section_id == section_id),
+        None,
+    )
+    if target is None:
+        raise CourseDocumentConflict("Course section not found")
+    if after_section_id == section_id:
+        raise CourseDocumentConflict("Course section cannot anchor to itself")
+
+    ordered = sorted(
+        document.sections,
+        key=lambda item: (item.position, item.section_id),
+    )
+    ordered.remove(target)
+    if not after_section_id:
+        ordered.insert(0, target)
+    else:
+        anchor_index = next(
+            (
+                index
+                for index, item in enumerate(ordered)
+                if item.section_id == after_section_id
+            ),
+            -1,
+        )
+        if anchor_index < 0:
+            raise CourseDocumentConflict("Course section anchor not found")
+        ordered.insert(anchor_index + 1, target)
+
+    for position, item in enumerate(ordered):
+        item.position = position
+    document.sections = ordered

@@ -7,6 +7,7 @@ interface V6Region {
   content_kind: string
   content: string
   source_block_ids?: string[]
+  source_section_ids?: string[]
   source_asset_refs?: string[]
 }
 
@@ -23,8 +24,13 @@ interface V6Page {
   page_id: string
   page_ordinal: number
   title: string
+  title_max_lines?: number
   resolved_layout: string
   source_block_ids: string[]
+  source_section_ids?: string[]
+  continuation_of_page_id?: string
+  continuation_index?: number
+  continuation_count?: number
   regions: V6Region[]
   visual_decision?: {
     decision?: string
@@ -35,6 +41,7 @@ interface V6Page {
     source_document_revision: string
     teaching_unit_id: string
     source_blocks: V6NoteBlock[]
+    source_section_ids?: string[]
   }
 }
 
@@ -47,6 +54,17 @@ interface V6DeckLike {
 interface AdapterDefinition {
   renderer_layout: string
   basic_layout: string
+  capacity_profile?: string
+  variant_policy?: {
+    artifact_content_kind: string
+    split_variant: string
+    full_variant: string
+    continuation_variant: string
+    detail_variant?: string
+    wide_min_columns?: string
+    wide_variant?: string
+    wide_support_mode?: string
+  }
 }
 
 const layouts = adapterContract.layouts as Record<string, AdapterDefinition>
@@ -61,6 +79,7 @@ function notesText(page: V6Page): string {
   return [
     `source_document_revision: ${page.speaker_notes.source_document_revision}`,
     `teaching_unit_id: ${page.speaker_notes.teaching_unit_id}`,
+    `source_section_ids: ${JSON.stringify(page.speaker_notes.source_section_ids || [])}`,
     ...page.speaker_notes.source_blocks.map(block => (
       [
         `[${block.block_id} @ ${block.block_revision}]`,
@@ -73,24 +92,101 @@ function notesText(page: V6Page): string {
   ].join('\n\n')
 }
 
+function parseMarkdownTable(value: string): { headers: string[]; rows: string[][] } {
+  const rows = String(value || '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line.startsWith('|') && line.endsWith('|'))
+    .filter(line => !(line.includes('-') && /^[|:\-\s]+$/.test(line)))
+    .map(line => line.slice(1, -1)
+      .split(/(?<!\\)\|/)
+      .map(cell => cell.replace(/\\\|/g, '|').trim()))
+  return { headers: rows[0] || [], rows: rows.slice(1) }
+}
+
+function tableRowRequiresDetail(value: string): boolean {
+  const table = parseMarkdownTable(value)
+  if (table.rows.length !== 1) return false
+  const cells = table.rows[0] || []
+  const columnCount = Math.max(1, table.headers.length, cells.length)
+  const safeColumnChars = Math.max(8, Math.round(108 / columnCount))
+  return Math.max(0, ...cells.map(cell => cell.length)) > safeColumnChars
+}
+
+function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
+  const policy = adapter.variant_policy
+  if (!policy?.artifact_content_kind) return { variant: '', supportMode: '' }
+  const hasArtifact = page.regions.some(
+    region => region.content_kind === policy.artifact_content_kind,
+  )
+  const hasSupport = page.regions.some(
+    region => region.content_kind !== policy.artifact_content_kind,
+  )
+  const artifactRegion = page.regions.find(
+    region => region.content_kind === policy.artifact_content_kind,
+  )
+  if (
+    policy.artifact_content_kind === 'table'
+    && artifactRegion
+    && policy.detail_variant
+    && (
+      Number(page.continuation_index || 1) > 1
+      || (!hasSupport && tableRowRequiresDetail(artifactRegion.content))
+    )
+  ) {
+    return { variant: policy.detail_variant, supportMode: 'full' }
+  }
+  if (Number(page.continuation_index || 1) > 1) {
+    return { variant: policy.continuation_variant, supportMode: 'full' }
+  }
+  const wideMinimum = Number(policy.wide_min_columns || 0)
+  if (
+    hasArtifact
+    && hasSupport
+    && policy.artifact_content_kind === 'table'
+    && artifactRegion
+    && wideMinimum > 0
+    && parseMarkdownTable(artifactRegion.content).headers.length >= wideMinimum
+  ) {
+    return {
+      variant: policy.wide_variant || policy.split_variant,
+      supportMode: policy.wide_support_mode || 'band',
+    }
+  }
+  return hasArtifact && hasSupport
+    ? { variant: policy.split_variant, supportMode: 'split' }
+    : { variant: policy.full_variant, supportMode: 'full' }
+}
+
+function audienceTitle(page: V6Page): string {
+  const title = String(page.title || '').trim()
+  if (Number(page.continuation_count || 1) <= 1) return title
+  return title.replace(/\s*[（(]\s*\d+\s*\/\s*\d+\s*[）)]\s*$/u, '').trim()
+}
+
 function regionBlock(region: V6Region): Record<string, unknown> {
-  const items = region.content_kind === 'items'
+  const items = ['items', 'steps'].includes(region.content_kind)
     ? region.content.split('\n').map(item => item.trim()).filter(Boolean)
     : []
   return {
     block_id: region.region_id,
     type: region.content_kind === 'code'
       ? 'code'
+      : region.content_kind === 'steps'
+        ? 'process'
       : region.content_kind === 'items'
         ? 'bullets'
         : 'statement',
-    title: region.slot_id.replace(/_/g, ' '),
+    // Template slot identifiers are internal routing metadata, not visible
+    // teaching copy.
+    title: '',
     content: items.length ? '' : region.content,
     items,
     metadata: {
       v6_slot_id: region.slot_id,
       v6_region_id: region.region_id,
       source_block_ids: region.source_block_ids || [],
+      source_section_ids: region.source_section_ids || [],
       source_asset_refs: region.source_asset_refs || [],
       formula: region.content_kind === 'formula',
       table_source: region.content_kind === 'table',
@@ -102,11 +198,15 @@ function pageVisuals(page: V6Page): Array<Record<string, unknown>> {
   const formula = page.regions.find(region => region.content_kind === 'formula')
   if (formula) return [{
     kind: 'formula',
-    caption: formula.slot_id,
+    caption: '',
+    alt_text: audienceTitle(page),
     parameters: { formula: formula.content },
   }]
   const table = page.regions.find(region => region.content_kind === 'table')
-  if (table) return [{ kind: 'table', caption: table.slot_id, parameters: {} }]
+  if (table) {
+    const parameters = parseMarkdownTable(table.content)
+    return [{ kind: 'table', caption: '', alt_text: audienceTitle(page), parameters }]
+  }
   if (String(page.visual_decision?.decision || '') === 'diagram') {
     const payload = page.visual_decision?.visual_payload || {}
     const nodes = Array.isArray(payload.nodes) ? payload.nodes : []
@@ -156,14 +256,22 @@ function adaptPage(
   const slug = layoutSlug(page.resolved_layout)
   const adapter = layouts[slug]
   if (!adapter) throw new Error(`v6_template_layout_adapter_missing:${page.resolved_layout}`)
+  const variant = layoutVariant(page, adapter)
+  const practiceArtifactKind = ['practice-code', 'practice-formula', 'practice-table'].includes(slug)
+    ? slug.replace('practice-', '')
+    : ''
+  const subtitle = slug === 'cover-minimal'
+    ? ''
+    : page.regions.find(region => region.slot_id === 'subtitle')?.content || ''
+  const eyebrow = page.regions.find(region => region.slot_id === 'eyebrow')?.content || ''
   return {
     unit_id: page.page_id,
     position: page.page_ordinal,
     layout: adapter.basic_layout,
     slide_purpose: slug,
-    eyebrow: slug.replace(/-/g, ' ').toUpperCase(),
-    title: page.title,
-    subtitle: '',
+    eyebrow,
+    title: audienceTitle(page),
+    subtitle,
     key_message: '',
     teaching_job: '',
     takeaway: '',
@@ -176,9 +284,23 @@ function adaptPage(
     quality: {
       passed: true,
       render_contract: 'template_layout_contract_v1',
+      audience_label_policy: 'source_only',
       v6_template_layout_id: page.resolved_layout,
       v6_layout_slug: slug,
+      v6_layout_variant: variant.variant,
+      v6_artifact_support_mode: variant.supportMode,
+      v6_capacity_profile: adapter.capacity_profile || '',
+      v6_continuation_index: Number(page.continuation_index || 1),
+      v6_continuation_count: Number(page.continuation_count || 1),
+      v6_title_max_lines: Math.max(1, Number(page.title_max_lines || 1)),
+      v6_practice_artifact_kind: practiceArtifactKind,
       resolved_layout: adapter.renderer_layout,
+      task_prompt_mode: practiceArtifactKind
+        ? 'artifact-guided'
+        : slug === 'practice-prompt' ? 'action' : '',
+      prompt_label: practiceArtifactKind
+        ? '执行并核验'
+        : slug === 'practice-prompt' ? '执行步骤' : '',
       template_theme_overrides: { ...templateThemeOverrides },
     },
   }

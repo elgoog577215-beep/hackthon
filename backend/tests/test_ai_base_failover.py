@@ -88,8 +88,20 @@ class SuccessfulCompletions:
         return _success_stream()
 
 
+class RateLimitedThenSuccessCompletions:
+    def __init__(self):
+        self.calls = []
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs["model"])
+        if len(self.calls) == 1:
+            raise _make_status_error(429, "limit_burst_rate")
+        return _success_stream()
+
+
 def _make_service(monkeypatch, completions, models=("model-a", "model-b")):
     monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", "https://primary.example.test/v1")
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
     monkeypatch.delenv("MODELSCOPE_BASE_URL", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL", raising=False)
@@ -120,6 +132,11 @@ def _make_service_with_modelscope_fallback(
         "https://api-inference.modelscope.cn/v1/",
     )
     monkeypatch.setenv("MODELSCOPE_MODEL", fallback_model)
+    # Unit tests exercise routing, not production pacing. Individual pacing
+    # tests override the instance values they need explicitly.
+    monkeypatch.setenv("AI_LAST_RESORT_START_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_LAST_RESORT_POST_REQUEST_INTERVAL_SECONDS", "0")
+    monkeypatch.setenv("AI_LAST_RESORT_RATE_LIMIT_RETRIES", "0")
     monkeypatch.delenv("MODELSCOPE_MODEL_CANDIDATES", raising=False)
     monkeypatch.delenv("MODELSCOPE_MODEL_FAST_CANDIDATES", raising=False)
     service = AIBase()
@@ -222,6 +239,38 @@ async def test_call_llm_uses_modelscope_only_after_primary_pool_is_exhausted(
 
 
 @pytest.mark.asyncio
+async def test_distinct_credentials_do_not_share_model_cooldown_on_same_endpoint(
+    monkeypatch,
+):
+    shared_endpoint = "https://api-inference.modelscope.cn/v1"
+    shared_model = "Qwen/Qwen3.5-27B"
+    primary = AlwaysFailingCompletions(
+        lambda: _make_status_error(429, "insufficient balance")
+    )
+    fallback = SuccessfulCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        models=(shared_model,),
+        fallback_model=shared_model,
+    )
+    service.api_base = shared_endpoint
+    service.modelscope_fallback_api_base = shared_endpoint
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert primary.calls == [shared_model]
+    assert fallback.calls == [shared_model]
+
+
+@pytest.mark.asyncio
 async def test_call_llm_does_not_touch_modelscope_when_primary_succeeds(
     monkeypatch,
 ):
@@ -292,6 +341,39 @@ async def test_call_llm_can_run_with_only_modelscope_fallback_configured(
 
 
 @pytest.mark.asyncio
+async def test_modelscope_last_resort_waits_and_retries_burst_rate_limit(
+    monkeypatch,
+):
+    fallback = RateLimitedThenSuccessCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        SuccessfulCompletions(),
+        fallback,
+    )
+    service.api_key = None
+    service.client = None
+    service._last_resort_rate_limit_retries = 1
+    monkeypatch.setattr(
+        service,
+        "_model_failure_cooldown_seconds",
+        lambda _error: 0.01,
+    )
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert fallback.calls == [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Pro",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_stream_llm_uses_modelscope_after_primary_pool_is_exhausted(
     monkeypatch,
 ):
@@ -352,7 +434,7 @@ async def test_call_llm_cools_down_empty_model_and_fails_over(monkeypatch):
     assert result == "ok-answer"
     assert completions.calls == ["model-a", "model-b"]
     assert (
-        service.api_base,
+        service._primary_provider_scope(),
         "model-a",
     ) in service._model_failure_cache
 
@@ -488,6 +570,27 @@ async def test_bounded_assessment_call_circuit_breaks_on_exhausted_quota(
 
 
 @pytest.mark.asyncio
+async def test_bounded_modelscope_call_tries_next_model_after_model_quota(
+    monkeypatch,
+):
+    error = RuntimeError("insufficient_quota: model token quota exhausted")
+    completions = SequencedCompletions(lambda: error)
+    service = _make_service(monkeypatch, completions)
+    service.api_base = "https://api-inference.modelscope.cn/v1"
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=2,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert service._provider_failure is None
+
+
+@pytest.mark.asyncio
 async def test_call_llm_still_fails_over_on_rate_limit_chinese_marker(monkeypatch):
     error = RuntimeError("触发速率限制，请稍后重试")
     completions = SequencedCompletions(lambda: error)
@@ -515,7 +618,7 @@ async def test_quota_failed_model_is_skipped_by_later_calls(monkeypatch):
 
     assert completions.calls == ["model-a", "model-b", "model-b"]
     assert (
-        service.api_base,
+        service._primary_provider_scope(),
         "model-a",
     ) in service._model_failure_cache
 
@@ -588,3 +691,170 @@ def test_daily_quota_model_is_skipped_after_first_failure(monkeypatch):
     )
 
     assert service._models_for(False) == ["model-b"]
+
+
+class TruncatedThenSuccessCompletions:
+    """First attempt hits the output ceiling, the retry has room to finish."""
+
+    def __init__(self):
+        self.requests = []
+
+    async def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if len(self.requests) == 1:
+            return FakeStream([
+                SimpleNamespace(choices=[SimpleNamespace(
+                    delta=SimpleNamespace(
+                        reasoning_content="thinking" * 40,
+                        content="partial",
+                    ),
+                    finish_reason="length",
+                )]),
+            ])
+        return _success_stream()
+
+
+@pytest.mark.asyncio
+async def test_truncated_output_retries_with_more_headroom(monkeypatch):
+    completions = TruncatedThenSuccessCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    result = await service._call_llm(
+        "prompt",
+        "system",
+        retry_count=2,
+        max_tokens=4096,
+        reject_truncated=True,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert len(completions.requests) == 2
+    # The retry must not repeat the same ceiling, or it just truncates again.
+    assert completions.requests[0]["max_tokens"] == 4096
+    assert completions.requests[1]["max_tokens"] == 8192
+
+
+@pytest.mark.asyncio
+async def test_truncated_output_without_retry_budget_still_raises(monkeypatch):
+    completions = TruncatedThenSuccessCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    with pytest.raises(AIProviderRequestError):
+        await service._call_llm(
+            "prompt",
+            "system",
+            retry_count=1,
+            max_tokens=4096,
+            reject_truncated=True,
+            raise_on_failure=True,
+        )
+
+    assert len(completions.requests) == 1
+
+
+class JsonModeRejectingCompletions:
+    """First call rejects response_format with 400, then succeeds without it."""
+
+    def __init__(self):
+        self.requests = []
+
+    async def create(self, **kwargs):
+        self.requests.append(kwargs)
+        if "response_format" in kwargs:
+            raise _make_status_error(400, "response_format is not supported")
+        return _success_stream()
+
+
+@pytest.mark.asyncio
+async def test_json_mode_rejection_is_cached_per_provider_model(monkeypatch):
+    AIBase._json_mode_unsupported.clear()
+    completions = JsonModeRejectingCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+
+    first = await service._call_llm(
+        "prompt", "system", retry_count=1, json_mode=True,
+        raise_on_failure=True,
+    )
+    assert first == "ok-answer"
+    # 探测一次：带 response_format 被拒，然后去掉重发。
+    assert len(completions.requests) == 2
+    assert "response_format" in completions.requests[0]
+    assert "response_format" not in completions.requests[1]
+
+    second = await service._call_llm(
+        "prompt", "system", retry_count=1, json_mode=True,
+        raise_on_failure=True,
+    )
+    assert second == "ok-answer"
+    # 第二次不该再浪费一次 400 往返。
+    assert len(completions.requests) == 3
+    assert "response_format" not in completions.requests[2]
+    AIBase._json_mode_unsupported.clear()
+
+
+@pytest.mark.asyncio
+async def test_single_transient_failure_does_not_open_the_circuit(monkeypatch):
+    """一次瞬时错误不该让全进程停摆。
+
+    _model_failure_cache 是类属性：熔断一开，进程内所有并发槽位同时失效。
+    对限流/配额耗尽这是对的，但一次网络抖动就熔断 30 秒代价过高。
+    """
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+    service = _make_service(
+        monkeypatch, SuccessfulCompletions(), models=("model-a",)
+    )
+    timeout = openai.APITimeoutError(
+        request=httpx.Request("POST", "https://example.test")
+    )
+
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == ["model-a"]  # 仍可用
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == ["model-a"]
+    # 连续第 3 次才熔断。
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == []
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_opens_the_circuit_immediately(monkeypatch):
+    """限流/配额仍必须立刻熔断——放宽这个会打爆上游。"""
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+    service = _make_service(
+        monkeypatch, SuccessfulCompletions(), models=("model-a",)
+    )
+
+    service._cool_down_model("model-a", _make_status_error(429, "rate limit"))
+    assert service._models_for(False) == []
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_success_clears_a_partial_transient_streak(monkeypatch):
+    """成功一次就应清零累计，避免互不相关的抖动攒成熔断。"""
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()
+    completions = SuccessfulCompletions()
+    service = _make_service(monkeypatch, completions, models=("model-a",))
+    timeout = openai.APITimeoutError(
+        request=httpx.Request("POST", "https://example.test")
+    )
+
+    service._cool_down_model("model-a", timeout)
+    service._cool_down_model("model-a", timeout)
+    await service._call_llm("p", "s", retry_count=1, raise_on_failure=True)
+    # 成功清零后，再来两次瞬时错误仍不该熔断。
+    service._cool_down_model("model-a", timeout)
+    service._cool_down_model("model-a", timeout)
+    assert service._models_for(False) == ["model-a"]
+
+    AIBase._model_failure_cache.clear()
+    AIBase._model_transient_failures.clear()

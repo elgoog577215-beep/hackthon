@@ -41,6 +41,16 @@ class IndependentSolverRegistry:
         registry.register("state_operations", _solve_state_operations)
         return registry
 
+    def kinds(self) -> tuple[str, ...]:
+        """已注册的确定性解法种类。
+
+        出题 prompt 用它来告诉模型 `solver_contract.kind` 只能填哪几个值。
+        必须从注册表实时读取而不是在 prompt 里另抄一份常量——抄一份就会在
+        新增/删除解法时悄悄失配，模型继续写一个没人认识的 kind，
+        `solve()` 一路返回 None，本地解题器看着是开着的却永远不生效。
+        """
+        return tuple(sorted(self._solvers))
+
     def register(self, kind: str, solver: LocalSolver) -> None:
         normalized = str(kind or "").strip()
         if not normalized:
@@ -59,7 +69,16 @@ class IndependentSolverRegistry:
             return None
         try:
             result = solver(deepcopy(contract))
-        except (ArithmeticError, TypeError, ValueError):
+        except (ArithmeticError, TypeError, ValueError, SyntaxError):
+            # SyntaxError 必须单列：它**不是** ValueError 的子类，而
+            # `_solve_numeric_expression` 用 `ast.parse` 解析模型给的表达式，
+            # 模型只要写成带单位（"150 J - 60 J"）或等式（"ΔU = 20 - 8"）就抛它。
+            #
+            # 漏掉它的后果不是"这道题不用本地解题器"，而是异常穿透整个
+            # `solve()` 把**整个槽位打死**——真机取证里表现为
+            # `attempts: []` + `final_decision: discard`，一次生成尝试都没发生。
+            # 求解器解不出来的正常语义是返回 None 让题目落回模型求解，
+            # 解析失败也该走这条路。
             return None
         if not _complete_solution(result):
             return None

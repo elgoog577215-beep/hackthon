@@ -393,6 +393,222 @@ async def test_replace_block_checks_revisions_and_returns_same_receipt_on_retry(
         )
 
 
+def multi_section_course() -> dict:
+    """Two chapters, two teachable sections each, so a move can cross a chapter."""
+    nodes: list[dict] = []
+    for chapter_index in (1, 2):
+        nodes.append({
+            "node_id": f"chapter-{chapter_index}",
+            "parent_node_id": "root",
+            "node_name": f"第{chapter_index}章",
+            "node_level": 1,
+            "node_content": "",
+        })
+        for section_index in (1, 2):
+            section_id = f"section-{chapter_index}-{section_index}"
+            nodes.append({
+                "node_id": section_id,
+                "parent_node_id": f"chapter-{chapter_index}",
+                "node_name": f"第{chapter_index}章第{section_index}节",
+                "node_level": 2,
+                "learning_objective": f"理解 {section_id}",
+                "objective_id": f"lo-{chapter_index}-{section_index}",
+                "node_content": f"## 正文\n\n{section_id} 的教学内容。",
+            })
+    return {
+        "course_id": "course-1",
+        "course_name": "线性代数",
+        "current_course_version_id": "cv2",
+        "nodes": nodes,
+    }
+
+
+async def _canonical_multi_section_repository() -> CourseDocumentRepository:
+    storage = MemoryStorage(multi_section_course())
+    repository = CourseDocumentRepository(storage)
+    preview = repository.document_envelope("course-1")
+    await repository.migrate_legacy_course(
+        "course-1",
+        expected_source_checksum=preview["migration"]["source_checksum"],
+    )
+    return repository
+
+
+def _ordered_section_ids(document: CourseDocument) -> list[str]:
+    return [
+        section.section_id
+        for section in sorted(
+            document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_move_section_reorders_the_catalog_and_keeps_block_ownership():
+    """Structural moves must go through the catalog, not the body or the plan.
+
+    Reordering is a change to the course outline, so it belongs to a section
+    command that carries its own revision check. Blocks keep their section
+    ownership and relative order; only the catalog position changes.
+    """
+    repository = await _canonical_multi_section_repository()
+    document, _ = repository.load_document("course-1")
+    service = CourseCommandService(repository)
+    moved = "section-2-1"
+    blocks_before = [
+        block.block_id
+        for block in sorted(
+            (item for item in document.blocks if item.section_id == moved),
+            key=lambda item: item.position,
+        )
+    ]
+    assert blocks_before
+
+    receipt = await service.move_section(
+        "course-1",
+        command_id="move-1",
+        expected_document_revision=document.document_revision,
+        expected_section_structure_revision=_section_structure_revision(document, moved),
+        section_id=moved,
+        after_section_id="section-1-1",
+        reason="把这一节提前到第一章第一节之后",
+        actor="teacher:t-1",
+    )
+
+    updated, _ = repository.load_document("course-1")
+    assert _ordered_section_ids(updated) == [
+        "chapter-1",
+        "section-1-1",
+        "section-2-1",
+        "section-1-2",
+        "chapter-2",
+        "section-2-2",
+    ]
+    assert receipt["operation"] == "move_section"
+    # The moved section's blocks are reported as affected so downstream
+    # consumers can reconcile against a real id list.
+    assert set(receipt["affected_block_ids"]) == set(blocks_before)
+    # Positions are contiguous, so later reads have a stable ordering.
+    positions = [section.position for section in sorted(
+        updated.sections, key=lambda item: item.position,
+    )]
+    assert positions == list(range(len(positions)))
+    # The moved section keeps its own blocks, in their original order.
+    blocks_after = [
+        block.block_id
+        for block in sorted(
+            (item for item in updated.blocks if item.section_id == moved),
+            key=lambda item: item.position,
+        )
+    ]
+    assert blocks_after == blocks_before
+    # Idempotent on retry, like every other course command.
+    assert await service.move_section(
+        "course-1",
+        command_id="move-1",
+        expected_document_revision=document.document_revision,
+        expected_section_structure_revision=_section_structure_revision(document, moved),
+        section_id=moved,
+        after_section_id="section-1-1",
+    ) == receipt
+
+
+def _section_structure_revision(document: CourseDocument, section_id: str) -> str:
+    from course_revisions import revision_vector_for_document
+
+    return revision_vector_for_document(document).revisions[
+        f"section_structure:{section_id}"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_move_section_rejects_a_stale_structure_revision():
+    """A concurrent catalog edit must block the move instead of overwriting it."""
+    repository = await _canonical_multi_section_repository()
+    document, _ = repository.load_document("course-1")
+    service = CourseCommandService(repository)
+    stale_revision = _section_structure_revision(document, "section-2-1")
+
+    await service.move_section(
+        "course-1",
+        command_id="move-1",
+        expected_document_revision=document.document_revision,
+        expected_section_structure_revision=stale_revision,
+        section_id="section-2-1",
+        after_section_id="section-1-1",
+    )
+    moved_document, _ = repository.load_document("course-1")
+
+    with pytest.raises(CourseDocumentConflict):
+        await service.move_section(
+            "course-1",
+            command_id="move-2",
+            expected_document_revision=moved_document.document_revision,
+            expected_section_structure_revision=stale_revision,
+            section_id="section-2-1",
+            after_section_id="section-2-2",
+        )
+
+
+@pytest.mark.asyncio
+async def test_move_section_refuses_unknown_anchors_and_self_anchoring():
+    repository = await _canonical_multi_section_repository()
+    document, _ = repository.load_document("course-1")
+    service = CourseCommandService(repository)
+    revision = _section_structure_revision(document, "section-2-1")
+
+    with pytest.raises(CourseDocumentConflict):
+        await service.move_section(
+            "course-1",
+            command_id="move-unknown",
+            expected_document_revision=document.document_revision,
+            expected_section_structure_revision=revision,
+            section_id="section-2-1",
+            after_section_id="section-does-not-exist",
+        )
+    with pytest.raises(CourseDocumentConflict):
+        await service.move_section(
+            "course-1",
+            command_id="move-self",
+            expected_document_revision=document.document_revision,
+            expected_section_structure_revision=revision,
+            section_id="section-2-1",
+            after_section_id="section-2-1",
+        )
+    with pytest.raises(CourseDocumentConflict):
+        await service.move_section(
+            "course-1",
+            command_id="move-missing",
+            expected_document_revision=document.document_revision,
+            expected_section_structure_revision=revision,
+            section_id="section-does-not-exist",
+            after_section_id="section-1-1",
+        )
+    unchanged, _ = repository.load_document("course-1")
+    assert _ordered_section_ids(unchanged) == _ordered_section_ids(document)
+
+
+@pytest.mark.asyncio
+async def test_move_section_to_the_front_of_the_catalog():
+    repository = await _canonical_multi_section_repository()
+    document, _ = repository.load_document("course-1")
+
+    await CourseCommandService(repository).move_section(
+        "course-1",
+        command_id="move-front",
+        expected_document_revision=document.document_revision,
+        expected_section_structure_revision=_section_structure_revision(
+            document, "section-2-2",
+        ),
+        section_id="section-2-2",
+        after_section_id="",
+    )
+
+    updated, _ = repository.load_document("course-1")
+    assert _ordered_section_ids(updated)[0] == "section-2-2"
+
+
 @pytest.mark.asyncio
 async def test_patch_block_text_updates_only_the_exact_span_and_checks_anchors():
     storage = MemoryStorage(legacy_course())

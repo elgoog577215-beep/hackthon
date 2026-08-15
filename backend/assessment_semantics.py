@@ -252,6 +252,42 @@ def semantics_for_question_type(question_type: str) -> dict[str, Any]:
     )
 
 
+def _semantics_for_question_form(
+    semantics: dict[str, Any],
+    question_form: str,
+) -> dict[str, Any]:
+    """按作答形态调整语义义务。
+
+    `selected_response` 的义务写死了 "Exactly one option satisfies the locked
+    answer fact"，而这段文字会随 design_brief 进入生成 prompt——于是即使槽位
+    声明成多选，模型仍被这句话要求只给一个正确项。这里按形态覆盖，不改注册表
+    本身（注册表按 question_type 组织，与 question_form 是两个维度）。
+    """
+    if question_form not in {"multiple_choice", "true_false", "fill_blank"}:
+        return semantics
+    result = deepcopy(semantics)
+    if question_form == "multiple_choice":
+        result["semantic_obligations"] = [
+            "All options answer the same question.",
+            "Two or more options satisfy the locked answer fact.",
+            "Every incorrect option maps to a named misconception.",
+        ]
+        result["answer_derivation"] = "multi_fact_discrimination"
+    elif question_form == "true_false":
+        result["semantic_obligations"] = [
+            "The stem is a single decidable proposition.",
+            "Exactly two polar options are offered.",
+        ]
+        result["answer_derivation"] = "truth_value_judgement"
+    else:
+        result["semantic_obligations"] = [
+            "Every blank has exactly one locked answer fact.",
+            "Each blank is independently checkable.",
+        ]
+        result["answer_derivation"] = "per_blank_completion"
+    return result
+
+
 def compile_question_design_brief(
     *,
     objective: dict[str, Any],
@@ -304,7 +340,10 @@ def compile_question_design_brief(
         "discipline_family": str(
             slot.get("discipline_family") or "general"
         ),
-        "question_type_semantics": semantics,
+        "question_type_semantics": _semantics_for_question_form(
+            semantics,
+            str(slot.get("question_form") or ""),
+        ),
         "diversity_plan": compile_diversity_plan(
             discipline_family=str(
                 slot.get("discipline_family") or "general"

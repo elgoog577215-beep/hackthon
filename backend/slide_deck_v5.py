@@ -6388,6 +6388,10 @@ def build_signature_v5(
     web_image_retrieval_signature["enabled"] = (
         web_image_retrieval.enabled or web_image_retrieval_enabled()
     )
+    template_pack = dict(
+        (course_data.get("generation_request") or {}).get("template_pack")
+        or {}
+    )
     fields = {
         "course_document_revision": str(document.document_revision or ""),
         "teaching_plan_revision": str(
@@ -6419,6 +6423,11 @@ def build_signature_v5(
         "quality_policy_version": "slide_deck_quality_v5_presentation_native_v1",
         "renderer_contract_version": "slide_layout_contract_v5",
         "web_image_retrieval": web_image_retrieval_signature,
+        "template_pack_id": str(template_pack.get("pack_id") or ""),
+        "template_pack_version": int(template_pack.get("version") or 0),
+        "template_manifest_digest": str(
+            template_pack.get("manifest_digest") or ""
+        ),
     }
     return {
         **fields,

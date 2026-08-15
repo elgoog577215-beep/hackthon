@@ -407,6 +407,8 @@ def _collect_report(
     audit_root: Path,
     report_path: Path,
     request: dict[str, Any],
+    requested_chapters: int,
+    requested_sections: int,
     manager: TaskManager | None,
     service: AuditedCourseService | None,
     provider_handler: ProviderAuditHandler,
@@ -501,8 +503,8 @@ def _collect_report(
             "pedagogy_mode": request.get("pedagogy_mode"),
             "course_purpose": request.get("course_purpose"),
             "requirements_chars": len(str(request.get("requirements") or "")),
-            "requested_chapters": 6,
-            "requested_sections": 12,
+            "requested_chapters": requested_chapters,
+            "requested_sections": requested_sections,
             "material_count": len(request.get("material_bindings") or []),
         },
         "identity": {"task_id": task_id, "course_id": course_id},
@@ -615,6 +617,8 @@ async def run_audit(
     subject: str,
     timeout_seconds: int,
     report_path: Path,
+    chapters: int = 6,
+    sections: int = 12,
 ) -> dict[str, Any]:
     started_at = time.monotonic()
     audit_root = Path(tempfile.mkdtemp(prefix="lingzhi-generation-audit-"))
@@ -635,6 +639,24 @@ async def run_audit(
     ai_logger = logging.getLogger("ai_base")
     ai_logger.addHandler(provider_handler)
 
+    # 集成说明（lz-web-search ac875b48 与 lz-perf 各自改过这段，见 NOTES 第四节）：
+    # 两侧意图都保留——lz-perf 要的是「小规模跑」（sections<=2 时压成 1 章），
+    # lz-web-search 要的是「章节数可由调用方显式指定」（--chapters）。
+    # 因此小规模分支照 lz-perf，常规分支用显式 chapters 而不是写死 sections//2。
+    if sections <= 2:
+        shape_requirement = (
+            f"请生成一门正式、完整、可发布的 1 章 {sections} 节课程。"
+            "内容从随机事件与概率公理开始，"
+            f"用 {sections} 节完成从样本空间到条件概率的最小闭环。"
+        )
+    else:
+        chapters = max(1, chapters)
+        shape_requirement = (
+            f"请生成一门正式、完整、可发布的 {chapters} 章 {sections} 节课程，"
+            f"每章严格 {max(1, sections // chapters)} 节。"
+            "内容从随机事件与概率公理开始，依次覆盖条件概率与独立性、随机变量与分布、"
+            "数字特征、常用极限定理，最后完成中心极限定理及一个综合建模应用。"
+        )
     request = {
         "subject": subject,
         "target_audience": "大学一年级学生",
@@ -642,10 +664,8 @@ async def run_audit(
         "style": "academic",
         "composition_style": "theory_driven",
         "requirements": (
-            "请生成一门正式、完整、可发布的6章12节课程，每章严格2节。"
-            "内容从随机事件与概率公理开始，依次覆盖条件概率与独立性、随机变量与分布、"
-            "数字特征、常用极限定理，最后完成中心极限定理及一个综合建模应用。"
-            "章节之间必须递进且不能重复；每节都要有明确学习目标、适用边界、关键定义或定理、"
+            shape_requirement
+            + "章节之间必须递进且不能重复；每节都要有明确学习目标、适用边界、关键定义或定理、"
             "至少一个推导或例题、一个常见误区、一个可验收任务，并为后续练习和知识关系提供稳定依据。"
             "数学符号使用LaTeX，不能为了凑字数重复目录或泛泛总结。"
         ),
@@ -751,7 +771,12 @@ async def run_audit(
                 if not reviews or reviews[-1] != review_summary:
                     reviews.append(review_summary)
                     print(json.dumps({"audit_review": review_summary}, ensure_ascii=False), flush=True)
-                if step not in {"outline", "release"}:
+                # 集成说明：两条分支都发现原白名单 {"outline","release"} 漏了
+                # "teaching"，但修法相反——lz-web-search 直接删掉这道检查，
+                # lz-perf 把 "teaching" 补进白名单。这里取 lz-perf 的补全版：
+                # 它同时满足两边意图（teaching 不再被误拦 + 真正意外的步骤仍能被发现）。
+                # 若你更希望彻底去掉这道检查，改这里即可（见 NOTES 第四节）。
+                if step not in {"outline", "teaching", "release"}:
                     stop_reason = f"unexpected_review_step:{step}"
                     break
                 if not review.get("can_confirm"):
@@ -779,6 +804,10 @@ async def run_audit(
             audit_root=audit_root,
             report_path=report_path,
             request=request,
+            # 与上面 shape_requirement 实际要求的形状保持一致：
+            # 小规模跑压成 1 章（lz-perf），常规跑用显式 chapters（lz-web-search）。
+            requested_chapters=(1 if sections <= 2 else max(1, chapters)),
+            requested_sections=sections,
             manager=manager,
             service=service,
             provider_handler=provider_handler,
@@ -811,6 +840,13 @@ def main() -> int:
         default="概率论基础：从随机事件到中心极限定理",
     )
     parser.add_argument("--timeout", type=int, default=1800)
+    parser.add_argument("--chapters", type=int, default=6, help="课程章数")
+    parser.add_argument(
+        "--sections",
+        type=int,
+        default=12,
+        help="课程小节数；小规模用于验证链路能否走通",
+    )
     parser.add_argument(
         "--report",
         type=Path,
@@ -821,6 +857,8 @@ def main() -> int:
         subject=args.subject,
         timeout_seconds=args.timeout,
         report_path=args.report.resolve(),
+        chapters=args.chapters,
+        sections=args.sections,
     ))
     print(json.dumps({
         "audit": "finished",

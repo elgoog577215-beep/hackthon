@@ -301,6 +301,33 @@ class AITeacherRepository:
         with self._guard(user_id, course_id) as data:
             return deepcopy(data["suppressions"])
 
+    def record_suggestion_shown(
+        self,
+        user_id: str,
+        course_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist one delivered proactive suggestion against the frequency budget.
+
+        Server-side on purpose: a client-side counter resets on refresh and does
+        not follow the learner to another device, so the interruption ceiling
+        would silently stop applying in exactly the cases it matters.
+        """
+        with self._guard(user_id, course_id, write=True) as data:
+            entry = _sanitize(payload)
+            entry.update({
+                "user_id": user_id,
+                "course_id": course_id,
+                "shown_at": _now(),
+            })
+            data["suggestions_shown"].append(entry)
+            data["suggestions_shown"] = data["suggestions_shown"][-200:]
+            return deepcopy(entry)
+
+    def list_suggestions_shown(self, user_id: str, course_id: str) -> list[dict[str, Any]]:
+        with self._guard(user_id, course_id) as data:
+            return deepcopy(data["suggestions_shown"])
+
     def _conversation(self, data: dict[str, Any], conversation_id: str) -> dict[str, Any] | None:
         return next((item for item in data["conversations"] if item.get("conversation_id") == conversation_id), None)
 
@@ -326,7 +353,7 @@ class AITeacherRepository:
             if not isinstance(data, dict):
                 return _blank()
             normalized = _blank()
-            for key in {"conversations", "proposals", "receipts", "suppressions"}:
+            for key in {"conversations", "proposals", "receipts", "suppressions", "suggestions_shown"}:
                 normalized[key] = data.get(key) if isinstance(data.get(key), list) else []
             for conversation in normalized["conversations"]:
                 if isinstance(conversation, dict):
@@ -384,6 +411,7 @@ def _blank() -> dict[str, Any]:
         "proposals": [],
         "receipts": [],
         "suppressions": [],
+        "suggestions_shown": [],
     }
 
 
@@ -401,6 +429,9 @@ def _sanitize_message(payload: dict[str, Any]) -> dict[str, Any]:
         "proposal_id": str(payload.get("proposal_id") or ""),
         "receipt_id": str(payload.get("receipt_id") or ""),
         "status": str(payload.get("status") or "complete"),
+        # Which classified model failure produced a `failed` turn, so a reload
+        # can still explain the failure instead of showing a blank answer.
+        "failure_code": str(payload.get("failure_code") or ""),
     }
 
 

@@ -12,6 +12,7 @@ AI 基础服务模块 - LLM 调用层
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -21,7 +22,7 @@ import sys
 import time
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import httpx
@@ -110,6 +111,13 @@ class AIResponseTruncated(AIProviderRequestError):
     retryable = True
 
 
+def _env_int_min1(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return max(1, default)
+
+
 def _parse_model_list(value: Optional[str]) -> List[str]:
     return [item.strip() for item in (value or "").replace("\n", ",").split(",") if item.strip()]
 
@@ -126,11 +134,33 @@ class AIBase:
     """
     _working_model_cache = {}
     _model_failure_cache: dict[tuple[str, str], float] = {}
+    # (hostname, model_id) pairs that rejected response_format with a 400.
+    _json_mode_unsupported: set[tuple[str, str]] = set()
+    # Consecutive transient failures per (provider, model); reset on success.
+    _model_transient_failures: dict[tuple[str, str], int] = {}
 
-    def __init__(self):
-        # 通过环境变量配置 API 密钥
-        self.api_key = os.getenv("AI_API_KEY")
-        self.api_base = os.getenv("AI_API_BASE", "https://api-inference.modelscope.cn/v1")
+    def __init__(self, *, provider_profile: str | None = None) -> None:
+        # PPT planning can use an isolated provider without changing course
+        # generation, assessments, or the AI teacher.  The dedicated route is
+        # fail-closed when only half of the endpoint/key pair is configured so
+        # a deployment can never look switched while silently using another
+        # provider.
+        self.provider_profile = str(provider_profile or "").strip()
+        shared_api_key = os.getenv("AI_API_KEY")
+        shared_api_base = os.getenv(
+            "AI_API_BASE",
+            "https://api-inference.modelscope.cn/v1",
+        )
+        ppt_api_key = os.getenv("AI_PPT_API_KEY")
+        ppt_api_base = os.getenv("AI_PPT_API_BASE")
+        if self.provider_profile == "ppt" and bool(ppt_api_key) != bool(ppt_api_base):
+            raise AIProviderUnavailable("ppt_provider_configuration_incomplete")
+        if self.provider_profile == "ppt" and ppt_api_key and ppt_api_base:
+            self.api_key = ppt_api_key
+            self.api_base = ppt_api_base
+        else:
+            self.api_key = shared_api_key
+            self.api_base = shared_api_base
         self.modelscope_fallback_api_key = os.getenv("MODELSCOPE_API_KEY")
         self.modelscope_fallback_api_base = os.getenv(
             "MODELSCOPE_BASE_URL",
@@ -168,6 +198,12 @@ class AIBase:
                 "assessment_reviewer": _parse_model_list(
                     os.getenv("AI_ASSESSMENT_REVIEWER_MODELS")
                 ),
+                "ppt_story": _parse_model_list(
+                    os.getenv("AI_PPT_STORY_MODELS")
+                ),
+                "ppt_visual": _parse_model_list(
+                    os.getenv("AI_PPT_VISUAL_MODELS")
+                ),
             }.items()
             if models
         }
@@ -200,6 +236,32 @@ class AIBase:
                     "0",
                 )
             ),
+        )
+        self._last_resort_max_concurrency = max(
+            1,
+            int(os.getenv("AI_LAST_RESORT_MAX_CONCURRENCY", "1")),
+        )
+        self._last_resort_start_interval_seconds = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_LAST_RESORT_START_INTERVAL_SECONDS",
+                    "5",
+                )
+            ),
+        )
+        self._last_resort_post_request_interval_seconds = max(
+            0.0,
+            float(
+                os.getenv(
+                    "AI_LAST_RESORT_POST_REQUEST_INTERVAL_SECONDS",
+                    "15",
+                )
+            ),
+        )
+        self._last_resort_rate_limit_retries = max(
+            0,
+            int(os.getenv("AI_LAST_RESORT_RATE_LIMIT_RETRIES", "2")),
         )
         
         request_timeout = max(1.0, float(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "180")))
@@ -238,17 +300,82 @@ class AIBase:
         enable_thinking: bool,
         api_base: str | None = None,
     ) -> Dict:
+        """Build the provider-specific switch for reasoning output.
+
+        Three shapes are in play:
+
+        * official DeepSeek wants a nested ``thinking`` object;
+        * vLLM (e.g. a self-hosted Qwen) only honours the flag when it is
+          nested under ``chat_template_kwargs`` -- a top-level
+          ``enable_thinking`` is accepted and then silently ignored, so
+          thinking stays on, ``message.content`` comes back null and the
+          whole response looks empty and truncated;
+        * other OpenAI-compatible providers use the flat form.
+
+        The flat form is kept alongside the nested one so providers that only
+        understand it keep working.
+        """
         thinking_enabled = enable_thinking and self.thinking_enabled
         if self._is_official_deepseek_base(api_base or self.api_base):
             return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-        return {"enable_thinking": thinking_enabled}
+        return {
+            "enable_thinking": thinking_enabled,
+            "chat_template_kwargs": {"enable_thinking": thinking_enabled},
+        }
+
+    @staticmethod
+    def _delta_reasoning(delta: Any) -> str:
+        """Read one streaming delta's reasoning text.
+
+        vLLM names the field ``reasoning`` while DeepSeek-style providers use
+        ``reasoning_content``.  Reading only one of them makes a provider look
+        like it is streaming nothing.
+        """
+        for field in ("reasoning_content", "reasoning"):
+            value = getattr(delta, field, None)
+            if value:
+                return str(value)
+        return ""
+
+    @staticmethod
+    def _message_reasoning(message: Any) -> str:
+        """Read a non-streaming message's reasoning text (same two names)."""
+        for field in ("reasoning_content", "reasoning"):
+            value = getattr(message, field, None)
+            if value:
+                return str(value)
+        return ""
 
     def _supports_json_response_format(
         self,
         api_base: str | None = None,
+        model_id: str | None = None,
     ) -> bool:
         hostname = (urlparse(api_base or self.api_base).hostname or "").casefold()
-        return hostname not in {
+        if hostname in {
+            "api-inference.modelscope.cn",
+            "api.modelscope.cn",
+        }:
+            return False
+        return (
+            hostname,
+            str(model_id or ""),
+        ) not in AIBase._json_mode_unsupported
+
+    @classmethod
+    def _remember_json_mode_unsupported(
+        cls,
+        api_base: str | None,
+        model_id: str | None,
+    ) -> None:
+        """Cache one provider's 400 on ``response_format`` for later calls."""
+        hostname = (urlparse(api_base or "").hostname or "").casefold()
+        cls._json_mode_unsupported.add((hostname, str(model_id or "")))
+
+    @staticmethod
+    def _uses_model_scoped_quota(api_base: str) -> bool:
+        hostname = (urlparse(api_base).hostname or "").casefold()
+        return hostname in {
             "api-inference.modelscope.cn",
             "api.modelscope.cn",
         }
@@ -296,7 +423,7 @@ class AIBase:
             model_role,
         )
         return (
-            self.api_base,
+            self._primary_provider_scope(),
             str(model_role or (
                 "fast" if use_fast_model else "smart"
             )),
@@ -324,13 +451,14 @@ class AIBase:
             else list(models)
         )
         now = time.monotonic()
+        provider_scope = self._primary_provider_scope()
         available = [
             model
             for model in ordered
-            if self._model_failure_cache.get((self.api_base, model), 0) <= now
+            if self._model_failure_cache.get((provider_scope, model), 0) <= now
         ]
         for model in ordered:
-            failure_key = (self.api_base, model)
+            failure_key = (provider_scope, model)
             if self._model_failure_cache.get(failure_key, 0) <= now:
                 self._model_failure_cache.pop(failure_key, None)
         return available
@@ -347,7 +475,35 @@ class AIBase:
                 model_role,
             )
         ] = model_id
-        self._model_failure_cache.pop((self.api_base, model_id), None)
+        provider_scope = self._primary_provider_scope()
+        self._model_failure_cache.pop((provider_scope, model_id), None)
+        # A success means the model is healthy again: drop any partial
+        # transient streak so unrelated blips never accumulate into a trip.
+        self._model_transient_failures.pop((provider_scope, model_id), None)
+
+    @staticmethod
+    def _credential_scoped_provider_id(
+        api_base: str,
+        api_key: str | None,
+    ) -> str:
+        """Separate capacity state by endpoint and credential without leaking keys."""
+
+        credential_digest = hashlib.sha256(
+            str(api_key or "anonymous").encode("utf-8")
+        ).hexdigest()[:16]
+        return f"{str(api_base or '').rstrip('/')}#credential-{credential_digest}"
+
+    def _primary_provider_scope(self) -> str:
+        return self._credential_scoped_provider_id(
+            self.api_base,
+            self.api_key,
+        )
+
+    def _fallback_provider_scope(self) -> str:
+        return self._credential_scoped_provider_id(
+            self.modelscope_fallback_api_base,
+            self.modelscope_fallback_api_key,
+        )
 
     @staticmethod
     def estimate_request_tokens(prompt: str, system_prompt: str) -> int:
@@ -449,11 +605,38 @@ class AIBase:
         self,
         model_id: str,
         error: Exception,
-        api_base: str | None = None,
+        provider_scope: str | None = None,
     ) -> None:
+        """Open the circuit for one provider/model pair.
+
+        The cache is a class attribute, so opening the circuit stops every
+        concurrent slot in the process at once.  That is the right response to
+        rate limiting or an exhausted quota, but far too blunt for a single
+        transient error: one timeout would otherwise idle the whole run for
+        the full cooldown.  Transient failures therefore have to repeat
+        consecutively before the circuit opens, while a success clears the
+        streak.
+        """
         cooldown = self._model_failure_cooldown_seconds(error)
-        provider_base = api_base or self.api_base
-        self._model_failure_cache[(provider_base, model_id)] = (
+        resolved_scope = provider_scope or self._primary_provider_scope()
+        failure_key = (resolved_scope, model_id)
+        if self._capacity_failure_kind(error) == "transient":
+            threshold = _env_int_min1(
+                "AI_MODEL_TRANSIENT_FAILURES_TO_OPEN", 3
+            )
+            streak = self._model_transient_failures.get(failure_key, 0) + 1
+            self._model_transient_failures[failure_key] = streak
+            if streak < threshold:
+                logger.warning(
+                    "AI model transient failure %d/%d (Model: %s); "
+                    "circuit stays closed",
+                    streak,
+                    threshold,
+                    model_id,
+                )
+                return
+        self._model_transient_failures.pop(failure_key, None)
+        self._model_failure_cache[failure_key] = (
             time.monotonic() + cooldown
         )
         logger.warning(
@@ -466,23 +649,24 @@ class AIBase:
         self,
         model_id: str,
         error: Exception,
-        api_base: str | None = None,
+        provider_scope: str | None = None,
     ) -> None:
         """Backward-compatible spelling for callers using the older helper."""
-        self._cool_down_model(model_id, error, api_base)
+        self._cool_down_model(model_id, error, provider_scope)
 
     def _modelscope_fallback_models_for(self) -> list[str]:
         now = time.monotonic()
+        provider_scope = self._fallback_provider_scope()
         available = [
             model
             for model in self.modelscope_fallback_models
             if self._model_failure_cache.get(
-                (self.modelscope_fallback_api_base, model),
+                (provider_scope, model),
                 0,
             ) <= now
         ]
         for model in self.modelscope_fallback_models:
-            failure_key = (self.modelscope_fallback_api_base, model)
+            failure_key = (provider_scope, model)
             if self._model_failure_cache.get(failure_key, 0) <= now:
                 self._model_failure_cache.pop(failure_key, None)
         return available
@@ -514,7 +698,9 @@ class AIBase:
         return "transient"
 
     def provider_capacity_snapshot(self) -> dict:
-        return get_provider_capacity_controller(self.api_base).snapshot()
+        return get_provider_capacity_controller(
+            self._primary_provider_scope()
+        ).snapshot()
 
     @staticmethod
     def _error_status_code(error: Exception) -> Optional[int]:
@@ -1034,13 +1220,28 @@ class AIBase:
         record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
+        capacity = get_provider_capacity_controller(
+            self._fallback_provider_scope()
+        )
+        await capacity.configure_last_resort(
+            max_concurrency=self._last_resort_max_concurrency,
+            start_interval_seconds=(
+                self._last_resort_start_interval_seconds
+            ),
+            post_request_interval_seconds=(
+                self._last_resort_post_request_interval_seconds
+            ),
+        )
         for model_id in self._modelscope_fallback_models_for():
             if max_attempts is not None and attempts >= max_attempts:
                 break
-            for attempt in range(retry_count):
+            rate_limit_retries_left = self._last_resort_rate_limit_retries
+            attempt = 0
+            while attempt < retry_count + self._last_resort_rate_limit_retries:
                 if max_attempts is not None and attempts >= max_attempts:
                     break
                 attempts += 1
+                attempt += 1
                 attempt_started = time.perf_counter()
                 queue_wait_ms = 0
                 physical_request_count = 0
@@ -1083,9 +1284,6 @@ class AIBase:
                             exc_info=True,
                         )
 
-                capacity = get_provider_capacity_controller(
-                    self.modelscope_fallback_api_base
-                )
                 try:
                     request_options = {
                         "model": model_id,
@@ -1101,7 +1299,8 @@ class AIBase:
                         ),
                     }
                     if json_mode and self._supports_json_response_format(
-                        self.modelscope_fallback_api_base
+                        self.modelscope_fallback_api_base,
+                        model_id=model_id,
                     ):
                         request_options["response_format"] = {
                             "type": "json_object"
@@ -1143,7 +1342,7 @@ class AIBase:
                             if not chunk.choices:
                                 continue
                             delta = chunk.choices[0].delta
-                            reasoning = getattr(delta, "reasoning_content", None)
+                            reasoning = self._delta_reasoning(delta)
                             if reasoning and on_stream_activity:
                                 on_stream_activity()
                             if delta.content:
@@ -1180,7 +1379,7 @@ class AIBase:
                         self._cool_down_model(
                             model_id,
                             empty_error,
-                            self.modelscope_fallback_api_base,
+                            self._fallback_provider_scope(),
                         )
                         break
 
@@ -1197,8 +1396,8 @@ class AIBase:
                     logger.error(
                         "ModelScope fallback error (Model: %s, Attempt %s/%s): %s",
                         model_id,
-                        attempt + 1,
-                        retry_count,
+                        attempt,
+                        retry_count + self._last_resort_rate_limit_retries,
                         error,
                     )
                     if isinstance(error, ModelCapacityCoolingDown):
@@ -1209,21 +1408,42 @@ class AIBase:
                         )
                         break
                     if self._should_try_next_model(error):
+                        failure_kind = self._capacity_failure_kind(error)
+                        cooldown_seconds = (
+                            self._model_failure_cooldown_seconds(error)
+                        )
                         await capacity.report_failure(
                             model_id,
-                            failure_kind=self._capacity_failure_kind(error),
-                            cooldown_seconds=(
-                                self._model_failure_cooldown_seconds(error)
-                            ),
+                            failure_kind=failure_kind,
+                            cooldown_seconds=cooldown_seconds,
                         )
                         self._cool_down_model(
                             model_id,
                             error,
-                            self.modelscope_fallback_api_base,
+                            self._fallback_provider_scope(),
                         )
+                        if (
+                            failure_kind == "rate_limited"
+                            and rate_limit_retries_left > 0
+                            and (
+                                max_attempts is None
+                                or attempts < max_attempts
+                            )
+                        ):
+                            rate_limit_retries_left -= 1
+                            wait_seconds = max(
+                                cooldown_seconds,
+                                capacity.rate_limit_backoff_seconds,
+                            )
+                            await self._wait_with_activity(
+                                wait_seconds,
+                                on_stream_activity,
+                            )
+                            self._modelscope_fallback_models_for()
+                            continue
                         break
-                    if attempt < retry_count - 1:
-                        await asyncio.sleep(2 ** attempt)
+                    if attempt < retry_count:
+                        await asyncio.sleep(2 ** (attempt - 1))
                     else:
                         break
             if self._modelscope_fallback_failure:
@@ -1238,6 +1458,20 @@ class AIBase:
                 raise AIProviderRequestError(str(last_error)) from last_error
             raise AIProviderRequestError("ModelScope fallback has no available model")
         return None
+
+    @staticmethod
+    async def _wait_with_activity(
+        seconds: float,
+        on_activity: Callable[[], None] | None,
+    ) -> None:
+        """Wait in heartbeat-sized slices so callers remain observable."""
+        remaining = max(0.0, float(seconds))
+        while remaining > 0:
+            if on_activity:
+                on_activity()
+            interval = min(5.0, remaining)
+            await asyncio.sleep(interval)
+            remaining -= interval
 
     async def _stream_modelscope_fallback(
         self,
@@ -1260,14 +1494,23 @@ class AIBase:
         record_fallback_switch(endpoint=self.modelscope_fallback_api_base)
         last_error: Exception | None = None
         attempts = 0
+        capacity = get_provider_capacity_controller(
+            self._fallback_provider_scope()
+        )
+        await capacity.configure_last_resort(
+            max_concurrency=self._last_resort_max_concurrency,
+            start_interval_seconds=(
+                self._last_resort_start_interval_seconds
+            ),
+            post_request_interval_seconds=(
+                self._last_resort_post_request_interval_seconds
+            ),
+        )
         for model_id in self._modelscope_fallback_models_for():
             if max_attempts is not None and attempts >= max_attempts:
                 break
             attempts += 1
             yielded = False
-            capacity = get_provider_capacity_controller(
-                self.modelscope_fallback_api_base
-            )
             try:
                 lease = await capacity.acquire(
                     model_id,
@@ -1296,7 +1539,7 @@ class AIBase:
                         if not chunk.choices:
                             continue
                         delta = chunk.choices[0].delta
-                        reasoning = getattr(delta, "reasoning_content", None)
+                        reasoning = self._delta_reasoning(delta)
                         if reasoning and on_stream_activity:
                             on_stream_activity()
                         if delta.content:
@@ -1349,7 +1592,7 @@ class AIBase:
                     self._cool_down_model(
                         model_id,
                         error,
-                        self.modelscope_fallback_api_base,
+                        self._fallback_provider_scope(),
                     )
                 if yielded or not should_try_next:
                     if isinstance(error, AIProviderRequestError):
@@ -1431,6 +1674,16 @@ class AIBase:
 
         last_error: Exception | None = None
         attempts = 0
+        # A truncated answer is not a transient network blip: retrying at the
+        # same ceiling usually truncates again.  Reasoning models spend this
+        # same budget on hidden thinking tokens, so the retry only pays off
+        # with real headroom.
+        requested_max_tokens = max_tokens or self.max_tokens
+        effective_max_tokens = requested_max_tokens
+        truncation_headroom_ceiling = max(
+            self.max_tokens,
+            requested_max_tokens * 2,
+        )
         primary_models = (
             self._models_for(use_fast_model, model_role)
             if self.api_key and not self._provider_failure
@@ -1493,7 +1746,9 @@ class AIBase:
                         )
                 try:
                     extra_body = self._thinking_extra_body(enable_thinking)
-                    capacity = get_provider_capacity_controller(self.api_base)
+                    capacity = get_provider_capacity_controller(
+                        self._primary_provider_scope()
+                    )
 
                     request_options = {
                         "model": model_id,
@@ -1502,10 +1757,12 @@ class AIBase:
                             {"role": "user", "content": prompt},
                         ],
                         "stream": True,
-                        "max_tokens": max_tokens or self.max_tokens,
+                        "max_tokens": effective_max_tokens,
                         "extra_body": extra_body,
                     }
-                    if json_mode and self._supports_json_response_format():
+                    if json_mode and self._supports_json_response_format(
+                        model_id=model_id
+                    ):
                         request_options["response_format"] = {
                             "type": "json_object"
                         }
@@ -1530,6 +1787,12 @@ class AIBase:
                                 and self._error_status_code(format_error) == 400
                             ):
                                 raise
+                            # Remember the rejection: without this every later
+                            # call pays the same wasted 400 round trip.
+                            self._remember_json_mode_unsupported(
+                                self.api_base,
+                                model_id,
+                            )
                             request_options.pop("response_format", None)
                             await self._wait_for_request_slot()
                             physical_request_count += 1
@@ -1543,12 +1806,13 @@ class AIBase:
                         truncated = False
                         async for chunk in response:
                             if chunk.choices:
-                                if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                    reasoning = chunk.choices[0].delta.reasoning_content
-                                    if reasoning:
-                                        reasoning_chars += len(reasoning)
-                                        if on_stream_activity:
-                                            on_stream_activity()
+                                reasoning = self._delta_reasoning(
+                                    chunk.choices[0].delta
+                                )
+                                if reasoning:
+                                    reasoning_chars += len(reasoning)
+                                    if on_stream_activity:
+                                        on_stream_activity()
 
                                 delta = chunk.choices[0].delta
                                 if delta.content:
@@ -1562,30 +1826,71 @@ class AIBase:
 
                     if truncated:
                         logger.warning(
-                            f"AI response truncated by max_tokens={max_tokens or self.max_tokens} "
+                            f"AI response truncated by max_tokens={effective_max_tokens} "
                             f"(Model: {model_id}, Attempt {attempt+1}/{retry_count}, "
                             f"chars={len(full_content)}) - downstream JSON/structure parsing "
                             "will likely fail on this output."
                         )
                         if reject_truncated:
+                            if effective_max_tokens < truncation_headroom_ceiling:
+                                effective_max_tokens = min(
+                                    truncation_headroom_ceiling,
+                                    effective_max_tokens * 2,
+                                )
+                                logger.info(
+                                    "Raising max_tokens to %d before retrying "
+                                    "the truncated request (Model: %s)",
+                                    effective_max_tokens,
+                                    model_id,
+                                )
                             raise AIResponseTruncated(
                                 "模型输出达到硬上限："
-                                f"max_tokens={max_tokens or self.max_tokens}，"
+                                f"max_tokens={effective_max_tokens}，"
                                 f"chars={len(full_content)}"
                             )
 
                     if not full_content:
                         fallback_eligible = True
-                        emit_telemetry(status="empty_response")
+                        # An empty answer with a large reasoning trace is not a
+                        # dead provider: thinking consumed the whole
+                        # max_tokens budget and left nothing for the answer.
+                        # Reported as a plain empty_response it looks like a
+                        # provider outage (and trips the breaker), so name it.
+                        thinking_starved = reasoning_chars > 0
+                        emit_telemetry(
+                            status=(
+                                "thinking_consumed_budget"
+                                if thinking_starved
+                                else "empty_response"
+                            )
+                        )
                         empty_error = AIProviderRequestError(
-                            f"empty_response:{model_id}"
+                            (
+                                "thinking_consumed_budget:"
+                                f"{model_id}:reasoning_chars={reasoning_chars}"
+                                f":max_tokens={effective_max_tokens}"
+                            )
+                            if thinking_starved
+                            else f"empty_response:{model_id}"
                         )
                         last_error = empty_error
-                        logger.warning(
-                            "Empty response from AI "
-                            f"(Model: {model_id}, "
-                            f"Attempt {attempt+1}/{retry_count})"
-                        )
+                        if thinking_starved:
+                            logger.warning(
+                                "Model returned only reasoning and no answer "
+                                "(Model: %s, reasoning_chars=%d, "
+                                "max_tokens=%d): thinking used the whole "
+                                "output budget; disable thinking for this "
+                                "call or raise AI_MAX_TOKENS.",
+                                model_id,
+                                reasoning_chars,
+                                effective_max_tokens,
+                            )
+                        else:
+                            logger.warning(
+                                "Empty response from AI "
+                                f"(Model: {model_id}, "
+                                f"Attempt {attempt+1}/{retry_count})"
+                            )
                         if attempt < retry_count - 1:
                             await asyncio.sleep(1)
                             continue
@@ -1634,7 +1939,7 @@ class AIBase:
                         == "quota_exhausted"
                     ):
                         capacity = get_provider_capacity_controller(
-                            self.api_base
+                            self._primary_provider_scope()
                         )
                         await capacity.report_failure(
                             model_id,
@@ -1644,12 +1949,15 @@ class AIBase:
                             ),
                         )
                         self._cool_down_model(model_id, e)
-                        self._block_provider("quota_exhausted")
                         fallback_eligible = True
+                        if not self._uses_model_scoped_quota(self.api_base):
+                            self._block_provider("quota_exhausted")
                         break
                     if self._should_try_next_model(e):
                         fallback_eligible = True
-                        capacity = get_provider_capacity_controller(self.api_base)
+                        capacity = get_provider_capacity_controller(
+                            self._primary_provider_scope()
+                        )
                         await capacity.report_failure(
                             model_id,
                             failure_kind=self._capacity_failure_kind(e),
@@ -1749,49 +2057,75 @@ class AIBase:
                 break
             attempts += 1
             yielded = False
+            # 非流式路径已有"截断后加大预算重试"，流式没有：一次截断就以空
+            # 正文收场，是正文阶段的单点故障，在 reasoning 模型上尤其常见
+            # （thinking 吃光输出预算）。
+            stream_max_tokens = max_tokens or self.max_tokens
+            truncation_ceiling = max(self.max_tokens, stream_max_tokens * 2)
             try:
-                extra_body = self._thinking_extra_body(enable_thinking)
-                capacity = get_provider_capacity_controller(self.api_base)
-                lease = await capacity.acquire(
-                    model_id,
-                    on_wait_activity=on_stream_activity,
-                )
-                try:
-                    await self._wait_for_request_slot()
-                    response = await self.client.chat.completions.create(
-                        model=model_id,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": prompt}
-                        ],
-                        stream=True,
-                        max_tokens=max_tokens or self.max_tokens,
-                        extra_body=extra_body
+                while True:
+                    extra_body = self._thinking_extra_body(enable_thinking)
+                    capacity = get_provider_capacity_controller(
+                        self._primary_provider_scope()
                     )
+                    lease = await capacity.acquire(
+                        model_id,
+                        on_wait_activity=on_stream_activity,
+                    )
+                    try:
+                        await self._wait_for_request_slot()
+                        response = await self.client.chat.completions.create(
+                            model=model_id,
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ],
+                            stream=True,
+                            max_tokens=stream_max_tokens,
+                            extra_body=extra_body
+                        )
 
-                    truncated = False
-                    async for chunk in response:
-                        if chunk.choices:
-                            if hasattr(chunk.choices[0].delta, 'reasoning_content'):
-                                reasoning = chunk.choices[0].delta.reasoning_content
-                                if reasoning:
+                        truncated = False
+                        async for chunk in response:
+                            if chunk.choices:
+                                reasoning = self._delta_reasoning(
+                                    chunk.choices[0].delta
+                                )
+                                if reasoning and on_stream_activity:
+                                    on_stream_activity()
+
+                                delta = chunk.choices[0].delta
+                                if delta.content:
+                                    yielded = True
                                     if on_stream_activity:
                                         on_stream_activity()
-
-                            delta = chunk.choices[0].delta
-                            if delta.content:
-                                yielded = True
-                                if on_stream_activity:
-                                    on_stream_activity()
-                                yield delta.content
-                            if getattr(chunk.choices[0], "finish_reason", None) == "length":
-                                truncated = True
-                finally:
-                    await lease.release()
+                                    yield delta.content
+                                if getattr(chunk.choices[0], "finish_reason", None) == "length":
+                                    truncated = True
+                    finally:
+                        await lease.release()
+                    if (
+                        truncated
+                        and not yielded
+                        and stream_max_tokens < truncation_ceiling
+                    ):
+                        # 尚未向调用方吐出任何内容，重发不会产生重复正文。
+                        stream_max_tokens = min(
+                            truncation_ceiling,
+                            stream_max_tokens * 2,
+                        )
+                        logger.info(
+                            "Stream truncated with no content; retrying "
+                            "(Model: %s, max_tokens=%d)",
+                            model_id,
+                            stream_max_tokens,
+                        )
+                        continue
+                    break
                 if truncated:
                     raise AIResponseTruncated(
                         "模型流式输出达到硬上限："
-                        f"max_tokens={max_tokens or self.max_tokens}"
+                        f"max_tokens={stream_max_tokens}"
                     )
                 if yielded:
                     self._remember_model(use_fast_model, model_id)
@@ -1814,7 +2148,9 @@ class AIBase:
                 should_try_next = self._should_try_next_model(e)
                 if should_try_next:
                     fallback_eligible = True
-                    capacity = get_provider_capacity_controller(self.api_base)
+                    capacity = get_provider_capacity_controller(
+                        self._primary_provider_scope()
+                    )
                     await capacity.report_failure(
                         model_id,
                         failure_kind=self._capacity_failure_kind(e),

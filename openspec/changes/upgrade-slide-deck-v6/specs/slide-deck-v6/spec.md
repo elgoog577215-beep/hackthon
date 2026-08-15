@@ -49,7 +49,9 @@ The system SHALL keep required code, formulas, tables, experiment data and sourc
 
 #### Scenario: A programming unit contains code and expected output
 - **WHEN** V6 allocates the unit
-- **THEN** one to three adjacent pages preserve the code, execution conditions, explanation and result
+- **THEN** the page budget is derived from contiguous source slices that satisfy the published template's artifact and slot-capacity contracts
+- **AND** the allocation expands to as many declared safe continuation pages as the complete source requires, without a teaching business cap
+- **AND** adjacent pages preserve the code, execution conditions, explanation and result
 - **AND** generic prose cannot replace the code artifact
 
 #### Scenario: A mathematical unit contains definition, formula and derivation
@@ -95,8 +97,13 @@ The system SHALL resolve every final page through `template_layout_contract_v1` 
 
 #### Scenario: A required slot is empty or over capacity
 - **WHEN** allocated content cannot occupy every required slot within declared capacity
-- **THEN** the unit is repaginated into at most three declared safe pages or fails
+- **THEN** the unit is repaginated into the required number of declared safe continuation pages, or fails only when a complete atomic item has no safe representation or an abnormal safety ceiling is reached
 - **AND** the renderer does not emit an empty card, shrink below minimum size or crop content
+
+#### Scenario: A source-critical code artifact has no supporting prose
+- **WHEN** a source block contains a complete code artifact but no source-backed annotation
+- **THEN** the code template uses an optional support slot and gives the artifact the available canvas width
+- **AND** V6 does not invent annotation text or combine an unrelated topic merely to fill the slot
 
 ### Requirement: Visual AI Has A Controlled Page-Level Degradation
 The system SHALL plan `slide_visual_plan_v2` in bounded chapter batches and SHALL distinguish optional visual enrichment from subject-critical artifacts.
@@ -111,6 +118,25 @@ The system SHALL plan `slide_visual_plan_v2` in bounded chapter batches and SHAL
 - **THEN** the candidate ends as `v6_failed`
 - **AND** it does not publish a prose paraphrase as equivalent
 
+### Requirement: Degraded Visuals Are Repaired Selectively
+The system SHALL repair a published `v6_needs_manual_edit` deck from its frozen story, healthy visual decisions, source revision and template contract without restarting the full course build.
+
+#### Scenario: A teacher retries degraded pages
+- **WHEN** one or more published visual decisions are marked degraded
+- **THEN** the durable repair task sends only those page IDs to visual AI
+- **AND** preserves all healthy story and visual decisions unchanged
+- **AND** reports each target page and degradation reason
+
+#### Scenario: Selective visual repair succeeds
+- **WHEN** every target page produces a source-bound, template-valid visual decision and the rebuilt Web/PPTX contract passes all gates
+- **THEN** a new V6 spec revision is published atomically
+- **AND** the prior published spec remains available in history
+
+#### Scenario: Selective visual repair fails or races a newer publication
+- **WHEN** any target remains degraded, source/template inputs drift, rendering fails, or the base representation changes during repair
+- **THEN** the repair task fails with a structured `visual_repair` or `publish` reason
+- **AND** the previously published V6 revision remains the public version
+
 ### Requirement: V6 Publishes One Final Cross-Renderer Contract
 The system SHALL compile `slide_deck_v6` with resolved template layout IDs, typed slots, source bindings, speaker notes, visual decisions and renderer adapters for both Web and PPTX.
 
@@ -123,6 +149,30 @@ The system SHALL compile `slide_deck_v6` with resolved template layout IDs, type
 - **WHEN** a teaching unit requires compression for projection
 - **THEN** the canvas contains a semantically closed source-faithful expression
 - **AND** complete source text and full code remain in speaker notes with block and revision bindings
+- **AND** code, explicit ordered steps, tables and a page's sole body block remain complete across visible continuation pages rather than being replaced by an excerpt or summary
+
+#### Scenario: A full course contains multiple top-level sections
+- **WHEN** the final V6 deck is compiled from the frozen full-course document
+- **THEN** one or more `agenda-path` pages are inserted from the ordered source section titles
+- **AND** agenda pages bind section IDs without claiming visible `CourseBlock` coverage
+- **AND** chapter-only shadow documents with one top-level section do not receive a false course agenda
+
+#### Scenario: Source prose contains semantic paragraphs
+- **WHEN** a body slot projects multiple source paragraphs or list groups
+- **THEN** paragraph and list boundaries remain visible rather than being flattened into an arbitrary sentence stream
+- **AND** capacity selection ends at a complete semantic group or complete source sentence when possible, and an individually oversized sentence continues losslessly at a natural text boundary
+
+#### Scenario: A task contains explicit ordered steps
+- **WHEN** the source declares two or more ordered actions
+- **THEN** the final layout uses the published vertical numbered-sequence composition
+- **AND** Web and PPTX preserve one source step per numbered row in source order
+
+#### Scenario: A source table exceeds one slide's readable capacity
+- **WHEN** wrapped cell height, row count or protected identifiers cannot fit the selected table variant without semantic loss
+- **THEN** the compiler selects a declared full-width or wide table variant, or paginates complete rows across continuation pages with the header repeated
+- **AND** a single oversized row is promoted to a source-bound detail expression instead of being clipped
+- **AND** no renderer or compiler inserts an ellipsis that was absent from the source
+- **AND** every visible identifier, number, formula and code token remains complete; otherwise the candidate fails before publication
 
 ### Requirement: V6 Applies Fidelity And Render Gates Before Atomic Publication
 The system SHALL publish only after course coverage, order, fact traceability, subject artifacts, teaching intent, template capacity, render integrity and export checks pass.
@@ -138,6 +188,16 @@ The system SHALL publish only after course coverage, order, fact traceability, s
 #### Scenario: All hard gates pass with no degradation
 - **WHEN** source and template remain frozen and both renderers pass
 - **THEN** the version publishes atomically as `v6_ready`
+
+#### Scenario: Visible source semantics are truncated or synthesized
+- **WHEN** visible code, formulas, table rows, source prose or ordered steps differ from frozen source, or the compiler introduces an ellipsis absent from source
+- **THEN** publication fails with a structured fidelity diagnostic
+- **AND** passing geometric overflow checks cannot convert the candidate to success
+
+#### Scenario: A planned page has no visible title
+- **WHEN** a story page title is empty or whitespace-only
+- **THEN** validation fails with `story_title_missing`
+- **AND** the untitled page is not rendered or published
 
 #### Scenario: A candidate fails after a V5 or V6 deck was published
 - **WHEN** any hard gate fails

@@ -15,9 +15,16 @@
     <template v-if="slide.layout === 'cover'">
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__wash"></div>
       <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__index">{{ String(pageNumber).padStart(2, '0') }}</div>
-      <div v-if="visualLayout !== 'cover-minimal'" class="deck-cover__brand">{{ t('teachingRepresentations.slides.brand', '启智') }}</div>
+      <div
+        v-if="templateLogoUrl || visualLayout !== 'cover-minimal'"
+        class="deck-cover__brand"
+        :aria-label="themeLabel"
+      >
+        <img v-if="templateLogoUrl" :src="templateLogoUrl" alt="" />
+        <template v-else>{{ themeLabel }}</template>
+      </div>
       <div class="deck-cover__content">
-        <small>{{ slide.eyebrow || t('teachingRepresentations.slides.courseDeck', '课堂演示') }}</small>
+        <small v-if="coverHeadingLabel">{{ coverHeadingLabel }}</small>
         <h2>{{ slide.title }}</h2>
         <p v-if="slide.subtitle">{{ slide.subtitle }}</p>
         <blockquote v-if="slide.key_message">{{ slide.key_message }}</blockquote>
@@ -27,11 +34,11 @@
 
     <template v-else-if="slide.layout === 'chapter'">
       <div class="deck-chapter__panel">
-        <small>{{ t('teachingRepresentations.slides.chapter', 'CHAPTER') }}</small>
+        <small v-if="!sourceOnlyAudienceLabels">{{ t('teachingRepresentations.slides.chapter', 'CHAPTER') }}</small>
         <strong>{{ chapterNumber(slide.title) }}</strong>
       </div>
       <div class="deck-chapter__content">
-        <small>{{ slide.eyebrow }}</small>
+        <small v-if="audienceHeadingLabel">{{ audienceHeadingLabel }}</small>
         <h2>{{ slide.title }}</h2>
         <i></i>
         <blockquote>{{ slide.key_message || slide.teaching_job || slide.takeaway }}</blockquote>
@@ -42,7 +49,7 @@
     <template v-else>
       <header class="deck-canvas__heading">
         <div>
-          <small>{{ sectionLabel || slide.eyebrow || layoutLabel(visualLayout) }}</small>
+          <small v-if="audienceHeadingLabel">{{ audienceHeadingLabel }}</small>
           <h2 v-if="headingMode !== 'hidden'">{{ displayHeading }}</h2>
         </div>
         <span>{{ String(pageNumber).padStart(2, '0') }}</span>
@@ -56,15 +63,60 @@
       </blockquote>
 
       <div
-        v-if="showsVisualStory"
+        v-if="slide.quality?.v6_layout_variant === 'table-row-detail'"
+        class="deck-table-row-detail"
+      >
+        <article v-for="entry in tableRowDetailEntries" :key="entry.label">
+          <small>{{ entry.label }}</small>
+          <MarkdownRenderer :content="entry.value" :enable-code-run="false" />
+        </article>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'practice-artifact'"
+        class="deck-practice-artifact"
+        :data-artifact-kind="practiceArtifactKind"
+      >
+        <section class="deck-practice-artifact__steps">
+          <small>{{ taskPromptLabel }}</small>
+          <ol>
+            <li v-for="(step, index) in practiceArtifactSteps" :key="`${index}-${step}`">
+              <b>{{ String(index + 1).padStart(2, '0') }}</b>
+              <MarkdownRenderer :content="step" :enable-code-run="false" />
+            </li>
+          </ol>
+        </section>
+        <section class="deck-practice-artifact__evidence">
+          <small>{{ practiceArtifactLabel }}</small>
+          <pre v-if="practiceArtifactKind === 'code'"><code>{{ practiceArtifactCode }}</code></pre>
+          <MarkdownRenderer
+            v-else-if="practiceArtifactKind === 'formula'"
+            class="deck-practice-artifact__formula"
+            :content="practiceArtifactFormula"
+            :enable-code-run="false"
+          />
+          <table v-else-if="practiceArtifactKind === 'table'">
+            <thead><tr><th v-for="header in practiceArtifactTable.headers" :key="header">{{ header }}</th></tr></thead>
+            <tbody>
+              <tr v-for="(row, rowIndex) in practiceArtifactTable.rows" :key="rowIndex">
+                <td v-for="(cell, cellIndex) in row" :key="`${rowIndex}-${cellIndex}`">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
+
+      <div
+        v-else-if="showsVisualStory"
         class="deck-canvas__story"
         :data-composition="resolvedComposition"
+        :data-layout-variant="slide.quality?.v6_layout_variant || undefined"
         :data-source-empty="sourceBlocks.length === 0"
         :data-density="sourceCharacterCount > 180 ? 'dense' : 'normal'"
         :data-has-message="showsStandaloneMessage"
       >
         <SlideVisualRenderer
-          :visuals="slide.visuals ?? []"
+          :visuals="renderableVisuals"
           :course-id="courseId"
           :representation-id="representationId"
         />
@@ -135,6 +187,26 @@
             :enable-code-run="false"
           />
         </div>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'practice-sequence' && slide.quality?.task_prompt_mode === 'action'"
+        class="deck-practice-sequence"
+      >
+        <small>{{ taskPromptLabel }}</small>
+        <ol>
+          <li v-for="(step, index) in practiceSequenceItems" :key="`${index}-${step.title}`">
+            <b>{{ String(index + 1).padStart(2, '0') }}</b>
+            <div :data-has-detail="step.detail ? 'true' : 'false'">
+              <strong>{{ step.title }}</strong>
+              <MarkdownRenderer
+                v-if="step.detail"
+                :content="step.detail"
+                :enable-code-run="false"
+              />
+            </div>
+          </li>
+        </ol>
       </div>
 
       <div
@@ -229,6 +301,7 @@
         v-else-if="visualLayout === 'editorial-body' && slide.blocks?.length"
         class="deck-editorial-body"
         :data-has-message="showsStandaloneMessage"
+        :data-count="slide.blocks?.length || 0"
       >
         <section
           v-for="block in slide.blocks"
@@ -236,7 +309,7 @@
           class="deck-editorial-body__group"
           :data-type="block.type"
         >
-          <small v-if="block.title">{{ block.title }}</small>
+          <small v-if="block.title && (slide.blocks?.length || 0) > 1">{{ block.title }}</small>
           <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
           <ul v-else-if="block.items?.length">
             <li v-for="item in block.items" :key="item">
@@ -257,6 +330,7 @@
         class="deck-canvas__blocks"
         :data-layout="visualLayout"
         :data-count="slide.blocks?.length || 0"
+        :data-density="sourceCharacterCount > 520 ? 'dense' : 'normal'"
         :data-has-message="showsStandaloneMessage"
       >
         <section v-for="(block, blockIndex) in slide.blocks" :key="block.block_id" :data-type="block.type">
@@ -332,6 +406,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import themePack from '../data/slide-themes.json'
 import layoutContract from '../../../shared/slide-layout-contract-v5.json'
 import type { SlideVisual } from '../types/slideVisual'
+import { isRenderableSlideVisual } from '../utils/slideVisual'
 import { resolvePublicAssetUrl } from '../utils/publicAssetUrl'
 
 interface SlideBlock {
@@ -370,12 +445,16 @@ interface Slide {
     section_label?: string
     feedback_mode?: 'paired' | 'shared_evidence' | 'task_only'
     prompt_label?: string
-    task_prompt_mode?: 'action' | 'verification'
+    task_prompt_mode?: 'action' | 'verification' | 'artifact-guided'
     task_prompt_phase?: 'overview' | 'procedure' | 'verification'
     final_page_contract_version?: string
     final_page_contract_v2?: Record<string, any>
     manual_edit_required?: boolean
     manual_edit_reasons?: Array<Record<string, any>>
+    v6_layout_variant?: string
+    v6_artifact_support_mode?: 'split' | 'full' | 'band' | ''
+    v6_practice_artifact_kind?: 'code' | 'formula' | 'table' | ''
+    audience_label_policy?: 'source_only'
   }
 }
 
@@ -389,12 +468,14 @@ const props = withDefaults(defineProps<{
   presenting?: boolean
   courseId?: string
   representationId?: string
+  templatePack?: Record<string, any> | null
 }>(), {
   theme: 'qingfeng-classroom',
   themeOverrides: () => ({}),
   presenting: false,
   courseId: '',
   representationId: '',
+  templatePack: null,
 })
 
 const visualLayout = computed(() => {
@@ -415,10 +496,23 @@ const sectionLabel = computed(() => {
   const message = String(props.slide.key_message || '').trim()
   return /^\d+(?:[.．]\d+)+\s+\S+/.test(message) ? message : ''
 })
+const sourceOnlyAudienceLabels = computed(() => (
+  props.slide.quality?.audience_label_policy === 'source_only'
+))
+const audienceHeadingLabel = computed(() => {
+  const explicit = sectionLabel.value || String(props.slide.eyebrow || '').trim()
+  if (explicit || sourceOnlyAudienceLabels.value) return explicit
+  return layoutLabel(visualLayout.value)
+})
+const coverHeadingLabel = computed(() => {
+  const explicit = String(props.slide.eyebrow || '').trim()
+  if (explicit || sourceOnlyAudienceLabels.value) return explicit
+  return t('teachingRepresentations.slides.courseDeck', '课堂演示')
+})
 const showsStandaloneMessage = computed(() => {
   const message = String(props.slide.key_message || '').trim()
   if (!message || message === sectionLabel.value) return false
-  if (['hero-claim', 'question-prompt', 'practice-feedback'].includes(visualLayout.value)) {
+  if (['hero-claim', 'question-prompt', 'practice-sequence', 'practice-feedback'].includes(visualLayout.value)) {
     return false
   }
   return !['objective', 'misconception', 'practice'].includes(props.slide.layout)
@@ -433,11 +527,19 @@ const resolvedComposition = computed(() => (
 ))
 const sourceBlocks = computed(() => {
   const visualKind = props.slide.visuals?.[0]?.kind
-  if (visualKind !== 'formula') return props.slide.blocks || []
-  return (props.slide.blocks || []).filter(
-    block => block.type !== 'formula' && !block.metadata?.formula,
-  )
+  const blocks = props.slide.blocks || []
+  if (visualKind === 'formula') {
+    return blocks.filter(block => block.type !== 'formula' && !block.metadata?.formula)
+  }
+  if (visualKind === 'table') {
+    if (props.slide.quality?.v6_artifact_support_mode === 'full') return []
+    return blocks.filter(block => !block.metadata?.table_source)
+  }
+  return blocks
 })
+const renderableVisuals = computed(() => (
+  (props.slide.visuals || []).filter(isRenderableSlideVisual)
+))
 const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
   (total, block) => total
     + String(block.title || '').length
@@ -445,6 +547,19 @@ const sourceCharacterCount = computed(() => sourceBlocks.value.reduce(
     + (block.items || []).reduce((sum, item) => sum + String(item).length, 0),
   0,
 ))
+const tableRowDetailEntries = computed(() => {
+  const table = (props.slide.visuals || []).find(visual => visual.kind === 'table')
+  const headers = Array.isArray(table?.parameters?.headers)
+    ? table.parameters.headers.map(String)
+    : []
+  const firstRow = Array.isArray(table?.parameters?.rows?.[0])
+    ? table.parameters.rows[0].map(String)
+    : []
+  return firstRow.map((value, index) => ({
+    label: headers[index] || `字段 ${index + 1}`,
+    value,
+  }))
+})
 const semanticItems = computed(() => (props.slide.blocks || []).flatMap((block) => {
   if (block.items?.length) return block.items.filter(Boolean)
   return block.content ? [block.content] : []
@@ -462,6 +577,48 @@ const questionPromptItems = computed(() => (
 const taskPromptLabel = computed(() => (
   String(props.slide.quality?.prompt_label || '先独立判断')
 ))
+const practiceSequenceItems = computed(() => semanticItems.value.slice(0, 5).map((item) => {
+  const clean = String(item || '').trim()
+  const parts = clean.split(/\s*[:：]\s*/, 2)
+  if (parts.length === 2 && parts[0] && parts[1] && parts[0].length <= 42) {
+    return { title: parts[0].trim(), detail: parts[1].trim() }
+  }
+  return { title: clean, detail: '' }
+}))
+const practiceArtifactProcess = computed(() => (
+  (props.slide.blocks || []).find(block => block.type === 'process')
+))
+const practiceArtifactSteps = computed(() => blockItems(practiceArtifactProcess.value).slice(0, 7))
+const practiceArtifactKind = computed(() => {
+  const declared = String(props.slide.quality?.v6_practice_artifact_kind || '')
+  if (declared) return declared
+  if ((props.slide.blocks || []).some(block => block.type === 'code')) return 'code'
+  if ((props.slide.visuals || []).some(visual => visual.kind === 'formula')) return 'formula'
+  if ((props.slide.visuals || []).some(visual => visual.kind === 'table')) return 'table'
+  return ''
+})
+const practiceArtifactCode = computed(() => String(
+  (props.slide.blocks || []).find(block => block.type === 'code')?.content || '',
+))
+const practiceArtifactFormula = computed(() => String(
+  (props.slide.visuals || []).find(visual => visual.kind === 'formula')?.parameters?.formula
+  || (props.slide.blocks || []).find(block => block.metadata?.formula)?.content
+  || '',
+))
+const practiceArtifactTable = computed(() => {
+  const parameters = (props.slide.visuals || []).find(visual => visual.kind === 'table')?.parameters || {}
+  return {
+    headers: Array.isArray(parameters.headers) ? parameters.headers.map(String) : [],
+    rows: Array.isArray(parameters.rows)
+      ? parameters.rows.map(row => Array.isArray(row) ? row.map(String) : [])
+      : [],
+  }
+})
+const practiceArtifactLabel = computed(() => ({
+  code: '源代码',
+  formula: '关键公式',
+  table: '核验对照',
+}[practiceArtifactKind.value] || '来源证据'))
 const practicePromptBlock = computed(() => (
   (props.slide.blocks || []).find(block => (
     block.metadata?.semantic_role === 'prompt'
@@ -472,9 +629,10 @@ const visualDirectedLayouts = new Set([
   'figure-text',
   'diagram-full',
   'formula-explanation',
+  'data-highlight',
 ])
 const showsVisualStory = computed(() => Boolean(
-  props.slide.visuals?.length
+  renderableVisuals.value.length
   && (
     visualDirectedLayouts.has(visualLayout.value)
     || !v5LayoutNames.has(visualLayout.value)
@@ -608,24 +766,28 @@ const navigationPrefix = computed(() => {
     : '本节学习问题'
 })
 const navigationDetail = computed(() => navigationText.value)
-const richTemplate = computed(() => {
+const themeToken = computed(() => {
   const aliases: Record<string, string> = {
     'qingfeng-classroom': 'qizhi-classroom',
     'academic-bluegray': 'academic-editorial',
   }
   const key = aliases[props.theme] || props.theme
-  const token = (themePack.themes as Record<string, Record<string, any>>)[key]
+  return props.templatePack?.compiled_theme
+    || (themePack.themes as Record<string, Record<string, any>>)[key]
+})
+const richTemplate = computed(() => {
+  const token = themeToken.value
   return Boolean(token?.template?.template_id && token?.visual_assets)
 })
+const templateLogoUrl = computed(() => String(props.templatePack?.asset_urls?.logo || ''))
+const themeLabel = computed(() => String(
+  themeToken.value?.label
+  || t('teachingRepresentations.slides.brand', '启智'),
+))
 const themeStyle = computed(() => {
-  const aliases: Record<string, string> = {
-    'qingfeng-classroom': 'qizhi-classroom',
-    'academic-bluegray': 'academic-editorial',
-  }
-  const key = aliases[props.theme] || props.theme
-  const baseToken = (themePack.themes as Record<string, Record<string, any>>)[key]
-  if (!baseToken) return {}
-  const token = { ...baseToken, ...props.themeOverrides }
+  const baseToken = themeToken.value
+  const token = baseToken ? { ...baseToken, ...props.themeOverrides } : null
+  if (!token) return {}
   const visualAssets = token.visual_assets || {}
   const textBoxStyles = token.text_box_styles || {}
   const assetUrl = (value?: string) => resolvePublicAssetUrl(value, import.meta.env.BASE_URL)
@@ -725,6 +887,7 @@ function layoutLabel(value: string) {
     'course-synthesis': '课程总结',
     'parallel-examples': '并列应用',
     'question-prompt': '理解检查',
+    'practice-sequence': '操作步骤',
     'case-study': '案例',
     question: '思考',
     summary: '回顾',
@@ -914,6 +1077,7 @@ function layoutLabel(value: string) {
   [data-layout="practice"],
   [data-layout="question"],
   [data-layout="question-prompt"],
+  [data-layout="practice-sequence"],
   [data-layout="practice-feedback"],
   [data-layout="misconception"],
   [data-layout="misconception-repair"]
@@ -931,6 +1095,7 @@ function layoutLabel(value: string) {
   [data-layout="figure-text"],
   [data-layout="diagram-full"],
   [data-layout="table-evidence"],
+  [data-layout="data-highlight"],
   [data-layout="code-focus"],
   [data-layout="formula-focus"]
 ) {
@@ -1055,6 +1220,27 @@ function layoutLabel(value: string) {
   background:color-mix(in srgb,var(--deck-box-note) 92%,transparent);
   box-shadow:.26cqw .3cqw 0 var(--deck-box-note-depth),inset 0 .1cqw 0 rgba(255,255,255,.78);
 }
+.deck-canvas[data-template-rich="true"] .deck-editorial-body[data-count="1"] .deck-editorial-body__group {
+  padding:0;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  box-shadow:none;
+}
+.deck-canvas[data-template-rich="true"] .deck-editorial-body[data-count="1"] .deck-editorial-body__group :deep(.markdown-body) {
+  color:var(--deck-title);
+  font:700 2.05cqw/1.58 var(--deck-title-font);
+}
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks > section[data-type="code"] {
+  padding:5%;
+  border-color:#17202c;
+  color:#ecf1f8;
+  background:#17202c;
+  box-shadow:.32cqw .38cqw 0 #09182a,0 .9cqw 2.2cqw rgba(23,54,93,.12),inset 0 .12cqw 0 rgba(255,255,255,.08);
+}
+.deck-canvas[data-template-rich="true"] .deck-canvas__blocks section[data-type="code"] code {
+  color:#f5f7fb;
+}
 .deck-canvas[data-theme="academic-editorial"] {
   --deck-bg:#FBFAF7;
   --deck-title:#273340;
@@ -1142,6 +1328,19 @@ function layoutLabel(value: string) {
 }
 .deck-canvas[data-layout="editorial-body"] .deck-canvas__blocks { grid-template-columns:1fr; }
 .deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks[data-count="1"] {
+  grid-template-columns:1fr;
+}
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks[data-count="1"][data-density="dense"] > section {
+  column-count:2;
+  column-gap:3.2cqw;
+  column-rule:1px solid var(--deck-line);
+}
+.deck-canvas:is([data-layout="two-column"],[data-layout="balanced-two-column"]) .deck-canvas__blocks[data-count="1"][data-density="dense"] p {
+  break-inside:avoid;
+  font-size:1.6cqw;
+  line-height:1.34;
+}
 .deck-canvas[data-layout="concept-cards"] .deck-canvas__blocks { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .deck-canvas[data-layout="classification-3"] .deck-canvas__blocks { grid-template-columns:1fr; }
 .deck-canvas[data-layout="classification-3"] .deck-canvas__blocks > section {
@@ -1590,6 +1789,66 @@ function layoutLabel(value: string) {
 .deck-canvas__story[data-source-empty="true"] {
   grid-template-columns:minmax(0,1fr);
 }
+.deck-canvas__story[data-layout-variant="table-with-interpretation"] {
+  grid-template-columns:minmax(0,1.35fr) minmax(0,.65fr);
+}
+.deck-canvas__story[data-layout-variant="table-with-interpretation"] > .slide-visual { order:1; }
+.deck-canvas__story[data-layout-variant="table-with-interpretation"] > .deck-canvas__source { order:2; }
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] {
+  grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) auto;
+  gap:1.1cqw;
+}
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] > .slide-visual { order:1; min-height:0; }
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] > .deck-canvas__source {
+  order:2;
+  padding:.8cqw 1.2cqw;
+  border-left:0;
+  border-top:.28cqw solid var(--deck-blue);
+  border-radius:.8cqw;
+  background:color-mix(in srgb,var(--deck-surface) 92%,transparent);
+}
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] > .deck-canvas__source > small { display:none; }
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] > .deck-canvas__source section { margin:0; }
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] > .deck-canvas__source section > b {
+  display:inline;
+  margin:0 .8cqw 0 0;
+  font-size:1.15cqw;
+}
+.deck-canvas__story[data-layout-variant="table-wide-with-summary"] > .deck-canvas__source p {
+  display:inline;
+  font-size:1.28cqw;
+  line-height:1.3;
+}
+.deck-table-row-detail {
+  position:absolute;
+  inset:25% 5.5% 10.5%;
+  display:grid;
+  grid-template-rows:repeat(auto-fit,minmax(0,1fr));
+  gap:.8cqw;
+  min-height:0;
+}
+.deck-table-row-detail article {
+  display:grid;
+  grid-template-columns:minmax(8cqw,18cqw) minmax(0,1fr);
+  align-items:center;
+  min-height:0;
+  padding:1cqw 1.4cqw;
+  border:1px solid var(--deck-line);
+  border-left:.32cqw solid var(--deck-blue);
+  border-radius:.8cqw;
+  background:color-mix(in srgb,var(--deck-surface) 94%,transparent);
+}
+.deck-table-row-detail article > small {
+  color:var(--deck-blue);
+  font-size:1.05cqw;
+  font-weight:800;
+}
+.deck-table-row-detail article :deep(.markdown-body) {
+  color:var(--deck-ink);
+  font-size:1.55cqw;
+  line-height:1.42;
+}
 .deck-canvas__source {
   min-width:0;
   overflow:hidden;
@@ -1753,6 +2012,7 @@ function layoutLabel(value: string) {
 .deck-canvas__blocks[data-layout="objective"],
 .deck-canvas__blocks[data-layout="objective-cards"] { inset:25% 5.5% 10.5%; grid-template-columns:1.05fr 1fr 1fr; }
 .deck-canvas__blocks[data-layout="code"] { inset:25% 5.5% 10.5%; grid-template-columns:1.75fr 1fr; }
+.deck-canvas__blocks[data-layout="code"][data-count="1"] { grid-template-columns:1fr; }
 .deck-canvas__blocks[data-layout="practice"],
 .deck-canvas__blocks[data-layout="question"],
 .deck-canvas__blocks[data-layout="misconception"] { inset:25% 5.5% 10.5%; grid-template-columns:1.55fr .9fr; }
@@ -1833,21 +2093,21 @@ function layoutLabel(value: string) {
   background:var(--deck-blue);
   font-size:.88em;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks {
   inset:25% 5.5% 10.5%;
   grid-template-columns:1fr;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks section {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks section {
   padding:2.5% 3%;
   border:0;
   border-radius:0;
   background:transparent;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol {
   height:100%;
   gap:0;
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol li {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol li {
   display:grid;
   grid-template-columns:3.2cqw minmax(0,1fr);
   align-items:center;
@@ -1856,8 +2116,192 @@ function layoutLabel(value: string) {
   padding:.8cqw 0;
   border-bottom:1px solid var(--deck-line);
 }
-.deck-canvas[data-layout="process-sequence"][data-task-prompt-mode="action"] .deck-canvas__blocks ol li:last-child {
+.deck-canvas:is([data-layout="process-sequence"],[data-layout="practice-sequence"])[data-task-prompt-mode="action"] .deck-canvas__blocks ol li:last-child {
   border-bottom:0;
+}
+.deck-practice-sequence {
+  position:absolute;
+  inset:24.5% 6.5% 10.5%;
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  min-height:0;
+}
+.deck-practice-sequence > small {
+  color:var(--deck-blue);
+  font-size:1.02cqw;
+  font-weight:800;
+  letter-spacing:.08em;
+}
+.deck-practice-sequence ol {
+  position:relative;
+  display:grid;
+  grid-auto-rows:1fr;
+  min-height:0;
+  margin:.6cqw 0 0;
+  padding:0;
+  list-style:none;
+}
+.deck-practice-sequence ol::before {
+  content:"";
+  position:absolute;
+  top:10%;
+  bottom:10%;
+  left:2.05cqw;
+  width:.14cqw;
+  background:var(--deck-line);
+}
+.deck-practice-sequence li {
+  position:relative;
+  display:grid;
+  grid-template-columns:4.1cqw minmax(0,1fr);
+  align-items:center;
+  min-height:0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-sequence li:last-child { border-bottom:0; }
+.deck-practice-sequence li > b {
+  z-index:1;
+  width:3.05cqw;
+  height:3.05cqw;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font:800 .86cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-practice-sequence li > div {
+  display:grid;
+  grid-template-columns:minmax(0,3fr) minmax(0,7fr);
+  align-items:center;
+  gap:2.2cqw;
+  min-width:0;
+}
+.deck-practice-sequence li > div[data-has-detail="false"] strong {
+  grid-column:1/3;
+}
+.deck-practice-sequence strong {
+  color:var(--deck-title);
+  font-size:1.62cqw;
+  line-height:1.25;
+}
+.deck-practice-sequence li > div > :deep(.markdown-body) {
+  margin:0;
+  color:var(--deck-muted);
+  font-size:1.42cqw;
+  line-height:1.45;
+}
+.deck-practice-artifact {
+  position:absolute;
+  inset:24.5% 6% 10.5%;
+  display:grid;
+  grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr);
+  gap:2.2cqw;
+  min-height:0;
+}
+.deck-practice-artifact__steps,
+.deck-practice-artifact__evidence {
+  min-width:0;
+  min-height:0;
+}
+.deck-practice-artifact__steps {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  padding-right:2cqw;
+  border-right:.14cqw solid var(--deck-line);
+}
+.deck-practice-artifact__steps > small,
+.deck-practice-artifact__evidence > small {
+  color:var(--deck-blue);
+  font-size:1.02cqw;
+  font-weight:800;
+  letter-spacing:.06em;
+}
+.deck-practice-artifact__steps ol {
+  position:relative;
+  display:grid;
+  grid-auto-rows:1fr;
+  min-height:0;
+  margin:.55cqw 0 0;
+  padding:0;
+  list-style:none;
+}
+.deck-practice-artifact__steps ol::before {
+  content:"";
+  position:absolute;
+  top:8%;
+  bottom:8%;
+  left:1.42cqw;
+  width:.12cqw;
+  background:var(--deck-line);
+}
+.deck-practice-artifact__steps li {
+  position:relative;
+  display:grid;
+  grid-template-columns:3cqw minmax(0,1fr);
+  align-items:center;
+  gap:.9cqw;
+  min-height:0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-practice-artifact__steps li:last-child { border-bottom:0; }
+.deck-practice-artifact__steps li > b {
+  z-index:1;
+  width:2.7cqw;
+  height:2.7cqw;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  color:#fff;
+  background:var(--deck-blue);
+  font:800 .8cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-practice-artifact__steps li :deep(.markdown-body) {
+  margin:0;
+  color:var(--deck-ink);
+  font-size:1.22cqw;
+  line-height:1.35;
+}
+.deck-practice-artifact__evidence {
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr);
+  gap:.65cqw;
+}
+.deck-practice-artifact__evidence pre {
+  min-height:0;
+  margin:0;
+  overflow:hidden;
+  padding:1.5cqw;
+  border-radius:.85cqw;
+  color:#f5f7fb;
+  background:#17243b;
+  white-space:pre-wrap;
+}
+.deck-practice-artifact__evidence code {
+  font:1.12cqw/1.48 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-practice-artifact__formula {
+  display:grid;
+  place-items:center;
+  min-height:0;
+  padding:2cqw;
+  border:1px solid var(--deck-line);
+  border-radius:.85cqw;
+  background:var(--deck-canvas);
+  color:var(--deck-title);
+  font:400 2.05cqw/1.4 "Times New Roman",serif;
+  text-align:center;
+}
+.deck-practice-artifact__evidence table {
+  table-layout:fixed;
+  min-height:0;
+  font-size:1.17cqw;
+  line-height:1.3;
+}
+.deck-practice-artifact__evidence th,
+.deck-practice-artifact__evidence td {
+  overflow-wrap:anywhere;
+  padding:.48em .55em;
 }
 .deck-canvas__blocks pre {
   height:100%;
@@ -1909,6 +2353,7 @@ function layoutLabel(value: string) {
   font-weight:800;
   letter-spacing:.16em;
 }
+.deck-cover__brand img { width:100%; height:100%; object-fit:contain; }
 .deck-cover__content { position:absolute; inset:17% 35% 13% 6%; }
 .deck-cover__content small {
   color:var(--deck-blue);

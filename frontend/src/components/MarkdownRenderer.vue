@@ -3,7 +3,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
 import { highlightRenderedMarkdownText } from '../utils/markdown-highlight'
 import logger from '../utils/logger'
@@ -22,10 +22,6 @@ const props = withDefaults(defineProps<{
 
 const containerRef = ref<HTMLElement | null>(null)
 const renderedContent = ref('')
-const throttleDelay = 150 // 150ms 节流，平衡流畅度和性能
-
-let isThrottled = false
-let hasPendingUpdate = false
 
 const escapeHtml = (val: string) => val
     .replace(/&/g, '&amp;')
@@ -178,21 +174,42 @@ watch(renderedContent, () => {
     enhanceCodeBlocks()
 }, { flush: 'post' })
 
-watch(() => [props.content, props.searchWords], () => {
-    if (!isThrottled) {
+/**
+ * Coalesce bursts of `content` changes onto animation frames.
+ *
+ * A streamed answer arrives as hundreds of tiny chunks (measured: 877 chunks
+ * over ~6s), and re-parsing Markdown per chunk is wasteful — so updates are
+ * still batched. But the previous timer-based throttle only guaranteed a
+ * *leading* render plus one trailing render per window, and re-armed lazily,
+ * which let the visible text sit frozen for as long as 2.8s and read as
+ * "the whole answer appeared at once".
+ *
+ * Aligning to `requestAnimationFrame` renders at most once per frame — no
+ * faster than the screen can show — while guaranteeing that every chunk is
+ * reflected on the very next frame. The render is genuinely driven by arriving
+ * chunks; no text is withheld or revealed on a timer.
+ */
+let pendingFrame = 0
+
+const scheduleUpdate = () => {
+    if (pendingFrame) return
+    if (typeof requestAnimationFrame !== 'function') {
         updateContent()
-        isThrottled = true
-        setTimeout(() => {
-            isThrottled = false
-            if (hasPendingUpdate) {
-                updateContent()
-                hasPendingUpdate = false
-            }
-        }, throttleDelay)
-    } else {
-        hasPendingUpdate = true
+        return
     }
-}, { immediate: true })
+    pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = 0
+        updateContent()
+    })
+}
+
+watch(() => [props.content, props.searchWords], () => {
+    scheduleUpdate()
+}, { immediate: true, flush: 'sync' })
+
+onBeforeUnmount(() => {
+    if (pendingFrame) cancelAnimationFrame(pendingFrame)
+})
 
 </script>
 

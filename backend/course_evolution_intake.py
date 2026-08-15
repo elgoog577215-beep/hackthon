@@ -15,6 +15,7 @@ CourseEvolutionEntrypoint = Literal["ai_teacher", "course_adjustment"]
 CourseEvolutionScope = Literal[
     "current_block",
     "current_section",
+    "current_chapter",
     "whole_course",
 ]
 

@@ -5,17 +5,19 @@ from pathlib import Path
 import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
-from slide_deck_v6 import V6BuildError
+from slide_ai_planning_v6 import AIPlannerInvocationError
 from slide_build_progress_v2 import (
     SlideBuildProgressManifestV2,
     SlideBuildProgressRepositoryV2,
     SlideWorkItemV2,
 )
+from slide_deck_v6 import V6BuildError
 from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
 )
 from teaching_representations import TeachingRepresentationRepository
+from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
 def _document() -> CourseDocument:
@@ -122,6 +124,453 @@ def _orchestrator(tmp_path: Path) -> tuple[SlideDeckV6Orchestrator, TeachingRepr
     return orchestrator, representations, candidates
 
 
+@pytest.mark.asyncio
+async def test_build_rejects_checkpoint_from_previous_build_contract(tmp_path: Path) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-stale-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("stale checkpoints must fail before AI planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v4_checkpoint_after_story_contract_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v4-story-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v4",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v4 story checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v5_checkpoint_after_grounding_repair_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v5-grounding-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v5",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v5 story checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v6_checkpoint_after_visual_fallback_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v6-visual-fallback-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v6",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v6 visual checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v7_checkpoint_after_artifact_source_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v7-artifact-source-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v7",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v7 artifact checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v8_checkpoint_after_rich_text_artifact_pagination_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v8-rich-text-artifact-pagination-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v8",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v8 pagination checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v9_checkpoint_after_support_density_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v9-support-density-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v9",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v9 support checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v10_checkpoint_after_global_page_identity_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v10-global-page-identity-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v10",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v10 page identity checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v13_checkpoint_after_template_pagination_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v13-template-pagination-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v13",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v13 pagination checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_build_rejects_v19_checkpoint_after_semantic_layout_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v19-semantic-layout-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v19",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v19 semantic checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
 def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_path: Path) -> None:
     candidates = SlideDeckV6CandidateRepository(tmp_path / "candidates")
     progress_root = tmp_path / "progress"
@@ -210,6 +659,14 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     candidate = candidates.load("task-v6-success")
     assert candidate["status"] == "v6_ready"
     assert candidate["story_plan"]["batches"][0]["provider"] == "fixture-pool"
+    assert [item["kind"] for item in candidate["ai_batch_diagnostics"]] == [
+        "story",
+        "visual",
+    ]
+    assert all(
+        item["validation_status"] == "passed"
+        for item in candidate["ai_batch_diagnostics"]
+    )
     registry = representations.load(document.course_id)
     representation = next(item for item in registry.representations if item.variant_key == "teaching:qizhi-classroom")
     spec = next(item for item in registry.specs if item.spec_id == representation.spec_id)
@@ -341,6 +798,50 @@ async def test_failed_v6_candidate_keeps_last_published_representation(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_failed_v6_candidate_persists_sanitized_ai_batch_diagnostics(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+
+    async def failed_story(_request):
+        raise AIPlannerInvocationError(
+            RuntimeError("provider quota unavailable"),
+            telemetry=[{
+                "provider_route": "shared-fallback",
+                "model_id": "generic-model",
+                "provider_attempt": 2,
+                "status": "failed",
+                "error_code": "QuotaError",
+                "duration_ms": 75,
+                "queue_wait_ms": 4,
+                "api_key": "must-not-be-persisted",
+            }],
+        )
+
+    with pytest.raises(V6BuildError, match="story_ai_batch_balance_unavailable"):
+        await orchestrator.build(
+            task_id="task-v6-failed-diagnostics",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=failed_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    candidate = candidates.load("task-v6-failed-diagnostics")
+    assert candidate["status"] == "v6_failed"
+    assert candidate["ai_batch_diagnostics"][0]["failure_category"] == (
+        "story_ai_batch_balance_unavailable"
+    )
+    assert candidate["ai_batch_diagnostics"][0]["provider"] == "shared-fallback"
+    assert candidate["ai_batch_diagnostics"][0]["model"] == "generic-model"
+    assert "api_key" not in str(candidate["ai_batch_diagnostics"])
+
+
+@pytest.mark.asyncio
 async def test_source_revision_drift_fails_before_registry_publish(tmp_path: Path) -> None:
     document = _document()
     orchestrator, representations, candidates = _orchestrator(tmp_path)
@@ -469,3 +970,189 @@ async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_agai
     assert result["status"] == "v6_ready"
     assert calls.count("chapter-1") == 1
     assert calls.count("chapter-2") == 2
+
+
+@pytest.mark.asyncio
+async def test_retryable_story_failure_resumes_same_task_and_reuses_finished_batches(
+    tmp_path: Path,
+) -> None:
+    document = _two_chapter_document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    calls: list[str] = []
+    failed_once = False
+
+    async def retryable_story(request):
+        nonlocal failed_once
+        chapter_id = request["chapter_id"]
+        calls.append(chapter_id)
+        if chapter_id == "chapter-2" and not failed_once:
+            failed_once = True
+            raise TimeoutError("provider timeout")
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": chapter_id,
+            "provider": "fixture-pool",
+            "model": "fixture-story",
+            "attempts": 1,
+            "pages": [{
+                "page_id": f"page-{chapter_id}",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": next(
+                    item for item in unit["allowed_template_layout_ids"]
+                    if item.endswith("/content-stack")
+                ),
+                "title": unit["title_candidates"][0],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    with pytest.raises(V6BuildError, match="story_ai_batch_timeout"):
+        await orchestrator.build(
+            task_id="task-v6-retryable",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=retryable_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    result = await orchestrator.build(
+        task_id="task-v6-retryable",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=retryable_story,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert result["status"] == "v6_ready"
+    assert calls.count("chapter-1") == 1
+    assert calls.count("chapter-2") == 2
+
+
+async def _publish_degraded_visual_fixture(
+    orchestrator: SlideDeckV6Orchestrator,
+    document: CourseDocument,
+) -> dict:
+    async def unavailable_visual(_request):
+        raise TimeoutError("shared provider temporarily unavailable")
+
+    return await orchestrator.build(
+        task_id="task-v6-degraded-base",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=unavailable_visual,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+
+@pytest.mark.asyncio
+async def test_visual_repair_reuses_published_story_and_atomically_replaces_only_degradation(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    base = await _publish_degraded_visual_fixture(orchestrator, document)
+    assert base["status"] == "v6_needs_manual_edit"
+    before_registry = representations.load(document.course_id)
+    before_representation = next(
+        item for item in before_registry.representations
+        if item.representation_id == base["representation_id"]
+    )
+    before_spec = next(
+        item for item in before_registry.specs
+        if item.spec_id == before_representation.spec_id
+    )
+    assert before_spec.payload["content"]["planning_status"]["visual_ai"][
+        "degraded_pages"
+    ] == [{
+        "page_id": "page-1",
+        "reason": "visual_ai_batch_timeout",
+    }]
+    story_before = before_spec.payload["content"]["story_plan"]
+    visual_requests = []
+
+    async def story_must_not_run(_request):
+        raise AssertionError("visual repair must reuse the published story plan")
+
+    async def repaired_visual(request):
+        visual_requests.append([page["page_id"] for page in request["pages"]])
+        return await _visual_planner(request)
+
+    repaired = await orchestrator.repair_visuals(
+        task_id="task-v6-visual-repair",
+        document=document,
+        course_data={},
+        representation_id=base["representation_id"],
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=story_must_not_run,
+        visual_planner=repaired_visual,
+        source_revision_provider=lambda: document.document_revision,
+    )
+
+    assert repaired["status"] == "v6_ready"
+    assert visual_requests == [["page-1"]]
+    after_registry = representations.load(document.course_id)
+    after_representation = next(
+        item for item in after_registry.representations
+        if item.representation_id == base["representation_id"]
+    )
+    assert after_representation.spec_id != before_representation.spec_id
+    after_spec = next(
+        item for item in after_registry.specs
+        if item.spec_id == after_representation.spec_id
+    )
+    assert after_spec.payload["content"]["story_plan"] == story_before
+    assert after_spec.payload["content"]["visual_plan"]["decisions"][0]["degraded"] is False
+    repair_candidate = candidates.load("task-v6-visual-repair")
+    assert repair_candidate["visual_repair"]["base_spec_id"] == before_spec.spec_id
+    assert repair_candidate["visual_repair"]["target_page_ids"] == ["page-1"]
+
+
+@pytest.mark.asyncio
+async def test_failed_visual_repair_keeps_the_published_v6_revision(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+    base = await _publish_degraded_visual_fixture(orchestrator, document)
+    before = next(
+        item for item in representations.load(document.course_id).representations
+        if item.representation_id == base["representation_id"]
+    )
+
+    async def unavailable(_request):
+        raise TimeoutError("shared provider remains unavailable")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.repair_visuals(
+            task_id="task-v6-visual-repair-failed",
+            document=document,
+            course_data={},
+            representation_id=base["representation_id"],
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=_story_planner,
+            visual_planner=unavailable,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    assert captured.value.failure.code == "visual_repair_incomplete"
+    after = next(
+        item for item in representations.load(document.course_id).representations
+        if item.representation_id == base["representation_id"]
+    )
+    assert after.spec_id == before.spec_id
+    failed_candidate = candidates.load("task-v6-visual-repair-failed")
+    assert failed_candidate["published"] is False
+    assert failed_candidate["failure"]["stage"] == "visual_repair"

@@ -13,7 +13,13 @@ from models import ValidationReport
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+# 运行时数据根目录。默认是仓库内的 `backend/data`；`LINGZHI_DATA_DIR` 可以把
+# 整棵数据树重定向到别处。所有派生仓库（learning_records、practice_attempts、
+# course_evolution 等）都在导入期从这里取根路径，所以这个开关必须在导入 storage
+# 之前设置。测试用它把写入隔离到临时目录，避免污染受版本控制的运行数据。
+DATA_DIR = os.environ.get("LINGZHI_DATA_DIR", "").strip() or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data"
+)
 COURSES_DIR = os.path.join(DATA_DIR, "courses")
 ANNOTATIONS_FILE = os.path.join(DATA_DIR, "annotations.json")
 # Legacy file for migration

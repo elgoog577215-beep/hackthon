@@ -6,6 +6,12 @@ import { useCourseStore } from '@/stores/course'
 import { useLearnerModelStore } from '@/stores/learnerModel'
 import { useLearningProgressStore } from '@/stores/learningProgress'
 
+// 有效期必须相对"当下"算。写死日期的夹具会在那天到来时自己转红：
+// 本文件原来写的是 2026-08-13，到了那天证据判定为过期，组件改渲染"证据已过期"
+// 而不是支持原因，用例于是失败——失败的是日历，不是代码。
+// 另一条用例故意用 2000 年的过期日期来验过期分支，那个写死是对的。
+const STILL_VALID = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString()
+
 function mountOverview() {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -40,14 +46,14 @@ function mountOverview() {
         status: 'needs_support', reason_code: 'repeated_independent_failure',
         confidence: 'high', evidence_refs: ['attempt-1', 'attempt-2'],
       },
-      evidence_refs: [], observed_at: '2026-07-14T00:00:00Z', valid_until: '2026-08-13T00:00:00Z',
+      evidence_refs: [], observed_at: '2026-07-14T00:00:00Z', valid_until: STILL_VALID,
     }],
     strengths: [],
     needs_attention: [{
       objective_id: 'lo_1', objective_revision_id: 'lor_1', node_id: 'node-1',
       node_name: '极限定义', reason_code: 'repeated_independent_failure', confidence: 'high',
       evidence_refs: ['attempt-1', 'attempt-2'], observed_at: '2026-07-14T00:00:00Z',
-      valid_until: '2026-08-13T00:00:00Z',
+      valid_until: STILL_VALID,
     }],
     self_reports: [],
     evidence_catalog: [

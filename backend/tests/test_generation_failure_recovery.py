@@ -20,6 +20,7 @@ from guided_generation import (
     mark_waiting,
     step_state,
 )
+from slide_deck_v6_orchestrator import SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
 from task_manager import TaskManager
 
 
@@ -118,6 +119,120 @@ def _release_workflow(course: dict, request: dict | None = None) -> dict:
         revision=artifact_revision("release", course, request=snapshot),
     )
     return workflow
+
+
+@pytest.mark.asyncio
+async def test_v6_ppt_recovery_requires_a_retryable_failure(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
+    common = {
+        "course_id": "generic-field-course",
+        "type": "slide_deck_variant_build",
+        "status": "failed",
+        "phase": "story",
+        "progress": 41,
+        "request_snapshot": {"target_schema": "slide_deck_v6"},
+    }
+    manager.tasks["retryable"] = {
+        **common,
+        "id": "retryable",
+        "slide_build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
+        "slide_build_progress_v2": {
+            "failure": {"retryable": True, "code": "story_ai_batch_timeout"},
+        },
+    }
+    manager.tasks["terminal"] = {
+        **common,
+        "id": "terminal",
+        "slide_build_progress_v2": {
+            "failure": {"retryable": False, "code": "template_layout_unavailable"},
+        },
+    }
+    candidate_checkpoints = tmp_path / "slide_deck_v6_candidates" / "checkpoints"
+    candidate_checkpoints.mkdir(parents=True)
+    progress_checkpoints = tmp_path / "slide_build_progress_v2"
+    progress_checkpoints.mkdir(parents=True)
+    (candidate_checkpoints / "retryable.json").write_text("{}", encoding="utf-8")
+    (progress_checkpoints / "retryable.json").write_text("{}", encoding="utf-8")
+
+    assert manager.describe_task_recovery("retryable")["can_resume"] is True
+    assert manager.describe_task_recovery("terminal")["can_resume"] is False
+
+    resumed = await manager.resume_task("retryable")
+
+    assert resumed["status"] == "resumed"
+    assert manager.tasks["retryable"]["status"] == "pending"
+    assert await manager._task_queue.get() == "retryable"
+
+
+@pytest.mark.asyncio
+async def test_new_v6_task_records_the_current_checkpoint_contract(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
+
+    task_id = await manager.create_task(
+        "generic-field-course",
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+
+    assert manager.tasks[task_id]["slide_build_contract_version"] == (
+        "slide_deck_v6_build_contract_v20"
+    )
+
+
+@pytest.mark.asyncio
+async def test_v6_recovery_hides_a_stale_checkpoint_contract(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
+    task_id = await manager.create_task(
+        "generic-field-course",
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+    manager.tasks[task_id].update({
+        "status": "failed",
+        "phase": "story",
+        "slide_build_contract_version": "slide_deck_v6_build_contract_v4",
+        "slide_build_progress_v2": {
+            "failure": {
+                "retryable": True,
+                "code": "story_summary_markdown_invalid",
+            },
+        },
+    })
+    candidate_checkpoints = tmp_path / "slide_deck_v6_candidates" / "checkpoints"
+    candidate_checkpoints.mkdir(parents=True)
+    progress_checkpoints = tmp_path / "slide_build_progress_v2"
+    progress_checkpoints.mkdir(parents=True)
+    (candidate_checkpoints / f"{task_id}.json").write_text(
+        json.dumps({
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "build_contract_version": "slide_deck_v6_build_contract_v4",
+        }),
+        encoding="utf-8",
+    )
+    (progress_checkpoints / f"{task_id}.json").write_text("{}", encoding="utf-8")
+
+    recovery = manager.describe_task_recovery(task_id)
+
+    assert recovery["can_resume"] is False
+    assert recovery["reason_code"] == "checkpoint_contract_stale"
+    assert recovery["reason"] == "生成协议已升级，请重新生成当前组合"
 
 
 @pytest.mark.asyncio
@@ -943,10 +1058,11 @@ async def test_candidate_generation_job_recovers_without_new_workspace(tmp_path,
 def test_real_process_kill_and_restart_recovers_persisted_checkpoint(tmp_path):
     harness = Path(__file__).with_name("recovery_process_harness.py")
     process = subprocess.Popen(
-        [sys.executable, str(harness), "seed", str(tmp_path)],
+        [sys.executable, "-X", "utf8", str(harness), "seed", str(tmp_path)],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
     )
     try:
         deadline = time.monotonic() + 8
@@ -964,10 +1080,11 @@ def test_real_process_kill_and_restart_recovers_persisted_checkpoint(tmp_path):
             process.wait(timeout=5)
 
     recovered = subprocess.run(
-        [sys.executable, str(harness), "recover", str(tmp_path)],
+        [sys.executable, "-X", "utf8", str(harness), "recover", str(tmp_path)],
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=10,
     )
     payload = json.loads(recovered.stdout.strip().splitlines()[-1])

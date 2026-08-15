@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai_base import AIBase, AIProviderRequestError
+from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
 
 
 class FakeStream:
@@ -48,6 +48,10 @@ def _clear_model_environment(monkeypatch):
         "AI_ASSESSMENT_GENERATOR_MODELS",
         "AI_ASSESSMENT_SOLVER_MODELS",
         "AI_ASSESSMENT_REVIEWER_MODELS",
+        "AI_PPT_API_KEY",
+        "AI_PPT_API_BASE",
+        "AI_PPT_STORY_MODELS",
+        "AI_PPT_VISUAL_MODELS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -242,6 +246,98 @@ def test_assessment_roles_use_isolated_model_order(monkeypatch):
     ) == ["reviewer-a", "reviewer-b"]
 
 
+def test_ppt_roles_use_configured_cross_course_model_routes(monkeypatch):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "AI_MODEL_CANDIDATES",
+        "shared-default",
+    )
+    monkeypatch.setenv(
+        "AI_PPT_STORY_MODELS",
+        "deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B",
+    )
+    monkeypatch.setenv(
+        "AI_PPT_VISUAL_MODELS",
+        "deepseek-ai/DeepSeek-V4-Flash-0731,ZhipuAI/GLM-5.2",
+    )
+
+    service = AIBase()
+
+    assert service._models_for(False, "ppt_story") == [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "Qwen/Qwen3.5-122B-A10B",
+    ]
+    assert service._models_for(True, "ppt_visual") == [
+        "deepseek-ai/DeepSeek-V4-Flash-0731",
+        "ZhipuAI/GLM-5.2",
+    ]
+    assert service._models_for(False, "unrelated_role") == [
+        "shared-default",
+    ]
+
+
+def test_ppt_provider_profile_uses_dedicated_deepseek_route_only(monkeypatch):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "shared-key")
+    monkeypatch.setenv(
+        "AI_API_BASE",
+        "https://api-inference.modelscope.cn/v1",
+    )
+    monkeypatch.setenv("AI_PPT_API_KEY", "ppt-deepseek-key")
+    monkeypatch.setenv("AI_PPT_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv(
+        "AI_PPT_STORY_MODELS",
+        "deepseek-v4-pro,deepseek-v4-flash",
+    )
+    monkeypatch.setenv(
+        "AI_PPT_VISUAL_MODELS",
+        "deepseek-v4-flash,deepseek-v4-pro",
+    )
+
+    shared = AIBase()
+    ppt = AIBase(provider_profile="ppt")
+
+    assert shared.api_key == "shared-key"
+    assert shared.api_base == "https://api-inference.modelscope.cn/v1"
+    assert ppt.api_key == "ppt-deepseek-key"
+    assert ppt.api_base == "https://api.deepseek.com"
+    assert ppt._models_for(False, "ppt_story") == [
+        "deepseek-v4-pro",
+        "deepseek-v4-flash",
+    ]
+    assert ppt._models_for(True, "ppt_visual") == [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("configured_key", "configured_base"),
+    [
+        ("ppt-key", None),
+        (None, "https://api.deepseek.com"),
+    ],
+)
+def test_ppt_provider_profile_rejects_half_configured_route(
+    monkeypatch,
+    configured_key,
+    configured_base,
+):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "shared-key")
+    if configured_key:
+        monkeypatch.setenv("AI_PPT_API_KEY", configured_key)
+    if configured_base:
+        monkeypatch.setenv("AI_PPT_API_BASE", configured_base)
+
+    with pytest.raises(
+        AIProviderUnavailable,
+        match="ppt_provider_configuration_incomplete",
+    ):
+        AIBase(provider_profile="ppt")
+
+
 @pytest.mark.asyncio
 async def test_global_thinking_switch_overrides_call_site_request(monkeypatch):
     captured = {}
@@ -432,7 +528,13 @@ async def test_modelscope_and_non_official_deepseek_hosts_keep_modelscope_thinki
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
 
     assert await service._call_llm("test", retry_count=1, enable_thinking=True) == "answer"
-    assert captured["extra_body"] == {"enable_thinking": True}
+    # 非官方 DeepSeek 主机保持扁平写法；同时附带 vLLM 需要的嵌套写法，
+    # 只认扁平写法的 provider 不受影响。
+    assert captured["extra_body"]["enable_thinking"] is True
+    assert captured["extra_body"]["chat_template_kwargs"] == {
+        "enable_thinking": True
+    }
+    assert "thinking" not in captured["extra_body"]
 
 
 @pytest.mark.asyncio

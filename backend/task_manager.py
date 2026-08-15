@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from ai_provider_route import provider_route_snapshot
 from assessment_blueprint import compile_course_assessment_blueprint
 from assessment_contracts import (
     compile_assessment_objectives,
@@ -58,7 +59,6 @@ from course_generation_budget import (
     CourseGenerationBudget,
     CourseGenerationDeadlineExceeded,
 )
-from ai_provider_route import provider_route_snapshot
 from course_generation_errors import classify_generation_failure
 from course_generation_workflow import PIPELINE_VERSION
 from course_knowledge_base import (
@@ -157,6 +157,7 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from ppt_template_packs import ppt_template_pack_repository
 from question_bank import (
     QuestionBankRepository,
     question_bank_repository,
@@ -169,12 +170,11 @@ from representation_compiler import (
     rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
-from slide_ai_runtime import ai_slide_planning_enabled
 from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     build_ai_base_visual_planner_v2,
 )
-from ppt_template_packs import ppt_template_pack_repository
+from slide_ai_runtime import ai_slide_planning_enabled
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -197,6 +197,7 @@ from slide_deck_v5 import (
 )
 from slide_deck_v6 import V6BuildError, compile_shadow_chapter_document
 from slide_deck_v6_orchestrator import (
+    SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
 )
@@ -215,11 +216,15 @@ from slide_visuals import (
 )
 from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
+from teaching_representations import teaching_representation_repository
 from template_layout_contract import (
     TemplateLayoutPackContractV1,
     compile_builtin_template_layout_contract_v1,
 )
-from teaching_representations import teaching_representation_repository
+from web_material_curation import (
+    load_course_exclusions,
+    merge_ingest_exclusions,
+)
 from web_retrieval import (
     RetrievalRequest,
     configured_retrieval_gateway,
@@ -242,6 +247,57 @@ CONTENT_COMPLETE_THRESHOLD = 600
 STREAM_PROGRESS_INTERVAL_SECONDS = 1.5
 DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
+
+
+def build_node_locations(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """把有序节点表压成 {node_id: 位置}，供进度显示用。
+
+    教师问的是"现在生成到哪了"，答案应该是"第 2 章第 3 节 · 不确定性原理"，
+    而不是一个 node_id 或一个孤零零的小节名——课程里重名的小节并不少见，
+    只报小节名说不清进度走到了整门课的什么位置。
+
+    章节序号按节点表顺序推导：level 1 递增章号并把节号归零，level 2 在当前章
+    下递增节号。位置只依赖顺序与层级，不依赖 node_id 的命名约定。
+
+    正文可能在没有章的课程里生成（早期课程或导入课程只有平铺小节），
+    这时 ``chapter_number`` 为 None，标签退化成"第 Y 节 · 名字"，
+    调用方不需要为这种课程写分支。
+    """
+    locations: dict[str, dict[str, Any]] = {}
+    chapter_number = 0
+    section_number = 0
+    chapter_name = ""
+    for node in nodes:
+        node_id = str(node.get("node_id") or "")
+        if not node_id:
+            continue
+        level = int(node.get("node_level") or 1)
+        name = str(node.get("node_name") or "")
+        if level <= 1:
+            chapter_number += 1
+            section_number = 0
+            chapter_name = name
+            locations[node_id] = {
+                "chapter_number": chapter_number,
+                "chapter_name": name,
+                "section_number": None,
+                "node_name": name,
+                "label": f"第{chapter_number}章 · {name}" if name else f"第{chapter_number}章",
+            }
+            continue
+        section_number += 1
+        if chapter_number:
+            prefix = f"第{chapter_number}章第{section_number}节"
+        else:
+            prefix = f"第{section_number}节"
+        locations[node_id] = {
+            "chapter_number": chapter_number or None,
+            "chapter_name": chapter_name,
+            "section_number": section_number,
+            "node_name": name,
+            "label": f"{prefix} · {name}" if name else prefix,
+        }
+    return locations
 
 
 def _source_first_slide_ai_workers() -> tuple[
@@ -424,6 +480,76 @@ PUBLIC_TASK_OMITTED_FIELDS = frozenset({
     "node_drafts",
 })
 PUBLIC_TASK_LOG_LIMIT = 100
+SLIDE_BUILD_REQUEST_CONTRACT_FIELDS = (
+    "operation",
+    "mode",
+    "theme",
+    "variant_key",
+    "target_schema",
+    "template_contract",
+    "template_selector",
+    "force_rebuild",
+    "shadow_only",
+    "chapter_id",
+    "source_course_document_revision",
+    "representation_id",
+    "target_page_ids",
+)
+
+
+def _slide_build_request_contract(
+    request_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Keep immutable slide routing inputs after bulky terminal data is pruned."""
+
+    request = request_snapshot or {}
+    return {
+        "schema_version": "slide_build_request_contract_v1",
+        **{
+            field: deepcopy(request[field])
+            for field in SLIDE_BUILD_REQUEST_CONTRACT_FIELDS
+            if field in request
+        },
+    }
+
+
+def _slide_build_task_request(task: dict[str, Any]) -> dict[str, Any]:
+    """Resolve slide routing from the live request or its durable contract."""
+
+    request = task.get("request_snapshot")
+    if isinstance(request, dict) and request:
+        return request
+    contract = task.get("slide_build_request_contract")
+    if (
+        isinstance(contract, dict)
+        and contract.get("schema_version")
+        == "slide_build_request_contract_v1"
+    ):
+        return contract
+    return {}
+
+
+def _persisted_slide_progress_projection(
+    manifest: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Project the persisted V6 manifest back into the public task view."""
+
+    if manifest.get("schema_version") != "slide_build_progress_v2":
+        return None
+    context = manifest.get("current_context") or {}
+    if not isinstance(context, dict):
+        context = {}
+    projection = deepcopy(manifest)
+    projection.update({
+        "percent": int(manifest.get("display_percent") or 0),
+        "stage": str(context.get("stage") or "source"),
+        "current_chapter_id": str(context.get("chapter_id") or ""),
+        "current_batch_id": str(context.get("batch_id") or ""),
+        "current_page_id": str(context.get("page_id") or ""),
+    })
+    return projection
+
+
 TERMINAL_TASK_STATUSES = frozenset({
     "cancelled",
     "canceled",
@@ -482,6 +608,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
     ),
     resume_slides: list[dict[str, Any]],
     source_revision_provider: Callable[[], str] | None = None,
+    variant_key_override: str | None = None,
 ) -> dict[str, Any]:
     """Retry a rejected V5 draft with the strict source-only plan.
 
@@ -549,6 +676,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
         resume_slides=resume_slides,
         requested_schema=slide_schema,
         source_revision_provider=source_revision_provider,
+        variant_key_override=variant_key_override,
     )
     initial_quality = build.get("quality") or {}
     if initial_quality.get("passed") or not fallback_allowed:
@@ -618,6 +746,7 @@ async def _rebuild_slide_variant_with_quality_fallback(
         resume_slides=[],
         requested_schema=slide_schema,
         source_revision_provider=source_revision_provider,
+        variant_key_override=variant_key_override,
     )
     return {
         "build": fallback_build,
@@ -973,6 +1102,16 @@ class TaskManager:
             "workspace_id": workspace_id,
             "base_document_revision": base_document_revision,
         }
+        if task_type == "slide_deck_variant_build":
+            task["slide_build_request_contract"] = (
+                _slide_build_request_contract(request_snapshot)
+            )
+            if str((request_snapshot or {}).get("target_schema") or "") == (
+                "slide_deck_v6"
+            ):
+                task["slide_build_contract_version"] = (
+                    SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
+                )
         if (
             task_type == "course_generation"
             and workspace_id
@@ -1291,8 +1430,17 @@ class TaskManager:
         cls,
         course_data: dict[str, Any],
         step: str,
+        impact: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Discard stale downstream data when an approved upstream step changes."""
+        """Discard stale downstream data when an approved upstream step changes.
+
+        With an ``impact`` analysis the node-level discard is scoped to the
+        sections the edit actually reaches.  Sections the analysis proves
+        untouched keep their generated body, so retitling one section no
+        longer forces every section to be written again.  Course-level
+        derived artifacts are still dropped: they are recompiled locally
+        without model calls, so keeping them would risk staleness for no gain.
+        """
         working = deepcopy(course_data)
         if step != "outline":
             return working
@@ -1349,10 +1497,33 @@ class TaskManager:
             "objective_id",
             "objective_revision_id",
         )
+        preserved_node_ids: set[str] = set()
+        if isinstance(impact, dict) and not (impact.get("global_changes") or []):
+            preserved_node_ids = {
+                str(node_id)
+                for node_id in (
+                    list(impact.get("unchanged_node_ids") or [])
+                    + list(impact.get("display_only_node_ids") or [])
+                )
+                if node_id
+            } - {
+                str(node_id)
+                for node_id in (
+                    list(impact.get("affected_node_ids") or [])
+                    + list(impact.get("added_node_ids") or [])
+                    + list(impact.get("removed_node_ids") or [])
+                )
+                if node_id
+            }
         for node in working.get("nodes") or []:
+            if str(node.get("node_id") or "") in preserved_node_ids:
+                continue
             for field in downstream_node_fields:
                 node.pop(field, None)
             node["generation_status"] = "pending"
+        working["outline_change_preserved_node_ids"] = sorted(
+            preserved_node_ids
+        )
 
         blueprint = deepcopy(working.get("course_blueprint") or {})
         for field in (
@@ -1818,6 +1989,7 @@ class TaskManager:
                 confirmed = self._discard_generation_artifacts_after(
                     confirmed,
                     "outline",
+                    impact,
                 )
             confirmed = self._accept_outline_research(confirmed)
             confirmed["generation_status"] = "outline_confirmed"
@@ -2643,6 +2815,111 @@ class TaskManager:
             "artifact": artifact,
         }
 
+    def _slide_build_recovery_contract(
+        self,
+        task: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Return one recovery answer for task polling and explicit resume."""
+
+        task_id = str(task.get("id") or "")
+        status = str(task.get("status") or "")
+        request_snapshot = _slide_build_task_request(task)
+        progress_failure = (
+            (task.get("slide_build_progress_v2") or {}).get("failure") or {}
+        )
+        error_detail = task.get("error_detail") or {}
+        is_v6_slide_build = (
+            task.get("type") == "slide_deck_variant_build"
+            and str(request_snapshot.get("target_schema") or "") == "slide_deck_v6"
+        )
+        v6_checkpoint_files_available = (
+            (
+                self._storage_data_dir
+                / "slide_deck_v6_candidates"
+                / "checkpoints"
+                / f"{task_id}.json"
+            ).is_file()
+            and (
+                self._storage_data_dir
+                / "slide_build_progress_v2"
+                / f"{task_id}.json"
+            ).is_file()
+        ) if is_v6_slide_build else False
+        v6_checkpoint_contract_current = bool(
+            is_v6_slide_build
+            and str(task.get("slide_build_contract_version") or "")
+            == SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
+        )
+        v6_checkpoint_contract_stale = bool(
+            v6_checkpoint_files_available
+            and not v6_checkpoint_contract_current
+        )
+        v6_checkpoint_available = bool(
+            v6_checkpoint_files_available
+            and v6_checkpoint_contract_current
+        )
+        failure_retryable = bool(
+            progress_failure.get("retryable")
+            if isinstance(progress_failure, dict) and "retryable" in progress_failure
+            else error_detail.get("retryable")
+            if isinstance(error_detail, dict) and "retryable" in error_detail
+            else False
+        )
+        checkpoint = {
+            "phase": str(task.get("phase") or "queued"),
+            "progress": int(task.get("progress") or 0),
+            "completed_representation_types": list(
+                task.get("completed_representation_types") or []
+            ),
+            "last_event_sequence": int(task.get("event_sequence") or 0),
+            "updated_at": task.get("updated_at"),
+        }
+        if status == "completed":
+            return {
+                "state": "completed",
+                "can_resume": False,
+                "reason_code": "already_published",
+                "reason": "同源教学产物已经通过质量门并发布",
+                "checkpoint": checkpoint,
+            }
+        can_resume = (
+            status == "paused"
+            and (v6_checkpoint_available if is_v6_slide_build else True)
+            or status in {"failed", "error"}
+            and (
+                failure_retryable and v6_checkpoint_available
+                if is_v6_slide_build
+                else True
+            )
+        )
+        return {
+            "state": (
+                "manual_resume"
+                if can_resume
+                else "auto_resuming"
+                if status in {"pending", "running"}
+                else "none"
+            ),
+            "can_resume": can_resume,
+            "reason_code": (
+                "checkpoint_available"
+                if can_resume
+                else "checkpoint_contract_stale"
+                if v6_checkpoint_contract_stale
+                else "job_active"
+                if status in {"pending", "running"}
+                else "not_needed"
+            ),
+            "reason": (
+                "已完成的页面与产物会被复用，只重建未完成或失效单元"
+                if can_resume
+                else "生成协议已升级，请重新生成当前组合"
+                if v6_checkpoint_contract_stale
+                else "同源教学产物任务正在执行"
+            ),
+            "checkpoint": checkpoint,
+        }
+
     def describe_task_recovery(self, task_id: str) -> dict[str, Any]:
         task = self.tasks.get(task_id)
         if not task:
@@ -2695,31 +2972,7 @@ class TaskManager:
             }
 
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
-            status = str(task.get("status") or "")
-            checkpoint = {
-                "phase": str(task.get("phase") or "queued"),
-                "progress": int(task.get("progress") or 0),
-                "completed_representation_types": list(
-                    task.get("completed_representation_types") or []
-                ),
-                "last_event_sequence": int(task.get("event_sequence") or 0),
-                "updated_at": task.get("updated_at"),
-            }
-            if status == "completed":
-                return {
-                    "state": "completed", "can_resume": False,
-                    "reason_code": "already_published",
-                    "reason": "同源教学产物已经通过质量门并发布",
-                    "checkpoint": checkpoint,
-                }
-            can_resume = status in {"paused", "failed"}
-            return {
-                "state": "manual_resume" if can_resume else "auto_resuming" if status in {"pending", "running"} else "none",
-                "can_resume": can_resume,
-                "reason_code": "checkpoint_available" if can_resume else "job_active" if status in {"pending", "running"} else "not_needed",
-                "reason": "已完成的页面与产物会被复用，只重建未完成或失效单元" if can_resume else "同源教学产物任务正在执行",
-                "checkpoint": checkpoint,
-            }
+            return self._slide_build_recovery_contract(task)
 
         status = str(task.get("status") or "")
         base = {
@@ -2761,6 +3014,18 @@ class TaskManager:
         workspace_id = str(task.get("workspace_id") or "")
         candidate_id = str(task.get("candidate_id") or "")
         workspace: dict[str, Any] = {}
+        # Same judgement the polling summary uses, so the two projections cannot
+        # disagree about whether this job is resumable.
+        unavailable_reason = self._checkpoint_unavailable_reason(task)
+        if unavailable_reason and unavailable_reason != "checkpoint_not_supported":
+            return {
+                **base,
+                "state": "unavailable",
+                "reason_code": unavailable_reason,
+                "reason": self._CHECKPOINT_UNAVAILABLE_REASONS[
+                    unavailable_reason
+                ],
+            }
         if workspace_id:
             try:
                 workspace = self._generation_workspace_repository.load(workspace_id)
@@ -2896,7 +3161,7 @@ class TaskManager:
             and course_data.get("subject_pedagogy_profile")
         )
         checkpoint = {
-            "phase": str(task.get("phase") or task.get("current_phase") or ""),
+            "phase": self._effective_phase(task),
             "completed_nodes": completed_nodes,
             "total_nodes": len(nodes),
             "draft_node_ids": draft_node_ids,
@@ -3346,6 +3611,11 @@ class TaskManager:
                 ),
                 "checkpoint": checkpoint,
             }
+        if task.get("type") in {
+            "teaching_representation_build",
+            "slide_deck_variant_build",
+        }:
+            return self._slide_build_recovery_contract(task)
         detail = task.get("phase_detail")
         if not isinstance(detail, dict):
             detail = {}
@@ -3360,7 +3630,7 @@ class TaskManager:
         completed_nodes = int(task.get("completed_nodes") or 0)
         total_nodes = int(task.get("total_nodes") or 0)
         checkpoint = {
-            "phase": phase,
+            "phase": self._effective_phase(task),
             "assessment_generation_profile": str(
                 task.get("assessment_generation_profile")
                 or "deliberate"
@@ -3442,6 +3712,10 @@ class TaskManager:
             return base
 
         has_checkpoint = bool(task.get("workspace_id") or task.get("candidate_id"))
+        # Presence of an id is not proof the checkpoint survives; ask the shared
+        # judgement so this projection cannot advertise a resume that
+        # describe_task_recovery would refuse.
+        unavailable_reason = self._checkpoint_unavailable_reason(task)
         if status == "completed_with_warnings" and (
             phase == "quality_failed" or task.get("publication_allowed") is False
         ):
@@ -3452,12 +3726,14 @@ class TaskManager:
                 has_checkpoint=has_checkpoint,
             )
         if status in {"paused", "failed", "error", "completed_with_warnings"}:
-            if not has_checkpoint:
+            if unavailable_reason:
                 return {
                     **base,
                     "state": "unavailable",
-                    "reason_code": "checkpoint_not_supported",
-                    "reason": "该旧任务没有独立检查点，无法安全继续",
+                    "reason_code": unavailable_reason,
+                    "reason": self._CHECKPOINT_UNAVAILABLE_REASONS[
+                        unavailable_reason
+                    ],
                 }
             return {
                 **base,
@@ -3500,6 +3776,51 @@ class TaskManager:
         view["recovery"] = self.describe_task_recovery(str(task["id"]))
         return view
 
+    def _checkpoint_unavailable_reason(
+        self,
+        task: dict[str, Any],
+    ) -> str | None:
+        """Single answer to "is this job's saved checkpoint still usable?".
+
+        Returns a ``reason_code`` when the checkpoint cannot be resumed, or
+        ``None`` when it can.
+
+        This exists for the same reason as ``_task_is_published``: the polling
+        summary and the resume path must not describe the same job differently.
+        The summary used to infer a usable checkpoint from the presence of a
+        ``workspace_id`` on the task record, while the resume path loaded the
+        workspace and answered ``workspace_missing``. A job whose workspace had
+        been deleted therefore polled as "可以恢复" and refused on click.
+
+        Existence is checked without reading the payload, so this stays cheap
+        enough for the per-poll summary.
+        """
+        workspace_id = str(task.get("workspace_id") or "")
+        candidate_id = str(task.get("candidate_id") or "")
+        if workspace_id:
+            if not self._generation_workspace_repository.exists(workspace_id):
+                return "workspace_missing"
+            return None
+        if candidate_id:
+            try:
+                candidate = self._version_repository.load_candidate(
+                    str(task.get("course_id") or ""),
+                    candidate_id,
+                )
+            except KeyError:
+                return "candidate_missing"
+            if not isinstance(candidate.get("course_data"), dict):
+                return "candidate_invalid"
+            return None
+        return "checkpoint_not_supported"
+
+    _CHECKPOINT_UNAVAILABLE_REASONS = {
+        "workspace_missing": "生成工作区已丢失，无法安全继续原任务",
+        "candidate_missing": "课程候选版本已丢失，无法安全继续原任务",
+        "candidate_invalid": "课程候选版本不完整，无法安全继续原任务",
+        "checkpoint_not_supported": "该旧任务没有独立检查点，无法安全继续",
+    }
+
     def _task_is_published(self, task: dict[str, Any]) -> bool:
         """Single answer to "did this job actually publish a course?".
 
@@ -3518,6 +3839,29 @@ class TaskManager:
         if status == "completed_with_warnings" and task.get("publication_allowed") is False:
             return False
         return self._publication_receipt(task) is not None
+
+    # 恢复过程中会被短暂盖上去的阶段。它们说明"正在回到工作状态"，
+    # 但答不了"回到哪一阶段"——投影直接回显它们，用户就只看得到"正在继续"。
+    _TRANSIENT_PHASES = frozenset({"resuming"})
+
+    def _effective_phase(self, task: dict[str, Any]) -> str:
+        """Single answer to "which stage is this job at?".
+
+        ``_process_task`` derives the real stage from the guided workflow via
+        ``_processing_handoff`` and stamps it. Between a resume request and that
+        stamp the stored phase reads ``resuming``, so a projection that echoes
+        the stored value tells the task list one thing while the job is about to
+        report another. Both recovery projections ask this instead, which is why
+        the list, the resume dialog and the running job name the same stage.
+
+        A stored phase that is not transient is authoritative and returned
+        unchanged — this only fills the gap, it does not second-guess the job.
+        """
+        phase = str(task.get("phase") or task.get("current_phase") or "")
+        if phase and phase not in self._TRANSIENT_PHASES:
+            return phase
+        derived, _message = self._processing_handoff(task)
+        return derived or phase
 
     def _failed_node_report_entry(
         self, task_id: str, node: dict[str, Any]
@@ -3611,6 +3955,84 @@ class TaskManager:
         if task.get("type") in {"teaching_representation_build", "slide_deck_variant_build"}:
             if task.get("status") not in {"pending", "running"}:
                 return False
+            if task.get("type") == "slide_deck_variant_build":
+                restart_count = int(task.get("restart_recovery_count") or 0)
+                if restart_count >= 3:
+                    task["status"] = "failed"
+                    task["phase"] = "recovery_unavailable"
+                    task["current_phase"] = "recovery_unavailable"
+                    task["message"] = (
+                        "Slide build exceeded the bounded restart recovery limit"
+                    )
+                    task["error"] = task["message"]
+                    task["error_detail"] = {
+                        "stage": "recovery",
+                        "code": "restart_recovery_limit_exceeded",
+                        "message": task["message"],
+                        "retryable": True,
+                        "chapter_id": "",
+                        "page_id": "",
+                        "batch_id": "",
+                    }
+                    task["updated_at"] = datetime.now().isoformat()
+                    return False
+                request = _slide_build_task_request(task)
+                selector = request.get("template_selector") or {}
+                recovery_key = (
+                    str(task.get("course_id") or ""),
+                    str(request.get("mode") or "teaching"),
+                    str(request.get("theme") or "qizhi-classroom"),
+                    str(request.get("target_schema") or ""),
+                    bool(request.get("shadow_only")),
+                    str(request.get("chapter_id") or ""),
+                    str(selector.get("pack_id") or ""),
+                    str(selector.get("version") or ""),
+                )
+                newer_equivalent = next(
+                    (
+                        candidate
+                        for candidate_id, candidate in self.tasks.items()
+                        if candidate_id != task_id
+                        and candidate.get("type") == "slide_deck_variant_build"
+                        and candidate.get("status") in {"pending", "running"}
+                        and (
+                            str(candidate.get("course_id") or ""),
+                            str(_slide_build_task_request(candidate).get("mode") or "teaching"),
+                            str(_slide_build_task_request(candidate).get("theme") or "qizhi-classroom"),
+                            str(_slide_build_task_request(candidate).get("target_schema") or ""),
+                            bool(_slide_build_task_request(candidate).get("shadow_only")),
+                            str(_slide_build_task_request(candidate).get("chapter_id") or ""),
+                            str((_slide_build_task_request(candidate).get("template_selector") or {}).get("pack_id") or ""),
+                            str((_slide_build_task_request(candidate).get("template_selector") or {}).get("version") or ""),
+                        ) == recovery_key
+                        and (
+                            str(candidate.get("created_at") or ""),
+                            str(candidate_id),
+                        ) > (
+                            str(task.get("created_at") or ""),
+                            str(task_id),
+                        )
+                    ),
+                    None,
+                )
+                if newer_equivalent is not None:
+                    task["status"] = "cancelled"
+                    task["phase"] = "superseded"
+                    task["current_phase"] = "superseded"
+                    task["message"] = (
+                        "A newer equivalent slide build owns restart recovery"
+                    )
+                    task["error_detail"] = {
+                        "stage": "recovery",
+                        "code": "superseded_build_not_recovered",
+                        "message": task["message"],
+                        "retryable": False,
+                        "chapter_id": "",
+                        "page_id": "",
+                        "batch_id": "",
+                    }
+                    task["updated_at"] = datetime.now().isoformat()
+                    return False
             task["status"] = "pending"
             task["phase"] = "resuming"
             task["current_phase"] = "resuming"
@@ -4052,6 +4474,17 @@ class TaskManager:
                 task["current_phase"] = "resuming"
                 task["message"] = "正在从最近同源产物保存点继续"
                 task["error"] = None
+                task["error_detail"] = None
+                task["error_code"] = None
+                slide_progress = task.get("slide_build_progress_v2")
+                if (
+                    task.get("type") == "slide_deck_variant_build"
+                    and isinstance(slide_progress, dict)
+                ):
+                    slide_progress = deepcopy(slide_progress)
+                    slide_progress["status"] = "active"
+                    slide_progress["failure"] = None
+                    task["slide_build_progress_v2"] = slide_progress
                 task["retry_count"] = int(task.get("retry_count") or 0) + 1
                 task["updated_at"] = datetime.now().isoformat()
                 self.save_tasks()
@@ -4831,6 +5264,7 @@ class TaskManager:
         source_revision_provider: Callable[[], str],
         publish_result: bool = True,
         shadow_context: dict[str, Any] | None = None,
+        visual_repair: dict[str, Any] | None = None,
     ) -> None:
         """Run the strict V6 candidate through the shared durable boundary."""
 
@@ -4852,21 +5286,35 @@ class TaskManager:
             }
             await self._record_representation_event(task_id, event)
 
-        result = await orchestrator.build(
-            task_id=task_id,
-            document=document,
-            course_data=course_view,
-            mode=mode,
-            theme=theme,
-            story_planner=build_ai_base_story_planner_v6(),
-            visual_planner=build_ai_base_visual_planner_v2(),
-            source_revision_provider=source_revision_provider,
-            template_contract=template_contract,
-            template_digest_provider=template_digest_provider,
-            publish_result=publish_result,
-            shadow_context=shadow_context,
-            progress_callback=record_v6_progress,
-        )
+        common = {
+            "task_id": task_id,
+            "document": document,
+            "course_data": course_view,
+            "mode": mode,
+            "theme": theme,
+            "story_planner": build_ai_base_story_planner_v6(),
+            "visual_planner": build_ai_base_visual_planner_v2(),
+            "source_revision_provider": source_revision_provider,
+            "template_contract": template_contract,
+            "template_digest_provider": template_digest_provider,
+            "progress_callback": record_v6_progress,
+        }
+        if visual_repair:
+            result = await orchestrator.repair_visuals(
+                **common,
+                representation_id=str(visual_repair.get("representation_id") or ""),
+                target_page_ids=[
+                    str(page_id)
+                    for page_id in visual_repair.get("target_page_ids") or []
+                    if str(page_id)
+                ],
+            )
+        else:
+            result = await orchestrator.build(
+                **common,
+                publish_result=publish_result,
+                shadow_context=shadow_context,
+            )
         public_result = {
             "build": result,
             "quality": result.get("quality") or {},
@@ -4874,6 +5322,11 @@ class TaskManager:
             "variant_key": variant_key,
             "target_schema": "slide_deck_v6",
             "shadow_context": dict(shadow_context or {}),
+            "operation": (
+                "repair_slide_visuals_v6"
+                if visual_repair
+                else "build_slide_deck_variant"
+            ),
         }
         final_status = (
             "completed_with_warnings"
@@ -4918,11 +5371,13 @@ class TaskManager:
         task = self.tasks.get(task_id)
         if not task or task.get("status") == "paused":
             return
-        request = task.get("request_snapshot") or {}
+        request = _slide_build_task_request(task)
         course_id = str(task["course_id"])
         mode = str(request.get("mode") or "teaching")
         theme = normalize_slide_deck_theme(str(request.get("theme") or "qizhi-classroom"))
-        variant_key = slide_deck_variant_key(mode, theme)
+        variant_key = str(
+            request.get("variant_key") or slide_deck_variant_key(mode, theme)
+        )
         await self._update_task_status(
             task_id,
             "running",
@@ -4932,6 +5387,26 @@ class TaskManager:
             self._course_document_repository.load_document, course_id,
         )
         requested_schema = str(request.get("target_schema") or "")
+        operation = str(request.get("operation") or "build_slide_deck_variant")
+        visual_repair = (
+            {
+                "representation_id": str(request.get("representation_id") or ""),
+                "target_page_ids": [
+                    str(page_id)
+                    for page_id in request.get("target_page_ids") or []
+                    if str(page_id)
+                ],
+            }
+            if operation == "repair_slide_visuals_v6"
+            else None
+        )
+        if visual_repair and not visual_repair["representation_id"]:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_base_unavailable",
+                message="Visual repair requires a published representation ID",
+                retryable=False,
+            )
         shadow_only = bool(request.get("shadow_only"))
         chapter_id = str(request.get("chapter_id") or "").strip()
         if not canonical and not (requested_schema == "slide_deck_v6" and shadow_only):
@@ -4948,6 +5423,7 @@ class TaskManager:
             "web_image_retrieval": deepcopy(
                 request.get("web_image_retrieval") or {}
             ),
+            "template_pack": deepcopy(request.get("template_pack") or {}),
         }
         story_engine_enabled = os.getenv(
             "SLIDE_STORY_ENGINE_V2_ENABLED",
@@ -4994,6 +5470,8 @@ class TaskManager:
                     ).template_digest
             else:
                 def current_template_digest() -> str:
+                    if visual_repair:
+                        return template_contract.template_digest
                     return compile_builtin_template_layout_contract_v1(
                         template_contract.theme_id
                     ).template_digest
@@ -5030,6 +5508,7 @@ class TaskManager:
                     if shadow_only
                     else None
                 ),
+                visual_repair=visual_repair,
             )
             return
         saved_revision = str(task.get("representation_source_document_revision") or "")
@@ -5363,6 +5842,7 @@ class TaskManager:
                 self._course_document_repository.load_document(course_id)[0].document_revision
                 or ""
             ),
+            variant_key_override=variant_key,
         )
         build = build_attempt["build"]
         allocation_plan = build_attempt["allocation_plan"]
@@ -5540,6 +6020,10 @@ class TaskManager:
                             or payload.get("message")
                             or "V6 slide build failed"
                         )
+                else:
+                    task["error"] = None
+                    task["error_detail"] = None
+                    task["error_code"] = None
             if payload.get("event") in {"build_blocked", "build_failed"}:
                 public_quality = _public_representation_quality(
                     payload.get("quality")
@@ -5900,7 +6384,10 @@ class TaskManager:
                 course_purpose=str(request.get("course_purpose") or "systematic"),
                 asset_preferences=request.get("asset_preferences") or {},
                 web_question_enrichment=request.get("web_question_enrichment") or {"enabled": False},
-                web_material_ingest=request.get("web_material_ingest") or {},
+                web_material_ingest=merge_ingest_exclusions(
+                    request.get("web_material_ingest") or {},
+                    load_course_exclusions(course_data),
+                ),
                 existing_course_data=course_data,
                 stop_after_outline=stop_after_outline,
                 on_phase=on_phase,
@@ -6063,6 +6550,9 @@ class TaskManager:
             await self._save_task_course(task_id, course_data)
 
         nodes = course_data.get("nodes", [])
+        # 位置表在这里算一次：这是唯一同时拿得到完整有序节点表的地方，
+        # 之后推进度时只查表，不再重新加载课程。
+        task["node_locations"] = build_node_locations(nodes)
         l2_nodes = [n for n in nodes if n.get("node_level", 1) == 2]
 
         # The V2 blueprint already owns the complete L1/L2 structure.
@@ -6455,11 +6945,17 @@ class TaskManager:
                     "type": "content" if node.get("node_level", 1) == 2 else "structure",
                     "generated_chars": 0,
                 }
+                location = (task.get("node_locations") or {}).get(node_id) or {}
+                if location:
+                    node_info["location"] = deepcopy(location)
                 current_nodes = task.get("current_nodes", [])
                 current_nodes.append(node_info)
                 task["current_nodes"] = current_nodes
                 if current_nodes:
                     task["current_node_name"] = current_nodes[0].get("node_name", "")
+                    task["current_node_location"] = deepcopy(
+                        current_nodes[0].get("location") or {}
+                    )
                 self.save_tasks()
 
             self._add_log_entry(
@@ -6711,8 +7207,12 @@ class TaskManager:
                     ]
                     if task["current_nodes"]:
                         task["current_node_name"] = task["current_nodes"][0].get("node_name", "")
+                        task["current_node_location"] = deepcopy(
+                            task["current_nodes"][0].get("location") or {}
+                        )
                     else:
                         task["current_node_name"] = ""
+                        task["current_node_location"] = {}
                     self.save_tasks()
                 await self._update_progress(task_id)
                 await self._push_progress(task_id)
@@ -6832,6 +7332,7 @@ class TaskManager:
             if not isinstance(loaded, dict):
                 raise ValueError("Generation job index must contain an object")
             self.tasks = loaded
+            migrated_slide_contract = False
             for task_id, task in self.tasks.items():
                 task.setdefault("id", task_id)
                 task.setdefault("type", "legacy_content_generation")
@@ -6839,6 +7340,107 @@ class TaskManager:
                 task.setdefault("phase_progress", 0)
                 task.setdefault("phase_detail", {})
                 task.setdefault("request_snapshot", {})
+                if task.get("type") == "slide_deck_variant_build":
+                    persisted_contract = task.get(
+                        "slide_build_request_contract"
+                    )
+                    if not isinstance(persisted_contract, dict):
+                        persisted_contract = None
+                    if not persisted_contract:
+                        checkpoint_path = (
+                            self._storage_data_dir
+                            / "slide_deck_v6_candidates"
+                            / "checkpoints"
+                            / f"{task_id}.json"
+                        )
+                        try:
+                            checkpoint = json.loads(
+                                checkpoint_path.read_text(encoding="utf-8")
+                            )
+                        except (OSError, TypeError, ValueError):
+                            checkpoint = None
+                        if (
+                            isinstance(checkpoint, dict)
+                            and checkpoint.get("schema_version")
+                            == "slide_deck_v6_checkpoint_v1"
+                            and str(checkpoint.get("task_id") or "") == task_id
+                            and str(checkpoint.get("course_id") or "")
+                            == str(task.get("course_id") or "")
+                        ):
+                            mode = str(
+                                checkpoint.get("mode") or "teaching"
+                            )
+                            theme = str(
+                                checkpoint.get("theme")
+                                or "qizhi-classroom"
+                            )
+                            persisted_contract = (
+                                _slide_build_request_contract({
+                                    "mode": mode,
+                                    "theme": theme,
+                                    "variant_key": slide_deck_variant_key(
+                                        mode,
+                                        theme,
+                                    ),
+                                    "target_schema": "slide_deck_v6",
+                                    "force_rebuild": True,
+                                })
+                            )
+                            task["slide_build_request_contract"] = (
+                                persisted_contract
+                            )
+                            progress_path = (
+                                self._storage_data_dir
+                                / "slide_build_progress_v2"
+                                / f"{task_id}.json"
+                            )
+                            try:
+                                progress_manifest = json.loads(
+                                    progress_path.read_text(encoding="utf-8")
+                                )
+                            except (OSError, TypeError, ValueError):
+                                progress_manifest = None
+                            if isinstance(progress_manifest, dict):
+                                projection = (
+                                    _persisted_slide_progress_projection(
+                                        progress_manifest
+                                    )
+                                )
+                                if (
+                                    projection is not None
+                                    and str(projection.get("task_id") or "")
+                                    == task_id
+                                ):
+                                    task["slide_build_progress_v2"] = projection
+                                    task["progress"] = int(
+                                        projection.get("percent") or 0
+                                    )
+                                    task["phase"] = str(
+                                        projection.get("stage") or "resuming"
+                                    )
+                                    task["current_phase"] = task["phase"]
+                                    progress_failure = (
+                                        projection.get("failure") or {}
+                                    )
+                                    if isinstance(progress_failure, dict):
+                                        task["error_detail"] = deepcopy(
+                                            progress_failure
+                                        )
+                                        task["error"] = str(
+                                            progress_failure.get("message")
+                                            or task.get("error")
+                                            or ""
+                                        )
+                            migrated_slide_contract = True
+                    if (
+                        persisted_contract
+                        and not task.get("request_snapshot")
+                    ):
+                        task["request_snapshot"] = {
+                            key: deepcopy(value)
+                            for key, value in persisted_contract.items()
+                            if key != "schema_version"
+                        }
                 try:
                     persisted_generation_profile = (
                         normalize_assessment_generation_profile(
@@ -6893,7 +7495,7 @@ class TaskManager:
                         task["status"] = "completed"
                         task["phase"] = "legacy_read_only"
                         task["message"] = "旧版任务仅供历史查看"
-            if source == LEGACY_TASKS_FILE:
+            if source == LEGACY_TASKS_FILE or migrated_slide_contract:
                 self.save_tasks(strict=True)
         except Exception as e:
             logger.error("Failed to load tasks: %s", e)
@@ -7335,6 +7937,9 @@ class TaskManager:
                 "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
+                "current_node_location": deepcopy(
+                    task.get("current_node_location") or {}
+                ),
                 "current_nodes": current_nodes,
                 "completed_nodes": completed_nodes,
                 "total_nodes": total_nodes,
@@ -7488,11 +8093,30 @@ class TaskManager:
             nonlocal question_bank_bundle
             node_id = str(event.get("node_id") or "")
             contracts = event.get("contracts") or {}
-            if not node_id or not event.get("passed") or not contracts:
+            if not node_id or not contracts:
                 return
+            # Checkpoint per question, not per section: keep whichever
+            # practice levels settled on their own merit even when a sibling
+            # in the same section failed, so a retry only redoes the failures.
+            requested_levels = list(failed_targets.get(node_id) or [])
+            settled_levels = [
+                str(level)
+                for level in (event.get("settled_practice_levels") or [])
+                if str(level) in contracts
+            ]
+            if not settled_levels:
+                return
+            persisted_levels = [
+                level for level in requested_levels if level in settled_levels
+            ] or settled_levels
+            settled_contracts = {
+                level: deepcopy(value)
+                for level, value in contracts.items()
+                if str(level) in set(settled_levels)
+            }
             partial_course = deepcopy(asset_course)
             partial_course["_assessment_generated_contracts"] = {
-                node_id: deepcopy(contracts),
+                node_id: settled_contracts,
             }
             partial_compilation = compile_learning_assets(partial_course)
             partial_question_bank = partial_compilation.pop(
@@ -7506,7 +8130,7 @@ class TaskManager:
                 partial_question_bank,
                 node_ids=[node_id],
                 practice_levels_by_node={
-                    node_id: failed_targets.get(node_id) or [],
+                    node_id: persisted_levels,
                 },
                 preserve_reviewed=True,
                 preserve_global_assessments=True,
@@ -7517,7 +8141,8 @@ class TaskManager:
                 question_bank_bundle,
                 activate=False,
             )
-            completed_repair_nodes.append(node_id)
+            if event.get("passed"):
+                completed_repair_nodes.append(node_id)
             await self._update_phase(
                 task_id,
                 "practice_repair",
@@ -7538,7 +8163,7 @@ class TaskManager:
                     "completed_node_ids": completed_repair_nodes,
                     "completed_node_count": len(completed_repair_nodes),
                     "target_node_count": len(failed_node_ids),
-                    "checkpoint_policy": "per_section",
+                    "checkpoint_policy": "per_question",
                 },
             )
 
@@ -8329,6 +8954,51 @@ class TaskManager:
                     "candidate_id": candidate_id,
                 },
             )
+
+    async def record_node_render_diagnostics(
+        self,
+        task_id: str,
+        node_id: str,
+        diagnostics: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Store what the browser actually saw when it rendered this node.
+
+        The backend gate is pure string matching and cannot run KaTeX, so
+        without this channel a formula the renderer refuses to draw is
+        indistinguishable from one that renders fine. The frontend validates
+        with the real renderer and posts the counts here; the stored value is
+        then fed to ``evaluate_node_content`` so a render failure becomes a
+        blocking issue instead of a silent degradation.
+
+        Re-validating the same node overwrites the previous record: the newest
+        render is the truth, and a fixed node must be able to clear its issues.
+        """
+        math_failures = max(0, int(diagnostics.get("math_failure_count") or 0))
+        block_failures = max(0, int(diagnostics.get("block_failure_count") or 0))
+        stored = {
+            "math_failure_count": math_failures,
+            "block_failure_count": block_failures,
+            "reported_at": datetime.now().isoformat(),
+        }
+
+        def update(course_data: dict[str, Any]) -> dict[str, Any]:
+            for node in course_data.get("nodes", []):
+                if str(node.get("node_id") or "") != node_id:
+                    continue
+                node["render_diagnostics"] = deepcopy(stored)
+                # Re-score immediately so the node's own quality reflects the
+                # render verdict without waiting for the next generation pass.
+                node["generation_quality"] = evaluate_node_content(
+                    str(node.get("node_content") or ""),
+                    node,
+                    render_diagnostics=stored,
+                )
+                break
+            return course_data
+
+        await self._mutate_task_course(task_id, update)
+        await self._push_progress(task_id)
+        return stored
 
     async def _set_node_status(
         self,

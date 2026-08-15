@@ -335,6 +335,182 @@ def test_three_independent_evidence_sources_create_explainable_multi_scope_candi
     assert "范围外课程内容" in change_set.impact_summary["protected"]
 
 
+def _register_representation(
+    repository,
+    document,
+    *,
+    representation_id: str,
+    representation_type: str,
+    block_id: str,
+):
+    """Register one teaching representation bound to a real course block."""
+    from teaching_representations import (
+        TeachingRepresentation,
+        source_binding_for_document,
+    )
+
+    block = next(item for item in document.blocks if item.block_id == block_id)
+    binding = source_binding_for_document(
+        document,
+        section_id=block.section_id,
+        block_id=block_id,
+    )
+    now = "2026-08-10T00:00:00+00:00"
+    return repository.register_representation(TeachingRepresentation(
+        representation_id=representation_id,
+        course_id=document.course_id,
+        representation_type=representation_type,
+        source_bindings=[binding],
+        spec_id=f"spec-{representation_id}",
+        revision=f"rev-{representation_id}",
+        status="ready",
+        created_at=now,
+        updated_at=now,
+    ))
+
+
+def test_downstream_impact_is_read_from_real_source_bindings(
+    tmp_path,
+    monkeypatch,
+):
+    """Impact must name the artifacts that actually cite the changed blocks.
+
+    A fixed descriptive list looks like analysis but is identical for every
+    course, so a teacher cannot tell what a change really touches. The impact
+    has to come from registered source bindings, and stay empty and honest when
+    a course has none.
+    """
+    from teaching_representations import TeachingRepresentationRepository
+
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    representation_repository = TeachingRepresentationRepository(tmp_path / "reps")
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    untouched = next(item for item in document.blocks if item.section_id == "section-5")
+    _register_representation(
+        representation_repository,
+        document,
+        representation_id="rep-slides",
+        representation_type="slide_deck",
+        block_id=target.block_id,
+    )
+    _register_representation(
+        representation_repository,
+        document,
+        representation_id="rep-handout",
+        representation_type="handout",
+        block_id=target.block_id,
+    )
+    # Bound to a block outside the change; must not be reported as impacted.
+    _register_representation(
+        representation_repository,
+        document,
+        representation_id="rep-unrelated",
+        representation_type="handout",
+        block_id=untouched.block_id,
+    )
+    monkeypatch.setattr(
+        course_evolution,
+        "teaching_representation_repository",
+        representation_repository,
+    )
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path / "evolution"),
+    )
+    impact = state.change_sets[0].impact_summary["representation_impacts"]
+
+    assert impact["schema_version"] == "course_evolution_representation_impact_v1"
+    assert impact["source"] == "teaching_representation_registry"
+    impacted = {item["representation_id"]: item for item in impact["impacted"]}
+    assert set(impacted) == {"rep-slides", "rep-handout"}
+    assert impacted["rep-slides"]["representation_type"] == "slide_deck"
+    assert target.block_id in impacted["rep-slides"]["matched_block_ids"]
+    assert impact["impacted_count"] == 2
+
+
+def test_downstream_impact_reports_no_registered_representations_honestly(
+    tmp_path,
+    monkeypatch,
+):
+    """With nothing registered the impact is empty, not a plausible-looking list."""
+    from teaching_representations import TeachingRepresentationRepository
+
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    monkeypatch.setattr(
+        course_evolution,
+        "teaching_representation_repository",
+        TeachingRepresentationRepository(tmp_path / "reps"),
+    )
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path / "evolution"),
+    )
+    impact = state.change_sets[0].impact_summary["representation_impacts"]
+
+    assert impact["impacted"] == []
+    assert impact["impacted_count"] == 0
+    assert impact["reason"] == "no_registered_representation_binds_these_blocks"
+
+
+def test_downstream_impact_survives_an_unreadable_representation_registry(
+    tmp_path,
+    monkeypatch,
+):
+    """A registry failure must degrade to 'unknown', never to a fabricated list.
+
+    Impact analysis is read-only decoration around the course change; it must
+    not block the candidate, and it must not claim zero impact when it simply
+    could not look.
+    """
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+
+    class _BrokenRepository:
+        def load(self, _course_id):
+            raise OSError("representation registry unavailable")
+
+    monkeypatch.setattr(
+        course_evolution,
+        "teaching_representation_repository",
+        _BrokenRepository(),
+    )
+
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path / "evolution"),
+    )
+    impact = state.change_sets[0].impact_summary["representation_impacts"]
+
+    assert impact["impacted"] == []
+    assert impact["source"] == "unavailable"
+    assert impact["reason"] == "representation_registry_unavailable"
+
+
 def test_video_two_evidence_chain_replaces_old_candidate_and_requires_independent_validation(
     tmp_path,
     monkeypatch,
@@ -813,6 +989,996 @@ def test_personal_path_fold_and_reorder_are_reviewed_course_operations_and_undoa
     ]
 
 
+def _knowledge_linked_plan(tmp_path, monkeypatch, course):
+    """Create a real evidence-driven plan on a course that has knowledge semantics."""
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    question = (
+        "矩阵乘法计算我会，但我一直不理解为什么复合变换要先右后左。"
+        "请在本节和后面相关内容中，先用几何动画解释，再让我进行计算。"
+    )
+    monkeypatch.setattr(course_evolution, "load_learning_events", lambda **_kwargs: [{
+        "event_id": "event-strong-scoped-request",
+        "event_type": "assistant_question_submitted",
+        "course_id": document.course_id,
+        "node_id": "section-1",
+        "evidence": {"question": question},
+        "metadata": {"context_ref": {"content_anchor": {"block_id": target.block_id}}},
+        "created_at": "2026-08-12T09:00:00+00:00",
+    }])
+    monkeypatch.setattr(course_evolution.learning_record_repository, "list", lambda *_a: [])
+    monkeypatch.setattr(course_evolution.practice_attempt_repository, "list", lambda *_a: [])
+    repository = CourseEvolutionRepository(tmp_path)
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    plan = next(item for item in state.change_sets if item.status == "pending")
+    return repository, plan
+
+
+def _rename_knowledge_point(course: dict, *, old_name: str, new_name: str) -> None:
+    """Redefine one knowledge point in place, as a knowledge maintainer would."""
+    for node in course["nodes"]:
+        for group in node.get("knowledge_structure") or []:
+            for point in group.get("knowledge_points") or []:
+                if point.get("name") == old_name:
+                    point["name"] = new_name
+                    point["statement"] = "矩阵乘法一般不满足交换律。"
+                    return
+    raise AssertionError(f"knowledge point {old_name} not found in fixture")
+
+
+def test_remediation_uses_the_misconception_repair_semantics_not_just_its_name(
+    tmp_path,
+    monkeypatch,
+):
+    """Knowledge semantics must shape the support, not only label it.
+
+    The knowledge base already states how to tell this misconception apart and
+    how to repair it. Reading only the point's `name` to compose a sentence
+    wastes the part a teacher actually authored, so the generated support has to
+    carry the discrimination and repair strategy.
+    """
+    course = _course_with_knowledge()
+    _repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+
+    support = next(
+        item for item in plan.operations
+        if item.operation_type == "INSERT_COURSE_SUPPORT"
+    )
+    semantics = support.payload["knowledge_semantics"]
+
+    assert semantics["schema_version"] == "course_evolution_knowledge_semantics_v1"
+    # Straight from the fixture's authored misconception.
+    assert semantics["misconceptions"], "no misconception semantics carried"
+    misconception = semantics["misconceptions"][0]
+    assert misconception["error_pattern"] == "只能复述计算规则，无法解释复合含义"
+    assert misconception["discrimination"] == "区分语义对象与坐标计算"
+    assert misconception["repair_strategy"] == "用连续变换过程重新解释乘法顺序"
+    # The authored repair strategy reaches the learner-visible body.
+    assert "用连续变换过程重新解释乘法顺序" in support.payload["body"]
+    # Ability semantics come along too, as the completion standard.
+    assert semantics["abilities"]
+    assert (
+        semantics["abilities"][0]["observable_behavior"]
+        == "能够解释矩阵乘法顺序与变换复合的关系"
+    )
+
+
+def test_knowledge_semantics_absent_stays_empty_rather_than_invented(
+    tmp_path,
+    monkeypatch,
+):
+    """A course without authored misconceptions must not get fabricated ones."""
+    course = _course()  # no knowledge_structure
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path),
+    )
+    support = next(
+        item for item in state.change_sets[0].operations
+        if item.operation_type == "INSERT_COURSE_SUPPORT"
+    )
+    semantics = support.payload["knowledge_semantics"]
+
+    assert semantics["misconceptions"] == []
+    assert semantics["abilities"] == []
+    assert semantics["available"] is False
+
+
+def test_knowledge_pins_survive_a_canonical_course_without_legacy_nodes(
+    tmp_path,
+    monkeypatch,
+):
+    """A migrated course persists no ``nodes``; knowledge must still be found.
+
+    Regression from real-machine evidence: ``learning_events`` triggers this
+    sync with ``storage.load_course()``, which for a canonical course carries
+    ``course_document`` but no ``nodes``. Knowledge then compiled to zero
+    bindings, the plan was frozen with no knowledge anchor, and — because plans
+    are never rebuilt — the knowledge guard stayed inert for the whole life of
+    every evidence-driven plan. Callers must not have to know which shape to pass.
+    """
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    # Exactly what storage returns for a migrated course: document, no nodes.
+    canonical = deepcopy(course)
+    canonical["course_document"] = document.model_dump(mode="json")
+    canonical["course_schema_version"] = "course_document_v1"
+    canonical["course_document_authoritative"] = True
+    canonical.pop("nodes", None)
+    assert "nodes" not in canonical
+
+    state = synchronize_and_evaluate_course_evolution(
+        canonical,
+        user_id="student-a",
+        repository=CourseEvolutionRepository(tmp_path),
+    )
+    plan = next(item for item in state.change_sets if item.status == "pending")
+    pins = plan.impact_summary["knowledge_revision_pins"]
+
+    assert pins["available"] is True, (
+        "a canonical course without nodes must still resolve its knowledge; "
+        f"got reason={pins.get('reason')!r}"
+    )
+    assert pins["revisions"]
+    assert any(key.startswith("point:") for key in pins["revisions"])
+
+
+def test_plan_pins_the_knowledge_semantics_it_depends_on(tmp_path, monkeypatch):
+    """A plan must pin the knowledge entities it was reasoned from.
+
+    Pinning only block/section revisions leaves the plan blind to the knowledge
+    it is actually about, so the pinned vector has to carry per-entity knowledge
+    keys — and only the relevant ones, so an unrelated knowledge edit does not
+    invalidate good work.
+    """
+    course = _course_with_knowledge()
+    _repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+
+    pinned = plan.impact_summary["knowledge_revision_pins"]
+
+    assert pinned["schema_version"] == "course_evolution_knowledge_pins_v1"
+    assert pinned["available"] is True
+    keys = pinned["revisions"]
+    # The knowledge point the diagnosis was built from is pinned by identity.
+    assert any(key.startswith("point:") for key in keys)
+    # Its binding to the course block is pinned too: a rebind changes the meaning
+    # of "this block teaches that point".
+    assert any(key.startswith("binding:") for key in keys)
+    # Scope stays bounded: this is not a snapshot of the whole knowledge base.
+    assert "course_knowledge_base" not in keys
+    unrelated = [
+        key for key in keys
+        if pinned["pinned_knowledge_ids"]
+        and key.startswith("point:")
+        and key.split(":", 1)[1] not in pinned["pinned_knowledge_ids"]
+    ]
+    assert unrelated == []
+
+
+def test_renaming_the_knowledge_a_plan_depends_on_makes_it_stale(
+    tmp_path,
+    monkeypatch,
+):
+    """The gap this closes: a redefined knowledge point used to apply cleanly.
+
+    The plan explains "why compose right-to-left". If that knowledge point is
+    renamed and restated to be about commutativity instead, the plan is no longer
+    about what the course now says, so it must not land silently.
+    """
+    course = _course_with_knowledge()
+    repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    # A knowledge maintainer redefines the point after the plan was generated.
+    mutated = deepcopy(course)
+    _rename_knowledge_point(
+        mutated,
+        old_name="矩阵复合含义",
+        new_name="矩阵乘法的交换性",
+    )
+
+    with pytest.raises(ValueError) as failure:
+        accept_change_set(
+            mutated,
+            user_id="student-a",
+            change_set_id=plan.change_set_id,
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+
+    # The refusal has to name knowledge, not just say "the course changed".
+    assert "knowledge" in str(failure.value).lower()
+    stale = repository.load("student-a", course["course_id"]).change_sets[0]
+    assert stale.status == "stale"
+    drift = stale.impact_summary["knowledge_drift"]
+    # Course knowledge IDs are derived from the point's name, so a rename shows
+    # up as the pinned identity disappearing rather than its revision moving.
+    # Either way the plan must not apply.
+    assert drift["changed_keys"] or drift["removed_keys"]
+    assert any(
+        key.startswith("point:")
+        for key in [*drift["changed_keys"], *drift["removed_keys"]]
+    )
+    assert drift["verdict"] == "conflict"
+    assert drift["requires_user_resolution"] is True
+    # Nothing reached the course.
+    after_document, _ = document_repository.load_document(course["course_id"])
+    assert after_document.document_revision == before_document.document_revision
+
+
+def test_unrelated_knowledge_edit_does_not_invalidate_a_good_plan(
+    tmp_path,
+    monkeypatch,
+):
+    """Bounded pinning: editing a point this plan never used must not block it.
+
+    Pinning the whole knowledge base would be simpler and wrong — every unrelated
+    maintenance edit would throw away reviewed work.
+    """
+    course = _course_with_knowledge()
+    repository, plan = _knowledge_linked_plan(tmp_path, monkeypatch, course)
+    document_repository = _document_repository(course)
+
+    mutated = deepcopy(course)
+    # "坐标记号" lives in section-2 and is not part of this plan's reasoning.
+    _rename_knowledge_point(
+        mutated,
+        old_name="坐标记号",
+        new_name="坐标记号（改名）",
+    )
+
+    applied = accept_change_set(
+        mutated,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    result = next(
+        item for item in applied.change_sets
+        if item.change_set_id == plan.change_set_id
+    )
+    assert result.status == "applied"
+    assert result.impact_summary["knowledge_drift"]["verdict"] == "unchanged"
+
+
+def test_knowledge_pins_degrade_honestly_without_a_knowledge_base(
+    tmp_path,
+    monkeypatch,
+):
+    """No compiled knowledge base means "cannot tell", not "nothing changed".
+
+    Reporting a clean verdict when the index was unavailable would silently
+    weaken the guard for exactly the courses that need it most.
+    """
+    course = _course()  # no knowledge_structure at all
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {},
+    )
+    repository = CourseEvolutionRepository(tmp_path)
+    state = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    pinned = state.change_sets[0].impact_summary["knowledge_revision_pins"]
+
+    assert pinned["available"] is False
+    assert pinned["revisions"] == {}
+    # A course with no knowledge structure compiles to an empty base, so the
+    # honest reason is that the plan has nothing to anchor to.
+    assert pinned["reason"] == "plan_has_no_knowledge_anchor"
+
+    # An unverifiable pin must not block acceptance either; it degrades to
+    # "unknown" and says so.
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=state.change_sets[0].change_set_id,
+        selected_scope="current",
+        repository=repository,
+        document_repository=_document_repository(course),
+    )
+    drift = applied.change_sets[0].impact_summary["knowledge_drift"]
+    assert drift["verdict"] == "unknown"
+    assert drift["reason"] == "knowledge_pins_unavailable"
+
+
+def test_cross_section_resequence_moves_the_catalog_not_the_body(tmp_path):
+    """Structural growth must go through the catalog's own section command.
+
+    Moving a whole section is a change to the course outline. The plan carries a
+    RESEQUENCE_COURSE_PATH operation, and it lands in the same commit as the
+    block edits so the outline and the body can never disagree.
+    """
+    course = _course()
+    document = CourseDocument.model_validate(course["course_document"])
+    anchor = next(block for block in document.blocks if block.section_id == "section-1")
+    now = "2026-08-10T12:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="course_path_optimization",
+        claim="逆变换应当紧跟矩阵复合讲解。",
+        target_block_id=anchor.block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="先补一段承接说明。",
+            payload={"body": "说明为什么逆变换紧接复合讲解。"},
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-resequence",
+            operation_type="RESEQUENCE_COURSE_PATH",
+            target_block_id="",
+            target_section_id="section-3",
+            reason="把逆变换提前到矩阵复合之后，缩短前置到应用的跨度。",
+            payload={
+                "action": "RESEQUENCE",
+                "after_section_id": "section-1",
+                "before_preview": "位于结合律之后",
+                "after_preview": "移动到矩阵复合之后",
+            },
+        ),
+    ]
+    plan = CourseEvolutionPlan(
+        change_set_id="plan-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id=anchor.section_id,
+        base_revision_vector={
+            key: value
+            for key, value in revision_vector_for_document(document).revisions.items()
+            if key in {
+                f"section:{anchor.section_id}",
+                f"block:{anchor.block_id}",
+                "section_structure:section-3",
+            }
+        },
+        operations=operations,
+        allowed_scopes=["current"],
+        expected_effect="让逆变换紧跟其前置概念。",
+        created_at=now,
+        updated_at=now,
+    )
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    ))
+    document_repository = _document_repository(course)
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-resequence",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    ordered_sections = [
+        section.section_id
+        for section in sorted(
+            applied_document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+    assert ordered_sections.index("section-3") == ordered_sections.index("section-1") + 1
+    # Blocks stay owned by their own section; only the catalog moved.
+    assert {
+        block.section_id
+        for block in applied_document.blocks
+        if block.block_id in {
+            item.block_id
+            for item in document.blocks
+            if item.section_id == "section-3"
+        }
+    } == {"section-3"}
+    receipt = applied.change_sets[0].application_receipt
+    assert receipt["resequenced_section_ids"] == ["section-3"]
+    # The scaffold from the same plan landed in the same commit.
+    assert len(receipt["inserted_block_ids"]) == 1
+    assert receipt["document_revision"] == applied_document.document_revision
+
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-resequence",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    restored_document, _ = document_repository.load_document(course["course_id"])
+    restored_sections = [
+        section.section_id
+        for section in sorted(
+            restored_document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+    assert restored_sections == [
+        section.section_id
+        for section in sorted(
+            document.sections,
+            key=lambda item: (item.position, item.section_id),
+        )
+    ]
+
+
+def test_resequence_rejects_an_anchor_outside_the_course(tmp_path):
+    """An unknown anchor must fail the whole group, not reorder partially."""
+    course = _course()
+    document = CourseDocument.model_validate(course["course_document"])
+    now = "2026-08-10T12:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-bad-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="course_path_optimization",
+        claim="结构调整锚点无效。",
+        target_block_id=document.blocks[0].block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    plan = CourseEvolutionPlan(
+        change_set_id="plan-bad-resequence",
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id="section-1",
+        operations=[
+            CourseEvolutionOperation(
+                operation_id="operation-resequence",
+                operation_type="RESEQUENCE_COURSE_PATH",
+                target_block_id="",
+                target_section_id="section-3",
+                reason="锚点不存在。",
+                payload={"action": "RESEQUENCE", "after_section_id": "section-missing"},
+            ),
+        ],
+        allowed_scopes=["current"],
+        expected_effect="不应生效。",
+        created_at=now,
+        updated_at=now,
+    )
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    ))
+    document_repository = _document_repository(course)
+    before, _ = document_repository.load_document(course["course_id"])
+
+    with pytest.raises(ValueError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-bad-resequence",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+
+    after, _ = document_repository.load_document(course["course_id"])
+    assert after.document_revision == before.document_revision
+
+
+def _mixed_family_plan(course: dict, *, change_set_id: str = "plan-mixed-family"):
+    """One reviewed plan that mixes a teaching-scaffold and a canonical operation."""
+    document = CourseDocument.model_validate(course["course_document"])
+    anchor = next(block for block in document.blocks if block.section_id == "section-1")
+    mastered = anchor.model_copy(update={
+        "block_id": "block-mastered-basics",
+        "position": 1,
+        "role": "example",
+        "payload": {"title": "已掌握的基础算例", "markdown": "学生已经稳定通过这段基础算例。"},
+    })
+    document.blocks.append(mastered)
+    document = refresh_document_revision(document)
+    course["course_document"] = document.model_dump(mode="json")
+    course["course_document_revision"] = document.document_revision
+    course["current_course_version_id"] = document.document_revision
+
+    now = "2026-08-10T10:00:00+00:00"
+    hypothesis = AdaptationHypothesis(
+        hypothesis_id="hypothesis-mixed-family",
+        user_id="student-a",
+        course_id=course["course_id"],
+        problem_type="conceptual_gap",
+        claim="需要补一段解释，同时折叠已经掌握的基础算例。",
+        target_block_id=anchor.block_id,
+        status="candidate_created",
+        created_at=now,
+        updated_at=now,
+    )
+    operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="当前证据指向概念原因与计算步骤之间的断裂。",
+            payload={
+                "body": "先说明为什么需要这一步，再说明每一步改变了什么。",
+                "objective": "能够解释步骤背后的原因。",
+            },
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-fold",
+            operation_type="FOLD_COURSE_BLOCK",
+            target_block_id=mastered.block_id,
+            target_section_id=mastered.section_id,
+            reason="这段基础支架已经稳定通过，可从默认路径折叠。",
+            payload={
+                "action": "FOLD",
+                "before_preview": mastered.payload["markdown"],
+                "after_preview": "折叠为已掌握节点。",
+            },
+        ),
+    ]
+    plan = CourseEvolutionPlan(
+        change_set_id=change_set_id,
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypothesis_id=hypothesis.hypothesis_id,
+        source_kind="learning_evidence",
+        target_section_id=anchor.section_id,
+        base_revision_vector={
+            key: value
+            for key, value in revision_vector_for_document(document).revisions.items()
+            if key in {
+                f"section:{anchor.section_id}",
+                f"block:{anchor.block_id}",
+                f"block:{mastered.block_id}",
+            }
+        },
+        operations=operations,
+        allowed_scopes=["current"],
+        expected_effect="补充概念解释，同时移除已掌握的基础算例。",
+        created_at=now,
+        updated_at=now,
+    )
+    state = CourseEvolutionState(
+        user_id="student-a",
+        course_id=course["course_id"],
+        hypotheses=[hypothesis],
+        change_sets=[plan],
+        updated_at=now,
+    )
+    return state, anchor, mastered
+
+
+def test_scaffold_and_canonical_operations_apply_as_one_group(tmp_path):
+    """A plan may mix a teaching scaffold with a canonical course operation.
+
+    Both families must compile into the same single document commit. Rejecting
+    the plan because one family cannot parse the other's payload would make
+    "one adjustment, many operations" impossible for any real mixed plan.
+    """
+    course = _course()
+    state, anchor, mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    by_id = {block.block_id: block for block in applied_document.blocks}
+    plan = applied.change_sets[0]
+    receipt = plan.application_receipt
+
+    # The scaffold operation inserted its support block.
+    assert len(receipt["inserted_block_ids"]) == 1
+    inserted = by_id[receipt["inserted_block_ids"][0]]
+    assert inserted.section_id == anchor.section_id
+    assert inserted.kind == "callout"
+    assert inserted.payload["course_evolution"]["operation_id"] == "operation-support"
+    # The canonical operation retired the mastered block in the same commit.
+    assert receipt["folded_block_ids"] == [mastered.block_id]
+    assert by_id[mastered.block_id].status == "retired"
+    # One commit, not two.
+    assert receipt["document_revision"] == applied_document.document_revision
+    assert receipt["previous_revision"] == before_document.document_revision
+
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    restored_document, _ = document_repository.load_document(course["course_id"])
+    restored = {block.block_id: block for block in restored_document.blocks}
+    assert restored[mastered.block_id].status == "final"
+    assert restored[receipt["inserted_block_ids"][0]].status == "retired"
+
+
+def test_crash_between_course_commit_and_plan_save_leaves_no_half_applied_state(
+    tmp_path,
+    monkeypatch,
+):
+    """Injected failure after the document commit must not strand the plan.
+
+    The course document and the plan state live in two repositories, so a
+    failure between them is the one real half-update window. The plan must not
+    stay ``pending`` while its blocks are already visible in the course, and the
+    learner must not be able to reject it into a set of orphan course blocks.
+    """
+    course = _course()
+    state, anchor, mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    real_save = CourseEvolutionRepository.save
+    failures: list[str] = []
+
+    def failing_save(self, value):
+        plan = next(
+            (
+                item for item in value.change_sets
+                if item.change_set_id == "plan-mixed-family"
+            ),
+            None,
+        )
+        if plan is not None and plan.status == "applied":
+            failures.append(plan.change_set_id)
+            raise OSError("simulated disk failure after the course document commit")
+        return real_save(self, value)
+
+    monkeypatch.setattr(CourseEvolutionRepository, "save", failing_save)
+    with pytest.raises(OSError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-mixed-family",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+    monkeypatch.setattr(CourseEvolutionRepository, "save", real_save)
+    assert failures == ["plan-mixed-family"]
+
+    committed_document, _ = document_repository.load_document(course["course_id"])
+    assert committed_document.document_revision != before_document.document_revision
+
+    # The plan must not read as untouched while its blocks are already committed.
+    stranded = repository.load("student-a", course["course_id"]).change_sets[0]
+    assert stranded.status != "pending"
+    assert stranded.impact_summary["command_group"]["status"] == "applying"
+    assert stranded.impact_summary["command_group"]["command_id"]
+
+    # Rejecting a plan whose blocks already reached the course must be refused
+    # rather than silently leaving them behind with no owner.
+    with pytest.raises(ValueError):
+        reject_change_set(
+            user_id="student-a",
+            course_id=course["course_id"],
+            change_set_id="plan-mixed-family",
+            reason="想想还是不要了",
+            repository=repository,
+            document_repository=document_repository,
+        )
+
+    # Re-accepting reconciles the stranded group instead of committing twice.
+    recovered = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    plan = recovered.change_sets[0]
+    assert plan.status == "applied"
+    assert plan.impact_summary["command_group"]["status"] == "committed"
+    recovered_document, _ = document_repository.load_document(course["course_id"])
+    assert recovered_document.document_revision == committed_document.document_revision
+    assert len(recovered_document.blocks) == len(committed_document.blocks)
+    # The recovered receipt still supports undo.
+    undo_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    undone_document, _ = document_repository.load_document(course["course_id"])
+    undone = {block.block_id: block for block in undone_document.blocks}
+    assert undone[mastered.block_id].status == "final"
+
+
+def test_crash_before_the_course_commit_releases_the_plan_for_review(
+    tmp_path,
+    monkeypatch,
+):
+    """The other half of the window: nothing reached the course.
+
+    When the commit itself never happened the plan must go back to the pending
+    queue, and rejecting it stays legitimate — there is nothing to strand.
+    """
+    course = _course()
+    state, _anchor, _mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    before_document, _ = document_repository.load_document(course["course_id"])
+
+    def failing_group(*_args, **_kwargs):
+        raise OSError("simulated failure before the course document commit")
+
+    monkeypatch.setattr(
+        course_evolution.CourseCommandService,
+        "apply_block_operation_group",
+        failing_group,
+    )
+    with pytest.raises(OSError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-mixed-family",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+    monkeypatch.undo()
+
+    unchanged_document, _ = document_repository.load_document(course["course_id"])
+    assert unchanged_document.document_revision == before_document.document_revision
+    assert len(unchanged_document.blocks) == len(before_document.blocks)
+
+    stranded = repository.load("student-a", course["course_id"]).change_sets[0]
+    assert stranded.status == "accepted"
+    assert stranded.impact_summary["command_group"]["status"] == "applying"
+
+    # Accepting again finds no receipt, releases the group and applies cleanly.
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    plan = applied.change_sets[0]
+    assert plan.status == "applied"
+    assert plan.impact_summary["command_group"]["status"] == "committed"
+    applied_document, _ = document_repository.load_document(course["course_id"])
+    assert applied_document.document_revision != before_document.document_revision
+
+
+def test_released_command_group_can_still_be_rejected(tmp_path, monkeypatch):
+    """A plan whose commit never landed stays rejectable.
+
+    Rejection settles the unfinished group itself: the course operation log
+    shows no receipt, so nothing was applied and the learner's "no" is honoured
+    without making them re-accept first.
+    """
+    course = _course()
+    state, _anchor, _mastered = _mixed_family_plan(course)
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+
+    def failing_group(*_args, **_kwargs):
+        raise OSError("simulated failure before the course document commit")
+
+    monkeypatch.setattr(
+        course_evolution.CourseCommandService,
+        "apply_block_operation_group",
+        failing_group,
+    )
+    with pytest.raises(OSError):
+        accept_change_set(
+            course,
+            user_id="student-a",
+            change_set_id="plan-mixed-family",
+            selected_scope="current",
+            repository=repository,
+            document_repository=document_repository,
+        )
+    monkeypatch.undo()
+
+    rejected = reject_change_set(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        reason="不需要",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    plan = rejected.change_sets[0]
+    assert plan.status == "rejected"
+    assert plan.impact_summary["command_group"]["status"] == "released"
+    final_document, _ = document_repository.load_document(course["course_id"])
+    assert all(block.status != "retired" for block in final_document.blocks)
+
+
+def test_operations_excluded_at_partial_acceptance_are_not_reproposed(tmp_path):
+    """Declining one item of a plan must be remembered, not quietly retried.
+
+    A follow-up adjustment reworks the support the learner kept. Carrying the
+    item they explicitly declined back into that adjustment is the "rejected
+    item keeps coming back" failure, so the exclusion needs a durable record.
+    """
+    course = _course()
+    state, anchor, _mastered = _mixed_family_plan(course)
+    plan = state.change_sets[0]
+    # Two scaffold operations so one can be kept and one declined.
+    plan.operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="补一段原因解释。",
+            payload={"body": "先说明为什么需要这一步。"},
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-checkpoint",
+            operation_type="ADD_CHECKPOINT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="加一次理解检查。",
+            payload={"body": "确认操作顺序。", "prompt": "先做哪一步？"},
+        ),
+    ]
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        selected_operation_ids=["operation-support"],
+        repository=repository,
+        document_repository=document_repository,
+    )
+    source = applied.change_sets[0]
+    assert source.selected_operation_ids == ["operation-support"]
+    assert source.excluded_operation_ids == ["operation-checkpoint"]
+    declined = source.impact_summary["declined_operations"]
+    assert [item["operation_id"] for item in declined] == ["operation-checkpoint"]
+    assert declined[0]["operation_type"] == "ADD_CHECKPOINT"
+    assert declined[0]["declined_at"]
+    assert declined[0]["cooldown_until"] > declined[0]["declined_at"]
+
+    # The follow-up adjustment must rework only what the learner accepted.
+    source.effect_evaluation = {"status": "ineffective"}
+    repository.save(applied)
+    adjusted = create_adjustment_plan(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    replacement = next(
+        item for item in adjusted.change_sets
+        if item.replaces_change_set_id == "plan-mixed-family"
+    )
+    assert [item.operation_type for item in replacement.operations] == [
+        "INSERT_COURSE_SUPPORT",
+    ]
+    assert replacement.impact_summary["declined_operations"] == declined
+
+
+def test_declined_operation_returns_after_its_cooldown_expires(tmp_path):
+    """A cooldown suppresses re-proposal; it does not ban the item forever."""
+    course = _course()
+    state, anchor, _mastered = _mixed_family_plan(course)
+    plan = state.change_sets[0]
+    plan.operations = [
+        CourseEvolutionOperation(
+            operation_id="operation-support",
+            operation_type="INSERT_COURSE_SUPPORT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="补一段原因解释。",
+            payload={"body": "先说明为什么需要这一步。"},
+        ),
+        CourseEvolutionOperation(
+            operation_id="operation-checkpoint",
+            operation_type="ADD_CHECKPOINT",
+            target_block_id=anchor.block_id,
+            target_section_id=anchor.section_id,
+            reason="加一次理解检查。",
+            payload={"body": "确认操作顺序。", "prompt": "先做哪一步？"},
+        ),
+    ]
+    repository = CourseEvolutionRepository(tmp_path)
+    repository.save(state)
+    document_repository = _document_repository(course)
+    applied = accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id="plan-mixed-family",
+        selected_scope="current",
+        selected_operation_ids=["operation-support"],
+        repository=repository,
+        document_repository=document_repository,
+    )
+    source = applied.change_sets[0]
+    source.effect_evaluation = {"status": "ineffective"}
+    # Expire the cooldown as time would.
+    source.impact_summary["declined_operations"][0]["cooldown_until"] = (
+        "2020-01-01T00:00:00+00:00"
+    )
+    repository.save(applied)
+
+    adjusted = create_adjustment_plan(
+        user_id="student-a",
+        course_id=course["course_id"],
+        change_set_id="plan-mixed-family",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    replacement = next(
+        item for item in adjusted.change_sets
+        if item.replaces_change_set_id == "plan-mixed-family"
+    )
+    assert sorted(item.operation_type for item in replacement.operations) == [
+        "ADD_CHECKPOINT",
+        "INSERT_COURSE_SUPPORT",
+    ]
+
+
 def test_demo_mode_relaxes_strong_contract(monkeypatch):
     weak = "不理解为什么复合变换要先右后左，请用动画解释一下。"
     contract = course_evolution._strong_self_report_contract(weak)
@@ -1134,6 +2300,67 @@ def test_single_explicit_evidence_stays_local_instead_of_expanding_by_count(
     assert state.hypotheses[0].recommended_scope == "current"
     assert state.change_sets[0].allowed_scopes == ["current"]
     assert all(operation.scope == "current" for operation in state.change_sets[0].operations)
+
+
+def test_relation_scope_uses_the_shared_knowledge_traversal(tmp_path, monkeypatch):
+    """Scope must come from the shared traversal, not a local weaker copy.
+
+    Two properties the previous in-file walk lacked and this locks in: symmetric
+    relations (`contrasts_with`) reach their counterpart, and a relation the
+    knowledge domain has rejected is not followed at all.
+    """
+    from course_knowledge_impact import dependent_knowledge_ids
+
+    knowledge_base = {
+        "knowledge_points": [
+            {"knowledge_id": "k-source"},
+            {"knowledge_id": "k-contrast"},
+            {"knowledge_id": "k-rejected"},
+        ],
+        "bindings": [],
+        "relations": [
+            {
+                "relation_id": "r-contrast",
+                "source_knowledge_id": "k-source",
+                "target_knowledge_id": "k-contrast",
+                "relation_type": "contrasts_with",
+                "status": "accepted",
+            },
+            {
+                "relation_id": "r-rejected",
+                "source_knowledge_id": "k-source",
+                "target_knowledge_id": "k-rejected",
+                "relation_type": "derives",
+                "status": "rejected",
+            },
+        ],
+    }
+    reachable = dependent_knowledge_ids(knowledge_base, ["k-source"])
+
+    assert "k-contrast" in reachable
+    assert reachable["k-contrast"]["relation_type"] == "contrasts_with"
+    assert "k-rejected" not in reachable
+
+    # And the course-growth scope helper consumes exactly that traversal.
+    calls: list[list[str]] = []
+    real = course_evolution.dependent_knowledge_ids
+
+    def recording(base, seeds, **kwargs):
+        calls.append(sorted(seeds))
+        return real(base, seeds, **kwargs)
+
+    monkeypatch.setattr(course_evolution, "dependent_knowledge_ids", recording)
+    course = _course_with_knowledge()
+    document = document_from_legacy_course(course)
+    target = next(item for item in document.blocks if item.section_id == "section-1")
+    course_evolution._affected_blocks(
+        document,
+        target.block_id,
+        scope="current_and_next",
+        knowledge_base=course_evolution.compile_course_knowledge_base(deepcopy(course)),
+    )
+
+    assert calls, "_affected_blocks must delegate relation walking, not re-walk it"
 
 
 def test_ai_question_is_anchored_to_course_knowledge_and_relations_drive_scope(
@@ -1500,6 +2727,198 @@ def test_effect_evaluation_uses_later_learning_evidence_not_acceptance(
         assert result.effect_evaluation["interaction_event_ids"] == ["interaction-animation"]
     if expected == "harmful":
         assert result.effect_evaluation["follow_up_candidate"]["candidate_type"] == "rollback_course_evolution"
+
+
+def _accepted_plan_for_effect(tmp_path, monkeypatch, course, document):
+    """Accept the evidence-driven plan so its effect can be evaluated later."""
+    repository = CourseEvolutionRepository(tmp_path)
+    document_repository = _document_repository(course)
+    initial = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    plan = initial.change_sets[0]
+    accept_change_set(
+        course,
+        user_id="student-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current_and_next",
+        repository=repository,
+        document_repository=document_repository,
+    )
+    return repository, plan
+
+
+def test_reverification_window_expiry_reports_no_sample_not_a_verdict(
+    tmp_path,
+    monkeypatch,
+):
+    """An expired window means "needs a human look", never "it did not work".
+
+    With no independent attempt there is no evidence in either direction, so the
+    status must stay unverified, the sample count must read zero, and the
+    recommended action must not become adjust or rollback. Fabricating a verdict
+    from silence is exactly what the effect contract forbids.
+    """
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    repository, plan = _accepted_plan_for_effect(
+        tmp_path, monkeypatch, course, document,
+    )
+    # No attempt after acceptance at all: the learner simply never came back.
+    monkeypatch.setattr(
+        course_evolution.practice_attempt_repository,
+        "list",
+        lambda *_args: [{
+            "attempt_id": "attempt-before",
+            "status": "graded",
+            "node_id": "section-1",
+            "result": {"passed": False, "grading_confidence": 0.94},
+            "graded_at": "2026-07-16T09:04:00+00:00",
+        }],
+    )
+    # Far enough past acceptance that the window has certainly elapsed.
+    monkeypatch.setattr(course_evolution, "_now", lambda: "2099-01-01T00:00:00+00:00")
+
+    evaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    result = next(
+        item for item in evaluated.change_sets
+        if item.change_set_id == plan.change_set_id
+    )
+    evaluation = result.effect_evaluation
+    window = evaluation["reverification_window"]
+
+    assert window["status"] == "expired"
+    assert window["window_days"] == course_evolution.REVERIFICATION_WINDOW_DAYS
+    assert window["independent_sample_count"] == 0
+    assert window["elapsed_days"] >= window["window_days"]
+    assert window["conclusion"] == "no_independent_sample"
+    # The verdict itself stays unproven in both directions.
+    assert evaluation["status"] == "insufficient_evidence"
+    assert evaluation["verification_level"] == "not_verified"
+    assert evaluation["recommended_action"] == "collect_more_evidence"
+    assert evaluation["follow_up_candidate"] == {}
+    # An expired window must never be dressed up as improvement or regression.
+    assert "改善" not in window["interpretation"]
+    assert "无效" not in window["interpretation"]
+    assert "无独立样本" in window["interpretation"]
+    # The learner model must not be told this adaptation failed.
+    hypothesis = next(
+        item for item in evaluated.hypotheses
+        if item.hypothesis_id == plan.hypothesis_id
+    )
+    assert hypothesis.status == "evaluating"
+
+
+def test_reverification_window_is_open_before_it_elapses(tmp_path, monkeypatch):
+    """Inside the window the plan is simply still waiting."""
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    repository, plan = _accepted_plan_for_effect(
+        tmp_path, monkeypatch, course, document,
+    )
+    monkeypatch.setattr(
+        course_evolution.practice_attempt_repository,
+        "list",
+        lambda *_args: [],
+    )
+
+    evaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    window = next(
+        item for item in evaluated.change_sets
+        if item.change_set_id == plan.change_set_id
+    ).effect_evaluation["reverification_window"]
+
+    assert window["status"] == "open"
+    assert window["independent_sample_count"] == 0
+    assert window["conclusion"] == "awaiting_independent_sample"
+    assert window["deadline"] > window["started_at"]
+
+
+def test_reverification_window_ignores_a_retake_of_the_original_task(
+    tmp_path,
+    monkeypatch,
+):
+    """Re-answering the failed task is not an independent sample.
+
+    Counting the original task would let a retest masquerade as fresh evidence,
+    so the window must stay hungry even though a graded attempt exists.
+    """
+    course = _course()
+    document = document_from_legacy_course(course)
+    _install_sources(monkeypatch, document)
+    monkeypatch.setattr(
+        course_evolution.learning_asset_repository,
+        "load_bundle",
+        lambda _course_id: {
+            "assets": {
+                "questions": [{
+                    "asset_id": "question-targeted",
+                    "revision_id": "question-revision-targeted",
+                    "node_id": "section-1",
+                    "status": "active",
+                    "prompt": "解释矩阵复合顺序。",
+                }],
+            },
+        },
+    )
+    repository, plan = _accepted_plan_for_effect(
+        tmp_path, monkeypatch, course, document,
+    )
+    source_task_ids = plan.impact_summary.get("source_practice_task_ids") or []
+    retake_task_id = source_task_ids[0] if source_task_ids else "task-original"
+
+    monkeypatch.setattr(
+        course_evolution.practice_attempt_repository,
+        "list",
+        lambda *_args: [
+            {
+                "attempt_id": "attempt-before",
+                "status": "graded",
+                "node_id": "section-1",
+                "task_revision_id": retake_task_id,
+                "result": {"passed": False, "grading_confidence": 0.94},
+                "graded_at": "2026-07-16T09:04:00+00:00",
+            },
+            {
+                # Same task as the original failure, answered again after the change.
+                "attempt_id": "attempt-retake",
+                "status": "graded",
+                "node_id": "section-1",
+                "task_revision_id": retake_task_id,
+                "result": {"passed": True, "grading_confidence": 0.94},
+                "graded_at": "2099-01-01T00:00:00+00:00",
+            },
+        ],
+    )
+    monkeypatch.setattr(course_evolution, "_now", lambda: "2099-02-01T00:00:00+00:00")
+
+    evaluated = synchronize_and_evaluate_course_evolution(
+        course,
+        user_id="student-a",
+        repository=repository,
+    )
+    evaluation = next(
+        item for item in evaluated.change_sets
+        if item.change_set_id == plan.change_set_id
+    ).effect_evaluation
+
+    assert evaluation["reverification_window"]["independent_sample_count"] == 0
+    assert evaluation["reverification_window"]["conclusion"] == "no_independent_sample"
+    # A retest must not be promoted into an improvement verdict.
+    assert evaluation["status"] != "effective"
+    assert evaluation["verification_level"] == "not_verified"
 
 
 def test_unrelated_later_success_cannot_prove_personal_adaptation_effective(

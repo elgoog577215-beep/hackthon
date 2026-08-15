@@ -7,9 +7,10 @@ import inspect
 import json
 import os
 import tempfile
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from course_document import CourseDocument, stable_hash
 from course_presentation_graph import compile_course_presentation_graph
@@ -20,15 +21,20 @@ from slide_build_progress_v2 import (
     SlideBuildProgressTrackerV2,
     SlideWorkItemV2,
 )
+from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6 import (
+    AIBatchDiagnosticV1,
     SlideStoryBatchV3,
+    SlideStoryPlanV3,
     SlideVisualDecisionV2,
+    SlideVisualPlanV2,
     V6BuildError,
     build_signature_v6,
+    classify_v6_failure,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
+    prepare_story_plan_for_final_compilation,
 )
-from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6_renderer import export_slide_deck_v6_pptx
 from teaching_representations import (
     SourceBinding,
@@ -37,11 +43,10 @@ from teaching_representations import (
     TeachingRepresentationSpec,
     source_binding_for_document,
 )
-from template_layout_contract import compile_builtin_template_layout_contract_v1
-from template_layout_contract import TemplateLayoutPackContractV1
-
+from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
+SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v20"
 
 
 def _utc_now() -> str:
@@ -71,6 +76,31 @@ class SlideDeckV6CandidateRepository:
 
     def load(self, task_id: str) -> dict[str, Any]:
         path = self._path(task_id)
+        if not path.is_file():
+            raise FileNotFoundError(task_id)
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    def _checkpoint_path(self, task_id: str) -> Path:
+        safe = "".join(character for character in task_id if character.isalnum() or character in "-_")
+        if safe != task_id or not safe:
+            raise ValueError("Invalid V6 checkpoint task ID")
+        checkpoint_root = (self.root / "checkpoints").resolve()
+        checkpoint_root.mkdir(parents=True, exist_ok=True)
+        path = (checkpoint_root / f"{safe}.json").resolve()
+        path.relative_to(checkpoint_root)
+        return path
+
+    def save_checkpoint(self, task_id: str, payload: dict[str, Any]) -> None:
+        path = self._checkpoint_path(task_id)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(temporary, path)
+
+    def load_checkpoint(self, task_id: str) -> dict[str, Any]:
+        path = self._checkpoint_path(task_id)
         if not path.is_file():
             raise FileNotFoundError(task_id)
         return json.loads(path.read_text(encoding="utf-8"))
@@ -236,6 +266,169 @@ class SlideDeckV6Orchestrator:
         self.candidates = candidate_repository
         self.progress_repository = SlideBuildProgressRepositoryV2(progress_root)
 
+    async def repair_visuals(
+        self,
+        *,
+        task_id: str,
+        document: CourseDocument,
+        course_data: dict[str, Any],
+        representation_id: str,
+        mode: str,
+        theme: str,
+        story_planner: Planner,
+        visual_planner: Planner,
+        source_revision_provider: Callable[[], str],
+        target_page_ids: list[str] | None = None,
+        template_contract: TemplateLayoutPackContractV1 | None = None,
+        template_digest_provider: Callable[[], str] | None = None,
+        progress_callback: ProgressCallback | None = None,
+    ) -> dict[str, Any]:
+        """Seed a new durable task from a published V6 deck's healthy work."""
+
+        registry = self.representations.load(document.course_id)
+        representation = next(
+            (
+                item
+                for item in registry.representations
+                if item.representation_id == representation_id
+                and item.representation_type == "slide_deck"
+                and item.status == "ready"
+            ),
+            None,
+        )
+        if representation is None:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_base_unavailable",
+                message="Visual repair requires a currently published slide deck",
+                retryable=False,
+            )
+        spec = next(
+            (item for item in registry.specs if item.spec_id == representation.spec_id),
+            None,
+        )
+        content = dict((spec.payload.get("content") if spec else None) or {})
+        if content.get("schema_version") != "slide_deck_v6":
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_requires_v6",
+                message="Only a published V6 deck can use selective visual repair",
+                retryable=False,
+            )
+        template = template_contract or (
+            TemplateLayoutPackContractV1.model_validate(content["template_contract"])
+            if isinstance(content.get("template_contract"), dict)
+            else compile_builtin_template_layout_contract_v1(theme)
+        )
+        source_contract = dict(content.get("source_contract") or {})
+        if (
+            str(source_contract.get("course_document_revision") or "")
+            != str(document.document_revision or "")
+            or str(source_revision_provider() or "")
+            != str(document.document_revision or "")
+        ):
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_source_changed",
+                message="The published deck no longer matches the frozen course revision",
+                retryable=True,
+            )
+        if str(source_contract.get("template_digest") or "") != template.template_digest:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_template_changed",
+                message="The published deck no longer matches the selected template contract",
+                retryable=True,
+            )
+        expected_signature = build_signature_v6(
+            document=document,
+            course_data=course_data,
+            mode=mode,
+            theme=theme,
+            template_contract=template,
+        )
+        if (
+            str((content.get("build_signature") or {}).get("signature") or "")
+            != expected_signature["signature"]
+        ):
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_build_contract_changed",
+                message="Course logic, mode, or template inputs changed after publication",
+                retryable=True,
+            )
+
+        story_payload = dict(content.get("story_plan") or {})
+        story_payload.pop("pages", None)
+        story = SlideStoryPlanV3.model_validate(story_payload)
+        visual = SlideVisualPlanV2.model_validate(content.get("visual_plan"))
+        degraded_page_ids = [
+            decision.page_id for decision in visual.decisions if decision.degraded
+        ]
+        requested_page_ids = list(dict.fromkeys(target_page_ids or degraded_page_ids))
+        invalid_targets = set(requested_page_ids) - set(degraded_page_ids)
+        if invalid_targets:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_target_not_degraded",
+                message="Selective visual repair can target only degraded published pages",
+                retryable=False,
+                page_id=sorted(invalid_targets)[0],
+            )
+        if not requested_page_ids:
+            raise V6BuildError(
+                stage="visual_repair",
+                code="visual_repair_not_required",
+                message="The published V6 deck has no degraded visual pages",
+                retryable=False,
+            )
+        repair_context = {
+            "schema_version": "slide_visual_repair_context_v1",
+            "base_representation_id": representation.representation_id,
+            "base_representation_revision": representation.revision,
+            "base_spec_id": representation.spec_id,
+            "target_page_ids": requested_page_ids,
+        }
+        checkpoint = {
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
+            "task_id": task_id,
+            "course_id": document.course_id,
+            "course_document_revision": document.document_revision,
+            "template_digest": template.template_digest,
+            "mode": mode,
+            "theme": theme,
+            "source_contract": source_contract,
+            "course_presentation_graph": content.get("course_presentation_graph"),
+            "story_plan": story.model_dump(mode="json"),
+            "story_batches": [
+                batch.model_dump(mode="json") for batch in story.batches
+            ],
+            "visual_decisions": [
+                decision.model_dump(mode="json")
+                for decision in visual.decisions
+                if decision.page_id not in set(requested_page_ids)
+            ],
+            "ai_batch_diagnostics": list(content.get("ai_batch_diagnostics") or []),
+            "visual_repair": repair_context,
+            "updated_at": _utc_now(),
+        }
+        self.candidates.save_checkpoint(task_id, checkpoint)
+        return await self.build(
+            task_id=task_id,
+            document=document,
+            course_data=course_data,
+            mode=mode,
+            theme=theme,
+            story_planner=story_planner,
+            visual_planner=visual_planner,
+            source_revision_provider=source_revision_provider,
+            template_contract=template,
+            template_digest_provider=template_digest_provider,
+            publish_result=True,
+            progress_callback=progress_callback,
+        )
+
     async def build(
         self,
         *,
@@ -253,6 +446,31 @@ class SlideDeckV6Orchestrator:
         shadow_context: dict[str, Any] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
+        template = template_contract or compile_builtin_template_layout_contract_v1(theme)
+        try:
+            restored_checkpoint = self.candidates.load_checkpoint(task_id)
+        except FileNotFoundError:
+            restored_checkpoint = None
+        if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
+            identity = (
+                restored_checkpoint.get("course_id") == document.course_id
+                and restored_checkpoint.get("course_document_revision") == document.document_revision
+                and restored_checkpoint.get("template_digest") == template.template_digest
+                and restored_checkpoint.get("mode") == mode
+                and restored_checkpoint.get("theme") == theme
+                and restored_checkpoint.get("build_contract_version")
+                == SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
+            )
+            if not identity:
+                raise V6BuildError(
+                    stage="recovery",
+                    code="v6_recovery_contract_mismatch",
+                    message=(
+                        "Persisted V6 work belongs to a different frozen source, "
+                        "template, or build contract"
+                    ),
+                    retryable=False,
+                )
         try:
             tracker = SlideBuildProgressTrackerV2.load(
                 task_id,
@@ -264,23 +482,31 @@ class SlideDeckV6Orchestrator:
                 repository=self.progress_repository,
             )
         else:
-            if tracker.manifest.status != "active":
+            if tracker.manifest.status == "active":
+                tracker.resume_active()
+            elif (
+                tracker.manifest.status == "failed"
+                and tracker.manifest.failure is not None
+                and tracker.manifest.failure.retryable
+                and restored_checkpoint is not None
+            ):
+                tracker.resume_failed()
+            else:
                 raise V6BuildError(
                     stage="recovery",
                     code="v6_terminal_task_requires_new_task",
                     message="A terminal V6 task cannot be restarted with the same task ID",
                     retryable=False,
                 )
-            tracker.resume_active()
         current_work = "source-contract"
         source_contract = None
         graph = None
         story = None
         visual = None
-        template = template_contract or compile_builtin_template_layout_contract_v1(theme)
         finalize_item_id = "publish" if publish_result else "finalize-shadow"
         checkpoint: dict[str, Any] = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
+            "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
             "task_id": task_id,
             "course_id": document.course_id,
             "course_document_revision": document.document_revision,
@@ -291,31 +517,37 @@ class SlideDeckV6Orchestrator:
             "visual_decisions": [],
             "updated_at": _utc_now(),
         }
-        try:
-            restored_checkpoint = self.candidates.load(task_id)
-        except FileNotFoundError:
-            restored_checkpoint = None
         if restored_checkpoint and restored_checkpoint.get("schema_version") == "slide_deck_v6_checkpoint_v1":
-            identity = (
-                restored_checkpoint.get("course_id") == document.course_id
-                and restored_checkpoint.get("course_document_revision") == document.document_revision
-                and restored_checkpoint.get("template_digest") == template.template_digest
-                and restored_checkpoint.get("mode") == mode
-                and restored_checkpoint.get("theme") == theme
-            )
-            if not identity:
-                raise V6BuildError(
-                    stage="recovery",
-                    code="v6_recovery_contract_mismatch",
-                    message="Persisted V6 work belongs to a different frozen source or template",
-                    retryable=False,
-                )
             checkpoint.update(restored_checkpoint)
 
         def save_checkpoint(**updates: Any) -> None:
             checkpoint.update(updates)
             checkpoint["updated_at"] = _utc_now()
-            self.candidates.save(task_id, checkpoint)
+            self.candidates.save_checkpoint(task_id, checkpoint)
+
+        ai_batch_diagnostics_by_key = {
+            (diagnostic.kind, diagnostic.batch_id): diagnostic
+            for diagnostic in (
+                AIBatchDiagnosticV1.model_validate(item)
+                for item in checkpoint.get("ai_batch_diagnostics") or []
+            )
+        }
+
+        def store_ai_batch_diagnostic(value: Any) -> None:
+            if value is None:
+                return
+            diagnostic = AIBatchDiagnosticV1.model_validate(
+                value.model_dump(mode="json")
+                if isinstance(value, AIBatchDiagnosticV1)
+                else value
+            )
+            ai_batch_diagnostics_by_key[(diagnostic.kind, diagnostic.batch_id)] = diagnostic
+
+        def serialized_ai_batch_diagnostics() -> list[dict[str, Any]]:
+            return [
+                diagnostic.model_dump(mode="json")
+                for diagnostic in ai_batch_diagnostics_by_key.values()
+            ]
 
         tracker.add_work([
             SlideWorkItemV2(item_id="source-contract", kind="local", stage="source", label="冻结课程与模板真源"),
@@ -406,7 +638,8 @@ class SlideDeckV6Orchestrator:
                 nonlocal current_work
                 work_id = str(event["batch_id"])
                 current_work = work_id
-                if event["phase"] == "started":
+                phase = str(event["phase"])
+                if phase == "started":
                     tracker.start(
                         work_id,
                         chapter_id=str(event["chapter_id"]),
@@ -414,14 +647,20 @@ class SlideDeckV6Orchestrator:
                         provider_wait=True,
                         retry_attempt=int(event.get("retry_attempt") or 0),
                     )
-                else:
+                elif phase == "completed":
                     batch = event["batch"]
                     story_batches_by_id[work_id] = batch
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
                     save_checkpoint(story_batches=[
                         story_batches_by_id[key].model_dump(mode="json")
                         for key in sorted(story_batches_by_id)
-                    ])
+                    ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
                     tracker.complete(work_id)
+                elif phase == "failed":
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
+                    save_checkpoint(
+                        ai_batch_diagnostics=serialized_ai_batch_diagnostics()
+                    )
                 await _emit(progress_callback, tracker.snapshot())
 
             story = await _await_with_heartbeats(
@@ -476,21 +715,28 @@ class SlideDeckV6Orchestrator:
                 nonlocal current_work
                 work_id = str(event["batch_id"])
                 current_work = work_id
-                if event["phase"] == "started":
+                phase = str(event["phase"])
+                if phase == "started":
                     tracker.start(
                         work_id,
                         chapter_id=str(event["chapter_id"]),
                         batch_id=work_id,
                         provider_wait=True,
                     )
-                else:
+                elif phase == "completed":
                     for decision in event["decisions"]:
                         visual_decisions_by_page[decision.page_id] = decision
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
                     save_checkpoint(visual_decisions=[
                         visual_decisions_by_page[key].model_dump(mode="json")
                         for key in sorted(visual_decisions_by_page)
-                    ])
+                    ], ai_batch_diagnostics=serialized_ai_batch_diagnostics())
                     tracker.complete(work_id)
+                elif phase == "failed":
+                    store_ai_batch_diagnostic(event.get("diagnostic"))
+                    save_checkpoint(
+                        ai_batch_diagnostics=serialized_ai_batch_diagnostics()
+                    )
                 await _emit(progress_callback, tracker.snapshot())
 
             visual = await _await_with_heartbeats(
@@ -511,6 +757,26 @@ class SlideDeckV6Orchestrator:
                     decision.model_dump(mode="json") for decision in visual.decisions
                 ],
             )
+            repair_context = dict(checkpoint.get("visual_repair") or {})
+            if repair_context:
+                target_page_ids = set(repair_context.get("target_page_ids") or [])
+                incomplete_repairs = [
+                    decision
+                    for decision in visual.decisions
+                    if decision.page_id in target_page_ids and decision.degraded
+                ]
+                if incomplete_repairs:
+                    failed = incomplete_repairs[0]
+                    raise V6BuildError(
+                        stage="visual_repair",
+                        code="visual_repair_incomplete",
+                        message=(
+                            "The targeted page is still degraded after visual replanning: "
+                            f"{failed.degradation_reason}"
+                        ),
+                        retryable=True,
+                        page_id=failed.page_id,
+                    )
 
             tracker.add_work([
                 SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
@@ -526,6 +792,12 @@ class SlideDeckV6Orchestrator:
 
             current_work = "materialize"
             tracker.start("materialize")
+            story = prepare_story_plan_for_final_compilation(
+                story,
+                graph,
+                template,
+            )
+            save_checkpoint(story_plan=story.model_dump(mode="json"))
             deck = compile_slide_deck_v6(document, graph, story, visual, template)
             tracker.add_work([
                 SlideWorkItemV2(
@@ -624,6 +896,31 @@ class SlideDeckV6Orchestrator:
                     message="Template revision changed while V6 was building",
                     retryable=True,
                 )
+            repair_context = dict(checkpoint.get("visual_repair") or {})
+            if repair_context:
+                current_registry = self.representations.load(document.course_id)
+                current_representation = next(
+                    (
+                        item
+                        for item in current_registry.representations
+                        if item.representation_id
+                        == repair_context.get("base_representation_id")
+                    ),
+                    None,
+                )
+                if (
+                    current_representation is None
+                    or current_representation.spec_id
+                    != repair_context.get("base_spec_id")
+                    or current_representation.revision
+                    != repair_context.get("base_representation_revision")
+                ):
+                    raise V6BuildError(
+                        stage="publish",
+                        code="visual_repair_base_changed",
+                        message="A newer deck revision was published while visual repair was running",
+                        retryable=True,
+                    )
             degraded_visual_count = sum(
                 1 for decision in visual.decisions if decision.degraded
             )
@@ -648,6 +945,15 @@ class SlideDeckV6Orchestrator:
                     )),
                 },
             }
+            if degraded_visual_count:
+                planning_status["visual_ai"]["degraded_pages"] = [
+                    {
+                        "page_id": decision.page_id,
+                        "reason": decision.degradation_reason,
+                    }
+                    for decision in visual.decisions
+                    if decision.degraded
+                ]
             content = {
                 **deck.model_dump(mode="json"),
                 "build_signature": build_signature_v6(
@@ -661,17 +967,30 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "template_contract": template.model_dump(mode="json"),
+                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "planning_status": planning_status,
+                **({"visual_repair": repair_context} if repair_context else {}),
             }
             unit_bindings = {
-                page.page_id: [
-                    _source_binding_with_course_logic(
-                        document,
-                        course_data,
-                        block_id=block_id,
-                    )
-                    for block_id in page.source_block_ids
-                ]
+                page.page_id: (
+                    [
+                        _source_binding_with_course_logic(
+                            document,
+                            course_data,
+                            block_id=block_id,
+                        )
+                        for block_id in page.source_block_ids
+                    ]
+                    or [
+                        _source_binding_with_course_logic(
+                            document,
+                            course_data,
+                            section_id=section_id,
+                        )
+                        for section_id in page.source_section_ids
+                    ]
+                )
                 for page in deck.pages
             }
             bindings_by_key: dict[tuple[str, str, tuple[tuple[str, str], ...]], SourceBinding] = {}
@@ -752,7 +1071,9 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
+                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "planning_status": planning_status,
+                "visual_repair": repair_context or None,
                 "deck": deck.model_dump(mode="json"),
                 "published": publish_result,
                 "shadow_context": dict(shadow_context or {}),
@@ -806,10 +1127,16 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json") if graph else None,
                 "story_plan": story.model_dump(mode="json") if story else None,
                 "visual_plan": visual.model_dump(mode="json") if visual else None,
+                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
+                "visual_repair": dict(checkpoint.get("visual_repair") or {}) or None,
                 "deck": None,
                 "published": False,
                 "shadow_context": dict(shadow_context or {}),
                 "failure": error.failure.model_dump(mode="json"),
+                "failure_contract": classify_v6_failure(
+                    error.failure.stage,
+                    error.failure.code,
+                ),
                 "updated_at": _utc_now(),
             }
             self.candidates.save(task_id, failure_payload)

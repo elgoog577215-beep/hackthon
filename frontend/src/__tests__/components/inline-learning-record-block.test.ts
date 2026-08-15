@@ -1,5 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
 
 vi.mock('mermaid', () => ({
   default: {
@@ -12,8 +13,19 @@ vi.mock('highlight.js/styles/atom-one-dark.css', () => ({}))
 
 import InlineLearningRecordBlock from '@/components/InlineLearningRecordBlock.vue'
 
+/**
+ * Markdown rendering is aligned to animation frames so a streamed answer paints
+ * as its chunks arrive, so a frame must elapse before the DOM is inspected.
+ */
+async function flushFrames() {
+  for (let i = 0; i < 3; i += 1) {
+    await new Promise(resolve => requestAnimationFrame(() => resolve(null)))
+    await nextTick()
+  }
+}
+
 describe('InlineLearningRecordBlock', () => {
-  it('AI 摘要统一渲染 Markdown 与容错公式', () => {
+  it('AI 摘要统一渲染 Markdown 与容错公式', async () => {
     const wrapper = mount(InlineLearningRecordBlock, {
       props: {
         note: {
@@ -23,6 +35,7 @@ describe('InlineLearningRecordBlock', () => {
         } as any,
       },
     })
+    await flushFrames()
 
     expect(wrapper.find('strong').text()).toBe('AI 问答摘要')
     expect(wrapper.html()).toContain('accent-body')

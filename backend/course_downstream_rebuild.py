@@ -170,6 +170,98 @@ def _run_coroutine(coro: Any) -> Any:
         return pool.submit(runner).result()
 
 
+KNOWLEDGE_CONTENT_INSTRUCTION = "知识点已修订，请据此更新本段正文并保持与前后文衔接。"
+PLAN_CONTENT_INSTRUCTION = "本节教案已修订，请据此更新本段正文并保持与前后文衔接。"
+
+
+def build_content_runner(
+    course_data: dict[str, Any],
+    *,
+    course_repository: Any = None,
+    block_repository: Any = None,
+    actor: str = "system",
+    request_id: str = "",
+    request_prefix: str = "downstream-rebuild",
+    instruction: str = KNOWLEDGE_CONTENT_INSTRUCTION,
+) -> Any:
+    """Targeted rebuild of one course block, as a candidate awaiting review.
+
+    Shared by the knowledge chain and the teaching-plan chain on purpose. A
+    block rebuilt because its knowledge changed and one rebuilt because its
+    plan changed must go through identical code, or "last usable artifact"
+    stops meaning one thing. Only ``instruction`` differs between callers —
+    the model needs the real reason for the rewrite.
+
+    `BlockRegenerationService` is candidate-first by construction: it writes
+    only inside `apply_candidate`, gated on `status == "ready"` plus the
+    quality gate. So generating a candidate and stopping is exactly the
+    `candidate_ready` semantics the shared executor already models, and it
+    keeps both chains' promise that nothing is applied without the teacher
+    saying so.
+
+    The service is async while the executor's runner contract is sync, so the
+    coroutine is driven on a private loop in a worker thread. That is the same
+    pattern the question-bank executor uses; `asyncio.run` here would raise
+    because the caller is itself running inside a loop.
+    """
+
+    def course_content(entry: dict[str, Any]) -> dict[str, Any]:
+        if block_repository is None or course_repository is None:
+            return {"status": "failed", "error": "正文重建仓库不可用"}
+        block_id = _text(entry.get("id"))
+        if not block_id:
+            return {"status": "failed", "error": "缺少正文块 ID"}
+        try:
+            from block_regeneration import BlockRegenerationService
+
+            document = (course_data or {}).get("course_document") or {}
+            block = next(
+                (
+                    item for item in document.get("blocks") or []
+                    if isinstance(item, dict) and _text(item.get("block_id")) == block_id
+                ),
+                None,
+            )
+            if block is None:
+                return {
+                    "status": "failed",
+                    "error": f"正文块 {block_id} 不在当前课程文档中",
+                }
+
+            service = BlockRegenerationService(course_repository, block_repository)
+            candidate = _run_coroutine(service.create_candidate(
+                _text((course_data or {}).get("course_id")),
+                block_id,
+                request_id=f"{request_prefix}:{request_id}:{block_id}",
+                expected_document_revision=_text(
+                    (course_data or {}).get("course_document_revision")
+                    or document.get("document_revision"),
+                ),
+                expected_block_revision=_text(block.get("internal_revision")),
+                instruction=instruction,
+                user_id=actor,
+            ))
+        except Exception as error:  # noqa: BLE001 - one block must not abort the batch
+            logger.warning("Block rebuild failed for %s: %s", block_id, error)
+            return {"status": "failed", "error": str(error)}
+
+        # create_candidate persists failures rather than raising, so the status
+        # is the real signal — an exception-only check would report success for
+        # a candidate that never generated.
+        status = _text((candidate or {}).get("status"))
+        if status == "ready":
+            return {"status": "succeeded", "revision": _text(candidate.get("candidate_id"))}
+        if status == "generation_failed":
+            return {"status": "failed", "error": _text(
+                (candidate.get("failure") or {}).get("message"),
+            ) or "正文候选生成失败"}
+        if status == "quality_failed":
+            return {"status": "failed", "error": "正文候选未通过质量门"}
+        return {"status": "failed", "error": f"正文候选状态 {status or 'unknown'}"}
+
+    return course_content
+
+
 def build_knowledge_rebuild_runners(
     course_data: dict[str, Any],
     *,
@@ -210,70 +302,15 @@ def build_knowledge_rebuild_runners(
             logger.warning("Representation rebuild failed: %s", error)
             return {"status": "failed", "error": str(error)}
 
-    def course_content(entry: dict[str, Any]) -> dict[str, Any]:
-        """Targeted rebuild of one course block, as a candidate awaiting review.
-
-        `BlockRegenerationService` is candidate-first by construction: it writes
-        only inside `apply_candidate`, gated on `status == "ready"` plus the
-        quality gate. So generating a candidate and stopping is exactly the
-        `candidate_ready` semantics the shared executor already models, and it
-        keeps the knowledge chain's promise that nothing is applied without
-        the teacher saying so.
-
-        The service is async while the executor's runner contract is sync, so
-        the coroutine is driven on a private loop in a worker thread. That is
-        the same pattern the question-bank executor uses; `asyncio.run` here
-        would raise because `request_rebuild` is itself running inside a loop.
-        """
-        if block_repository is None or course_repository is None:
-            return {"status": "failed", "error": "正文重建仓库不可用"}
-        block_id = _text(entry.get("id"))
-        if not block_id:
-            return {"status": "failed", "error": "缺少正文块 ID"}
-        try:
-            from block_regeneration import BlockRegenerationService
-
-            document = (course_data or {}).get("course_document") or {}
-            block = next(
-                (
-                    item for item in document.get("blocks") or []
-                    if isinstance(item, dict) and _text(item.get("block_id")) == block_id
-                ),
-                None,
-            )
-            if block is None:
-                return {"status": "failed", "error": f"正文块 {block_id} 不在当前课程文档中"}
-
-            service = BlockRegenerationService(course_repository, block_repository)
-            candidate = _run_coroutine(service.create_candidate(
-                _text((course_data or {}).get("course_id")),
-                block_id,
-                request_id=f"knowledge-rebuild:{request_id}:{block_id}",
-                expected_document_revision=_text(
-                    (course_data or {}).get("course_document_revision")
-                    or document.get("document_revision"),
-                ),
-                expected_block_revision=_text(block.get("internal_revision")),
-                instruction="知识点已修订，请据此更新本段正文并保持与前后文衔接。",
-                user_id=actor,
-            ))
-        except Exception as error:  # noqa: BLE001 - one block must not abort the batch
-            logger.warning("Block rebuild failed for %s: %s", block_id, error)
-            return {"status": "failed", "error": str(error)}
-
-        # create_candidate persists failures rather than raising, so the status
-        # is the real signal — an exception-only check would report success for
-        # a candidate that never generated.
-        status = _text((candidate or {}).get("status"))
-        if status == "ready":
-            return {"status": "succeeded", "revision": _text(candidate.get("candidate_id"))}
-        if status == "generation_failed":
-            return {"status": "failed", "error": _text(
-                (candidate.get("failure") or {}).get("message"),
-            ) or "正文候选生成失败"}
-        if status == "quality_failed":
-            return {"status": "failed", "error": "正文候选未通过质量门"}
-        return {"status": "failed", "error": f"正文候选状态 {status or 'unknown'}"}
+    course_content = build_content_runner(
+        course_data,
+        course_repository=course_repository,
+        block_repository=block_repository,
+        actor=actor,
+        request_id=request_id,
+        request_prefix="knowledge-rebuild",
+        instruction=KNOWLEDGE_CONTENT_INSTRUCTION,
+    )
 
     def unsupported(entry: dict[str, Any]) -> dict[str, Any]:
         return {

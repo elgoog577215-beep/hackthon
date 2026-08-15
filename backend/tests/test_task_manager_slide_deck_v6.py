@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from pathlib import Path
 
@@ -164,6 +165,244 @@ async def test_failed_v6_progress_event_atomically_terminates_the_outer_task(
 
 
 @pytest.mark.asyncio
+async def test_restart_recovers_only_the_newest_equivalent_v6_build(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    request = {
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "target_schema": "slide_deck_v6",
+        "template_selector": {"pack_id": "", "version": None},
+    }
+    old_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot=request,
+    )
+    new_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot=request,
+    )
+    manager.tasks[old_id]["status"] = "running"
+    manager.tasks[new_id]["status"] = "running"
+
+    assert await manager._reconcile_task_after_restart(old_id) is False
+    assert manager.tasks[old_id]["status"] == "cancelled"
+    assert manager.tasks[old_id]["error_detail"]["code"] == (
+        "superseded_build_not_recovered"
+    )
+    assert await manager._reconcile_task_after_restart(new_id) is True
+    assert manager.tasks[new_id]["status"] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_restart_stops_a_slide_build_recovery_loop(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={"target_schema": "slide_deck_v6"},
+    )
+    manager.tasks[task_id]["status"] = "running"
+    manager.tasks[task_id]["restart_recovery_count"] = 3
+
+    assert await manager._reconcile_task_after_restart(task_id) is False
+    assert manager.tasks[task_id]["status"] == "failed"
+    assert manager.tasks[task_id]["error_detail"]["code"] == (
+        "restart_recovery_limit_exceeded"
+    )
+
+
+@pytest.mark.asyncio
+async def test_terminal_v6_build_preserves_its_recovery_contract_and_never_resumes_as_v5(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    import task_manager as task_manager_module
+    from task_manager import TaskManager
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    jobs_path = tmp_path / "jobs.json"
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", jobs_path)
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot={
+            "mode": "teaching",
+            "theme": "qizhi-classroom",
+            "variant_key": "teaching:qizhi-classroom",
+            "target_schema": "slide_deck_v6",
+            "template_selector": {"pack_id": "", "version": None},
+            "force_rebuild": True,
+        },
+    )
+    manager.tasks[task_id].update({
+        "status": "failed",
+        "phase": "story",
+        "error_detail": {
+            "stage": "story",
+            "code": "story_ai_batch_failed",
+            "message": "retry from checkpoint",
+            "retryable": True,
+        },
+    })
+    checkpoint_root = tmp_path / "slide_deck_v6_candidates" / "checkpoints"
+    checkpoint_root.mkdir(parents=True)
+    (checkpoint_root / f"{task_id}.json").write_text(
+        json.dumps({
+            "schema_version": "slide_deck_v6_checkpoint_v1",
+            "task_id": task_id,
+            "course_id": course["course_id"],
+            "course_document_revision": course["course_document"]["document_revision"],
+            "template_digest": "tpl_fixture",
+            "mode": "teaching",
+            "theme": "qizhi-classroom",
+        }),
+        encoding="utf-8",
+    )
+    progress_root = tmp_path / "slide_build_progress_v2"
+    progress_root.mkdir()
+    (progress_root / f"{task_id}.json").write_text(
+        json.dumps({
+            "schema_version": "slide_build_progress_v2",
+            "task_id": task_id,
+            "status": "failed",
+            "items": [],
+            "current_context": {
+                "stage": "story",
+                "step_index": 0,
+                "step_count": 0,
+                "chapter_id": "chapter-field-observation",
+                "batch_id": "story-2",
+                "page_id": "",
+                "provider_wait": False,
+                "retry_attempt": 0,
+            },
+            "completed_weight": 4,
+            "total_weight": 10,
+            "display_percent": 41,
+            "finalized": False,
+            "published": False,
+            "failure": {
+                "stage": "story",
+                "code": "story_ai_batch_failed",
+                "message": "retry from checkpoint",
+                "retryable": True,
+                "chapter_id": "chapter-field-observation",
+                "page_id": "",
+                "batch_id": "story-2",
+            },
+            "started_at": "2026-08-13T00:00:00+00:00",
+            "updated_at": "2026-08-13T00:01:00+00:00",
+            "last_event_at": "2026-08-13T00:01:00+00:00",
+            "newly_discovered_since_event": 0,
+        }),
+        encoding="utf-8",
+    )
+    manager.save_tasks(strict=True)
+
+    persisted = json.loads(jobs_path.read_text(encoding="utf-8"))[task_id]
+    assert "request_snapshot" not in persisted
+    assert persisted["slide_build_request_contract"]["target_schema"] == (
+        "slide_deck_v6"
+    )
+    # Simulate the production task written before the durable contract existed.
+    persisted.pop("slide_build_request_contract")
+    persisted["progress"] = 100
+    persisted["phase"] = "v5_candidate"
+    jobs_path.write_text(
+        json.dumps({task_id: persisted}),
+        encoding="utf-8",
+    )
+
+    restarted = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    assert restarted.tasks[task_id]["slide_build_request_contract"][
+        "target_schema"
+    ] == "slide_deck_v6"
+    assert restarted.tasks[task_id]["progress"] == 41
+    assert restarted.tasks[task_id]["phase"] == "story"
+    resumed = await restarted.resume_task(task_id)
+    assert resumed["status"] == "resumed"
+    assert restarted.tasks[task_id]["error_detail"] is None
+    assert restarted.tasks[task_id]["slide_build_progress_v2"][
+        "status"
+    ] == "active"
+    assert restarted.tasks[task_id]["slide_build_progress_v2"][
+        "failure"
+    ] is None
+
+    captured: dict[str, object] = {}
+
+    async def v6_runner(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        restarted,
+        "_process_slide_deck_variant_v6",
+        v6_runner,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        task_manager_module,
+        "fragment_course_document",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Recovered V6 task entered the V5 fragmentation path")
+        ),
+    )
+
+    await restarted._process_slide_deck_variant_task(task_id)
+
+    assert captured["task_id"] == task_id
+    assert restarted.tasks[task_id]["slide_build_request_contract"][
+        "target_schema"
+    ] == "slide_deck_v6"
+
+
+@pytest.mark.asyncio
 async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmentation(
     tmp_path,
     monkeypatch,
@@ -213,6 +452,58 @@ async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmenta
         event.get("event") == "fragmenting"
         for event in manager.tasks[task_id].get("event_history") or []
     )
+
+
+@pytest.mark.asyncio
+async def test_v6_visual_repair_task_routes_target_pages_without_changing_build_kind(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The durable task remains restart-compatible while selecting visual repair."""
+
+    import task_manager as task_manager_module
+    from task_manager import TaskManager, _slide_build_request_contract
+
+    course = _canonical_course()
+    storage = MemoryStorage(course, tmp_path)
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
+    manager = TaskManager(
+        storage,
+        course_service=None,
+        ws_service=None,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    request = {
+        "operation": "repair_slide_visuals_v6",
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "target_schema": "slide_deck_v6",
+        "representation_id": "representation-generic",
+        "target_page_ids": ["page-observation"],
+    }
+    task_id = await manager.create_task(
+        course["course_id"],
+        "slide_deck_variant_build",
+        enqueue=False,
+        request_snapshot=request,
+    )
+    captured: dict[str, object] = {}
+
+    async def v6_runner(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(manager, "_process_slide_deck_variant_v6", v6_runner, raising=False)
+
+    await manager._process_slide_deck_variant_task(task_id)
+
+    assert captured["visual_repair"] == {
+        "representation_id": "representation-generic",
+        "target_page_ids": ["page-observation"],
+    }
+    durable = _slide_build_request_contract(request)
+    assert durable["operation"] == "repair_slide_visuals_v6"
+    assert durable["representation_id"] == "representation-generic"
+    assert durable["target_page_ids"] == ["page-observation"]
 
 
 @pytest.mark.asyncio

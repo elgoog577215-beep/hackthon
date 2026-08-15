@@ -51,6 +51,7 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
         workspaces = GenerationWorkspaceRepository(data_root / "generation_workspaces")
         versions = CourseVersionRepository(data_root / "course_versions")
         assets = LearningAssetRepository(data_root / "learning_assets")
+        banks = QuestionBankRepository(data_root / "question_banks")
         documents = CourseDocumentRepository(storage)
         service = CourseService(materials=MaterialRepository(data_root / "materials"))
         task_manager_module.TASKS_FILE = data_root / "tasks.json"
@@ -62,9 +63,7 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
             asset_repository=assets,
             workspace_repository=workspaces,
             document_repository=documents,
-            question_bank_repository_override=QuestionBankRepository(
-                data_root / "question_banks"
-            ),
+            question_bank_repository_override=banks,
         )
         await manager.start()
         try:
@@ -83,6 +82,17 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 "pedagogy_mode": "math_formal",
                 "generation_mode": "fast",
                 "course_purpose": "systematic",
+                # Without an assessment retrieval scope _retrieval_mode() returns
+                # "off", and task_manager skips the assessment orchestrator
+                # entirely — so the smoke run published a course while never
+                # generating a single question through the model. Questions still
+                # appeared, built from deterministic templates, which made the
+                # gap invisible in the result.
+                #
+                # This enables the scope, not outbound search: no retrieval
+                # provider is configured here (SearXNG, configured=False), so the
+                # gap-filling step makes no network calls.
+                "web_question_enrichment": {"enabled": True},
             })
             task_id = str(job["job_id"])
             course_id = str(job["course_id"])
@@ -155,6 +165,32 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 "generation_quality_report"
             ) or {}
             asset_quality = generated.get("asset_quality_report") or {}
+            # Count the questions that actually reached storage. The smoke run
+            # lives in a TemporaryDirectory that is removed on exit, so this is
+            # the only chance to observe them; without it the report cannot
+            # distinguish "assets vetted and passed" from "no assets existed".
+            question_total = 0
+            try:
+                bundle = assets.load_bundle(course_id) or {}
+
+                def _count(node: object) -> int:
+                    if isinstance(node, dict):
+                        total = 0
+                        for key, value in node.items():
+                            if key in {"questions", "items"} and isinstance(
+                                value, list
+                            ):
+                                total += len(value)
+                            total += _count(value)
+                        return total
+                    if isinstance(node, list):
+                        return sum(_count(item) for item in node)
+                    return 0
+
+                question_total = _count(bundle)
+            except Exception as exc:  # never let counting mask the real result
+                question_total = -1
+                print(f"[warn] 题目统计失败: {exc}", file=sys.stderr)
             source_chain = generated.get(
                 "generation_source_chain_report"
             ) or {}
@@ -186,6 +222,41 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 failures.append("课程仍有阻断性质量问题")
             if not asset_quality.get("passed"):
                 failures.append("学习资产合同未通过")
+            # `passed` is also True when nothing was generated to judge, so a
+            # run whose assessment stage never fired reports a clean pass. That
+            # happened for real: a 5-model-call run reported asset_quality
+            # passed with zero questions produced, which reads identically to a
+            # 31-call run that actually generated and vetted them.
+            if question_total <= 0:
+                failures.append(
+                    "未生成任何题目（学习资产合同为空过，不能视为通过）"
+                )
+            # `question_total` proves questions exist, not that a model made
+            # them: compile_learning_assets builds some from deterministic
+            # templates, so a run whose assessment stage never fired still
+            # reported three questions and looked identical to one that
+            # generated them. The orchestrator stamps an audit into the question
+            # bank, so its presence is the signal that distinguishes the two.
+            model_generated_questions = False
+            try:
+                bank_bundle = banks.load_bundle(course_id) or {}
+
+                def _audits(node: object) -> bool:
+                    if isinstance(node, dict):
+                        if node.get("generation_audit"):
+                            return True
+                        return any(_audits(v) for v in node.values())
+                    if isinstance(node, list):
+                        return any(_audits(item) for item in node)
+                    return False
+
+                model_generated_questions = _audits(bank_bundle)
+            except Exception as exc:
+                print(f"[warn] 出题审计读取失败: {exc}", file=sys.stderr)
+            if not model_generated_questions:
+                failures.append(
+                    "题目未经模型生成（出题阶段被跳过，题目来自确定性模板）"
+                )
             if not source_chain.get("can_publish"):
                 failures.append("确认后的同源链未通过")
             if workspace.get("status") != "published":
@@ -253,6 +324,8 @@ async def run_smoke(subject: str, timeout_seconds: int) -> dict[str, object]:
                 "asset_quality_passed": bool(
                     asset_quality.get("passed")
                 ),
+                "question_total": question_total,
+                "model_generated_questions": model_generated_questions,
                 "source_chain_passed": bool(
                     source_chain.get("can_publish")
                 ),

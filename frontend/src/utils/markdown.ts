@@ -6,6 +6,7 @@ import DOMPurify from 'dompurify';
 import linkAttributes from 'markdown-it-link-attributes';
 import 'highlight.js/styles/atom-one-dark.css';
 import { prepareMermaidBlockSource, initializeMermaid } from './mermaid';
+import { recordRenderFailure } from './render-diagnostics';
 
 initializeMermaid();
 
@@ -59,7 +60,11 @@ const renderMathContent = (content: string, displayMode: boolean) => {
             strict: false,
             trust: true
         });
-    } catch {
+    } catch (error) {
+        // Still degrade to readable source — a blank formula is worse than an
+        // ugly one — but no longer silently: the failure is now countable and
+        // the publication gate can see it (see utils/render-diagnostics).
+        recordRenderFailure('math', content, error);
         return `<code class="math-fallback">${md.utils.escapeHtml(content.trim())}</code>`;
     }
 };
@@ -1014,6 +1019,10 @@ export const renderMarkdown = (content: string) => {
         });
         sanitized = fallbackResidualMathMarkup(sanitized);
     } catch (e) {
+        // Whole-block failure: the output is the raw text with no Markdown
+        // structure at all. That is the most severe degradation and used to be
+        // the least visible one.
+        recordRenderFailure('block', normalized, e);
         sanitized = DOMPurify.sanitize(normalized)
     }
 

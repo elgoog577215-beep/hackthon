@@ -34,6 +34,7 @@ from practice_attempts import (
     AttemptConflict,
     InvalidAttemptTransition,
     practice_attempt_repository,
+    support_level,
 )
 from practice_contracts import DEFAULT_PRACTICE_BATCH_SIZE
 from practice_analysis import (
@@ -47,10 +48,16 @@ from question_bank import (
     question_bank_repository,
 )
 from question_bank_jobs import question_bank_rebuild_job_repository
+from socratic_guidance import (
+    MAX_ROUNDS,
+    socratic_guide,
+    support_level_for_round,
+)
 from solution_presentation import (
     present_solution_representation,
     present_solution_value,
 )
+from stepwise_answers import extract_steps
 from storage import storage
 
 router = APIRouter(prefix="/courses/{course_id}/practice", tags=["practice"])
@@ -87,6 +94,9 @@ class PracticeRefreshRequest(BaseModel):
 class AISupportAction(RevisionAction):
     level: int = Field(ge=1, le=3)
     summary: str = Field(default="", max_length=1000)
+    # Non-empty message switches this endpoint from "record that help was used"
+    # to a Socratic guidance round (K2); absent, behaviour is unchanged.
+    message: str = Field(default="", max_length=2000)
 
 
 class AttemptSubmission(DraftUpdate):
@@ -518,6 +528,78 @@ async def record_attempt_ai_support(
     request: Request,
 ):
     user_id = require_user_id(request.headers.get("X-User-Id"))
+    student_message = (payload.message or "").strip()
+    guidance: dict[str, Any] | None = None
+    guidance_turns: list[dict[str, Any]] = []
+    level = payload.level
+    if student_message:
+        # Multi-round Socratic guidance (K2). Without a message this endpoint keeps
+        # its original behaviour — recording that AI help was used — so existing
+        # callers are unaffected.
+        course = project_learning_objective_bindings(await get_course_or_404(course_id))
+        current = await run_in_threadpool(
+            practice_attempt_repository.get, user_id, course_id, attempt_id
+        )
+        question = _resolve_task(
+            course,
+            user_id,
+            str(current.get("task_revision_id") or current.get("question_revision_id") or ""),
+        )
+        if not question:
+            raise HTTPException(status_code=409, detail="Task revision is no longer active")
+        history = [
+            item
+            for item in current.get("guidance_turns") or []
+            if isinstance(item, dict)
+        ]
+        # Undelivered rounds stay in the transcript for audit but must not eat the
+        # round budget: a provider outage should never lock a student out of asking.
+        rounds_used = sum(
+            1
+            for item in history
+            if item.get("role") == "assistant" and item.get("status") == "ok"
+        )
+        if rounds_used >= MAX_ROUNDS:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "guidance_round_limit_reached",
+                    "max_rounds": MAX_ROUNDS,
+                },
+            )
+        guidance = await socratic_guide.next_turn(
+            question,
+            current,
+            history,
+            student_message,
+        )
+        # Only guidance the student actually received counts. When generation
+        # fails, is unusable, or gets stopped by the leakage screen, every one of
+        # those paths returns the *same* canned fallback sentence — so charging
+        # support for it would record help that was never given, and would let a
+        # provider outage silently push an honest student to `scaffolded` (and
+        # burn their round budget) for nothing.
+        delivered = guidance.get("status") == "ok"
+        guidance_turns = [
+            {"role": "student", "text": student_message},
+            {
+                "role": "assistant",
+                "text": guidance.get("question") or "",
+                "focus": guidance.get("focus") or "",
+                "status": guidance.get("status") or "",
+                "reason": guidance.get("reason") or "",
+                "generated": bool(guidance.get("generated")),
+                "counted_as_support": delivered,
+            },
+        ]
+        if delivered:
+            # Guidance rounds feed the one existing support metric (K3); asking
+            # more questions weakens the independence claim, so guidance can never
+            # become a back door to mastery.
+            level = max(level, support_level_for_round(rounds_used + 1))
+        # else: nothing was delivered, so `level` stays exactly what the caller
+        # asked for (pre-guidance behaviour); record_ai_support only ever raises
+        # the stored level, so an undelivered round cannot lower it either.
     try:
         attempt = await run_in_threadpool(
             practice_attempt_repository.record_ai_support,
@@ -525,7 +607,8 @@ async def record_attempt_ai_support(
             course_id,
             attempt_id,
             expected_revision=payload.expected_revision,
-            level=payload.level,
+            level=level,
+            guidance_turns=guidance_turns,
         )
     except AttemptConflict as exc:
         raise HTTPException(status_code=409, detail={"code": "attempt_conflict", "current": exc.current}) from exc
@@ -537,9 +620,19 @@ async def record_attempt_ai_support(
         "practice_ai_support_used",
         attempt,
         user_id=user_id,
-        evidence={"level": payload.level, "summary": summarize_text(payload.summary)},
+        evidence={
+            "level": level,
+            "summary": summarize_text(payload.summary),
+            **({"guidance_status": guidance.get("status")} if guidance else {}),
+        },
     )
-    return {"status": "recorded", "attempt": attempt}
+    response: dict[str, Any] = {"status": "recorded", "attempt": attempt}
+    if guidance:
+        response["guidance"] = {
+            key: guidance.get(key)
+            for key in ("question", "focus", "is_stuck", "closing", "round", "status")
+        }
+    return response
 
 
 @router.post("/attempts/{attempt_id}/solution")
@@ -679,7 +772,7 @@ async def submit_attempt(
             evidence={
                 "answer": payload.answer_payload,
                 "active_seconds": payload.active_seconds,
-                "support_level": _support_level(attempt),
+                "support_level": support_level(attempt),
             },
         )
     grading_output, diagnosis_output = await asyncio.gather(
@@ -1332,7 +1425,17 @@ def _solution_payload(question: dict[str, Any]) -> dict[str, Any]:
 
 
 def _has_answer(payload: dict[str, Any]) -> bool:
-    return any(value not in (None, "", [], {}) for value in payload.values())
+    meaningful = {
+        key: value
+        for key, value in payload.items()
+        if value not in (None, "", [], {})
+    }
+    # A `steps` list whose every entry is blank is the student having opened the
+    # stepwise editor without writing anything.  Left as-is it would satisfy the
+    # emptiness guard and be graded as a real zero-scoring answer.
+    if "steps" in meaningful and not extract_steps(payload):
+        meaningful.pop("steps")
+    return bool(meaningful)
 
 
 def _missing_answer_fields(
@@ -1370,15 +1473,6 @@ def _missing_answer_fields(
         ):
             missing.append(field_id)
     return missing
-
-
-def _support_level(attempt: dict[str, Any]) -> int:
-    return max([
-        0,
-        int(attempt.get("ai_support_level") or 0),
-        *[int(item) for item in attempt.get("revealed_hint_levels") or []],
-        3 if attempt.get("solution_revealed") else 0,
-    ])
 
 
 def _needs_review(attempt: dict[str, Any]) -> bool:
