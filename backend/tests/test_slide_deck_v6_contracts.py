@@ -1373,6 +1373,15 @@ def test_story_plan_rejects_duplicate_page_titles() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_duplicate_page_ids() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[1].page_id = story.batches[0].pages[0].page_id
+
+    with pytest.raises(V6BuildError, match="story_duplicate_page_id"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_visual_image_requires_a_source_asset_reference() -> None:
     document = refresh_document_revision(
         CourseDocument(

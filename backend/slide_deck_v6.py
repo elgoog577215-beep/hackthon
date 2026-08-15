@@ -622,7 +622,22 @@ def validate_slide_story_plan_v3(
     previous_unit_ordinal = -1
     page_count_by_unit: Counter[str] = Counter()
     title_owners: dict[str, str] = {}
+    page_id_owners: set[str] = set()
     for page in sorted(plan.pages, key=lambda item: item.page_ordinal):
+        if not page.page_id.strip():
+            raise V6BuildError(
+                stage="story",
+                code="story_page_id_missing",
+                message="Every V6 page requires a stable identity",
+            )
+        if page.page_id in page_id_owners:
+            raise V6BuildError(
+                stage="story",
+                code="story_duplicate_page_id",
+                message="Every V6 page identity must be globally unique",
+                page_id=page.page_id,
+            )
+        page_id_owners.add(page.page_id)
         unit = units.get(page.teaching_unit_id)
         if unit is None:
             raise V6BuildError(stage="story", code="story_unknown_teaching_unit", message="Story references an unknown teaching unit", page_id=page.page_id)

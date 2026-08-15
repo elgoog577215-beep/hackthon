@@ -352,6 +352,36 @@ def _assign_global_story_titles(
     ]
 
 
+def _assign_global_story_page_ids(
+    batches: list[SlideStoryBatchV3],
+) -> list[SlideStoryBatchV3]:
+    """Make provider-local page identities unique across story batches."""
+
+    used_page_ids: set[str] = set()
+    normalized_batches: list[SlideStoryBatchV3] = []
+    global_ordinal = 0
+    for batch in batches:
+        normalized_pages: list[SlideStoryPageV3] = []
+        for page in batch.pages:
+            page_id = page.page_id.strip()
+            if not page_id or page_id in used_page_ids:
+                page_id = stable_hash(
+                    {
+                        "batch_id": batch.batch_id,
+                        "chapter_id": batch.chapter_id,
+                        "teaching_unit_id": page.teaching_unit_id,
+                        "source_block_ids": page.source_block_ids,
+                        "global_ordinal": global_ordinal,
+                    },
+                    prefix="v6page_",
+                )
+            used_page_ids.add(page_id)
+            normalized_pages.append(page.model_copy(update={"page_id": page_id}))
+            global_ordinal += 1
+        normalized_batches.append(batch.model_copy(update={"pages": normalized_pages}))
+    return normalized_batches
+
+
 def _project_required_safe_partitions(
     pages: list[Any],
     units: dict[str, dict[str, Any]],
@@ -2549,6 +2579,7 @@ async def plan_slide_story_v3(
             ),
         })
     batches = _assign_global_story_titles(batches, story_requests)
+    batches = _assign_global_story_page_ids(batches)
     plan = SlideStoryPlanV3(
         source_document_revision=graph.source_document_revision,
         template_digest=template.template_digest,
