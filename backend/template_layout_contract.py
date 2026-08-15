@@ -164,6 +164,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             "practice_feedback",
             "recap",
             "worked_example",
+            "misconception_repair",
         ],
         "slots": [
             _EYEBROW,
@@ -303,7 +304,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     "misconception-repair": {
         "intents": ["misconception_repair"],
         "slots": [_TITLE, _slot("symptom", "body", chars=170), _slot("cause", "body", chars=170), _slot("repair", "body", chars=220), _NOTES],
-        "continuations": ["misconception-repair"],
+        "continuations": ["misconception-repair", "content-stack"],
     },
     "chapter-recap": {
         "intents": ["recap"],

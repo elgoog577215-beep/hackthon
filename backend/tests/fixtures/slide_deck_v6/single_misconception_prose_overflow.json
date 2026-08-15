@@ -1,0 +1,26 @@
+{
+  "course_id": "generic-misconception-prose-overflow-replay",
+  "course_title": "Deterministic misconception replay",
+  "section_id": "repair-section",
+  "section_title": "Diagnose and repair a misconception",
+  "block_id": "single-misconception-source",
+  "block_role": "misconception",
+  "block_kind": "rich_text",
+  "page_title": "Trace a complete repair narrative",
+  "paragraphs": [
+    "A learner sees the final output and assumes that the last visible action must also be the first cause. The observation is real, but the conclusion skips the earlier state transitions that produced it.",
+    "To diagnose the claim, record the initial state, the first transition, and the evidence available after each later transition. Compare those observations with the stated rule before naming a cause.",
+    "The repair is to separate observation from explanation. Keep every observed value, then identify which transition can actually change that value and which later actions only reveal the change.",
+    "Verify the repaired explanation by replaying the same sequence with one transition disabled. If the predicted value now differs at the expected point, the explanation is supported by the recorded evidence."
+  ],
+  "story_response": {
+    "schema_version": "slide_story_batch_response_v3",
+    "page_id": "single-misconception-page",
+    "layout_slug": "misconception-repair",
+    "summary": ""
+  },
+  "visual_response": {
+    "schema_version": "slide_visual_batch_response_v2",
+    "decision": "text_native"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "schema_version": "slide_theme_pack_v1",
-  "version": "2026.08.12.4",
+  "version": "2026.08.12.5",
   "themes": {
     "qizhi-classroom": {
       "label": "启智课堂",
@@ -33,7 +33,7 @@
       },
       "template": {
         "template_id": "qizhi-classroom-v2",
-        "template_version": "2026.08.12.4",
+        "template_version": "2026.08.12.5",
         "aspect_ratio": "16:9",
         "design_intent": "明亮、亲和、结构清楚的通用课堂演示",
         "reference_deck": "/presentation-templates/qizhi-classroom-v2.pptx",
@@ -282,7 +282,7 @@
       },
       "template": {
         "template_id": "academic-editorial-v2",
-        "template_version": "2026.08.12.4",
+        "template_version": "2026.08.12.5",
         "aspect_ratio": "16:9",
         "design_intent": "米白出版纸张、低饱和蓝灰与细规则线",
         "reference_deck": "/presentation-templates/academic-editorial-v2.pptx",
@@ -553,7 +553,7 @@
       },
       "template": {
         "template_id": "grid-notebook-v2",
-        "template_version": "2026.08.12.4",
+        "template_version": "2026.08.12.5",
         "aspect_ratio": "16:9",
         "design_intent": "浅色网格纸、便签、胶带与手绘学习轨迹",
         "reference_deck": "/presentation-templates/grid-notebook-v2.pptx",
@@ -824,7 +824,7 @@
       },
       "template": {
         "template_id": "modern-geometric-v2",
-        "template_version": "2026.08.12.4",
+        "template_version": "2026.08.12.5",
         "aspect_ratio": "16:9",
         "design_intent": "紫蓝、青绿与橙色几何切片和大面积留白",
         "reference_deck": "/presentation-templates/modern-geometric-v2.pptx",
@@ -1096,7 +1096,7 @@
       },
       "template": {
         "template_id": "dark-tech-v2",
-        "template_version": "2026.08.12.4",
+        "template_version": "2026.08.12.5",
         "aspect_ratio": "16:9",
         "design_intent": "深蓝技术网格、发光节点与克制的数据轨迹",
         "reference_deck": "/presentation-templates/dark-tech-v2.pptx",

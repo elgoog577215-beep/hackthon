@@ -482,16 +482,16 @@ async def test_build_rejects_v10_checkpoint_after_global_page_identity_upgrade(
 
 
 @pytest.mark.asyncio
-async def test_build_rejects_v11_checkpoint_after_multi_slot_pagination_upgrade(
+async def test_build_rejects_v12_checkpoint_after_required_slot_pagination_upgrade(
     tmp_path: Path,
 ) -> None:
     document = _document()
     orchestrator, _representations, candidates = _orchestrator(tmp_path)
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
-    task_id = "task-v6-v11-multi-slot-pagination-contract"
+    task_id = "task-v6-v12-required-slot-pagination-contract"
     candidates.save_checkpoint(task_id, {
         "schema_version": "slide_deck_v6_checkpoint_v1",
-        "build_contract_version": "slide_deck_v6_build_contract_v11",
+        "build_contract_version": "slide_deck_v6_build_contract_v12",
         "task_id": task_id,
         "course_id": document.course_id,
         "course_document_revision": document.document_revision,
@@ -506,7 +506,7 @@ async def test_build_rejects_v11_checkpoint_after_multi_slot_pagination_upgrade(
     async def planner_must_not_run(_request):
         nonlocal planner_calls
         planner_calls += 1
-        raise AssertionError("v11 pagination checkpoints must be rejected before planning")
+        raise AssertionError("v12 pagination checkpoints must be rejected before planning")
 
     with pytest.raises(V6BuildError) as captured:
         await orchestrator.build(

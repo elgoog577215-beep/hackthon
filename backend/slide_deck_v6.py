@@ -3138,10 +3138,16 @@ def validate_story_template_text_slots(
         source_blocks=source_blocks,
         story_summary=story_summary,
     )
-    if len(safe_materializations) > 1:
-        # Final compilation will emit these complete source-bound continuations.
-        # The planned page is valid even though its visible materialization count
-        # is greater than one; source ownership remains on the story page.
+    required_text_slots = [
+        slot
+        for slot in text_slots
+        if slot.required
+    ]
+    if len(safe_materializations) > 1 and len(required_text_slots) <= 1:
+        # Final compilation will emit these independently validated,
+        # source-bound continuations. Multi-slot semantic layouts deliberately
+        # continue through the assignment checks below: pagination cannot turn
+        # one source block into several distinct required meanings.
         return
     remaining = list(source_blocks)
     assigned_artifact_blocks: list[CourseBlock] = []

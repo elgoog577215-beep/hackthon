@@ -945,6 +945,126 @@ async def test_real_shape_activity_code_replay_is_lossless_through_resume_and_qu
     assert deck.quality.ordered_step_visible_fidelity == 1.0
 
 
+def _single_misconception_overflow_replay() -> tuple[dict, CourseDocument, str]:
+    fixture = json.loads(
+        (_FIXTURE_DIR / "single_misconception_prose_overflow.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    markdown = (
+        f"## {fixture['page_title']}\n\n"
+        + "\n\n".join(fixture["paragraphs"])
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id=fixture["course_id"],
+        title=fixture["course_title"],
+        sections=[CourseSection(
+            section_id=fixture["section_id"],
+            title=fixture["section_title"],
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id=fixture["block_id"],
+            section_id=fixture["section_id"],
+            position=0,
+            role=fixture["block_role"],
+            kind=fixture["block_kind"],
+            payload={"markdown": markdown},
+        )],
+    ))
+    return fixture, document, markdown
+
+
+@pytest.mark.asyncio
+async def test_real_shape_single_misconception_replay_uses_lossless_prose_continuations() -> None:
+    """One prose block cannot impersonate three distinct required semantic slots."""
+
+    fixture, document, markdown = _single_misconception_overflow_replay()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        response = fixture["story_response"]
+        return {
+            "schema_version": response["schema_version"],
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": response["page_id"],
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": template.layout_id(response["layout_slug"]),
+                "title": fixture["page_title"],
+                "summary": response["summary"],
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    assert story.pages[0].template_layout_id.endswith("/content-stack")
+
+    async def visual_planner(request):
+        response = fixture["visual_response"]
+        return {
+            "schema_version": response["schema_version"],
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": response["decision"],
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            } for page in request["pages"]],
+        }
+
+    visual = await plan_slide_visuals_v2(
+        story,
+        graph,
+        template,
+        ai_planner=visual_planner,
+    )
+    deck = compile_slide_deck_v6(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+
+    rendered_body = "\n\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind == "body"
+    )
+    expected_body = "\n\n".join([
+        fixture["page_title"],
+        *fixture["paragraphs"],
+    ])
+    page_ids = [page.page_id for page in deck.pages]
+
+    assert len(deck.pages) == 2
+    assert len(page_ids) == len(set(page_ids))
+    assert rendered_body == expected_body
+    assert [page.visual_decision.page_id for page in deck.pages] == page_ids
+    assert all(
+        page.resolved_layout.endswith("/content-stack")
+        for page in deck.pages
+    )
+    assert all(
+        any(
+            note.block_id == fixture["block_id"]
+            and note.full_text == markdown
+            and note.source_payload == {"markdown": markdown}
+            for note in page.speaker_notes.source_blocks
+        )
+        for page in deck.pages
+    )
+    assert deck.quality.passed is True
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "response_shape",
