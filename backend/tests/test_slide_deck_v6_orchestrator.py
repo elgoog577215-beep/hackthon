@@ -346,6 +346,51 @@ async def test_build_rejects_v7_checkpoint_after_artifact_source_upgrade(
     assert planner_calls == 0
 
 
+@pytest.mark.asyncio
+async def test_build_rejects_v8_checkpoint_after_rich_text_artifact_pagination_upgrade(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, _representations, candidates = _orchestrator(tmp_path)
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    task_id = "task-v6-v8-rich-text-artifact-pagination-contract"
+    candidates.save_checkpoint(task_id, {
+        "schema_version": "slide_deck_v6_checkpoint_v1",
+        "build_contract_version": "slide_deck_v6_build_contract_v8",
+        "task_id": task_id,
+        "course_id": document.course_id,
+        "course_document_revision": document.document_revision,
+        "template_digest": template.template_digest,
+        "mode": "teaching",
+        "theme": "qizhi-classroom",
+        "story_batches": [],
+        "visual_decisions": [],
+    })
+    planner_calls = 0
+
+    async def planner_must_not_run(_request):
+        nonlocal planner_calls
+        planner_calls += 1
+        raise AssertionError("v8 pagination checkpoints must be rejected before planning")
+
+    with pytest.raises(V6BuildError) as captured:
+        await orchestrator.build(
+            task_id=task_id,
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=planner_must_not_run,
+            visual_planner=planner_must_not_run,
+            source_revision_provider=lambda: document.document_revision,
+            template_contract=template,
+        )
+
+    assert captured.value.failure.code == "v6_recovery_contract_mismatch"
+    assert captured.value.failure.retryable is False
+    assert planner_calls == 0
+
+
 def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_path: Path) -> None:
     candidates = SlideDeckV6CandidateRepository(tmp_path / "candidates")
     progress_root = tmp_path / "progress"
