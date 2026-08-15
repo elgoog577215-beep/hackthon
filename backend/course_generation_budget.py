@@ -39,12 +39,7 @@ class CourseGenerationDeadlineExceeded(AIProviderRequestError):
 class CourseGenerationBudget:
     max_input_chars: int = 20_000
     max_input_tokens: int = 7000
-    # The outline planner emits a structured whole-course skeleton before
-    # chapter batches are expanded. Ten-lesson teacher courses can legitimately
-    # exceed 4096 output tokens (especially on providers that account hidden
-    # reasoning against the same limit), so keep the planner aligned with the
-    # provider-wide 8192 default instead of failing an otherwise valid outline.
-    outline_max_output_tokens: int = 8192
+    outline_max_output_tokens: int = 4096
     content_max_output_tokens: int = 8192
     provider_max_attempts: int = 2
     # Legacy field name: structured calls now interpret this as continuous
@@ -71,7 +66,7 @@ class CourseGenerationBudget:
             ),
             outline_max_output_tokens=_env_int(
                 "COURSE_OUTLINE_MAX_OUTPUT_TOKENS",
-                8192,
+                4096,
                 minimum=1024,
                 maximum=8192,
             ),

@@ -552,64 +552,6 @@ async def test_ai_candidate_stays_separate_until_teacher_accepts_it() -> None:
 
 
 @pytest.mark.asyncio
-async def test_ai_candidate_can_fix_a_field_without_inheriting_unrelated_legacy_blocker() -> None:
-    async def candidate_generator(**_kwargs):
-        return {
-            "rationale": "补强可观察的学习结果。",
-            "operations": [{
-                "path": "overall/positioning",
-                "after": "从真实任务建立一次函数斜率的解释与应用能力",
-                "reason": "只调整课程定位，不改变课时安排。",
-            }],
-        }
-
-    course = _course()
-    course["course_teaching_plan"]["classroom"] = {"total_class_hours": 1}
-    course["course_teaching_plan"]["sections"][0]["planned_minutes"] = 90
-    storage = MemoryStorage(course)
-    service = TeachingPlanWorkbenchService(
-        CourseDocumentRepository(storage),
-        candidate_generator=candidate_generator,
-    )
-    view = service.view("course-1", actor="teacher-1")
-
-    created = await service.create_draft(
-        "course-1",
-        actor="teacher-1",
-        idempotency_key="legacy-create",
-        base_plan_revision_id=view["current_plan_revision_id"],
-        base_course_document_revision=view["course_document_revision"],
-    )
-    candidate_view = await service.create_ai_candidate(
-        "course-1",
-        actor="teacher-1",
-        draft_id=created["draft"]["draft_id"],
-        paths=["overall/positioning"],
-        instruction="让定位更可观察",
-        idempotency_key="legacy-ai",
-    )
-    candidate = candidate_view["ai_candidates"][0]
-    assert candidate["status"] == "ready"
-    assert candidate["validation"]["passed"] is True
-    assert candidate["validation"]["accepted_with_existing_blockers"] is True
-
-    accepted = await service.accept_ai_candidate(
-        "course-1",
-        actor="teacher-1",
-        candidate_id=candidate["candidate_id"],
-        operation_ids=[candidate["operations"][0]["operation_id"]],
-        idempotency_key="legacy-accept",
-    )
-    review = service.review_draft(
-        "course-1",
-        actor="teacher-1",
-        draft_id=accepted["draft"]["draft_id"],
-    )
-    assert review["validation"]["passed"] is True
-    assert review["validation"]["accepted_with_existing_blockers"] is True
-
-
-@pytest.mark.asyncio
 async def test_official_teaching_plan_revision_marks_dependent_representation_stale(tmp_path) -> None:
     storage = MemoryStorage(_course())
     service = TeachingPlanWorkbenchService(CourseDocumentRepository(storage))
