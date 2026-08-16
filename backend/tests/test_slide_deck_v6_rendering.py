@@ -160,6 +160,62 @@ def _practice_code_deck():
     return compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _classification_three_deck(items: list[str]):
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-classification-capacity-fixture",
+        title="Runtime allocation trade-offs",
+        sections=[CourseSection(
+            section_id="classification",
+            title="Classify the trade-offs",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="classification-source",
+            section_id="classification",
+            position=0,
+            role="concept",
+            kind="rich_text",
+            payload={"markdown": "\n".join(f"- {item}" for item in items)},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = template.layout_id("classification-three")
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-classification",
+            chapter_id="classification",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="classification-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="以空间换时间",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="classification-page",
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
 def _practice_long_table_deck():
     table = "\n".join([
         "| Check | Input | Expected result | Evidence | Repair |",
@@ -1063,6 +1119,40 @@ def test_content_stack_splits_newline_dense_short_body_before_export(
         tmp_path / "v6-content-stack-newline-dense.pptx",
     )
     report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert report["passed"], report["blockers"]
+
+
+def test_unbalanced_classification_items_use_lossless_safe_continuation(
+    tmp_path: Path,
+) -> None:
+    items = [
+        "本节的核心理念是以空间换时间，通过预先分配内存来消除运行时的堆内存分配峰值。",
+        "栈式复用与内存预分配",
+        (
+            "在标准 Unity 开发中，频繁调用 GameObject.Instantiate() 会在堆（Heap）上创建新对象，"
+            "而 Object.Destroy() 虽然标记对象为待销毁，但实际内存回收由 .NET 垃圾回收器（GC）"
+            "在后续周期执行。这种按需分配、延迟回收的模式会导致 GC 压力波动，引发帧率卡顿"
+            "（Stuttering）。"
+        ),
+    ]
+
+    deck = _classification_three_deck(items)
+    visible_source = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind in {"body", "items"}
+    )
+
+    assert all(page.resolved_layout.endswith("/content-stack") for page in deck.pages)
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+    assert all(item in visible_source for item in items)
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "unbalanced-classification-safe-continuation.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
 
     assert report["passed"], report["blockers"]
 
