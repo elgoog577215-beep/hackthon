@@ -44,11 +44,14 @@ _TWO_COLUMN_BODY_HEIGHT_PT = (
 ) * 72
 _TWO_COLUMN_BODY_FONT_SIZE_PT = 16.0
 _BODY_LINE_HEIGHT = 1.22
-# Keep wrapping deterministic when Office substitutes Microsoft YaHei for the
-# requested Noto Sans SC on machines where Noto is unavailable.  A one-percent
-# horizontal reserve is enough to cover the observed family-metric delta while
-# retaining the renderer's real width, font size, and line-height contract.
-_PORTABLE_FONT_WIDTH_SAFETY_FACTOR = 0.99
+# General portable rendering reserve. Layout profiles with stronger observed
+# substitution variance provide their own factor instead of shrinking unrelated
+# table, process, and diagram contracts.
+_DEFAULT_PORTABLE_FONT_WIDTH_SAFETY_FACTOR = 0.99
+# PowerPoint/LibreOffice render mixed CJK/Latin list lines and indentation wider
+# than Pillow's isolated-glyph sum. This calibrated body-only reserve retains
+# the real frame dimensions, font size, line height, hard breaks, and height.
+BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR = 0.82
 # PowerPoint's font metrics and the portable audit font are not pixel-identical.
 # Reserve one complete rendered line so a frame that is mathematically just under
 # its boundary cannot touch or cross the card edge after Office lays it out.
@@ -66,6 +69,41 @@ _DIAGRAM_CONTENT_Y_IN = 0.70
 _DIAGRAM_CONTENT_HEIGHT_IN = 3.62
 _DIAGRAM_LABEL_FONT_SIZE_PT = 16.0
 _DIAGRAM_LABEL_LINE_HEIGHT = 1.22
+
+
+def semantic_break_positions(text: str) -> list[tuple[int, int]]:
+    """Return deterministic split positions ordered with semantic strength.
+
+    The integer rank is lower for a stronger boundary. Pagination and the
+    renderer share this helper so a page continuation and a two-column card do
+    not make conflicting choices about where prose may be divided.
+    """
+
+    source = str(text or "")
+    ranked_patterns = (
+        (0, r"\n\s*\n"),
+        (1, r"[。！？]|(?<!\d)\.(?:\s+|$)|[!?](?:\s+|$)"),
+        (2, r"\n+|；|;(?:\s+|$)"),
+        (3, r"，|,(?:\s+|$)"),
+        (4, r"\s+"),
+    )
+    ranks_by_position: dict[int, int] = {}
+    for rank, pattern in ranked_patterns:
+        for match in re.finditer(pattern, source):
+            position = match.end()
+            if rank == 4:
+                line_start = source.rfind("\n", 0, match.start()) + 1
+                if re.fullmatch(
+                    r"\s*(?:[-*+>]|#{1,6}|\d+[.)、])\s+",
+                    source[line_start:position],
+                ):
+                    continue
+            if 1 < position < len(source) - 1:
+                ranks_by_position[position] = min(
+                    rank,
+                    ranks_by_position.get(position, rank),
+                )
+    return sorted(ranks_by_position.items())
 
 
 @lru_cache(maxsize=32)
@@ -105,6 +143,9 @@ def wrapped_line_count(
     width_pt: float,
     font_size_pt: float,
     font_loader: Callable[[int], Any] = _audit_font,
+    portable_width_safety_factor: float = (
+        _DEFAULT_PORTABLE_FONT_WIDTH_SAFETY_FACTOR
+    ),
 ) -> int:
     """Measure wrapping with the active font and a portable Unicode floor."""
 
@@ -142,7 +183,7 @@ def wrapped_line_count(
         1.0,
         width_pt
         / max(1.0, font_size_pt)
-        * _PORTABLE_FONT_WIDTH_SAFETY_FACTOR,
+        * portable_width_safety_factor,
     )
     for logical_line in str(text).splitlines() or [""]:
         if not logical_line:
@@ -300,6 +341,9 @@ def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
         source,
         width_pt=_EDITORIAL_BODY_WIDTH_PT,
         font_size_pt=single_font_size_pt,
+        portable_width_safety_factor=(
+            BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+        ),
     )
     single_maximum_safe_lines = max(
         1,
@@ -324,46 +368,14 @@ def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
             "maximum_safe_lines": single_maximum_safe_lines,
         }
 
-    candidates = {
-        match.end()
-        for match in re.finditer(
-            r"\n\s*\n|[。！？；]|[.!?;](?:\s+|$)|\s+",
-            source,
-        )
-        if len(source) // 5 <= match.end() <= len(source) * 4 // 5
-    }
-    if not candidates:
-        candidates = {len(source) // 2}
-
-    def split_cost(position: int) -> tuple[int, int, int]:
-        left = source[:position].strip()
-        right = source[position:].strip()
-        left_lines = wrapped_line_count(
-            left,
-            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
-            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
-        )
-        right_lines = wrapped_line_count(
-            right,
-            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
-            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
-        )
-        return (
-            max(left_lines, right_lines),
-            abs(left_lines - right_lines),
-            abs(position - len(source) // 2),
-        )
-
-    split_at = min(candidates, key=split_cost)
-    segments = [source[:split_at].strip(), source[split_at:].strip()]
-    wrapped_lines = [
-        wrapped_line_count(
-            segment,
-            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
-            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
-        )
-        for segment in segments
+    candidates = [
+        (position, rank)
+        for position, rank in semantic_break_positions(source)
+        if len(source) // 5 <= position <= len(source) * 4 // 5
     ]
+    if not candidates:
+        candidates = [(len(source) // 2, 5)]
+
     maximum_safe_lines = max(
         1,
         int(
@@ -372,6 +384,73 @@ def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
         )
         - _BODY_BOTTOM_SAFETY_LINES,
     )
+
+    def measured_split(position: int) -> tuple[int, int]:
+        left = source[:position].strip()
+        right = source[position:].strip()
+        left_lines = wrapped_line_count(
+            left,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+            portable_width_safety_factor=(
+                BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+            ),
+        )
+        right_lines = wrapped_line_count(
+            right,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+            portable_width_safety_factor=(
+                BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+            ),
+        )
+        return left_lines, right_lines
+
+    measured_candidates = [
+        (position, rank, *measured_split(position))
+        for position, rank in candidates
+    ]
+    fitting_candidates = [
+        candidate
+        for candidate in measured_candidates
+        if max(candidate[2:]) <= maximum_safe_lines
+    ]
+
+    def split_cost(
+        candidate: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int]:
+        position, rank, left_lines, right_lines = candidate
+        return (
+            rank,
+            max(left_lines, right_lines),
+            abs(left_lines - right_lines),
+            abs(position - len(source) // 2),
+        )
+
+    if fitting_candidates:
+        split_at = min(fitting_candidates, key=split_cost)[0]
+    else:
+        split_at = min(
+            measured_candidates,
+            key=lambda candidate: (
+                max(candidate[2:]),
+                candidate[1],
+                abs(candidate[2] - candidate[3]),
+                abs(candidate[0] - len(source) // 2),
+            ),
+        )[0]
+    segments = [source[:split_at].strip(), source[split_at:].strip()]
+    wrapped_lines = [
+        wrapped_line_count(
+            segment,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+            portable_width_safety_factor=(
+                BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+            ),
+        )
+        for segment in segments
+    ]
     required_heights_pt = [
         line_count * _TWO_COLUMN_BODY_FONT_SIZE_PT * _BODY_LINE_HEIGHT
         for line_count in wrapped_lines
@@ -531,6 +610,7 @@ def diagram_node_layout_metrics(
 
 __all__ = [
     "BALANCED_TWO_COLUMN_BODY_V1",
+    "BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR",
     "CLASSIFICATION_THREE_CARDS_V1",
     "DIAGRAM_SOURCE_PANEL_V1",
     "FIGURE_SOURCE_PANEL_V1",
@@ -543,5 +623,6 @@ __all__ = [
     "diagram_node_layout_metrics",
     "horizontal_process_card_metrics",
     "source_panel_text_metrics",
+    "semantic_break_positions",
     "wrapped_line_count",
 ]

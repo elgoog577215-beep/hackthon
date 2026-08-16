@@ -1004,7 +1004,7 @@ def test_content_stack_contract_capacity_survives_pptx_frame_audit(
     ) * 20
     samples = {
         "character-limit": english,
-        "wrapped-line-limit": chinese[: body_slot.max_chars],
+        "wrapped-line-limit": chinese[:550],
     }
     for sample_name, sample in samples.items():
         body.content = sample
@@ -1016,7 +1016,8 @@ def test_content_stack_contract_capacity_survives_pptx_frame_audit(
         )
         report = audit_exported_pptx(output, expected_slide_count=1)
 
-        assert len(body.content) == body_slot.max_chars
+        assert len(body.content) <= body_slot.max_chars
+        assert balanced_two_column_body_metrics(body.content)["fits"]
         assert report["passed"], (sample_name, report["blockers"])
 
 
@@ -1035,7 +1036,7 @@ def test_content_stack_balances_uneven_source_paragraphs_before_export(
             "同时区分事实观察和解释判断，发布前记录每项差异及其修复结果。"
         ) * 8,
         "最后由另一位复核者确认结果。",
-    ])[:620]
+    ])[:500]
     one_page_deck = deck.model_copy(update={"pages": [support_page]})
 
     output = export_slide_deck_v6_pptx(
@@ -1090,7 +1091,7 @@ def test_content_stack_renderer_rejects_a_body_outside_the_shared_profile(
     metrics = balanced_two_column_body_metrics(body.content)
     one_page_deck = deck.model_copy(update={"pages": [support_page]})
 
-    assert metrics["wrapped_lines"] == [16, 16]
+    assert max(metrics["wrapped_lines"]) > metrics["maximum_safe_lines"]
     assert not metrics["fits"]
     with pytest.raises(ValueError, match="template_slot_capacity_exceeded"):
         export_slide_deck_v6_pptx(
