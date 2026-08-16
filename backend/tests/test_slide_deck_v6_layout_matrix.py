@@ -16,9 +16,11 @@ from slide_deck_v6 import (
 )
 from slide_layout_geometry import (
     BALANCED_TWO_COLUMN_BODY_V1,
+    CLASSIFICATION_THREE_CARDS_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
     balanced_two_column_body_metrics,
     capacity_profile_text_fits,
+    classification_three_card_metrics,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
 )
@@ -420,6 +422,29 @@ def test_process_flow_capacity_matches_the_horizontal_card_renderer() -> None:
     assert steps.max_items == 5
     assert steps.max_chars == 360
     assert steps.capacity_profile == HORIZONTAL_PROCESS_CARDS_V1
+
+
+def test_classification_contract_measures_each_fixed_card_independently() -> None:
+    layout = _BUILTIN_TEMPLATE.get_layout(
+        _BUILTIN_TEMPLATE.layout_id("classification-three")
+    )
+    assert layout is not None
+    items_slot = next(slot for slot in layout.slots if slot.slot_id == "items")
+    safe = classification_three_card_metrics([
+        "Freeze the source state",
+        "Run the bounded check",
+        "Record the complete result",
+    ])
+    unsafe = classification_three_card_metrics([
+        "Freeze the source state",
+        "Run the bounded check",
+        "LongIdentifierWithoutBreaks_" * 10,
+    ])
+
+    assert items_slot.capacity_profile == CLASSIFICATION_THREE_CARDS_V1
+    assert safe["fits"]
+    assert not unsafe["fits"]
+    assert unsafe["required_heights_pt"][-1] > unsafe["available_height_pt"]
 
 
 @pytest.mark.parametrize("item_count", range(1, 6))

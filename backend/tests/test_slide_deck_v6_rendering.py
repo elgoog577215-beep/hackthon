@@ -1157,6 +1157,27 @@ def test_unbalanced_classification_items_use_lossless_safe_continuation(
     assert report["passed"], report["blockers"]
 
 
+def test_balanced_classification_items_keep_the_three_card_layout(
+    tmp_path: Path,
+) -> None:
+    items = [
+        "以空间换时间并冻结输入状态。",
+        "复用已分配实例并重置状态。",
+        "记录回收结果并核对运行日志。",
+    ]
+
+    deck = _classification_three_deck(items)
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "balanced-classification-three-cards.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert len(deck.pages) == 1
+    assert deck.pages[0].resolved_layout.endswith("/classification-three")
+    assert report["passed"], report["blockers"]
+
+
 def test_practice_artifact_allocates_step_height_by_wrapped_line_cost(
     tmp_path: Path,
 ) -> None:
