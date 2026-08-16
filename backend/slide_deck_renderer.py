@@ -3107,7 +3107,6 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 )
             y += height + gap
         return
-    items = items[:3]
     if capacity_profile == HORIZONTAL_PROCESS_CARDS_V1:
         metrics = horizontal_process_card_metrics(items)
         if not metrics["fits"]:
