@@ -1417,11 +1417,21 @@ class AIBase:
                             failure_kind=failure_kind,
                             cooldown_seconds=cooldown_seconds,
                         )
-                        self._cool_down_model(
-                            model_id,
-                            error,
-                            self._fallback_provider_scope(),
-                        )
+                        # The shared last-resort capacity controller is
+                        # configured to queue during a rate-limit cooldown.
+                        # Mirroring that temporary cooldown into the
+                        # process-wide model circuit makes concurrent callers
+                        # conclude that no fallback exists and surface the
+                        # primary provider's quota error instead of waiting.
+                        # Persistent quota/transient failures still use the
+                        # circuit so another configured fallback model can be
+                        # selected immediately.
+                        if failure_kind != "rate_limited":
+                            self._cool_down_model(
+                                model_id,
+                                error,
+                                self._fallback_provider_scope(),
+                            )
                         if (
                             failure_kind == "rate_limited"
                             and rate_limit_retries_left > 0
@@ -1582,18 +1592,20 @@ class AIBase:
                     break
                 should_try_next = self._should_try_next_model(error)
                 if should_try_next:
+                    failure_kind = self._capacity_failure_kind(error)
                     await capacity.report_failure(
                         model_id,
-                        failure_kind=self._capacity_failure_kind(error),
+                        failure_kind=failure_kind,
                         cooldown_seconds=(
                             self._model_failure_cooldown_seconds(error)
                         ),
                     )
-                    self._cool_down_model(
-                        model_id,
-                        error,
-                        self._fallback_provider_scope(),
-                    )
+                    if failure_kind != "rate_limited":
+                        self._cool_down_model(
+                            model_id,
+                            error,
+                            self._fallback_provider_scope(),
+                        )
                 if yielded or not should_try_next:
                     if isinstance(error, AIProviderRequestError):
                         raise
