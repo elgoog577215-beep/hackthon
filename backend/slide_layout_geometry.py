@@ -28,12 +28,27 @@ _CLASSIFICATION_CARD_TEXT_HEIGHT_PT = (2.35 - 0.02) * 72
 _CLASSIFICATION_CARD_LINE_HEIGHT = 1.22
 _CLASSIFICATION_MAX_ITEMS = 3
 
-_EDITORIAL_BODY_WIDTH_PT = 10.75 * 72
-_EDITORIAL_BODY_HEIGHT_PT = 3.55 * 72
-_TWO_COLUMN_BODY_WIDTH_PT = 5.32 * 72
-_TWO_COLUMN_BODY_HEIGHT_PT = 4.42 * 72
+_TEXT_FRAME_HORIZONTAL_MARGINS_IN = 0.02
+_TEXT_FRAME_VERTICAL_MARGINS_IN = 0.02
+_EDITORIAL_BODY_WIDTH_PT = (
+    10.75 - _TEXT_FRAME_HORIZONTAL_MARGINS_IN
+) * 72
+_EDITORIAL_BODY_HEIGHT_PT = (
+    3.55 - _TEXT_FRAME_VERTICAL_MARGINS_IN
+) * 72
+_TWO_COLUMN_BODY_WIDTH_PT = (
+    5.32 - _TEXT_FRAME_HORIZONTAL_MARGINS_IN
+) * 72
+_TWO_COLUMN_BODY_HEIGHT_PT = (
+    4.42 - _TEXT_FRAME_VERTICAL_MARGINS_IN
+) * 72
 _TWO_COLUMN_BODY_FONT_SIZE_PT = 16.0
 _BODY_LINE_HEIGHT = 1.22
+# Keep wrapping deterministic when Office substitutes Microsoft YaHei for the
+# requested Noto Sans SC on machines where Noto is unavailable.  A one-percent
+# horizontal reserve is enough to cover the observed family-metric delta while
+# retaining the renderer's real width, font size, and line-height contract.
+_PORTABLE_FONT_WIDTH_SAFETY_FACTOR = 0.99
 # PowerPoint's font metrics and the portable audit font are not pixel-identical.
 # Reserve one complete rendered line so a frame that is mathematically just under
 # its boundary cannot touch or cross the card edge after Office lays it out.
@@ -122,7 +137,12 @@ def wrapped_line_count(
             current_width += character_width
 
     portable_lines = 0
-    maximum_width_em = max(1.0, width_pt / max(1.0, font_size_pt))
+    maximum_width_em = max(
+        1.0,
+        width_pt
+        / max(1.0, font_size_pt)
+        * _PORTABLE_FONT_WIDTH_SAFETY_FACTOR,
+    )
     for logical_line in str(text).splitlines() or [""]:
         if not logical_line:
             portable_lines += 1

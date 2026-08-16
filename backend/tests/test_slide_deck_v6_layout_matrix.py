@@ -23,6 +23,7 @@ from slide_layout_geometry import (
     classification_three_card_metrics,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
+    wrapped_line_count,
 )
 from template_layout_contract import (
     compile_builtin_template_layout_contract_v1,
@@ -845,6 +846,39 @@ def test_content_stack_uses_shared_two_column_geometry_at_the_overflow_edge() ->
         capacity_profile_text_fits(body_slot.capacity_profile, chunk)
         for chunk in rendered_chunks
     )
+
+
+def test_portable_wrapping_reserves_for_substitute_font_variance() -> None:
+    class ArtificiallyNarrowFont:
+        def getlength(self, character: str) -> float:
+            return 1.0
+
+    source = "\n".join([
+        "*   触发器模式 (Is Trigger = true)：",
+        "    *   行为：物体之间可以相互穿透，不产生物理阻挡力。主要用于检测“进入”、“停留”或“离开”某个区域。",
+        "    *   前置条件：参与交互的两个物体中，至少有一个必须挂载 Rigidbody 组件（可以是 Kinematic 模式）。如果双方都没有 Rigidbody，即使勾选了 Is Trigger，也不会触发任何事件。",
+        "    *   事件路由：调用 OnTriggerEnter(Collider other)、OnTriggerStay 和 OnTriggerExit 系列方法。参数 other 仅包含被触发的 Collider 引用，不包含物理接触细节。",
+        "",
+        '> 注意：若未满足 Rigidbody 的前置条件，Unity Console 可能会抛出警告 "Trigger collision without rigidbody"，导致逻辑失效。',
+        "碰撞回调事件的封装与分层处理模式",
+        "直接在 MonoBehaviour 的 OnCollisionEnter 中编写具体业务逻辑（如播放音效、扣除血量、增加分数）会导致代码耦合度高、难以复用和维护。应采用事件驱动解耦架构进行封装。",
+    ])
+
+    assert wrapped_line_count(
+        source,
+        width_pt=10.75 * 72,
+        font_size_pt=16,
+        font_loader=lambda _: ArtificiallyNarrowFont(),
+    ) == 13
+
+
+def test_balanced_body_geometry_uses_the_text_frame_inner_width() -> None:
+    metrics = balanced_two_column_body_metrics(
+        "完整来源正文用于验证可编辑文本框的真实内边距。"
+    )
+
+    assert metrics["mode"] == "single-column"
+    assert metrics["text_width_pt"] == pytest.approx((10.75 - 0.02) * 72)
 
 
 def test_code_continuations_scale_with_declared_line_capacity_without_duplicates() -> None:
