@@ -222,6 +222,7 @@ let workspaceAttempt = 0
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const courseId = computed(() => String(route.params.courseId || ''))
+const isTeacherSurface = computed(() => route.meta.courseSurface === 'teacher')
 const courseTitle = computed(() => (
   store.selectedSpec?.payload?.content?.title
   || courseStore.currentCourse?.course_name
@@ -721,7 +722,9 @@ function backToCourse() {
     void router.push(returnTo)
     return
   }
-  void router.push({ name: 'learning', params: { courseId: courseId.value } })
+  void router.push(isTeacherSurface.value
+    ? { name: 'teacher-course-production', params: { courseId: courseId.value }, query: { stage: 'ppt' } }
+    : { name: 'learning', params: { courseId: courseId.value } })
 }
 
 function openMaterials() {
@@ -736,6 +739,14 @@ async function closeMaterials() {
 }
 
 function openSameSourceCourse(state: PptSameSourceHighlightState) {
+  if (isTeacherSurface.value) {
+    void router.push({
+      name: 'teacher-course-production',
+      params: { courseId: state.courseId },
+      query: { stage: 'teaching', node: state.sectionId },
+    })
+    return
+  }
   void router.push({
     name: 'learning',
     params: { courseId: state.courseId, nodeId: state.sectionId },

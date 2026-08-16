@@ -2415,11 +2415,21 @@ class TaskManager:
             if task["course_id"] == course_id
         ]
 
-    def get_latest_task_by_course(self, course_id: str) -> dict[str, Any] | None:
-        """Return one lightweight latest task without projecting older jobs."""
+    def get_latest_task_by_course(
+        self,
+        course_id: str,
+        task_type: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the latest task, optionally scoped to one capability type.
+
+        A course can own independent generation, import and slide-deck jobs.
+        The optional filter lets a product surface project only the job it owns
+        while preserving the legacy latest-task behaviour for existing callers.
+        """
         candidates = [
             task for task in self.tasks.values()
             if task.get("course_id") == course_id
+            and (task_type is None or task.get("type") == task_type)
         ]
         if not candidates:
             return None

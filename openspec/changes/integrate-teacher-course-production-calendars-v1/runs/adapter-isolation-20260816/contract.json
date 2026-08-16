@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "change_id": "integrate-teacher-course-production-calendars-v1",
+  "run_id": "adapter-isolation-20260816",
+  "goal": "Isolate teacher orchestration and task projection while preserving the upstream student surface and reusing shared generation engines.",
+  "source_turn_id": "user-20260816-execute-teacher-student-adapter-isolation",
+  "allowed_roots": [
+    "D:/xsh/cursor/灵知/hackthon-wt-course-production-real"
+  ],
+  "forbidden_operations": [
+    "write-env",
+    "force-push",
+    "lockfile-change",
+    "recursive-delete"
+  ]
+}

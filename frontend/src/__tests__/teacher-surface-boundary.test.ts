@@ -24,6 +24,7 @@ describe('teacher and learner surface boundary', () => {
     expect(routerSource).toContain("path: '/course/:courseId/learn/:nodeId?'")
     expect(routerSource).toContain("path: '/teacher/courses'")
     expect(routerSource).toContain("path: '/teacher/course/:courseId/production'")
+    expect(routerSource).toContain("path: '/teacher/course/:courseId/ppt'")
     expect(routerSource).toMatch(/path:\s*'\/course\/:courseId'[\s\S]*name:\s*'learning'/)
   })
 
@@ -34,7 +35,22 @@ describe('teacher and learner surface boundary', () => {
     )
     expect(adapterSource).toContain('useCourseStore()')
     expect(adapterSource).toContain('useGenerationStore()')
+    expect(adapterSource).toContain("TEACHER_COURSE_CAPABILITY_CONTRACT = 'teacher-course-capabilities/v1'")
+    expect(adapterSource).toContain("taskType: 'course_generation'")
+    expect(adapterSource).toContain("name: 'teacher-ppt-workspace'")
     expect(adapterSource).not.toMatch(/reactive\s*\(|ref\s*\(|defineStore\s*\(/)
+  })
+
+  it('routes every teacher course loader through the teacher adapter', () => {
+    for (const fileName of [
+      'TeacherCourseOverviewView.vue',
+      'TeacherCourseProductionView.vue',
+      'TeacherCourseFilesView.vue',
+    ]) {
+      const source = readFileSync(resolve(teacherViewsRoot, fileName), 'utf8')
+      expect(source, fileName).toContain('loadTeacherCourse')
+      expect(source, fileName).not.toMatch(/courseStore\.loadCourse\s*\(/)
+    }
   })
 
   it('keeps teacher copy out of the learner course-library namespace', () => {

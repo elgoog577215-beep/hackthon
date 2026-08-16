@@ -293,7 +293,12 @@ type PageMode = 'outline' | 'production' | 'release'
 
 const route = useRoute()
 const router = useRouter()
-const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
+const {
+  course: courseStore,
+  generation: generationStore,
+  loadCourse: loadTeacherCourse,
+  pptRoute,
+} = useTeacherCourseRuntime()
 const teachingRepresentationsStore = useTeachingRepresentationsStore()
 const teachingWorkbenchStore = useTeachingPlanWorkbenchStore()
 const teachingCalendarStore = useTeachingCalendarStore()
@@ -501,7 +506,10 @@ function continuePpt(node: Node) { selectLesson(node); openPpt() }
 function openPpt() {
   if (!pptAvailable.value) return
   const returnTo = router.resolve({ name: 'teacher-course-production', params: { courseId: courseId.value }, query: { stage: 'ppt', node: selectedNodeId.value || undefined } }).fullPath
-  void router.push({ name: 'ppt-workspace', params: { courseId: courseId.value }, query: { returnTo, node: selectedNodeId.value } })
+  void router.push(pptRoute(courseId.value, {
+    returnTo,
+    nodeId: selectedNodeId.value,
+  }))
 }
 function openStudentPreview() {
   const returnTo = router.resolve({
@@ -538,7 +546,7 @@ async function loadCourse() {
     generationStore.restoreGenerationState()
     generationStore.initWebSocket()
     await courseStore.fetchCourseList()
-    await courseStore.loadCourse(id)
+    await loadTeacherCourse(id)
     try { await teachingCalendarStore.loadCourse(id) } catch { /* Calendar absence does not block production. */ }
     try { await teachingWorkbenchStore.load(id) } catch { /* Workbench state is rendered as an actionable boundary. */ }
     if (isPublished.value || teacherAuthoringReady.value) {

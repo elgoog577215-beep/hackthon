@@ -18,9 +18,10 @@ router = APIRouter(tags=["tasks"])
 @router.get("/courses/{course_id}/task")
 def get_course_task(
     course_id: str,
+    task_type: str | None = None,
     tm: TaskManager = Depends(require_task_manager),
 ):
-    task = tm.get_latest_task_by_course(course_id)
+    task = tm.get_latest_task_by_course(course_id, task_type=task_type)
     if task is None:
         return {"status": "none"}
     return task

@@ -117,13 +117,21 @@ import TeacherCourseSidebar from '../components/TeacherCourseSidebar.vue'
 import { t } from '../shared/i18n'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { useTeachingCalendarStore, type ClassSession } from '../stores/teachingCalendar'
+import { useTeachingPlanWorkbenchStore } from '../stores/teachingPlanWorkbench'
+import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import type { GuidedGenerationStepKey, Node } from '../stores/types'
 import { lessonUnitHasContent, projectLessonUnits } from '../utils/lesson-units'
 
 const route = useRoute()
 const router = useRouter()
-const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
+const {
+  course: courseStore,
+  generation: generationStore,
+  loadCourse: loadTeacherCourse,
+} = useTeacherCourseRuntime()
 const calendarStore = useTeachingCalendarStore()
+const teachingWorkbenchStore = useTeachingPlanWorkbenchStore()
+const teachingRepresentationsStore = useTeachingRepresentationsStore()
 const loading = ref(false)
 const loadError = ref('')
 
@@ -156,9 +164,35 @@ const calendarState = computed(() => scheduledCount.value ? 'ready' : calendarSt
 const calendarStatus = computed(() => scheduledCount.value ? t('teacherOverview.scheduled', '已排期') : calendarStore.calendar?.sessions.length ? t('teacherOverview.needsScheduling', '待补日期') : t('teacherOverview.notCreated', '尚未建立'))
 const teachingState = computed(() => failedLessonCount.value ? 'danger' : teachingReadyCount.value ? 'ready' : outlineState.value === 'ready' ? 'attention' : 'locked')
 const teachingStatus = computed(() => failedLessonCount.value ? t('teacherOverview.hasFailures', '存在失败') : teachingReadyCount.value ? t('teacherOverview.hasDrafts', '已有教案') : outlineState.value === 'ready' ? t('teacherOverview.canStart', '可以开始') : t('teacherOverview.waitingOutline', '等待大纲确认'))
-const pptState = computed(() => isPublished.value ? 'ready' : teachingReadyCount.value ? 'attention' : 'locked')
-const pptStatus = computed(() => isPublished.value ? t('teacherOverview.canProduce', '可以制作') : teachingReadyCount.value ? t('teacherOverview.sourcePreparing', '来源准备中') : t('teacherOverview.waitingTeaching', '等待教案'))
-const pptDetail = computed(() => isPublished.value ? t('teacherOverview.openPptWorkbench', '进入现有 PPT 工作台') : t('teacherOverview.pptCanonicalSource', '当前接口要求正式课程源'))
+const activeWorkbench = computed(() => teachingWorkbenchStore.courseId === courseId.value ? teachingWorkbenchStore.workbench : null)
+const teachingPlanConfirmed = computed(() => Boolean(
+  activeWorkbench.value?.available
+  && activeWorkbench.value.current_plan_revision_id
+  && !activeWorkbench.value.draft,
+))
+const slideDeckRepresentation = computed(() => teachingRepresentationsStore.courseId === courseId.value
+  ? teachingRepresentationsStore.representations.find(item => item.representation_type === 'slide_deck' && item.status !== 'archived')
+  : undefined)
+const pptState = computed(() => {
+  if (!teachingPlanConfirmed.value && !isPublished.value) return 'locked'
+  if (slideDeckRepresentation.value?.status === 'failed') return 'danger'
+  if (slideDeckRepresentation.value?.status === 'stale') return 'attention'
+  return 'ready'
+})
+const pptStatus = computed(() => {
+  if (!teachingPlanConfirmed.value && !isPublished.value) return t('teacherOverview.waitingTeaching', '等待教案')
+  if (slideDeckRepresentation.value?.status === 'ready') return t('teacherOverview.pptReady', '已生成')
+  if (slideDeckRepresentation.value?.status === 'building') return t('teacherOverview.pptBuilding', '生成中')
+  if (slideDeckRepresentation.value?.status === 'failed') return t('teacherOverview.pptFailed', '生成失败')
+  if (slideDeckRepresentation.value?.status === 'stale') return t('teacherOverview.pptStale', '来源已更新')
+  return t('teacherOverview.canProduce', '可以制作')
+})
+const pptDetail = computed(() => {
+  if (!teachingPlanConfirmed.value && !isPublished.value) return t('teacherOverview.confirmTeachingFirst', '确认教案后即可继续')
+  if (slideDeckRepresentation.value?.status === 'ready') return t('teacherOverview.openPptWorkbench', '进入现有 PPT 工作台')
+  if (slideDeckRepresentation.value?.status === 'stale') return t('teacherOverview.rebuildPpt', '可基于新教案生成新版本')
+  return t('teacherOverview.createPptDraft', '基于已确认教案制作课件')
+})
 
 const recommendedRoute = computed(() => {
   if (reviewStep.value === 'outline') return { name: 'teacher-course-outline' }
@@ -214,7 +248,11 @@ async function load() {
     generationStore.restoreGenerationState()
     generationStore.initWebSocket()
     await courseStore.fetchCourseList()
-    await Promise.all([courseStore.loadCourse(courseId.value), calendarStore.loadCourse(courseId.value)])
+    await Promise.all([loadTeacherCourse(courseId.value), calendarStore.loadCourse(courseId.value)])
+    try { await teachingWorkbenchStore.load(courseId.value) } catch { /* Missing workbench is rendered as a locked PPT state. */ }
+    if (teachingPlanConfirmed.value || isPublished.value) {
+      try { await teachingRepresentationsStore.ensure(courseId.value) } catch { /* PPT registry absence does not block overview. */ }
+    }
     generationStore.observeCourse(courseId.value)
   } catch (error: any) {
     loadError.value = String(error?.response?.data?.detail || error?.message || t('teacherOverview.unknownError', '未知错误'))

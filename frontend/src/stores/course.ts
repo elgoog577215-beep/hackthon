@@ -209,7 +209,10 @@ export const useCourseStore = defineStore('course', {
         finally { this.loading = false }
     },
 
-    async loadCourse(courseId: string, options: { includeLearningRecords?: boolean } = {}) {
+    async loadCourse(courseId: string, options: {
+        includeLearningRecords?: boolean
+        taskType?: string
+    } = {}) {
         this.loading = true
         this.currentCourseId = courseId
         this.currentCourseProjection = 'published'
@@ -228,7 +231,10 @@ export const useCourseStore = defineStore('course', {
         try {
             let backendTask: Record<string, any> | null = null
             try {
-                const taskRes = await http.get(`/api/courses/${courseId}/task`)
+                const taskTypeQuery = options.taskType
+                    ? `?task_type=${encodeURIComponent(options.taskType)}`
+                    : ''
+                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`)
                 const taskData = taskRes.data as Record<string, any> | null
                 if (taskData && taskData.status !== 'none') {
                     backendTask = taskData
@@ -237,6 +243,7 @@ export const useCourseStore = defineStore('course', {
                         localTask = genStore.createTask(taskData.id, courseId, '后台生成任务')
                     }
                     localTask.id = taskData.id
+                    localTask.taskType = String(taskData.type || options.taskType || localTask.taskType || '') || undefined
                     localTask.status = normalizeTaskStatus(String(taskData.status || 'pending'))
                     localTask.progress = taskData.progress
                     const phase = taskData.current_phase || taskData.phase

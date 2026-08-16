@@ -32,7 +32,7 @@ import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCo
 
 const route = useRoute()
 const router = useRouter()
-const { course: courseStore } = useTeacherCourseRuntime()
+const { course: courseStore, loadCourse: loadTeacherCourse } = useTeacherCourseRuntime()
 const loading = ref(false)
 const courseId = computed(() => String(route.params.courseId || ''))
 const summary = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value))
@@ -44,10 +44,19 @@ async function load() {
   loading.value = true
   try {
     await courseStore.fetchCourseList()
-    await courseStore.loadCourse(courseId.value)
+    await loadTeacherCourse(courseId.value)
   } finally { loading.value = false }
 }
-function openStudentPreview() { void router.push({ name: 'learning', params: { courseId: courseId.value } }) }
+function openStudentPreview() {
+  void router.push({
+    name: 'learning',
+    params: { courseId: courseId.value },
+    query: {
+      teacherPreview: '1',
+      returnTo: router.resolve({ name: 'teacher-course-files', params: { courseId: courseId.value } }).fullPath,
+    },
+  })
+}
 watch(courseId, () => { void load() }, { immediate: true })
 </script>
 

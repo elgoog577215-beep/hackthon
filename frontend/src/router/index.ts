@@ -88,6 +88,12 @@ const routes: Array<RouteRecordRaw> = [
     meta: { fullscreenConcept: true }
   },
   {
+    path: '/teacher/course/:courseId/ppt',
+    name: 'teacher-ppt-workspace',
+    component: () => import('../views/PptWorkspaceView.vue'),
+    meta: { fullscreenConcept: true, courseSurface: 'teacher' }
+  },
+  {
     path: '/teacher/teaching-calendar',
     name: 'teacher-teaching-calendar',
     component: () => import('../views/TeacherTeachingCalendarView.vue'),

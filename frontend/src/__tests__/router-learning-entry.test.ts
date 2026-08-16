@@ -12,7 +12,7 @@ describe('learning routes', () => {
     expect(resolved.name).toBe('learning')
     expect(resolved.fullPath).toBe('/course/course-1/learn')
     expect(router.getRoutes().map(route => route.name).filter(Boolean)).toEqual(
-      expect.arrayContaining(['learning', 'course-library', 'teacher-course-library', 'teacher-course-create', 'teacher-course-overview', 'ppt-workspace', 'teacher-course-production', 'teacher-course-outline', 'teacher-course-release', 'teacher-course-files', 'teacher-course-calendar', 'teacher-teaching-calendar']),
+      expect.arrayContaining(['learning', 'course-library', 'teacher-course-library', 'teacher-course-create', 'teacher-course-overview', 'ppt-workspace', 'teacher-ppt-workspace', 'teacher-course-production', 'teacher-course-outline', 'teacher-course-release', 'teacher-course-files', 'teacher-course-calendar', 'teacher-teaching-calendar']),
     )
     expect(router.getRoutes().map(route => route.name)).not.toContain('course-workbench')
   })
@@ -30,6 +30,8 @@ describe('learning routes', () => {
     expect(router.resolve('/teacher/course/course-1/outline').name).toBe('teacher-course-outline')
     expect(router.resolve('/teacher/course/course-1/release').name).toBe('teacher-course-release')
     expect(router.resolve('/teacher/course/course-1/teaching-calendar').name).toBe('teacher-course-calendar')
+    expect(router.resolve('/teacher/course/course-1/ppt').name).toBe('teacher-ppt-workspace')
+    expect(router.resolve('/teacher/course/course-1/ppt').meta.courseSurface).toBe('teacher')
     expect(router.resolve('/teacher/teaching-calendar').name).toBe('teacher-teaching-calendar')
   })
 })
