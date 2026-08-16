@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -765,6 +766,58 @@ def test_long_source_heading_offers_semantic_fragments_within_template_capacity(
     assert all(candidate in source and len(candidate) <= 28 for candidate in candidates)
 
 
+def test_story_unit_request_reuses_precomputed_template_partitions(
+    monkeypatch,
+) -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    prepared_slices = [{"start_index": 0, "end_index": 1}]
+    prepared_range = [1, 1]
+    prepared_options = [{"partition_id": "prepared", "pages": []}]
+    calls = {"slices": 0, "range": 0, "options": 0}
+
+    def safe_slices(_unit, _template):
+        calls["slices"] += 1
+        return prepared_slices
+
+    def page_count_range(_unit, _template, *, safe_slices=None):
+        calls["range"] += 1
+        assert safe_slices is prepared_slices
+        return prepared_range
+
+    def partition_options(
+        _unit,
+        _template,
+        *,
+        safe_slices=None,
+        allowed_page_count_range=None,
+    ):
+        calls["options"] += 1
+        assert safe_slices is prepared_slices
+        assert allowed_page_count_range is prepared_range
+        return prepared_options
+
+    monkeypatch.setattr(planning_module, "story_safe_page_slices", safe_slices)
+    monkeypatch.setattr(
+        planning_module,
+        "story_page_count_range",
+        page_count_range,
+    )
+    monkeypatch.setattr(
+        planning_module,
+        "story_safe_partition_options",
+        partition_options,
+    )
+
+    request = planning_module._story_unit_request(graph.units[0], template)
+
+    assert calls == {"slices": 1, "range": 1, "options": 1}
+    assert request["safe_page_slices"] is prepared_slices
+    assert request["allowed_page_count_range"] is prepared_range
+    assert request["safe_partition_options"] is prepared_options
+
+
 @pytest.mark.asyncio
 async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -> None:
     document = _document()
@@ -841,6 +894,167 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
 
     with pytest.raises(V6BuildError, match="story_ai_required"):
         await plan_slide_story_v3(graph, template, ai_planner=None)
+
+
+@pytest.mark.asyncio
+async def test_story_request_preparation_keeps_event_loop_responsive(
+    monkeypatch,
+) -> None:
+    """Large deterministic request preparation must not stall task/status APIs."""
+
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    real_story_requests = planning_module._story_requests
+    entered = threading.Event()
+    release = threading.Event()
+    exited = threading.Event()
+    ticks = 0
+
+    def slow_story_requests(*args, **kwargs):
+        entered.set()
+        release.wait(timeout=2)
+        try:
+            return real_story_requests(*args, **kwargs)
+        finally:
+            exited.set()
+
+    monkeypatch.setattr(planning_module, "_story_requests", slow_story_requests)
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        layout = next(
+            item
+            for item in unit["allowed_template_layout_ids"]
+            if item.endswith("/practice-feedback")
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "responsive-story-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": _title_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    async def event_loop_probe() -> None:
+        nonlocal ticks
+        assert await asyncio.to_thread(entered.wait, 1)
+        while not exited.is_set():
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    timer = threading.Timer(0.25, release.set)
+    timer.start()
+    try:
+        await asyncio.gather(
+            plan_slide_story_v3(graph, template, ai_planner=planner),
+            event_loop_probe(),
+        )
+    finally:
+        release.set()
+        timer.cancel()
+
+    assert ticks >= 5
+
+
+@pytest.mark.asyncio
+async def test_visual_request_preparation_keeps_event_loop_responsive(
+    monkeypatch,
+) -> None:
+    """Visual request validation and geometry must not block other API work."""
+
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def story_planner(request):
+        unit = request["teaching_units"][0]
+        layout = next(
+            item
+            for item in unit["allowed_template_layout_ids"]
+            if item.endswith("/practice-feedback")
+        )
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "responsive-visual-page",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": layout,
+                "title": _title_for_request_blocks(
+                    unit,
+                    unit["primary_block_ids"],
+                ),
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(
+        graph,
+        template,
+        ai_planner=story_planner,
+    )
+    real_visual_request = planning_module._visual_request
+    entered = threading.Event()
+    release = threading.Event()
+    exited = threading.Event()
+    ticks = 0
+
+    def slow_visual_request(*args, **kwargs):
+        entered.set()
+        release.wait(timeout=2)
+        try:
+            return real_visual_request(*args, **kwargs)
+        finally:
+            exited.set()
+
+    monkeypatch.setattr(planning_module, "_visual_request", slow_visual_request)
+
+    async def visual_planner(request):
+        return {
+            "schema_version": "slide_visual_batch_response_v2",
+            "decisions": [{
+                "page_id": page["page_id"],
+                "decision": page["allowed_decisions"][0],
+                "source_block_ids": page["source_block_ids"],
+                "resolved_template_layout_id": page["template_layout_id"],
+            } for page in request["pages"]],
+        }
+
+    async def event_loop_probe() -> None:
+        nonlocal ticks
+        assert await asyncio.to_thread(entered.wait, 1)
+        while not exited.is_set():
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    timer = threading.Timer(0.25, release.set)
+    timer.start()
+    try:
+        await asyncio.gather(
+            plan_slide_visuals_v2(
+                story,
+                graph,
+                template,
+                ai_planner=visual_planner,
+                concurrency=1,
+            ),
+            event_loop_probe(),
+        )
+    finally:
+        release.set()
+        timer.cancel()
+
+    assert ticks >= 5
 
 
 @pytest.mark.asyncio

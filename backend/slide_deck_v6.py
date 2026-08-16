@@ -24,6 +24,7 @@ from slide_layout_geometry import (
     capacity_profile_items_fit,
     capacity_profile_text_fits,
     diagram_node_layout_metrics,
+    semantic_break_positions,
 )
 from template_layout_contract import TemplateLayoutPackContractV1
 
@@ -1996,6 +1997,8 @@ def _bounded_slot_content(
         item_limit = max_items or len(complete_items)
         if len(complete_items) > item_limit:
             raise ValueError("template_slot_capacity_exceeded")
+        if not capacity_profile_items_fit(capacity_profile, complete_items):
+            raise ValueError("template_slot_capacity_exceeded")
         content = "\n".join(complete_items).rstrip()
         if len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
@@ -2107,13 +2110,11 @@ def _pack_code_lines(
     max_lines: int,
     max_chars: int,
 ) -> list[str]:
-    """Pack every code line while accounting for visual wrapping cost."""
+    """Pack every code line at stable structural boundaries when possible."""
 
     allowed_lines = max_lines or max(1, len(lines))
     capacity = max_chars or max(1, len("\n".join(lines)))
     line_width = max(24, capacity // max(1, allowed_lines))
-    chunks: list[str] = []
-    current: list[str] = []
 
     def exceeds(candidate: list[str]) -> bool:
         return bool(
@@ -2125,20 +2126,108 @@ def _pack_code_lines(
         )
 
     for line in lines:
-        candidate = [*current, line]
-        if current and exceeds(candidate):
-            trailing_blanks: list[str] = []
-            while current and not current[-1].strip():
-                trailing_blanks.insert(0, current.pop())
-            if current:
-                chunks.append("\n".join(current))
-            current = [*trailing_blanks, line]
-        else:
-            current = candidate
-        if exceeds(current):
+        if exceeds([line]):
             raise ValueError("template_slot_capacity_exceeded")
-    if current:
-        chunks.append("\n".join(current))
+
+    minimum_chunk_cost = max(2, min(4, ceil(allowed_lines / 4)))
+    minimum_chunk_chars = min(
+        48,
+        max(24, (max_chars or len("\n".join(lines))) // 12),
+    )
+
+    def nonblank_before(index: int) -> str:
+        for candidate in reversed(lines[:index]):
+            if candidate.strip():
+                return candidate.strip()
+        return ""
+
+    def nonblank_after(index: int) -> str:
+        for candidate in lines[index:]:
+            if candidate.strip():
+                return candidate.strip()
+        return ""
+
+    def method_declaration(value: str) -> bool:
+        if not re.search(r"\)\s*(?:where\b.*)?$", value):
+            return False
+        return not re.match(
+            r"^(?:if|for|foreach|while|switch|catch|using|lock)\b",
+            value,
+        )
+
+    def boundary_cost(index: int) -> tuple[int, int]:
+        if index >= len(lines):
+            return 0, 0
+        left = nonblank_before(index)
+        right = nonblank_after(index)
+        # block_source_text() trims a chunk's outer whitespace. Splitting on
+        # either side of a blank separator would therefore delete a source
+        # code line even though every nonblank token survived. Keep blank
+        # separators inside a continuation and choose the nearest structural
+        # boundary between two nonblank lines instead.
+        touches_blank_separator = bool(
+            not lines[index - 1].strip() or not lines[index].strip()
+        )
+        hard_break = bool(
+            touches_blank_separator
+            or left.endswith("{")
+            or method_declaration(left)
+            or right in {"{", "}"}
+            or re.match(r"^(?:else|catch|finally)\b", right)
+        )
+        if left in {"}", "};"}:
+            semantic_rank = 1
+        elif left.endswith(";"):
+            semantic_rank = 2
+        else:
+            semantic_rank = 3
+        return int(hard_break), semantic_rank
+
+    # Dynamic programming rejects sparse fragments first, then selects the safest
+    # structural boundaries before minimizing the page count. A method longer
+    # than one page still splits deterministically at the least harmful statement
+    # boundary instead of failing or dropping it.
+    best: dict[int, tuple[tuple[int, int, int, int, int], list[int]]] = {
+        len(lines): ((0, 0, 0, 0, 0), [])
+    }
+    for start in range(len(lines) - 1, -1, -1):
+        candidates: list[tuple[tuple[int, int, int, int, int], list[int]]] = []
+        for end in range(start + 1, len(lines) + 1):
+            chunk_lines = lines[start:end]
+            if exceeds(chunk_lines):
+                break
+            continuation = best.get(end)
+            if continuation is None:
+                continue
+            chunk_cost = sum(
+                _code_display_line_cost(line, line_width)
+                for line in chunk_lines
+            )
+            chunk_chars = len(re.sub(r"\s+", "", "".join(chunk_lines)))
+            sparse = int(
+                chunk_cost < minimum_chunk_cost
+                or chunk_chars < minimum_chunk_chars
+            )
+            hard_break, semantic_rank = boundary_cost(end)
+            following, following_breaks = continuation
+            score = (
+                sparse + following[0],
+                hard_break + following[1],
+                1 + following[2],
+                semantic_rank + following[3],
+                (allowed_lines - chunk_cost) ** 2 + following[4],
+            )
+            candidates.append((score, [end, *following_breaks]))
+        if not candidates:
+            raise ValueError("template_slot_capacity_exceeded")
+        best[start] = min(candidates, key=lambda candidate: candidate[0])
+
+    boundaries = best[0][1]
+    chunks: list[str] = []
+    start = 0
+    for end in boundaries:
+        chunks.append("\n".join(lines[start:end]))
+        start = end
     return chunks
 
 
@@ -2401,30 +2490,31 @@ def _split_oversized_prose_group(
         capacity_profile=capacity_profile,
     ):
         window_limit = min(len(remaining), max_chars or len(remaining))
-        boundary_positions = sorted(
-            {
-                match.end()
-                for match in re.finditer(
-                    r"[。！？；，]|[.!?;,](?:\s+|$)|\s+",
-                    remaining[:window_limit],
-                )
-                if match.end() > 1
-            },
-            reverse=True,
-        )
-        window_end = next(
-            (
-                position
-                for position in boundary_positions
-                if _prose_fits_slot(
-                    remaining[:position],
-                    max_chars=max_chars,
-                    max_lines=max_lines,
-                    capacity_profile=capacity_profile,
-                )
-            ),
-            0,
-        )
+        fitting_boundaries = [
+            (position, rank)
+            for position, rank in semantic_break_positions(
+                remaining[:window_limit]
+            )
+            if _prose_fits_slot(
+                remaining[:position],
+                max_chars=max_chars,
+                max_lines=max_lines,
+                capacity_profile=capacity_profile,
+            )
+        ]
+        window_end = 0
+        if fitting_boundaries:
+            furthest_position = max(position for position, _ in fitting_boundaries)
+            useful_floor = max(2, ceil(furthest_position * 0.55))
+            useful_boundaries = [
+                candidate
+                for candidate in fitting_boundaries
+                if candidate[0] >= useful_floor
+            ]
+            window_end = min(
+                useful_boundaries,
+                key=lambda candidate: (candidate[1], -candidate[0]),
+            )[0]
         if not window_end:
             # A genuinely unbroken token has no semantic boundary. Locate the
             # largest renderable prefix without the previous character-by-
@@ -2459,35 +2549,7 @@ def _split_oversized_prose_group(
                     break
         if window_end <= 1:
             raise ValueError("template_slot_capacity_exceeded")
-        window = remaining[: window_end + 1]
-        split_at = max(
-            window.rfind(separator)
-            for separator in (
-                "。",
-                "！",
-                "？",
-                ". ",
-                "! ",
-                "? ",
-                "；",
-                "; ",
-                "，",
-                ", ",
-                " ",
-            )
-        )
-        if split_at <= 0:
-            split_at = window_end
-        elif window[split_at: split_at + 2] in {
-            ". ",
-            "! ",
-            "? ",
-            "; ",
-            ", ",
-        }:
-            split_at += 1
-        else:
-            split_at += 1
+        split_at = window_end
         chunk = remaining[:split_at].strip()
         if not chunk or not _prose_fits_slot(
             chunk,
@@ -2502,6 +2564,109 @@ def _split_oversized_prose_group(
     if remaining:
         chunks.append(remaining)
     return chunks
+
+
+def _rebalance_prose_continuations(
+    chunks: list[str],
+    *,
+    max_chars: int,
+    max_lines: int,
+    capacity_profile: str = "",
+) -> list[str]:
+    """Avoid sparse continuation pages by redistributing adjacent source text."""
+
+    balanced = [chunk.strip() for chunk in chunks if chunk.strip()]
+    if len(balanced) < 2:
+        return balanced
+    minimum_useful_chars = max(
+        30,
+        min(120, (max_chars or max(map(len, balanced))) // 5),
+    )
+    maximum_attempts = max(1, len(balanced) * 2)
+    for _ in range(maximum_attempts):
+        sparse_index = next(
+            (
+                index
+                for index, chunk in enumerate(balanced)
+                if len(chunk) < minimum_useful_chars
+            ),
+            None,
+        )
+        if sparse_index is None:
+            break
+        neighbor_index = (
+            1
+            if sparse_index == 0
+            else sparse_index - 1
+        )
+        pair_start = min(sparse_index, neighbor_index)
+        left_original, right_original = balanced[pair_start: pair_start + 2]
+        preserves_semantic_boundary = bool(
+            re.search(r"[。！？.!?；;]\s*$", left_original)
+            or len(left_original) <= 60
+            or re.match(
+                r"^(?:[-*+>]\s+|#{1,6}\s+|\d+[.)、]\s*)",
+                right_original,
+            )
+        )
+        if preserves_semantic_boundary:
+            separator = "\n\n"
+        elif re.search(r"(?:[-*+>]|#{1,6}|\d+[.)、])\s*$", left_original):
+            # A previous capacity split may land immediately after a Markdown
+            # marker. Restore the structural space without promoting that
+            # artificial boundary to a paragraph-level split candidate.
+            separator = " "
+        else:
+            separator = ""
+        combined = f"{left_original}{separator}{right_original}"
+        if _prose_fits_slot(
+            combined,
+            max_chars=max_chars,
+            max_lines=max_lines,
+            capacity_profile=capacity_profile,
+        ):
+            balanced[pair_start: pair_start + 2] = [combined]
+            continue
+        candidates: list[tuple[tuple[int, int, int, int], str, str]] = []
+        for position, semantic_rank in semantic_break_positions(combined):
+            left = combined[:position].strip()
+            right = combined[position:].strip()
+            if not _prose_fits_slot(
+                left,
+                max_chars=max_chars,
+                max_lines=max_lines,
+                capacity_profile=capacity_profile,
+            ) or not _prose_fits_slot(
+                right,
+                max_chars=max_chars,
+                max_lines=max_lines,
+                capacity_profile=capacity_profile,
+            ):
+                continue
+            candidates.append((
+                (
+                    max(
+                        0,
+                        minimum_useful_chars - min(len(left), len(right)),
+                    ),
+                    semantic_rank,
+                    abs(
+                        _prose_wrapped_line_cost(left)
+                        - _prose_wrapped_line_cost(right)
+                    ),
+                    abs(len(left) - len(right)),
+                ),
+                left,
+                right,
+            ))
+        if not candidates:
+            break
+        _, left, right = min(candidates, key=lambda candidate: candidate[0])
+        replacement = [left, right]
+        if replacement == balanced[pair_start: pair_start + 2]:
+            break
+        balanced[pair_start: pair_start + 2] = replacement
+    return balanced
 
 
 def _split_text_block_for_slot(
@@ -2562,6 +2727,14 @@ def _split_text_block_for_slot(
             max_chars=max_chars,
             max_items=max_items,
             max_lines=max_lines,
+            items_fit=(
+                lambda candidate: capacity_profile_items_fit(
+                    capacity_profile,
+                    candidate,
+                )
+            )
+            if capacity_profile
+            else None,
         )
         return [
             _block_with_source_excerpt(
@@ -2614,9 +2787,15 @@ def _split_text_block_for_slot(
                 )
             )
         flush_pending_groups()
+        balanced_chunks = _rebalance_prose_continuations(
+            ["\n\n".join(chunk) for chunk in chunks],
+            max_chars=max_chars,
+            max_lines=max_lines,
+            capacity_profile=capacity_profile,
+        )
         return [
-            _block_with_source_excerpt(block, "\n\n".join(chunk))
-            for chunk in chunks
+            _block_with_source_excerpt(block, chunk)
+            for chunk in balanced_chunks
         ]
     return [block]
 
@@ -3717,6 +3896,23 @@ def _safe_artifact_page_blocks(
                     else [slot_blocks]
                 )
             except ValueError as error:
+                if (
+                    str(error) == "template_slot_capacity_exceeded"
+                    and _declared_continuation_layouts(template, layout)
+                ):
+                    materializations = _safe_paginated_continuations_for_blocks(
+                        page_id=page_id,
+                        template=template,
+                        layout=layout,
+                        source_blocks=source_blocks,
+                        purpose="geometry",
+                    )
+                    _assert_source_driven_pagination_progress(
+                        page_id=page_id,
+                        source_blocks=source_blocks,
+                        materializations=materializations,
+                    )
+                    return materializations
                 raise V6BuildError(
                     stage="template",
                     code="template_slot_capacity_exceeded",
@@ -3762,24 +3958,57 @@ def _safe_artifact_page_blocks(
             (len(text_slots), [block])
             for block in assignments.unassigned_blocks
         )
-        for _slot_index, blocks in sorted(
+        ordered_continuation_chunks = sorted(
             continuation_chunks,
             key=lambda item: (
                 min(block.position for block in item[1]),
                 item[0],
                 min(block.block_id for block in item[1]),
             ),
-        ):
-            materializations.append(_SafePageMaterialization(
-                layout=_safe_continuation_for_blocks(
-                    page_id=page_id,
-                    template=template,
-                    layout=layout,
+        )
+        if len(text_slots) == 1 and ordered_continuation_chunks:
+            remaining_blocks = [
+                block
+                for _slot_index, blocks in ordered_continuation_chunks
+                for block in blocks
+            ]
+            try:
+                materializations.extend(
+                    _safe_paginated_continuations_for_blocks(
+                        page_id=f"{page_id}--semantic",
+                        template=template,
+                        layout=layout,
+                        source_blocks=remaining_blocks,
+                        purpose="semantic",
+                    )
+                )
+            except V6BuildError:
+                # Heterogeneous leftovers may need different declared
+                # continuations. Preserve the established per-chunk fallback
+                # rather than coercing them into one generic layout.
+                for _slot_index, blocks in ordered_continuation_chunks:
+                    materializations.append(_SafePageMaterialization(
+                        layout=_safe_continuation_for_blocks(
+                            page_id=page_id,
+                            template=template,
+                            layout=layout,
+                            source_blocks=blocks,
+                            purpose="semantic",
+                        ),
+                        source_blocks=blocks,
+                    ))
+        else:
+            for _slot_index, blocks in ordered_continuation_chunks:
+                materializations.append(_SafePageMaterialization(
+                    layout=_safe_continuation_for_blocks(
+                        page_id=page_id,
+                        template=template,
+                        layout=layout,
+                        source_blocks=blocks,
+                        purpose="semantic",
+                    ),
                     source_blocks=blocks,
-                    purpose="semantic",
-                ),
-                source_blocks=blocks,
-            ))
+                ))
         _assert_source_driven_pagination_progress(
             page_id=page_id,
             source_blocks=source_blocks,
@@ -4666,10 +4895,13 @@ def story_safe_page_slices(
 def story_page_count_range(
     unit: CoursePresentationUnitV1,
     template: TemplateLayoutPackContractV1,
+    *,
+    safe_slices: list[dict[str, Any]] | None = None,
 ) -> list[int]:
     """Derive a compact LLM page budget from template-safe source partitions."""
 
-    safe_slices = story_safe_page_slices(unit, template)
+    if safe_slices is None:
+        safe_slices = story_safe_page_slices(unit, template)
     slice_edges = {
         (int(item["start_index"]), int(item["end_index"]))
         for item in safe_slices
@@ -4708,11 +4940,19 @@ def story_safe_partition_options(
     template: TemplateLayoutPackContractV1,
     *,
     max_options_per_page_count: int = 12,
+    safe_slices: list[dict[str, Any]] | None = None,
+    allowed_page_count_range: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Compile safe slices into complete, ordered exact-cover choices for the LLM."""
 
-    safe_slices = story_safe_page_slices(unit, template)
-    allowed_page_count_range = story_page_count_range(unit, template)
+    if safe_slices is None:
+        safe_slices = story_safe_page_slices(unit, template)
+    if allowed_page_count_range is None:
+        allowed_page_count_range = story_page_count_range(
+            unit,
+            template,
+            safe_slices=safe_slices,
+        )
     slices_by_start: dict[int, list[dict[str, Any]]] = {}
     for item in safe_slices:
         slices_by_start.setdefault(int(item["start_index"]), []).append(item)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from math import ceil
 
@@ -16,11 +17,14 @@ from slide_deck_v6 import (
 )
 from slide_layout_geometry import (
     BALANCED_TWO_COLUMN_BODY_V1,
+    CLASSIFICATION_THREE_CARDS_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
     balanced_two_column_body_metrics,
     capacity_profile_text_fits,
+    classification_three_card_metrics,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
+    wrapped_line_count,
 )
 from template_layout_contract import (
     compile_builtin_template_layout_contract_v1,
@@ -422,6 +426,29 @@ def test_process_flow_capacity_matches_the_horizontal_card_renderer() -> None:
     assert steps.capacity_profile == HORIZONTAL_PROCESS_CARDS_V1
 
 
+def test_classification_contract_measures_each_fixed_card_independently() -> None:
+    layout = _BUILTIN_TEMPLATE.get_layout(
+        _BUILTIN_TEMPLATE.layout_id("classification-three")
+    )
+    assert layout is not None
+    items_slot = next(slot for slot in layout.slots if slot.slot_id == "items")
+    safe = classification_three_card_metrics([
+        "Freeze the source state",
+        "Run the bounded check",
+        "Record the complete result",
+    ])
+    unsafe = classification_three_card_metrics([
+        "Freeze the source state",
+        "Run the bounded check",
+        "LongIdentifierWithoutBreaks_" * 10,
+    ])
+
+    assert items_slot.capacity_profile == CLASSIFICATION_THREE_CARDS_V1
+    assert safe["fits"]
+    assert not unsafe["fits"]
+    assert unsafe["required_heights_pt"][-1] > unsafe["available_height_pt"]
+
+
 @pytest.mark.parametrize("item_count", range(1, 6))
 def test_process_flow_keeps_one_to_five_short_items_on_one_page(
     item_count: int,
@@ -666,6 +693,52 @@ def test_optional_companion_overflow_uses_continuation_capacity_linearly() -> No
     )
 
 
+def test_single_slot_overflow_is_repacked_by_the_continuation_capacity() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("chapter-entry"))
+    assert layout is not None
+    blocks = [
+        _block(
+            "short-orientation",
+            role="objective",
+            position=0,
+            markdown="知识规范名称：线程安全的单例管理器初始化模式。",
+        ),
+        _block(
+            "complete-objective",
+            role="orientation",
+            position=1,
+            markdown=(
+                "本节旨在通过构建全局唯一的 GameManager，掌握多场景切换中"
+                "保持状态连续性的技术路径。学习者将能够设计线程安全的静态"
+                "单例，利用 DontDestroyOnLoad 保持实例持久化，并通过接口与"
+                "事件回调替代组件间的直接引用。"
+            ),
+        ),
+    ]
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="continuation-repack",
+        template=template,
+        layout=layout,
+        source_blocks=blocks,
+    )
+    visible = "".join(
+        "".join(_prose_source_text(block).split())
+        for page in materializations
+        for block in page.source_blocks
+    )
+    source = "".join(
+        "".join(_prose_source_text(block).split()) for block in blocks
+    )
+
+    assert [page.layout.layout_slug for page in materializations] == [
+        "chapter-entry",
+        "content-stack",
+    ]
+    assert visible == source
+
+
 def test_multi_slot_overflow_preserves_first_source_occurrence_order() -> None:
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
     layout = template.get_layout(template.layout_id("practice-prompt"))
@@ -811,15 +884,162 @@ def test_content_stack_uses_shared_two_column_geometry_at_the_overflow_edge() ->
     assert metrics["mode"] == "two-column"
     assert max(metrics["wrapped_lines"]) > metrics["maximum_safe_lines"]
     assert not capacity_profile_text_fits(body_slot.capacity_profile, source)
-    safe_metrics = balanced_two_column_body_metrics(source.rsplit("\n", 1)[0])
-    assert safe_metrics["wrapped_lines"] == [15, 15]
-    assert safe_metrics["fits"]
     assert len(materializations) > 1
     assert "".join("\n\n".join(rendered_chunks).split()) == "".join(source.split())
     assert all(
         capacity_profile_text_fits(body_slot.capacity_profile, chunk)
         for chunk in rendered_chunks
     )
+
+
+def test_portable_wrapping_reserves_for_substitute_font_variance() -> None:
+    class ArtificiallyNarrowFont:
+        def getlength(self, character: str) -> float:
+            return 1.0
+
+    source = "\n".join([
+        "*   触发器模式 (Is Trigger = true)：",
+        "    *   行为：物体之间可以相互穿透，不产生物理阻挡力。主要用于检测“进入”、“停留”或“离开”某个区域。",
+        "    *   前置条件：参与交互的两个物体中，至少有一个必须挂载 Rigidbody 组件（可以是 Kinematic 模式）。如果双方都没有 Rigidbody，即使勾选了 Is Trigger，也不会触发任何事件。",
+        "    *   事件路由：调用 OnTriggerEnter(Collider other)、OnTriggerStay 和 OnTriggerExit 系列方法。参数 other 仅包含被触发的 Collider 引用，不包含物理接触细节。",
+        "",
+        '> 注意：若未满足 Rigidbody 的前置条件，Unity Console 可能会抛出警告 "Trigger collision without rigidbody"，导致逻辑失效。',
+        "碰撞回调事件的封装与分层处理模式",
+        "直接在 MonoBehaviour 的 OnCollisionEnter 中编写具体业务逻辑（如播放音效、扣除血量、增加分数）会导致代码耦合度高、难以复用和维护。应采用事件驱动解耦架构进行封装。",
+    ])
+
+    assert wrapped_line_count(
+        source,
+        width_pt=10.75 * 72,
+        font_size_pt=16,
+        font_loader=lambda _: ArtificiallyNarrowFont(),
+    ) == 13
+
+
+def test_wrapped_line_measurement_reuses_identical_geometry_work() -> None:
+    class CountingFont:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def getlength(self, character: str) -> float:
+            self.calls += 1
+            return 8.0
+
+    font = CountingFont()
+
+    def load_font(_font_size_px: int):
+        return font
+
+    wrapped_line_count.cache_clear()
+    first = wrapped_line_count(
+        "相同正文 repeated identifier_2026",
+        width_pt=220,
+        font_size_pt=16,
+        font_loader=load_font,
+    )
+    calls_after_first = font.calls
+    second = wrapped_line_count(
+        "相同正文 repeated identifier_2026",
+        width_pt=220,
+        font_size_pt=16,
+        font_loader=load_font,
+    )
+
+    assert first == second
+    assert calls_after_first > 0
+    assert font.calls == calls_after_first
+    wrapped_line_count.cache_clear()
+
+
+def test_balanced_body_geometry_uses_the_text_frame_inner_width() -> None:
+    metrics = balanced_two_column_body_metrics(
+        "完整来源正文用于验证可编辑文本框的真实内边距。"
+    )
+
+    assert metrics["mode"] == "single-column"
+    assert metrics["text_width_pt"] == pytest.approx((10.75 - 0.02) * 72)
+
+
+def test_balanced_body_prefers_a_complete_paragraph_over_mid_sentence_balance() -> None:
+    first = "第一部分完整说明输入、状态与验证依据。" * 10
+    second = "第二部分继续说明执行步骤、异常处理与恢复路径。" * 12
+    source = f"{first}\n\n{second}"
+
+    metrics = balanced_two_column_body_metrics(source)
+
+    assert metrics["mode"] == "two-column"
+    assert metrics["fits"]
+    assert metrics["segments"] == [first, second]
+
+
+def test_balanced_body_rejects_nested_mixed_text_that_overflows_after_export() -> None:
+    source = "\n".join([
+        "对象池模式（Object Pooling）通过以下机制解决此问题：",
+        "- 预分配（Pre-allocation）：在场景初始化阶段（如 Awake），一次性实例化 $N$ 个对象并置入池中。此时发生一次性的堆内存分配，后续不再产生新的堆分配。",
+        "- 栈式管理（Stack-based Management）：利用 C# 的 Stack<T> 数据结构存储未使用的对象引用。",
+        "- 获取（Get）：从栈顶弹出一个对象（$O(1)$ 复杂度），将其激活（SetActive(true)）。",
+        "- 释放（Return）：将对象重置状态，置为非激活（SetActive(false)），并压回栈顶。",
+        "- 零 GC 循环：一旦池建立，对象的获取与释放仅在栈内存操作引用指针，不涉及堆内存的新增分配，从而彻底规避了运行时 GC 触发。",
+        "2. 对象生命周期状态管理",
+        "对象池中的对象具有特殊的生命周期，必须严格区分“预制体源状态”与“运行时实例状态”。",
+        "- 状态隔离：从池中获取的对象必须是独立的运行时实例。若修改了对象的属性（如位置、速度），不能反向污染 Assets 文件夹下的原始预制体（Prefab）。",
+        "    - 原理：Unity 的 Prefab 系统默认会将运行时修改同步回源文件，除非明确断开链接或使用 prefabStage 分离。在对象池中，通常建议在返回池前调用 ResetState() 方法，将对象恢复到初始状态，防止状态残留导致逻辑错误。",
+    ])
+
+    metrics = balanced_two_column_body_metrics(source)
+
+    assert metrics["mode"] == "two-column"
+    assert max(metrics["wrapped_lines"]) >= 16
+    assert not metrics["fits"]
+
+
+def test_prose_rebalance_does_not_create_a_mid_sentence_continuation() -> None:
+    first = "第一段完整说明输入、状态与核验依据。" * 8
+    second = "第二段完整说明执行步骤、异常处理与恢复路径。" * 10
+    source = f"{first}\n\n{second}"
+
+    chunks = deck_v6._rebalance_prose_continuations(
+        [source[:-20], source[-20:]],
+        max_chars=260,
+        max_lines=15,
+        capacity_profile="balanced-two-column-body-v1",
+    )
+
+    assert chunks == [first, second]
+
+
+def test_oversized_prose_prefers_a_complete_clause_over_a_later_space() -> None:
+    source = (
+        "本节旨在通过构建一个全局唯一的 GameManager，"
+        "掌握在 Unity 多场景切换中保持状态连续性的技术路径，"
+        "随后调用 DontDestroyOnLoad 保持实例跨场景持久化，"
+        "并验证接口回调顺序与恢复路径。"
+    )
+
+    chunks = deck_v6._split_oversized_prose_group(
+        source,
+        max_chars=90,
+    )
+
+    assert chunks[0].endswith("技术路径，")
+    assert chunks[1].startswith("随后调用 DontDestroyOnLoad")
+    assert "".join("".join(chunks).split()) == "".join(source.split())
+
+
+def test_oversized_prose_never_orphans_an_ordered_list_marker() -> None:
+    source = (
+        "本节目标是验证完整工作流与恢复路径。\n"
+        "1. 初始化项目，记录输入与环境版本。\n"
+        "2. 执行验证，保存完整日志与复核证据。"
+    )
+
+    chunks = deck_v6._split_oversized_prose_group(
+        source,
+        max_chars=45,
+    )
+
+    assert not any(re.search(r"(?:^|\n)\d+[.)]\s*$", chunk) for chunk in chunks)
+    assert "".join("".join(chunks).split()) == "".join(source.split())
 
 
 def test_code_continuations_scale_with_declared_line_capacity_without_duplicates() -> None:
@@ -847,6 +1067,105 @@ def test_code_continuations_scale_with_declared_line_capacity_without_duplicates
 
     assert len(materializations) == ceil(51 / 13)
     assert visible == source
+
+
+def test_code_pagination_rebalances_a_trailing_orphan_line() -> None:
+    lines = [f"statement_{index}();" for index in range(14)]
+
+    chunks = deck_v6._pack_code_lines(
+        lines,
+        max_lines=13,
+        max_chars=1000,
+    )
+
+    assert [len(chunk.splitlines()) for chunk in chunks] == [7, 7]
+    assert "\n".join(chunks) == "\n".join(lines)
+
+
+def test_code_pagination_rebalances_a_low_information_tail() -> None:
+    lines = [
+        *(f"var retainedValue{index} = ComputeValue({index});" for index in range(13)),
+        "return;",
+        "}",
+        "// done",
+        "}",
+        "}",
+    ]
+
+    chunks = deck_v6._pack_code_lines(
+        lines,
+        max_lines=13,
+        max_chars=1000,
+    )
+
+    assert min(len("".join(chunk.split())) for chunk in chunks) >= 30
+    assert "\n".join(chunks) == "\n".join(lines)
+
+
+def test_code_pagination_keeps_method_declarations_with_their_bodies() -> None:
+    source = """public class GameState
+{
+    public bool IsGameOver { get; private set; }
+
+    void Awake()
+    {
+        Initialize();
+        RegisterCallbacks();
+    }
+
+    void Start()
+    {
+        ResetGameState();
+    }
+
+    public void AddScore(int points)
+    {
+        score += points;
+        OnScoreChanged?.Invoke(score);
+    }
+}"""
+
+    chunks = deck_v6._pack_code_lines(
+        source.splitlines(),
+        max_lines=9,
+        max_chars=1000,
+    )
+
+    assert "\n".join(chunks) == source
+    assert not any(
+        re.search(r"(?:\b(?:void|int|bool|string)\s+\w+\s*\([^)]*\)|\{)\s*$", chunk)
+        for chunk in chunks[:-1]
+    )
+    assert not any(
+        re.match(r"\s*(?:\{|\}|else\b|catch\b|finally\b)", chunk)
+        for chunk in chunks[1:]
+    )
+
+
+def test_prose_pagination_rebalances_a_short_lead_page_without_loss() -> None:
+    lead = "请按照以下步骤完成实战任务。"
+    detail = "".join(
+        f"第{index}步核对输入、执行操作并记录完整验证结果。"
+        for index in range(1, 13)
+    )
+    source = f"{lead}\n\n{detail}"
+    block = _block(
+        "balanced-prose-continuation",
+        role="activity",
+        markdown=source,
+    )
+
+    fragments = deck_v6._split_text_block_for_slot(
+        block,
+        slot_kind="body",
+        max_chars=90,
+        max_items=0,
+    )
+    visible = [deck_v6._prose_source_text(fragment) for fragment in fragments]
+
+    assert len(visible) > 1
+    assert min(map(len, visible)) >= 30
+    assert "".join("".join(visible).split()) == "".join(source.split())
 
 
 def test_table_pagination_keeps_source_prose_once_instead_of_once_per_chunk() -> None:

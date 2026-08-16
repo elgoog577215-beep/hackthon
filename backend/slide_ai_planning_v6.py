@@ -1349,8 +1349,17 @@ def _story_unit_request(
             else 0
         )
     safe_page_slices = story_safe_page_slices(unit, template)
-    allowed_page_count_range = story_page_count_range(unit, template)
-    safe_partition_options = story_safe_partition_options(unit, template)
+    allowed_page_count_range = story_page_count_range(
+        unit,
+        template,
+        safe_slices=safe_page_slices,
+    )
+    safe_partition_options = story_safe_partition_options(
+        unit,
+        template,
+        safe_slices=safe_page_slices,
+        allowed_page_count_range=allowed_page_count_range,
+    )
 
     def block_compatible_layout_ids(block_id: str) -> list[str]:
         block_intent = page_teaching_intent(unit, [block_id])
@@ -2346,7 +2355,7 @@ async def plan_slide_story_v3(
         if batch.validation_status == "passed"
     }
     page_ordinal = 0
-    story_requests = _story_requests(graph, template)
+    story_requests = await asyncio.to_thread(_story_requests, graph, template)
     for batch_index, request in enumerate(story_requests):
         batch_id = f"story-{batch_index + 1}"
         resumed = resumed_by_chapter.get(str(request["chapter_id"]))
@@ -3359,7 +3368,12 @@ async def plan_slide_visuals_v2(
             "chapter_id": batch.chapter_id,
             "resumed": False,
         })
-        request = _visual_request(planning_batch, graph, template)
+        request = await asyncio.to_thread(
+            _visual_request,
+            planning_batch,
+            graph,
+            template,
+        )
         started = time.perf_counter()
         attempt_records: list[AIProviderAttemptDiagnosticV1] = []
         reported_provider = ""

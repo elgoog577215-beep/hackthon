@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import httpx
@@ -7,6 +8,10 @@ import openai
 import pytest
 
 from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from ai_capacity import (
+    get_provider_capacity_controller,
+    reset_provider_capacity_controllers,
+)
 
 
 class FakeStream:
@@ -95,6 +100,21 @@ class RateLimitedThenSuccessCompletions:
     async def create(self, **kwargs):
         self.calls.append(kwargs["model"])
         if len(self.calls) == 1:
+            raise _make_status_error(429, "limit_burst_rate")
+        return _success_stream()
+
+
+class CoordinatedRateLimitedThenSuccessCompletions:
+    """Expose the window where one fallback call is cooling down."""
+
+    def __init__(self):
+        self.calls = []
+        self.first_rate_limit = asyncio.Event()
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs["model"])
+        if len(self.calls) == 1:
+            self.first_rate_limit.set()
             raise _make_status_error(429, "limit_burst_rate")
         return _success_stream()
 
@@ -371,6 +391,69 @@ async def test_modelscope_last_resort_waits_and_retries_burst_rate_limit(
         "deepseek-ai/DeepSeek-V4-Pro",
         "deepseek-ai/DeepSeek-V4-Pro",
     ]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_quota_failures_queue_while_fallback_is_cooling(
+    monkeypatch,
+):
+    """A temporary fallback cooldown must not look like no fallback exists."""
+
+    reset_provider_capacity_controllers()
+    primary = AlwaysFailingCompletions(
+        lambda: _make_status_error(429, "insufficient balance")
+    )
+    fallback = CoordinatedRateLimitedThenSuccessCompletions()
+    service = _make_service_with_modelscope_fallback(
+        monkeypatch,
+        primary,
+        fallback,
+        models=("primary-model",),
+    )
+    service._last_resort_rate_limit_retries = 1
+    monkeypatch.setattr(
+        service,
+        "_model_failure_cooldown_seconds",
+        lambda _error: 0.05,
+    )
+
+    first = asyncio.create_task(service._call_llm(
+        "first",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    ))
+    await fallback.first_rate_limit.wait()
+    capacity = get_provider_capacity_controller(
+        service._fallback_provider_scope()
+    )
+    for _ in range(100):
+        state = capacity.snapshot()["models"].get(
+            "deepseek-ai/DeepSeek-V4-Pro",
+            {},
+        )
+        if state.get("rate_limited") == 1:
+            break
+        await asyncio.sleep(0)
+    assert state.get("rate_limited") == 1
+
+    second = asyncio.create_task(service._call_llm(
+        "second",
+        retry_count=1,
+        max_attempts=3,
+        raise_on_failure=True,
+    ))
+
+    assert await asyncio.gather(first, second) == [
+        "ok-answer",
+        "ok-answer",
+    ]
+    assert fallback.calls == [
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Pro",
+        "deepseek-ai/DeepSeek-V4-Pro",
+    ]
+    reset_provider_capacity_controllers()
 
 
 @pytest.mark.asyncio

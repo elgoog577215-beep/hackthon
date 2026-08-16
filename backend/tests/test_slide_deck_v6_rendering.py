@@ -160,6 +160,62 @@ def _practice_code_deck():
     return compile_slide_deck_v6(document, graph, story, visual, template)
 
 
+def _classification_three_deck(items: list[str]):
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-classification-capacity-fixture",
+        title="Runtime allocation trade-offs",
+        sections=[CourseSection(
+            section_id="classification",
+            title="Classify the trade-offs",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="classification-source",
+            section_id="classification",
+            position=0,
+            role="concept",
+            kind="rich_text",
+            payload={"markdown": "\n".join(f"- {item}" for item in items)},
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    layout_id = template.layout_id("classification-three")
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-classification",
+            chapter_id="classification",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="classification-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="以空间换时间",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="classification-page",
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+    return compile_slide_deck_v6(document, graph, story, visual, template)
+
+
 def _practice_long_table_deck():
     table = "\n".join([
         "| Check | Input | Expected result | Evidence | Repair |",
@@ -948,7 +1004,7 @@ def test_content_stack_contract_capacity_survives_pptx_frame_audit(
     ) * 20
     samples = {
         "character-limit": english,
-        "wrapped-line-limit": chinese[: body_slot.max_chars],
+        "wrapped-line-limit": chinese[:550],
     }
     for sample_name, sample in samples.items():
         body.content = sample
@@ -960,7 +1016,8 @@ def test_content_stack_contract_capacity_survives_pptx_frame_audit(
         )
         report = audit_exported_pptx(output, expected_slide_count=1)
 
-        assert len(body.content) == body_slot.max_chars
+        assert len(body.content) <= body_slot.max_chars
+        assert balanced_two_column_body_metrics(body.content)["fits"]
         assert report["passed"], (sample_name, report["blockers"])
 
 
@@ -979,7 +1036,7 @@ def test_content_stack_balances_uneven_source_paragraphs_before_export(
             "同时区分事实观察和解释判断，发布前记录每项差异及其修复结果。"
         ) * 8,
         "最后由另一位复核者确认结果。",
-    ])[:620]
+    ])[:500]
     one_page_deck = deck.model_copy(update={"pages": [support_page]})
 
     output = export_slide_deck_v6_pptx(
@@ -1034,7 +1091,7 @@ def test_content_stack_renderer_rejects_a_body_outside_the_shared_profile(
     metrics = balanced_two_column_body_metrics(body.content)
     one_page_deck = deck.model_copy(update={"pages": [support_page]})
 
-    assert metrics["wrapped_lines"] == [16, 16]
+    assert max(metrics["wrapped_lines"]) > metrics["maximum_safe_lines"]
     assert not metrics["fits"]
     with pytest.raises(ValueError, match="template_slot_capacity_exceeded"):
         export_slide_deck_v6_pptx(
@@ -1064,6 +1121,61 @@ def test_content_stack_splits_newline_dense_short_body_before_export(
     )
     report = audit_exported_pptx(output, expected_slide_count=1)
 
+    assert report["passed"], report["blockers"]
+
+
+def test_unbalanced_classification_items_use_lossless_safe_continuation(
+    tmp_path: Path,
+) -> None:
+    items = [
+        "本节的核心理念是以空间换时间，通过预先分配内存来消除运行时的堆内存分配峰值。",
+        "栈式复用与内存预分配",
+        (
+            "在标准 Unity 开发中，频繁调用 GameObject.Instantiate() 会在堆（Heap）上创建新对象，"
+            "而 Object.Destroy() 虽然标记对象为待销毁，但实际内存回收由 .NET 垃圾回收器（GC）"
+            "在后续周期执行。这种按需分配、延迟回收的模式会导致 GC 压力波动，引发帧率卡顿"
+            "（Stuttering）。"
+        ),
+    ]
+
+    deck = _classification_three_deck(items)
+    visible_source = "\n".join(
+        region.content
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind in {"body", "items"}
+    )
+
+    assert all(page.resolved_layout.endswith("/content-stack") for page in deck.pages)
+    assert deck.quality.source_prose_visible_fidelity == 1.0
+    assert all(item in visible_source for item in items)
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "unbalanced-classification-safe-continuation.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=len(deck.pages))
+
+    assert report["passed"], report["blockers"]
+
+
+def test_balanced_classification_items_keep_the_three_card_layout(
+    tmp_path: Path,
+) -> None:
+    items = [
+        "以空间换时间并冻结输入状态。",
+        "复用已分配实例并重置状态。",
+        "记录回收结果并核对运行日志。",
+    ]
+
+    deck = _classification_three_deck(items)
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "balanced-classification-three-cards.pptx",
+    )
+    report = audit_exported_pptx(output, expected_slide_count=1)
+
+    assert len(deck.pages) == 1
+    assert deck.pages[0].resolved_layout.endswith("/classification-three")
     assert report["passed"], report["blockers"]
 
 

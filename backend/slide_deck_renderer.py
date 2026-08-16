@@ -16,9 +16,12 @@ from typing import Any
 from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
 from slide_layout_geometry import (
+    BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR,
     BALANCED_TWO_COLUMN_BODY_V1,
+    CLASSIFICATION_THREE_CARDS_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
     balanced_two_column_body_metrics,
+    classification_three_card_metrics,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
     wrapped_line_count,
@@ -326,12 +329,19 @@ def _paragraph_minimum_font_size_pt(paragraph: Any) -> float:
     return min(sizes, default=18.0)
 
 
-def _wrapped_line_count(text: str, *, width_pt: float, font_size_pt: float) -> int:
+def _wrapped_line_count(
+    text: str,
+    *,
+    width_pt: float,
+    font_size_pt: float,
+    portable_width_safety_factor: float = 0.99,
+) -> int:
     return wrapped_line_count(
         text,
         width_pt=width_pt,
         font_size_pt=font_size_pt,
         font_loader=_audit_font,
+        portable_width_safety_factor=portable_width_safety_factor,
     )
 
 
@@ -356,6 +366,12 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
     required_height = 0.0
     minimum_size = 10**9
     maximum_lines = 1
+    portable_width_safety_factor = (
+        BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+        if f"[v6-body-capacity={BALANCED_TWO_COLUMN_BODY_V1}]"
+        in str(shape.name or "")
+        else 0.99
+    )
     for paragraph in frame.paragraphs:
         text = paragraph.text or ""
         font_size = _paragraph_font_size_pt(paragraph)
@@ -364,6 +380,7 @@ def _text_frame_audit(shape: Any) -> dict[str, Any]:
             text,
             width_pt=width_pt,
             font_size_pt=font_size,
+            portable_width_safety_factor=portable_width_safety_factor,
         )
         maximum_lines = max(maximum_lines, line_count)
         before = float(paragraph.space_before.pt) if paragraph.space_before else 0.0
@@ -2608,7 +2625,13 @@ def _render_classification_three(
         for block in unit.blocks
         for value in (block.items or [block.content])
         if value
-    ][:3]
+    ]
+    capacity_profile = str(unit.quality.get("v6_capacity_profile") or "")
+    if (
+        capacity_profile == CLASSIFICATION_THREE_CARDS_V1
+        and not classification_three_card_metrics(items)["fits"]
+    ):
+        raise ValueError("template_slot_capacity_exceeded")
     if len(items) != 3:
         _render_editorial_body(
             slide,

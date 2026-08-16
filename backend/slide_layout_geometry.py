@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 HORIZONTAL_PROCESS_CARDS_V1 = "horizontal-process-cards-v1"
+CLASSIFICATION_THREE_CARDS_V1 = "classification-three-cards-v1"
 BALANCED_TWO_COLUMN_BODY_V1 = "balanced-two-column-body-v1"
 FORMULA_SOURCE_PANEL_V1 = "formula-source-panel-v1"
 FIGURE_SOURCE_PANEL_V1 = "figure-source-panel-v1"
@@ -22,12 +23,35 @@ _PROCESS_FONT_SIZE_PT = 16.0
 _PROCESS_LINE_HEIGHT = 1.22
 _PROCESS_MAX_ITEMS = 5
 
-_EDITORIAL_BODY_WIDTH_PT = 10.75 * 72
-_EDITORIAL_BODY_HEIGHT_PT = 3.55 * 72
-_TWO_COLUMN_BODY_WIDTH_PT = 5.32 * 72
-_TWO_COLUMN_BODY_HEIGHT_PT = 4.42 * 72
+_CLASSIFICATION_CARD_TEXT_WIDTH_PT = (3.38 - 0.02) * 72
+_CLASSIFICATION_CARD_TEXT_HEIGHT_PT = (2.35 - 0.02) * 72
+_CLASSIFICATION_CARD_LINE_HEIGHT = 1.22
+_CLASSIFICATION_MAX_ITEMS = 3
+
+_TEXT_FRAME_HORIZONTAL_MARGINS_IN = 0.02
+_TEXT_FRAME_VERTICAL_MARGINS_IN = 0.02
+_EDITORIAL_BODY_WIDTH_PT = (
+    10.75 - _TEXT_FRAME_HORIZONTAL_MARGINS_IN
+) * 72
+_EDITORIAL_BODY_HEIGHT_PT = (
+    3.55 - _TEXT_FRAME_VERTICAL_MARGINS_IN
+) * 72
+_TWO_COLUMN_BODY_WIDTH_PT = (
+    5.32 - _TEXT_FRAME_HORIZONTAL_MARGINS_IN
+) * 72
+_TWO_COLUMN_BODY_HEIGHT_PT = (
+    4.42 - _TEXT_FRAME_VERTICAL_MARGINS_IN
+) * 72
 _TWO_COLUMN_BODY_FONT_SIZE_PT = 16.0
 _BODY_LINE_HEIGHT = 1.22
+# General portable rendering reserve. Layout profiles with stronger observed
+# substitution variance provide their own factor instead of shrinking unrelated
+# table, process, and diagram contracts.
+_DEFAULT_PORTABLE_FONT_WIDTH_SAFETY_FACTOR = 0.99
+# PowerPoint/LibreOffice render mixed CJK/Latin list lines and indentation wider
+# than Pillow's isolated-glyph sum. This calibrated body-only reserve retains
+# the real frame dimensions, font size, line height, hard breaks, and height.
+BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR = 0.82
 # PowerPoint's font metrics and the portable audit font are not pixel-identical.
 # Reserve one complete rendered line so a frame that is mathematically just under
 # its boundary cannot touch or cross the card edge after Office lays it out.
@@ -45,6 +69,41 @@ _DIAGRAM_CONTENT_Y_IN = 0.70
 _DIAGRAM_CONTENT_HEIGHT_IN = 3.62
 _DIAGRAM_LABEL_FONT_SIZE_PT = 16.0
 _DIAGRAM_LABEL_LINE_HEIGHT = 1.22
+
+
+def semantic_break_positions(text: str) -> list[tuple[int, int]]:
+    """Return deterministic split positions ordered with semantic strength.
+
+    The integer rank is lower for a stronger boundary. Pagination and the
+    renderer share this helper so a page continuation and a two-column card do
+    not make conflicting choices about where prose may be divided.
+    """
+
+    source = str(text or "")
+    ranked_patterns = (
+        (0, r"\n\s*\n"),
+        (1, r"[。！？]|(?<!\d)\.(?:\s+|$)|[!?](?:\s+|$)"),
+        (2, r"\n+|；|;(?:\s+|$)"),
+        (3, r"，|,(?:\s+|$)"),
+        (4, r"\s+"),
+    )
+    ranks_by_position: dict[int, int] = {}
+    for rank, pattern in ranked_patterns:
+        for match in re.finditer(pattern, source):
+            position = match.end()
+            if rank == 4:
+                line_start = source.rfind("\n", 0, match.start()) + 1
+                if re.fullmatch(
+                    r"\s*(?:[-*+>]|#{1,6}|\d+[.)、])\s+",
+                    source[line_start:position],
+                ):
+                    continue
+            if 1 < position < len(source) - 1:
+                ranks_by_position[position] = min(
+                    rank,
+                    ranks_by_position.get(position, rank),
+                )
+    return sorted(ranks_by_position.items())
 
 
 @lru_cache(maxsize=32)
@@ -77,12 +136,16 @@ def _audit_character_width(font_size_px: int, character: str) -> float:
         return float(font.getbbox(character)[2])
 
 
+@lru_cache(maxsize=16384)
 def wrapped_line_count(
     text: str,
     *,
     width_pt: float,
     font_size_pt: float,
     font_loader: Callable[[int], Any] = _audit_font,
+    portable_width_safety_factor: float = (
+        _DEFAULT_PORTABLE_FONT_WIDTH_SAFETY_FACTOR
+    ),
 ) -> int:
     """Measure wrapping with the active font and a portable Unicode floor."""
 
@@ -116,7 +179,12 @@ def wrapped_line_count(
             current_width += character_width
 
     portable_lines = 0
-    maximum_width_em = max(1.0, width_pt / max(1.0, font_size_pt))
+    maximum_width_em = max(
+        1.0,
+        width_pt
+        / max(1.0, font_size_pt)
+        * portable_width_safety_factor,
+    )
     for logical_line in str(text).splitlines() or [""]:
         if not logical_line:
             portable_lines += 1
@@ -198,11 +266,56 @@ def horizontal_process_card_metrics(items: list[str]) -> dict[str, Any]:
     }
 
 
+def classification_three_card_metrics(items: list[str]) -> dict[str, Any]:
+    """Measure each peer item against the renderer's fixed three-card frame."""
+
+    item_count = len(items)
+    if not 1 <= item_count <= _CLASSIFICATION_MAX_ITEMS:
+        return {
+            "fits": False,
+            "item_count": item_count,
+            "wrapped_lines": [],
+            "required_heights_pt": [],
+            "available_height_pt": _CLASSIFICATION_CARD_TEXT_HEIGHT_PT,
+            "text_width_pt": _CLASSIFICATION_CARD_TEXT_WIDTH_PT,
+        }
+    font_sizes_pt = [18.0 if len(item) <= 48 else 16.0 for item in items]
+    wrapped_lines = [
+        wrapped_line_count(
+            item,
+            width_pt=_CLASSIFICATION_CARD_TEXT_WIDTH_PT,
+            font_size_pt=font_size_pt,
+        )
+        for item, font_size_pt in zip(items, font_sizes_pt)
+    ]
+    required_heights_pt = [
+        line_count * font_size_pt * _CLASSIFICATION_CARD_LINE_HEIGHT
+        for line_count, font_size_pt in zip(wrapped_lines, font_sizes_pt)
+    ]
+    return {
+        "fits": all(
+            required <= max(
+                _CLASSIFICATION_CARD_TEXT_HEIGHT_PT * 1.02,
+                _CLASSIFICATION_CARD_TEXT_HEIGHT_PT + 2.0,
+            )
+            for required in required_heights_pt
+        ),
+        "item_count": item_count,
+        "wrapped_lines": wrapped_lines,
+        "font_sizes_pt": font_sizes_pt,
+        "required_heights_pt": required_heights_pt,
+        "available_height_pt": _CLASSIFICATION_CARD_TEXT_HEIGHT_PT,
+        "text_width_pt": _CLASSIFICATION_CARD_TEXT_WIDTH_PT,
+    }
+
+
 def capacity_profile_items_fit(profile: str, items: list[str]) -> bool:
     if not profile:
         return True
     if profile == HORIZONTAL_PROCESS_CARDS_V1:
         return bool(horizontal_process_card_metrics(items)["fits"])
+    if profile == CLASSIFICATION_THREE_CARDS_V1:
+        return bool(classification_three_card_metrics(items)["fits"])
     raise ValueError(f"unknown_template_capacity_profile:{profile}")
 
 
@@ -228,6 +341,9 @@ def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
         source,
         width_pt=_EDITORIAL_BODY_WIDTH_PT,
         font_size_pt=single_font_size_pt,
+        portable_width_safety_factor=(
+            BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+        ),
     )
     single_maximum_safe_lines = max(
         1,
@@ -252,46 +368,14 @@ def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
             "maximum_safe_lines": single_maximum_safe_lines,
         }
 
-    candidates = {
-        match.end()
-        for match in re.finditer(
-            r"\n\s*\n|[。！？；]|[.!?;](?:\s+|$)|\s+",
-            source,
-        )
-        if len(source) // 5 <= match.end() <= len(source) * 4 // 5
-    }
-    if not candidates:
-        candidates = {len(source) // 2}
-
-    def split_cost(position: int) -> tuple[int, int, int]:
-        left = source[:position].strip()
-        right = source[position:].strip()
-        left_lines = wrapped_line_count(
-            left,
-            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
-            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
-        )
-        right_lines = wrapped_line_count(
-            right,
-            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
-            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
-        )
-        return (
-            max(left_lines, right_lines),
-            abs(left_lines - right_lines),
-            abs(position - len(source) // 2),
-        )
-
-    split_at = min(candidates, key=split_cost)
-    segments = [source[:split_at].strip(), source[split_at:].strip()]
-    wrapped_lines = [
-        wrapped_line_count(
-            segment,
-            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
-            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
-        )
-        for segment in segments
+    candidates = [
+        (position, rank)
+        for position, rank in semantic_break_positions(source)
+        if len(source) // 5 <= position <= len(source) * 4 // 5
     ]
+    if not candidates:
+        candidates = [(len(source) // 2, 5)]
+
     maximum_safe_lines = max(
         1,
         int(
@@ -300,6 +384,73 @@ def balanced_two_column_body_metrics(text: str) -> dict[str, Any]:
         )
         - _BODY_BOTTOM_SAFETY_LINES,
     )
+
+    def measured_split(position: int) -> tuple[int, int]:
+        left = source[:position].strip()
+        right = source[position:].strip()
+        left_lines = wrapped_line_count(
+            left,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+            portable_width_safety_factor=(
+                BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+            ),
+        )
+        right_lines = wrapped_line_count(
+            right,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+            portable_width_safety_factor=(
+                BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+            ),
+        )
+        return left_lines, right_lines
+
+    measured_candidates = [
+        (position, rank, *measured_split(position))
+        for position, rank in candidates
+    ]
+    fitting_candidates = [
+        candidate
+        for candidate in measured_candidates
+        if max(candidate[2:]) <= maximum_safe_lines
+    ]
+
+    def split_cost(
+        candidate: tuple[int, int, int, int],
+    ) -> tuple[int, int, int, int]:
+        position, rank, left_lines, right_lines = candidate
+        return (
+            rank,
+            max(left_lines, right_lines),
+            abs(left_lines - right_lines),
+            abs(position - len(source) // 2),
+        )
+
+    if fitting_candidates:
+        split_at = min(fitting_candidates, key=split_cost)[0]
+    else:
+        split_at = min(
+            measured_candidates,
+            key=lambda candidate: (
+                max(candidate[2:]),
+                candidate[1],
+                abs(candidate[2] - candidate[3]),
+                abs(candidate[0] - len(source) // 2),
+            ),
+        )[0]
+    segments = [source[:split_at].strip(), source[split_at:].strip()]
+    wrapped_lines = [
+        wrapped_line_count(
+            segment,
+            width_pt=_TWO_COLUMN_BODY_WIDTH_PT,
+            font_size_pt=_TWO_COLUMN_BODY_FONT_SIZE_PT,
+            portable_width_safety_factor=(
+                BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR
+            ),
+        )
+        for segment in segments
+    ]
     required_heights_pt = [
         line_count * _TWO_COLUMN_BODY_FONT_SIZE_PT * _BODY_LINE_HEIGHT
         for line_count in wrapped_lines
@@ -459,15 +610,19 @@ def diagram_node_layout_metrics(
 
 __all__ = [
     "BALANCED_TWO_COLUMN_BODY_V1",
+    "BALANCED_TWO_COLUMN_BODY_FONT_WIDTH_SAFETY_FACTOR",
+    "CLASSIFICATION_THREE_CARDS_V1",
     "DIAGRAM_SOURCE_PANEL_V1",
     "FIGURE_SOURCE_PANEL_V1",
     "FORMULA_SOURCE_PANEL_V1",
     "HORIZONTAL_PROCESS_CARDS_V1",
     "balanced_two_column_body_metrics",
+    "classification_three_card_metrics",
     "capacity_profile_items_fit",
     "capacity_profile_text_fits",
     "diagram_node_layout_metrics",
     "horizontal_process_card_metrics",
     "source_panel_text_metrics",
+    "semantic_break_positions",
     "wrapped_line_count",
 ]

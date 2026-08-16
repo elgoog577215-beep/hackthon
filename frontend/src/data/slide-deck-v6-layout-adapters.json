@@ -10,7 +10,11 @@
       "capacity_profile": "balanced-two-column-body-v1"
     },
     "concept-pair": { "renderer_layout": "balanced-two-column", "basic_layout": "concept" },
-    "classification-three": { "renderer_layout": "classification-3", "basic_layout": "concept" },
+    "classification-three": {
+      "renderer_layout": "classification-3",
+      "basic_layout": "concept",
+      "capacity_profile": "classification-three-cards-v1"
+    },
     "process-flow": {
       "renderer_layout": "process-sequence",
       "basic_layout": "process",

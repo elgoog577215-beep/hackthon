@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from course_document import stable_hash
 from slide_layout_geometry import (
     BALANCED_TWO_COLUMN_BODY_V1,
+    CLASSIFICATION_THREE_CARDS_V1,
     DIAGRAM_SOURCE_PANEL_V1,
     FIGURE_SOURCE_PANEL_V1,
     FORMULA_SOURCE_PANEL_V1,
@@ -294,7 +295,17 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "classification-three": {
         "intents": ["concept_explanation", "comparison"],
-        "slots": [_TITLE, _slot("items", "items", items=3, chars=330), _NOTES],
+        "slots": [
+            _TITLE,
+            _slot(
+                "items",
+                "items",
+                items=3,
+                chars=330,
+                capacity_profile=CLASSIFICATION_THREE_CARDS_V1,
+            ),
+            _NOTES,
+        ],
         "continuations": ["content-stack"],
     },
     "process-flow": {

@@ -1,8 +1,10 @@
 import asyncio
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import slide_deck_v6_orchestrator as orchestrator_module
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from slide_ai_planning_v6 import AIPlannerInvocationError
@@ -688,6 +690,65 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     assert spec.payload["content"]["build_signature"]["signature"].startswith(
         "slidebuildv6_"
     )
+
+
+@pytest.mark.asyncio
+async def test_materialization_keeps_the_event_loop_responsive(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A large synchronous deck compile must not stall task/status APIs."""
+
+    document = _document()
+    orchestrator, _representations, _candidates = _orchestrator(tmp_path)
+    real_compile = orchestrator_module.compile_slide_deck_v6
+    entered = threading.Event()
+    release = threading.Event()
+    exited = threading.Event()
+    ticks = 0
+
+    def slow_compile(*args, **kwargs):
+        entered.set()
+        release.wait(timeout=2)
+        try:
+            return real_compile(*args, **kwargs)
+        finally:
+            exited.set()
+
+    monkeypatch.setattr(
+        orchestrator_module,
+        "compile_slide_deck_v6",
+        slow_compile,
+    )
+
+    async def event_loop_probe() -> None:
+        nonlocal ticks
+        assert await asyncio.to_thread(entered.wait, 1)
+        while not exited.is_set():
+            ticks += 1
+            await asyncio.sleep(0.01)
+
+    timer = threading.Timer(0.25, release.set)
+    timer.start()
+    try:
+        await asyncio.gather(
+            orchestrator.build(
+                task_id="task-v6-responsive-materialization",
+                document=document,
+                course_data={},
+                mode="teaching",
+                theme="qizhi-classroom",
+                story_planner=_story_planner,
+                visual_planner=_visual_planner,
+                source_revision_provider=lambda: document.document_revision,
+            ),
+            event_loop_probe(),
+        )
+    finally:
+        release.set()
+        timer.cancel()
+
+    assert ticks >= 5
 
 
 @pytest.mark.asyncio
