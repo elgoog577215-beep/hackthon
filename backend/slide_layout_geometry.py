@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 HORIZONTAL_PROCESS_CARDS_V1 = "horizontal-process-cards-v1"
+CLASSIFICATION_THREE_CARDS_V1 = "classification-three-cards-v1"
 BALANCED_TWO_COLUMN_BODY_V1 = "balanced-two-column-body-v1"
 FORMULA_SOURCE_PANEL_V1 = "formula-source-panel-v1"
 FIGURE_SOURCE_PANEL_V1 = "figure-source-panel-v1"
@@ -21,6 +22,11 @@ _PROCESS_TEXT_HEIGHT_IN = 1.95
 _PROCESS_FONT_SIZE_PT = 16.0
 _PROCESS_LINE_HEIGHT = 1.22
 _PROCESS_MAX_ITEMS = 5
+
+_CLASSIFICATION_CARD_TEXT_WIDTH_PT = (3.38 - 0.02) * 72
+_CLASSIFICATION_CARD_TEXT_HEIGHT_PT = (2.35 - 0.02) * 72
+_CLASSIFICATION_CARD_LINE_HEIGHT = 1.22
+_CLASSIFICATION_MAX_ITEMS = 3
 
 _EDITORIAL_BODY_WIDTH_PT = 10.75 * 72
 _EDITORIAL_BODY_HEIGHT_PT = 3.55 * 72
@@ -198,11 +204,56 @@ def horizontal_process_card_metrics(items: list[str]) -> dict[str, Any]:
     }
 
 
+def classification_three_card_metrics(items: list[str]) -> dict[str, Any]:
+    """Measure each peer item against the renderer's fixed three-card frame."""
+
+    item_count = len(items)
+    if not 1 <= item_count <= _CLASSIFICATION_MAX_ITEMS:
+        return {
+            "fits": False,
+            "item_count": item_count,
+            "wrapped_lines": [],
+            "required_heights_pt": [],
+            "available_height_pt": _CLASSIFICATION_CARD_TEXT_HEIGHT_PT,
+            "text_width_pt": _CLASSIFICATION_CARD_TEXT_WIDTH_PT,
+        }
+    font_sizes_pt = [18.0 if len(item) <= 48 else 16.0 for item in items]
+    wrapped_lines = [
+        wrapped_line_count(
+            item,
+            width_pt=_CLASSIFICATION_CARD_TEXT_WIDTH_PT,
+            font_size_pt=font_size_pt,
+        )
+        for item, font_size_pt in zip(items, font_sizes_pt)
+    ]
+    required_heights_pt = [
+        line_count * font_size_pt * _CLASSIFICATION_CARD_LINE_HEIGHT
+        for line_count, font_size_pt in zip(wrapped_lines, font_sizes_pt)
+    ]
+    return {
+        "fits": all(
+            required <= max(
+                _CLASSIFICATION_CARD_TEXT_HEIGHT_PT * 1.02,
+                _CLASSIFICATION_CARD_TEXT_HEIGHT_PT + 2.0,
+            )
+            for required in required_heights_pt
+        ),
+        "item_count": item_count,
+        "wrapped_lines": wrapped_lines,
+        "font_sizes_pt": font_sizes_pt,
+        "required_heights_pt": required_heights_pt,
+        "available_height_pt": _CLASSIFICATION_CARD_TEXT_HEIGHT_PT,
+        "text_width_pt": _CLASSIFICATION_CARD_TEXT_WIDTH_PT,
+    }
+
+
 def capacity_profile_items_fit(profile: str, items: list[str]) -> bool:
     if not profile:
         return True
     if profile == HORIZONTAL_PROCESS_CARDS_V1:
         return bool(horizontal_process_card_metrics(items)["fits"])
+    if profile == CLASSIFICATION_THREE_CARDS_V1:
+        return bool(classification_three_card_metrics(items)["fits"])
     raise ValueError(f"unknown_template_capacity_profile:{profile}")
 
 
@@ -459,11 +510,13 @@ def diagram_node_layout_metrics(
 
 __all__ = [
     "BALANCED_TWO_COLUMN_BODY_V1",
+    "CLASSIFICATION_THREE_CARDS_V1",
     "DIAGRAM_SOURCE_PANEL_V1",
     "FIGURE_SOURCE_PANEL_V1",
     "FORMULA_SOURCE_PANEL_V1",
     "HORIZONTAL_PROCESS_CARDS_V1",
     "balanced_two_column_body_metrics",
+    "classification_three_card_metrics",
     "capacity_profile_items_fit",
     "capacity_profile_text_fits",
     "diagram_node_layout_metrics",

@@ -17,8 +17,10 @@ from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideDeckContent, SlideSpec, validate_slide_deck
 from slide_layout_geometry import (
     BALANCED_TWO_COLUMN_BODY_V1,
+    CLASSIFICATION_THREE_CARDS_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
     balanced_two_column_body_metrics,
+    classification_three_card_metrics,
     diagram_node_layout_metrics,
     horizontal_process_card_metrics,
     wrapped_line_count,
@@ -2608,7 +2610,13 @@ def _render_classification_three(
         for block in unit.blocks
         for value in (block.items or [block.content])
         if value
-    ][:3]
+    ]
+    capacity_profile = str(unit.quality.get("v6_capacity_profile") or "")
+    if (
+        capacity_profile == CLASSIFICATION_THREE_CARDS_V1
+        and not classification_three_card_metrics(items)["fits"]
+    ):
+        raise ValueError("template_slot_capacity_exceeded")
     if len(items) != 3:
         _render_editorial_body(
             slide,
@@ -3099,6 +3107,7 @@ def _render_process(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
                 )
             y += height + gap
         return
+    items = items[:3]
     if capacity_profile == HORIZONTAL_PROCESS_CARDS_V1:
         metrics = horizontal_process_card_metrics(items)
         if not metrics["fits"]:

@@ -46,7 +46,7 @@ from teaching_representations import (
 from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
-SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v20"
+SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v21"
 
 
 def _utc_now() -> str:

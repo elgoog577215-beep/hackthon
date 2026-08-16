@@ -1996,6 +1996,8 @@ def _bounded_slot_content(
         item_limit = max_items or len(complete_items)
         if len(complete_items) > item_limit:
             raise ValueError("template_slot_capacity_exceeded")
+        if not capacity_profile_items_fit(capacity_profile, complete_items):
+            raise ValueError("template_slot_capacity_exceeded")
         content = "\n".join(complete_items).rstrip()
         if len(content) > capacity:
             raise ValueError("template_slot_capacity_exceeded")
@@ -2562,6 +2564,14 @@ def _split_text_block_for_slot(
             max_chars=max_chars,
             max_items=max_items,
             max_lines=max_lines,
+            items_fit=(
+                lambda candidate: capacity_profile_items_fit(
+                    capacity_profile,
+                    candidate,
+                )
+            )
+            if capacity_profile
+            else None,
         )
         return [
             _block_with_source_excerpt(
@@ -3717,6 +3727,23 @@ def _safe_artifact_page_blocks(
                     else [slot_blocks]
                 )
             except ValueError as error:
+                if (
+                    str(error) == "template_slot_capacity_exceeded"
+                    and _declared_continuation_layouts(template, layout)
+                ):
+                    materializations = _safe_paginated_continuations_for_blocks(
+                        page_id=page_id,
+                        template=template,
+                        layout=layout,
+                        source_blocks=source_blocks,
+                        purpose="geometry",
+                    )
+                    _assert_source_driven_pagination_progress(
+                        page_id=page_id,
+                        source_blocks=source_blocks,
+                        materializations=materializations,
+                    )
+                    return materializations
                 raise V6BuildError(
                     stage="template",
                     code="template_slot_capacity_exceeded",
