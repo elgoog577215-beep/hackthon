@@ -1349,8 +1349,17 @@ def _story_unit_request(
             else 0
         )
     safe_page_slices = story_safe_page_slices(unit, template)
-    allowed_page_count_range = story_page_count_range(unit, template)
-    safe_partition_options = story_safe_partition_options(unit, template)
+    allowed_page_count_range = story_page_count_range(
+        unit,
+        template,
+        safe_slices=safe_page_slices,
+    )
+    safe_partition_options = story_safe_partition_options(
+        unit,
+        template,
+        safe_slices=safe_page_slices,
+        allowed_page_count_range=allowed_page_count_range,
+    )
 
     def block_compatible_layout_ids(block_id: str) -> list[str]:
         block_intent = page_teaching_intent(unit, [block_id])

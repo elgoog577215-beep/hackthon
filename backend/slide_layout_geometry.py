@@ -98,6 +98,7 @@ def _audit_character_width(font_size_px: int, character: str) -> float:
         return float(font.getbbox(character)[2])
 
 
+@lru_cache(maxsize=16384)
 def wrapped_line_count(
     text: str,
     *,

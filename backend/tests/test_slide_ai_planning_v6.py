@@ -766,6 +766,58 @@ def test_long_source_heading_offers_semantic_fragments_within_template_capacity(
     assert all(candidate in source and len(candidate) <= 28 for candidate in candidates)
 
 
+def test_story_unit_request_reuses_precomputed_template_partitions(
+    monkeypatch,
+) -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    prepared_slices = [{"start_index": 0, "end_index": 1}]
+    prepared_range = [1, 1]
+    prepared_options = [{"partition_id": "prepared", "pages": []}]
+    calls = {"slices": 0, "range": 0, "options": 0}
+
+    def safe_slices(_unit, _template):
+        calls["slices"] += 1
+        return prepared_slices
+
+    def page_count_range(_unit, _template, *, safe_slices=None):
+        calls["range"] += 1
+        assert safe_slices is prepared_slices
+        return prepared_range
+
+    def partition_options(
+        _unit,
+        _template,
+        *,
+        safe_slices=None,
+        allowed_page_count_range=None,
+    ):
+        calls["options"] += 1
+        assert safe_slices is prepared_slices
+        assert allowed_page_count_range is prepared_range
+        return prepared_options
+
+    monkeypatch.setattr(planning_module, "story_safe_page_slices", safe_slices)
+    monkeypatch.setattr(
+        planning_module,
+        "story_page_count_range",
+        page_count_range,
+    )
+    monkeypatch.setattr(
+        planning_module,
+        "story_safe_partition_options",
+        partition_options,
+    )
+
+    request = planning_module._story_unit_request(graph.units[0], template)
+
+    assert calls == {"slices": 1, "range": 1, "options": 1}
+    assert request["safe_page_slices"] is prepared_slices
+    assert request["allowed_page_count_range"] is prepared_range
+    assert request["safe_partition_options"] is prepared_options
+
+
 @pytest.mark.asyncio
 async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -> None:
     document = _document()

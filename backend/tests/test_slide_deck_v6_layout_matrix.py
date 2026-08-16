@@ -872,6 +872,41 @@ def test_portable_wrapping_reserves_for_substitute_font_variance() -> None:
     ) == 13
 
 
+def test_wrapped_line_measurement_reuses_identical_geometry_work() -> None:
+    class CountingFont:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def getlength(self, character: str) -> float:
+            self.calls += 1
+            return 8.0
+
+    font = CountingFont()
+
+    def load_font(_font_size_px: int):
+        return font
+
+    wrapped_line_count.cache_clear()
+    first = wrapped_line_count(
+        "相同正文 repeated identifier_2026",
+        width_pt=220,
+        font_size_pt=16,
+        font_loader=load_font,
+    )
+    calls_after_first = font.calls
+    second = wrapped_line_count(
+        "相同正文 repeated identifier_2026",
+        width_pt=220,
+        font_size_pt=16,
+        font_loader=load_font,
+    )
+
+    assert first == second
+    assert calls_after_first > 0
+    assert font.calls == calls_after_first
+    wrapped_line_count.cache_clear()
+
+
 def test_balanced_body_geometry_uses_the_text_frame_inner_width() -> None:
     metrics = balanced_two_column_body_metrics(
         "完整来源正文用于验证可编辑文本框的真实内边距。"

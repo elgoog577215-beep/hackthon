@@ -4693,10 +4693,13 @@ def story_safe_page_slices(
 def story_page_count_range(
     unit: CoursePresentationUnitV1,
     template: TemplateLayoutPackContractV1,
+    *,
+    safe_slices: list[dict[str, Any]] | None = None,
 ) -> list[int]:
     """Derive a compact LLM page budget from template-safe source partitions."""
 
-    safe_slices = story_safe_page_slices(unit, template)
+    if safe_slices is None:
+        safe_slices = story_safe_page_slices(unit, template)
     slice_edges = {
         (int(item["start_index"]), int(item["end_index"]))
         for item in safe_slices
@@ -4735,11 +4738,19 @@ def story_safe_partition_options(
     template: TemplateLayoutPackContractV1,
     *,
     max_options_per_page_count: int = 12,
+    safe_slices: list[dict[str, Any]] | None = None,
+    allowed_page_count_range: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Compile safe slices into complete, ordered exact-cover choices for the LLM."""
 
-    safe_slices = story_safe_page_slices(unit, template)
-    allowed_page_count_range = story_page_count_range(unit, template)
+    if safe_slices is None:
+        safe_slices = story_safe_page_slices(unit, template)
+    if allowed_page_count_range is None:
+        allowed_page_count_range = story_page_count_range(
+            unit,
+            template,
+            safe_slices=safe_slices,
+        )
     slices_by_start: dict[int, list[dict[str, Any]]] = {}
     for item in safe_slices:
         slices_by_start.setdefault(int(item["start_index"]), []).append(item)
