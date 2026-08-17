@@ -40,6 +40,8 @@ class ModelCapacityState:
     rate_limited: int = 0
     quota_exhausted: int = 0
     transient_failures: int = 0
+    queue_wait_seconds_total: float = 0.0
+    queue_wait_events: int = 0
 
 
 class ModelCapacityCoolingDown(RuntimeError):
@@ -63,10 +65,20 @@ class CapacityLease:
         self,
         controller: "ProviderCapacityController",
         model_id: str,
+        queue_wait_seconds: float = 0.0,
     ) -> None:
         self._controller = controller
         self.model_id = model_id
+        # A-1：排队等待时长由队列自己计量。调用方用秒表夹住 acquire() 只能
+        # 量到"等了多久"，量不到"为什么等"——是并发位满了，还是 cooldown /
+        # 发车间隔在压着。后者是 B-4 要对齐容量时真正要看的数。
+        self.queue_wait_seconds = queue_wait_seconds
+        self.queue_wait_reason = ""
         self._released = False
+
+    @property
+    def queue_wait_ms(self) -> float:
+        return self.queue_wait_seconds * 1000.0
 
     async def __aenter__(self) -> "CapacityLease":
         return self
@@ -160,6 +172,10 @@ class ProviderCapacityController:
         *,
         on_wait_activity: Callable[[], None] | None = None,
     ) -> CapacityLease:
+        wait_started = time.monotonic()
+        # 只记第一次让出的原因：那是这次请求真正被什么挡住的原因，后续轮次
+        # 往往只是被唤醒后重新检查条件。
+        wait_reason = ""
         while True:
             async with self._condition:
                 state = self._state(model_id)
@@ -189,7 +205,25 @@ class ProviderCapacityController:
                     self._next_provider_start = (
                         now + self.start_interval_seconds
                     )
-                    return CapacityLease(self, model_id)
+                    waited = now - wait_started
+                    state.queue_wait_seconds_total += waited
+                    lease = CapacityLease(self, model_id, waited)
+                    lease.queue_wait_reason = wait_reason
+                    return lease
+
+                if not wait_reason:
+                    if state.in_flight >= state.limit:
+                        wait_reason = "model_concurrency"
+                    elif self._provider_in_flight >= self._provider_limit:
+                        wait_reason = "provider_concurrency"
+                    elif (
+                        self.wait_during_cooldown
+                        and state.cooldown_until > now
+                    ):
+                        wait_reason = "cooldown"
+                    else:
+                        wait_reason = "start_interval"
+                    state.queue_wait_events += 1
 
                 # A release will notify capacity waiters.  A cooldown/spacing
                 # window needs a bounded timer so it can wake without traffic.
@@ -306,6 +340,10 @@ class ProviderCapacityController:
                     "rate_limited": state.rate_limited,
                     "quota_exhausted": state.quota_exhausted,
                     "transient_failures": state.transient_failures,
+                    "queue_wait_seconds_total": round(
+                        state.queue_wait_seconds_total, 3
+                    ),
+                    "queue_wait_events": state.queue_wait_events,
                 }
                 for model_id, state in self._models.items()
             },
