@@ -214,8 +214,8 @@ def test_structural_errors_are_not_treated_as_repairable_gaps():
     assert _gaps(wrong_section) == []
 
 
-def test_relation_failures_are_not_repairable_gaps():
-    """关系类错误不在补写域内：它是跨知识点的结构问题。"""
+def test_relation_failures_are_not_knowledge_detail_gaps():
+    """关系类错误不属于**知识点**补写域，它由关系补写域单独处理。"""
     batch = _batch(
         _detail("K001"), _detail("K002"),
         relations=[{
@@ -229,7 +229,7 @@ def test_relation_failures_are_not_repairable_gaps():
     assert "teaching_batch:relation_missing_required_field" in [
         item["code"] for item in report["blocking_issues"]
     ]
-    # 明细字段都齐全，所以没有可补写的缺口 -> 交回整批纠正处理
+    # 明细字段都齐全，知识点补写域为空；这条缺口归 collect_relation_field_gaps
     assert _gaps(batch) == []
 
 
@@ -387,3 +387,111 @@ def test_wholesale_schema_failure_is_not_repaired_point_by_point():
     # 1/2 缺，正好在阈值上 -> 仍然走补写
     one_missing = _batch(_detail("K001", misconceptions=[]), _detail("K002"))
     assert len(_gaps(one_missing)) == 1
+
+
+# --- 关系必填字段补写 -------------------------------------------------------
+# 20 次真实采样里，补完知识点之后剩下的失败 3 次有 2 次是这一条：
+# derives 关系少写 derivation_steps，整批被打掉。同样按关系粒度补。
+
+from course_teaching_plan_v3 import (  # noqa: E402
+    build_relation_field_repair_prompt,
+    collect_relation_field_gaps,
+    merge_relation_field_repair,
+)
+
+
+def _relation_batch(**relation_overrides) -> dict:
+    relation = {
+        "source_key": "K001",
+        "target_key": "K002",
+        "relation_type": "derives",
+        "reason": "张成空间由线性组合推出",
+    }
+    relation.update(relation_overrides)
+    return _batch(_detail("K001"), _detail("K002"), relations=[relation])
+
+
+def _relation_gaps(batch: dict) -> list[dict]:
+    return collect_relation_field_gaps(batch, batch_spec=SPEC, skeleton=SKELETON)
+
+
+def test_missing_relation_field_is_located_to_one_relation():
+    batch = _relation_batch()  # derives 缺 derivation_steps
+
+    assert _validate(batch)["passed"] is False
+    gaps = _relation_gaps(batch)
+    assert len(gaps) == 1
+    assert gaps[0]["missing_fields"] == ["derivation_steps"]
+    assert gaps[0]["relation_type"] == "derives"
+    # 端点名称来自骨架，补写提示要靠它给上下文
+    assert gaps[0]["source_name"] == "线性组合"
+    assert gaps[0]["target_name"] == "张成空间"
+
+
+def test_complete_relation_reports_no_gap():
+    batch = _relation_batch(derivation_steps=["从线性组合出发", "取全部系数", "得到张成空间"])
+    assert _validate(batch)["passed"] is True
+    assert _relation_gaps(batch) == []
+
+
+def test_relation_repair_fills_field_and_passes_validation():
+    batch = _relation_batch()
+
+    merged = merge_relation_field_repair(
+        batch, node_id="L2-1-1", relation_index=0,
+        repair={"derivation_steps": [
+            "从线性组合的定义出发", "取所有可能的系数组合", "得到张成空间",
+        ]},
+        missing_fields=["derivation_steps"],
+    )
+
+    assert merged is True
+    assert _validate(batch)["passed"] is True
+
+
+def test_relation_repair_rejects_empty_content():
+    """补不出合格内容照样判失败——判据不放宽。"""
+    batch = _relation_batch()
+
+    for junk in (None, {}, {"derivation_steps": []}, {"derivation_steps": ""},
+                 {"other": "x"}):
+        assert merge_relation_field_repair(
+            batch, node_id="L2-1-1", relation_index=0,
+            repair=junk, missing_fields=["derivation_steps"],
+        ) is False
+        assert _validate(batch)["passed"] is False
+
+
+def test_contrasts_with_requires_distinction():
+    batch = _relation_batch(relation_type="contrasts_with", reason="两者常被混同")
+    gaps = _relation_gaps(batch)
+    assert gaps[0]["missing_fields"] == ["distinction"]
+
+    assert merge_relation_field_repair(
+        batch, node_id="L2-1-1", relation_index=0,
+        repair={"distinction": "线性组合是运算，张成空间是运算结果的集合"},
+        missing_fields=["distinction"],
+    ) is True
+    assert _validate(batch)["passed"] is True
+
+
+def test_unknown_relation_endpoints_are_not_repairable():
+    """端点不在骨架里是结构问题，补字段没有意义。"""
+    batch = _relation_batch(target_key="K999")
+    assert _relation_gaps(batch) == []
+
+
+def test_relation_repair_prompt_is_small():
+    prompt = build_relation_field_repair_prompt({
+        "relation_type": "derives",
+        "source_name": "线性组合", "target_name": "张成空间",
+        "source_statement": "向量按标量加权后相加。",
+        "target_statement": "所有线性组合构成的集合。",
+        "reason": "张成空间由线性组合推出",
+        "missing_fields": ["derivation_steps"],
+    })
+
+    assert len(prompt) < 900
+    assert "derivation_steps" in prompt
+    assert "线性组合" in prompt
+    assert "distinction" not in prompt

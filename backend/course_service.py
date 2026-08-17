@@ -145,8 +145,11 @@ from course_teaching_guidance import compile_overall_teaching_guidance
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
     build_knowledge_detail_repair_prompt,
+    build_relation_field_repair_prompt,
     collect_knowledge_detail_gaps,
+    collect_relation_field_gaps,
     merge_knowledge_detail_repair,
+    merge_relation_field_repair,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
@@ -2555,6 +2558,51 @@ class CourseService(AIBase):
                             batch,
                             node_id=str(gap.get("node_id") or ""),
                             knowledge_key=str(gap.get("knowledge_key") or ""),
+                            repair=repaired,
+                            missing_fields=list(gap.get("missing_fields") or []),
+                        ):
+                            repaired_detail_count += 1
+                    # 关系必填字段同理：一条 derives 少写 derivation_steps 也会
+                    # 打掉整批。实测这是补完知识点之后剩下的主要失败模式。
+                    relation_gaps = collect_relation_field_gaps(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                    )
+                    for gap in relation_gaps:
+                        attempt_count += 1
+                        try:
+                            repair_text = await request_model(
+                                user_prompt=(
+                                    "补写该知识关系缺失的必填字段，只输出 JSON。"
+                                ),
+                                system_prompt=(
+                                    build_relation_field_repair_prompt(gap)
+                                ),
+                                enable_thinking=False,
+                                phase=(
+                                    "course_teaching_plan_batch_validation"
+                                ),
+                                progress=45,
+                                heartbeat_message=(
+                                    "仍在等待 AI 补写知识关系 "
+                                    f"{gap.get('source_name')}→{gap.get('target_name')}"
+                                ),
+                                phase_detail=batch_progress_detail,
+                            )
+                        except (
+                            AIProviderRequestError,
+                            CourseGenerationDeadlineExceeded,
+                        ):
+                            continue
+                        repaired = (
+                            self._extract_json(repair_text)
+                            if repair_text else None
+                        )
+                        if merge_relation_field_repair(
+                            batch,
+                            node_id=str(gap.get("node_id") or ""),
+                            relation_index=int(gap.get("relation_index") or 0),
                             repair=repaired,
                             missing_fields=list(gap.get("missing_fields") or []),
                         ):

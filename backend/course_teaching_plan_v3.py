@@ -587,6 +587,162 @@ def collect_knowledge_detail_gaps(
     return gaps
 
 
+def collect_relation_field_gaps(
+    batch: dict[str, Any],
+    *,
+    batch_spec: dict[str, Any],
+    skeleton: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """列出"只差必填字段"的知识关系，供按关系粒度补写。
+
+    与知识点补写同一个道理，只是对象换成关系：一条 `derives` 少写
+    `derivation_steps`，整批就判失败。实测这是补写知识点之后**剩下的主要失败模式**
+    （20 次采样里 3 次失败有 2 次是它）。
+
+    同样不放宽判据：补不回合格的推导步骤／判别说明，照样判失败。
+
+    只处理必填字段缺失这一种。关系类型非法、端点未知、指向未来批次，都是模型
+    没照骨架产出的结构问题，不在补写域内。
+    """
+    expected_ids = list(batch_spec.get("section_ids") or [])
+    if [
+        str(item.get("node_id") or "") for item in batch.get("sections") or []
+    ] != expected_ids:
+        return []
+    registry_by_key = {
+        str(item.get("knowledge_key") or ""): item
+        for item in skeleton.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    }
+
+    gaps: list[dict[str, Any]] = []
+    for section in batch.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        node_id = str(section.get("node_id") or "")
+        for index, relation in enumerate(section.get("knowledge_relations") or []):
+            if not isinstance(relation, dict):
+                continue
+            relation_type = str(relation.get("relation_type") or "").strip()
+            if relation_type not in RELATION_REQUIRED_FIELDS:
+                continue
+            missing = _missing_relation_fields(relation, relation_type)
+            if not missing:
+                continue
+            source_key = str(relation.get("source_key") or "")
+            target_key = str(relation.get("target_key") or "")
+            # 端点必须已知，否则是结构问题，补字段没有意义。
+            if source_key not in registry_by_key or target_key not in registry_by_key:
+                continue
+            gaps.append({
+                "node_id": node_id,
+                "relation_index": index,
+                "relation_type": relation_type,
+                "source_key": source_key,
+                "target_key": target_key,
+                "source_name": str(
+                    (registry_by_key.get(source_key) or {}).get("name") or source_key
+                ),
+                "target_name": str(
+                    (registry_by_key.get(target_key) or {}).get("name") or target_key
+                ),
+                "source_statement": str(
+                    (registry_by_key.get(source_key) or {}).get("statement") or ""
+                ),
+                "target_statement": str(
+                    (registry_by_key.get(target_key) or {}).get("statement") or ""
+                ),
+                "reason": str(relation.get("reason") or ""),
+                "missing_fields": missing,
+            })
+    return gaps
+
+
+_RELATION_FIELD_SPECS: dict[str, tuple[str, str]] = {
+    "derivation_steps": (
+        '["从 A 出发", "代入成立条件", "整理得到 B"]',
+        "推导步骤：每一步是一个可检查的中间判断，不要写成一句话的结论",
+    ),
+    "distinction": (
+        '"A 是……，B 是……，区别在于……"',
+        "判别说明：写清两者最容易被混同的地方，以及怎样区分",
+    ),
+}
+
+
+def build_relation_field_repair_prompt(gap: dict[str, Any]) -> str:
+    """为单条关系构造补写提示。与知识点补写一样，小到不可能触发截断。"""
+    fields = [
+        field for field in gap.get("missing_fields") or []
+        if field in _RELATION_FIELD_SPECS
+    ]
+    schema_lines = [
+        f'  "{field}": {_RELATION_FIELD_SPECS[field][0]}' for field in fields
+    ]
+    requirements = [f"- {_RELATION_FIELD_SPECS[field][1]}" for field in fields]
+    context = [
+        f"关系类型：{gap.get('relation_type')}",
+        f"起点知识：{gap.get('source_name')}",
+    ]
+    if gap.get("source_statement"):
+        context.append(f"  起点陈述：{gap['source_statement']}")
+    context.append(f"终点知识：{gap.get('target_name')}")
+    if gap.get("target_statement"):
+        context.append(f"  终点陈述：{gap['target_statement']}")
+    if gap.get("reason"):
+        context.append(f"已给出的理由：{gap['reason']}")
+    return (
+        "## 补写单条知识关系的缺失字段\n\n"
+        + "\n".join(context)
+        + "\n\n上一次输出缺少下列必填字段，只补这几个字段，不要改动关系类型或端点。\n\n"
+        "要求：\n" + "\n".join(requirements) + "\n"
+        "- 只输出 JSON，不要解释，不要 Markdown 围栏。\n\n"
+        "## JSON Schema\n{\n" + ",\n".join(schema_lines) + "\n}"
+    )
+
+
+def merge_relation_field_repair(
+    batch: dict[str, Any],
+    *,
+    node_id: str,
+    relation_index: int,
+    repair: Any,
+    missing_fields: list[str],
+) -> bool:
+    """把一条关系的补写结果并回批次。补不出合格内容就返回 False，不洗白判据。"""
+    if not isinstance(repair, dict):
+        return False
+    for section in batch.get("sections") or []:
+        if not isinstance(section, dict) or str(section.get("node_id") or "") != node_id:
+            continue
+        relations = section.get("knowledge_relations") or []
+        if not (0 <= relation_index < len(relations)):
+            return False
+        relation = relations[relation_index]
+        if not isinstance(relation, dict):
+            return False
+        relation_type = str(relation.get("relation_type") or "").strip()
+        filled = 0
+        for field in missing_fields:
+            value = repair.get(field)
+            if field == "derivation_steps":
+                steps = _unique(list(value or [])) if isinstance(value, list) else (
+                    _unique([value]) if isinstance(value, str) and value.strip() else []
+                )
+                if steps:
+                    relation[field] = steps
+                    filled += 1
+            elif isinstance(value, str) and value.strip():
+                relation[field] = value.strip()
+                filled += 1
+        # 用同一个判据复核：补完之后这条关系必须真的不缺字段了。
+        return (
+            filled == len(missing_fields)
+            and not _missing_relation_fields(relation, relation_type)
+        )
+    return False
+
+
 def merge_knowledge_detail_repair(
     batch: dict[str, Any],
     *,
