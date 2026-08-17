@@ -1965,56 +1965,6 @@ class AssessmentGenerationOrchestrator:
         progress_lock = asyncio.Lock()
         chapter_callback_lock = asyncio.Lock()
         completed_items = 0
-        # 合批器按「本轮」建，不按「每小节」建。
-        #
-        # B-3：此前这三个 batcher 建在 `run_node` 内部，于是每个小节各拿一份，
-        # 各自的 `_pending` 永远不相见。实测两个小节的修复请求只差 5–10ms、
-        # 落在同一个 100ms 合批窗口内，本该合成一次调用，却因为分属两个实例
-        # 各发一次——`repair_candidate_batch` 六道题调用六次、每次
-        # batch_size=1。合批代码一直在跑，只是合批集合的作用域被切碎了。
-        #
-        # 提到这里之后作用域与 `semaphore`/`node_semaphore` 圈定的并发范围一致：
-        # 真正可能同时在飞的请求现在落进同一个 `_pending`。
-        #
-        # 这不是靠"等更久"换来的：实测把窗口调到 2s 仍是每批一条，窗口从来不是
-        # 瓶颈。跨小节共用一个实例也不会串题——`slot_id` 由含 node_id 的字段
-        # 哈希而来（assessment_blueprint.py:301），全局唯一，回填按 slot_id 对号。
-        semantic_batcher = _SemanticEvaluationBatcher(
-            model=self.model,
-            audit=audit,
-            max_wait_seconds=(
-                float(
-                    os.getenv(
-                        "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
-                        "1",
-                    )
-                )
-                if sum(
-                    _semantic_review_candidate_count(
-                        blueprint,
-                        reference_package,
-                        node_id=str(node.get("node_id") or ""),
-                    )
-                    for node in target_nodes
-                ) >= 2
-                else 0.0
-            ),
-            generation_policy=generation_policy,
-        )
-        solution_batcher = _IndependentSolutionBatcher(
-            model=self.model,
-            audit=audit,
-            generation_policy=generation_policy,
-            max_wait_seconds=0.01,
-        )
-        # 修复也合批。此前只有 fast 档创建 batcher，deliberate 下为 None，
-        # 于是每一次修复都是单独的 repair_single——而修复是按「多道题同时
-        # 不过」成批发生的，正是最该合批的调用。
-        repair_batcher = _CandidateRepairBatcher(
-            model=self.model,
-            audit=audit,
-            generation_policy=generation_policy,
-        )
 
         async def run_node(node: dict[str, Any]) -> None:
             nonlocal completed_items
@@ -2046,6 +1996,39 @@ class AssessmentGenerationOrchestrator:
                         practice_levels=node_practice_levels,
                         generation_policy=generation_policy,
                     )
+                )
+                semantic_batcher = _SemanticEvaluationBatcher(
+                    model=self.model,
+                    audit=audit,
+                    max_wait_seconds=(
+                        float(
+                            os.getenv(
+                                "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
+                                "1",
+                            )
+                        )
+                        if _semantic_review_candidate_count(
+                            blueprint,
+                            reference_package,
+                            node_id=node_id,
+                        ) >= 2
+                        else 0.0
+                    ),
+                    generation_policy=generation_policy,
+                )
+                solution_batcher = _IndependentSolutionBatcher(
+                    model=self.model,
+                    audit=audit,
+                    generation_policy=generation_policy,
+                    max_wait_seconds=0.01,
+                )
+                # 修复也合批。此前只有 fast 档创建 batcher，deliberate 下为
+                # None，于是每一次修复都是单独的 repair_single——而修复是按
+                # 「同一节的多个层级同时不过」成批发生的，正是最该合批的调用。
+                repair_batcher = _CandidateRepairBatcher(
+                    model=self.model,
+                    audit=audit,
+                    generation_policy=generation_policy,
                 )
 
                 async def run_slot(
@@ -2278,10 +2261,14 @@ class AssessmentGenerationOrchestrator:
 
         result: dict[str, dict[str, Any]] = {}
         for group in grouped.values():
-            for batch_contexts in _even_batches(
-                group,
+            for offset in range(
+                0,
+                len(group),
                 generation_policy.generation_batch_size,
             ):
+                batch_contexts = group[
+                    offset:offset + generation_policy.generation_batch_size
+                ]
                 if len(batch_contexts) < 2:
                     continue
                 call_policy = generation_policy.call_policy(
@@ -3365,36 +3352,6 @@ def _audit_snapshot(audit: dict[str, Any]) -> dict[str, Any]:
             audit.get("physical_calls") or []
         ),
     }
-
-
-def _even_batches(
-    items: list[dict[str, Any]],
-    batch_size: int,
-) -> list[list[dict[str, Any]]]:
-    """Chunk items without leaving a single-item remainder behind.
-
-    B-3：原来是定长切片 + `if len(batch) < 2: continue`。deliberate 档
-    `generation_batch_size=2` 遇上一节三个层级，切成 `[2, 1]`，那个 1
-    被 `continue` 丢掉、回落成单条 `generate_candidate`——于是"批量生成"
-    每节仍要发两次请求，其中一次是没批到的零头。
-
-    这里把零头并进前一批（3 个层级 → 一批 3 条，一次请求）。上限是
-    batch_size+1，不是无界：fast 档本来就用 batch_size=3 打同一个 12288 的
-    输出上限，所以多带一条在已验证的量级内。
-
-    只剩一条、前面没有批可并时仍然返回单元素批，由调用方按原逻辑跳过——
-    那种情况本来就没有东西可合。
-    """
-
-    if batch_size < 1:
-        return [list(items)] if items else []
-    batches = [
-        list(items[offset:offset + batch_size])
-        for offset in range(0, len(items), batch_size)
-    ]
-    if len(batches) > 1 and len(batches[-1]) == 1:
-        batches[-2].extend(batches.pop())
-    return batches
 
 
 async def _call_model_method(

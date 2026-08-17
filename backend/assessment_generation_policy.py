@@ -159,21 +159,7 @@ def resolve_assessment_generation_policy(
         version=ASSESSMENT_GENERATION_POLICY_VERSION,
         max_generation_attempts=4,
         generation_batch_size=2,
-        # 独立求解在 deliberate 档也合批。
-        #
-        # B-3：这里原本是 1，而 `_IndependentSolutionBatcher.solve` 判
-        # `solution_batch_size < 2` 就直接 `return None`——等于 deliberate 档
-        # 的求解合批被整个关掉。实测 6 道题一轮里有 14 次是单条求解，是所有
-        # 调用里最大的一项。
-        #
-        # 合批不会挤压单题的输出预算：`solve_candidate_batch` 的
-        # `max_tokens=min(8192, 2048 * len(items))` 是按条累加的，2 条拿 4096，
-        # 每条仍是 2048，与单条求解完全相同。所以这不是拿质量换次数。
-        #
-        # 取 2 而不是 3：deliberate 的求解要独立复核 canonical answer，是契约
-        # 强度最高的一环，2 条已经把次数砍半，没必要为了更好看的数字把一次
-        # 请求里的题目堆到最多。
-        solution_batch_size=2,
+        solution_batch_size=1,
         max_provider_attempts=None,
         compact_candidate=False,
         max_model_solve_calls_per_question=3,
