@@ -462,6 +462,250 @@ def normalize_teaching_plan_batch_v3(
     return normalized
 
 
+# 知识点三类必填明细的判据。校验器与补写域共用同一组谓词——两边一旦漂移，
+# 就会出现"校验说缺、补写认为不缺"的死循环，所以它们必须只有一个定义处。
+#
+# 每个谓词回答同一个问题：这一条明细**能不能用**。返回 False 表示这条要么形状
+# 不对、要么必填字段是空的，编译到教案上就是一句空话。
+def _capability_is_usable(item: Any) -> bool:
+    return (
+        isinstance(item, dict)
+        and bool(str(item.get("observable_behavior") or "").strip())
+    )
+
+
+def _mastery_is_usable(item: Any) -> bool:
+    return (
+        isinstance(item, dict)
+        and bool(str(item.get("observable_performance") or "").strip())
+        and bool(str(item.get("verification_method") or "").strip())
+    )
+
+
+def _misconception_is_usable(item: Any) -> bool:
+    return (
+        isinstance(item, dict)
+        and bool(str(item.get("observable_error_pattern") or "").strip())
+        and bool(str(item.get("discrimination") or "").strip())
+        and bool(str(item.get("repair_strategy") or "").strip())
+    )
+
+
+# 补写域：字段名 -> (判据, 该字段缺失时报的码)。顺序即补写提示里的呈现顺序。
+_REPAIRABLE_DETAIL_FIELDS: tuple[tuple[str, Any, str], ...] = (
+    ("capability_points", _capability_is_usable, "teaching_batch:empty_capability"),
+    ("mastery_criteria", _mastery_is_usable, "teaching_batch:empty_mastery"),
+    ("misconceptions", _misconception_is_usable, "teaching_batch:invalid_misconception"),
+)
+
+
+def collect_knowledge_detail_gaps(
+    batch: dict[str, Any],
+    *,
+    batch_spec: dict[str, Any],
+    skeleton: dict[str, Any],
+    max_repair_ratio: float = 0.5,
+) -> list[dict[str, Any]]:
+    """列出"只差明细字段"的知识点，供按知识点粒度补写。
+
+    这是为了拆开一个结构问题：批次校验是全有全无的，38 个知识点里任何一个漏写
+    `misconceptions`，整批就判失败、落本地回退、触发整轮语义重试。实测单点漏写率
+    约 2.9%，于是全课一次通过率只有 (1-0.029)^38 ≈ 33%。
+
+    这里**不放宽任何判据**——漏写仍然是漏写。改变的只是修复粒度：能定位到具体
+    知识点的缺口单独补，补不回来照样判失败。
+
+    只有当批次的其余部分（小节集合、知识键顺序、关系、模块绑定）都合法时才返回
+    缺口；结构性错误（`section_mismatch`、`knowledge_key_mismatch` 等）说明模型
+    没照骨架产出，那是整批重来的事，不是补一个字段能救的。
+
+    `max_repair_ratio` 是"零星漏写"与"整体没照 schema 写"的分界。补写的前提是
+    大部分知识点已经写对、只有个别漏字段；如果超过一半的知识点都缺，那不是零星
+    漏写，是模型整体跑偏——这时逐个补写既慢（一批最多 15 个知识点就是 15 次串行
+    调用）又多半救不回来，不如直接交回整批纠正／本地回退。返回空列表即表示
+    "这一批不适用补写"，与结构错误同一处置。
+    """
+    expected_ids = list(batch_spec.get("section_ids") or [])
+    actual_by_id = {
+        str(item.get("node_id") or ""): item
+        for item in batch.get("sections") or []
+        if isinstance(item, dict)
+    }
+    if [str(item.get("node_id") or "") for item in batch.get("sections") or []] != expected_ids:
+        return []
+    identity_by_id = {
+        str(item.get("node_id") or ""): item
+        for item in skeleton.get("sections") or []
+        if isinstance(item, dict)
+    }
+    registry_by_key = {
+        str(item.get("knowledge_key") or ""): item
+        for item in skeleton.get("knowledge_registry") or []
+        if isinstance(item, dict)
+    }
+
+    gaps: list[dict[str, Any]] = []
+    for node_id in expected_ids:
+        actual = actual_by_id.get(node_id) or {}
+        expected_keys = list(
+            (identity_by_id.get(node_id) or {}).get("owned_knowledge_keys") or []
+        )
+        details = list(actual.get("knowledge_details") or [])
+        if [str(item.get("knowledge_key") or "") for item in details] != expected_keys:
+            # 知识键对不上骨架，属于结构错误，整批重来。
+            return []
+        for detail in details:
+            key = str(detail.get("knowledge_key") or "")
+            missing = [
+                field
+                for field, is_usable, _code in _REPAIRABLE_DETAIL_FIELDS
+                if not [
+                    item for item in (detail.get(field) or []) if is_usable(item)
+                ]
+            ]
+            if not missing:
+                continue
+            canonical = registry_by_key.get(key) or {}
+            gaps.append({
+                "node_id": node_id,
+                "knowledge_key": key,
+                "name": str(canonical.get("name") or key),
+                "statement": str(canonical.get("statement") or ""),
+                "knowledge_type": str(detail.get("knowledge_type") or "concept"),
+                "concept_group": str(detail.get("concept_group") or ""),
+                "conditions": _unique(list(detail.get("conditions") or [])),
+                "boundaries": _unique(list(detail.get("boundaries") or [])),
+                "missing_fields": missing,
+            })
+    # 缺口占比过高说明模型整体没照 schema 写，不是零星漏写：交回整批处理。
+    total_points = sum(
+        len((actual_by_id.get(node_id) or {}).get("knowledge_details") or [])
+        for node_id in expected_ids
+    )
+    if total_points and len(gaps) > total_points * max_repair_ratio:
+        return []
+    return gaps
+
+
+def merge_knowledge_detail_repair(
+    batch: dict[str, Any],
+    *,
+    node_id: str,
+    knowledge_key: str,
+    repair: Any,
+    missing_fields: list[str],
+) -> bool:
+    """把一个知识点的补写结果并回批次，只填先前缺失的字段。
+
+    只接受**可用**的条目：模型补回来的东西如果本身还是空壳（比如给了
+    `mastery_criteria` 却没有 `verification_method`），一律丢弃并返回 False，
+    让批次继续判失败。否则就成了"补写把判据洗白了"。
+
+    也绝不覆盖已经有内容的字段——补写只填坑，不改写模型已经写对的部分。
+    """
+    if not isinstance(repair, dict):
+        return False
+    predicates = {
+        field: is_usable for field, is_usable, _code in _REPAIRABLE_DETAIL_FIELDS
+    }
+    aliases = {
+        "capability_points": _CAPABILITY_ALIASES,
+        "mastery_criteria": _MASTERY_ALIASES,
+        "misconceptions": _MISCONCEPTION_ALIASES,
+    }
+    primary = {
+        "capability_points": "observable_behavior",
+        "mastery_criteria": "observable_performance",
+        "misconceptions": "observable_error_pattern",
+    }
+
+    for section in batch.get("sections") or []:
+        if not isinstance(section, dict) or str(section.get("node_id") or "") != node_id:
+            continue
+        for detail in section.get("knowledge_details") or []:
+            if not isinstance(detail, dict):
+                continue
+            if str(detail.get("knowledge_key") or "") != knowledge_key:
+                continue
+            filled = 0
+            for field in missing_fields:
+                is_usable = predicates.get(field)
+                if is_usable is None:
+                    continue
+                # 已经有可用内容就不动它。
+                if [item for item in (detail.get(field) or []) if is_usable(item)]:
+                    continue
+                repaired = _repair_detail_list(
+                    repair.get(field),
+                    aliases=aliases[field],
+                    primary_field=primary[field],
+                )
+                usable = [item for item in repaired if is_usable(item)]
+                if usable:
+                    detail[field] = usable
+                    filled += 1
+            return filled == len(missing_fields)
+    return False
+
+
+_REPAIR_FIELD_SPECS: dict[str, tuple[str, str]] = {
+    "capability_points": (
+        "capability_points",
+        '[{"name": "能力名称", "observable_behavior": "独立可观察动作"}]',
+    ),
+    "mastery_criteria": (
+        "mastery_criteria",
+        '[{"name": "掌握标准", "observable_performance": "独立表现，写清用什么任务、'
+        '做到什么程度算达标", "verification_method": "验证方法，写清用什么题、'
+        '看什么作答表现判定"}]',
+    ),
+    "misconceptions": (
+        "misconceptions",
+        '[{"name": "错误模式", "observable_error_pattern": "具体错误表现", '
+        '"discrimination": "怎样与正确做法区分", "repair_strategy": "修复策略"}]',
+    ),
+}
+
+
+def build_knowledge_detail_repair_prompt(gap: dict[str, Any]) -> str:
+    """为单个知识点构造补写提示。
+
+    刻意做得很小：只带这一个知识点的身份与缺失字段，不带整批上下文。这样输出
+    只有几百字符，**结构上不可能触发 max_tokens 截断**——这正是把"漏写"与
+    "截断"两类失败彻底分开的关键。整批纠正提示要重发上万字符的原文，本身就有
+    再次截断的风险，而补写没有。
+    """
+    fields = [
+        field for field in gap.get("missing_fields") or []
+        if field in _REPAIR_FIELD_SPECS
+    ]
+    schema_lines = [
+        f'  "{name}": {example}'
+        for name, example in (_REPAIR_FIELD_SPECS[field] for field in fields)
+    ]
+    context = [f"知识点名称：{gap.get('name') or gap.get('knowledge_key')}"]
+    if gap.get("statement"):
+        context.append(f"规范陈述：{gap['statement']}")
+    if gap.get("knowledge_type"):
+        context.append(f"知识类型：{gap['knowledge_type']}")
+    if gap.get("conditions"):
+        context.append(f"成立条件：{'；'.join(gap['conditions'])}")
+    if gap.get("boundaries"):
+        context.append(f"适用边界：{'；'.join(gap['boundaries'])}")
+    return (
+        "## 补写单个知识点的缺失明细\n\n"
+        + "\n".join(context)
+        + "\n\n上一次输出遗漏了下列字段，只补这几个字段，不要重复已有内容，"
+        "不要改动知识点名称或陈述。\n\n"
+        "要求：\n"
+        "- 可观察能力写学习者能独立做出的动作，不要写「理解」「掌握」这类不可观察的词。\n"
+        "- 掌握标准必须同时给出可观察表现与验证方法，两者都不能空。\n"
+        "- 易错点必须同时给出错误表现、与正确做法的判别方式、修复策略，三者都不能空。\n"
+        "- 只输出 JSON，不要解释，不要 Markdown 围栏。\n\n"
+        "## JSON Schema\n{\n" + ",\n".join(schema_lines) + "\n}"
+    )
+
+
 def validate_teaching_plan_batch_v3(
     batch: dict[str, Any],
     *,
@@ -519,25 +763,16 @@ def validate_teaching_plan_batch_v3(
                 issues.append(_issue("teaching_batch:unobservable_mastery", f"知识键 {key} 必须有可观察能力与掌握标准"))
             if not detail.get("misconceptions"):
                 issues.append(_issue("teaching_batch:missing_misconception", f"知识键 {key} 必须包含至少一个可信易错点"))
+            # 判据与 `_REPAIRABLE_DETAIL_FIELDS` 共用同一组谓词：补写域认为"还缺"
+            # 的，这里必须照样报错，否则会出现补写补不动、校验却放行的错位。
             for capability in detail.get("capability_points") or []:
-                if not isinstance(capability, dict) or not str(
-                    capability.get("observable_behavior") or ""
-                ).strip():
+                if not _capability_is_usable(capability):
                     issues.append(_issue("teaching_batch:empty_capability", f"知识键 {key} 的能力必须给出可观察行为"))
             for criterion in detail.get("mastery_criteria") or []:
-                if (
-                    not isinstance(criterion, dict)
-                    or not str(criterion.get("observable_performance") or "").strip()
-                    or not str(criterion.get("verification_method") or "").strip()
-                ):
+                if not _mastery_is_usable(criterion):
                     issues.append(_issue("teaching_batch:empty_mastery", f"知识键 {key} 的掌握标准必须可观察、可验证"))
             for misconception in detail.get("misconceptions") or []:
-                if (
-                    not isinstance(misconception, dict)
-                    or not str(misconception.get("observable_error_pattern") or "").strip()
-                    or not str(misconception.get("discrimination") or "").strip()
-                    or not str(misconception.get("repair_strategy") or "").strip()
-                ):
+                if not _misconception_is_usable(misconception):
                     issues.append(_issue("teaching_batch:invalid_misconception", f"知识键 {key} 的易错点必须包含错误表现、判别与修复策略"))
         # 只统计"能活过编译层"的关系类型。非法类型或缺必填字段的关系会被
         # `_compile_relations` 整条丢弃，把它们算进多样性会让软门槛被一条注定
