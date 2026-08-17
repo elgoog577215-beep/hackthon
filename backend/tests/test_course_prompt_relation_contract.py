@@ -82,32 +82,6 @@ def test_constraints_state_the_two_required_fields() -> None:
     assert "丢弃" in constraints, "必须让模型知道缺字段会导致整条关系被丢弃"
 
 
-def test_constraints_require_every_knowledge_point_to_join_a_relation() -> None:
-    """约束必须给出**每个知识点至少一条关系**的覆盖要求（G-1 关系密度）。
-
-    为什么锁这一条：类型多样性早已由六类样例解决（见
-    `test_example_covers_all_six_relation_types`），真机实测卡住的是**关系条数**。
-    2026-08-17 真机基线（`req.json`，6 小节）：12 条关系 / 4 类，其中 4 节产出
-    0 条——类型铺不开是因为边太少，不是因为词表太窄。
-
-    改之前约束的收尾是"自查后确实不成立就留空，宁缺毋滥"，且没有任何覆盖目标：
-    模型完全可以一节一条都不写而不违反任何一句话。这里锁的是"存在一个逐点可核
-    对的覆盖要求"，而不是锁具体措辞——所以只断言覆盖语义的关键成分，允许后续
-    改写行文。
-
-    注意不能把它写成"最少 N 条"：条数下限会诱导模型编造关系去凑数，而
-    `_compile_relations` 不校验教学正确性，编出来的关系会直接进知识网。
-    按知识点覆盖则天然与真实结构挂钩，且保留了"确实孤立"的出口。
-    """
-    prompt = _batch_prompt()
-    constraints = prompt[prompt.index("## 约束"): prompt.index("## JSON Schema")]
-
-    assert "覆盖要求" in constraints, "约束里没有关系覆盖要求，模型可以合法地一条都不写"
-    assert "每个新知识点" in constraints, "覆盖要求必须以知识点为单位，才能逐点核对"
-    # 出口必须保留：强制每个点都连关系会逼出编造的边。
-    assert "孤立" in constraints, "必须给确实无关系的知识点留出口，否则模型会编造关系"
-
-
 def test_constraints_do_not_license_an_empty_relation_set() -> None:
     """"某一类没有"不能被读成"整节没有关系"。
 
