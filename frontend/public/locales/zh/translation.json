@@ -277,8 +277,23 @@
     "pageNumber": "第 {count} 页",
     "editablePreview": "可编辑文本 · {theme}",
     "restart": "重新填写",
-    "roles": { "cover": "封面", "chapter": "章节", "objectives": "目标", "definition": "定义", "process": "推演", "practice": "练习", "evidence": "证据", "recap": "复盘" },
-    "themes": { "qizhi": "启智课堂", "academic": "学术编辑", "grid": "网格笔记", "modern": "现代几何", "dark": "深色科技" }
+    "roles": {
+      "cover": "封面",
+      "chapter": "章节",
+      "objectives": "目标",
+      "definition": "定义",
+      "process": "推演",
+      "practice": "练习",
+      "evidence": "证据",
+      "recap": "复盘"
+    },
+    "themes": {
+      "qizhi": "启智课堂",
+      "academic": "学术编辑",
+      "grid": "网格笔记",
+      "modern": "现代几何",
+      "dark": "深色科技"
+    }
   },
   "pptWorkspace": {
     "open": "打开 PPT 工作台",
@@ -2017,7 +2032,11 @@
       "diffUpdated": "内容修改",
       "changedName": "标题",
       "changedObjective": "学习目标",
-      "changedDependencies": "前置依赖"
+      "changedDependencies": "前置依赖",
+      "coverageHours": "{hours} 课时",
+      "coverageUncovered": "本次不覆盖",
+      "coverageComplete": "本次为{label}，可按完整课程组织",
+      "coveragePartial": "本次为{label}，不承担学科完整覆盖"
     },
     "lessonPlan": {
       "eyebrow": "唯一正式全课教案",

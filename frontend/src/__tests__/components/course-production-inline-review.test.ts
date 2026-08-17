@@ -371,4 +371,108 @@ describe('课程生产内联确认', () => {
     expect(wrapper.text()).not.toContain('确认这门课')
     expect(wrapper.text()).not.toContain('courseGeneration.')
   })
+
+  it('D-1：在确认目录时就显示覆盖度判断与不覆盖清单', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const draft = {
+      base_blueprint_revision_id: 'bp-1',
+      course_name: '微积分核心概览课',
+      course_purpose: 'systematic',
+      course_blueprint: {},
+      learning_asset_plan: {},
+      blueprint_locks: {},
+      nodes: [
+        {
+          node_id: 'n1',
+          parent_node_id: '',
+          node_level: 2,
+          node_name: '函数与极限',
+          learning_objective: '理解极限',
+        },
+      ],
+    }
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: draft,
+      coverage: {
+        available: true,
+        status: 'partial',
+        scale: 'micro',
+        scale_label: '微型课',
+        class_hours: 8,
+        may_claim_complete_subject: false,
+        coverage_promise: '只覆盖一个可检查的核心切面，不承担学科完整覆盖',
+        required_positioning: '微积分核心概览课',
+        covered_topics: ['函数、极限与连续'],
+        uncovered_topics: ['中值定理', '洛必达法则与未定式', '反常积分'],
+        uncovered_count: 3,
+        advisories: ['建议一：压缩为核心课，只保留最关键的 8 个主题'],
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'c1',
+        courseName: '微积分',
+        task: {
+          id: 'job-1',
+          courseId: 'c1',
+          courseName: '微积分',
+          status: 'waiting_for_review',
+          progress: 28,
+          currentStep: 'outline',
+          logs: [],
+          shouldStop: false,
+        } as unknown as Task,
+      },
+    })
+    await flushPromises()
+
+    const verdict = wrapper.get('[data-testid="outline-coverage-verdict"]')
+    expect(verdict.attributes('data-status')).toBe('partial')
+    expect(verdict.text()).toContain('微型课')
+    expect(verdict.text()).toContain('8 课时')
+    // 点名的缺失知识点必须逐条出现在确认页上。
+    const uncovered = wrapper.get('[data-testid="outline-coverage-uncovered"]').text()
+    expect(uncovered).toContain('中值定理')
+    expect(uncovered).toContain('洛必达法则与未定式')
+    expect(uncovered).toContain('反常积分')
+    expect(verdict.text()).toContain('压缩为核心课')
+  })
+
+  it('D-1：后端没有给出判定时保持沉默，不得暗示课程完整', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-1',
+        course_name: '老课程',
+        course_purpose: 'systematic',
+        course_blueprint: {},
+        learning_asset_plan: {},
+        blueprint_locks: {},
+        nodes: [],
+      },
+      coverage: { available: false, status: 'unknown' },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'c1',
+        courseName: '老课程',
+        task: {
+          id: 'job-1',
+          courseId: 'c1',
+          courseName: '老课程',
+          status: 'waiting_for_review',
+          progress: 28,
+          currentStep: 'outline',
+          logs: [],
+          shouldStop: false,
+        } as unknown as Task,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="outline-coverage-verdict"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('完整课程')
+  })
 })

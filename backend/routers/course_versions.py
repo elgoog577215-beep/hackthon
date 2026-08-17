@@ -115,6 +115,9 @@ async def get_blueprint(course_id: str):
             )
             or {}
         ),
+        # D-1：大纲确认页就在这个端点上，覆盖度判断必须跟目录一起到达前端，
+        # 否则用户要等整门课生成完才知道它没覆盖半个学科。
+        "coverage": TaskManager.project_course_coverage(course),
     }
 
 

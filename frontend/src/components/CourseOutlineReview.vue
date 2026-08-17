@@ -44,6 +44,34 @@
           </label>
 
           <section
+            v-if="coverageVerdict"
+            class="outline-coverage"
+            :data-status="coverageVerdict.status"
+            data-testid="outline-coverage-verdict"
+          >
+            <header>
+              <strong>{{ coverageHeadline }}</strong>
+              <small v-if="coverageVerdict.class_hours">
+                {{ t('courseGeneration.outlineReview.coverageHours', '{hours} 课时').replace('{hours}', String(coverageVerdict.class_hours)) }}
+              </small>
+            </header>
+            <p v-if="coverageVerdict.coverage_promise">{{ coverageVerdict.coverage_promise }}</p>
+            <div
+              v-if="coverageUncovered.length"
+              class="outline-coverage__uncovered"
+              data-testid="outline-coverage-uncovered"
+            >
+              <span>{{ t('courseGeneration.outlineReview.coverageUncovered', '本次不覆盖') }}</span>
+              <ul>
+                <li v-for="topic in coverageUncovered" :key="topic">{{ topic }}</li>
+              </ul>
+            </div>
+            <ul v-if="coverageAdvisories.length" class="outline-coverage__advisories">
+              <li v-for="item in coverageAdvisories" :key="item">{{ item }}</li>
+            </ul>
+          </section>
+
+          <section
             v-if="retrievalProposal"
             class="outline-retrieval"
             data-testid="retrieval-outline-proposal"
@@ -427,6 +455,37 @@ const workspace = useCourseWorkspaceStore()
 const generationStore = useGenerationStore()
 const blueprintDraft = ref<Record<string, any>>({})
 const retrievalArtifact = ref<Record<string, any>>({})
+// D-1：课程规格与覆盖度判定。只在后端真的给出判定时展示——没有判定时保持沉默，
+// 而不是显示"完整"，因为"沉默被当成完整"正是这个问题的由来。
+const coverageArtifact = ref<Record<string, any>>({})
+const coverageVerdict = computed(() => (
+  coverageArtifact.value?.available ? coverageArtifact.value : null
+))
+const coverageUncovered = computed<string[]>(() => (
+  Array.isArray(coverageVerdict.value?.uncovered_topics)
+    ? coverageVerdict.value.uncovered_topics.map((item: any) => String(item))
+    : []
+))
+const coverageAdvisories = computed<string[]>(() => (
+  Array.isArray(coverageVerdict.value?.advisories)
+    ? coverageVerdict.value.advisories.map((item: any) => String(item))
+    : []
+))
+const coverageHeadline = computed(() => {
+  const verdict = coverageVerdict.value
+  if (!verdict) return ''
+  const label = String(verdict.scale_label || '')
+  if (verdict.may_claim_complete_subject) {
+    return t(
+      'courseGeneration.outlineReview.coverageComplete',
+      '本次为{label}，可按完整课程组织',
+    ).replace('{label}', label)
+  }
+  return t(
+    'courseGeneration.outlineReview.coveragePartial',
+    '本次为{label}，不承担学科完整覆盖',
+  ).replace('{label}', label)
+})
 const baseline = ref('')
 const loading = ref(false)
 const saving = ref(false)
@@ -600,6 +659,7 @@ async function loadBlueprint() {
   try {
     const data = await workspace.loadBlueprint(props.courseId)
     retrievalArtifact.value = clone(data.retrieval || {})
+    coverageArtifact.value = clone(data.coverage || {})
     blueprintDraft.value = clone(data.draft || data.current || data || {})
     seedNodesFromCourse()
     if (!blueprintDraft.value.course_name) blueprintDraft.value.course_name = props.courseName
@@ -1039,6 +1099,20 @@ async function confirmOutline() {
   font-size:10px;
   line-height:1.5;
 }
+.outline-coverage { margin:14px 30px 2px; border:1px solid #fed7aa; border-radius:12px; padding:13px; background:linear-gradient(135deg,#fff7ed,#fffbf5); }
+.outline-coverage[data-status="complete"] { border-color:#bbf7d0; background:linear-gradient(135deg,#f0fdf4,#fafffb); }
+.outline-coverage > header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.outline-coverage > header strong { color:#9a3412; font-size:13px; }
+.outline-coverage[data-status="complete"] > header strong { color:#166534; }
+.outline-coverage > header small { border-radius:999px; padding:3px 7px; color:#9a3412; background:#ffedd5; font-size:9px; white-space:nowrap; }
+.outline-coverage[data-status="complete"] > header small { color:#166534; background:#dcfce7; }
+.outline-coverage > p { margin:9px 0 0; color:#475569; font-size:11px; line-height:1.55; }
+.outline-coverage__uncovered { margin-top:10px; border-radius:8px; padding:8px; background:rgba(255,255,255,.75); }
+.outline-coverage__uncovered > span { color:#9a3412; font-size:9px; }
+.outline-coverage__uncovered ul { display:flex; flex-wrap:wrap; gap:4px 6px; margin:5px 0 0; padding:0; list-style:none; }
+.outline-coverage__uncovered li { border:1px solid #fed7aa; border-radius:999px; padding:2px 7px; color:#7c2d12; background:#fff; font-size:10px; }
+.outline-coverage__advisories { margin:9px 0 0; padding-left:15px; }
+.outline-coverage__advisories li { color:#7c2d12; font-size:10px; line-height:1.5; }
 .outline-retrieval { margin:14px 30px 2px; border:1px solid #c7d2fe; border-radius:12px; padding:13px; background:linear-gradient(135deg,#eef2ff,#fafaff); }
 .outline-retrieval > header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .outline-retrieval > header div { display:grid; gap:2px; }
