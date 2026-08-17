@@ -98,7 +98,7 @@ class CourseGenerationBudget:
                 "COURSE_CONTENT_CONCURRENCY",
                 4,
                 minimum=1,
-                maximum=6,
+                maximum=16,
             ),
             content_max_retries=_env_int(
                 "COURSE_CONTENT_MAX_RETRIES",

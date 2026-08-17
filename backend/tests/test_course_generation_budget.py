@@ -581,3 +581,25 @@ def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
     assert full_tokens > minimal_tokens * 1.5
     # 旧的 7000 token 闸门会把这一节挤到 minimal。
     assert full_tokens > 7_000
+
+
+def test_content_concurrency_ceiling_allows_one_wave_for_an_eight_lesson_course(
+    monkeypatch,
+):
+    """并发上限要够 8 节正文一波跑完（B-4）。
+
+    实测：8 节正文在并发 4 和并发 6 下都是**2 波**，墙钟几乎一样
+    （44.3s vs 41.4s，只降 6.5%）；只有 >=8 才降到 1 波（34.1s，降 23%）。
+    上限卡在 6 时，"把并发调大"这件事对 8 节课根本没有效果。
+
+    默认值仍是 4——这里放开的只是**允许的上限**，不是默认行为。
+    """
+    monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
+    assert CourseGenerationBudget.from_env().content_concurrency == 4
+
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "8")
+    assert CourseGenerationBudget.from_env().content_concurrency == 8
+
+    # 仍然有硬上限，不允许无限放开
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "999")
+    assert CourseGenerationBudget.from_env().content_concurrency == 16

@@ -904,7 +904,7 @@ class TaskManager:
         )
         resolved_max_concurrency = max(
             1,
-            min(6, int(resolved_max_concurrency)),
+            min(16, int(resolved_max_concurrency)),
         )
         self._content_max_retries = (
             self._generation_budget.content_max_retries
