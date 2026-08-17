@@ -119,6 +119,30 @@
           <h2>{{ selectedGraphNode.name }}</h2>
           <p v-if="selectedGraphNode.description">{{ selectedGraphNode.description }}</p>
 
+          <!-- 来源状态要跟着知识点走：模型凭通用知识写的和有教材依据的，
+               在图上必须一眼分得出，否则教师会把前者当成后者。 -->
+          <span
+            class="knowledge-relation-graph__source"
+            :data-source="selectedGraphNode.source_status"
+            data-testid="knowledge-graph-source"
+          >
+            {{ knowledgeSourceLabel(selectedGraphNode.source_status) }}
+          </span>
+
+          <template v-if="selectedGraphNode.learning_actions?.length">
+            <h3>{{ t('knowledgeLibrary.learningActions', '学会后应该能做到') }}</h3>
+            <ul class="knowledge-relation-graph__points" data-testid="knowledge-graph-actions">
+              <li v-for="action in selectedGraphNode.learning_actions" :key="action">{{ action }}</li>
+            </ul>
+          </template>
+
+          <template v-if="selectedGraphNode.typical_problems?.length">
+            <h3>{{ t('knowledgeLibrary.typicalProblems', '典型易错') }}</h3>
+            <ul class="knowledge-relation-graph__points is-pitfall" data-testid="knowledge-graph-pitfalls">
+              <li v-for="problem in selectedGraphNode.typical_problems" :key="problem">{{ problem }}</li>
+            </ul>
+          </template>
+
           <h3>{{ t('knowledgeLibrary.graphConnectedRelations', '关联关系') }}</h3>
           <div v-if="selectedConnections.length" class="knowledge-relation-graph__connections">
             <article v-for="entry in selectedConnections" :key="entry.relation.relation_id">
@@ -151,6 +175,7 @@
 import { computed } from 'vue'
 import { LockKeyhole, MousePointerClick, Network } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
+import { knowledgeSourceLabel } from '../utils/knowledge-source'
 import type {
   KnowledgeNode,
   KnowledgeNodeType,
@@ -340,6 +365,13 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 .knowledge-relation-graph__legend li { display:inline-flex; align-items:center; gap:6px; color:#6f758b; font-size:11px; font-weight:650; }
 .knowledge-relation-graph__legend svg path { fill:none; stroke:#9b90d8; stroke-width:2; }
 .knowledge-relation-graph__legend b { color:#41475e; font-variant-numeric:tabular-nums; }
+.knowledge-relation-graph__source { display:inline-flex; align-items:center; align-self:flex-start; margin:2px 0 4px; padding:3px 8px; border:1px solid #e2e4ed; border-radius:999px; color:#6f758b; background:#fbfbfe; font-size:10px; font-weight:700; }
+.knowledge-relation-graph__source[data-source="course_generated"] { color:#b0873c; border-color:#e8dcc2; background:#fdfaf2; }
+.knowledge-relation-graph__source[data-source="web_grounded"] { color:#4d7db7; border-color:#d3e0f0; background:#f6f9fd; }
+.knowledge-relation-graph__source[data-source="material_grounded"] { color:#4f9b82; border-color:#cfe5dc; background:#f5fbf8; }
+.knowledge-relation-graph__points { margin:0 0 4px; padding-left:16px; color:#6f758b; font-size:11px; line-height:1.55; }
+.knowledge-relation-graph__points li { margin:2px 0; }
+.knowledge-relation-graph__points.is-pitfall { color:#a8674a; }
 .knowledge-relation-graph__legend .is-prerequisite svg path { stroke:#6b50e8; }
 .knowledge-relation-graph__legend .is-derives svg path { stroke:#8a6bbf; stroke-dasharray:10 3; }
 .knowledge-relation-graph__legend .is-equivalent_to svg path { stroke:#4f9b82; stroke-dasharray:2 3; }

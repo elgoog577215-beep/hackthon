@@ -530,6 +530,14 @@ describe('Course knowledge library', () => {
     expect(legendItems[0]!.text()).toContain('前置知识')
     expect(legendItems[0]!.text()).toContain('1')
 
+    // 选中知识点后，侧栏要能回答「学会后能做到什么」「来源可不可信」，
+    // 而不是只列关系——只给关系的话，图看得见结构却看不见教学内容。
+    await wrapper.get('[data-knowledge-id="coefficient-domain-boundary"]').trigger('click')
+    expect(wrapper.get('[data-testid="knowledge-graph-actions"]').text())
+      .toContain('判断系数是否属于指定数域')
+    // 来源必须显示：模型凭通用知识写的和有教材依据的，教师要能一眼分开
+    expect(wrapper.get('[data-testid="knowledge-graph-source"]').text()).toBe('课程路径投影')
+
     const targetNode = wrapper.get('[data-knowledge-id="linear-combination-definition"]')
     await targetNode.trigger('click')
     expect(targetNode.attributes('aria-pressed')).toBe('true')
