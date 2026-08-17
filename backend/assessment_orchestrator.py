@@ -719,11 +719,13 @@ class _SemanticEvaluationBatcher:
         max_batch_size: int = 2,
         max_wait_seconds: float = 2.0,
         generation_policy: AssessmentGenerationPolicy | None = None,
+        in_flight: _InFlightSlots | None = None,
     ) -> None:
         self.model = model
         self.audit = audit
         self.max_batch_size = max(1, max_batch_size)
         self.max_wait_seconds = max(0.0, max_wait_seconds)
+        self.in_flight = in_flight
         self.generation_policy = (
             generation_policy
             or resolve_assessment_generation_policy("deliberate")
@@ -757,7 +759,12 @@ class _SemanticEvaluationBatcher:
             "evaluate_candidate_batch",
             None,
         )
-        if not callable(batch_method) or call_policy.enable_thinking:
+        solo = self.in_flight is not None and self.in_flight() <= 1
+        if solo:
+            self.audit["semantic_batch_skipped_solo"] = int(
+                self.audit.get("semantic_batch_skipped_solo") or 0
+            ) + 1
+        if not callable(batch_method) or call_policy.enable_thinking or solo:
             return await self._evaluate_one(
                 contract=contract,
                 independent=independent,
@@ -969,6 +976,46 @@ class _SemanticEvaluationBatcher:
         return _normalize_semantic_report(report)
 
 
+class _InFlightSlots:
+    """How many question slots are doing model work right now.
+
+    合批只有在「真的有兄弟题同时在飞」时才有意义。没有兄弟时，等窗口不会等来
+    任何人，只会给这一条请求平白加一段延迟，然后仍然发一次单条大小的调用。
+
+    B-3 第一版就是这么翻车的：真机 harness 是 40 个小节 × 每节 1 道题，
+    同一节没有兄弟题会同时失败，实测 99%（74/75）的"合批"只装了一道题——
+    窗口白等，还把每题的输出预算从单条口径降到了合批口径。
+
+    所以这里给三个 batcher 一个共同的「现在有几道题在飞」探针，
+    由它们各自决定要不要进合批路径。
+    """
+
+    __slots__ = ("_count",)
+
+    def __init__(self) -> None:
+        self._count = 0
+
+    def __call__(self) -> int:
+        return self._count
+
+    def enter(self) -> None:
+        self._count += 1
+
+    def leave(self) -> None:
+        self._count = max(0, self._count - 1)
+
+
+# 合批时每题能分到的输出预算不得低于单条调用给它的预算。
+#
+# `repair_candidate` 单条给 6144（:503），`repair_candidate_batch` 给
+# `min(12288, 4096 * n)`（:536）——n=2 时 12288/2=6144 刚好持平，n=3 时
+# 被 12288 的上限截成 4096/题，比单条少三分之一。合批因此会**悄悄降低**
+# 修复的输出预算，这正是"为了少发请求牺牲质量"那条红线要防的事。
+#
+# 所以按预算反推批量上限，而不是按批量去挤预算：修复一次最多合 2 条。
+_REPAIR_BATCH_MAX_ITEMS = 2
+
+
 class _CandidateRepairBatcher:
     """Coalesce failed Fast candidates into one bounded repair call."""
 
@@ -979,11 +1026,20 @@ class _CandidateRepairBatcher:
         audit: dict[str, Any],
         generation_policy: AssessmentGenerationPolicy,
         max_wait_seconds: float = 0.1,
+        in_flight: _InFlightSlots | None = None,
     ) -> None:
         self.model = model
         self.audit = audit
         self.generation_policy = generation_policy
         self.max_wait_seconds = max(0.0, max_wait_seconds)
+        self.in_flight = in_flight
+        self.max_batch_items = max(
+            1,
+            min(
+                generation_policy.generation_batch_size,
+                _REPAIR_BATCH_MAX_ITEMS,
+            ),
+        )
         self._lock = asyncio.Lock()
         self._pending: dict[
             tuple[bool, tuple[str, ...]],
@@ -1000,6 +1056,11 @@ class _CandidateRepairBatcher:
             asyncio.Task[None],
         ] = {}
 
+    def _solo(self) -> bool:
+        """没有兄弟题在飞时不进合批路径，直接落单条调用（不等窗口）。"""
+
+        return self.in_flight is not None and self.in_flight() <= 1
+
     async def repair(
         self,
         *,
@@ -1013,6 +1074,11 @@ class _CandidateRepairBatcher:
             None,
         )
         if not callable(batch_method):
+            return None
+        if self._solo():
+            self.audit["repair_batch_skipped_solo"] = int(
+                self.audit.get("repair_batch_skipped_solo") or 0
+            ) + 1
             return None
         call_policy = self.generation_policy.call_policy(
             "repair",
@@ -1038,7 +1104,14 @@ class _CandidateRepairBatcher:
         async with self._lock:
             pending = self._pending.setdefault(key, [])
             pending.append((item, future, call_policy))
-            if len(pending) >= self.generation_policy.generation_batch_size:
+            # 攒够就发，别等满窗口。
+            #
+            # 目标批量取「配置上限」与「此刻真的在飞的题数」的较小值：在飞只有
+            # 2 道时等第 3 道永远等不来，只会白等满 max_wait_seconds。
+            target = self.max_batch_items
+            if self.in_flight is not None:
+                target = max(2, min(target, self.in_flight()))
+            if len(pending) >= target:
                 should_flush = True
                 timer = self._timers.pop(key, None)
                 if timer is not None:
@@ -1068,7 +1141,7 @@ class _CandidateRepairBatcher:
         async with self._lock:
             all_pending = self._pending.get(key, [])
             pending = all_pending[
-                :self.generation_policy.generation_batch_size
+                :self.max_batch_items
             ]
             if not pending:
                 self._timers.pop(key, None)
@@ -1134,11 +1207,13 @@ class _IndependentSolutionBatcher:
         audit: dict[str, Any],
         generation_policy: AssessmentGenerationPolicy,
         max_wait_seconds: float = 0.01,
+        in_flight: _InFlightSlots | None = None,
     ) -> None:
         self.model = model
         self.audit = audit
         self.generation_policy = generation_policy
         self.max_wait_seconds = max(0.0, max_wait_seconds)
+        self.in_flight = in_flight
         self._lock = asyncio.Lock()
         self._pending: dict[
             tuple[bool, tuple[str, ...]],
@@ -1171,10 +1246,18 @@ class _IndependentSolutionBatcher:
             (public_question_spec.get("input_contract") or {}).get("mode")
             or ""
         )
+        # 没有兄弟题在飞就不进合批：合批求解的每题预算（2048）低于单条对非
+        # choice 题给的 3072（:395 vs :443），凑不满时是纯粹的降预算。
+        solo = self.in_flight is not None and self.in_flight() <= 1
+        if solo:
+            self.audit["solve_batch_skipped_solo"] = int(
+                self.audit.get("solve_batch_skipped_solo") or 0
+            ) + 1
         if (
             self.generation_policy.solution_batch_size < 2
             or input_mode == "code"
             or not callable(batch_method)
+            or solo
         ):
             return None
         call_policy = self.generation_policy.call_policy(
@@ -1965,6 +2048,51 @@ class AssessmentGenerationOrchestrator:
         progress_lock = asyncio.Lock()
         chapter_callback_lock = asyncio.Lock()
         completed_items = 0
+        # 合批器按「本轮」建，并共享一个「现在有几道题在飞」的探针。
+        #
+        # 两件事一起才有意义：
+        #   * 按本轮建（而不是每小节各建一份）——否则跨小节的兄弟题分属不同
+        #     `_pending`，永远合不到一起；
+        #   * 有兄弟才合批——否则在「每节只出 1 道题」这种真机形状下，
+        #     窗口里永远只有一条，白等延迟还降每题预算。
+        # 只做前者不做后者，就是上一版 `1e8fb290` 被回退的原因。
+        in_flight = _InFlightSlots()
+        semantic_batcher = _SemanticEvaluationBatcher(
+            model=self.model,
+            audit=audit,
+            max_wait_seconds=(
+                float(
+                    os.getenv(
+                        "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
+                        "1",
+                    )
+                )
+                if sum(
+                    _semantic_review_candidate_count(
+                        blueprint,
+                        reference_package,
+                        node_id=str(node.get("node_id") or ""),
+                    )
+                    for node in target_nodes
+                ) >= 2
+                else 0.0
+            ),
+            generation_policy=generation_policy,
+            in_flight=in_flight,
+        )
+        solution_batcher = _IndependentSolutionBatcher(
+            model=self.model,
+            audit=audit,
+            generation_policy=generation_policy,
+            max_wait_seconds=0.01,
+            in_flight=in_flight,
+        )
+        repair_batcher = _CandidateRepairBatcher(
+            model=self.model,
+            audit=audit,
+            generation_policy=generation_policy,
+            in_flight=in_flight,
+        )
 
         async def run_node(node: dict[str, Any]) -> None:
             nonlocal completed_items
@@ -1997,40 +2125,6 @@ class AssessmentGenerationOrchestrator:
                         generation_policy=generation_policy,
                     )
                 )
-                semantic_batcher = _SemanticEvaluationBatcher(
-                    model=self.model,
-                    audit=audit,
-                    max_wait_seconds=(
-                        float(
-                            os.getenv(
-                                "ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS",
-                                "1",
-                            )
-                        )
-                        if _semantic_review_candidate_count(
-                            blueprint,
-                            reference_package,
-                            node_id=node_id,
-                        ) >= 2
-                        else 0.0
-                    ),
-                    generation_policy=generation_policy,
-                )
-                solution_batcher = _IndependentSolutionBatcher(
-                    model=self.model,
-                    audit=audit,
-                    generation_policy=generation_policy,
-                    max_wait_seconds=0.01,
-                )
-                # 修复也合批。此前只有 fast 档创建 batcher，deliberate 下为
-                # None，于是每一次修复都是单独的 repair_single——而修复是按
-                # 「同一节的多个层级同时不过」成批发生的，正是最该合批的调用。
-                repair_batcher = _CandidateRepairBatcher(
-                    model=self.model,
-                    audit=audit,
-                    generation_policy=generation_policy,
-                )
-
                 async def run_slot(
                     variant_index: int,
                     practice_level: str,
@@ -2041,26 +2135,32 @@ class AssessmentGenerationOrchestrator:
                     Exception | None,
                 ]:
                     async with semaphore:
-                        return await self._generate_slot_contract(
-                            prepared=prepared,
-                            node=node,
-                            profile=profile,
-                            objective=objective,
-                            blueprint=blueprint,
-                            reference_package=reference_package,
-                            practice_level=practice_level,
-                            variant_index=variant_index,
-                            audit=audit,
-                            accepted_questions=accepted_questions,
-                            quality_lock=quality_lock,
-                            initial_candidate=initial_candidates.get(
-                                practice_level
-                            ),
-                            semantic_batcher=semantic_batcher,
-                            solution_batcher=solution_batcher,
-                            repair_batcher=repair_batcher,
-                            generation_policy=generation_policy,
-                        )
+                        # 拿到槽位才算「在飞」：排队等 semaphore 的题还没开始
+                        # 做模型调用，把它算进在飞数会让合批以为有兄弟可等。
+                        in_flight.enter()
+                        try:
+                            return await self._generate_slot_contract(
+                                prepared=prepared,
+                                node=node,
+                                profile=profile,
+                                objective=objective,
+                                blueprint=blueprint,
+                                reference_package=reference_package,
+                                practice_level=practice_level,
+                                variant_index=variant_index,
+                                audit=audit,
+                                accepted_questions=accepted_questions,
+                                quality_lock=quality_lock,
+                                initial_candidate=initial_candidates.get(
+                                    practice_level
+                                ),
+                                semantic_batcher=semantic_batcher,
+                                solution_batcher=solution_batcher,
+                                repair_batcher=repair_batcher,
+                                generation_policy=generation_policy,
+                            )
+                        finally:
+                            in_flight.leave()
 
                 fatal_errors: list[Exception] = []
                 node_audit_items: list[dict[str, Any]] = []

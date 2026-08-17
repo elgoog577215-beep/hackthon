@@ -49,6 +49,17 @@ def _course() -> dict:
 
 
 class RepairingModel:
+    # 假模型必须真的让出事件循环。
+    #
+    # 合批只在「有兄弟题同时在飞」时才发生，而零延迟的假模型不会让出控制权：
+    # 第一个槽位一路跑完（生成→求解→评审→修复）都不 await 任何会挂起的东西，
+    # 另外两个槽位根本还没开始，于是在飞数恒为 1。
+    #
+    # 旧用例之所以能测到合批，是因为当时的合批器**无条件等窗口**——那个等待
+    # 本身制造了交错。现在按「有兄弟才合批」改掉之后，这个副作用没有了，
+    # 假模型必须自己表达出真实存在的并发。
+    _LATENCY = 0.01
+
     def __init__(self) -> None:
         self.generate_calls = 0
         self.solve_calls = 0
@@ -57,6 +68,7 @@ class RepairingModel:
 
     async def generate_candidate(self, context: dict) -> dict:
         self.generate_calls += 1
+        await asyncio.sleep(self._LATENCY)
         return _proposal(10, context)
 
     async def solve_candidate(
@@ -65,6 +77,7 @@ class RepairingModel:
     ) -> dict:
         self.solve_calls += 1
         self.solve_payloads.append(public_question_spec)
+        await asyncio.sleep(self._LATENCY)
         mode = (
             public_question_spec.get("input_contract") or {}
         ).get("mode")
@@ -778,12 +791,21 @@ async def test_node_uses_one_batch_generation_call_when_supported():
 
     audit = prepared["_assessment_generation_audit"]
     assert model.batch_generate_calls == 1
-    assert model.batch_evaluate_calls == 1
+    # 这一节里只有 mastery_check 一道题会触发语义评审，等它评审时另外两道
+    # 已经做完了——在飞只剩它自己。此时进合批只会为一个永远不会来的兄弟
+    # 白等一个窗口（默认 1 秒），所以直接走单条评审。
+    #
+    # 旧断言写的是 `batch_evaluate_calls == 1`，那记录的是当时"无条件等窗口、
+    # 超时后发一条 batch_size=1 的合批调用"的行为：同样是一次模型请求，
+    # 只是多等了一秒。改成有兄弟才合批之后，这里应当是单条。
+    assert model.batch_evaluate_calls == 0
+    assert audit["semantic_evaluation_calls"] == 1
+    assert audit["semantic_batch_skipped_solo"] == 1
     assert model.generate_calls == 1
     assert model.solve_calls == 3
     assert audit["batch_generation_calls"] == 1
     assert audit["batch_generation_fallback_count"] == 0
-    assert audit["batch_semantic_evaluation_calls"] == 1
+    assert audit["batch_semantic_evaluation_calls"] == 0
     assert audit["batch_semantic_fallback_count"] == 0
     assert audit["generation_calls"] == 2
     assert audit["model_call_count"] == 6
@@ -1018,17 +1040,88 @@ async def test_fast_profile_batches_all_failed_repairs_once():
     )
 
     audit = prepared["_assessment_generation_audit"]
-    assert model.repair_batch_sizes == [3]
-    assert model.repair_calls == 0
-    assert audit["repair_calls"] == 1
+    # 一次修复最多合 2 条，不是 3 条。
+    #
+    # `repair_candidate` 单条给每题 6144 输出预算，`repair_candidate_batch`
+    # 给 min(12288, 4096*n)：n=2 时每题 6144 持平，n=3 时被 12288 截成
+    # 4096/题——合批会**悄悄把修复的输出预算砍掉三分之一**。少发一次请求
+    # 换质量下降，正是不允许的方向，所以按预算反推批量上限（见
+    # `_REPAIR_BATCH_MAX_ITEMS`）。
+    #
+    # 于是三道题是「2 条合批 + 1 条走单条」，而不是一次 3 条。
+    assert model.repair_batch_sizes == [2]
+    assert model.repair_calls == 1
     assert audit["batch_repair_calls"] == 1
     assert audit["batch_repair_fallback_count"] == 0
     assert any(
         timing.get("operation") == "repair_batch"
-        and timing.get("batch_size") == 3
+        and timing.get("batch_size") == 2
         for timing in audit["call_timings"]
     )
     assert audit["failure_count"] == 0
+
+
+async def test_lone_question_never_waits_for_a_batch_window():
+    """只有一道题在飞时，不得进合批路径、不得等窗口。
+
+    这是 `1e8fb290` 被回退的直接原因：合批器无条件等 `max_wait_seconds`，
+    而真机形状是每小节 1 道题（40 节 × 1 题），窗口里永远只有一条——
+    实测 99%（74/75）的"合批"只装了一道题，白等延迟还把每题输出预算从
+    单条口径降到合批口径。
+
+    断言用挂钟时间：单题整轮必须远小于一个合批窗口（修复 0.1s + 语义 1s），
+    只数调用次数是抓不到"多等了一秒"的。
+    """
+
+    model = BatchRepairAwareModel()
+    started = asyncio.get_running_loop().time()
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    audit = prepared["_assessment_generation_audit"]
+    assert model.repair_batch_sizes == [], "单题不得走合批修复"
+    assert model.solve_batch_sizes == [], "单题不得走合批求解"
+    # 这一道题一次就过，没走到修复；被跳过的是求解合批。断言"至少有一处
+    # 合批因为独苗而被跳过"，而不是钉死在具体哪一处。
+    assert sum(
+        int(audit.get(key) or 0)
+        for key in (
+            "repair_batch_skipped_solo",
+            "solve_batch_skipped_solo",
+            "semantic_batch_skipped_solo",
+        )
+    ) >= 1
+    # 语义窗口默认 1 秒、修复窗口 0.1 秒；单题若还在等窗口这里必然超时。
+    assert elapsed < 0.5, (
+        f"单题整轮耗时 {elapsed:.3f}s，疑似仍在等合批窗口"
+    )
+
+
+async def test_batch_never_shrinks_per_item_output_budget():
+    """合批不得把每题的输出预算压到单条之下。
+
+    修复单条给 6144，合批给 min(12288, 4096*n)：n=3 时每题只剩 4096。
+    「少发一次请求」不能拿这个换——这正是不许放宽契约凑数字那条红线。
+    """
+
+    from assessment_orchestrator import _REPAIR_BATCH_MAX_ITEMS
+
+    single_budget = 6144
+    batch_ceiling = 12288
+    assert _REPAIR_BATCH_MAX_ITEMS >= 1
+    per_item = batch_ceiling // _REPAIR_BATCH_MAX_ITEMS
+    assert per_item >= single_budget, (
+        f"合批 {_REPAIR_BATCH_MAX_ITEMS} 条时每题只有 {per_item}，"
+        f"低于单条的 {single_budget}"
+    )
 
 
 async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
@@ -1042,16 +1135,21 @@ async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
 
     contracts = prepared["_assessment_generated_contracts"]["thermo-1"]
     audit = prepared["_assessment_generation_audit"]
+    # 合批修复缺槽位时，**这一批里的题**全部失败，不牵连没进这一批的题。
+    #
+    # 三道题现在是「2 条合批 + 1 条单条」（批量上限由输出预算反推，见
+    # `_REPAIR_BATCH_MAX_ITEMS`）。模型只回了第一个 slot，于是那一批的 2 道
+    # 整批判失败——原子性仍然成立；剩下那道走单条路径、不受这批影响，
+    # 正常产出。旧断言的 3 全废是"三道题挤在同一批里"时的数字。
+    assert audit["batch_repair_fallback_count"] == 1
+    assert audit["failure_count"] == 2
+    assert sorted(
+        item["final_decision"] for item in audit["items"]
+    ) == ["discard", "discard", "publish"]
     assert {
         contract["generation_status"]
         for contract in contracts.values()
-    } == {"discarded"}
-    assert audit["failure_count"] == 3
-    assert audit["batch_repair_fallback_count"] == 1
-    assert all(
-        item["final_decision"] == "discard"
-        for item in audit["items"]
-    )
+    } == {"discarded", "ready"}
 
 
 def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
