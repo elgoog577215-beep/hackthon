@@ -67,7 +67,10 @@ function resolvePlaywright() {
 const { chromium } = require(resolvePlaywright())
 
 function parseArgs(argv) {
-  const args = { course: '', out: '', nodes: 6, print: false, url: '', selector: '' }
+  const args = {
+    course: '', out: '', nodes: 6, print: false, url: '', selector: '',
+    mathFirst: false, printOnly: false,
+  }
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === '--course') args.course = argv[++i]
     else if (argv[i] === '--out') args.out = argv[++i]
@@ -75,8 +78,19 @@ function parseArgs(argv) {
     else if (argv[i] === '--print') args.print = true
     else if (argv[i] === '--url') args.url = argv[++i]
     else if (argv[i] === '--selector') args.selector = argv[++i]
+    // 只判定公式相关的节：打印态验收关心的是公式，抽最长的几节可能一条公式
+    // 都没有，那样的"通过"什么也没证明。
+    else if (argv[i] === '--math-first') args.mathFirst = true
+    // 跳过屏幕态的布局判据，只跑打印两态。屏幕态由不带 --print 的常规模式覆盖，
+    // 大批量跑打印验收时没必要重复。
+    else if (argv[i] === '--print-only') { args.printOnly = true; args.print = true }
   }
   return args
+}
+
+/** 正文里有没有会被渲染成公式的标记。 */
+function hasMath(text) {
+  return /\$\$/.test(text) || /(?<!\\)\$[^$\n]{2,}\$/.test(text)
 }
 
 /**
@@ -112,7 +126,15 @@ async function measurePrintState(page, rootSelector) {
       mathFallback: root.querySelectorAll('.math-fallback').length,
       katexError: root.querySelectorAll('.katex-error').length,
       // 打印稿上读到的字面 LaTeX——教师拿到的纸上就是这些字符。
-      literalMath: (text.match(/(?<!\\)\$[^$\n]{1,80}\$/g) || []).slice(0, 5),
+      // 取字面 LaTeX 前先剔除代码块的可见文本：Python 课里
+      // `"1234!@#$"` 到 `"$#@!4321"` 之间会被 `$...$` 正则误当成公式，
+      // 那是字符串字面量，不是没渲染的数学。实测过一次这样的误报。
+      literalMath: (() => {
+        const clone = root.cloneNode(true)
+        for (const code of clone.querySelectorAll('pre, code, .mermaid')) code.remove()
+        const prose = clone.innerText || ''
+        return (prose.match(/(?<!\\)\$[^$\n]{1,80}\$/g) || []).slice(0, 5)
+      })(),
       docScrollWidth: document.documentElement.scrollWidth,
       bodyClientWidth: document.body.clientWidth,
       // 与视口比，而不是与 body.clientWidth 比：body 默认有 8px 外边距，
@@ -228,7 +250,10 @@ const HARNESS = `
 
   const params = new URLSearchParams(location.search)
   await setLocale(params.get('locale') || 'zh')
-  const payload = JSON.parse(decodeURIComponent(params.get('body') || '%22%22'))
+  // 正文通过 addInitScript 注入全局，不走 URL query：真实课程正文动辄两三千字，
+  // URL-encode 后超出 HTTP 头长度上限，服务器回 431，页面根本不执行——看起来像
+  // 「这一节渲染卡住」，实际是探针自己把正文塞进了请求头。
+  const payload = String(window.__PROBE_BODY__ ?? '')
 
   const app = createApp({
     render: () => h('article', { class: 'node-body' }, [h(MarkdownRenderer, { content: payload })]),
@@ -382,20 +407,37 @@ async function main() {
     return 2
   }
   // Longest bodies first: the layout accidents this is looking for live in the
-  // dense nodes — long formulas, wide tables, deep lists.
-  const bodies = all.sort((a, b) => b.content.length - a.content.length).slice(0, args.nodes)
+  // dense nodes — long formulas, wide tables, deep lists. With --math-first,
+  // nodes that actually contain formulas come first instead, because a print
+  // verdict drawn from formula-free nodes proves nothing about formulas.
+  const ranked = args.mathFirst
+    ? all.filter(item => hasMath(item.content))
+        .sort((a, b) => b.content.length - a.content.length)
+    : all.sort((a, b) => b.content.length - a.content.length)
+  if (args.mathFirst && !ranked.length) {
+    console.log(`跳过（无含公式的正文）：${args.course}`)
+    return 0
+  }
+  const bodies = ranked.slice(0, args.nodes)
 
   await mkdir(outputDir, { recursive: true })
-  const harnessPath = join(FRONTEND, 'course-visual-probe.html')
+  // 文件名带进程号：两个并发实例用同名探针会互相删掉对方的文件。
+  const harnessName = `course-visual-probe-${process.pid}.html`
+  const harnessPath = join(FRONTEND, harnessName)
   await writeFile(harnessPath, HARNESS, 'utf-8')
 
+  // 不用固定端口：并发或前一次残留会撞端口，vite 直接抛错退出，看起来像
+  // 「这门课验收失败」，实际是环境冲突。strictPort:false 让 vite 自动往后找，
+  // 端口从 server.config 回读。
   const server = await createServer({
     root: FRONTEND,
     configFile: join(FRONTEND, 'vite.config.ts'),
-    server: { port: 5197, strictPort: true },
+    server: { port: 0, strictPort: false },
     logLevel: 'error',
   })
   await server.listen()
+  const resolvedPort = server.config.server.port || server.httpServer.address().port
+  const baseUrl = `http://127.0.0.1:${resolvedPort}`
 
   const browser = await chromium.launch()
   const failures = []
@@ -410,19 +452,25 @@ async function main() {
           deviceScaleFactor: 2,
           locale: locale === 'zh' ? 'zh-CN' : 'en-US',
         })
-        const page = await context.newPage()
+        let page = null
         const jsErrors = []
         const consoleErrors = []
-        page.on('pageerror', error => jsErrors.push(String(error)))
-        page.on('console', message => {
-          if (message.type() === 'error') consoleErrors.push(message.text())
-        })
 
         const tag = `${locale}-${viewport.name}`
         for (const [index, body] of bodies.entries()) {
-          const encoded = encodeURIComponent(JSON.stringify(body.content))
+          // 每节用一张新页面：addInitScript 是累加的，复用同一张页面会让后面的
+          // 节点仍然读到第一节的正文，测出一个「所有节都一样」的假结论。
+          if (page) await page.close()
+          page = await context.newPage()
+          page.on('pageerror', error => jsErrors.push(String(error)))
+          page.on('console', message => {
+            if (message.type() === 'error') consoleErrors.push(message.text())
+          })
+          await page.addInitScript(content => {
+            window.__PROBE_BODY__ = content
+          }, body.content)
           await page.goto(
-            `http://127.0.0.1:5197/course-visual-probe.html?locale=${locale}&body=${encoded}`,
+            `${baseUrl}/${harnessName}?locale=${locale}`,
             { waitUntil: 'networkidle' },
           )
           await page.waitForSelector('html[data-ready="1"]', { timeout: 20_000 })
@@ -458,13 +506,15 @@ async function main() {
           shots += 1
 
           const where = `${tag} / ${body.name || body.id}`
-          if (measured.overflowing.length) {
+          // --print-only 时跳过屏幕态布局判据：它们由不带 --print 的常规模式
+          // 覆盖，大批量跑打印验收时重复报同一件事只会淹没打印态的结论。
+          if (measured.overflowing.length && !args.printOnly) {
             failures.push({
               code: 'visual:viewport_overflow',
               message: `${where}: 元素超出视口 — ${measured.overflowing.join(', ')}`,
             })
           }
-          if (measured.docScrollWidth > viewport.width + 1) {
+          if (measured.docScrollWidth > viewport.width + 1 && !args.printOnly) {
             failures.push({
               code: 'visual:horizontal_scroll',
               message: `${where}: 页面出现横向滚动（${measured.docScrollWidth}px > ${viewport.width}px）`,
@@ -482,7 +532,7 @@ async function main() {
               message: `${where}: ${measured.fallbacks} 处公式退化为源码`,
             })
           }
-          if (measured.rawKeys) {
+          if (measured.rawKeys && !args.printOnly) {
             failures.push({
               code: 'visual:raw_i18n_key',
               message: `${where}: 界面出现未翻译的 i18n key`,
