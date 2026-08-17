@@ -89,7 +89,8 @@ describe('CourseProductionStage', () => {
     const wrapper = mount(CourseGenerationLifecycle, { props: { task: interruptedTask } })
     // 顶层展示的是四个里程碑；六阶段收进诊断面板，但始终在 DOM 里（默认折叠）。
     expect(wrapper.findAll('[data-testid="generation-milestones"] li')).toHaveLength(4)
-    const stages = wrapper.findAll('[data-testid="generation-diagnostics"] li')
+    // 按 data-stage 定位：诊断面板里除了六阶段还有批次/恢复事实行
+    const stages = wrapper.findAll('[data-testid="generation-diagnostics"] li[data-stage]')
     expect(stages).toHaveLength(6)
     expect(stages[0]!.attributes('data-status')).toBe('completed')
     expect(stages[1]!.attributes('data-status')).toBe('error')
@@ -322,7 +323,7 @@ describe('CourseProductionStage', () => {
       },
     }
     const wrapper = mount(CourseGenerationLifecycle, { props: { task } })
-    const stages = wrapper.findAll('[data-testid="generation-diagnostics"] li')
+    const stages = wrapper.findAll('[data-testid="generation-diagnostics"] li[data-stage]')
 
     expect(stages[2]!.attributes('data-status')).toBe('completed')
     expect(stages[3]!.attributes('data-status')).toBe('error')
@@ -332,6 +333,17 @@ describe('CourseProductionStage', () => {
     const authorMilestone = wrapper.get('[data-milestone="author"]')
     expect(authorMilestone.attributes('data-status')).toBe('error')
     expect(authorMilestone.attributes('aria-label')).toContain('出错')
+
+    // 诊断面板只列已经存在的事实。这个任务的 total_nodes 是 0（还没进到小节阶段），
+    // 就不该显示「0/0」——显示 0/0 会让人以为一节都没做完，其实是压根还没开始分节，
+    // 排查时被这种假信息带偏比没有信息更糟。
+    const factMap = Object.fromEntries(
+      wrapper.findAll('[data-fact]').map(node => [node.attributes('data-fact'), node.text()]),
+    )
+    expect(factMap.nodes).toBeUndefined()
+    expect(factMap.failed).toBeUndefined()
+    // 停下来的原因要给人话，不是甩一个 reason_code
+    expect(factMap.recovery).toContain('已保留课程需求与资料处理结果')
   })
 
   it('把真实目录检查点投影为可展开的生长树', async () => {

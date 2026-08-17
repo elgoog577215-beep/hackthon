@@ -70,6 +70,18 @@
         <strong>{{ stage.label }}</strong>
         <span>{{ stageStatusLabel(index) }}</span>
       </li>
+
+      <!-- 批次与恢复信息：排查时最需要的三件事——做到第几批、哪些节点没成、
+           以及为什么停下来。平时收着，不和四个里程碑抢注意力。 -->
+      <li
+        v-for="entry in diagnosticFacts"
+        :key="entry.label"
+        :data-status="entry.status"
+        :data-fact="entry.key"
+      >
+        <strong>{{ entry.label }}</strong>
+        <span>{{ entry.value }}</span>
+      </li>
     </ol>
 
     <div class="generation-lifecycle__track" aria-hidden="true">
@@ -120,6 +132,65 @@ const activeMilestoneIndex = computed(() => {
   const index = milestones.value.findIndex(m => ['active', 'error', 'paused', 'blocked'].includes(m.status))
   if (index >= 0) return index
   return props.task?.status === 'completed' ? milestones.value.length - 1 : 0
+})
+
+/**
+ * 诊断面板里的批次与恢复事实。
+ *
+ * 只列**已经存在**的事实：没有检查点就不显示批次行，而不是显示 0/0。
+ * 显示 0/0 会让人以为"一批都没做完"，其实是这门课根本没走批次模式——
+ * 排查时被这种假信息带偏，比没有信息更糟。
+ */
+const diagnosticFacts = computed(() => {
+  const checkpoint = props.task?.recovery?.checkpoint
+  const recovery = props.task?.recovery
+  const facts: Array<{ key: string; label: string; value: string; status: string }> = []
+  if (!checkpoint) return facts
+
+  if (checkpoint.total_nodes) {
+    facts.push({
+      key: 'nodes',
+      label: t('taskObservability.diagnosticNodes', '小节进度'),
+      value: `${checkpoint.completed_nodes}/${checkpoint.total_nodes}`,
+      status: checkpoint.completed_nodes >= checkpoint.total_nodes ? 'completed' : 'active',
+    })
+  }
+  if (checkpoint.total_teaching_plan_batches) {
+    facts.push({
+      key: 'batches',
+      label: t('taskObservability.diagnosticBatches', '教案批次'),
+      value: `${checkpoint.completed_teaching_plan_batches ?? 0}/${checkpoint.total_teaching_plan_batches}`,
+      status: 'active',
+    })
+  }
+  // 失败与中断分开列：前者要重做，后者往往续跑即可，混成一个数字会让人修错方向。
+  if (checkpoint.failed_node_ids?.length) {
+    facts.push({
+      key: 'failed',
+      label: t('taskObservability.diagnosticFailed', '失败小节'),
+      value: checkpoint.failed_node_ids.join('、'),
+      status: 'error',
+    })
+  }
+  if (checkpoint.interrupted_node_ids?.length) {
+    facts.push({
+      key: 'interrupted',
+      label: t('taskObservability.diagnosticInterrupted', '中断小节'),
+      value: checkpoint.interrupted_node_ids.join('、'),
+      status: 'paused',
+    })
+  }
+  // 停下来的原因用后端给的人话，没有人话时才退回错误码——
+  // 直接把 reason_code 甩给用户等于没解释。
+  if (recovery && recovery.state !== 'none' && recovery.state !== 'completed') {
+    facts.push({
+      key: 'recovery',
+      label: t('taskObservability.diagnosticRecovery', '恢复状态'),
+      value: recovery.reason || recovery.reason_code || recovery.state,
+      status: recovery.state === 'quality_blocked' ? 'blocked' : 'active',
+    })
+  }
+  return facts
 })
 
 function milestoneStatusLabel(status: ObservableTaskStageStatus) {
