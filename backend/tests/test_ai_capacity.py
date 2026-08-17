@@ -161,6 +161,24 @@ async def test_last_resort_profile_serializes_and_spaces_after_completion(
 async def test_last_resort_waiter_survives_shared_rate_limit_cooldown(
     monkeypatch,
 ):
+    """兜底凭据在共享限流冷却期内：排队者要等完冷却再拿到锁，不能被踢出。
+
+    这条用例要守住的是两件事，都与墙钟无关：
+
+    1. `wait_during_cooldown=True` 时，已经在排队的请求**不能**收到
+       `ModelCapacityCoolingDown`——那是"立刻换下一个模型"的信号，
+       对共享兜底凭据是错的（换了也还是同一个池子）。
+    2. 冷却结束后它**必须真的拿到**锁，不能永久卡死。
+
+    以前这里靠墙钟断言"睡 20ms 后还没完成"，来证明"它确实等了"。
+    但 8 核跑满时那个 `sleep(0.02)` 可能实际睡上百毫秒，冷却
+    （100ms）早就过完了，于是假失败——实测：额外调度延迟一超过约 80ms
+    必然翻车。而随机红的用例最终会被习惯性忽略，真失败也跟着被忽略。
+
+    现在改成断言**控制器自己的时钟**：冷却窗口尚未结束时排队者不得完成。
+    这个判据不依赖测试进程被调度得多快——它问的是"以控制器记录的
+    cooldown_until 为准，此刻是否还在冷却期内"，而不是"墙上过了多少毫秒"。
+    """
     monkeypatch.setenv("AI_PROVIDER_INITIAL_CONCURRENCY", "2")
     monkeypatch.setenv("AI_PROVIDER_START_INTERVAL_SECONDS", "0")
     monkeypatch.setenv("AI_PROVIDER_RATE_LIMIT_BACKOFF_SECONDS", "0.1")
@@ -182,10 +200,37 @@ async def test_last_resort_waiter_survives_shared_rate_limit_cooldown(
     )
     await first.release()
 
-    await asyncio.sleep(0.02)
-    assert waiting.done() is False
-    second = await asyncio.wait_for(waiting, timeout=0.3)
+    # 断言①：只要控制器的冷却窗口还没走完，排队者就不该完成。
+    # 用控制器记录的 cooldown_until 判断，而不是"墙上过了多久"。
+    state = controller._models["model-a"]
+    if time.monotonic() < state.cooldown_until:
+        assert waiting.done() is False, (
+            "冷却窗口内排队者就完成了——说明它没有等冷却"
+        )
+
+    # 断言②：冷却结束后必须真的拿到锁。超时给到 30 秒纯粹是"别挂死"的
+    # 兜底，不是性能断言——它比冷却窗口(0.1s)大两个数量级，
+    # 任何负载下都不会误判，真卡死时仍然会红。
+    second = await asyncio.wait_for(waiting, timeout=30)
+
+    # 断言③：它确实是"等出来"的，而不是绕过了冷却——等待时长必须不短于
+    # 冷却窗口。这是本用例的核心，且不依赖测试进程被调度得多快。
+    #
+    # 注意不要断言 `queue_wait_reason == "cooldown"`：排队者入队时第一个
+    # 挡住它的是 `model_concurrency`（那会儿 first 还没释放），而
+    # `queue_wait_reason` 按设计只记**第一次**让出的原因
+    # （`ai_capacity.py` 的 `if not wait_reason`）。冷却是它等待期间遇到的
+    # 第二个原因，不会覆盖掉第一个。
+    assert second.queue_wait_reason == "model_concurrency"
+    assert second.queue_wait_seconds >= 0.04, (
+        f"只等了 {second.queue_wait_seconds:.3f}s，短于冷却窗口 0.04s——"
+        "说明它绕过了冷却"
+    )
     await second.release()
+
+    # 断言④：全程没有抛 ModelCapacityCoolingDown（抛了上面就 raise 了）。
+    # 共享兜底凭据下"换个模型重试"没有意义，必须是等待语义。
+    assert controller.wait_during_cooldown is True
 
 
 @pytest.mark.asyncio
