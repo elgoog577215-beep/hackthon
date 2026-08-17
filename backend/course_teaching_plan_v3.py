@@ -1009,6 +1009,20 @@ def validate_teaching_plan_batch_v3(
     }
 
 
+def _batch_section_has_content(section: dict[str, Any]) -> bool:
+    """这一轮返回的小节到底有没有内容。
+
+    三项任一非空就算有：知识点、关系、教学模块。**不能只看知识点**——
+    一节完全可以不引入新知识、只把已学知识连起来（纯复用节），
+    那种小节的 `knowledge_details` 本来就是空的，误判成失败轮会让它
+    永远无法覆盖前一轮。
+    """
+    return any(
+        section.get(field)
+        for field in ("knowledge_details", "knowledge_relations", "teaching_modules")
+    )
+
+
 def assemble_course_teaching_plan_v3(
     *,
     skeleton: dict[str, Any],
@@ -1020,12 +1034,35 @@ def assemble_course_teaching_plan_v3(
         str(item.get("knowledge_key") or ""): item
         for item in skeleton.get("knowledge_registry") or [] if isinstance(item, dict)
     }
-    details_by_id = {
-        str(item.get("node_id") or ""): item
-        for batch in batches
-        for item in batch.get("sections") or []
-        if isinstance(item, dict)
-    }
+    details_by_id: dict[str, dict[str, Any]] = {}
+    for batch in batches:
+        for item in batch.get("sections") or []:
+            if not isinstance(item, dict):
+                continue
+            node_id = str(item.get("node_id") or "")
+            existing = details_by_id.get(node_id)
+            # 后写覆盖前写，**除非后写是空的**。同一小节会被写多次：纠正轮与
+            # 语义重试都会整批重发。实测（lz-knowledge NOTES 3.12）L2-2-3 的模型
+            # 输出序列是 [3, 0, 1]——中间那轮返回 0 条。若最后一轮为 0，前面成功的
+            # 那批会被整段抹掉，而且没有报错、没有留痕：教师看到一节凭空少了知识点和
+            # 关系，链路却报告成功。这是丢数据，不是丢质量。
+            #
+            # 只堵"空覆盖非空"这一种无歧义的情况：一轮什么都没返回是失败，
+            # 不是删除意图。两轮都有内容时仍然后写生效——纠正轮**故意**删掉
+            # 不成立的关系是正常行为，做并集会把校验层刚拒绝的关系从装配层
+            # 绕回知识网。
+            if existing is not None and not _batch_section_has_content(item):
+                continue
+            details_by_id[node_id] = item
+
+    # 下面的越界关系丢弃与上面的"空轮不覆盖"是两件事，合并时都要成立：
+    #   上面管**选哪一轮的产物**——空的一轮不许抹掉已经成功的一轮；
+    #   下面管**选中的那一轮里，哪些关系能进产物**——两端越界的整条丢弃。
+    # 二者作用在不同阶段，且丢弃只影响 relations 的渲染，
+    # 不回写 details_by_id、不改变"这一节用哪一轮"的判定，
+    # 所以丢弃**不会**成为新的抹结果路径（`_batch_section_has_content`
+    # 读的是原始批次产物，不受这里影响）。
+    #
     # 汇编时按目录顺序确定每个知识键"何时可用"：一条关系的两端必须都在当前
     # 小节或更早的小节里首次出现，否则它引用的是后续才引入的知识。
     #
