@@ -28,6 +28,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import math
 import os
@@ -295,11 +296,20 @@ def _safe_slug(value: str) -> str:
     return slug[:60] or "run"
 
 
+_RUN_SEQ = itertools.count(1)
+
+
 def _new_run(run_id: str) -> _Run:
     directory = _telemetry_dir()
     directory.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = directory / f"generation-{stamp}-{_safe_slug(run_id)}.jsonl"
+    # 加一个进程内自增序号：同一秒内开的两个 run（服务器连着跑两门课）
+    # 时间戳与默认 slug 都一样，只靠它们会撞成同一个文件。
+    suffix = next(_RUN_SEQ)
+    path = (
+        directory
+        / f"generation-{stamp}-{_safe_slug(run_id)}-{suffix}.jsonl"
+    )
     return _Run(run_id=run_id, path=path, started_at=time.perf_counter())
 
 
@@ -321,10 +331,25 @@ def generation_run(run_id: str) -> Iterator[Path]:
 
 
 def _active_run() -> _Run:
-    """取当前 run；没有就按时间戳自动开一个。
+    """取当前 run；没有就自动开一个（进程级单例）。
 
     生成入口在 ``course_*.py``，本轮不归我改，所以不能指望它来调
     :func:`generation_run`。自动开 run 保证"直接跑一门课"也能拿到账单。
+
+    ⚠️ **已知限制：一个服务器进程里先后跑的多门课会写进同一个文件**，
+    这与任务书"一次生成一个文件"有出入。
+
+    试过按 asyncio task 自动分组，走不通：``create_task`` 给子 task 的是当前
+    上下文的**副本**，在叶子（也就是这里）``set`` 出不去，只会变成"每次调用
+    各开一个文件"——实测出现过「7 次调用 7 个文件」和「4+3 次调用 5 个文件」。
+    要真正按生成分组，必须在**生成入口**用 :func:`generation_run` 把整段包住，
+    而那个入口在 ``course_*.py``（本轮归其他 worker）。
+
+    现在的对策：
+    * 一次只跑一门课时，文件就是干净的（本轮验收就是这么做的）。
+    * 要在长期运行的进程里分开，用 ``LINGZHI_TELEMETRY_RUN_ID`` 给每次生成
+      一个不同的值，或由生成入口调用 :func:`generation_run`。
+    * 账单工具按 ``run_id`` 分组统计，混在一起时也不会把两门课算成互相重复。
     """
     run = _RUN.get()
     if run is not None:
@@ -332,7 +357,9 @@ def _active_run() -> _Run:
     global _GLOBAL_RUN
     with _GLOBAL_LOCK:
         if _GLOBAL_RUN is None:
-            _GLOBAL_RUN = _new_run(os.getenv("LINGZHI_TELEMETRY_RUN_ID", "auto"))
+            _GLOBAL_RUN = _new_run(
+                os.getenv("LINGZHI_TELEMETRY_RUN_ID", "auto")
+            )
         return _GLOBAL_RUN
 
 

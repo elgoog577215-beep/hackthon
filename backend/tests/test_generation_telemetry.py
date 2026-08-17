@@ -35,6 +35,67 @@ def _read(path: Path) -> list[dict]:
     ]
 
 
+def test_one_file_per_generation_when_scoped_explicitly(telemetry_dir):
+    """显式 ``generation_run`` 必须把每次生成分到各自的文件。
+
+    这是"一次生成一个文件"的可靠实现方式。自动模式做不到跨生成隔离，
+    见 :func:`test_auto_run_shares_one_file_across_generations` 的说明。
+    """
+
+    async def one_generation(name: str) -> None:
+        async def leaf(index: int) -> None:
+            gt.record_call(
+                model_id="m",
+                status="completed",
+                stream=False,
+                prompt=f"{name}-{index}",
+            )
+
+        # 并行小节：必须落进同一个文件。
+        await asyncio.gather(*[asyncio.create_task(leaf(i)) for i in range(3)])
+
+    async def main() -> None:
+        for name in ("courseA", "courseB"):
+            with gt.generation_run(name):
+                await asyncio.create_task(one_generation(name))
+
+    asyncio.run(main())
+
+    files = sorted(telemetry_dir.glob("*.jsonl"))
+    assert len(files) == 2, [f.name for f in files]
+    for path in files:
+        assert len(_read(path)) == 3
+
+
+def test_auto_run_shares_one_file_across_generations(telemetry_dir):
+    """记录已知限制：自动模式下同进程的多次生成会共用一个文件。
+
+    任务书要求"一次生成一个文件"。自动模式（生成入口没调
+    :func:`generation_run`）做不到这一点，因为 ``create_task`` 给子 task 的是
+    上下文**副本**——在打点处（叶子）无论 set 什么都出不去，试图按 task 自动
+    分组只会退化成"每次调用一个文件"（实测出现过 7 次调用 7 个文件）。
+
+    所以这条用例把现状钉住，而不是假装它已经解决：**要真正按生成分组，
+    必须由生成入口用 `generation_run` 包住**，那个入口在 ``course_*.py``。
+    """
+
+    async def one_generation(name: str) -> None:
+        gt.record_call(
+            model_id="m", status="completed", stream=False, prompt=name
+        )
+
+    async def main() -> None:
+        await asyncio.create_task(one_generation("courseA"))
+        await asyncio.create_task(one_generation("courseB"))
+
+    asyncio.run(main())
+
+    files = sorted(telemetry_dir.glob("*.jsonl"))
+    # 现状：两门课混在一个文件里。修好之后这里应该变成 2，届时请更新本用例。
+    assert len(files) == 1
+    assert len(_read(files[0])) == 2
+
+
 def test_disabled_by_default_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.delenv("LINGZHI_GENERATION_TELEMETRY", raising=False)
     monkeypatch.setenv("LINGZHI_GENERATION_TELEMETRY_DIR", str(tmp_path))

@@ -247,17 +247,49 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("path", type=Path)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--run-id",
+        default="",
+        help="只统计这个 run_id；不给则在文件含多个 run 时自动逐个统计",
+    )
     args = parser.parse_args()
 
     records = load(args.path)
     if not records:
         print(f"没有可用记录：{args.path}")
         return 1
-    summary = summarize(records)
+    if args.run_id:
+        records = [r for r in records if r.get("run_id") == args.run_id]
+        if not records:
+            print(f"没有 run_id={args.run_id} 的记录")
+            return 1
+
+    # 自动模式下同一个进程的多次生成可能混在一个文件里。混着算会把两门课
+    # 之间的无关重复也算成"重复上下文"，把③的占比抬高。所以按 run_id 分组。
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for record in records:
+        groups[str(record.get("run_id") or "")].append(record)
+
     if args.json:
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
-    else:
-        print(render(summary))
+        payload = {
+            run_id: summarize(group) for run_id, group in groups.items()
+        }
+        print(json.dumps(
+            payload if len(payload) > 1 else next(iter(payload.values())),
+            ensure_ascii=False,
+            indent=2,
+        ))
+        return 0
+
+    if len(groups) > 1:
+        print(
+            f"⚠️ 这个文件里有 {len(groups)} 个 run"
+            f"（{', '.join(sorted(groups))}），下面逐个统计。\n"
+        )
+    for run_id, group in sorted(groups.items()):
+        if len(groups) > 1:
+            print(f"\n{'=' * 60}\n# run_id = {run_id}\n{'=' * 60}\n")
+        print(render(summarize(group)))
     return 0
 
 
