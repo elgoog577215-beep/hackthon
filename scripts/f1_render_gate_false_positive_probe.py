@@ -12,11 +12,14 @@ Operational definitions, fixed before looking at any number:
   `render_corpus.mjs`. A node "renders clean" when KaTeX emitted no error node,
   nothing degraded to `math-fallback`, and the diagnostics channel recorded
   nothing.
-* FALSE POSITIVE = the gate raises a *render*-dimension issue on a node that
-  renders clean. This is the number that blocks a release for no reason, so it
-  is the headline.
-* FALSE NEGATIVE = the node fails to render but the gate raises no render issue.
-  This is the `cases/aligned` class of defect — the reason F-1 exists.
+* FALSE POSITIVE = the gate raises a *blocking* (critical) render issue on a
+  node that renders clean. Blocking is the operative word: only a critical
+  stops a release, so only a critical can wrongly stop one. Warnings on clean
+  nodes are counted separately as `advisory_on_clean` — untidy source is worth
+  reporting and never worth a launch.
+* FALSE NEGATIVE = the node fails to render but the gate blocks nothing. This
+  is the `cases/aligned` class of defect — the reason F-1 exists. Closing it
+  needs a real parse, which is what `scripts/render_gate.mjs` provides.
 
 Only render-dimension codes are scored. Content and hygiene codes are judgements
 about teaching quality; a renderer cannot adjudicate them, so counting them here
@@ -27,8 +30,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"

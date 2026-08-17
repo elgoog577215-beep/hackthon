@@ -25,6 +25,8 @@ RENDER_ISSUE_CODES = frozenset({
     # Real-render failures reported by the frontend (L3a).
     "math_render_failed",
     "block_render_failed",
+    # Verdict from the real renderer run by scripts/render_gate.mjs (F-1b/B).
+    "render_gate:failed",
     # Math delimiter and environment structure.
     "unclosed_math_fence",
     "unwrapped_display_environment",
@@ -868,8 +870,150 @@ def build_difficulty_alignment_report(course_data: dict[str, Any]) -> dict[str, 
     }
 
 
+def build_visual_quality_report(
+    course_data: dict[str, Any],
+    render_gate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The visual-correctness report, readable on its own.
+
+    F-1 asks for content correctness and visual correctness to be reported
+    separately, because they have different owners and different fixes: a course
+    can be pedagogically sound and render as garbled LaTeX, or render beautifully
+    while missing half its key points. Until now both landed in one `issues` list
+    behind one score, so a reader could not tell which had failed.
+
+    "Independently readable" is taken literally — this dict names its own
+    subject, states where its verdict came from, and never requires the caller
+    to consult the content report to interpret it.
+
+    ``render_gate`` is the output of ``scripts/render_gate.mjs``, which runs the
+    learner's real renderer. When supplied it is authoritative, because it
+    observed what the browser actually produced. Without it the report falls
+    back to the backend's own pattern tier and says so in `basis` — measured on
+    8 real courses, that tier alone misses 72% of nodes that fail to render, and
+    a reader deserves to know which of the two they are looking at.
+    """
+    nodes = [
+        node for node in course_data.get("nodes") or []
+        if node.get("node_level", 1) == 2
+    ]
+    node_reports = [_current_node_quality(node) for node in nodes]
+    pattern_view = _aggregate_render_quality(node_reports)
+
+    if not isinstance(render_gate, dict) or not render_gate.get("checked_nodes"):
+        return {
+            "contract_version": QUALITY_CONTRACT_VERSION,
+            "dimension": "visual",
+            "question": "学习者看到的排版和公式是否正确？",
+            "basis": "backend_pattern_only",
+            "basis_note": (
+                "未提供真实渲染结果，本报告仅来自后端文本模式检查。"
+                "在 8 门真实课程上实测，该层会漏掉 72% 真正渲染失败的节点。"
+                "发布前请运行 scripts/render_gate.mjs 取得权威结论。"
+            ),
+            "authoritative": False,
+            "passed": pattern_view.get("passed", True),
+            "score": pattern_view.get("score", 1.0),
+            "checked_nodes": len(node_reports),
+            "failing_node_ids": pattern_view.get("failing_node_ids", []),
+            "issues": pattern_view.get("issues", []),
+        }
+
+    gate_nodes = [item for item in render_gate.get("nodes") or [] if isinstance(item, dict)]
+    failing = [item for item in gate_nodes if not item.get("passed", True)]
+    return {
+        "contract_version": QUALITY_CONTRACT_VERSION,
+        "dimension": "visual",
+        "question": "学习者看到的排版和公式是否正确？",
+        "basis": "real_render",
+        "basis_note": (
+            f"由真实渲染器判定：{render_gate.get('renderer') or 'frontend markdown pipeline'}。"
+            "这与学习者浏览器里跑的是同一条链路。"
+        ),
+        "authoritative": True,
+        "passed": not failing,
+        "checked_nodes": len(gate_nodes),
+        "failing_node_count": len(failing),
+        "failing_node_ids": [str(item.get("node_id") or "") for item in failing],
+        "failures": [
+            {
+                "node_id": str(item.get("node_id") or ""),
+                "node_name": str(item.get("node_name") or ""),
+                "math_failure_count": int(
+                    (item.get("render_diagnostics") or {}).get("math_failure_count") or 0
+                ),
+                "block_failure_count": int(
+                    (item.get("render_diagnostics") or {}).get("block_failure_count") or 0
+                ),
+                "leaked_source": bool(item.get("leaked_source")),
+                "samples": item.get("samples") or [],
+                "reading": "学习者会在这一节看到 LaTeX 源码或错位排版",
+            }
+            for item in failing
+        ],
+        # Kept so a reader can see where the cheap tier and the real renderer
+        # disagree, without having to open the content report to find out.
+        "backend_pattern_view": {
+            "passed": pattern_view.get("passed", True),
+            "failing_node_ids": pattern_view.get("failing_node_ids", []),
+        },
+    }
+
+
+def build_content_quality_report(course_data: dict[str, Any]) -> dict[str, Any]:
+    """The content-correctness report, readable on its own.
+
+    Deliberately excludes every render code: whether a formula displays is the
+    other report's question. What remains is whether the course teaches what it
+    promised — objectives covered, difficulty honoured, evidence used, no model
+    process leaking into the body.
+    """
+    nodes = [
+        node for node in course_data.get("nodes") or []
+        if node.get("node_level", 1) == 2
+    ]
+    node_reports = [_current_node_quality(node) for node in nodes]
+
+    content_issues: list[dict[str, Any]] = []
+    hygiene_issues: list[dict[str, Any]] = []
+    failing: list[str] = []
+    for report in node_reports:
+        scoped = [
+            item for item in report.get("issues") or []
+            if _issue_dimension(str(item.get("code") or "")) != "render"
+        ]
+        for item in scoped:
+            if _issue_dimension(str(item.get("code") or "")) == "hygiene":
+                hygiene_issues.append(item)
+            else:
+                content_issues.append(item)
+        if _has_critical(scoped):
+            node_id = str(report.get("node_id") or "")
+            if node_id:
+                failing.append(node_id)
+
+    combined = content_issues + hygiene_issues
+    return {
+        "contract_version": QUALITY_CONTRACT_VERSION,
+        "dimension": "content",
+        "question": "这门课教的内容是否正确、完整、符合契约？",
+        "basis": "backend_deterministic_checks",
+        "basis_note": (
+            "只统计教学内容与生成卫生问题，公式与排版是否显示正常由视觉报告负责。"
+        ),
+        "passed": not failing,
+        "score": _score_from_issues(combined),
+        "checked_nodes": len(node_reports),
+        "failing_node_ids": failing,
+        "content_issue_count": len(content_issues),
+        "hygiene_issue_count": len(hygiene_issues),
+        "issues": combined[:50],
+    }
+
+
 def build_final_course_quality_report(
-    course_data: dict[str, Any], *, job_id: str
+    course_data: dict[str, Any], *, job_id: str,
+    render_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     nodes = [node for node in course_data.get("nodes", []) if node.get("node_level", 1) == 2]
     node_reports = []
@@ -979,6 +1123,21 @@ def build_final_course_quality_report(
             "按全课总编契约定点修复目标小节，保持其他章节不变",
             str(issue.get("node_id") or ""),
         ))
+    # F-1b/B: a real-render failure is never cosmetic — the learner reads LaTeX
+    # source. Measured on 8 real courses, the backend pattern tier alone misses
+    # 72% of these, so when the render gate has run its verdict blocks release.
+    if isinstance(render_gate, dict) and render_gate.get("checked_nodes"):
+        for item in render_gate.get("nodes") or []:
+            if not isinstance(item, dict) or item.get("passed", True):
+                continue
+            blocking_issues.append(_issue(
+                "render_gate:failed",
+                "critical",
+                f"{item.get('node_name') or item.get('node_id')} 在真实渲染器下显示异常，"
+                "学习者会看到 LaTeX 源码或错位排版",
+                "修正该节公式或 Markdown 结构后重新运行 scripts/render_gate.mjs",
+                str(item.get("node_id") or ""),
+            ))
     asset_quality = course_data.get("asset_quality_report") or {}
     for issue in asset_quality.get("blocking_issues") or []:
         blocking_issues.append(_issue(
@@ -1036,6 +1195,11 @@ def build_final_course_quality_report(
         # the render verdict across nodes, so the report can state plainly that
         # a course is pedagogically sound but visually broken.
         "render_quality": _aggregate_render_quality(node_reports),
+        # F-1c: the same verdicts as two reports that each stand alone. Neither
+        # requires the other to be understood, which is the point — "内容对不对"
+        # and "看起来对不对" have different owners and different fixes.
+        "visual_quality_report": build_visual_quality_report(course_data, render_gate),
+        "content_quality_report": build_content_quality_report(course_data),
         "weak_nodes": weak_nodes,
         "manual_review_required_nodes": manual_review_nodes,
         "publication_allowed": not blocking_issues,
@@ -1484,5 +1648,7 @@ __all__ = [
     "evaluate_difficulty_alignment",
     "build_difficulty_alignment_report",
     "build_final_course_quality_report",
+    "build_visual_quality_report",
+    "build_content_quality_report",
     "dedupe_quality_issues",
 ]
