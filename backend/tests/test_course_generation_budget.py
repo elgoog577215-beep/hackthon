@@ -588,12 +588,13 @@ def test_content_concurrency_default_matches_measured_endpoint_capacity(
 ):
     """正文并发默认值 = 实测端点容量，且必须可被环境变量覆盖（B-4）。
 
-    实测（`backend/tools/content_phase_bench.py`，真实端点）：
-    并发 4 墙钟 42.3s / 并发 6 墙钟 41.4s —— 8 节课在这两档都是 **2 波**，
-    墙钟几乎一样；只有 >=8 才降到 1 波（34.0s，-19.7%）。
-    并发 12 相对 8 几乎无收益（33.7s）=> 端点实际容量就在 8 附近。
+    走真实流式正文路径多轮实测（`backend/tools/content_parallel_bench.py`）：
+    并发 4 墙钟均值 82.0s / 并发 6 为 66.4s / 并发 8 为 65.5s。
+    **4 -> 8 降 20.1%**，但 6 与 8 分不出高下（均值差 1.0s，区间重叠）；
+    再往上单节耗时明显变长。取 8 是保守选择。
 
-    所以默认值定为 8——**这个数是按实测容量定的，不是拍的**。
+    标定方法与判据见 `docs/验收/并发容量标定运行手册.md`——
+    **换端点或换模型必须重测**，最优并发是端点属性不是代码属性。
     """
     monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
     assert CourseGenerationBudget.from_env().content_concurrency == 8

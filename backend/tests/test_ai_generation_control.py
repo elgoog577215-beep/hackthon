@@ -111,9 +111,9 @@ async def _durable_generation_manager(tmp_path, monkeypatch, *, status):
 def test_task_manager_uses_provider_safe_default_concurrency(monkeypatch):
     """默认并发要与实测端点容量一致，且能被环境变量降下来。
 
-    8 是实测值不是拍的：8 节正文在并发 4/6 下都是 2 波（42.3s/41.4s），
-    ≥8 才降到 1 波（34.0s）；12 相对 8 几乎无收益 ⇒ 容量就在 8 附近。
-    详见 `backend/tools/content_phase_bench.py` 与预算模块的注释。
+    8 是实测值不是拍的：走真实流式正文路径多轮实测，并发 4 墙钟均值 82.0s、
+    并发 8 为 65.5s（-20.1%）。标定方法见
+    `docs/验收/并发容量标定运行手册.md`——换端点必须重测。
     """
     monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
     manager = TaskManager(storage=None, course_service=None, ws_service=None)
