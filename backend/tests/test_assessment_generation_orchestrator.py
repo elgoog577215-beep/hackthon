@@ -779,15 +779,26 @@ async def test_node_uses_one_batch_generation_call_when_supported():
     audit = prepared["_assessment_generation_audit"]
     assert model.batch_generate_calls == 1
     assert model.batch_evaluate_calls == 1
-    assert model.generate_calls == 1
+    # B-3：三个层级现在一批发完，没有落单的第三条。
+    #
+    # 改动前 generation_batch_size=2 把 3 个层级切成 [2, 1]，那个 1 被
+    # `if len(batch_contexts) < 2: continue` 丢掉、回落成一次单条
+    # generate_candidate——"批量生成"每节仍要发两次请求。零头并进前一批后
+    # 是一次 batch_size=3 的请求，单条生成归零。
+    assert model.generate_calls == 0
     assert model.solve_calls == 3
     assert audit["batch_generation_calls"] == 1
     assert audit["batch_generation_fallback_count"] == 0
     assert audit["batch_semantic_evaluation_calls"] == 1
     assert audit["batch_semantic_fallback_count"] == 0
-    assert audit["generation_calls"] == 2
-    assert audit["model_call_count"] == 6
-    assert len(audit["call_timings"]) == 6
+    assert audit["generation_calls"] == 1
+    assert audit["model_call_count"] == 5
+    assert len(audit["call_timings"]) == 5
+    assert [
+        timing["batch_size"]
+        for timing in audit["call_timings"]
+        if timing["operation"] == "generate_batch"
+    ] == [3]
     assert {
         timing["role"]
         for timing in audit["call_timings"]
@@ -851,7 +862,8 @@ async def test_solver_format_retry_keeps_generated_candidate():
     audit = prepared["_assessment_generation_audit"]
     assert audit["independent_solution_calls"] == 4
     assert audit["independent_solution_retry_count"] == 1
-    assert audit["generation_calls"] == 2
+    # B-3：零头并批后首轮生成只发一次（三个层级一批），不再有单条兜底。
+    assert audit["generation_calls"] == 1
     assert audit["repair_calls"] == 0
     assert audit["failure_count"] == 0
     assert any(
@@ -940,9 +952,12 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     #
     # 改动前这里是 batch=0 / generate=3 / solve=4 / repair=1，共 8 次模型调用——
     # deliberate 档的 scoped_repair 落进全链路最慢的分支。而 scoped_repair 正是
-    # 教师点了重建、正等着看结果的场景。现在同样的输入是 5 次。
+    # 教师点了重建、正等着看结果的场景。M2 之后是 5 次。
+    #
+    # B-3：零头并批后再降到 4 次——三个层级一次 generate_batch 发完，
+    # 不再有那条落单的 generate_candidate。
     assert model.batch_generate_calls == 1
-    assert model.generate_calls == 1
+    assert model.generate_calls == 0
     assert model.solve_calls == 3
     assert model.repair_calls == 0
     assert (
@@ -950,7 +965,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
         + model.generate_calls
         + model.solve_calls
         + model.repair_calls
-    ) == 5, "scoped_repair 的模型调用数不得回退到批量化之前"
+    ) == 4, "scoped_repair 的模型调用数不得回退到批量化之前"
     assert [event["completed_items"] for event in progress_events] == [
         1,
         2,
@@ -1029,6 +1044,43 @@ async def test_fast_profile_batches_all_failed_repairs_once():
         for timing in audit["call_timings"]
     )
     assert audit["failure_count"] == 0
+
+
+async def test_repairs_coalesce_across_nodes_not_just_within_one():
+    """B-3：合批器按本轮建，跨小节的修复必须合进同一次调用。
+
+    回归的是真实缺陷：三个 batcher 原本建在 `run_node` 内部，每个小节各拿
+    一份，`_pending` 永不相见。实测两个小节的修复请求只差 5–10ms 落在同一个
+    100ms 窗口内，本该合批却各发一次——`repair_candidate_batch` 被调用的次数
+    等于题目数，每次 batch_size=1，"合批"形同虚设。
+
+    所以这里断言的是 batch_size 而不只是调用次数：只看次数的话，每节一个
+    batcher 各发一次也能凑出"有批量调用"的假象。
+    """
+
+    course = _course()
+    second = deepcopy(course["nodes"][0])
+    second["node_id"] = "thermo-2"
+    second["node_name"] = "热力学第一定律（第二节）"
+    course["nodes"].append(second)
+    model = BatchRepairAwareModel()
+
+    await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        course,
+        node_ids=["thermo-1", "thermo-2"],
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+
+    assert model.repair_calls == 0, "不得回落到逐条 repair_candidate"
+    assert model.repair_batch_sizes, "修复必须走合批路径"
+    # 六道题若按小节切成两个 batcher，这里会是 [3, 3]；真正共享时是 [3, 3]
+    # 之外还必须没有任何一次 batch_size==1 的退化调用。
+    assert 1 not in model.repair_batch_sizes, (
+        f"出现 batch_size=1 的修复调用，合批未生效："
+        f"{model.repair_batch_sizes}"
+    )
+    assert sum(model.repair_batch_sizes) >= 2
 
 
 async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
