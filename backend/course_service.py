@@ -113,6 +113,7 @@ from course_outline_planning import (
     assemble_course_outline,
     build_outline_batch_specs,
     compile_fallback_outline_batch,
+    course_coverage_verdict,
     normalize_outline_batch,
     normalize_outline_skeleton,
     outline_neighbor_chapters,
@@ -3455,6 +3456,13 @@ class CourseService(AIBase):
         """Build every outline as chapter skeleton -> batches -> local assembly."""
         brief = artifacts.get("course_generation_brief") or {}
         shape_constraints = brief.get("course_shape_constraints") or {}
+        # D-1: decide what this course size can honestly promise before any
+        # model call, so the skeleton is planned against a stated scope rather
+        # than being silently downgraded and still called complete.
+        coverage_verdict = course_coverage_verdict(
+            subject=topic,
+            brief=brief,
+        )
         request_fingerprint = outline_request_fingerprint(
             topic=topic,
             audience=audience,
@@ -3599,6 +3607,7 @@ class CourseService(AIBase):
             shape_constraints=shape_constraints,
             request_fingerprint=request_fingerprint,
             course_type_contract=brief.get("course_type_contract") or {},
+            coverage_verdict=coverage_verdict,
         )
         skeleton_is_current = bool(
             isinstance(raw_skeleton, dict)
@@ -3632,6 +3641,7 @@ class CourseService(AIBase):
                             detail_level=detail_level,
                         ),
                         detail_level=detail_level,
+                        coverage_verdict=coverage_verdict,
                     )
                 )
                 for detail_level in skeleton_levels
@@ -3701,11 +3711,17 @@ class CourseService(AIBase):
                 topic=topic,
                 request_fingerprint=request_fingerprint,
             )
+            coverage_verdict = course_coverage_verdict(
+                subject=topic,
+                brief=brief,
+                skeleton=skeleton,
+            )
             skeleton_report = validate_outline_skeleton(
                 skeleton,
                 shape_constraints=shape_constraints,
                 request_fingerprint=request_fingerprint,
                 course_type_contract=brief.get("course_type_contract") or {},
+                coverage_verdict=coverage_verdict,
             )
             if (
                 not skeleton_report.get("passed")
@@ -3788,11 +3804,17 @@ class CourseService(AIBase):
                         topic=topic,
                         request_fingerprint=request_fingerprint,
                     )
+                    coverage_verdict = course_coverage_verdict(
+                        subject=topic,
+                        brief=brief,
+                        skeleton=skeleton,
+                    )
                     skeleton_report = validate_outline_skeleton(
                         skeleton,
                         shape_constraints=shape_constraints,
                         request_fingerprint=request_fingerprint,
                         course_type_contract=brief.get("course_type_contract") or {},
+                        coverage_verdict=coverage_verdict,
                     )
             skeleton_failure_reason = (
                 failure_reason
@@ -3802,6 +3824,7 @@ class CourseService(AIBase):
             "skeleton": deepcopy(skeleton),
             "skeleton_revision_id": skeleton.get("revision_id"),
             "skeleton_validation_report": deepcopy(skeleton_report),
+            "course_coverage_verdict": deepcopy(coverage_verdict),
             "chapter_count": len(skeleton.get("chapters") or []),
             "section_count": sum(
                 int(item.get("section_count") or 0)

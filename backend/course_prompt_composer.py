@@ -52,6 +52,44 @@ def _course_type_planning_rules(brief: dict[str, Any]) -> str:
 10. 学习路径角色只使用 `focus|standard|compressed`，不得出现项目专属角色。"""
 
 
+def _course_coverage_rules(verdict: dict[str, Any] | None) -> str:
+    """State plainly what this course size may and may not claim to cover.
+
+    Numbered separately from the type rules (which own slots 9-11) so both can
+    grow without renumbering each other.
+    """
+    if not verdict:
+        return ""
+    if verdict.get("status") == "complete":
+        return (
+            "C1. 本课程规格可按完整课程组织；仍需在定位中说明确实不覆盖的进阶内容。"
+        )
+    subject = verdict.get("subject") or "本学科"
+    scale_label = verdict.get("scale_label") or "当前规格"
+    lines = [
+        f"C1. 【课程规格判定】本次为{scale_label}，"
+        f"{verdict.get('coverage_promise') or '不承担学科完整覆盖'}。",
+        f"C2. 课程名称与 `positioning` 不得出现“完整课程/完整覆盖/全面覆盖”等表述，"
+        f"也不得暗示已学完{subject}；建议定位为「"
+        f"{verdict.get('required_positioning') or subject + '核心概览课'}」。",
+    ]
+    uncovered = [str(item) for item in verdict.get("uncovered_topics") or []]
+    if uncovered:
+        lines.append(
+            f"C3. 以下{subject}核心主题在本次课时下无法覆盖，必须在 `positioning` 中"
+            f"原样列为“本次不覆盖”，不得假装已覆盖，也不得默认学习者已掌握："
+            f"{json.dumps(uncovered, ensure_ascii=False)}。"
+        )
+    elif verdict.get("core_topics"):
+        lines.append(
+            f"C3. 必须在 `positioning` 中明确列出本次不覆盖的{subject}主题；"
+            "凡是无法在本课时内讲透的内容，宁可列为不覆盖，也不得罗列标题充数。"
+        )
+    for item in verdict.get("honest_naming") or []:
+        lines.append(f"C{len(lines) + 1}. {item}")
+    return "\n".join(lines)
+
+
 class CoursePromptComposer:
     def build_outline_skeleton_v2_prompt(
         self,
@@ -65,6 +103,7 @@ class CoursePromptComposer:
         adaptation_decision: dict[str, Any],
         material_context: str,
         detail_level: str = "full",
+        coverage_verdict: dict[str, Any] | None = None,
     ) -> str:
         """Build the small global decision used before parallel chapter expansion."""
         planning_brief = brief
@@ -111,6 +150,7 @@ class CoursePromptComposer:
         shape = brief.get("course_shape_constraints") or {}
         course_type_contract = brief.get("course_type_contract") or {}
         planning_rules = _course_type_planning_rules(planning_brief)
+        coverage_rules = _course_coverage_rules(coverage_verdict)
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -155,6 +195,7 @@ class CoursePromptComposer:
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
 8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
+{coverage_rules}
 {planning_rules}
 
 ## JSON Schema
