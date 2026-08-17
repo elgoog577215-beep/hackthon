@@ -1,0 +1,782 @@
+{
+  "rich": {
+    "schema_version": "course_lesson_dossier_v1",
+    "node_id": "section-1",
+    "sequence": 1,
+    "title": "向量的线性组合",
+    "chapter_title": "第一章 向量",
+    "template": {
+      "schema_version": "lesson_template_contract_v1",
+      "contract_state": "projected_from_archetype",
+      "template_id": "math_intuition_representation",
+      "template_label": "直觉与多重表征",
+      "template_version": "",
+      "primary_mode": "math_formal",
+      "course_stage": "foundation",
+      "purpose": "建立直觉再连接定义。",
+      "evidence_contract": "能在两种表征之间转换。",
+      "guardrails": [
+        "符号必须先有意义再被使用"
+      ],
+      "archetype_module_ids": [
+        "math_intuition"
+      ],
+      "planned_module_ids": [
+        "lesson_goal",
+        "core_explanation",
+        "learner_action"
+      ],
+      "actual_module_ids": [
+        "lesson_goal",
+        "core_explanation",
+        "learner_action"
+      ],
+      "module_conformance": {
+        "matched": 3,
+        "missing_required": [],
+        "unplanned": []
+      }
+    },
+    "rubric_keys": [
+      "lesson_identity",
+      "objectives",
+      "focus",
+      "knowledge",
+      "timeline",
+      "alignment",
+      "misconceptions",
+      "assessment",
+      "homework",
+      "resources",
+      "notes"
+    ],
+    "rubrics": [
+      {
+        "key": "lesson_identity",
+        "kind": "facts",
+        "status": "filled",
+        "item_count": 1,
+        "node_id": "section-1",
+        "sequence": 1,
+        "title": "向量的线性组合",
+        "chapter_title": "第一章 向量",
+        "template_label": "直觉与多重表征",
+        "course_stage": "foundation",
+        "planned_minutes": 45,
+        "minutes_basis": "section_planned",
+        "knowledge_point_count": 1,
+        "module_count": 3
+      },
+      {
+        "key": "objectives",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 2,
+        "items": [
+          {
+            "text": "能用线性组合解释生成关系",
+            "source": "outline",
+            "knowledge_name": ""
+          },
+          {
+            "text": "能写出目标向量的系数组合",
+            "source": "capability",
+            "knowledge_name": "线性组合"
+          }
+        ]
+      },
+      {
+        "key": "focus",
+        "kind": "split_list",
+        "status": "filled",
+        "item_count": 2,
+        "key_points": [
+          "线性组合"
+        ],
+        "difficulties": [
+          "系数与分量混淆"
+        ]
+      },
+      {
+        "key": "knowledge",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 1,
+        "columns": [
+          "name",
+          "type",
+          "statement",
+          "prerequisite"
+        ],
+        "rows": [
+          {
+            "knowledge_id": "k-1",
+            "knowledge_status": "",
+            "name": "线性组合",
+            "concept_group": "核心机制",
+            "knowledge_type": "concept",
+            "statement": "向量按标量加权后相加。",
+            "prerequisite_names": [
+              "向量加法"
+            ],
+            "boundaries": [],
+            "ownership": "owned"
+          }
+        ],
+        "reused_knowledge_names": [
+          "向量加法"
+        ],
+        "relations": []
+      },
+      {
+        "key": "timeline",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 3,
+        "entries": [
+          {
+            "sequence": 1,
+            "module_id": "lesson_goal",
+            "label": "本节任务",
+            "block_role": "objective",
+            "required": true,
+            "teaching_purpose": "说明本节任务",
+            "teaching_guidance": "",
+            "teacher_activity": "给出目标",
+            "student_activity": "记录目标",
+            "knowledge_names": [
+              "线性组合"
+            ],
+            "minutes": 8,
+            "minutes_source": "derived",
+            "start_minute": 0,
+            "end_minute": 8
+          },
+          {
+            "sequence": 2,
+            "module_id": "core_explanation",
+            "label": "核心教学",
+            "block_role": "concept",
+            "required": true,
+            "teaching_purpose": "讲清线性组合",
+            "teaching_guidance": "",
+            "teacher_activity": "几何演示",
+            "student_activity": "复述定义",
+            "knowledge_names": [
+              "线性组合"
+            ],
+            "minutes": 22,
+            "minutes_source": "derived",
+            "start_minute": 8,
+            "end_minute": 30
+          },
+          {
+            "sequence": 3,
+            "module_id": "learner_action",
+            "label": "学习者行动",
+            "block_role": "activity",
+            "required": true,
+            "teaching_purpose": "让学生动手",
+            "teaching_guidance": "",
+            "teacher_activity": "巡视",
+            "student_activity": "独立分解",
+            "knowledge_names": [
+              "线性组合"
+            ],
+            "minutes": 15,
+            "minutes_source": "planned",
+            "start_minute": 30,
+            "end_minute": 45
+          }
+        ],
+        "columns": [
+          "stage",
+          "minutes",
+          "teacher",
+          "student",
+          "knowledge"
+        ],
+        "total_minutes": 45,
+        "allocated_minutes": 45,
+        "minutes_basis": "section_planned",
+        "continuous": true,
+        "derived_count": 2
+      },
+      {
+        "key": "alignment",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 1,
+        "columns": [
+          "knowledge",
+          "module",
+          "capability",
+          "mastery",
+          "evidence"
+        ],
+        "rows": [
+          {
+            "knowledge_id": "k-1",
+            "name": "线性组合",
+            "ownership": "owned",
+            "knowledge_type": "concept",
+            "modules": [
+              {
+                "module_id": "lesson_goal",
+                "label": "本节任务",
+                "sequence": 1
+              },
+              {
+                "module_id": "core_explanation",
+                "label": "核心教学",
+                "sequence": 2
+              },
+              {
+                "module_id": "learner_action",
+                "label": "学习者行动",
+                "sequence": 3
+              }
+            ],
+            "capabilities": [
+              "能写出目标向量的系数组合"
+            ],
+            "mastery": [
+              {
+                "performance": "独立完成两组分解",
+                "verification": "课堂出口题"
+              }
+            ],
+            "checks": [
+              "用出口题检查线性组合的系数"
+            ],
+            "homework": [],
+            "gaps": []
+          }
+        ],
+        "gap_count": 0
+      },
+      {
+        "key": "misconceptions",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 1,
+        "columns": [
+          "knowledge",
+          "error_pattern",
+          "discrimination",
+          "repair"
+        ],
+        "rows": [
+          {
+            "knowledge_id": "k-1",
+            "knowledge_name": "线性组合",
+            "error_pattern": "把系数当作向量分量",
+            "discrimination": "看系数是否随基改变",
+            "repair_strategy": "用几何缩放重新辨析"
+          }
+        ]
+      },
+      {
+        "key": "assessment",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 2,
+        "checks": [
+          {
+            "text": "用出口题检查线性组合的系数",
+            "knowledge_names": [
+              "线性组合"
+            ]
+          }
+        ],
+        "criteria": [
+          {
+            "knowledge_name": "线性组合",
+            "performance": "独立完成两组分解",
+            "verification": "课堂出口题"
+          }
+        ]
+      },
+      {
+        "key": "homework",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 1,
+        "items": [
+          {
+            "text": "完成两个分解练习",
+            "knowledge_names": []
+          }
+        ]
+      },
+      {
+        "key": "resources",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 1,
+        "items": [
+          "坐标纸"
+        ]
+      },
+      {
+        "key": "notes",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 4,
+        "items": [
+          "板书保留几何图"
+        ],
+        "guardrails": [
+          "符号必须先有意义再被使用"
+        ],
+        "teacher_activities": [
+          "演示向量缩放"
+        ],
+        "student_activities": [
+          "拖动系数"
+        ]
+      }
+    ],
+    "granularity": {
+      "knowledge_point_count": 1,
+      "module_count": 3,
+      "planned_minutes": 45,
+      "objective_count": 2,
+      "capability_count": 1,
+      "mastery_count": 1,
+      "misconception_count": 1,
+      "check_count": 1,
+      "homework_count": 1,
+      "alignment_gap_count": 0,
+      "filled_rubric_count": 11,
+      "rubric_count": 11
+    }
+  },
+  "sparse": {
+    "schema_version": "course_lesson_dossier_v1",
+    "node_id": "section-2",
+    "sequence": 2,
+    "title": "张成空间",
+    "chapter_title": "第一章 向量",
+    "template": {
+      "schema_version": "lesson_template_contract_v1",
+      "contract_state": "projected_from_archetype",
+      "template_id": "math_intuition_representation",
+      "template_label": "直觉与多重表征",
+      "template_version": "",
+      "primary_mode": "math_formal",
+      "course_stage": "foundation",
+      "purpose": "建立直觉再连接定义。",
+      "evidence_contract": "能在两种表征之间转换。",
+      "guardrails": [
+        "符号必须先有意义再被使用"
+      ],
+      "archetype_module_ids": [
+        "math_intuition"
+      ],
+      "planned_module_ids": [
+        "lesson_goal",
+        "core_explanation",
+        "learner_action"
+      ],
+      "actual_module_ids": [
+        "lesson_goal",
+        "core_explanation"
+      ],
+      "module_conformance": {
+        "matched": 2,
+        "missing_required": [
+          "learner_action"
+        ],
+        "unplanned": []
+      }
+    },
+    "rubric_keys": [
+      "lesson_identity",
+      "objectives",
+      "focus",
+      "knowledge",
+      "timeline",
+      "alignment",
+      "misconceptions",
+      "assessment",
+      "homework",
+      "resources",
+      "notes"
+    ],
+    "rubrics": [
+      {
+        "key": "lesson_identity",
+        "kind": "facts",
+        "status": "filled",
+        "item_count": 1,
+        "node_id": "section-2",
+        "sequence": 2,
+        "title": "张成空间",
+        "chapter_title": "第一章 向量",
+        "template_label": "直觉与多重表征",
+        "course_stage": "foundation",
+        "planned_minutes": 45,
+        "minutes_basis": "course_median",
+        "knowledge_point_count": 1,
+        "module_count": 2
+      },
+      {
+        "key": "objectives",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 1,
+        "items": [
+          {
+            "text": "能判断张成范围",
+            "source": "outline",
+            "knowledge_name": ""
+          }
+        ]
+      },
+      {
+        "key": "focus",
+        "kind": "split_list",
+        "status": "filled",
+        "item_count": 1,
+        "key_points": [
+          "张成空间"
+        ],
+        "difficulties": []
+      },
+      {
+        "key": "knowledge",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 1,
+        "columns": [
+          "name",
+          "type",
+          "statement",
+          "prerequisite"
+        ],
+        "rows": [
+          {
+            "knowledge_id": "",
+            "knowledge_status": "",
+            "name": "张成空间",
+            "concept_group": "核心机制",
+            "knowledge_type": "concept",
+            "statement": "所有线性组合构成的集合。",
+            "prerequisite_names": [],
+            "boundaries": [],
+            "ownership": "owned"
+          }
+        ],
+        "reused_knowledge_names": [],
+        "relations": []
+      },
+      {
+        "key": "timeline",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 2,
+        "entries": [
+          {
+            "sequence": 1,
+            "module_id": "lesson_goal",
+            "label": "本节任务",
+            "block_role": "objective",
+            "required": true,
+            "teaching_purpose": "说明任务",
+            "teaching_guidance": "",
+            "teacher_activity": "",
+            "student_activity": "",
+            "knowledge_names": [],
+            "minutes": 12,
+            "minutes_source": "derived",
+            "start_minute": 0,
+            "end_minute": 12
+          },
+          {
+            "sequence": 2,
+            "module_id": "core_explanation",
+            "label": "核心教学",
+            "block_role": "concept",
+            "required": true,
+            "teaching_purpose": "讲清张成",
+            "teaching_guidance": "",
+            "teacher_activity": "",
+            "student_activity": "",
+            "knowledge_names": [],
+            "minutes": 33,
+            "minutes_source": "derived",
+            "start_minute": 12,
+            "end_minute": 45
+          }
+        ],
+        "columns": [
+          "stage",
+          "minutes",
+          "teacher",
+          "student",
+          "knowledge"
+        ],
+        "total_minutes": 45,
+        "allocated_minutes": 45,
+        "minutes_basis": "course_median",
+        "continuous": true,
+        "derived_count": 2
+      },
+      {
+        "key": "alignment",
+        "kind": "table",
+        "status": "filled",
+        "item_count": 1,
+        "columns": [
+          "knowledge",
+          "module",
+          "capability",
+          "mastery",
+          "evidence"
+        ],
+        "rows": [
+          {
+            "knowledge_id": "",
+            "name": "张成空间",
+            "ownership": "owned",
+            "knowledge_type": "concept",
+            "modules": [],
+            "capabilities": [],
+            "mastery": [],
+            "checks": [],
+            "homework": [],
+            "gaps": [
+              "module",
+              "capability",
+              "mastery",
+              "evidence"
+            ]
+          }
+        ],
+        "gap_count": 1
+      },
+      {
+        "key": "misconceptions",
+        "kind": "table",
+        "status": "empty",
+        "item_count": 0,
+        "columns": [
+          "knowledge",
+          "error_pattern",
+          "discrimination",
+          "repair"
+        ],
+        "rows": []
+      },
+      {
+        "key": "assessment",
+        "kind": "list",
+        "status": "empty",
+        "item_count": 0,
+        "checks": [],
+        "criteria": []
+      },
+      {
+        "key": "homework",
+        "kind": "list",
+        "status": "empty",
+        "item_count": 0,
+        "items": []
+      },
+      {
+        "key": "resources",
+        "kind": "list",
+        "status": "empty",
+        "item_count": 0,
+        "items": []
+      },
+      {
+        "key": "notes",
+        "kind": "list",
+        "status": "filled",
+        "item_count": 1,
+        "items": [],
+        "guardrails": [
+          "符号必须先有意义再被使用"
+        ],
+        "teacher_activities": [],
+        "student_activities": []
+      }
+    ],
+    "granularity": {
+      "knowledge_point_count": 1,
+      "module_count": 2,
+      "planned_minutes": 45,
+      "objective_count": 1,
+      "capability_count": 0,
+      "mastery_count": 0,
+      "misconception_count": 0,
+      "check_count": 0,
+      "homework_count": 0,
+      "alignment_gap_count": 1,
+      "filled_rubric_count": 7,
+      "rubric_count": 11
+    }
+  },
+  "consistency": {
+    "schema_version": "course_lesson_dossier_consistency_v1",
+    "section_count": 2,
+    "rubric_keys": [
+      "lesson_identity",
+      "objectives",
+      "focus",
+      "knowledge",
+      "timeline",
+      "alignment",
+      "misconceptions",
+      "assessment",
+      "homework",
+      "resources",
+      "notes"
+    ],
+    "uniform_rubric_structure": true,
+    "rubric_coverage": [
+      {
+        "key": "lesson_identity",
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      {
+        "key": "objectives",
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      {
+        "key": "focus",
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      {
+        "key": "knowledge",
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      {
+        "key": "timeline",
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      {
+        "key": "alignment",
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      {
+        "key": "misconceptions",
+        "filled_sections": 1,
+        "section_count": 2
+      },
+      {
+        "key": "assessment",
+        "filled_sections": 1,
+        "section_count": 2
+      },
+      {
+        "key": "homework",
+        "filled_sections": 1,
+        "section_count": 2
+      },
+      {
+        "key": "resources",
+        "filled_sections": 1,
+        "section_count": 2
+      },
+      {
+        "key": "notes",
+        "filled_sections": 2,
+        "section_count": 2
+      }
+    ],
+    "bands": {
+      "knowledge_point_count": {
+        "median": 1.0,
+        "low": 0,
+        "high": 2,
+        "min": 1,
+        "max": 1,
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      "module_count": {
+        "median": 2.5,
+        "low": 1,
+        "high": 4,
+        "min": 2,
+        "max": 3,
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      "planned_minutes": {
+        "median": 45.0,
+        "low": 22,
+        "high": 68,
+        "min": 45,
+        "max": 45,
+        "filled_sections": 2,
+        "section_count": 2
+      },
+      "check_count": {
+        "median": 0.5,
+        "low": 0,
+        "high": 2,
+        "min": 0,
+        "max": 1,
+        "filled_sections": 1,
+        "section_count": 2
+      }
+    },
+    "sections": [
+      {
+        "node_id": "section-1",
+        "sequence": 1,
+        "title": "向量的线性组合",
+        "template_id": "math_intuition_representation",
+        "granularity": {
+          "knowledge_point_count": 1,
+          "module_count": 3,
+          "planned_minutes": 45,
+          "objective_count": 2,
+          "capability_count": 1,
+          "mastery_count": 1,
+          "misconception_count": 1,
+          "check_count": 1,
+          "homework_count": 1,
+          "alignment_gap_count": 0,
+          "filled_rubric_count": 11,
+          "rubric_count": 11
+        },
+        "flags": []
+      },
+      {
+        "node_id": "section-2",
+        "sequence": 2,
+        "title": "张成空间",
+        "template_id": "math_intuition_representation",
+        "granularity": {
+          "knowledge_point_count": 1,
+          "module_count": 2,
+          "planned_minutes": 45,
+          "objective_count": 1,
+          "capability_count": 0,
+          "mastery_count": 0,
+          "misconception_count": 0,
+          "check_count": 0,
+          "homework_count": 0,
+          "alignment_gap_count": 1,
+          "filled_rubric_count": 7,
+          "rubric_count": 11
+        },
+        "flags": [
+          "alignment_gap"
+        ]
+      }
+    ],
+    "outlier_node_ids": []
+  }
+}

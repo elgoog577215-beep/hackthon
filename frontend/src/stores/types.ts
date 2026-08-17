@@ -91,12 +91,135 @@ export interface CourseDocumentEnvelope {
 
 export interface CourseTeachingPlanModule {
   module_id: string
+  label?: string
+  block_role?: string
+  required?: boolean
   teaching_purpose: string
   knowledge_names: string[]
   teaching_guidance?: string
   planned_minutes?: number | null
   teacher_activity?: string
   student_activity?: string
+}
+
+/**
+ * 教案呈现对象。后端 `course_lesson_dossier_v1` 的镜像。
+ *
+ * 栏目（rubric）是**恒定**的：`rubric_keys` 里的每一栏在每一节都存在，内容为空时
+ * `status="empty"`。前端因此不允许按内容多少 `v-if` 掉整栏——那正是各节篇幅与
+ * 颗粒度看起来忽大忽小的来源。
+ */
+export interface LessonDossierRubric {
+  key: string
+  kind: 'facts' | 'list' | 'split_list' | 'table' | string
+  status: 'filled' | 'empty'
+  item_count: number
+  [payload: string]: unknown
+}
+
+export interface LessonDossierTimelineEntry {
+  sequence: number
+  module_id: string
+  label: string
+  block_role: string
+  required: boolean
+  teaching_purpose: string
+  teaching_guidance: string
+  teacher_activity: string
+  student_activity: string
+  knowledge_names: string[]
+  minutes: number | null
+  minutes_source: 'planned' | 'derived' | 'unset'
+  start_minute: number | null
+  end_minute: number | null
+}
+
+export interface LessonDossierAlignmentRow {
+  knowledge_id: string
+  name: string
+  ownership: 'owned' | 'reused'
+  knowledge_type: string
+  modules: Array<{ module_id: string; label: string; sequence: number }>
+  capabilities: string[]
+  mastery: Array<{ performance: string; verification: string }>
+  checks: string[]
+  homework: string[]
+  gaps: string[]
+}
+
+/** 学科模板合同视图。顶层合同落地前只做观测，不约束生成。 */
+export interface LessonTemplateContract {
+  schema_version: 'lesson_template_contract_v1'
+  contract_state: 'projected_from_archetype' | 'unbound' | string
+  template_id: string
+  template_label: string
+  template_version: string
+  primary_mode: string
+  course_stage: string
+  purpose: string
+  evidence_contract: string
+  guardrails: string[]
+  archetype_module_ids: string[]
+  planned_module_ids: string[]
+  actual_module_ids: string[]
+  module_conformance: {
+    matched: number
+    missing_required: string[]
+    unplanned: string[]
+  }
+}
+
+export interface LessonDossierGranularity {
+  knowledge_point_count: number
+  module_count: number
+  planned_minutes: number
+  objective_count: number
+  capability_count: number
+  mastery_count: number
+  misconception_count: number
+  check_count: number
+  homework_count: number
+  alignment_gap_count: number
+  filled_rubric_count: number
+  rubric_count: number
+}
+
+export interface CourseLessonDossier {
+  schema_version: 'course_lesson_dossier_v1'
+  node_id: string
+  sequence: number
+  title: string
+  chapter_title: string
+  template: LessonTemplateContract
+  rubric_keys: string[]
+  rubrics: LessonDossierRubric[]
+  granularity: LessonDossierGranularity
+}
+
+export interface CourseLessonDossierConsistency {
+  schema_version: 'course_lesson_dossier_consistency_v1'
+  section_count: number
+  rubric_keys: string[]
+  uniform_rubric_structure: boolean
+  rubric_coverage: Array<{ key: string; filled_sections: number; section_count: number }>
+  bands: Record<string, {
+    median: number
+    low: number
+    high: number
+    min: number
+    max: number
+    filled_sections: number
+    section_count: number
+  }>
+  sections: Array<{
+    node_id: string
+    sequence: number
+    title: string
+    template_id: string
+    granularity: LessonDossierGranularity
+    flags: string[]
+  }>
+  outlier_node_ids: string[]
 }
 
 export interface CourseTeachingPlanSection {
@@ -134,6 +257,7 @@ export interface CourseTeachingPlanSection {
   in_class_checks?: string[]
   homework?: string[]
   teaching_notes?: string[]
+  dossier?: CourseLessonDossier
 }
 
 export interface CourseTeachingPlanOverall {
@@ -182,6 +306,7 @@ export interface CourseTeachingPlanProjection {
   knowledge_point_count: number
   teaching_module_count: number
   overall?: CourseTeachingPlanOverall
+  dossier_consistency?: CourseLessonDossierConsistency
   sections: CourseTeachingPlanSection[]
 }
 
