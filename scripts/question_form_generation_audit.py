@@ -30,6 +30,7 @@ import os
 import sys
 import tempfile
 import time
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -44,7 +45,41 @@ _FORM_BY_KNOWLEDGE_TYPE = {
     "fill_blank": "representation",
     "multiple_choice": "rule",
     "single_choice": "definition",
+    # 开放题（大题）。加它的目的不是判分核查，而是**把语义评审这条路径真机走通**：
+    # `should_run_semantic_review` 在 `solution_validation.deterministic` 为假时
+    # 才触发（assessment_semantics.py:653），而上面四种题型全走确定性判分，
+    # 所以历轮真机 `semantic_evaluation_calls` 恒为 0，B-3 的语义评审合批
+    # 只有合成用例覆盖。essay -> rich_text -> expert_rubric_validator
+    # （assessment_blueprint.py:453 / :56）是非确定性的，能把评审真正拉起来。
+    "essay": "principle",
 }
+
+# 判分预期矩阵只定义了选择与填空两类作答用例
+# （backend/question_grading_perturbations.py）。开放题没有可声明的确定性预期分，
+# **不参与预期一致率统计**——给它硬凑用例会把"没有用例"记成"一致率 0"，
+# 那是编造数据。它在本脚本里只贡献生成成功率与语义评审链路的真机覆盖。
+_FORMS_WITHOUT_GRADING_CASES = {"essay"}
+
+# 每个形态从哪个练习层级取题。
+#
+# 前四种形态都落在 concept_check——该层级的槽位是 `choice`，而 H2 的
+# `preferred_question_form` 只能在 `_FORMS_BY_INPUT_MODE[input_mode]` 允许的
+# 范围内改写（assessment_blueprint.py:497），choice 能换成填空/判断/多选。
+#
+# essay 换不了：它要的是 `rich_text` 槽位，在 general 族里是第三个槽位、
+# 即 mastery_check（assessment_blueprint.py:56）。硬把 essay 声明到
+# concept_check 上会被静默忽略、回落成 single_choice——第一次加它时就是
+# 这样，dry-run 里 `L2-essay-1` 显示的是 `single_choice`。
+_PRACTICE_LEVEL_BY_FORM = {"essay": "mastery_check"}
+_DEFAULT_PRACTICE_LEVEL = "concept_check"
+
+
+def _level_of_node(node_id: str) -> str:
+    for form, level in _PRACTICE_LEVEL_BY_FORM.items():
+        if str(node_id).startswith(f"L2-{form}-"):
+            return level
+    return _DEFAULT_PRACTICE_LEVEL
+
 
 
 def _knowledge_point(index: int, knowledge_type: str, node_id: str) -> dict[str, Any]:
@@ -234,7 +269,7 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
             course,
             generation_profile=profile,
             practice_levels_by_node={
-                str(node["node_id"]): ["concept_check"]
+                str(node["node_id"]): [_level_of_node(str(node["node_id"]))]
                 for node in course["nodes"]
             },
         )
@@ -248,7 +283,9 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
     for entry in (
         prepared.get("_assessment_generation_audit") or {}
     ).get("items") or []:
-        if str(entry.get("practice_level") or "") != "concept_check":
+        if str(entry.get("practice_level") or "") != _level_of_node(
+            str(entry.get("node_id") or "")
+        ):
             continue
         attempts = entry.get("attempts") or []
         codes: list[str] = []
@@ -284,7 +321,8 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
     bundle = build_question_bank(prepared)
     items = bundle.get("items") or []
 
-    # 只看 concept_check 这一层的正式练习题。
+    # 只看每个形态对应那一层的正式练习题（多数是 concept_check，
+    # essay 是 mastery_check，见 _PRACTICE_LEVEL_BY_FORM）。
     #
     # build_question_bank 会为每个小节产出多个角色的题（其他练习层级、
     # final_assessment 等）。只按 node_id 归组会把它们一起算进来——第一次真机跑
@@ -298,9 +336,9 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
         level = str(
             next(iter(levels), item.get("practice_level") or "")
         )
-        if level != "concept_check":
-            continue
         node_id = str(item.get("node_id") or "")
+        if level != _level_of_node(node_id):
+            continue
         by_node.setdefault(node_id, []).append(item)
 
     per_form_report: dict[str, Any] = {}
@@ -322,7 +360,9 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
                 if actual_form == form:
                     classified_ok += 1
                 cases: list[dict[str, Any]] = []
-                if form == "fill_blank":
+                if form in _FORMS_WITHOUT_GRADING_CASES:
+                    cases = []
+                elif form == "fill_blank":
                     blanks = (
                         _private_answer_spec(item, bundle).get("blanks")
                         or (
@@ -442,7 +482,105 @@ async def _run(forms: list[str], per_form: int, profile: str) -> dict[str, Any]:
         "semantic_evaluation_calls": int(
             gen_audit.get("semantic_evaluation_calls") or 0
         ),
+        # B-3 语义评审合批的真机证据。
+        #
+        # 只看 `semantic_evaluation_calls` 无法区分「合批了」与「压根没触发」，
+        # 两种情况在旧口径下都可能是小数字。批次调用数与逐次 batch_size 一起
+        # 记下来，才能证明这条路径真的被走到且真的合了批。
+        "batch_semantic_evaluation_calls": int(
+            gen_audit.get("batch_semantic_evaluation_calls") or 0
+        ),
+        "batch_semantic_fallback_count": int(
+            gen_audit.get("batch_semantic_fallback_count") or 0
+        ),
+        # 单条逻辑请求的耗时分布。
+        #
+        # 合批窗口给单条请求加的延迟在真机上没有直接埋点，但每次逻辑调用的
+        # duration_ms 是有的：窗口空等会算进去。给出均值/中位数/最大值，
+        # 让"合批有没有把单条请求拖慢"这一问在真机上也能被回答。
+        "call_duration_ms_mean": (
+            round(
+                sum(
+                    int(t.get("duration_ms") or 0)
+                    for t in gen_audit.get("call_timings") or []
+                )
+                / max(1, len(gen_audit.get("call_timings") or []))
+            )
+        ),
+        "call_duration_ms_median": (
+            sorted(
+                int(t.get("duration_ms") or 0)
+                for t in gen_audit.get("call_timings") or []
+            )[len(gen_audit.get("call_timings") or []) // 2]
+            if gen_audit.get("call_timings")
+            else 0
+        ),
+        "call_duration_ms_max": max(
+            [
+                int(t.get("duration_ms") or 0)
+                for t in gen_audit.get("call_timings") or []
+            ]
+            or [0]
+        ),
+        "semantic_batch_sizes": [
+            int(timing.get("batch_size") or 0)
+            for timing in gen_audit.get("call_timings") or []
+            if str(timing.get("operation") or "").startswith("semantic")
+        ],
+        "repair_batch_sizes": [
+            int(timing.get("batch_size") or 0)
+            for timing in gen_audit.get("call_timings") or []
+            if str(timing.get("operation") or "") == "repair_batch"
+        ],
+        "solve_batch_sizes": [
+            int(timing.get("batch_size") or 0)
+            for timing in gen_audit.get("call_timings") or []
+            if str(timing.get("operation") or "")
+            == "independent_solve_batch"
+        ],
+        "generate_batch_sizes": [
+            int(timing.get("batch_size") or 0)
+            for timing in gen_audit.get("call_timings") or []
+            if str(timing.get("operation") or "") == "generate_batch"
+        ],
         "provider_cooldowns": _provider_cooldowns(),
+        # 「思考预算耗尽」的直接计数（本条改动是否有效的判据）。
+        #
+        # ai_base 在"只有 reasoning、正文 chars=0"时把 status 记成
+        # thinking_consumed_budget（ai_base.py:1873），经 telemetry_sink 进到
+        # audit["physical_calls"]。只看总调用数或产出数都看不出这一类失败，
+        # 必须直接数它。
+        "thinking_consumed_budget_count": sum(
+            1
+            for c in gen_audit.get("physical_calls") or []
+            if isinstance(c, dict)
+            and str(c.get("status") or "") == "thinking_consumed_budget"
+        ),
+        "physical_call_status_breakdown": {
+            k: v
+            for k, v in sorted(
+                Counter(
+                    str(c.get("status") or "")
+                    for c in gen_audit.get("physical_calls") or []
+                    if isinstance(c, dict)
+                ).items()
+            )
+        },
+        # 按角色拆：solver / generator 各耗尽多少次。
+        # （physical_calls 的遥测字典里没有 max_tokens，只能按角色分，
+        #  不要写成"按上限分"——那会得到一列 0。）
+        "budget_exhausted_by_role": {
+            str(k): v
+            for k, v in sorted(
+                Counter(
+                    str(c.get("model_role") or "")
+                    for c in gen_audit.get("physical_calls") or []
+                    if isinstance(c, dict)
+                    and str(c.get("status") or "")
+                    == "thinking_consumed_budget"
+                ).items()
+            )
+        },
     }
     # 产出量必须与耗时/调用数一起看。
     #
@@ -522,7 +660,9 @@ def main() -> int:
             slot = next(
                 (
                     s for s in node.get("slots") or []
-                    if s.get("practice_level") == "concept_check"
+                    if s.get("practice_level") == _level_of_node(
+                        str(node.get("node_id") or "")
+                    )
                 ),
                 None,
             )
