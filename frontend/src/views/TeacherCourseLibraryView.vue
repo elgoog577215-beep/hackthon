@@ -396,7 +396,7 @@ onMounted(async () => {
   courseStore.currentCourseVersionId = ''
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
-  await courseStore.fetchCourseList()
+  await courseStore.fetchCourseList({ surface: 'teacher' })
 })
 
 onBeforeUnmount(() => {
@@ -562,7 +562,10 @@ async function generateCourse(payload: { subject: string; options: CourseGenerat
   if (creating.value) return
   creating.value = true
   try {
-    const result = await courseStore.generateCourse(payload.subject, payload.options)
+    const result = await courseStore.generateCourse(payload.subject, {
+      ...payload.options,
+      teacher_authoring_mode: 'lesson_assets_v1',
+    })
     if (!result?.courseId) {
       ElMessage.error(t('courseLibrary.createFailed', '课程创建失败'))
       return
