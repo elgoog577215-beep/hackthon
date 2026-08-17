@@ -85,7 +85,12 @@ def test_generic_quality_gate_no_longer_names_any_subject() -> None:
     """N1 的核心：通用引擎里不该再出现具体学科的标识符。"""
     from pathlib import Path
 
-    source = Path("backend/assessment_quality.py").read_text(encoding="utf-8")
+    # 按 __file__ 定位，不用相对路径：用相对路径时，只要 pytest 的工作目录不是
+    # 仓库根（例如在 backend/ 下直接跑），这条就抛 FileNotFoundError。那看起来
+    # 像通用引擎真的回退了，会把人引去查一个不存在的缺陷。
+    source = (
+        Path(__file__).resolve().parents[1] / "assessment_quality.py"
+    ).read_text(encoding="utf-8")
     assert "UNITY" not in source
     assert "MovePosition" not in source
     assert "fixedDeltaTime" not in source
