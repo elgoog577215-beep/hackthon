@@ -101,7 +101,7 @@ def test_environment_cannot_disable_per_request_safety_fuses(
 def test_content_budget_is_a_resumable_window_not_a_course_size_cap():
     budget = CourseGenerationBudget()
 
-    assert budget.content_concurrency == 4
+    assert budget.content_concurrency == 8
     assert budget.content_inactivity_timeout_seconds == 90
     assert not hasattr(budget, "content_node_timeout_seconds")
     assert not hasattr(budget, "content_stage_timeout_seconds")
@@ -583,23 +583,30 @@ def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
     assert full_tokens > 7_000
 
 
-def test_content_concurrency_ceiling_allows_one_wave_for_an_eight_lesson_course(
+def test_content_concurrency_default_matches_measured_endpoint_capacity(
     monkeypatch,
 ):
-    """并发上限要够 8 节正文一波跑完（B-4）。
+    """正文并发默认值 = 实测端点容量，且必须可被环境变量覆盖（B-4）。
 
-    实测：8 节正文在并发 4 和并发 6 下都是**2 波**，墙钟几乎一样
-    （44.3s vs 41.4s，只降 6.5%）；只有 >=8 才降到 1 波（34.1s，降 23%）。
-    上限卡在 6 时，"把并发调大"这件事对 8 节课根本没有效果。
+    实测（`backend/tools/content_phase_bench.py`，真实端点）：
+    并发 4 墙钟 42.3s / 并发 6 墙钟 41.4s —— 8 节课在这两档都是 **2 波**，
+    墙钟几乎一样；只有 >=8 才降到 1 波（34.0s，-19.7%）。
+    并发 12 相对 8 几乎无收益（33.7s）=> 端点实际容量就在 8 附近。
 
-    默认值仍是 4——这里放开的只是**允许的上限**，不是默认行为。
+    所以默认值定为 8——**这个数是按实测容量定的，不是拍的**。
     """
     monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
-    assert CourseGenerationBudget.from_env().content_concurrency == 4
-
-    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "8")
     assert CourseGenerationBudget.from_env().content_concurrency == 8
 
-    # 仍然有硬上限，不允许无限放开
+    # 换端点/免费额度时必须能立刻降下来，且不用改代码
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "2")
+    assert CourseGenerationBudget.from_env().content_concurrency == 2
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "1")
+    assert CourseGenerationBudget.from_env().content_concurrency == 1
+
+    # 也能往上调
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "12")
+    assert CourseGenerationBudget.from_env().content_concurrency == 12
+
     monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "999")
     assert CourseGenerationBudget.from_env().content_concurrency == 16

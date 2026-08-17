@@ -46,7 +46,20 @@ class CourseGenerationBudget:
     # stream inactivity, never total wall-clock duration.
     call_timeout_seconds: int = 90
     content_inactivity_timeout_seconds: int = 90
-    content_concurrency: int = 4
+    # 正文并行阶段的默认并发。**8 是按端点实测容量定的，不是拍的**：
+    # 用 `backend/tools/content_phase_bench.py` 打真实端点，8 节正文同形状
+    # （共享上下文 + 长输出），只把并发当变量——
+    #   并发 4  墙钟 42.3s  排队 81.4s  有效并行度 3.75
+    #   并发 6  墙钟 41.4s  排队 46.0s  有效并行度 4.44
+    #   并发 8  墙钟 34.0s  排队  2.8s  有效并行度 6.14
+    #   并发 12 墙钟 33.7s  排队  2.8s  有效并行度 6.62
+    # 8 节课在并发 4 和 6 下都是 **2 波**，墙钟几乎一样；只有 ≥8 才降到 1 波。
+    # 而 12 相对 8 几乎无收益（33.7 vs 34.0）⇒ 端点实际容量就在 8 附近，
+    # 再往上只是把请求堆在 provider 里排队，不会更快。
+    #
+    # 换端点、或跑在有限免费额度上时，用 `COURSE_CONTENT_CONCURRENCY`
+    # 立刻降回去（例如 =2 或 =4），不需要改代码。
+    content_concurrency: int = 8
     content_max_retries: int = 1
 
     @classmethod
@@ -96,7 +109,7 @@ class CourseGenerationBudget:
             ),
             content_concurrency=_env_int(
                 "COURSE_CONTENT_CONCURRENCY",
-                4,
+                8,
                 minimum=1,
                 maximum=16,
             ),
