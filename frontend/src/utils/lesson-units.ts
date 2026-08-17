@@ -43,6 +43,24 @@ export function lessonUnitMembers(nodes: Node[], lessonUnitId: string): Node[] {
   return result
 }
 
+/**
+ * Return the ordered, directly addressable sections inside one teacher lesson.
+ * Deeper knowledge nodes remain section content and do not become pager items.
+ */
+export function lessonUnitSections(nodes: Node[], lessonUnitId: string): Node[] {
+  if (!lessonUnitId) return []
+  return nodes.filter(node => String(node.parent_node_id || '') === lessonUnitId)
+}
+
+export function resolveLessonSection(
+  nodes: Node[],
+  lessonUnitId: string,
+  requestedSectionId = '',
+): Node | undefined {
+  const sections = lessonUnitSections(nodes, lessonUnitId)
+  return sections.find(section => section.node_id === requestedSectionId) || sections[0]
+}
+
 export function resolveLessonUnit(nodes: Node[], nodeId: string): Node | undefined {
   const units = projectLessonUnits(nodes)
   const direct = units.find(node => node.node_id === nodeId)

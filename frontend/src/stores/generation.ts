@@ -42,6 +42,7 @@ const backendTaskTimestamp = (task: Record<string, any>) => (
 )
 const COURSE_LIFECYCLE_TASK_TYPES = new Set(['course_generation', 'course_import'])
 const DEFAULT_GLOBAL_TASK_BACKOFF_MS = 60_000
+const GLOBAL_TASK_POLL_INTERVAL_MS = 15_000
 
 export const canPollGlobalTasks = () => (
   typeof document === 'undefined' || document.visibilityState === 'visible'
@@ -1014,7 +1015,7 @@ export const useGenerationStore = defineStore('generation', {
         if (canPollGlobalTasks()) void this.fetchGlobalTasks()
       }
       pollVisiblePage()
-      this.globalPollingTimer = window.setInterval(pollVisiblePage, 5000)
+      this.globalPollingTimer = window.setInterval(pollVisiblePage, GLOBAL_TASK_POLL_INTERVAL_MS)
     },
 
     stopGlobalMonitor() {
