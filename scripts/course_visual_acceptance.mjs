@@ -14,7 +14,21 @@
  *
  * 用法（从仓库根目录）：
  *   node scripts/course_visual_acceptance.mjs --course backend/data/courses/<id>.json
- *   node scripts/course_visual_acceptance.mjs --course <file> --out docs/验收/课程呈现
+ *   node scripts/course_visual_acceptance.mjs --course <file> --print --out docs/验收/课程呈现
+ *   node scripts/course_visual_acceptance.mjs --url <地址> --selector <根选择器> --print
+ *
+ * `--print` 增加打印态判定：教案统一模板的验收标准是「教师能直接打印上课」，
+ * 打印态公式坏掉那条验收就过不了，所以它需要一个能自动判定的判据。
+ *
+ * `--url` 对着一个已经跑起来的页面判定，**不需要改被测组件**。呈现层归别人
+ * 维护、判据归这里时用这个模式。
+ *
+ * 打印态的边界，写在这里也写进每份报告，不要外推：
+ *   - 打印由 `window.print()` + CSS 实现，**没有 PDF 导出管线**；
+ *     本脚本用 `page.emulateMedia({media:'print'})` 让真实 Chromium 按打印样式
+ *     重算布局，等价于打印预览的样式计算，不等价于任何 PDF 导出器。
+ *   - **只在 Chromium 上验证过**。Firefox/Safari 的分页与 `visibility` 反选行为
+ *     未测，结论不适用。
  *
  * 判据不是"截图拍到了"，而是每个场景都断言了可观察结果；任何一条失败即退出非零。
  */
@@ -53,13 +67,110 @@ function resolvePlaywright() {
 const { chromium } = require(resolvePlaywright())
 
 function parseArgs(argv) {
-  const args = { course: '', out: '', nodes: 6 }
+  const args = { course: '', out: '', nodes: 6, print: false, url: '', selector: '' }
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === '--course') args.course = argv[++i]
     else if (argv[i] === '--out') args.out = argv[++i]
     else if (argv[i] === '--nodes') args.nodes = Number(argv[++i])
+    else if (argv[i] === '--print') args.print = true
+    else if (argv[i] === '--url') args.url = argv[++i]
+    else if (argv[i] === '--selector') args.selector = argv[++i]
   }
   return args
+}
+
+/**
+ * 判定打印态：公式是否还在，以及它是「没渲染」还是「渲染了但被藏掉」。
+ *
+ * 这两种失败的修法完全不同，绝不能合成一个错误码：
+ *
+ * - `print:math_not_rendered` —— 屏幕态就没有 KaTeX 节点。问题在内容或渲染链
+ *   （公式语法错、字段没接渲染器），跟打印样式无关。改打印 CSS 不会有任何帮助。
+ * - `print:math_hidden_in_print` —— 屏幕态渲染正常，切到 print 媒体后不可见。
+ *   问题在打印样式：`body * { visibility:hidden }` 这类反选没覆盖到 KaTeX 的
+ *   嵌套 span，或被 `display:none` 连坐。改内容不会有任何帮助。
+ *
+ * 已验证的地基：`body * { visibility:hidden !important }` 加
+ * `.根容器, .根容器 * { visibility:visible !important }` 的反选**能穿透 KaTeX
+ * 的嵌套 span**——3 个公式在 print 媒体下全部可见，同时应用外壳正确隐藏。
+ * 所以后者出现时，是那份打印样式自己写漏了，不是这个模式做不到。
+ */
+async function measurePrintState(page, rootSelector) {
+  const read = () => page.evaluate(selector => {
+    const root = document.querySelector(selector) || document.body
+    const nodes = Array.from(root.querySelectorAll('.katex'))
+    const visible = nodes.filter(el => {
+      const cs = getComputedStyle(el)
+      if (cs.visibility !== 'visible' || cs.display === 'none') return false
+      const rect = el.getBoundingClientRect()
+      return rect.width > 0 && rect.height > 0
+    })
+    const text = root.innerText || ''
+    return {
+      katexTotal: nodes.length,
+      katexVisible: visible.length,
+      mathFallback: root.querySelectorAll('.math-fallback').length,
+      katexError: root.querySelectorAll('.katex-error').length,
+      // 打印稿上读到的字面 LaTeX——教师拿到的纸上就是这些字符。
+      literalMath: (text.match(/(?<!\\)\$[^$\n]{1,80}\$/g) || []).slice(0, 5),
+      docScrollWidth: document.documentElement.scrollWidth,
+      bodyClientWidth: document.body.clientWidth,
+      // 与视口比，而不是与 body.clientWidth 比：body 默认有 8px 外边距，
+      // 拿 scrollWidth 去比 clientWidth 会把这点边距报成「横向溢出」。
+      viewportWidth: window.innerWidth,
+    }
+  }, rootSelector)
+
+  const screen = await read()
+  await page.emulateMedia({ media: 'print' })
+  const print = await read()
+  await page.emulateMedia({ media: 'screen' })
+  return { screen, print }
+}
+
+/** 把两态测量翻译成互斥的错误码。 */
+function printFailures(where, { screen, print }) {
+  const failures = []
+  if (screen.katexError) {
+    failures.push({
+      code: 'print:katex_error',
+      message: `${where}: 屏幕态就有 ${screen.katexError} 处 KaTeX 报错节点，公式语法有问题`,
+    })
+  }
+  if (screen.mathFallback) {
+    failures.push({
+      code: 'print:math_not_rendered',
+      message: `${where}: 屏幕态有 ${screen.mathFallback} 处公式退化为源码——问题在内容或渲染链，不在打印样式`,
+    })
+  }
+  if (!screen.katexTotal && screen.literalMath.length) {
+    failures.push({
+      code: 'print:math_not_rendered',
+      message: `${where}: 正文含公式但一个都没渲染（读到 ${screen.literalMath[0]}）——该字段可能没接 MarkdownRenderer`,
+    })
+  }
+  // 只有屏幕态确实渲染出来了，才谈得上「被打印样式藏掉」。
+  if (screen.katexVisible > 0 && print.katexVisible < screen.katexVisible) {
+    failures.push({
+      code: 'print:math_hidden_in_print',
+      message:
+        `${where}: 屏幕可见 ${screen.katexVisible} 个公式，打印态只剩 ${print.katexVisible} 个` +
+        '——问题在打印样式的可见性反选没覆盖 KaTeX 嵌套 span，不在内容',
+    })
+  }
+  if (print.docScrollWidth > print.viewportWidth + 1) {
+    failures.push({
+      code: 'print:horizontal_overflow',
+      message: `${where}: 打印态横向溢出（${print.docScrollWidth}px > ${print.viewportWidth}px），纸上会被裁掉`,
+    })
+  }
+  if (print.literalMath.length) {
+    failures.push({
+      code: 'print:literal_latex',
+      message: `${where}: 打印稿上出现字面 LaTeX ${print.literalMath.join(', ')}`,
+    })
+  }
+  return failures
 }
 
 /** 与 render_gate.mjs 相同的取正文逻辑：两种 schema 都在盘上。 */
@@ -105,6 +216,11 @@ const HARNESS = `
 </style>
 </head><body><div id="app"></div>
 <script type="module">
+  // 必须复刻真实应用的样式加载链：frontend/src/main.ts 里加载了这份样式，
+  // 探针不加载就会让 .mfrac 失去布局规则、把页面撑出几千像素，测出一个
+  // 根本不存在的「打印溢出」缺陷。实测过：漏掉它 docScrollWidth=6400，
+  // 补上后 =1024。探针的样式加载链与真实应用不一致时，测到的是探针自己。
+  import 'katex/dist/katex.min.css'
   import { createApp, h } from 'vue'
   import { createPinia } from 'pinia'
   import MarkdownRenderer from '/src/components/MarkdownRenderer.vue'
@@ -119,20 +235,146 @@ const HARNESS = `
   })
   app.use(createPinia())
   app.mount('#app')
-  // Give KaTeX and the rAF-batched renderer a frame to settle before we measure.
+  // MarkdownRenderer 把渲染对齐到 requestAnimationFrame（见其 scheduleUpdate），
+  // 所以必须等帧再判定。只等微任务会看到空 DOM，测出「公式没渲染」的假失败——
+  // 实测：只 flushPromises 得到 0 个 .katex，等一帧后得到 1 个，KaTeX 一直是好的。
   requestAnimationFrame(() => requestAnimationFrame(() => {
     document.documentElement.dataset.ready = '1'
   }))
 </script></body></html>
 `
 
+/**
+ * 对着一个已经跑起来的页面做打印态验收——不改被测组件一个字。
+ *
+ * 这是给「呈现层归别人、判据归我」准备的模式：lz-lesson-plan 的统一模板
+ * 进 main 之后，直接
+ *   node scripts/course_visual_acceptance.mjs --url http://127.0.0.1:5173/... \
+ *     --selector .lesson-dossier --print
+ * 就能跑，无需在它的文件里插任何钩子。
+ */
+async function auditLiveUrl(args, outputDir) {
+  await mkdir(outputDir, { recursive: true })
+  const rootSelector = args.selector || 'body'
+  const browser = await chromium.launch()
+  const failures = []
+  const notes = []
+
+  try {
+    for (const locale of LOCALES) {
+      for (const viewport of VIEWPORTS) {
+        const context = await browser.newContext({
+          viewport: { width: viewport.width, height: viewport.height },
+          deviceScaleFactor: 2,
+          locale: locale === 'zh' ? 'zh-CN' : 'en-US',
+        })
+        const page = await context.newPage()
+        const jsErrors = []
+        page.on('pageerror', error => jsErrors.push(String(error)))
+
+        const tag = `${locale}-${viewport.name}`
+        await page.goto(args.url, { waitUntil: 'networkidle', timeout: 60_000 })
+        await page.waitForSelector(rootSelector, { timeout: 30_000 })
+        // MarkdownRenderer 对齐 rAF，等两帧再测，否则会测出假的「没渲染」。
+        await page.evaluate(() => new Promise(resolve => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        }))
+
+        const measured = await measurePrintState(page, rootSelector)
+        failures.push(...printFailures(tag, measured))
+
+        await page.emulateMedia({ media: 'print' })
+        await page.screenshot({ path: join(outputDir, `print-${tag}.png`), fullPage: true })
+        await page.emulateMedia({ media: 'screen' })
+
+        if (jsErrors.length) {
+          failures.push({
+            code: 'print:js_error',
+            message: `${tag}: ${jsErrors.length} 个未捕获 JS 异常 — ${jsErrors.slice(0, 2).join(' | ')}`,
+          })
+        }
+        notes.push(
+          `${tag}: 屏幕 katex=${measured.screen.katexVisible}/${measured.screen.katexTotal}` +
+          ` 打印 katex=${measured.print.katexVisible}/${measured.print.katexTotal}`,
+        )
+        await context.close()
+      }
+    }
+  } finally {
+    await browser.close()
+  }
+
+  await writeResult(outputDir, {
+    title: args.url,
+    subject: `页面 \`${args.url}\`（根选择器 \`${rootSelector}\`）`,
+    scenarioNote: '每个场景分别在 screen 与 print 两种媒体下测量',
+    failures,
+    notes,
+  })
+  console.log(notes.join('\n'))
+  console.log(`\n截图与报告：${outputDir}`)
+  if (failures.length) {
+    console.error(`\nFAILED (${failures.length}):`)
+    for (const failure of failures) console.error(`  - [${failure.code}] ${failure.message}`)
+    return 1
+  }
+  console.log('\nPASS: 打印态公式可见、无字面 LaTeX、无横向溢出。')
+  return 0
+}
+
+/** 统一写 RESULT.md，两种模式共用，保证报告能被独立读懂。 */
+async function writeResult(outputDir, { title, subject, scenarioNote, failures, notes, extra = [] }) {
+  const byCode = {}
+  for (const failure of failures) {
+    byCode[failure.code] = (byCode[failure.code] || 0) + 1
+  }
+  const lines = [
+    `# 呈现验收 — ${title}`,
+    '',
+    `- 被测对象：${subject}`,
+    '- 场景：zh-desktop / zh-mobile / en-desktop / en-mobile',
+    `- ${scenarioNote}`,
+    '- 渲染器：真实 Chromium + 真实 MarkdownRenderer（非 jsdom）',
+    '- 打印态由 `page.emulateMedia({media:"print"})` 模拟 `window.print()` 的样式计算；',
+    '  **没有 PDF 导出管线，结论仅适用于 Chromium**。',
+    ...extra,
+    '',
+    failures.length ? `## 未通过（${failures.length}）` : '## 全部通过',
+    '',
+  ]
+  if (failures.length) {
+    lines.push('错误码分布（不同码的修法不同，不要混为一谈）：', '')
+    for (const [code, count] of Object.entries(byCode)) {
+      lines.push(`- \`${code}\` × ${count}`)
+    }
+    lines.push('', ...failures.map(item => `- [\`${item.code}\`] ${item.message}`))
+  } else {
+    lines.push('- 无排版事故。')
+  }
+  lines.push('', '## 逐场景观测', '', ...notes.map(item => `- ${item}`), '')
+  await writeFile(join(outputDir, 'RESULT.md'), lines.join('\n'), 'utf-8')
+}
+
 async function main() {
   const args = parseArgs(process.argv)
-  if (!args.course) {
-    console.error('用法: node scripts/course_visual_acceptance.mjs --course <course.json> [--out <dir>] [--nodes N]')
+  if (!args.course && !args.url) {
+    console.error(
+      '用法:\n' +
+      '  node scripts/course_visual_acceptance.mjs --course <course.json> [--out <dir>] [--nodes N] [--print]\n' +
+      '  node scripts/course_visual_acceptance.mjs --url <页面地址> [--selector <根选择器>] --print [--out <dir>]\n' +
+      '\n' +
+      '--url 模式对着一个已经跑起来的页面判定，不需要改被测组件。\n' +
+      '统一模板进 main 后，对它跑这道关卡就是 --url 加 --selector .lesson-dossier。',
+    )
     return 2
   }
   const outputDir = resolve(ROOT, args.out || 'docs/验收/课程呈现')
+
+  // --url：只读地判定一个已存在的页面。这是给「被测组件不归我改」的场景准备的。
+  if (args.url) {
+    return await auditLiveUrl(args, outputDir)
+  }
+
   const course = JSON.parse(readFileSync(resolve(ROOT, args.course), 'utf8'))
   const all = extractBodies(course)
   if (!all.length) {
@@ -217,28 +459,65 @@ async function main() {
 
           const where = `${tag} / ${body.name || body.id}`
           if (measured.overflowing.length) {
-            failures.push(`${where}: 元素超出视口 — ${measured.overflowing.join(', ')}`)
+            failures.push({
+              code: 'visual:viewport_overflow',
+              message: `${where}: 元素超出视口 — ${measured.overflowing.join(', ')}`,
+            })
           }
           if (measured.docScrollWidth > viewport.width + 1) {
-            failures.push(`${where}: 页面出现横向滚动（${measured.docScrollWidth}px > ${viewport.width}px）`)
+            failures.push({
+              code: 'visual:horizontal_scroll',
+              message: `${where}: 页面出现横向滚动（${measured.docScrollWidth}px > ${viewport.width}px）`,
+            })
           }
           if (measured.katexErrors) {
-            failures.push(`${where}: ${measured.katexErrors} 处 KaTeX 报错节点`)
+            failures.push({
+              code: 'visual:katex_error',
+              message: `${where}: ${measured.katexErrors} 处 KaTeX 报错节点`,
+            })
           }
           if (measured.fallbacks) {
-            failures.push(`${where}: ${measured.fallbacks} 处公式退化为源码`)
+            failures.push({
+              code: 'visual:math_not_rendered',
+              message: `${where}: ${measured.fallbacks} 处公式退化为源码`,
+            })
           }
           if (measured.rawKeys) {
-            failures.push(`${where}: 界面出现未翻译的 i18n key`)
+            failures.push({
+              code: 'visual:raw_i18n_key',
+              message: `${where}: 界面出现未翻译的 i18n key`,
+            })
           }
-          notes.push(`${where}: katex=${measured.katex} 溢出=${measured.overflowing.length}`)
+
+          // --print：同一段正文再在 print 媒体下判定一次，并把「没渲染」与
+          // 「渲染了但打印态被藏掉」分成两个码。
+          let printNote = ''
+          if (args.print) {
+            const printState = await measurePrintState(page, '.node-body')
+            failures.push(...printFailures(where, printState))
+            await page.emulateMedia({ media: 'print' })
+            await page.screenshot({
+              path: join(outputDir, `print-${tag}-${String(index + 1).padStart(2, '0')}.png`),
+              fullPage: true,
+            })
+            await page.emulateMedia({ media: 'screen' })
+            shots += 1
+            printNote = ` 打印katex=${printState.print.katexVisible}/${printState.print.katexTotal}`
+          }
+          notes.push(`${where}: katex=${measured.katex} 溢出=${measured.overflowing.length}${printNote}`)
         }
 
         if (jsErrors.length) {
-          failures.push(`${tag}: ${jsErrors.length} 个未捕获 JS 异常 — ${jsErrors.slice(0, 2).join(' | ')}`)
+          failures.push({
+            code: 'visual:js_error',
+            message: `${tag}: ${jsErrors.length} 个未捕获 JS 异常 — ${jsErrors.slice(0, 2).join(' | ')}`,
+          })
         }
         if (consoleErrors.length) {
-          failures.push(`${tag}: ${consoleErrors.length} 条 console.error — ${consoleErrors.slice(0, 2).join(' | ')}`)
+          failures.push({
+            code: 'visual:console_error',
+            message: `${tag}: ${consoleErrors.length} 条 console.error — ${consoleErrors.slice(0, 2).join(' | ')}`,
+          })
         }
         await context.close()
       }
@@ -250,33 +529,28 @@ async function main() {
   }
 
   const title = course.course_name || (course.course_document || {}).title || course.course_id || ''
-  const lines = [
-    `# 课程呈现验收 — ${title}`,
-    '',
-    `- 课程文件：\`${args.course}\``,
-    `- 场景：zh-desktop / zh-mobile / en-desktop / en-mobile`,
-    `- 每场景抽查最长的 ${bodies.length} 节正文，共 ${shots} 张截图`,
-    `- 渲染器：真实 Chromium + 真实 MarkdownRenderer（非 jsdom）`,
-    '',
-    failures.length ? `## 未通过（${failures.length}）` : '## 全部通过',
-    '',
-    ...(failures.length ? failures.map(item => `- ${item}`) : ['- 无排版事故。']),
-    '',
-    '## 逐节点观测',
-    '',
-    ...notes.map(item => `- ${item}`),
-    '',
-  ]
-  await writeFile(join(outputDir, 'RESULT.md'), lines.join('\n'), 'utf-8')
+  await writeResult(outputDir, {
+    title,
+    subject: `课程文件 \`${args.course}\``,
+    scenarioNote:
+      `每场景抽查最长的 ${bodies.length} 节正文，共 ${shots} 张截图` +
+      (args.print ? '；每节额外在 print 媒体下判定一次' : ''),
+    failures,
+    notes,
+  })
 
   console.log(notes.join('\n'))
   console.log(`\n截图与报告：${outputDir}`)
   if (failures.length) {
     console.error(`\nFAILED (${failures.length}):`)
-    for (const failure of failures) console.error(`  - ${failure}`)
+    for (const failure of failures) console.error(`  - [${failure.code}] ${failure.message}`)
     return 1
   }
-  console.log('\nPASS: 中英 × 桌面/移动四场景无排版事故。')
+  console.log(
+    args.print
+      ? '\nPASS: 四场景屏幕与打印两态均无排版事故。'
+      : '\nPASS: 中英 × 桌面/移动四场景无排版事故。',
+  )
   return 0
 }
 
