@@ -564,3 +564,46 @@ def test_a_well_formed_table_stays_clean():
     )
     assert "table_missing_delimiter" not in codes
     assert "table_delimiter_mismatch" not in codes
+
+
+def test_renderer_repairable_fence_variants_do_not_block_release():
+    """判据必须认得确定性修复能救回的**全部**围栏变体，不只是自己正则写过的那两种。
+
+    来源是 lz-course-gen 端到端跑出的微积分课：7 条发布阻断里有 4 条
+    （L2-1-1 / L2-2-1 / L2-4-1 / L2-4-3）实测渲染完全正常，却被判 critical。
+    原因是那门课带了两个本模块正则不认识的变体——`$$\\n$$` 分两行、
+    `$$ $$` 同一行——都把块级环境夹在中间。
+
+    修法不是再加正则，而是让 `_normalize_like_renderer` 复用
+    `repair_display_math_shape`，保证「什么形状算可修复」只有一份实现。
+    """
+    body = "本节讲解分段函数与极限，请完成练习并检查答案是否与参考一致。" * 8
+    variants = {
+        "分两行的空围栏": (
+            f"{body}\n\n$$\n$$\n\\begin{{cases}}\n1, & x>0 \\\\\n-1, & x<0\n"
+            "\\end{cases}\n$$\n"
+        ),
+        "同一行的空围栏": (
+            f"{body}\n\n$$ $$\n\\begin{{aligned}}\nf'(x) &= 3x^2\n"
+            "\\end{aligned}\n$$ $$\n"
+        ),
+        "前缀块与环境块分离": (
+            f"{body}\n\n$$\nV(x) =\n$$\n\\begin{{cases}}\n0, & x<1\n"
+            "\\end{cases}\n$$\n\n$$\n"
+        ),
+    }
+    for label, content in variants.items():
+        codes = _codes(content)
+        assert "unwrapped_display_environment" not in codes, label
+
+
+def test_a_genuinely_unrepairable_environment_still_blocks():
+    """收紧不能把判据变成摆设：修不回来的形态仍须阻断。
+
+    环境名不匹配（`cases` 开、`aligned` 闭）——确认过真实渲染下它会退化成
+    `math-fallback`，学习者读到的是字面 LaTeX。
+    """
+    body = "本节讲解分段函数与极限，请完成练习并检查答案是否与参考一致。" * 8
+    codes = _codes(f"{body}\n\n\\begin{{cases}}x,&x<0\\end{{aligned}}\n")
+
+    assert "unwrapped_display_environment" in codes
