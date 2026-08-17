@@ -16,31 +16,59 @@ sys.path.insert(0, '.')
 from course_service import CourseService
 import course_knowledge_base as ckb
 import course_service as cs
+import course_teaching_plan_v3 as tp
+import evidence_package as evp
 
 OUT = os.environ.get('G2_OUT', '/tmp/kb-gen/g2_binding.json')
 REQ = os.environ.get('G2_REQ', '/tmp/kb-gen/req.json')
 MATERIAL = os.environ.get('G2_MATERIAL', '/tmp/kb-gen/material_ac_dc.md')
 
-# Generation frequently stops at a later quality gate (content stage) long after
-# the knowledge base is compiled. Measuring only the returned course would throw
-# away a perfectly good measurement, so capture every compile as it happens.
-captured = {'kb': None, 'course_data': None, 'calls': 0}
+# Generation reliably stops at the content-stage quality gate, which is AFTER the
+# teaching plan is assembled but BEFORE compile_course_knowledge_base ever runs.
+# A first attempt spied only on the compiler and captured nothing (compile_calls=0).
+# So capture the two real inputs the measurement actually needs — the frozen
+# evidence package and the assembled sections — and compile them here.
+captured = {'package': None, 'sections': {}, 'kb': None, 'course_data': None}
+
+_freeze = evp.freeze_evidence_package
+
+
+def spy_freeze(**kw):
+    pkg = _freeze(**kw)
+    captured['package'] = pkg.model_dump(mode='json')
+    return pkg
+
+
+_asm = tp.assemble_course_teaching_plan_v3
+
+
+def spy_asm(**kw):
+    out = _asm(**kw)
+    for s in out.get('sections') or []:
+        if isinstance(s, dict) and s.get('knowledge_structure'):
+            # Keyed by node_id so a retry replaces rather than duplicates.
+            captured['sections'][str(s.get('node_id'))] = s
+    return out
+
+
 _compile = ckb.compile_course_knowledge_base
 
 
 def spy_compile(course_data, **kw):
     out = _compile(course_data, **kw)
-    points = (out or {}).get('knowledge_points') or []
-    captured['calls'] += 1
-    # Keep the richest compile seen: later calls can be re-compiles on a
-    # partially-repaired course and may carry fewer points.
-    prev = (captured['kb'] or {}).get('knowledge_points') or []
-    if len(points) >= len(prev):
+    if (out or {}).get('knowledge_points'):
         captured['kb'] = out
         captured['course_data'] = course_data
     return out
 
 
+evp.freeze_evidence_package = spy_freeze
+for mod in (cs,):
+    if hasattr(mod, 'freeze_evidence_package'):
+        mod.freeze_evidence_package = spy_freeze
+for mod in (tp, cs):
+    if hasattr(mod, 'assemble_course_teaching_plan_v3'):
+        mod.assemble_course_teaching_plan_v3 = spy_asm
 for mod in (ckb, cs):
     if hasattr(mod, 'compile_course_knowledge_base'):
         mod.compile_course_knowledge_base = spy_compile
@@ -88,12 +116,28 @@ async def main():
         mark('build_interrupted', error=str(e)[:300])
 
     kb = (course or {}).get('course_knowledge_base') or captured['kb'] or {}
-    if not kb:
-        mark('no_knowledge_base_captured', compile_calls=captured['calls'])
-        return
     source_course = course or captured['course_data'] or {}
-    mark('measuring', compile_calls=captured['calls'],
-         from_returned_course=bool(course))
+    if not kb:
+        # Compile from what the run actually produced. Same compiler, same
+        # frozen package — only the surrounding pipeline is missing.
+        sections = list(captured['sections'].values())
+        if not (sections and captured['package']):
+            mark('nothing_to_measure',
+                 sections=len(sections), package=bool(captured['package']))
+            return
+        source_course = {
+            'course_id': cid,
+            'evidence_package': captured['package'],
+            'nodes': [
+                {**s, 'node_level': 2, 'node_type': 'section',
+                 'node_name': s.get('title') or s.get('node_name') or s.get('node_id')}
+                for s in sections
+            ],
+        }
+        kb = _compile(source_course)
+        mark('compiled_locally', sections=len(sections),
+             points=len(kb.get('knowledge_points') or []))
+    mark('measuring', from_returned_course=bool(course))
 
     points = [p for p in (kb.get('knowledge_points') or []) if isinstance(p, dict)]
     total = len(points)
