@@ -20,6 +20,7 @@ from __future__ import annotations
 from course_service import (
     _record_relation_cycle_diagnosis,
     diagnose_cross_batch_relation_cycles,
+    enforce_batch_prerequisite_direction,
 )
 
 
@@ -253,3 +254,136 @@ def test_diagnosis_failure_never_breaks_generation():
     )
 
     assert reports == []
+
+
+# --- 对称化：批次侧也检查 prerequisite 方向（源头拦截） ---------------------
+#
+# 骨架侧 `teaching_skeleton:future_prerequisite` 一直在管方向，批次侧不管——
+# 环就是从这条缝里长出来的。堵在源头比汇编后断边好：断边必然有损。
+
+
+def test_reversed_prerequisite_across_sections_is_blocked():
+    """批次不得声明「更晚小节的知识是更早知识的前置」。"""
+    report = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B04", "L2-4-1", [("K022", "K021", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    assert report["passed"] is False
+    codes = {i["code"] for i in report["blocking_issues"]}
+    assert "teaching_batch:reversed_prerequisite" in codes
+
+
+def test_message_names_the_later_key_as_the_offender():
+    """报错文案必须说对是谁太晚——写反了会把模型引向错误的修法。
+
+    我第一版把 source/target 写反了，文案说「L2-3-2 属于更晚的」，
+    而真相是 source(L2-3-3) 才是更晚的那个。真机数据把它逼了出来。
+    """
+    report = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B04", "L2-4-1", [("K022", "K021", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+    message = report["blocking_issues"][0]["message"]
+
+    # K022 属 L2-4-1（更晚），它才是不该当前置的那个。
+    assert "「原函数与不定积分的概念定义」属于更晚的 L2-4-1" in message
+    # 依赖方是 L2-4-1 之前的 K021。
+    assert "L2-3-3" in message
+
+
+def test_forward_prerequisite_passes():
+    """方向正确的前置不得被误伤。"""
+    report = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B04", "L2-4-1", [("K021", "K022", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    assert report["passed"] is True
+    assert report["blocking_issues"] == []
+
+
+def test_same_section_ordering_follows_registry_order():
+    """同一小节内按注册表顺序判定，与骨架侧规则一致。"""
+    entries = [
+        ("K001", "先讲的知识", "L2-1-1", []),
+        ("K002", "后讲的知识", "L2-1-1", ["K001"]),
+    ]
+    sections = [{"node_id": "L2-1-1"}]
+    skeleton = _skeleton(entries)
+    skeleton["sections"] = [{
+        "node_id": "L2-1-1",
+        "owned_knowledge_keys": ["K001", "K002"],
+        "reused_knowledge_keys": [],
+    }]
+
+    # K002 在注册表里更靠后，不能作为 K001 的前置。
+    bad = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B01", "L2-1-1", [("K002", "K001", "prerequisite")]),
+        skeleton=skeleton, sections=sections,
+    )
+    assert bad["passed"] is False
+    assert "本节的知识顺序" in bad["blocking_issues"][0]["message"]
+
+    # 反过来是合法的。
+    good = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B01", "L2-1-1", [("K001", "K002", "prerequisite")]),
+        skeleton=skeleton, sections=sections,
+    )
+    assert good["passed"] is True
+
+
+def test_only_prerequisite_direction_is_enforced():
+    """其它关系类型没有方向约束，不得被这条规则波及。"""
+    report = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B04", "L2-4-1", [("K022", "K021", "applies_to")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    assert report["passed"] is True
+
+
+def test_existing_issues_are_preserved_and_input_not_mutated():
+    """增补不得覆盖既有 issue，也不得就地改调用方的报告。"""
+    original = {
+        "passed": False,
+        "blocking_issues": [{"code": "teaching_batch:section_mismatch"}],
+        "issues": [{"code": "teaching_batch:section_mismatch"}],
+    }
+    snapshot = repr(original)
+
+    report = enforce_batch_prerequisite_direction(
+        original,
+        batch=_batch("TP-B04", "L2-4-1", [("K022", "K021", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    codes = {i["code"] for i in report["blocking_issues"]}
+    assert codes == {
+        "teaching_batch:section_mismatch",
+        "teaching_batch:reversed_prerequisite",
+    }
+    assert repr(original) == snapshot, "不得就地修改入参报告"
+
+
+def test_unknown_endpoints_are_left_to_the_batch_validator():
+    """未知知识键已有专门的 issue，这里不重复报。"""
+    report = enforce_batch_prerequisite_direction(
+        {"passed": True, "blocking_issues": [], "issues": []},
+        batch=_batch("TP-B04", "L2-4-1", [("K999", "K021", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    assert report["passed"] is True
