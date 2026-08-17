@@ -92,6 +92,15 @@ def _normalize_like_renderer(text: str) -> str:
     change whether math is *structurally* wrapped. The naked-math heuristics
     (`detectAndWrapNakedMathLines` and friends) decide typography, not
     structure, and porting them would double the drift surface for no gain.
+
+    On top of the ported transforms it also runs the repository's own
+    deterministic shape repair (`repair_display_math_shape`). Measured on the
+    18-section calculus course from lz-course-gen's end-to-end run, that course
+    carried two variants this function's regexes alone do not recognise —
+    `$$\\n$$` on separate lines and `$$ $$` on a single line, both wrapping the
+    environment. All four of its false-positive nodes still blocked until the
+    repair ran first. Reusing the repair instead of adding more regexes here
+    keeps one implementation of "what shape counts as fixable".
     """
     normalized = text
 
@@ -122,7 +131,17 @@ def _normalize_like_renderer(text: str) -> str:
         _wrap,
         normalized,
     )
-    return normalized
+
+    # Finally hand the text to the deterministic shape repair. Imported lazily:
+    # `canonical_content_repair` imports the course command/repository stack,
+    # and importing that at module scope would drag persistence into every
+    # caller of the quality gate — including the offline probes that only want
+    # to score text.
+    try:
+        from canonical_content_repair import repair_display_math_shape
+    except ImportError:  # pragma: no cover - repair is optional for scoring
+        return normalized
+    return repair_display_math_shape(normalized)
 
 
 def _dimension_report(issues: list[dict[str, Any]], dimension: str) -> dict[str, Any]:
