@@ -15,8 +15,9 @@
 2. **推断**：记录时向上走栈，取第一个 ``ai_base.py`` 之外的调用帧，把
    ``模块.函数`` 当作阶段。任何调用点都自动带标签，一行业务代码都不用动。
 
-因此"未显式标注的阶段"也不会变成一堆无法归因的记录——账单永远能按
-``stage`` 汇总出每个阶段的耗时，这正是 A-1 验收②的要求。
+推断有一个已知边界：并行生成写成 ``gather(库层协程())`` 时，这个 task 里
+压根没有业务帧，推断只能留空。这类阶段必须靠显式标注，见
+:func:`_infer_caller` 的说明。所以两个来源是互补关系，不是主备关系。
 
 **重复上下文计量**：每条记录带一份 ``context_blocks``——把 prompt 按段落
 切块后的 ``(块指纹, 该块 token 数)`` 列表。同一份上下文被反复发送时，同一
@@ -151,13 +152,35 @@ _SELF_FILES = {
     "contextlib.py",
 }
 
+# 一个 task 的帧链在 ``create_task`` 边界处会穿进 asyncio 内部，再往上走就
+# 是事件循环自己的栈（``runners.py`` / ``base_events.py``），跟业务无关。
+# 走到这些文件就必须停：否则并行生成出来的每次调用都会被归到
+# ``runners.run``，阶段维度直接失效——真实跑一次课时就是这么暴露的。
+_ASYNC_BOUNDARY_FILES = {
+    "events.py",
+    "base_events.py",
+    "runners.py",
+    "tasks.py",
+    "futures.py",
+    "asyncio",
+}
+
 
 def _infer_caller() -> tuple[str, str, int]:
-    """返回第一个 LLM 调用层之外的调用帧 ``(模块, 函数, 行号)``。
+    """返回最贴近业务的调用帧 ``(模块, 函数, 行号)``。
 
     没有显式标注时，这就是阶段名的来源。用 ``sys._getframe`` 而不是
     ``traceback.extract_stack``：后者会去读源码文件，在每次模型调用上都做
     一遍太贵，而这里只需要帧上已有的元数据。
+
+    走到 asyncio 内部就停——那里是本 task 的栈底，再往上是事件循环自己的
+    栈，跟调用方无关。不停的话，``gather`` 出来的每次调用都会被归到
+    ``runners.run``，阶段维度直接失效（真实跑一门课时就是这么暴露的）。
+
+    注意 ``await 某协程`` 不会切断帧链，所以
+    ``gather(业务协程())`` 这种常见形态仍然归得到业务名；真正归不到的只有
+    ``gather(库层协程())`` ——那时这个 task 里压根没有业务帧，只能靠显式
+    :func:`stage` 标注。宁可留空也不编造一个 asyncio 内部名。
     """
     try:
         frame = sys._getframe(1)
@@ -167,6 +190,11 @@ def _infer_caller() -> tuple[str, str, int]:
     while frame is not None and depth < 40:
         filename = frame.f_code.co_filename
         name = os.path.basename(filename)
+        if (
+            name in _ASYNC_BOUNDARY_FILES
+            or f"{os.sep}asyncio{os.sep}" in filename
+        ):
+            break
         if name not in _SELF_FILES and "importlib" not in filename:
             module = name[:-3] if name.endswith(".py") else name
             return (module, frame.f_code.co_name, frame.f_lineno)
@@ -291,6 +319,7 @@ def record_call(
     model_role: str = "",
     status: str,
     stream: bool,
+    service: str = "",
     attempt: int = 1,
     queue_wait_ms: float = 0.0,
     duration_ms: float = 0.0,
@@ -314,7 +343,14 @@ def record_call(
         run = _active_run()
         label = current_label()
         caller_module, caller_func, caller_line = _infer_caller()
-        stage_name = label.get("stage") or caller_module
+        # 阶段名的优先级：显式标注 > 调用帧 > 发起调用的服务类。
+        #
+        # 第三档是给真实服务器结构兜底的：生成任务的协程在一处创建、由工作
+        # 线程的新事件循环驱动，业务帧根本不在这个 task 的帧链上（链条第二格
+        # 就是事件循环）。此时帧归因只能留空，但 ``self.__class__`` 至少能说
+        # 清是哪个服务在打模型——``CourseService`` 和 ``AssessmentOrchestrator``
+        # 分得开，账单的阶段维度就不会整块塌成一个值。
+        stage_name = label.get("stage") or caller_module or service
         with run.lock:
             run.seq += 1
             seq = run.seq
@@ -327,6 +363,7 @@ def record_call(
             "section": label.get("section", ""),
             "purpose": label.get("purpose", "") or caller_func,
             "caller": f"{caller_module}.{caller_func}:{caller_line}",
+            "service": service,
             "model_id": model_id,
             "model_role": model_role,
             "provider_scope": provider_scope,

@@ -1809,6 +1809,7 @@ class AIBase:
                         error_code=str(error)[:200] if error else "",
                         physical_request_count=physical_request_count,
                         provider_scope=self._primary_provider_scope(),
+                        service=type(self).__name__,
                         extra={"queue_wait_reason": queue_wait_reason},
                     )
 
@@ -2260,6 +2261,7 @@ class AIBase:
                     error_code=str(error)[:200] if error else "",
                     physical_request_count=stream_requests,
                     provider_scope=self._primary_provider_scope(),
+                    service=type(self).__name__,
                     extra={
                         "output_chars": stream_output_chars,
                         "queue_wait_reason": stream_wait_reason,
