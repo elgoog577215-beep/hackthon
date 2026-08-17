@@ -4700,6 +4700,20 @@ class CourseService(AIBase):
             node["generation_runtime"] = {
                 "prompt_chars": len(user_prompt) + len(system_prompt),
                 "estimated_input_tokens": input_tokens,
+                # E-1: cumulative across attempts and across resumes, so a
+                # resumed course can be audited for "did an already-finished
+                # section cost another call". A section that never re-enters
+                # generation keeps its old count unchanged; a local fallback
+                # never reached the provider and must not be counted.
+                "model_call_count": (
+                    int(
+                        (node.get("generation_runtime") or {}).get(
+                            "model_call_count"
+                        )
+                        or 0
+                    )
+                    + int(generation_source == "model")
+                ),
                 "prompt_detail_level": (
                     selected_content_prompt.detail_level
                     if selected_content_prompt is not None

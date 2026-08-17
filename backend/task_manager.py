@@ -6661,6 +6661,13 @@ class TaskManager:
                 ),
                 "completed_section_count": completed_section_count,
                 "failed_section_count": failed_section_count,
+                # E-1 验收口径：本轮（含恢复）为正文实际发出的模型调用总数。
+                # 恢复后已完成小节不再进入生成，其计数不增长，因此这个总数
+                # 与"重跑了多少节"一致，可以直接核对，不用肉眼判断。
+                "model_call_count": sum(
+                    int(item.get("model_call_count") or 0)
+                    for item in runtimes
+                ),
                 "resume_available": (
                     completed_section_count < len(generated_nodes)
                 ),
