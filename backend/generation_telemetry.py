@@ -56,11 +56,16 @@ _DEFAULT_DIR = Path(
 ) / "telemetry"
 
 # prompt 分块的下限：太碎的块（一两句话）既不构成"重复上下文"，又会把
-# JSONL 撑大，统计意义也低。
-_MIN_BLOCK_CHARS = 80
+# JSONL 撑大，统计意义也低。真实 prompt 里 `## 课程上下文账本` 这类小节
+# 常只有二三十字，下限定太高会把它们全丢掉——账单里 context_blocks 全空
+# 就是这么来的（真实跑一次课时发现）。
+_MIN_BLOCK_CHARS = 24
 _MAX_BLOCKS_PER_CALL = 400
 
-_BLOCK_SPLIT = re.compile(r"\n\s*\n+")
+# 真实 prompt 的结构是「Markdown 小节标题 + 内容」，而不只是空行分段。
+# 只按空行切会把整块 `## 前文上下文 ... ## 当前小节契约 ...` 当成一块，
+# 复用的小节与每次都变的小节混在一起，重复量会被严重低估。
+_BLOCK_SPLIT = re.compile(r"\n\s*\n+|(?=^\s{0,3}#{1,6}\s)", re.M)
 # 逐题生成/逐节生成里，块与块之间常只差一个编号或标题序号。做规范化是为了
 # 让"同一份上下文"不会因为一个序号差异就被当成两份，从而低估重复量。
 _NORMALIZE_WS = re.compile(r"\s+")

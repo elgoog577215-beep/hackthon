@@ -183,6 +183,45 @@ def test_explicit_stage_wins_when_frames_are_unavailable(
     assert {r["stage"] for r in records} == {"正文生成"}
 
 
+def test_markdown_sections_are_split_into_separate_blocks(telemetry_dir):
+    """真实 prompt 是「Markdown 小节标题 + 内容」，必须按小节切开。
+
+    只按空行切的话，复用的小节（课程账本）和每次都变的小节（当前小节契约）
+    会被并成一块，重复量严重低估；小节又常只有二三十字，分块下限定太高会
+    把它们全丢掉——真实跑一门课时账单里 ``context_blocks`` 全空就是这么来的。
+    """
+    shared = (
+        "## 课程上下文账本\n"
+        "本课程共 8 课时，面向大学一年级学生，主题是线性代数入门。\n"
+    )
+    with gt.generation_run("r10") as path:
+        for index in range(3):
+            gt.record_call(
+                model_id="m",
+                status="completed",
+                stream=False,
+                prompt=(
+                    f"{shared}\n"
+                    "## 当前小节契约\n"
+                    f"本节要讲第 {index} 个主题，与其他小节不同。\n"
+                ),
+            )
+    records = _read(path)
+    # 每条至少切出两块：共享的账本 + 各自不同的小节契约。
+    assert all(len(r["context_blocks"]) >= 2 for r in records)
+
+    from collections import Counter
+
+    sends = Counter(
+        digest
+        for record in records
+        for digest, _ in record["context_blocks"]
+    )
+    # 共享小节被发了 3 次，独有小节各 1 次。
+    assert 3 in sends.values()
+    assert list(sends.values()).count(1) >= 3
+
+
 def test_repeated_context_blocks_share_digest(telemetry_dir):
     shared = "这是一段足够长的共享上下文，会被反复发送给模型用于生成练习题。" * 3
     with gt.generation_run("r5") as path:
