@@ -716,6 +716,82 @@
         </ol>
       </section>
 
+      <!--
+        颗粒度对照。教师原来的抱怨是「各节篇幅和颗粒度有波动」，但翻页对比记不住。
+        这张表把每节的栏目完成度和四项体量并排放，异常节直接点名。
+      -->
+      <section
+        v-if="dossierConsistency && dossierConsistency.section_count"
+        class="generation-lesson-plan__overview-section generation-lesson-plan__consistency"
+      >
+        <header>
+          <span>
+            <small>{{ t('courseGeneration.lessonPlan.dossier.consistencyEyebrow', '呈现一致性') }}</small>
+            <strong>{{ t('courseGeneration.lessonPlan.dossier.consistencyTitle', '各节栏目结构与颗粒度对照') }}</strong>
+          </span>
+          <p>{{ t('courseGeneration.lessonPlan.dossier.consistencyHelp', '所有小节使用同一套栏目；下表比较各节的完成度与体量，区间按本课程自身的中位数计算。') }}</p>
+        </header>
+
+        <p class="generation-lesson-plan__consistency-verdict" :data-uniform="dossierConsistency.uniform_rubric_structure">
+          <BadgeCheck v-if="dossierConsistency.uniform_rubric_structure" :size="16" />
+          <TriangleAlert v-else :size="16" />
+          <span>{{ dossierConsistency.uniform_rubric_structure
+            ? t('courseGeneration.lessonPlan.dossier.consistencyUniform', '全部小节栏目结构一致')
+            : t('courseGeneration.lessonPlan.dossier.consistencyMixed', '存在栏目结构不一致的小节') }}</span>
+          <em v-if="dossierConsistency.outlier_node_ids.length">
+            {{ t('courseGeneration.lessonPlan.dossier.consistencyOutliers', '体量偏离的小节') }}
+            {{ dossierConsistency.outlier_node_ids.length }}
+          </em>
+        </p>
+
+        <div class="generation-lesson-plan__consistency-scroll">
+          <table class="generation-lesson-plan__consistency-table">
+            <thead>
+              <tr>
+                <th scope="col">{{ t('courseGeneration.lessonPlan.dossier.colSection', '小节') }}</th>
+                <th scope="col">{{ t('courseGeneration.lessonPlan.dossier.colRubrics', '已填栏目') }}</th>
+                <th v-for="metric in consistencyMetrics" :key="metric.key" scope="col">
+                  {{ metric.label }}
+                  <small v-if="metric.band">{{ metric.band.low }}–{{ metric.band.high }}</small>
+                </th>
+                <th scope="col">{{ t('courseGeneration.lessonPlan.dossier.colFlags', '偏离') }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="row in dossierConsistency.sections"
+                :key="row.node_id"
+                :data-outlier="row.flags.some(flag => flag !== 'alignment_gap')"
+              >
+                <th scope="row">
+                  <span>{{ String(row.sequence).padStart(2, '0') }}</span>
+                  {{ row.title || row.node_id }}
+                </th>
+                <td>{{ row.granularity.filled_rubric_count }}/{{ row.granularity.rubric_count }}</td>
+                <td v-for="metric in consistencyMetrics" :key="metric.key">
+                  {{ granularityValue(row.granularity, metric.key) }}
+                </td>
+                <td>
+                  <i v-for="flag in row.flags" :key="flag">{{ flagLabel(flag) }}</i>
+                  <template v-if="!row.flags.length">—</template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <ul class="generation-lesson-plan__consistency-coverage">
+          <li
+            v-for="item in dossierConsistency.rubric_coverage"
+            :key="item.key"
+            :data-complete="item.filled_sections === item.section_count"
+          >
+            <span>{{ rubricLabel(item.key) }}</span>
+            <small>{{ item.filled_sections }}/{{ item.section_count }}</small>
+          </li>
+        </ul>
+      </section>
+
       <section v-if="overallPlan.knowledge_tags.length" class="generation-lesson-plan__overview-section is-knowledge-map">
         <header>
           <span>
@@ -761,6 +837,17 @@
           <span>{{ String(selectedIndex + 1).padStart(2, '0') }}</span>
           <i aria-hidden="true" />
           <small>{{ String(sections.length).padStart(2, '0') }}</small>
+          <button
+            v-if="sectionDossier && !editing"
+            type="button"
+            class="generation-lesson-plan__print-button"
+            :title="t('courseGeneration.lessonPlan.dossier.printAction', '打印本节教案')"
+            :aria-label="t('courseGeneration.lessonPlan.dossier.printAction', '打印本节教案')"
+            @click="printLessonPlan"
+          >
+            <Printer :size="15" />
+            <span>{{ t('courseGeneration.lessonPlan.dossier.printAction', '打印本节教案') }}</span>
+          </button>
         </div>
         <button
           type="button"
@@ -886,6 +973,18 @@
               </label>
             </div>
           </section>
+          <!--
+            读态走统一模板：栏目恒定、时序成表、对应关系一栏可见，可直接打印。
+            编辑态仍用下面的分块视图，因为增删环节、拖拽排序和逐字段草稿都挂在那里。
+            拿不到 dossier（旧后端或老缓存投影）时同样回落到分块视图。
+          -->
+          <LessonDossierSheet
+            v-if="sectionDossier && !editing"
+            class="generation-lesson-plan__dossier"
+            :dossier="sectionDossier"
+            @open-knowledge="openKnowledge"
+          />
+          <template v-else>
           <section
             v-if="selectedSection.plan.planned_minutes || selectedSection.plan.key_difficulties?.length || selectedSection.plan.teacher_activities?.length || selectedSection.plan.student_activities?.length || selectedSection.plan.in_class_checks?.length || selectedSection.plan.homework?.length"
             class="generation-lesson-plan__block generation-lesson-plan__execution"
@@ -1185,6 +1284,7 @@
               </ul>
             </div>
           </section>
+          </template>
         </template>
 
         <div v-else-if="live" class="generation-lesson-plan__skeleton" aria-hidden="true">
@@ -1225,6 +1325,7 @@ import {
   History,
   ListTree,
   LoaderCircle,
+  Printer,
   Route,
   Sparkles,
   Target,
@@ -1237,9 +1338,11 @@ import {
 import type {
   CourseTeachingPlanProjection,
   CourseTeachingPlanSection,
+  LessonDossierGranularity,
   Node,
   Task,
 } from '../stores/types'
+import LessonDossierSheet from './LessonDossierSheet.vue'
 import { useTeachingPlanWorkbenchStore } from '../stores/teachingPlanWorkbench'
 import { activeLocale, t } from '../shared/i18n'
 
@@ -1308,6 +1411,10 @@ const selectedIndex = computed(() => {
   return childIndex >= 0 ? childIndex : 0
 })
 const selectedSection = computed(() => sections.value[selectedIndex.value])
+// 统一模板的输入。后端每次投影都会算出来；拿不到时（旧后端、老缓存投影）退回到
+// 下面的分块视图，保证不会白屏。
+const sectionDossier = computed(() => selectedSection.value?.plan?.dossier)
+const dossierConsistency = computed(() => effectivePlan.value?.dossier_consistency)
 const overallPlan = computed(() => effectivePlan.value?.overall)
 const classroomPlan = computed(() => overallPlan.value?.classroom || {})
 const hasClassroomDetails = computed(() => Boolean(
@@ -2096,6 +2203,61 @@ function openKnowledge(knowledgeId: string): void {
   if (!knowledgeId) return
   emit('open-knowledge', knowledgeId)
 }
+
+// 打印走浏览器原生打印：教案已经是固定栏目的表格，`LessonDossierSheet` 的 @media
+// print 会把应用外壳藏掉，只留下这一张纸。不另做导出管线。
+function printLessonPlan(): void {
+  if (typeof window !== 'undefined' && typeof window.print === 'function') window.print()
+}
+
+const RUBRIC_LABELS: Record<string, [string, string]> = {
+  lesson_identity: ['courseGeneration.lessonPlan.dossier.rubricIdentity', '课时信息'],
+  objectives: ['courseGeneration.lessonPlan.dossier.rubricObjectives', '教学目标'],
+  focus: ['courseGeneration.lessonPlan.dossier.rubricFocus', '重点与难点'],
+  knowledge: ['courseGeneration.lessonPlan.dossier.rubricKnowledge', '本节知识与前置'],
+  timeline: ['courseGeneration.lessonPlan.dossier.rubricTimeline', '课堂时序'],
+  alignment: ['courseGeneration.lessonPlan.dossier.rubricAlignment', '活动·知识·评价对照'],
+  misconceptions: ['courseGeneration.lessonPlan.dossier.rubricMisconceptions', '易错点与纠偏'],
+  assessment: ['courseGeneration.lessonPlan.dossier.rubricAssessment', '课堂检查与掌握标准'],
+  homework: ['courseGeneration.lessonPlan.dossier.rubricHomework', '课后作业'],
+  resources: ['courseGeneration.lessonPlan.dossier.rubricResources', '教学资源与准备'],
+  notes: ['courseGeneration.lessonPlan.dossier.rubricNotes', '教学备注与约束'],
+}
+
+function rubricLabel(key: string): string {
+  const entry = RUBRIC_LABELS[key]
+  return entry ? t(entry[0], entry[1]) : key
+}
+
+// 颗粒度对照只显示教师翻页时真能感觉到的四项，指标名不用后端的英文键。
+const CONSISTENCY_METRICS = [
+  ['knowledge_point_count', 'courseGeneration.lessonPlan.dossier.metricKnowledge', '知识点'],
+  ['module_count', 'courseGeneration.lessonPlan.dossier.metricModules', '环节'],
+  ['planned_minutes', 'courseGeneration.lessonPlan.dossier.metricMinutes', '课时'],
+  ['check_count', 'courseGeneration.lessonPlan.dossier.metricChecks', '课堂检查'],
+] as const
+
+const consistencyMetrics = computed(() => CONSISTENCY_METRICS.map(([key, token, fallback]) => ({
+  key,
+  label: t(token, fallback),
+  band: dossierConsistency.value?.bands?.[key],
+})))
+
+function granularityValue(granularity: LessonDossierGranularity, key: string): number {
+  return Number((granularity as unknown as Record<string, number>)[key] ?? 0)
+}
+
+function flagLabel(flag: string): string {
+  const metric = CONSISTENCY_METRICS.find(([key]) => flag.startsWith(key))
+  const direction = flag.endsWith('_above_band')
+    ? t('courseGeneration.lessonPlan.dossier.flagAbove', '偏多')
+    : flag.endsWith('_below_band')
+      ? t('courseGeneration.lessonPlan.dossier.flagBelow', '偏少')
+      : ''
+  if (metric && direction) return `${t(metric[1], metric[2])}${direction}`
+  if (flag === 'alignment_gap') return t('courseGeneration.lessonPlan.dossier.flagAlignmentGap', '有未落地的知识点')
+  return flag
+}
 </script>
 
 <style scoped>
@@ -2219,6 +2381,26 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__pager > div { display:flex; align-items:center; gap:7px; color:#333d50; font:700 12px/1 ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__pager > div i { width:22px; height:1px; background:#aeb4c0; }
 .generation-lesson-plan__pager > div small { color:#8c94a2; font-size:12px; }
+.generation-lesson-plan__print-button { display:inline-flex; align-items:center; gap:6px; margin-left:10px; padding:5px 11px; border:1px solid #d9dde5; border-radius:999px; color:#4f56b8; background:rgba(255,255,255,.85); font:650 12px/1 inherit; cursor:pointer; }
+.generation-lesson-plan__print-button:hover { border-color:#b7bde6; background:#f4f4ff; }
+.generation-lesson-plan__dossier { padding:26px 30px 30px; }
+.generation-lesson-plan__consistency-verdict { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 14px; color:#08785a; font-size:13px; font-weight:650; }
+.generation-lesson-plan__consistency-verdict[data-uniform="false"] { color:#b4552f; }
+.generation-lesson-plan__consistency-verdict em { font-style:normal; padding:2px 9px; border-radius:999px; color:#8a5a2c; background:rgba(240,176,110,.16); font-size:12px; }
+.generation-lesson-plan__consistency-scroll { overflow-x:auto; }
+.generation-lesson-plan__consistency-table { width:100%; border-collapse:collapse; font-size:13px; }
+.generation-lesson-plan__consistency-table th,
+.generation-lesson-plan__consistency-table td { padding:7px 10px; border:1px solid #e2e5ea; text-align:left; vertical-align:top; }
+.generation-lesson-plan__consistency-table thead th { background:#f6f6fb; font-size:12px; font-weight:650; white-space:nowrap; }
+.generation-lesson-plan__consistency-table thead th small { display:block; color:#8c94a2; font-weight:400; }
+.generation-lesson-plan__consistency-table tbody th { font-weight:600; }
+.generation-lesson-plan__consistency-table tbody th span { margin-right:7px; color:#5d63bd; font:700 12px ui-monospace,SFMono-Regular,monospace; }
+.generation-lesson-plan__consistency-table tbody tr[data-outlier="true"] { background:rgba(240,176,110,.1); }
+.generation-lesson-plan__consistency-table td i { display:inline-block; margin:0 5px 3px 0; padding:1px 8px; border-radius:999px; color:#8a5a2c; background:rgba(240,176,110,.18); font-style:normal; font-size:11px; }
+.generation-lesson-plan__consistency-coverage { display:flex; flex-wrap:wrap; gap:7px; margin:14px 0 0; padding:0; list-style:none; }
+.generation-lesson-plan__consistency-coverage li { display:inline-flex; align-items:baseline; gap:6px; padding:3px 10px; border:1px solid #e2e5ea; border-radius:999px; color:#7a8393; background:#fafafc; font-size:12px; }
+.generation-lesson-plan__consistency-coverage li[data-complete="true"] { border-color:#cceadd; color:#08785a; background:#effaf5; }
+.generation-lesson-plan__consistency-coverage small { font-variant-numeric:tabular-nums; }
 .generation-lesson-plan__sheet { overflow:hidden; border:1px solid #d9dde5; border-radius:19px; background:rgba(255,255,255,.97); box-shadow:0 20px 55px rgba(38,45,63,.075); }
 .generation-lesson-plan__sheet-header { position:relative; display:grid; grid-template-columns:70px minmax(0,1fr) auto; align-items:start; gap:22px; padding:30px 34px 28px; border-bottom:1px solid #e1e4e9; background:linear-gradient(110deg,#fbfbfd 0%,#fff 66%,#f5f5ff 100%); }
 .generation-lesson-plan__sheet-header::after { content:""; position:absolute; right:30px; bottom:0; width:130px; height:3px; background:linear-gradient(90deg,transparent,#7378d6); }

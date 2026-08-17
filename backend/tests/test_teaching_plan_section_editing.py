@@ -22,6 +22,7 @@ from course_repository import CourseDocumentRepository
 from teaching_plan_workbench import (
     TeachingPlanWorkbenchError,
     TeachingPlanWorkbenchService,
+    _reject_test_marker,
     _value_hash,
 )
 
@@ -469,3 +470,40 @@ async def test_second_round_editing_keeps_module_and_knowledge_fields_available(
     )
     changed = storage.course["teaching_plan_workbench"]["drafts"]["teacher-1"]["changed_paths"]
     assert len(changed) == 2
+
+
+# --- 联调残留标记拦截 -------------------------------------------------------
+# 真实发生过：某课小节 1 的目标被端到端脚本改成
+# 「能由任意两点求斜率并解释其几何含义（Gap 端到端 1786451829）」，
+# 直接印在教师看到的教案上，而且把目标内容整个改偏了（该节讲的是向量，不是斜率）。
+
+
+def test_test_marker_in_learning_objective_is_rejected():
+    for text in (
+        "能由任意两点求斜率并解释其几何含义（Gap 端到端 1786451829）",
+        "能解释斜率（端到端重建验证 1786302027）",
+        "目标（e2e 1786451541）",
+        "目标 (smoke 测试 20260817123456)",
+    ):
+        try:
+            _reject_test_marker(text, "小节目标")
+        except TeachingPlanWorkbenchError as exc:
+            assert exc.code == "teaching_plan_invalid_value"
+        else:
+            raise AssertionError(f"未拦截联调残留标记: {text}")
+
+
+def test_legitimate_objectives_containing_those_words_are_not_rejected():
+    """「端到端」「验证」「测试」都是正常教学用语，只有带流水号的括注才是残留。
+
+    拦得太宽会挡住真实教案——这几条必须放行。
+    """
+    for text in (
+        "能够将二维与三维向量用坐标表示，并向量加法与数乘在几何上与代数上对应一致。",
+        "能设计端到端的数据处理流水线并验证其正确性",
+        "理解 TCP 端到端可靠传输的确认与重传机制",
+        "能用 A/B 测试验证改版效果（样本量不少于 1000）",
+        "能验证 2026 年财报数据的一致性",
+        "掌握 GB 2312 与 UTF-8 编码转换",
+    ):
+        _reject_test_marker(text, "小节目标")

@@ -145,6 +145,12 @@ from course_retrieval import build_course_source_context
 from course_teaching_guidance import compile_overall_teaching_guidance
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
+    build_knowledge_detail_repair_prompt,
+    build_relation_field_repair_prompt,
+    collect_knowledge_detail_gaps,
+    collect_relation_field_gaps,
+    merge_knowledge_detail_repair,
+    merge_relation_field_repair,
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,
     promote_course_teaching_plan_v3,
@@ -3128,6 +3134,141 @@ class CourseService(AIBase):
                                 skeleton=skeleton,
                                 sections=planning_sections,
                             )
+                # 按知识点粒度补写：整批纠正之后仍然只差明细字段时，逐个知识点补，
+                # 而不是让一个漏写的字段把整批打成本地回退。
+                #
+                # 为什么必须细到知识点：批次校验是全有全无的，实测单个知识点漏写
+                # 概率约 2.9%，全课 38 个知识点一次全过只有 (1-0.029)^38 ≈ 33%。
+                # 硬门 × 大基数注定发不出版本。这里**不放宽任何判据**——补不回来
+                # 照样判失败，改变的只是修复粒度。
+                #
+                # 补写提示只带一个知识点（几百字符），结构上不可能触发 max_tokens
+                # 截断；截断属于另一类失败，仍然由 request_model 的加倍重试处理。
+                repaired_detail_count = 0
+                if not batch_report.get("passed") and not fallback_reason:
+                    gaps = collect_knowledge_detail_gaps(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                    )
+                    if gaps:
+                        await self._notify_phase(
+                            on_phase,
+                            "course_teaching_plan_batch_validation",
+                            45,
+                            f"正在补写教案批次 {batch_id} 的 {len(gaps)} 个知识点明细",
+                            phase_progress=0,
+                            phase_detail={
+                                **batch_progress_detail,
+                                "batch_id": batch_id,
+                                "repair_scope": "knowledge_detail",
+                                "repair_units": [
+                                    str(item.get("knowledge_key") or "")
+                                    for item in gaps
+                                ],
+                            },
+                        )
+                    for gap in gaps:
+                        attempt_count += 1
+                        try:
+                            repair_text = await request_model(
+                                user_prompt=(
+                                    "补写该知识点缺失的明细字段，只输出 JSON。"
+                                ),
+                                system_prompt=(
+                                    build_knowledge_detail_repair_prompt(gap)
+                                ),
+                                enable_thinking=False,
+                                phase=(
+                                    "course_teaching_plan_batch_validation"
+                                ),
+                                progress=45,
+                                heartbeat_message=(
+                                    "仍在等待 AI 补写知识点 "
+                                    f"{gap.get('name') or gap.get('knowledge_key')}"
+                                ),
+                                phase_detail=batch_progress_detail,
+                            )
+                        except (
+                            AIProviderRequestError,
+                            CourseGenerationDeadlineExceeded,
+                        ):
+                            # 单个知识点补写失败不改写整批的失败原因：剩下的知识点
+                            # 继续补，最终由重新校验决定这一批能不能过。
+                            continue
+                        repaired = (
+                            self._extract_json(repair_text)
+                            if repair_text else None
+                        )
+                        if merge_knowledge_detail_repair(
+                            batch,
+                            node_id=str(gap.get("node_id") or ""),
+                            knowledge_key=str(gap.get("knowledge_key") or ""),
+                            repair=repaired,
+                            missing_fields=list(gap.get("missing_fields") or []),
+                        ):
+                            repaired_detail_count += 1
+                    # 关系必填字段同理：一条 derives 少写 derivation_steps 也会
+                    # 打掉整批。实测这是补完知识点之后剩下的主要失败模式。
+                    relation_gaps = collect_relation_field_gaps(
+                        batch,
+                        batch_spec=spec,
+                        skeleton=skeleton,
+                    )
+                    for gap in relation_gaps:
+                        attempt_count += 1
+                        try:
+                            repair_text = await request_model(
+                                user_prompt=(
+                                    "补写该知识关系缺失的必填字段，只输出 JSON。"
+                                ),
+                                system_prompt=(
+                                    build_relation_field_repair_prompt(gap)
+                                ),
+                                enable_thinking=False,
+                                phase=(
+                                    "course_teaching_plan_batch_validation"
+                                ),
+                                progress=45,
+                                heartbeat_message=(
+                                    "仍在等待 AI 补写知识关系 "
+                                    f"{gap.get('source_name')}→{gap.get('target_name')}"
+                                ),
+                                phase_detail=batch_progress_detail,
+                            )
+                        except (
+                            AIProviderRequestError,
+                            CourseGenerationDeadlineExceeded,
+                        ):
+                            continue
+                        repaired = (
+                            self._extract_json(repair_text)
+                            if repair_text else None
+                        )
+                        if merge_relation_field_repair(
+                            batch,
+                            node_id=str(gap.get("node_id") or ""),
+                            relation_index=int(gap.get("relation_index") or 0),
+                            repair=repaired,
+                            missing_fields=list(gap.get("missing_fields") or []),
+                        ):
+                            repaired_detail_count += 1
+                    if repaired_detail_count:
+                        batch_report = validate_teaching_plan_batch_v3(
+                            batch,
+                            batch_spec=spec,
+                            skeleton=skeleton,
+                            sections=planning_sections,
+                        )
+                        # 补写只填内容字段，不改关系端点，所以它无法修好一条
+                        # 方向错误的前置边。这里必须再挡一次，否则补写会把
+                        # `passed` 重新置真，等于让方向错误被洗白。
+                        batch_report = enforce_batch_prerequisite_direction(
+                            batch_report,
+                            batch=batch,
+                            skeleton=skeleton,
+                            sections=planning_sections,
+                        )
                 model_blocking_codes: list[str] = []
                 if not batch_report.get("passed"):
                     generation_source = "deterministic_local_fallback"
@@ -3188,6 +3329,10 @@ class CourseService(AIBase):
                                 "model_blocking_codes": list(
                                     model_blocking_codes
                                 ),
+                                # 区分"补写没触发"与"补写触发了但没救回来"。
+                                # 少了这个数字，跑完只知道批次失败，无法判断补写
+                                # 是不适用还是不管用。
+                                "repaired_detail_count": repaired_detail_count,
                             })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {
@@ -3200,6 +3345,9 @@ class CourseService(AIBase):
                         "payload": deepcopy(batch),
                         "generation_source": generation_source,
                         "fallback_reason": fallback_reason or None,
+                        # 补写了几个知识点。留痕才能在跑完之后回答"补写到底救回
+                        # 多少批次"，不必再复现一次整门课失败。
+                        "repaired_detail_count": repaired_detail_count,
                         "prompt_detail_level": (
                             selected_batch_prompt.detail_level
                             if selected_batch_prompt is not None

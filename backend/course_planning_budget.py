@@ -44,7 +44,12 @@ class CoursePlanningBudget:
     batch_max_sections: int = 3
     batch_max_knowledge: int = 15
     max_input_tokens: int = 16_000
-    max_output_tokens: int = 8000
+    # 3 节批次的完整产物实测 29,787~34,375 字符（约 15~17k token）。8000 会在
+    # 24k 字符左右被砍断——A/B 实测：8192 上限首次即成功 0/5，16384 上限 5/5。
+    # `ai_base` 命中截断后会把上限翻倍重试，所以旧配置不是"生成不出来"，而是
+    # **每个批次都要先白跑一轮被截断的请求**，那一轮的输出 token 全部作废。
+    # 直接配到位，省掉这一轮。
+    max_output_tokens: int = 16_000
     concurrency: int = 4
     # Legacy field name retained for callers: this is a continuous stream
     # inactivity window, not a wall-clock request deadline.
@@ -71,7 +76,7 @@ class CoursePlanningBudget:
                 minimum=2000, maximum=24_000,
             ),
             max_output_tokens=_env_int(
-                "COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", 8000,
+                "COURSE_TEACHING_PLAN_MAX_OUTPUT_TOKENS", 16_000,
                 minimum=2000, maximum=32000,
             ),
             concurrency=_env_int(
@@ -290,7 +295,13 @@ def build_teaching_plan_batches(
         chapter_id = str(section.get("chapter_id") or "")
         identity = skeleton_by_id.get(node_id) or {}
         knowledge_count = len(identity.get("owned_knowledge_keys") or [])
-        section_output_tokens = 400 + knowledge_count * 650
+        # 实测标定（3 节 / 10 个知识点的批次，完整产物 29,787~34,375 字符，
+        # 教案 JSON 约 2 chars/token，即约 15k~17k token）：
+        #   400 + 10*650 = 6,900  <- 旧系数，低估一倍以上
+        #   500 + 10*1450 = 15,000 <- 与实测下沿吻合
+        # 低估的后果不是"算错一个数"：这个估算是批次拆分的依据，估低了就不会
+        # 在该拆的时候拆，于是批次一路撑到撞上输出上限。
+        section_output_tokens = 500 + knowledge_count * 1450
         crosses_chapter = bool(
             current and current_chapter and chapter_id and chapter_id != current_chapter
         )

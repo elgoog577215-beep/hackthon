@@ -387,3 +387,104 @@ def test_unknown_endpoints_are_left_to_the_batch_validator():
     )
 
     assert report["passed"] is True
+
+
+# --- 与 lz-lesson-plan 的软门槛共存（集成冲突点，course_service.py:3478）------
+#
+# 两件事本来就该并存，不是二选一：
+#   * 我的方向检查 = **源头拦截**，写 blocking_issues，让批次重做；
+#   * 它的越界软门槛 = **兜底丢弃**，写 review_issues，不阻断发布。
+# 合并后的 batch_report 必须同时表达两者，任何一方都不得覆盖另一方的字段。
+
+
+def test_direction_check_preserves_soft_gate_review_issues():
+    """方向检查增补 blocking_issues 时，不得丢掉软门槛写的 review_issues。"""
+    report = {
+        "passed": True,
+        "blocking_issues": [],
+        "issues": [{"code": "teaching_batch:future_relation_endpoint"}],
+        "review_issues": [
+            {"code": "teaching_batch:future_relation_endpoint",
+             "severity": "review", "message": "该关系已丢弃"},
+            {"code": "teaching_batch:relation_diversity_low",
+             "severity": "review", "message": "知识网退化"},
+        ],
+    }
+
+    out = enforce_batch_prerequisite_direction(
+        report,
+        batch=_batch("TP-B04", "L2-4-1", [("K022", "K021", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    # 软门槛的 review_issues 原样保留。
+    assert len(out["review_issues"]) == 2
+    assert {i["code"] for i in out["review_issues"]} == {
+        "teaching_batch:future_relation_endpoint",
+        "teaching_batch:relation_diversity_low",
+    }
+    # 我的方向错误进 blocking，并把 passed 置否。
+    assert out["passed"] is False
+    assert {i["code"] for i in out["blocking_issues"]} == {
+        "teaching_batch:reversed_prerequisite",
+    }
+
+
+def test_soft_gated_batch_without_direction_error_stays_passing():
+    """只有越界（软门槛）而没有方向错误时，不得被我的检查打成失败。
+
+    这是两者语义的分界：越界关系会被汇编层丢弃、不阻断发布；
+    方向错误则必须重做。混淆会让本可发布的课程卡住。
+    """
+    report = {
+        "passed": True,
+        "blocking_issues": [],
+        "issues": [],
+        "review_issues": [
+            {"code": "teaching_batch:future_relation_endpoint",
+             "severity": "review"},
+        ],
+    }
+
+    out = enforce_batch_prerequisite_direction(
+        report,
+        # 方向正确的边：早 -> 晚
+        batch=_batch("TP-B04", "L2-4-1", [("K021", "K022", "prerequisite")]),
+        skeleton=_skeleton(_REAL_ENTRIES),
+        sections=_SECTIONS,
+    )
+
+    assert out["passed"] is True
+    assert out["blocking_issues"] == []
+    assert len(out["review_issues"]) == 1
+
+
+def test_detail_repair_cannot_launder_a_reversed_prerequisite():
+    """补写重新校验后必须再挡一次方向——否则方向错误会被"洗白"。
+
+    合并 lz-lesson-plan 的知识点补写后，流程是：
+      校验失败 -> 逐知识点补写 -> **重新校验** -> passed 可能变真。
+    补写只填 capability_points / mastery_criteria / misconceptions 等内容字段，
+    结构上改不了关系端点（它们自己的 NOTES 17.8 也钉住了这点），所以一条方向
+    错误的前置边补写完照样错。若重新校验后不再挡一次，这批就会带着反向边通过。
+    """
+    batch = _batch("TP-B04", "L2-4-1", [("K022", "K021", "prerequisite")])
+    skeleton = _skeleton(_REAL_ENTRIES)
+
+    # 模拟补写后的"干净"报告：内容字段都补齐了，校验器认为通过。
+    after_repair = {
+        "passed": True,
+        "blocking_issues": [],
+        "issues": [],
+        "review_issues": [],
+    }
+
+    out = enforce_batch_prerequisite_direction(
+        after_repair, batch=batch, skeleton=skeleton, sections=_SECTIONS,
+    )
+
+    assert out["passed"] is False, "补写不得让方向错误的批次通过"
+    assert {i["code"] for i in out["blocking_issues"]} == {
+        "teaching_batch:reversed_prerequisite",
+    }
