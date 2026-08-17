@@ -522,6 +522,14 @@ describe('Course knowledge library', () => {
     expect(wrapper.find('[data-knowledge-id="course-entry-without-edge"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('这条候选关系尚未通过当前版本审核')
 
+    // 图例只列图里真实出现的类型：候选的 contrasts_with 没进图，就不该进图例，
+    // 否则读者会以为图上有一条对比辨析的连线去找。
+    const legendItems = wrapper.findAll('[data-testid="knowledge-graph-legend"] li')
+    expect(legendItems).toHaveLength(1)
+    expect(legendItems[0]!.attributes('data-relation-type')).toBe('prerequisite')
+    expect(legendItems[0]!.text()).toContain('前置知识')
+    expect(legendItems[0]!.text()).toContain('1')
+
     const targetNode = wrapper.get('[data-knowledge-id="linear-combination-definition"]')
     await targetNode.trigger('click')
     expect(targetNode.attributes('aria-pressed')).toBe('true')

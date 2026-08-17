@@ -19,6 +19,24 @@
       </span>
     </header>
 
+    <ul
+      v-if="presentRelationTypes.length"
+      class="knowledge-relation-graph__legend"
+      data-testid="knowledge-graph-legend"
+      :aria-label="t('knowledgeLibrary.graphLegend', '关系类型图例')"
+    >
+      <li
+        v-for="entry in presentRelationTypes"
+        :key="entry.type"
+        :class="`is-${entry.type}`"
+        :data-relation-type="entry.type"
+      >
+        <svg width="22" height="8" aria-hidden="true"><path d="M 1 4 L 21 4" /></svg>
+        {{ relationTypeLabel(entry.type) }}
+        <b>{{ entry.count }}</b>
+      </li>
+    </ul>
+
     <div v-if="graphNodes.length" class="knowledge-relation-graph__body">
       <div class="knowledge-relation-graph__canvas">
         <div class="knowledge-relation-graph__viewport">
@@ -165,6 +183,19 @@ const validRelations = computed(() => props.relations.filter(relation => (
   && nodeById.value.has(relation.target_knowledge_id)
 )))
 
+// 图例只列当前图里真实出现的关系类型，不把六类硬编码摆出来——
+// 没有产出的类型摆在图例上会让人以为图里有，反而误导。
+const presentRelationTypes = computed(() => {
+  const counts = new Map<string, number>()
+  for (const relation of validRelations.value) {
+    const type = relation.relation_type
+    counts.set(type, (counts.get(type) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([type, count]) => ({ type, count }))
+})
+
 const graphNodes = computed(() => props.nodes
   .filter(node => (
     node.node_type === 'knowledge_point'
@@ -296,9 +327,25 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 .knowledge-relation-graph__edge path { fill:none; stroke:#9b90d8; stroke-width:2; }
 .knowledge-relation-graph__edge text { fill:#7c729f; paint-order:stroke; stroke:#fafbfe; stroke-width:7px; stroke-linejoin:round; font-size:12px; font-weight:700; text-anchor:middle; }
 .knowledge-relation-graph__arrow { fill:#8c80ce; stroke:none; }
+/* 六类关系各有独立线型：颜色 + 虚线样式双重区分，
+   只靠颜色的话色觉障碍用户分不出来，打印成黑白也分不出来。 */
+.knowledge-relation-graph__edge.is-prerequisite path { stroke:#6b50e8; }
+.knowledge-relation-graph__edge.is-derives path { stroke:#8a6bbf; stroke-dasharray:10 3; }
+.knowledge-relation-graph__edge.is-equivalent_to path { stroke:#4f9b82; stroke-dasharray:2 3; }
 .knowledge-relation-graph__edge.is-contrasts_with path { stroke:#d48b72; stroke-dasharray:6 4; }
-.knowledge-relation-graph__edge.is-equivalent_to path { stroke:#4f9b82; }
-.knowledge-relation-graph__edge.is-applies_to path { stroke:#4d7db7; }
+.knowledge-relation-graph__edge.is-applies_to path { stroke:#4d7db7; stroke-dasharray:12 3 2 3; }
+.knowledge-relation-graph__edge.is-generalizes path { stroke:#b0873c; stroke-dasharray:1 4; stroke-linecap:round; }
+
+.knowledge-relation-graph__legend { flex:0 0 auto; display:flex; flex-wrap:wrap; align-items:center; gap:6px 14px; margin:0; padding:8px 18px; border-bottom:1px solid #eef0f6; list-style:none; background:#fff; }
+.knowledge-relation-graph__legend li { display:inline-flex; align-items:center; gap:6px; color:#6f758b; font-size:11px; font-weight:650; }
+.knowledge-relation-graph__legend svg path { fill:none; stroke:#9b90d8; stroke-width:2; }
+.knowledge-relation-graph__legend b { color:#41475e; font-variant-numeric:tabular-nums; }
+.knowledge-relation-graph__legend .is-prerequisite svg path { stroke:#6b50e8; }
+.knowledge-relation-graph__legend .is-derives svg path { stroke:#8a6bbf; stroke-dasharray:10 3; }
+.knowledge-relation-graph__legend .is-equivalent_to svg path { stroke:#4f9b82; stroke-dasharray:2 3; }
+.knowledge-relation-graph__legend .is-contrasts_with svg path { stroke:#d48b72; stroke-dasharray:6 4; }
+.knowledge-relation-graph__legend .is-applies_to svg path { stroke:#4d7db7; stroke-dasharray:12 3 2 3; }
+.knowledge-relation-graph__legend .is-generalizes svg path { stroke:#b0873c; stroke-dasharray:1 4; stroke-linecap:round; }
 .knowledge-relation-graph__node { outline:none; cursor:pointer; }
 .knowledge-relation-graph__node rect { fill:#fff; stroke:#dfe2ec; stroke-width:1.5; filter:drop-shadow(0 5px 10px rgba(54,59,91,.08)); transition:fill .15s ease, stroke .15s ease, stroke-width .15s ease; }
 .knowledge-relation-graph__node circle { fill:#a8aebe; }
