@@ -2050,16 +2050,47 @@ class CourseService(AIBase):
             skeleton,
             sections=planning_sections,
         )
+        # A chunk that fell back locally is worth one more attempt at a better
+        # skeleton -- but only while nothing is keyed to the current one yet.
+        # Regenerating remints the knowledge registry (the local compiler mints
+        # one key per section, the model mints several), and every stored batch
+        # holds the old keys, so it would fail the reuse gate and be re-sent.
+        # That is the whole-round rerun A-2 measured: 55 calls, 20 distinct
+        # prompts, 67% of input tokens spent re-sending byte-identical work.
+        # Completed model batches therefore pin the skeleton.
+        stored_batch_index = teaching_stage.get("batches")
+        has_model_batches_on_current_skeleton = bool(
+            isinstance(raw_skeleton, dict)
+            and isinstance(stored_batch_index, dict)
+            and any(
+                isinstance(item, dict)
+                and item.get("status") == "completed"
+                and item.get("generation_source") == "model"
+                and item.get("skeleton_revision_id")
+                == raw_skeleton.get("revision_id")
+                for item in stored_batch_index.values()
+            )
+        )
+        skeleton_chunk_fell_back = any(
+            str(item.get("unit") or "").startswith("skeleton_chunk_")
+            for item in previous_fallback_units
+            if isinstance(item, dict)
+        )
         skeleton_is_current = bool(
             isinstance(raw_skeleton, dict)
             and raw_skeleton.get("source_outline_revision_id") == outline_revision_id
             and skeleton_report.get("passed")
-            and not any(
-                str(item.get("unit") or "").startswith("skeleton_chunk_")
-                for item in previous_fallback_units
-                if isinstance(item, dict)
+            and not (
+                skeleton_chunk_fell_back
+                and not has_model_batches_on_current_skeleton
             )
         )
+        if skeleton_is_current and skeleton_chunk_fell_back:
+            # Say plainly that a degraded chunk is being kept on purpose, so a
+            # locally-compiled identity is not mistaken for an AI-planned one.
+            teaching_stage["skeleton_retry_declined_reason"] = (
+                "completed_model_batches_pinned_to_current_skeleton"
+            )
         if not skeleton_is_current:
             (
                 skeleton,

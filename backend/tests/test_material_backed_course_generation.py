@@ -2442,3 +2442,131 @@ async def test_batch_failure_history_survives_a_successful_retry(monkeypatch):
     assert failed
     assert failed[0]["model_blocking_codes"]
     assert failed[0]["attempt"] >= 1
+
+
+# --- E-1b：语义门重试的重算范围（整轮重跑回归） ---------------------------
+# 机制推导与 normalize 幂等性反证见 tests/test_teaching_plan_retry_scope.py。
+
+async def _skeleton_would_be_regenerated(
+    *,
+    skeleton_revision: str,
+    batch_source: str,
+    batch_skeleton_revision: str | None = None,
+    include_batches: bool = True,
+) -> bool:
+    """Ask production itself whether it would regenerate the skeleton.
+
+    Driven through `_prepare_course_teaching_plan` with a fake model, so this
+    test fails if the real decision changes — a hand-mirrored copy of the
+    condition would pass even after production regressed.
+    """
+    labels = [f"重算范围能力{index}" for index in range(1, 7)]
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(labels),
+        resolve_pedagogy_profile(subject="重算范围课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], labels, strict=True)
+    }
+    service = CourseService()
+    calls: list[str] = []
+
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        calls.append(prompt)
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        if prompt.startswith("只修复知识职责骨架分片"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        if (
+            prompt.startswith("生成详细小节教案批次")
+            or prompt.startswith("只修复详细教案批次")
+        ):
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    # First, let a clean run produce a real skeleton + real batches on disk.
+    course_data = {
+        "course_id": "course-retry-scope",
+        "course_name": "重算范围课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service._call_llm = fake_call_llm
+    await service._prepare_course_teaching_plan(
+        course_data=course_data, plan=plan, artifacts=None,
+        on_phase=None, on_checkpoint=None,
+    )
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    real_skeleton_revision = stage["skeleton"]["revision_id"]
+
+    # Now poison the stage exactly as a first round with a fallen-back
+    # skeleton chunk would leave it, and re-enter.
+    stage["fallback_units"] = [
+        {"unit": "skeleton_chunk_2", "reason": "model_output_failed_validation"},
+    ]
+    if not include_batches:
+        stage["batches"] = {}
+    else:
+        for item in stage.get("batches", {}).values():
+            item["generation_source"] = batch_source
+            item["skeleton_revision_id"] = (
+                batch_skeleton_revision or real_skeleton_revision
+            )
+    stage["semantic_status"] = "retry_required"
+    stage["degraded"] = True
+
+    calls.clear()
+
+    await service._prepare_course_teaching_plan(
+        course_data=course_data, plan=plan, artifacts=None,
+        on_phase=None, on_checkpoint=None,
+    )
+    # A skeleton chunk request on re-entry means the whole skeleton was replanned.
+    return any(
+        item.startswith("规划全课知识职责骨架 V3 分片 1/")
+        for item in calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_completed_model_batches_pin_the_skeleton_across_a_semantic_retry():
+    """有已完成的模型批次挂在当前骨架上时，重试轮不得重生成骨架。
+
+    这是 E-1b 的核心断言：整轮重跑的开关就是这一个决定。
+    """
+    assert await _skeleton_would_be_regenerated(
+        skeleton_revision="current", batch_source="model",
+    ) is False, (
+        "已完成的模型批次挂在当前骨架上，重生成骨架会让它们全部因键重铸被重打"
+    )
+
+
+@pytest.mark.asyncio
+async def test_skeleton_chunk_fallback_still_retried_when_nothing_is_keyed_to_it():
+    """没有任何批次挂靠时，兜底分片仍然值得再试一次——不能把优化一起关掉。"""
+    assert await _skeleton_would_be_regenerated(
+        skeleton_revision="current", batch_source="model", include_batches=False,
+    ) is True, (
+        "没有批次挂靠时应当重试骨架，否则会永久固化一个降级的知识骨架"
+    )
+
+
+@pytest.mark.asyncio
+async def test_locally_compiled_batches_do_not_pin_the_skeleton():
+    """只有模型批次值得保护；本地兜底批次本来就要重做，不该拖住骨架。"""
+    assert await _skeleton_would_be_regenerated(
+        skeleton_revision="current",
+        batch_source="deterministic_local_fallback",
+    ) is True
+
+
+@pytest.mark.asyncio
+async def test_batches_keyed_to_a_stale_skeleton_do_not_pin_it():
+    """挂在旧骨架修订上的批次不构成保护理由，否则会锁死一个过期骨架。"""
+    assert await _skeleton_would_be_regenerated(
+        skeleton_revision="current",
+        batch_source="model",
+        batch_skeleton_revision="skeleton_round_0",
+    ) is True
