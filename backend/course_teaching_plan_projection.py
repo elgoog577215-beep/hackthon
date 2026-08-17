@@ -5,6 +5,10 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from course_lesson_dossier import (
+    build_lesson_dossier,
+    build_lesson_dossier_consistency,
+)
 from course_teaching_guidance import compile_overall_teaching_guidance
 
 
@@ -146,13 +150,29 @@ def _project_knowledge_relations(value: Any) -> list[dict[str, Any]]:
     return relations
 
 
-def _project_teaching_modules(value: Any) -> list[dict[str, Any]]:
+def _project_teaching_modules(
+    value: Any,
+    *,
+    module_plan: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """投影教学环节。
+
+    `label` 与 `block_role` 来自小节冻结的 `module_plan`，不是模型自由发挥的标题。
+    生成结果只带 `module_id` 时，页面上就只剩一串英文 id；把模板里的稳定栏目名一起
+    带出来，各节的环节名称才会一致。
+    """
+    planned = module_plan or {}
     modules = []
     for raw in value if isinstance(value, list) else []:
         if not isinstance(raw, dict):
             continue
+        module_id = str(raw.get("module_id") or "").strip()
+        spec = planned.get(module_id) or {}
         modules.append({
-            "module_id": str(raw.get("module_id") or "").strip(),
+            "module_id": module_id,
+            "label": str(spec.get("label") or "").strip(),
+            "block_role": str(spec.get("block_role") or "").strip(),
+            "required": bool(spec.get("required")),
             "teaching_purpose": str(
                 raw.get("teaching_purpose") or ""
             ).strip(),
@@ -229,20 +249,28 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     knowledge_ids = _knowledge_id_index(course_data)
     course_plan = course_data.get("course_plan")
     course_plan = course_plan if isinstance(course_plan, dict) else {}
-    outline_sections = {
-        _text(section.get("node_id")): section
-        for chapter in course_plan.get("chapters") or []
-        if isinstance(chapter, dict)
-        for section in chapter.get("sections") or []
-        if isinstance(section, dict) and _text(section.get("node_id"))
-    }
+    outline_sections = {}
+    for chapter in course_plan.get("chapters") or []:
+        if not isinstance(chapter, dict):
+            continue
+        chapter_title = _text(chapter.get("title"))
+        for section in chapter.get("sections") or []:
+            if isinstance(section, dict) and _text(section.get("node_id")):
+                outline_sections[_text(section.get("node_id"))] = (
+                    section,
+                    chapter_title,
+                )
     sections = []
     if isinstance(plan, dict):
         for raw in plan.get("sections") or []:
             if not isinstance(raw, dict):
                 continue
             node_id = str(raw.get("node_id") or "")
-            outline_section = outline_sections.get(node_id) or {}
+            outline_section, chapter_title = outline_sections.get(node_id, ({}, ""))
+            module_plan = [
+                item for item in outline_section.get("module_plan") or []
+                if isinstance(item, dict)
+            ]
             sections.append({
                 "node_id": node_id,
                 "lesson_archetype": deepcopy(
@@ -260,7 +288,12 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
                     raw.get("knowledge_relations")
                 ),
                 "teaching_modules": _project_teaching_modules(
-                    raw.get("teaching_modules")
+                    raw.get("teaching_modules"),
+                    module_plan={
+                        module_id: item
+                        for item in module_plan
+                        if (module_id := _text(item.get("module_id")))
+                    },
                 ),
                 "planned_minutes": raw.get("planned_minutes") if isinstance(raw.get("planned_minutes"), int) else None,
                 "key_difficulties": _strings(raw.get("key_difficulties")),
@@ -270,7 +303,47 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
                 "in_class_checks": _strings(raw.get("in_class_checks")),
                 "homework": _strings(raw.get("homework")),
                 "teaching_notes": _strings(raw.get("teaching_notes")),
+                # 呈现层单独持有的编译上下文，只在下面构造 dossier 时使用。
+                "_outline": (outline_section, chapter_title, module_plan),
             })
+
+    overall = _project_overall_plan(course_data, sections=sections)
+    lesson_minutes = (overall.get("classroom") or {}).get(
+        "lesson_duration_minutes"
+    )
+    lesson_minutes = (
+        lesson_minutes
+        if isinstance(lesson_minutes, int) and not isinstance(lesson_minutes, bool)
+        else None
+    )
+    minutes_basis = "course_default"
+    if not lesson_minutes:
+        # 教师没填统一课时长度时，用课程自己已声明的小节时长中位数兜底。
+        # 不这样做，只有个别小节有时序、其余小节整栏空白——恰恰是要消除的颗粒度
+        # 波动。取中位数而不是凭空定 45 分钟：数字来自这门课自己，且标明来源。
+        declared = sorted(
+            minutes
+            for section in sections
+            if isinstance(minutes := section.get("planned_minutes"), int)
+            and not isinstance(minutes, bool)
+            and minutes > 0
+        )
+        if declared:
+            lesson_minutes = declared[len(declared) // 2]
+            minutes_basis = "course_median"
+    for index, section in enumerate(sections):
+        outline_section, chapter_title, module_plan = section.pop("_outline")
+        section["dossier"] = build_lesson_dossier(
+            section,
+            sequence=index + 1,
+            node_title=_text(outline_section.get("title")),
+            chapter_title=chapter_title,
+            learning_objective=_text(outline_section.get("learning_objective")),
+            lesson_archetype=section.get("lesson_archetype"),
+            module_plan=module_plan,
+            course_lesson_minutes=lesson_minutes,
+            course_minutes_basis=minutes_basis,
+        )
 
     status = str(stage.get("status") or "")
     if not status:
@@ -291,9 +364,9 @@ def project_course_teaching_plan(course_data: dict[str, Any]) -> dict[str, Any]:
         "teaching_module_count": int(
             stage.get("teaching_module_count") or 0
         ),
-        "overall": _project_overall_plan(
-            course_data,
-            sections=sections,
-        ),
+        "overall": overall,
+        "dossier_consistency": build_lesson_dossier_consistency([
+            section["dossier"] for section in sections
+        ]),
         "sections": sections,
     }

@@ -110,3 +110,111 @@ def test_uncompiled_knowledge_is_explicitly_marked_pending():
     point = projection["sections"][0]["knowledge_structure"][0]["knowledge_points"][0]
     assert point["knowledge_id"] == ""
     assert point["knowledge_status"] == "awaiting_compilation"
+
+
+def _plan_section(node_id, *, minutes=None, checks=()):
+    section = {
+        "node_id": node_id,
+        "key_points": [f"{node_id} 知识"],
+        "reused_knowledge_names": [],
+        "knowledge_relations": [],
+        "in_class_checks": list(checks),
+        "teaching_modules": [
+            {"module_id": "lesson_goal", "teaching_purpose": "说明任务"},
+            {"module_id": "core_explanation", "teaching_purpose": "讲清内容"},
+        ],
+        "knowledge_structure": [{
+            "concept_group": "核心机制",
+            "knowledge_points": [{
+                "name": f"{node_id} 知识",
+                "statement": "说明。",
+            }],
+        }],
+    }
+    if minutes:
+        section["planned_minutes"] = minutes
+    return section
+
+
+def _outline_section(node_id):
+    return {
+        "node_id": node_id,
+        "title": f"{node_id} 标题",
+        "learning_objective": f"{node_id} 目标",
+        "module_plan": [
+            {
+                "module_id": "lesson_goal",
+                "label": "本节任务",
+                "block_role": "objective",
+                "required": True,
+            },
+            {
+                "module_id": "core_explanation",
+                "label": "核心教学",
+                "block_role": "concept",
+                "required": True,
+            },
+        ],
+    }
+
+
+def test_projection_attaches_uniform_lesson_dossiers_and_course_consistency():
+    """投影必须给每一节挂上同一套栏目，并给出全课颗粒度对照。
+
+    这是 P1-3 的验收面：教师任取三节，栏目结构与颗粒度要能直接比。
+    """
+    course = {
+        "course_plan": {
+            "chapters": [{
+                "chapter_number": 1,
+                "title": "第一章",
+                "sections": [_outline_section(f"section-{index}") for index in (1, 2, 3)],
+            }],
+        },
+        "course_teaching_plan": {
+            "sections": [
+                _plan_section("section-1", minutes=45, checks=["出口题"]),
+                _plan_section("section-2"),
+                _plan_section("section-3"),
+            ],
+        },
+    }
+
+    projection = project_course_teaching_plan(course)
+
+    dossiers = [section["dossier"] for section in projection["sections"]]
+    assert [dossier["sequence"] for dossier in dossiers] == [1, 2, 3]
+    assert dossiers[0]["title"] == "section-1 标题"
+    assert dossiers[0]["chapter_title"] == "第一章"
+    # 三节栏目键完全一致，这是“任取三节结构一致”的直接证据。
+    keys = {tuple(item["key"] for item in dossier["rubrics"]) for dossier in dossiers}
+    assert len(keys) == 1
+
+    # 只有第 1 节声明了课时长度；其余两节用全课中位数兜底，时序不再一节有一节无。
+    timelines = [
+        next(item for item in dossier["rubrics"] if item["key"] == "timeline")
+        for dossier in dossiers
+    ]
+    assert [item["minutes_basis"] for item in timelines] == [
+        "section_planned", "course_median", "course_median",
+    ]
+    assert all(item["total_minutes"] == 45 for item in timelines)
+    assert all(item["continuous"] for item in timelines)
+    # 环节名来自目录冻结的 module_plan，不是模型标题。
+    assert [entry["label"] for entry in timelines[1]["entries"]] == ["本节任务", "核心教学"]
+
+    consistency = projection["dossier_consistency"]
+    assert consistency["uniform_rubric_structure"] is True
+    assert consistency["section_count"] == 3
+    assert consistency["outlier_node_ids"] == []
+    coverage = {item["key"]: item["filled_sections"] for item in consistency["rubric_coverage"]}
+    assert coverage["timeline"] == 3
+    assert coverage["homework"] == 0
+
+
+def test_projection_without_teaching_plan_still_reports_empty_consistency():
+    projection = project_course_teaching_plan({})
+
+    assert projection["sections"] == []
+    assert projection["dossier_consistency"]["section_count"] == 0
+    assert projection["dossier_consistency"]["uniform_rubric_structure"] is True
