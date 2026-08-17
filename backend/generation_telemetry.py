@@ -446,7 +446,12 @@ def record_call(
             "prompt_chars": len(prompt) + len(system_prompt),
             "system_sha": _digest(system_prompt) if system_prompt else "",
             "prompt_sha": _digest(prompt) if prompt else "",
-            "context_blocks": context_blocks(prompt),
+            # 真实生成里**上下文几乎全在 system_prompt 里**，user prompt 常常只
+            # 是一句二十来字的指令。只切 prompt 会让覆盖率掉到 1%，③失去意义
+            # （真实跑课时就是这么发现的）。所以两段都要切。
+            "context_blocks": (
+                context_blocks(system_prompt) + context_blocks(prompt)
+            ),
         }
         if extra:
             record.update(extra)

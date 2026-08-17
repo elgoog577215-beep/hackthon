@@ -244,6 +244,73 @@ def test_explicit_stage_wins_when_frames_are_unavailable(
     assert {r["stage"] for r in records} == {"正文生成"}
 
 
+def test_bill_repeated_share_matches_hand_arithmetic(telemetry_dir):
+    """账单③的占比要能用手算对上，否则数字没有说服力。
+
+    构造：同一份课程账本发 4 次，每次只有末尾一句指令不同。
+    4 次里有 3 次是重复，重复占比应接近 3/4。
+    """
+    import sys
+    from pathlib import Path as _Path
+
+    sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "tools"))
+    import generation_bill as gb
+
+    shared = "## 课程上下文账本\n" + "本课程共 8 课时，面向大学一年级学生。" * 40
+    with gt.generation_run("bill") as path:
+        for index in range(4):
+            instruction = f"请生成第 {index} 节的教案。"
+            gt.record_call(
+                model_id="m",
+                status="completed",
+                stream=False,
+                system_prompt=shared,
+                prompt=instruction,
+                input_tokens=(
+                    gt.estimate_tokens(shared)
+                    + gt.estimate_tokens(instruction)
+                ),
+                output_tokens=100,
+                tokens_source="provider",
+            )
+
+    summary = gb.summarize(gb.load(path))
+    repeated = summary["answer_3_repeated_context"]
+    # 覆盖率：纳入统计的上下文必须等于总输入，不能漏账。
+    assert repeated["measured_context_tokens"] == pytest.approx(
+        summary["total_input_tokens"], rel=0.02
+    )
+    # 手算：4 次里 3 次重复 => 约 75%
+    assert repeated["repeated_share_of_input"] == pytest.approx(0.75, abs=0.03)
+    assert summary["answer_1_total_calls"] == 4
+
+
+def test_context_blocks_cover_system_prompt_too(telemetry_dir):
+    """上下文几乎全在 system_prompt 里，分块必须覆盖它。
+
+    真实生成的 user prompt 常常只是一句二十来字的指令，全部课程上下文都挂在
+    system_prompt 上。只切 user prompt 时，7000 字的请求只切出 28 token，
+    覆盖率 1%，验收③恒等于噪声——真实跑课连着三次都是这个症状。
+    """
+    system = "## 课程上下文账本\n" + "本课程共 8 课时，面向大学一年级。" * 40
+    with gt.generation_run("r-sys") as path:
+        gt.record_call(
+            model_id="m",
+            status="completed",
+            stream=False,
+            system_prompt=system,
+            prompt="请生成第 1 节的教案。",
+        )
+    record = _read(path)[0]
+    counted = sum(tokens for _, tokens in record["context_blocks"])
+    expected = gt.estimate_tokens(system) + gt.estimate_tokens(
+        "请生成第 1 节的教案。"
+    )
+    assert counted >= expected * 0.95, (
+        f"只覆盖了 {counted}/{expected} token——system_prompt 被漏掉了"
+    )
+
+
 @pytest.mark.parametrize(
     "prompt",
     [
