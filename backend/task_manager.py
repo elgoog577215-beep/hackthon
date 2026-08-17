@@ -237,7 +237,11 @@ DEFAULT_TASKS_FILE = Path(DATA_DIR) / "generation_jobs.json"
 TASKS_FILE = DEFAULT_TASKS_FILE
 LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
-DEFAULT_MAX_CONCURRENCY = 4
+# 正文并行阶段的默认并发。真正的取值来自
+# `CourseGenerationBudget.content_concurrency`（可用 COURSE_CONTENT_CONCURRENCY
+# 覆盖）；这个常量只是没有传入预算时的兜底，两者必须保持一致。
+# 8 是按端点实测容量定的，依据见 course_generation_budget.py 的注释。
+DEFAULT_MAX_CONCURRENCY = 8
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
 QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.2"
 
@@ -904,7 +908,7 @@ class TaskManager:
         )
         resolved_max_concurrency = max(
             1,
-            min(6, int(resolved_max_concurrency)),
+            min(16, int(resolved_max_concurrency)),
         )
         self._content_max_retries = (
             self._generation_budget.content_max_retries

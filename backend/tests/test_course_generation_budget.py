@@ -101,7 +101,7 @@ def test_environment_cannot_disable_per_request_safety_fuses(
 def test_content_budget_is_a_resumable_window_not_a_course_size_cap():
     budget = CourseGenerationBudget()
 
-    assert budget.content_concurrency == 4
+    assert budget.content_concurrency == 8
     assert budget.content_inactivity_timeout_seconds == 90
     assert not hasattr(budget, "content_node_timeout_seconds")
     assert not hasattr(budget, "content_stage_timeout_seconds")
@@ -581,3 +581,33 @@ def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
     assert full_tokens > minimal_tokens * 1.5
     # 旧的 7000 token 闸门会把这一节挤到 minimal。
     assert full_tokens > 7_000
+
+
+def test_content_concurrency_default_matches_measured_endpoint_capacity(
+    monkeypatch,
+):
+    """正文并发默认值 = 实测端点容量，且必须可被环境变量覆盖（B-4）。
+
+    走真实流式正文路径多轮实测（`backend/tools/content_parallel_bench.py`）：
+    并发 4 墙钟均值 82.0s / 并发 6 为 66.4s / 并发 8 为 65.5s。
+    **4 -> 8 降 20.1%**，但 6 与 8 分不出高下（均值差 1.0s，区间重叠）；
+    再往上单节耗时明显变长。取 8 是保守选择。
+
+    标定方法与判据见 `docs/验收/并发容量标定运行手册.md`——
+    **换端点或换模型必须重测**，最优并发是端点属性不是代码属性。
+    """
+    monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
+    assert CourseGenerationBudget.from_env().content_concurrency == 8
+
+    # 换端点/免费额度时必须能立刻降下来，且不用改代码
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "2")
+    assert CourseGenerationBudget.from_env().content_concurrency == 2
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "1")
+    assert CourseGenerationBudget.from_env().content_concurrency == 1
+
+    # 也能往上调
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "12")
+    assert CourseGenerationBudget.from_env().content_concurrency == 12
+
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "999")
+    assert CourseGenerationBudget.from_env().content_concurrency == 16

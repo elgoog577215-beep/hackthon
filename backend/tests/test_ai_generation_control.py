@@ -108,11 +108,23 @@ async def _durable_generation_manager(tmp_path, monkeypatch, *, status):
     return manager
 
 
-def test_task_manager_uses_provider_safe_default_concurrency():
+def test_task_manager_uses_provider_safe_default_concurrency(monkeypatch):
+    """默认并发要与实测端点容量一致，且能被环境变量降下来。
+
+    8 是实测值不是拍的：走真实流式正文路径多轮实测，并发 4 墙钟均值 82.0s、
+    并发 8 为 65.5s（-20.1%）。标定方法见
+    `docs/验收/并发容量标定运行手册.md`——换端点必须重测。
+    """
+    monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
     manager = TaskManager(storage=None, course_service=None, ws_service=None)
 
     assert manager.max_concurrency == DEFAULT_MAX_CONCURRENCY
-    assert manager.max_concurrency == 4
+    assert manager.max_concurrency == 8
+
+    # 换端点/免费额度时，不改代码就能降下来
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "2")
+    throttled = TaskManager(storage=None, course_service=None, ws_service=None)
+    assert throttled.max_concurrency == 2
 
 
 @pytest.mark.asyncio
