@@ -99,8 +99,22 @@ describe('teaching calendar store', () => {
 
     await store.loadTotal('2026-08-01', '2026-08-31')
 
+    // include_incomplete 是后加的能力，默认不带出未排完的课次，
+    // 断言必须跟着走——漏掉它等于没在检查真正发出去的请求。
     expect(http.get).toHaveBeenCalledWith('/api/teachers/me/teaching-calendar', {
-      params: { date_from: '2026-08-01', date_to: '2026-08-31' },
+      params: { date_from: '2026-08-01', date_to: '2026-08-31', include_incomplete: false },
+      headers: { 'X-User-Id': 'teacher-calendar-test' },
+    })
+  })
+
+  it('opts into incomplete sessions only when asked', async () => {
+    vi.mocked(http.get).mockResolvedValue({ data: { count: 1, sessions: calendar.sessions } } as any)
+    const store = useTeachingCalendarStore()
+
+    await store.loadTotal('2026-08-01', '2026-08-31', true)
+
+    expect(http.get).toHaveBeenCalledWith('/api/teachers/me/teaching-calendar', {
+      params: { date_from: '2026-08-01', date_to: '2026-08-31', include_incomplete: true },
       headers: { 'X-User-Id': 'teacher-calendar-test' },
     })
   })
