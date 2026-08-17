@@ -444,7 +444,14 @@ import {
 
 type TaskView = Task
 
-const props = withDefaults(defineProps<{ modelValue: boolean; courseId?: string; embedded?: boolean }>(), {
+const props = withDefaults(defineProps<{
+  modelValue: boolean
+  courseId?: string
+  embedded?: boolean
+  /** 所在界面：教师端与学生端对同一状态的说法不同。默认学生端，教师页需显式传入。 */
+  surface?: 'learner' | 'teacher'
+}>(), {
+  surface: 'learner',
   courseId: '',
   embedded: false,
 })
@@ -1057,7 +1064,13 @@ function statusIcon(status: Task['status']) {
 function statusLabel(status: Task['status'], recovery?: Task['recovery'], taskType?: string) {
   if (recovery?.state === 'auto_resuming') return t('courseTasks.recovery.autoResuming', '正在恢复')
   if (status === 'completed_with_warnings' && recovery?.state === 'completed') {
-    return t('courseLibrary.status.readyWithSuggestions', '可以学习，有优化建议')
+    // 教师端与学生端对同一状态的说法不同：教师是「我发布了」，学生是「我可以学了」。
+    // 本组件被两侧共用（CourseWorkbench 同时挂在 CourseLibraryView 与
+    // TeacherCourseLibraryView 下），所以文案必须跟着所在界面走，
+    // 不能硬编码成其中一侧——否则教师会看到「可以学习」这种不属于他的话。
+    return props.surface === 'teacher'
+      ? t('teacherCourseLibrary.status.readyWithSuggestions', '已发布，有优化建议')
+      : t('courseLibrary.status.readyWithSuggestions', '可以学习，有优化建议')
   }
   const labels: Record<Task['status'], string> = {
     idle: t('courseLibrary.status.preparing', '正在准备课程'), pending: t('courseLibrary.status.pending', '等待生成'),
