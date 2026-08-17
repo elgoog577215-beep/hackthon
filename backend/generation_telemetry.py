@@ -234,18 +234,41 @@ def context_blocks(text: str) -> list[list[Any]]:
 
     只留指纹不留原文：账单会落盘，prompt 里可能含课程内容与学习者数据，
     没有必要把它们抄进一份新文件里。
+
+    **必须覆盖整个 prompt**。早先的实现把短于阈值的段落直接丢掉，真实
+    prompt 恰好是「大量很短的段落」，结果 7246 字的 prompt 只留下一个 28
+    token 的块——覆盖率 1%，验收③算出来的重复占比毫无意义。所以现在改成
+    把连续的短段落**合并**进同一块，而不是丢弃：块可以粗，但 token 账不能漏。
     """
     if not text:
         return []
     blocks: list[list[Any]] = []
-    for raw in _BLOCK_SPLIT.split(text):
-        chunk = raw.strip()
-        if len(chunk) < _MIN_BLOCK_CHARS:
-            continue
+    pending: list[str] = []
+
+    def flush() -> None:
+        if not pending:
+            return
+        chunk = "\n\n".join(pending)
         normalized = _NORMALIZE_WS.sub(" ", chunk)
         blocks.append([_digest(normalized), estimate_tokens(chunk)])
-        if len(blocks) >= _MAX_BLOCKS_PER_CALL:
+        pending.clear()
+
+    parts = [
+        chunk
+        for chunk in ((raw or "").strip() for raw in _BLOCK_SPLIT.split(text))
+        if chunk
+    ]
+    for index, chunk in enumerate(parts):
+        pending.append(chunk)
+        # 攒够阈值就落一块；这样长段落各自成块（复用关系看得清），
+        # 而一串短段落会被并成一块（不至于把 JSONL 撑爆）。
+        if sum(len(item) for item in pending) >= _MIN_BLOCK_CHARS:
+            flush()
+        if len(blocks) >= _MAX_BLOCKS_PER_CALL - 1:
+            # 达到上限：把剩下的全部并进最后一块，token 账仍然是全的。
+            pending.extend(parts[index + 1:])
             break
+    flush()
     return blocks
 
 

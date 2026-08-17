@@ -183,6 +183,36 @@ def test_explicit_stage_wins_when_frames_are_unavailable(
     assert {r["stage"] for r in records} == {"正文生成"}
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        # 真实 prompt 的形态：大量很短的段落。早先按长度过滤时，7246 字的
+        # prompt 只留下一个 28 token 的块，覆盖率 1%，验收③失去意义。
+        "\n\n".join(f"短行{index}" for index in range(300)),
+        "## 账本\n共 8 课时。\n\n"
+        + "\n\n".join(f"短行{index}" for index in range(50))
+        + "\n\n"
+        + "长段落内容" * 200,
+        "内容" * 500,
+        # 超过分块上限：剩余部分必须并进最后一块，不能丢。
+        "\n\n".join(f"段落{index}内容内容内容内容" for index in range(2000)),
+    ],
+    ids=["many-short", "mixed", "single-block", "over-cap"],
+)
+def test_context_blocks_cover_the_whole_prompt(prompt):
+    """分块必须覆盖整个 prompt——块可以粗，token 账不能漏。
+
+    覆盖率是验收③的地基：漏掉的 token 会让"重复上下文占比"失真。
+    """
+    blocks = gt.context_blocks(prompt)
+    counted = sum(tokens for _, tokens in blocks)
+    estimated = gt.estimate_tokens(prompt)
+    assert counted >= estimated * 0.95, (
+        f"分块只覆盖了 {counted}/{estimated} token"
+    )
+    assert len(blocks) <= gt._MAX_BLOCKS_PER_CALL
+
+
 def test_markdown_sections_are_split_into_separate_blocks(telemetry_dir):
     """真实 prompt 是「Markdown 小节标题 + 内容」，必须按小节切开。
 
