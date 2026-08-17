@@ -1,25 +1,37 @@
-"""E-1b：语义门重试的重算范围不得放大到整轮。
+"""教案阶段的重算范围：重试与目录改动都不得放大成整轮重跑。
+
+本文件锁两条独立的失效范围，判据都是"哪些东西被重算"，不是肉眼看日志。
+
+## 一、语义门重试（E-1b）
 
 A-2 的调用账单实测到「55 次调用只有 20 个不同 prompt，67% 输入 token 浪费在
-逐字节完全相同的 prompt 重发上」，且重复位置分散在四个互相远离的区段——那是
-整轮重跑的指纹，不是局部重试。
+逐字节完全相同的 prompt 重发上」。机制：
 
-机制（我复核 A-2 的结论后修正了它指出的失效点）：
-
-1. 某个骨架分片本地兜底 → `fallback_units` 里留下 `skeleton_chunk_*`
-   （`course_service.py`，`compile_fallback_teaching_skeleton` 的调用处）；
-2. 语义门发现批次仍有非 AI 单元 → 递归重试（`course_service.py:2806`）；
+1. 某个骨架分片本地兜底 → `fallback_units` 里留下 `skeleton_chunk_*`；
+2. 语义门发现批次仍有非 AI 单元 → 递归重试；
 3. 重试轮读到**上一轮**遗留的 `skeleton_chunk_*`，把 `skeleton_is_current`
-   判为假（`course_service.py:2053-2062`）→ **整份骨架重生成**；
+   判为假 → **整份骨架重生成**；
 4. 本地兜底每节只铸 1 个知识键，AI 骨架每节铸多个
-   （`course_generation_adaptive.py:375-377`），所以重生成必然重铸键；
-5. 键一换，已存批次在复用门第三、四个条件上失败
-   （`course_service.py:2251-2258`），全部回到 `pending_specs` 被重打。
+   （`course_generation_adaptive.py`），所以重生成必然重铸键；
+5. 键一换，已存批次在复用门上失配，全部回到 `pending_specs` 被重打。
 
 A-2 把失效点归给 `candidate_report.get("passed")`——说 `normalize` 往返有损。
 **这一条我实测不成立**：对内容完备的批次，normalize 往返是逐字节幂等的
-（见 `test_normalize_roundtrip_is_idempotent`）。真正的触发条件是骨架被重生成
-导致的知识键重铸，也就是复用门更前面的 `skeleton_revision_id` 一致性判断。
+（见 `test_normalize_roundtrip_is_idempotent`）。真正的触发条件是骨架重生成
+导致的知识键重铸。
+
+> 后续复核（lz-lesson-plan）：账单里那四轮重复其实是语义门真实失败率高导致的
+> 正常重试，不是复用门失效。上面第 3-5 步的机制本身仍然成立且已修，
+> 但它不是账单里 67% 浪费的主因。
+
+## 二、目录局部改动（lz-lesson-plan 报的跨运行复用失效）
+
+scope revision 是**全课**哈希：教师改一个小节标题它就会变，而此前
+`teaching_stage.clear()` 会连带丢掉所有存量批次，于是整门课重来。改目录是
+教师的常规操作，所以这条在真实使用中很容易触发。
+
+这里锁的是"能不能局部化"这个判断本身的边界。不能局部化时必须诚实地整体重建——
+不能为了省调用留下一份与新目录不符的骨架（尤其是知识点仍按旧标题命名）。
 """
 
 from __future__ import annotations
@@ -27,6 +39,8 @@ from __future__ import annotations
 from copy import deepcopy
 
 from course_generation_adaptive import compile_fallback_teaching_skeleton
+from course_generation_workflow import build_course_knowledge_scope_contract
+from course_service import _changed_scope_section_ids
 from course_teaching_plan_v3 import (
     normalize_teaching_plan_batch_v3,
     validate_teaching_plan_batch_v3,
@@ -180,3 +194,117 @@ def test_regenerated_skeleton_remints_keys_and_invalidates_stored_batches():
     assert "teaching_batch:knowledge_key_mismatch" in codes, (
         f"预期知识键不匹配，实际 issue：{codes}"
     )
+
+
+# --- 目录局部改动的失效范围（lz-lesson-plan 报的跨运行复用失效） -----------
+#
+# scope revision 是**全课**哈希：教师改一个小节标题，它就会变。此前
+# `teaching_stage.clear()` 会连带丢掉所有存量批次，于是整门课重来。
+# 这里锁住"能不能局部化"这个判断本身的边界——不能局部化时必须诚实地整体重建，
+# 不能为了省调用留下一份与新目录不符的骨架。
+
+def _contract(titles, *, positioning="系统学习", course_title="微积分"):
+    return build_course_knowledge_scope_contract({
+        "course_title": course_title,
+        "positioning": positioning,
+        "learning_objectives": ["能计算导数与积分"],
+        "prerequisites": [],
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "第一章",
+            "sections": [
+                {
+                    "node_id": f"L2-1-{index}",
+                    "section_number": f"1.{index}",
+                    "title": title,
+                    "learning_objective": f"掌握{title}",
+                    "scope_boundary": f"只覆盖{title}",
+                    "prerequisite_node_ids": (
+                        [f"L2-1-{index - 1}"] if index > 1 else []
+                    ),
+                }
+                for index, title in enumerate(titles, start=1)
+            ],
+        }],
+    })
+
+
+_TITLES = ["函数与极限", "导数定义", "求导法则", "定积分", "积分应用", "微分方程"]
+
+
+def test_one_title_edit_localizes_to_that_section_only():
+    """改一个标题只影响那一节——邻居字段的移动不算受影响。
+
+    `next_reserved_section` 会让前一节的记录也变，但那一节自身的教学责任没变。
+    把邻居变化算进受影响范围，等于又把一处改动摊到全课。
+    """
+    edited = list(_TITLES)
+    edited[2] = "求导法则（含链式法则）"
+
+    changed = _changed_scope_section_ids(_contract(_TITLES), _contract(edited))
+
+    assert changed == {"L2-1-3"}
+
+
+def test_untouched_outline_reports_no_changed_sections():
+    changed = _changed_scope_section_ids(_contract(_TITLES), _contract(_TITLES))
+
+    assert changed == set()
+
+
+def test_added_section_cannot_be_localized():
+    """新增小节改变知识归属图，必须返回 None（整体重建）。"""
+    changed = _changed_scope_section_ids(
+        _contract(_TITLES), _contract(_TITLES + ["无穷级数"])
+    )
+
+    assert changed is None
+
+
+def test_removed_section_cannot_be_localized():
+    changed = _changed_scope_section_ids(
+        _contract(_TITLES), _contract(_TITLES[:-1])
+    )
+
+    assert changed is None
+
+
+def test_swapped_section_titles_localize_to_the_two_swapped_slots():
+    """互换两节标题：节点 id 与顺序都没变，只有这两个位置的内容变了。
+
+    这不是"重排小节"（那会改 node_id 顺序，走 None 分支），而是同一批 id 上
+    换了内容。逐节比较应当诚实地只报这两个位置，不多不少。
+    """
+    swapped = list(_TITLES)
+    swapped[1], swapped[3] = swapped[3], swapped[1]
+
+    changed = _changed_scope_section_ids(
+        _contract(_TITLES), _contract(swapped)
+    )
+
+    assert changed == {"L2-1-2", "L2-1-4"}
+
+
+def test_course_level_change_cannot_be_localized():
+    """课程定位/标题这类全课改动会重新框定每一节。"""
+    assert _changed_scope_section_ids(
+        _contract(_TITLES),
+        _contract(_TITLES, positioning="换成另一种定位"),
+    ) is None
+    assert _changed_scope_section_ids(
+        _contract(_TITLES),
+        _contract(_TITLES, course_title="高等数学"),
+    ) is None
+
+
+def test_missing_previous_contract_cannot_be_localized():
+    """没有上一份合同（老课程首次进入）时不得假设可以复用。"""
+    assert _changed_scope_section_ids({}, _contract(_TITLES)) is None
+    assert _changed_scope_section_ids(_contract(_TITLES), {}) is None
+
+
+def test_schema_change_cannot_be_localized():
+    previous = _contract(_TITLES)
+    previous["schema_version"] = "course_knowledge_scope_v1"
+
+    assert _changed_scope_section_ids(previous, _contract(_TITLES)) is None

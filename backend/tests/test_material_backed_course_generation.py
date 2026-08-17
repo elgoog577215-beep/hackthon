@@ -2570,3 +2570,253 @@ async def test_batches_keyed_to_a_stale_skeleton_do_not_pin_it():
         batch_source="model",
         batch_skeleton_revision="skeleton_round_0",
     ) is True
+
+
+# --- 目录局部改动的跨运行复用（lz-lesson-plan 报的路径） -------------------
+
+
+async def _run_teaching_plan(service, course_data, plan, calls, title_to_label):
+    async def fake_call_llm(prompt, system_prompt, **_kwargs):
+        calls.append(prompt)
+        if prompt.startswith("规划全课知识职责骨架 V3"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        if prompt.startswith("只修复知识职责骨架分片"):
+            return _teaching_skeleton_v3_response(system_prompt, title_to_label)
+        if (
+            prompt.startswith("生成详细小节教案批次")
+            or prompt.startswith("只修复详细教案批次")
+        ):
+            return _teaching_batch_v3_response(system_prompt, title_to_label)
+        raise AssertionError(prompt)
+
+    service._call_llm = fake_call_llm
+    return await service._prepare_course_teaching_plan(
+        course_data=course_data,
+        plan=plan,
+        artifacts=None,
+        on_phase=None,
+        on_checkpoint=None,
+    )
+
+
+def _titled_plan(titles):
+    """A 6-section outline whose titles the teacher can edit."""
+    plan = attach_module_plans_to_plan(
+        _multi_section_outline(titles),
+        resolve_pedagogy_profile(subject="目录改动课程", requirements=""),
+    )
+    title_to_label = {
+        section["title"]: label
+        for chapter in plan["chapters"]
+        for section, label in zip(chapter["sections"], titles, strict=True)
+    }
+    return plan, title_to_label
+
+
+@pytest.mark.asyncio
+async def test_editing_one_section_title_does_not_rerun_the_whole_course():
+    """教师改一个小节标题，不得让所有存量教案批次重跑。
+
+    改目录是常规操作。scope revision 是全课哈希，任何一处改动都会让它变化；
+    此前 `teaching_stage.clear()` 会把所有批次一起丢掉，于是整门课重来。
+    """
+    titles = [f"目录改动能力{index}" for index in range(1, 7)]
+    plan, title_to_label = _titled_plan(titles)
+    course_data = {
+        "course_id": "course-outline-edit",
+        "course_name": "目录改动课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    calls: list[str] = []
+
+    await _run_teaching_plan(service, course_data, plan, calls, title_to_label)
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    assert stage["status"] == "completed"
+    first_round_batches = dict(stage["batches"])
+    # 6 节按每批 3 节切成 2 批。
+    assert len(first_round_batches) == 2
+
+    # 教师只改最后一节的标题（落在第二批里）。
+    edited_titles = list(titles)
+    edited_titles[-1] = "目录改动能力6（补充判别方法）"
+    edited_plan, edited_title_to_label = _titled_plan(edited_titles)
+
+    calls.clear()
+    await _run_teaching_plan(
+        service, course_data, edited_plan, calls, edited_title_to_label
+    )
+
+    batch_calls = [
+        item for item in calls if item.startswith("生成详细小节教案批次")
+    ]
+    edit_scope = (
+        course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    ).get("outline_edit_scope") or {}
+
+    # 未受影响的第一批必须被复用，只有含被改小节的那一批重打。
+    assert len(batch_calls) == 1, (
+        f"局部改动却重打了 {len(batch_calls)} 个批次：{batch_calls}"
+    )
+    assert "TP-B01" in (edit_scope.get("retained_batch_ids") or [])
+    assert "TP-B02" in (edit_scope.get("invalidated_batch_ids") or [])
+    # 骨架不得整份重生成。
+    assert not [
+        item for item in calls
+        if item.startswith("规划全课知识职责骨架 V3 分片 1/")
+    ], "骨架被整份重生成了"
+
+
+@pytest.mark.asyncio
+async def test_adding_a_section_still_rebuilds_because_ownership_moves():
+    """新增小节会改变知识归属图，必须整体重建——不能为了省钱留下错的骨架。"""
+    titles = [f"新增小节能力{index}" for index in range(1, 7)]
+    plan, title_to_label = _titled_plan(titles)
+    course_data = {
+        "course_id": "course-outline-grow",
+        "course_name": "新增小节课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    calls: list[str] = []
+
+    await _run_teaching_plan(service, course_data, plan, calls, title_to_label)
+    assert course_data["generation_stage_artifacts"]["course_teaching_plan"][
+        "status"
+    ] == "completed"
+
+    grown_titles = titles + ["新增小节能力7"]
+    grown_plan, grown_title_to_label = _titled_plan(grown_titles)
+
+    calls.clear()
+    await _run_teaching_plan(
+        service, course_data, grown_plan, calls, grown_title_to_label
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    # 归属图变了，骨架必须重规划，且不保留局部复用记录。
+    assert [
+        item for item in calls
+        if item.startswith("规划全课知识职责骨架 V3 分片 1/")
+    ], "新增小节后骨架必须重规划"
+    assert stage.get("outline_edit_scope") is None
+
+
+@pytest.mark.asyncio
+async def test_course_level_repositioning_rebuilds_every_section():
+    """课程定位这类全课改动会改变每节的框定，必须整体重建。"""
+    titles = [f"定位改动能力{index}" for index in range(1, 7)]
+    plan, title_to_label = _titled_plan(titles)
+    course_data = {
+        "course_id": "course-outline-reposition",
+        "course_name": "定位改动课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    calls: list[str] = []
+
+    await _run_teaching_plan(service, course_data, plan, calls, title_to_label)
+
+    repositioned = json.loads(json.dumps(plan))
+    repositioned["positioning"] = "改成一门完全不同定位的课程"
+
+    calls.clear()
+    await _run_teaching_plan(
+        service, course_data, repositioned, calls, title_to_label
+    )
+
+    batch_calls = [
+        item for item in calls if item.startswith("生成详细小节教案批次")
+    ]
+    assert len(batch_calls) == 2, "全课定位改动必须让所有批次重做"
+
+
+@pytest.mark.asyncio
+async def test_retained_batch_content_is_reused_verbatim_after_an_outline_edit():
+    """保留下来的批次必须原样复用——不能只是"没重打"，内容也得是原来那份。
+
+    批次复用门按 skeleton_revision_id 匹配（course_service.py:2250-2258），
+    所以局部失效必须把保留批次与骨架一起重新盖章，否则它们会静默失配、
+    看起来"保留了"实际又被重打一遍。
+    """
+    titles = [f"原样复用能力{index}" for index in range(1, 7)]
+    plan, title_to_label = _titled_plan(titles)
+    course_data = {
+        "course_id": "course-outline-verbatim",
+        "course_name": "原样复用课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    calls: list[str] = []
+
+    await _run_teaching_plan(service, course_data, plan, calls, title_to_label)
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    kept_revision_before = stage["batches"]["TP-B01"]["revision_id"]
+
+    edited = list(titles)
+    edited[-1] = "原样复用能力6（补充判别）"
+    edited_plan, edited_labels = _titled_plan(edited)
+
+    calls.clear()
+    await _run_teaching_plan(
+        service, course_data, edited_plan, calls, edited_labels
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    # 内容修订不变 = 真的原样复用，而不是重新生成出一份碰巧相同的。
+    assert stage["batches"]["TP-B01"]["revision_id"] == kept_revision_before
+    assert stage["batches"]["TP-B01"]["generation_source"] == "model"
+    # 且它现在挂在新的骨架修订上，不是悬空指向旧修订。
+    assert (
+        stage["batches"]["TP-B01"]["skeleton_revision_id"]
+        == stage["skeleton_revision_id"]
+    )
+    # 全课教案仍然完整覆盖 6 节。
+    assert stage["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_edited_section_knowledge_is_reminted_not_named_after_old_title():
+    """被改的小节必须重铸知识身份，不能留着按旧标题命名的知识点。
+
+    这是我实现这条优化时踩到的坑：批次校验会强制重打的批次"逐个展开骨架冻结的
+    知识键"（course_teaching_plan_v3.py:503）。若把整份骨架都保留下来，改名后的
+    小节会拿到按**旧标题**铸的知识名——标题改了、知识命名还是旧的，静默不一致。
+    所以第一处改动之后的部分必须重规划。
+    """
+    titles = [f"重铸命名能力{index}" for index in range(1, 7)]
+    plan, title_to_label = _titled_plan(titles)
+    course_data = {
+        "course_id": "course-remint-naming",
+        "course_name": "重铸命名课程",
+        "generation_stage_artifacts": {},
+        "nodes": [],
+    }
+    service = CourseService()
+    calls: list[str] = []
+    await _run_teaching_plan(service, course_data, plan, calls, title_to_label)
+
+    edited = list(titles)
+    edited[-1] = "重铸命名能力6改名后"
+    edited_plan, edited_labels = _titled_plan(edited)
+    calls.clear()
+    await _run_teaching_plan(
+        service, course_data, edited_plan, calls, edited_labels
+    )
+
+    stage = course_data["generation_stage_artifacts"]["course_teaching_plan"]
+    registry_names = [
+        str(item.get("name") or "")
+        for item in (stage.get("skeleton") or {}).get("knowledge_registry") or []
+    ]
+    # 改名后的小节，其知识命名必须跟上新标题。
+    assert any("改名后" in name for name in registry_names), (
+        f"改名后的小节仍在用旧标题命名知识点：{registry_names[-3:]}"
+    )
+    # 未改动的小节命名保持不变（复用没有被破坏）。
+    assert any("重铸命名能力1" in name for name in registry_names)
+    assert stage["status"] == "completed"
