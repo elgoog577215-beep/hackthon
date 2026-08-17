@@ -10,31 +10,68 @@
         </span>
         <div>
           <small>{{ t('courseGeneration.workspace.label', '课程生产') }}</small>
-          <strong>{{ activeIndex + 1 }} / {{ stages.length }}</strong>
+          <strong>{{ activeMilestoneIndex + 1 }} / {{ milestones.length }}</strong>
         </div>
       </div>
 
-      <ol>
+      <ol data-testid="generation-milestones">
         <li
-          v-for="(stage, index) in stages"
-          :key="stage.key"
-          :data-status="stageStatus(index)"
-          :aria-current="index === activeIndex ? 'step' : undefined"
-          :aria-label="`${stage.label}：${stageStatusLabel(index)}`"
+          v-for="(milestone, index) in milestones"
+          :key="milestone.key"
+          :data-status="milestone.status"
+          :data-milestone="milestone.key"
+          :aria-current="index === activeMilestoneIndex ? 'step' : undefined"
+          :aria-label="`${milestone.label}：${milestoneStatusLabel(milestone.status)}`"
         >
           <span class="generation-lifecycle__marker">
-            <Check v-if="stageStatus(index) === 'completed'" :size="11" />
-            <TriangleAlert v-else-if="stageStatus(index) === 'error' || stageStatus(index) === 'blocked'" :size="11" />
-            <CirclePause v-else-if="stageStatus(index) === 'paused'" :size="11" />
-            <LoaderCircle v-else-if="stageStatus(index) === 'active'" :size="11" />
+            <Check v-if="milestone.status === 'completed'" :size="11" />
+            <TriangleAlert v-else-if="milestone.status === 'error' || milestone.status === 'blocked'" :size="11" />
+            <CirclePause v-else-if="milestone.status === 'paused'" :size="11" />
+            <LoaderCircle v-else-if="milestone.status === 'active'" :size="11" />
             <span v-else>{{ index + 1 }}</span>
           </span>
-          <strong>{{ stage.label }}</strong>
+          <strong>{{ milestone.label }}</strong>
         </li>
       </ol>
 
       <span class="generation-lifecycle__value" :data-status="currentStatus">{{ currentValue }}</span>
+
+      <button
+        type="button"
+        class="generation-lifecycle__toggle"
+        data-testid="generation-diagnostics-toggle"
+        :aria-expanded="diagnosticsOpen"
+        aria-controls="generation-lifecycle-diagnostics"
+        @click="diagnosticsOpen = !diagnosticsOpen"
+      >
+        {{ diagnosticsOpen
+          ? t('courseGeneration.lifecycle.hideDetail', '收起细节')
+          : t('courseGeneration.lifecycle.showDetail', '查看细节') }}
+      </button>
     </div>
+
+    <!-- 阶段/批次这类系统内部划分收进诊断面板：默认折叠，
+         需要排查时再展开，不和四个里程碑抢用户注意力。
+         用 hidden 而不是 v-if——六阶段是 D-05 的可观察性契约，
+         必须始终在 DOM 里（屏幕阅读器与自动化验收都靠它），只是默认不可见。 -->
+    <ol
+      :hidden="!diagnosticsOpen"
+      id="generation-lifecycle-diagnostics"
+      class="generation-lifecycle__diagnostics"
+      data-testid="generation-diagnostics"
+    >
+      <li
+        v-for="(stage, index) in stages"
+        :key="stage.key"
+        :data-status="stageStatus(index)"
+        :data-stage="stage.key"
+        :aria-label="`${stage.label}：${stageStatusLabel(index)}`"
+      >
+        <strong>{{ stage.label }}</strong>
+        <span>{{ stageStatusLabel(index) }}</span>
+      </li>
+    </ol>
+
     <div class="generation-lifecycle__track" aria-hidden="true">
       <i :style="{ width: `${progressValue}%` }"></i>
     </div>
@@ -42,12 +79,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Check, CirclePause, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import type { Task } from '../stores/types'
 import { t } from '../shared/i18n'
 import {
   OBSERVABLE_TASK_STAGE_KEYS,
+  courseMilestones,
   observableTaskStages,
   taskDisplayProgress,
   type ObservableTaskStageStatus,
@@ -75,6 +113,26 @@ const activeIndex = computed(() => {
   if (index >= 0) return index
   return props.task?.status === 'completed' ? stages.value.length - 1 : 0
 })
+
+const diagnosticsOpen = ref(false)
+const milestones = computed(() => courseMilestones(props.task))
+const activeMilestoneIndex = computed(() => {
+  const index = milestones.value.findIndex(m => ['active', 'error', 'paused', 'blocked'].includes(m.status))
+  if (index >= 0) return index
+  return props.task?.status === 'completed' ? milestones.value.length - 1 : 0
+})
+
+function milestoneStatusLabel(status: ObservableTaskStageStatus) {
+  const labels: Record<ObservableTaskStageStatus, string> = {
+    completed: t('taskObservability.statusCompleted', '已完成'),
+    active: t('taskObservability.statusActive', '进行中'),
+    pending: t('taskObservability.statusPending', '待开始'),
+    error: t('taskObservability.statusError', '出错'),
+    paused: t('taskObservability.statusPaused', '已暂停'),
+    blocked: t('taskObservability.statusBlocked', '被阻断'),
+  }
+  return labels[status]
+}
 const currentStatus = computed(() => stageStatus(activeIndex.value))
 const progressValue = computed(() => props.task ? taskDisplayProgress(props.task) : 0)
 const currentValue = computed(() => (
@@ -296,6 +354,14 @@ li[data-status="blocked"] strong {
 .generation-lifecycle__value[data-status="error"],
 .generation-lifecycle__value[data-status="blocked"] { color:#b05a18; }
 .generation-lifecycle__value[data-status="paused"] { color:#667085; }
+.generation-lifecycle__toggle { flex:0 0 auto; padding:3px 8px; border:1px solid #e2e4ed; border-radius:7px; color:#6f758b; background:#fff; font-size:11px; font-weight:650; cursor:pointer; }
+.generation-lifecycle__toggle:hover { color:#41475e; border-color:#cfd3e2; }
+.generation-lifecycle__diagnostics { display:flex; flex-wrap:wrap; gap:4px 18px; margin:0; padding:8px 14px; border-top:1px solid #eef0f6; list-style:none; background:#fbfbfe; }
+.generation-lifecycle__diagnostics li { display:inline-flex; align-items:baseline; gap:6px; color:#8a90a4; font-size:11px; }
+.generation-lifecycle__diagnostics strong { color:#6f758b; font-weight:650; }
+.generation-lifecycle__diagnostics li[data-status="error"] span,
+.generation-lifecycle__diagnostics li[data-status="blocked"] span { color:#b05a18; font-weight:650; }
+.generation-lifecycle__diagnostics li[data-status="active"] span { color:#6b50e8; font-weight:650; }
 .generation-lifecycle__track {
   height:2px;
   margin:8px calc(-1 * clamp(18px,2.4vw,32px)) 0;

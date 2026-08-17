@@ -28,6 +28,93 @@ const STAGE_PATTERNS: Array<[ObservableTaskStageKey, RegExp]> = [
   ['generate', /outline|blueprint|teaching|content|learning_asset|knowledge|relation|graph|generation|assembly|skeleton|ready|confirmed|resuming|validation/],
 ]
 
+// 用户看得懂的四个里程碑。底下那六个阶段是系统内部划分，
+// 用户不需要知道「检索证据」和「解析与分类」的区别，只需要知道
+// 「现在完成了什么、还要多久、是否需要我操作」。
+// 六阶段的机制原样保留，这里只做一层呈现映射——诊断面板仍然展开看六阶段。
+export const COURSE_MILESTONE_KEYS = [
+  'understand',
+  'plan',
+  'author',
+  'verify',
+] as const
+
+export type CourseMilestoneKey = typeof COURSE_MILESTONE_KEYS[number]
+
+export interface CourseMilestone {
+  key: CourseMilestoneKey
+  label: string
+  status: ObservableTaskStageStatus
+  stages: ObservableTaskStage[]
+}
+
+// generate 这一个阶段在系统内部同时承担「规划」和「撰写」，
+// 但对用户来说这是两件事：规划失败要重来的是结构，撰写失败重来的是内容。
+// 所以里程碑层按原始 phase 串把它拆开，不动 STAGE_PATTERNS。
+const PLANNING_PHASE_PATTERN = /outline|blueprint|skeleton|knowledge|relation|graph|pedagogy/
+const MILESTONE_STAGES: Record<CourseMilestoneKey, ObservableTaskStageKey[]> = {
+  understand: ['receive', 'parse'],
+  plan: ['retrieve'],
+  author: ['generate'],
+  verify: ['validate', 'export'],
+}
+
+function milestoneLabel(key: CourseMilestoneKey): string {
+  const labels: Record<CourseMilestoneKey, string> = {
+    understand: t('courseGeneration.milestone.understand', '理解需求与资料'),
+    plan: t('courseGeneration.milestone.plan', '规划课程与知识结构'),
+    author: t('courseGeneration.milestone.author', '生成教案和正文'),
+    verify: t('courseGeneration.milestone.verify', '检查并准备发布'),
+  }
+  return labels[key]
+}
+
+// 一个里程碑的状态由它盖住的阶段合成：
+// 任一阶段出错/阻塞就是出错（坏消息不许被好消息盖掉），
+// 全部完成才算完成，否则只要有在跑的就是进行中。
+function mergeStageStatus(stages: ObservableTaskStage[]): ObservableTaskStageStatus {
+  if (!stages.length) return 'pending'
+  const has = (status: ObservableTaskStageStatus) => stages.some(stage => stage.status === status)
+  if (has('error')) return 'error'
+  if (has('blocked')) return 'blocked'
+  if (has('paused')) return 'paused'
+  if (stages.every(stage => stage.status === 'completed')) return 'completed'
+  if (has('active')) return 'active'
+  if (has('completed')) return 'active'
+  return 'pending'
+}
+
+export function courseMilestones(task?: Task): CourseMilestone[] {
+  const stages = task
+    ? observableTaskStages(task)
+    : OBSERVABLE_TASK_STAGE_KEYS.map(key => ({
+      key,
+      label: key,
+      status: 'pending' as ObservableTaskStageStatus,
+    }))
+  const stageByKey = new Map(stages.map(stage => [stage.key, stage]))
+  const phase = task ? String(observableTaskPhase(task) || '').toLowerCase() : ''
+  const generateStage = stageByKey.get('generate')
+  const planningNow = Boolean(generateStage) && PLANNING_PHASE_PATTERN.test(phase)
+
+  return COURSE_MILESTONE_KEYS.map(key => {
+    const owned = MILESTONE_STAGES[key]
+      .map(stageKey => stageByKey.get(stageKey))
+      .filter((stage): stage is ObservableTaskStage => Boolean(stage))
+
+    // generate 正处在规划语义时，把它算进「规划」而不是「撰写」，
+    // 否则用户会在还没开始写正文时就看到「生成教案和正文」在转。
+    if (key === 'plan' && planningNow && generateStage) {
+      return { key, label: milestoneLabel(key), status: mergeStageStatus([...owned, generateStage]), stages: [...owned, generateStage] }
+    }
+    if (key === 'author' && planningNow && generateStage) {
+      const pending: ObservableTaskStage = { ...generateStage, status: 'pending' }
+      return { key, label: milestoneLabel(key), status: 'pending', stages: [pending] }
+    }
+    return { key, label: milestoneLabel(key), status: mergeStageStatus(owned), stages: owned }
+  })
+}
+
 export function observableStageIndex(phase?: string): number {
   const normalized = String(phase || '').toLowerCase()
   const match = STAGE_PATTERNS.find(([, pattern]) => pattern.test(normalized))

@@ -87,7 +87,9 @@ describe('CourseProductionStage', () => {
 
   it('阶段条把当前解析标成中断，并公开 D-05 六阶段', () => {
     const wrapper = mount(CourseGenerationLifecycle, { props: { task: interruptedTask } })
-    const stages = wrapper.findAll('li')
+    // 顶层展示的是四个里程碑；六阶段收进诊断面板，但始终在 DOM 里（默认折叠）。
+    expect(wrapper.findAll('[data-testid="generation-milestones"] li')).toHaveLength(4)
+    const stages = wrapper.findAll('[data-testid="generation-diagnostics"] li')
     expect(stages).toHaveLength(6)
     expect(stages[0]!.attributes('data-status')).toBe('completed')
     expect(stages[1]!.attributes('data-status')).toBe('error')
@@ -320,11 +322,16 @@ describe('CourseProductionStage', () => {
       },
     }
     const wrapper = mount(CourseGenerationLifecycle, { props: { task } })
-    const stages = wrapper.findAll('li')
+    const stages = wrapper.findAll('[data-testid="generation-diagnostics"] li')
 
     expect(stages[2]!.attributes('data-status')).toBe('completed')
     expect(stages[3]!.attributes('data-status')).toBe('error')
-    expect(stages[3]!.attributes('aria-label')).toContain('已中断')
+
+    // 正文阶段出错时，「生成教案和正文」这个里程碑必须跟着报错——
+    // 坏消息不许被同一里程碑下其他已完成的阶段盖掉。
+    const authorMilestone = wrapper.get('[data-milestone="author"]')
+    expect(authorMilestone.attributes('data-status')).toBe('error')
+    expect(authorMilestone.attributes('aria-label')).toContain('出错')
   })
 
   it('把真实目录检查点投影为可展开的生长树', async () => {
