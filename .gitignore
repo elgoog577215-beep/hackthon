@@ -82,3 +82,7 @@ output/playwright/
 # Pytest scratch directories (basetemp / per-agent runs)
 backend/.pytest-*
 test-tmp/
+
+# Local AI fact and experience records
+docs/事实.md
+docs/经验.md
