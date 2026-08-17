@@ -1105,6 +1105,67 @@ async def test_lone_question_never_waits_for_a_batch_window():
     )
 
 
+async def test_solo_gate_holds_even_if_batch_windows_are_widened(
+    monkeypatch,
+):
+    """把合批窗口调大 20 倍，单题该多快还多快。
+
+    钉住的是「保护独苗的是 gate，不是窗口取值」。只断言默认配置下跑得快，
+    等于默认窗口恰好很短时也能通过——以后有人把 `max_wait_seconds` 或
+    `ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS` 调大、同时把 gate 去掉，
+    那种断言是抓不住的。这里反过来：**先把窗口调到明显能被观测的量级**
+    （修复 2s、语义 3s），再要求单题整轮远小于它。gate 一旦失效，
+    这道用例会以秒级超时的形式炸掉，而不是悄悄退化。
+    """
+
+    import assessment_orchestrator as orchestrator_module
+
+    monkeypatch.setenv("ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS", "3")
+    original_init = orchestrator_module._CandidateRepairBatcher.__init__
+
+    def widened_init(self, **kwargs):
+        kwargs["max_wait_seconds"] = 2.0
+        original_init(self, **kwargs)
+
+    monkeypatch.setattr(
+        orchestrator_module._CandidateRepairBatcher,
+        "__init__",
+        widened_init,
+    )
+    original_solve_init = (
+        orchestrator_module._IndependentSolutionBatcher.__init__
+    )
+
+    def widened_solve_init(self, **kwargs):
+        kwargs["max_wait_seconds"] = 2.0
+        original_solve_init(self, **kwargs)
+
+    monkeypatch.setattr(
+        orchestrator_module._IndependentSolutionBatcher,
+        "__init__",
+        widened_solve_init,
+    )
+
+    model = BatchRepairAwareModel()
+    started = asyncio.get_running_loop().time()
+    await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert model.repair_batch_sizes == []
+    assert model.solve_batch_sizes == []
+    # 窗口已被调到 2-3 秒；gate 有效时单题根本不该碰到它们。
+    assert elapsed < 1.0, (
+        f"单题整轮 {elapsed:.3f}s——窗口被调大后跟着变慢，"
+        "说明保护独苗的不是 gate 而是窗口恰好很短"
+    )
+
+
 async def test_batch_never_shrinks_per_item_output_budget():
     """合批不得把每题的输出预算压到单条之下。
 
