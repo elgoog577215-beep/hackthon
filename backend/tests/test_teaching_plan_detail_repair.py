@@ -594,3 +594,166 @@ def test_in_scope_relation_survives_assembly():
     assert len(section["knowledge_relations"]) == 1
     assert section["knowledge_relations"][0]["source_name"] == "线性组合"
     assert section["knowledge_relations"][0]["target_name"] == "张成空间"
+
+
+# --- 补写不制造知识关系的环 -------------------------------------------------
+# lz-course-gen 的端到端诊断发现跨批次会产生关系环（单批次内看不出来）。
+# 环检测归他们做，但补写域必须先自证清白：它**不新增关系、不改端点、不改类型**，
+# 所以补写前后关系图同构，不可能引入新的环——包括跨批次的环。
+#
+# 这条不是"目前恰好不会"，而是结构上不会：补写只写字段白名单里的内容字段。
+
+def _relation_edges(batch: dict) -> list[tuple]:
+    return sorted(
+        (section.get("node_id"), rel.get("source_key"),
+         rel.get("target_key"), rel.get("relation_type"))
+        for section in batch.get("sections") or []
+        for rel in section.get("knowledge_relations") or []
+    )
+
+
+def _two_relation_batch() -> dict:
+    return normalize_teaching_plan_batch_v3(
+        {"sections": [{
+            "node_id": "L2-1-1",
+            "knowledge_details": [_detail("K001", misconceptions=[])],
+            "knowledge_relations": [
+                {"source_key": "K001", "target_key": "K002",
+                 "relation_type": "derives", "reason": "缺推导步骤"},
+                {"source_key": "K002", "target_key": "K003",
+                 "relation_type": "contrasts_with", "reason": "缺判别"},
+            ],
+            "teaching_modules": [],
+        }]},
+        batch_id="TP-B01", skeleton_revision_id="teaching_skeleton_test",
+    )
+
+
+def test_relation_repair_keeps_the_relation_graph_isomorphic():
+    """补写只填字段，关系图（端点+类型）逐条不变。"""
+    batch = _two_relation_batch()
+    before = _relation_edges(batch)
+
+    merge_relation_field_repair(
+        batch, node_id="L2-1-1", relation_index=0,
+        repair={"derivation_steps": ["从 K001 出发", "整理得到 K002"]},
+        missing_fields=["derivation_steps"])
+    merge_relation_field_repair(
+        batch, node_id="L2-1-1", relation_index=1,
+        repair={"distinction": "K002 是过程，K003 是结果"},
+        missing_fields=["distinction"])
+
+    assert _relation_edges(batch) == before
+
+
+def test_relation_repair_cannot_rewrite_endpoints_even_if_the_model_tries():
+    """模型在补写回复里塞端点改写（掉头即成环）也不得逞。
+
+    这是环风险的关键一条：只要端点不可写，补写就无法把 A->B 变成 B->A。
+    """
+    batch = _two_relation_batch()
+    before = _relation_edges(batch)
+
+    merge_relation_field_repair(
+        batch, node_id="L2-1-1", relation_index=0,
+        repair={
+            "derivation_steps": ["x"],
+            "source_key": "K002",          # 试图掉头
+            "target_key": "K001",
+            "relation_type": "prerequisite",
+        },
+        missing_fields=["derivation_steps"])
+
+    assert _relation_edges(batch) == before
+
+
+def test_knowledge_detail_repair_never_touches_relations():
+    """知识点补写回复里即使带了 knowledge_relations 也不会被采纳。"""
+    batch = _two_relation_batch()
+    before = _relation_edges(batch)
+
+    merge_knowledge_detail_repair(
+        batch, node_id="L2-1-1", knowledge_key="K001",
+        repair={
+            "misconceptions": [{
+                "observable_error_pattern": "e",
+                "discrimination": "d",
+                "repair_strategy": "r",
+            }],
+            "knowledge_relations": [{           # 夹带私货
+                "source_key": "K003", "target_key": "K001",
+                "relation_type": "derives",
+            }],
+        },
+        missing_fields=["misconceptions"])
+
+    assert _relation_edges(batch) == before
+
+
+def test_repair_field_whitelists_exclude_endpoints_and_type():
+    """字段白名单本身就是这条保证的来源，直接钉住它。"""
+    from course_teaching_plan_v3 import (
+        _RELATION_FIELD_SPECS,
+        _REPAIRABLE_DETAIL_FIELDS,
+    )
+
+    assert set(_RELATION_FIELD_SPECS) == {"derivation_steps", "distinction"}
+    assert {field for field, _p, _c in _REPAIRABLE_DETAIL_FIELDS} == {
+        "capability_points", "mastery_criteria", "misconceptions",
+    }
+    forbidden = {"source_key", "target_key", "relation_type", "knowledge_key"}
+    assert not forbidden & set(_RELATION_FIELD_SPECS)
+    assert not forbidden & {field for field, _p, _c in _REPAIRABLE_DETAIL_FIELDS}
+
+
+def test_assembly_drops_the_forward_edge_that_a_cross_batch_cycle_needs():
+    """跨批次环需要至少一条"指向后续小节"的边，而那条边正好会被汇编层丢弃。
+
+    单批次内看不出跨批次环（lz-course-gen 的端到端诊断发现的）。这里说明：
+    17.7 加的丢弃规则（两端必须在本节或更早）不只是清理悬空箭头——它顺带
+    保证了汇编产物里的关系只能指向"更早或同节"，方向单一，**结构上无法成环**。
+
+    环检测仍归 lz-course-gen（他们要看的是全链路，含正文与知识库侧）；
+    这条只钉住教案汇编这一段不会主动制造环。
+    """
+    skeleton = {
+        "revision_id": "r",
+        "knowledge_registry": [
+            {"knowledge_key": "K1", "name": "A", "statement": "a",
+             "owner_node_id": "N1", "module_ids": ["m"]},
+            {"knowledge_key": "K2", "name": "B", "statement": "b",
+             "owner_node_id": "N2", "module_ids": ["m"]},
+        ],
+        "sections": [
+            {"node_id": "N1", "owned_knowledge_keys": ["K1"], "reused_knowledge_keys": []},
+            {"node_id": "N2", "owned_knowledge_keys": ["K2"], "reused_knowledge_keys": []},
+        ],
+    }
+    # 单看每一批都"像"合法，合起来 K1->K2 与 K2->K1 构成跨批次环
+    batches = [
+        {"sections": [{
+            "node_id": "N1", "knowledge_details": [{"knowledge_key": "K1"}],
+            "knowledge_relations": [{"source_key": "K1", "target_key": "K2",
+                                     "relation_type": "prerequisite",
+                                     "reason": "指向后续小节"}],
+            "teaching_modules": [],
+        }]},
+        {"sections": [{
+            "node_id": "N2", "knowledge_details": [{"knowledge_key": "K2"}],
+            "knowledge_relations": [{"source_key": "K2", "target_key": "K1",
+                                     "relation_type": "prerequisite",
+                                     "reason": "指向前序小节"}],
+            "teaching_modules": [],
+        }]},
+    ]
+
+    plan = assemble_course_teaching_plan_v3(
+        skeleton=skeleton, batches=batches, outline_revision_id="o")
+    edges = [
+        (section["node_id"], rel.get("source_name"), rel.get("target_name"))
+        for section in plan["sections"]
+        for rel in section.get("knowledge_relations") or []
+    ]
+
+    # 前向那条被丢弃，只剩指向前序的一条 -> 不成环
+    assert edges == [("N2", "B", "A")]
