@@ -2626,6 +2626,10 @@ class CourseService(AIBase):
                                 "model_blocking_codes": list(
                                     model_blocking_codes
                                 ),
+                                # 区分"补写没触发"与"补写触发了但没救回来"。
+                                # 少了这个数字，跑完只知道批次失败，无法判断补写
+                                # 是不适用还是不管用。
+                                "repaired_detail_count": repaired_detail_count,
                             })
                     results[batch_id] = batch
                     stored_batches[batch_id] = {
