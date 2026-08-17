@@ -757,3 +757,68 @@ def test_assembly_drops_the_forward_edge_that_a_cross_batch_cycle_needs():
 
     # 前向那条被丢弃，只剩指向前序的一条 -> 不成环
     assert edges == [("N2", "B", "A")]
+
+
+# --- 与 lz-knowledge「空轮不抹结果」的交互（合并 d5e8be93 后新增）----------
+# 两条语义作用在装配的不同阶段：
+#   d5e8be93 管"选哪一轮的产物"——空的一轮不许抹掉已经成功的一轮
+#   01e4120b 管"选中那一轮里哪些关系能进产物"——两端越界的整条丢弃
+# 单独测各自都绿，但**交互**才是合并风险所在：如果丢弃回写了 details_by_id，
+# 一个"关系全越界"的批次就会被削成空壳，进而变成新的抹结果路径。
+
+_MERGE_SKELETON = {
+    "revision_id": "r",
+    "knowledge_registry": [
+        {"knowledge_key": "K1", "name": "A", "statement": "a",
+         "owner_node_id": "N1", "module_ids": ["m"]},
+        {"knowledge_key": "K2", "name": "B", "statement": "b",
+         "owner_node_id": "N2", "module_ids": ["m"]},
+    ],
+    "sections": [
+        {"node_id": "N1", "owned_knowledge_keys": ["K1"], "reused_knowledge_keys": []},
+        {"node_id": "N2", "owned_knowledge_keys": ["K2"], "reused_knowledge_keys": []},
+    ],
+}
+
+
+def _merge_section(details, relations, modules=None):
+    return {"node_id": "N1", "knowledge_details": details,
+            "knowledge_relations": relations, "teaching_modules": modules or []}
+
+
+def _assembled_counts(batches):
+    plan = assemble_course_teaching_plan_v3(
+        skeleton=_MERGE_SKELETON, batches=batches, outline_revision_id="o")
+    section = next(s for s in plan["sections"] if s["node_id"] == "N1")
+    points = sum(len(g.get("knowledge_points") or [])
+                 for g in section.get("knowledge_structure") or [])
+    return points, len(section.get("knowledge_relations") or [])
+
+
+def test_out_of_scope_relations_do_not_make_a_round_look_empty():
+    """关系全越界的一轮仍算"有内容"，不会被丢弃逻辑削成空壳去抹前一轮。
+
+    这是合并 d5e8be93 之后最需要盯住的一条：丢弃只作用在关系渲染，
+    不回写 details_by_id，所以不改变"这一节用哪一轮"的判定。
+    """
+    good = _merge_section([{"knowledge_key": "K1"}], [])
+    later_all_cross = _merge_section(
+        [{"knowledge_key": "K1"}],
+        [{"source_key": "K1", "target_key": "K2",      # 越界：K2 归后一节
+          "relation_type": "prerequisite", "reason": "越界"}])
+
+    points, relations = _assembled_counts(
+        [{"sections": [good]}, {"sections": [later_all_cross]}])
+
+    assert points == 1        # 知识点没被抹
+    assert relations == 0     # 越界关系确实被丢弃
+
+
+def test_empty_round_still_cannot_erase_a_successful_round_after_merge():
+    """lz-knowledge 那条在合并后仍然成立（防止我这侧改动把它顶掉）。"""
+    good = _merge_section([{"knowledge_key": "K1"}], [])
+    empty = _merge_section([], [])
+
+    assert _assembled_counts([{"sections": [good]}, {"sections": [empty]}])[0] == 1
+    # 顺序无关
+    assert _assembled_counts([{"sections": [empty]}, {"sections": [good]}])[0] == 1

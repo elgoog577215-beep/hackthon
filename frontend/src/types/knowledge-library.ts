@@ -7,6 +7,24 @@ export type KnowledgeNodeType = 'course' | 'chapter' | 'section' | 'concept_grou
  */
 export type KnowledgeSourceStatus = 'material_grounded' | 'web_grounded' | 'course_generated'
 
+/**
+ * 一条知识点级来源绑定，由 `evidence_package.evidence_for_keys()` 按知识点
+ * 名字与别名从冻结证据包里匹配出来。
+ *
+ * `origin` 用后端 `EvidenceSourceRef` 的取值：`material` 是教师上传资料，
+ * `web_search` 是联网检索结果。两者必须在界面上可区分——把 license_unknown
+ * 的网页显示成"教师上传资料依据"比不显示更有害。
+ */
+export interface KnowledgeSourceBinding {
+  evidence_id: string
+  asset_id: string
+  origin: 'material' | 'web_search' | string
+  /** 联网来源才有；上传资料为空串 */
+  url: string
+  retrieved_at: string
+  credibility: string
+}
+
 export interface KnowledgeNode {
   knowledge_id: string
   code: string
@@ -41,6 +59,15 @@ export interface KnowledgeNode {
   source_status: KnowledgeSourceStatus | string
   /** 可追溯的证据块 id；无资料依据时为空数组而非缺字段 */
   source_refs: string[]
+  /**
+   * 该知识点**自己**匹配到的来源明细（D1-2 知识点级绑定）。
+   *
+   * 与 `source_refs` 的区别：`source_refs` 还含小节级共享证据，所以"有 refs"
+   * 只说明这一节有资料，不说明这一条知识点有依据；`source_bindings` 是逐点
+   * 匹配的结果，图谱节点要显示"依据是哪一份、上传还是联网"必须读这一层。
+   * 没匹配到时是空数组——不兜底，空即代表模型凭通用知识写的。
+   */
+  source_bindings: KnowledgeSourceBinding[]
   status: string
   revision_id: string
 }
@@ -79,6 +106,15 @@ export interface KnowledgeSourceGrounding {
   course_generated_count: number
   grounded_ratio: number
   has_material_grounding: boolean
+  /**
+   * 逐点落地：知识点**自己**匹配到证据的条数（D1-2）。
+   *
+   * 与 `material_grounded_count` 分母相同（`knowledge_point_count`），但分子更严：
+   * 后者把整节共享的证据也算进去，一节挂一份资料就会让该节所有知识点计入，
+   * 那是小节粒度的落地率。两者并列才看得出"这门课的资料到底细到哪一层"。
+   */
+  point_bound_count: number
+  point_binding_ratio: number
 }
 
 export interface KnowledgeLibraryView {
