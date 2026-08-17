@@ -495,3 +495,102 @@ def test_relation_repair_prompt_is_small():
     assert "derivation_steps" in prompt
     assert "线性组合" in prompt
     assert "distinction" not in prompt
+
+
+# --- 关系越界：降级为软门槛，但必须真的丢弃 -------------------------------
+# 10 轮全课实测里，future_relation_endpoint(12) + unrelated_relation(4) 占了
+# 20 个阻断中的 14 个。这类关系在知识库编译层本来就会被丢进 unresolved
+# （course_knowledge_base.py:1781-1782），为它打掉整批教案不成比例。
+#
+# 降级的前提是**丢弃动作真的发生**：否则就成了判据放宽。
+
+from course_teaching_plan_v3 import assemble_course_teaching_plan_v3  # noqa: E402
+
+_TWO_SECTION_SKELETON = {
+    "revision_id": "teaching_skeleton_test",
+    "knowledge_registry": [
+        {"knowledge_key": "K001", "name": "线性组合", "statement": "加权相加。",
+         "owner_node_id": "L2-1-1", "module_ids": ["core_explanation"]},
+        {"knowledge_key": "K002", "name": "张成空间", "statement": "组合的集合。",
+         "owner_node_id": "L2-1-2", "module_ids": ["core_explanation"]},
+    ],
+    "sections": [
+        {"node_id": "L2-1-1", "owned_knowledge_keys": ["K001"], "reused_knowledge_keys": []},
+        {"node_id": "L2-1-2", "owned_knowledge_keys": ["K002"], "reused_knowledge_keys": []},
+    ],
+}
+
+
+def test_future_relation_is_review_not_blocking():
+    """引用后续批次知识的关系不再打掉整批，但仍然可见。"""
+    batch = normalize_teaching_plan_batch_v3(
+        {"sections": [{
+            "node_id": "L2-1-1",
+            "knowledge_details": [_detail("K001")],
+            "knowledge_relations": [{
+                "source_key": "K001", "target_key": "K002",  # K002 归下一节
+                "relation_type": "prerequisite", "reason": "越界引用",
+            }],
+            "teaching_modules": [],
+        }]},
+        batch_id="TP-B01", skeleton_revision_id="teaching_skeleton_test",
+    )
+    report = validate_teaching_plan_batch_v3(
+        batch,
+        batch_spec={"batch_id": "TP-B01", "section_ids": ["L2-1-1"]},
+        skeleton=_TWO_SECTION_SKELETON,
+        sections=[{"node_id": "L2-1-1", "module_plan": []},
+                  {"node_id": "L2-1-2", "module_plan": []}],
+    )
+
+    codes = [i["code"] for i in report["blocking_issues"]]
+    assert "teaching_batch:future_relation_endpoint" not in codes
+    assert report["passed"] is True          # 不再阻断
+    review = [i["code"] for i in report["review_issues"]]
+    assert "teaching_batch:future_relation_endpoint" in review   # 但仍然报出来
+
+
+def test_future_relation_is_actually_dropped_from_the_assembled_plan():
+    """降级的前提：越界关系不能混进正式教案，否则就是判据放宽。"""
+    batch = {
+        "sections": [{
+            "node_id": "L2-1-1",
+            "knowledge_details": [_detail("K001")],
+            "knowledge_relations": [
+                {"source_key": "K001", "target_key": "K002",
+                 "relation_type": "prerequisite", "reason": "越界，应被丢弃"},
+            ],
+            "teaching_modules": [],
+        }],
+    }
+    plan = assemble_course_teaching_plan_v3(
+        skeleton=_TWO_SECTION_SKELETON, batches=[batch],
+        outline_revision_id="kscope_test",
+    )
+    first = plan["sections"][0]
+    assert first["node_id"] == "L2-1-1"
+    # 越界关系被丢掉，不会在教案里留下两端空名的悬空箭头
+    assert first["knowledge_relations"] == []
+
+
+def test_in_scope_relation_survives_assembly():
+    """同一机制不能误伤合法关系：后一节引用前一节的知识是正常的。"""
+    batch = {
+        "sections": [{
+            "node_id": "L2-1-2",
+            "knowledge_details": [_detail("K002")],
+            "knowledge_relations": [
+                {"source_key": "K001", "target_key": "K002",
+                 "relation_type": "prerequisite", "reason": "合法：K001 在前一节"},
+            ],
+            "teaching_modules": [],
+        }],
+    }
+    plan = assemble_course_teaching_plan_v3(
+        skeleton=_TWO_SECTION_SKELETON, batches=[batch],
+        outline_revision_id="kscope_test",
+    )
+    section = next(s for s in plan["sections"] if s["node_id"] == "L2-1-2")
+    assert len(section["knowledge_relations"]) == 1
+    assert section["knowledge_relations"][0]["source_name"] == "线性组合"
+    assert section["knowledge_relations"][0]["target_name"] == "张成空间"

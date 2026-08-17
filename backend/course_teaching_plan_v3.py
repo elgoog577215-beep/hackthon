@@ -961,9 +961,29 @@ def validate_teaching_plan_batch_v3(
                 relation.get("source_key") not in available_relation_keys
                 or relation.get("target_key") not in available_relation_keys
             ):
-                issues.append(_issue("teaching_batch:future_relation_endpoint", f"小节 {node_id} 的知识关系引用了未来批次保留的知识键"))
+                # 越界关系（引用后续批次才引入的知识）与"与本节无关的关系"都是
+                # **单条关系的问题**，不是这一批教案的问题：`_compile_relations`
+                # 本来就会把它们丢进 unresolved 而不影响课程产物
+                # （course_knowledge_base.py:1781-1782）。
+                #
+                # 判据没有放宽——这类关系照样不进产物，归一化时已经被丢掉了
+                # （见 `_drop_unusable_relations`）。变的只是"要不要因此打掉整批"：
+                # 为一条注定被丢弃的关系让 10 个知识点的教案重做一遍，代价与收益
+                # 完全不成比例。实测 10 轮全课里，这两类占了 20 个阻断中的 14 个。
+                #
+                # 降级为 review 之后仍然可见：模型若大量越界，知识网会变稀疏，
+                # 这由 review 计数和既有的 relation_diversity_low 一起暴露。
+                review_issues.append(_issue(
+                    "teaching_batch:future_relation_endpoint",
+                    f"小节 {node_id} 的知识关系引用了未来批次保留的知识键，该关系已丢弃",
+                    severity="review",
+                ))
             elif not ({relation.get("source_key"), relation.get("target_key")} & set(expected_keys)):
-                issues.append(_issue("teaching_batch:unrelated_relation", f"小节 {node_id} 只能返回至少连接一个本节新知识的关系"))
+                review_issues.append(_issue(
+                    "teaching_batch:unrelated_relation",
+                    f"小节 {node_id} 返回了未连接本节新知识的关系，该关系已丢弃",
+                    severity="review",
+                ))
         # 多样性是质量问题而不是结构错误：一节里全是前置关系仍然是可发布的课程，
         # 只是知识网退化成了一条链。所以进复核队列，不进 blocking。
         if not [name for name in surviving_types if name != "prerequisite"]:
@@ -1006,6 +1026,26 @@ def assemble_course_teaching_plan_v3(
         for item in batch.get("sections") or []
         if isinstance(item, dict)
     }
+    # 汇编时按目录顺序确定每个知识键"何时可用"：一条关系的两端必须都在当前
+    # 小节或更早的小节里首次出现，否则它引用的是后续才引入的知识。
+    #
+    # 这类关系在知识库编译层本来就会被丢进 unresolved
+    # （course_knowledge_base.py:1781-1782），留在教案里只会渲染成两端空名的
+    # 悬空箭头。校验层已把它降为 review（不阻断整批），所以丢弃动作必须在这里
+    # 真正执行——否则就成了"判据放宽"，越界关系会混进正式产物。
+    section_position = {
+        str(identity.get("node_id") or ""): index
+        for index, identity in enumerate(skeleton.get("sections") or [])
+        if isinstance(identity, dict)
+    }
+    owner_position: dict[str, int] = {}
+    for identity in skeleton.get("sections") or []:
+        if not isinstance(identity, dict):
+            continue
+        position = section_position.get(str(identity.get("node_id") or ""), 0)
+        for key in identity.get("owned_knowledge_keys") or []:
+            owner_position.setdefault(str(key), position)
+
     planned_sections: list[dict[str, Any]] = []
     for identity in skeleton.get("sections") or []:
         node_id = str(identity.get("node_id") or "")
@@ -1046,9 +1086,20 @@ def assemble_course_teaching_plan_v3(
                 "aliases": list(detail.get("aliases") or []),
             })
         relations = []
+        current_position = section_position.get(node_id, 0)
         for relation in expanded.get("knowledge_relations") or []:
-            source = registry.get(str(relation.get("source_key") or "")) or {}
-            target = registry.get(str(relation.get("target_key") or "")) or {}
+            source_key = str(relation.get("source_key") or "")
+            target_key = str(relation.get("target_key") or "")
+            source = registry.get(source_key) or {}
+            target = registry.get(target_key) or {}
+            # 两端都必须已知且已在本节或更早出现，否则整条丢弃（见上方说明）。
+            if not source or not target:
+                continue
+            if (
+                owner_position.get(source_key, len(section_position)) > current_position
+                or owner_position.get(target_key, len(section_position)) > current_position
+            ):
+                continue
             relations.append({
                 **deepcopy(relation),
                 "source_name": str(source.get("name") or ""),
