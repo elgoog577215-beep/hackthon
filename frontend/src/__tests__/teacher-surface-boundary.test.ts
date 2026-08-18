@@ -36,7 +36,7 @@ describe('teacher and learner surface boundary', () => {
     expect(adapterSource).toContain('useCourseStore()')
     expect(adapterSource).toContain('useGenerationStore()')
     expect(adapterSource).toContain("TEACHER_COURSE_CAPABILITY_CONTRACT = 'teacher-course-capabilities/v1'")
-    expect(adapterSource).toContain("taskType: 'course_generation'")
+    expect(adapterSource).toContain("taskType: 'teacher_outline_generation'")
     expect(adapterSource).toContain("name: 'teacher-ppt-workspace'")
     expect(adapterSource).not.toMatch(/reactive\s*\(|ref\s*\(|defineStore\s*\(/)
   })
@@ -51,6 +51,22 @@ describe('teacher and learner surface boundary', () => {
       expect(source, fileName).toContain('loadTeacherCourse')
       expect(source, fileName).not.toMatch(/courseStore\.loadCourse\s*\(/)
     }
+  })
+
+  it('keeps teacher lesson plans on lesson assets and skips learner content generation gates', () => {
+    const source = readFileSync(
+      resolve(teacherViewsRoot, 'TeacherCourseProductionView.vue'),
+      'utf8',
+    )
+
+    expect(source).toContain(':plan="selectedLessonPlan"')
+    expect(source).toContain(':live="true"')
+    expect(source).not.toMatch(/<GenerationLessonPlan[\s\S]*?:task="task"[\s\S]*?\/>/)
+    expect(source).not.toContain('selectedLessonPlan || courseStore.currentTeachingPlan')
+    expect(source).toContain("reviewStep === 'release'")
+    expect(source).not.toContain("reviewStep === 'teaching'")
+    expect(source).toContain('旧课程正文不会作为教师教案显示')
+    expect(source).toContain('@click="optimizeSelectedLesson"')
   })
 
   it('keeps teacher copy out of the learner course-library namespace', () => {
