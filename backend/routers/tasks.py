@@ -18,9 +18,10 @@ router = APIRouter(tags=["tasks"])
 @router.get("/courses/{course_id}/task")
 def get_course_task(
     course_id: str,
+    task_type: str | None = None,
     tm: TaskManager = Depends(require_task_manager),
 ):
-    task = tm.get_latest_task_by_course(course_id)
+    task = tm.get_latest_task_by_course(course_id, task_type=task_type)
     if task is None:
         return {"status": "none"}
     return task
@@ -31,13 +32,36 @@ def get_course_generation_preview(
     course_id: str,
     tm: TaskManager = Depends(require_task_manager),
 ):
-    preview = tm.get_generation_preview(course_id)
+    preview = tm.get_generation_preview(
+        course_id,
+        task_types={"course_generation", "course_import"},
+    )
     if preview is None:
         raise HTTPException(
             status_code=404,
             detail={
                 "code": "generation_preview_unavailable",
                 "message": "当前课程没有可读取的生成工作区",
+            },
+        )
+    return preview
+
+
+@router.get("/teacher/courses/{course_id}/generation-preview")
+def get_teacher_course_generation_preview(
+    course_id: str,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    preview = tm.get_generation_preview(
+        course_id,
+        task_types={"teacher_outline_generation"},
+    )
+    if preview is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "teacher_generation_preview_unavailable",
+                "message": "当前教师课程没有可读取的大纲工作区",
             },
         )
     return preview

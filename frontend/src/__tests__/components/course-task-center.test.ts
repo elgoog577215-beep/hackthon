@@ -49,7 +49,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.get('.task-center').classes()).toContain('task-center--empty')
+    expect(wrapper.get('.task-center__body').classes()).toContain('task-center__body--empty')
     expect(wrapper.find('.task-list').exists()).toBe(false)
     expect(wrapper.find('.task-detail').exists()).toBe(false)
     expect(wrapper.get('.task-center-empty').text()).toContain('暂无课程任务')
@@ -711,7 +711,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('可以学习，有优化建议')
+    expect(wrapper.text()).toContain('已发布，有优化建议')
     expect(wrapper.text()).toContain('课程已经发布，仍有优化建议')
     expect(wrapper.text()).not.toContain('可以继续补齐失败节点')
     expect(wrapper.find('.task-actions__open').exists()).toBe(true)

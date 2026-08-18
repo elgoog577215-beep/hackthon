@@ -297,6 +297,38 @@ async def test_polling_task_summary_does_not_load_workspace_or_copy_heavy_artifa
 
 
 @pytest.mark.asyncio
+async def test_latest_course_task_can_be_scoped_away_from_slide_builds(
+    tmp_path, monkeypatch,
+):
+    manager, _storage, _workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch, task_status="completed"
+    )
+    generation_task = manager.tasks["job-recovery"]
+    generation_task["type"] = "course_generation"
+    generation_task["updated_at"] = "2026-08-16T10:00:00"
+    slide_task = dict(generation_task)
+    slide_task.update({
+        "id": "job-slide",
+        "type": "slide_deck_variant_build",
+        "status": "failed",
+        "updated_at": "2026-08-16T11:00:00",
+    })
+    manager.tasks["job-slide"] = slide_task
+
+    assert manager.get_latest_task_by_course("course-recovery")["id"] == "job-slide"
+    scoped = manager.get_latest_task_by_course(
+        "course-recovery",
+        task_type="course_generation",
+    )
+    assert scoped is not None
+    assert scoped["id"] == "job-recovery"
+    assert manager.get_latest_task_by_course(
+        "course-recovery",
+        task_type="course_import",
+    ) is None
+
+
+@pytest.mark.asyncio
 async def test_outline_failure_restarts_stage_without_claiming_content_checkpoint(
     tmp_path,
     monkeypatch,

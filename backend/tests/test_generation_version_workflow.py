@@ -450,6 +450,8 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
             },
         },
     )
+
+
     plan_preview = manager.get_generation_preview(job["course_id"])
     assert plan_preview["teaching_plan"]["status"] == "completed"
     assert plan_preview["teaching_plan"]["sections"][0]["key_points"] == ["概念边界"]
@@ -486,6 +488,63 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_teacher_outline_task_stops_after_outline_confirmation(tmp_path, monkeypatch):
+    import task_manager as task_manager_module
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "teacher-tasks.json")
+    storage = MemoryStorage()
+    workspaces = GenerationWorkspaceRepository(tmp_path / "teacher-workspaces")
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=CourseVersionRepository(tmp_path / "teacher-versions"),
+        workspace_repository=workspaces,
+        document_repository=CourseDocumentRepository(storage),
+    )
+    job = await manager.create_generation_job({
+        "subject": "教师十讲课程",
+        "teacher_authoring_mode": "lesson_assets_v1",
+        "teacher_course_brief": {"chapter_count": 10, "lesson_duration_minutes": 90},
+        "generation_mode": "review_blueprint",
+        "course_purpose": "systematic",
+    })
+    task = manager.tasks[job["job_id"]]
+    assert task["type"] == "teacher_outline_generation"
+    assert storage.course["authoring_surface"] == "teacher"
+    assert manager.get_generation_preview(
+        job["course_id"],
+        task_types={"course_generation", "course_import"},
+    ) is None
+    assert manager.get_generation_preview(
+        job["course_id"],
+        task_types={"teacher_outline_generation"},
+    ) is not None
+
+    assert await manager._task_queue.get() == job["job_id"]
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
+    assert task["status"] == "waiting_for_review"
+    assert task["guided_workflow"]["review_step"] == "outline"
+
+    async def fake_prepare_knowledge(_task_id, course):
+        prepared = deepcopy(course)
+        prepared["course_knowledge_base"] = {"lifecycle_status": "active"}
+        return prepared
+
+    monkeypatch.setattr(manager, "_prepare_subject_knowledge", fake_prepare_knowledge)
+    await manager.confirm_generation_step(job["course_id"], "outline")
+    assert await manager._task_queue.get() == job["job_id"]
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
+
+    completed = manager.tasks[job["job_id"]]
+    assert completed["status"] == "completed"
+    assert completed["phase"] == "teacher_outline_confirmed"
+    teacher_course = manager.get_generation_workspace_course(job["course_id"])
+    assert teacher_course["generation_status"] == "teacher_outline_confirmed"
+    assert "course_teaching_plan" not in teacher_course
+    assert all(not node.get("node_content") for node in teacher_course["nodes"])
 
 
 @pytest.mark.asyncio

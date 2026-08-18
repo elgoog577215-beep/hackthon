@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "change_id": "integrate-teacher-course-production-calendars-v1",
+  "run_id": "adapter-isolation-20260816",
+  "source_turn_id": "user-20260816-execute-teacher-student-adapter-isolation",
+  "source_message_sha256": "17ce944fde82881785b2f8629c5606df239d72c8266be80e82d8f49e921b8a05",
+  "intent_stage": "implement",
+  "write_authority": "scoped-implementation",
+  "allowed_roots": [
+    "D:/xsh/cursor/灵知/hackthon-wt-course-production-real"
+  ],
+  "allowed_operations": [
+    "artifact-write",
+    "patch",
+    "runtime-start",
+    "source-write",
+    "state-write",
+    "test",
+    "test-write"
+  ],
+  "separately_gated": [
+    "force-push",
+    "lockfile-change",
+    "recursive-delete",
+    "write-env"
+  ],
+  "sensitive_approvals": [],
+  "issued_at": "2026-08-16T06:31:06.488Z",
+  "expires_at": "2026-08-16T18:31:06.488Z",
+  "issuer": "interactive-agent",
+  "parent_receipt_id": null,
+  "receipt_id": "sha256:d87c06830a1893c5bcbb8d18f0e3c9955382f8c43f0f8d29970a09d68554201a"
+}

@@ -4,7 +4,9 @@ import { ElMessage } from 'element-plus';
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
+const CONFIGURED_TEACHER_USER_ID = String(import.meta.env.VITE_TEACHER_USER_ID || '').trim();
 export const LEARNER_ID_STORAGE_KEY = 'lingzhi_learner_id_v1';
+export const LOCAL_TEACHER_USER_ID = 'teacher-local-workbench-v1';
 let inMemoryLearnerId = '';
 
 const createLearnerId = () => {
@@ -34,6 +36,21 @@ export const getLearnerIdentity = (): string => {
   }
 };
 
+/**
+ * 教师工作台在本地开发时使用稳定身份，避免课程列表可见、教学日历却因
+ * 浏览器随机 learner id 被隔离为空。生产构建不使用这个共享本地身份，
+ * 仍沿用现有请求身份契约；待正式教师账号接入后可配置 VITE_TEACHER_USER_ID。
+ */
+export const getTeacherIdentity = (
+  configuredUserId = CONFIGURED_TEACHER_USER_ID,
+  isDevelopment = import.meta.env.DEV,
+): string => {
+  const normalized = configuredUserId.trim();
+  if (normalized && normalized !== 'default_user') return normalized;
+  if (isDevelopment) return LOCAL_TEACHER_USER_ID;
+  return getLearnerIdentity();
+};
+
 export const API_BASE = stripTrailingSlash(
   import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL || ''
 );
@@ -52,10 +69,22 @@ export const applyLearnerIdentity = (
   config: InternalAxiosRequestConfig,
   userId = getLearnerIdentity(),
 ): InternalAxiosRequestConfig => {
+  // 具体业务域可以显式指定教师等身份；通用拦截器不得覆盖它。
+  if (config.headers.has('X-User-Id')) return config;
   const normalized = userId.trim();
   if (!normalized) return config;
   config.headers.set('X-User-Id', normalized);
   return config;
+};
+
+export const teacherIdentityHeaders = (
+  initial: HeadersInit = {},
+  userId = getTeacherIdentity(),
+): Headers => {
+  const headers = new Headers(initial);
+  const normalized = userId.trim();
+  if (normalized) headers.set('X-User-Id', normalized);
+  return headers;
 };
 
 export const learnerIdentityHeaders = (

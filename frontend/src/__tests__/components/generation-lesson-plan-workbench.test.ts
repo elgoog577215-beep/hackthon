@@ -9,7 +9,7 @@ const httpMock = vi.hoisted(() => ({
   post: vi.fn(),
 }))
 
-vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/http', () => ({ default: httpMock, getTeacherIdentity: () => 'teacher-test' }))
 
 import GenerationLessonPlan from '@/components/GenerationLessonPlan.vue'
 import {
@@ -139,13 +139,13 @@ describe('课程教案工作台', () => {
       1,
       '/api/courses/course-1/teaching-plan/baseline',
       expect.objectContaining({ base_course_document_revision: 'cdr-1' }),
-      { silentError: true },
+      expect.objectContaining({ silentError: true, headers: { 'X-User-Id': 'teacher-test' } }),
     )
     expect(httpMock.post).toHaveBeenNthCalledWith(
       2,
       '/api/courses/course-1/teaching-plan/drafts',
       expect.objectContaining({ base_plan_revision_id: 'tpr-1' }),
-      { silentError: true },
+      expect.objectContaining({ silentError: true, headers: { 'X-User-Id': 'teacher-test' } }),
     )
     expect(wrapper.text()).toContain('正式修订 #1')
     expect(wrapper.text()).toContain('草稿已保存')
@@ -195,5 +195,49 @@ describe('课程教案工作台', () => {
     await instruction.setValue('只调整课堂提问节奏')
     await wrapper.findAll('.generation-lesson-plan__scope-control button')[0]!.trigger('click')
     expect((instruction.element as HTMLTextAreaElement).value).toBe('只调整课堂提问节奏')
+  })
+
+  it('在教师工作台右栏稳定挂载 AI 候选面板', async () => {
+    const store = useTeachingPlanWorkbenchStore()
+    store.applyWorkbench(workbench({
+      available: true,
+      can_initialize: false,
+      current_plan_revision_id: 'tpr-1',
+      teaching_plan: editablePlan,
+      draft: {
+        draft_id: 'draft-1',
+        base_plan_revision_id: 'tpr-1',
+        base_course_document_revision: 'cdr-1',
+        changed_paths: [],
+        operations: [],
+      },
+      revisions: [{ revision_id: 'tpr-1', revision_number: 1 }],
+      editable_fields: [{
+        path: 'sections/section-1/learning_objective',
+        state: 'requires_impact_review',
+        reason: '影响小节正文',
+      }],
+    }))
+    const dock = document.createElement('aside')
+    dock.id = 'teacher-course-ai-dock'
+    document.body.appendChild(dock)
+    const wrapper = mount(GenerationLessonPlan, {
+      attachTo: document.body,
+      props: {
+        courseId: 'course-1',
+        plan: editablePlan,
+        nodes,
+        activeNodeId: 'section-1',
+        aiDockTarget: '#teacher-course-ai-dock',
+      },
+    })
+
+    await wrapper.get('button[aria-label="生成 AI 建议"]').trigger('click')
+    await flushPromises()
+
+    expect(dock.textContent).toContain('让 AI 针对当前草稿提出修改')
+    expect(dock.querySelector('.generation-lesson-plan__ai-panel.is-docked')).not.toBeNull()
+    wrapper.unmount()
+    dock.remove()
   })
 })

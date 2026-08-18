@@ -197,10 +197,11 @@ export const useCourseStore = defineStore('course', {
         } catch (error) { logger.error(error); throw error }
     },
 
-    async fetchCourseList() {
+    async fetchCourseList(options: { surface?: 'student' | 'teacher' } = {}) {
         this.loading = true
         try {
-            const res = await http.get('/api/courses')
+            const endpoint = options.surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
+            const res = await http.get(endpoint)
             this.courseList = res.data
         } catch (error) {
             logger.error(error)
@@ -209,7 +210,12 @@ export const useCourseStore = defineStore('course', {
         finally { this.loading = false }
     },
 
-    async loadCourse(courseId: string) {
+    async loadCourse(courseId: string, options: {
+        includeLearningRecords?: boolean
+        taskType?: string
+        monitorTask?: boolean
+        previewSurface?: 'student' | 'teacher'
+    } = {}) {
         this.loading = true
         this.currentCourseId = courseId
         this.currentCourseProjection = 'published'
@@ -228,7 +234,10 @@ export const useCourseStore = defineStore('course', {
         try {
             let backendTask: Record<string, any> | null = null
             try {
-                const taskRes = await http.get(`/api/courses/${courseId}/task`)
+                const taskTypeQuery = options.taskType
+                    ? `?task_type=${encodeURIComponent(options.taskType)}`
+                    : ''
+                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`)
                 const taskData = taskRes.data as Record<string, any> | null
                 if (taskData && taskData.status !== 'none') {
                     backendTask = taskData
@@ -237,6 +246,7 @@ export const useCourseStore = defineStore('course', {
                         localTask = genStore.createTask(taskData.id, courseId, '后台生成任务')
                     }
                     localTask.id = taskData.id
+                    localTask.taskType = String(taskData.type || options.taskType || localTask.taskType || '') || undefined
                     localTask.status = normalizeTaskStatus(String(taskData.status || 'pending'))
                     localTask.progress = taskData.progress
                     const phase = taskData.current_phase || taskData.phase
@@ -249,7 +259,10 @@ export const useCourseStore = defineStore('course', {
                     if (typeof taskData.publication_allowed === 'boolean') {
                         localTask.publicationAllowed = taskData.publication_allowed
                     }
-                    if (taskData.status === 'running' || taskData.status === 'pending') {
+                    if (
+                        options.monitorTask !== false
+                        && (taskData.status === 'running' || taskData.status === 'pending')
+                    ) {
                         genStore.startGlobalMonitor()
                     }
                 }
@@ -258,7 +271,7 @@ export const useCourseStore = defineStore('course', {
             if (
                 backendTask
                 && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
-                && await this.refreshGenerationPreview(courseId)
+                && await this.refreshGenerationPreview(courseId, options.previewSurface)
             ) {
                 genStore.syncCurrentCourseGenerationState(
                     courseId,
@@ -272,10 +285,12 @@ export const useCourseStore = defineStore('course', {
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
-                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId)) {
+                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId, options.previewSurface)) {
                     return
                 }
-                void this.fetchCourseAnnotations(courseId)
+                if (options.includeLearningRecords !== false) {
+                    void this.fetchCourseAnnotations(courseId)
+                }
                 const localTask = genStore.tasks.get(courseId)
                 if (localTask && localTask.courseName === '后台生成任务') {
                     localTask.courseName = res.data.course_name
@@ -414,14 +429,17 @@ export const useCourseStore = defineStore('course', {
         this.currentCourseSourceFormat = 'canonical'
     },
 
-    async refreshGenerationPreview(courseId: string): Promise<boolean> {
+    async refreshGenerationPreview(courseId: string, surface: 'student' | 'teacher' = 'student'): Promise<boolean> {
         if (this.currentCourseId !== courseId || this.generationPreviewLoading) {
             return this.currentCourseProjection === 'generation_preview'
         }
         this.generationPreviewLoading = true
         try {
+            const endpoint = surface === 'teacher'
+                ? `/api/teacher/courses/${courseId}/generation-preview`
+                : `/api/courses/${courseId}/generation-preview`
             const response = await http.get<GenerationPreviewEnvelope>(
-                `/api/courses/${courseId}/generation-preview`,
+                endpoint,
                 { silentError: true },
             )
             const preview = response.data

@@ -64,8 +64,17 @@ backend/data/question_banks/
 backend/data/question_bank_rebuilds/
 backend/data/teaching_representations/
 backend/data/teaching_exports/
+backend/data/teacher_course_spaces/
+backend/data/teaching_calendars/
+backend/data/teacher_lesson_authoring/
 !backend/data/courses/.gitkeep
 !backend/data/knowledge_graphs/.gitkeep
+
+# Local browser/test evidence
+.playwright-cli/
+frontend/test-results/
+test-results/
+output/playwright/
 
 # Atomic write temp files
 *.tmp

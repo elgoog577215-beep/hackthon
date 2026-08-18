@@ -135,6 +135,26 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
+  it('把教师确定的讲次数带入真实生成一级讲次约束', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: {
+        modelValue: false,
+        initialSubject: '人工智能基础十讲',
+        initialChapterCount: 10,
+      },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    await wrapper.setProps({ modelValue: true })
+    await flushPromises()
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief).toMatchObject({
+      chapter_count: 10,
+    })
+  })
+
   it('将非必填的课堂信息收进渐进展开区', () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },

@@ -1113,7 +1113,7 @@ class TaskManager:
                     SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
                 )
         if (
-            task_type == "course_generation"
+            task_type in {"course_generation", "teacher_outline_generation"}
             and workspace_id
             and task["operation"] == "generate"
         ):
@@ -1285,6 +1285,11 @@ class TaskManager:
         request_snapshot["materials"] = metadata_only
         course_id = str(uuid.uuid4())
         task_id = str(uuid.uuid4())
+        task_type = (
+            "teacher_outline_generation"
+            if request_snapshot.get("teacher_authoring_mode") == "lesson_assets_v1"
+            else "course_generation"
+        )
         course_data = {
             "course_id": course_id,
             "course_name": subject,
@@ -1307,6 +1312,9 @@ class TaskManager:
             "web_material_ingest": deepcopy(
                 request_snapshot.get("web_material_ingest") or {}
             ),
+            "authoring_surface": (
+                "teacher" if task_type == "teacher_outline_generation" else "shared"
+            ),
         }
         workspace_created = False
         try:
@@ -1324,7 +1332,7 @@ class TaskManager:
             )
             task_id = await self.create_task(
                 course_id,
-                "course_generation",
+                task_type,
                 course_name=subject,
                 request_snapshot=request_snapshot,
                 task_id=task_id,
@@ -1577,7 +1585,7 @@ class TaskManager:
             task
             for task in self.tasks.values()
             if task.get("course_id") == course_id
-            and task.get("type") == "course_generation"
+            and task.get("type") in {"course_generation", "teacher_outline_generation"}
             and task.get("status") == "waiting_for_review"
             and isinstance(task.get("guided_workflow"), dict)
         ]
@@ -1916,13 +1924,13 @@ class TaskManager:
             task for task in self.tasks.values()
             if task.get("course_id") == course_id
             and task.get("status") == "waiting_for_review"
-            and task.get("type") == "course_generation"
+            and task.get("type") in {"course_generation", "teacher_outline_generation"}
         ]
         if not waiting:
             related = [
                 task for task in self.tasks.values()
                 if task.get("course_id") == course_id
-                and task.get("type") == "course_generation"
+                and task.get("type") in {"course_generation", "teacher_outline_generation"}
                 and isinstance(task.get("guided_workflow"), dict)
             ]
             related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
@@ -2415,11 +2423,21 @@ class TaskManager:
             if task["course_id"] == course_id
         ]
 
-    def get_latest_task_by_course(self, course_id: str) -> dict[str, Any] | None:
-        """Return one lightweight latest task without projecting older jobs."""
+    def get_latest_task_by_course(
+        self,
+        course_id: str,
+        task_type: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return the latest task, optionally scoped to one capability type.
+
+        A course can own independent generation, import and slide-deck jobs.
+        The optional filter lets a product surface project only the job it owns
+        while preserving the legacy latest-task behaviour for existing callers.
+        """
         candidates = [
             task for task in self.tasks.values()
             if task.get("course_id") == course_id
+            and (task_type is None or task.get("type") == task_type)
         ]
         if not candidates:
             return None
@@ -2443,11 +2461,17 @@ class TaskManager:
                 continue
         return None
 
-    def get_generation_preview(self, course_id: str) -> dict[str, Any] | None:
+    def get_generation_preview(
+        self,
+        course_id: str,
+        *,
+        task_types: set[str] | None = None,
+    ) -> dict[str, Any] | None:
         """Project one active generation workspace into a user-safe read model."""
         candidates = [
             task for task in self.tasks.values()
             if task.get("course_id") == course_id and task.get("workspace_id")
+            and (task_types is None or str(task.get("type") or "") in task_types)
         ]
         candidates.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
         if not candidates:
@@ -6308,6 +6332,32 @@ class TaskManager:
         request = task.get("request_snapshot") or course_data.get("generation_request") or {}
         guided_workflow = task.get("guided_workflow")
         guided = isinstance(guided_workflow, dict)
+        # Teacher authoring owns everything after the confirmed outline through
+        # lesson-scoped jobs.  Finalize here before the shared guided workflow
+        # advances its current step to ``teaching``; otherwise a resumed queue
+        # item can accidentally enter the learner full-course plan/content path.
+        if (
+            task.get("type") == "teacher_outline_generation"
+            and guided
+            and guided_step_confirmed(guided_workflow, "outline")
+        ):
+            course_data["generation_status"] = "teacher_outline_confirmed"
+            course_data["authoring_surface"] = "teacher"
+            await self._save_task_course(task_id, course_data)
+            async with self._lock:
+                task["status"] = "completed"
+                task["phase"] = "teacher_outline_confirmed"
+                task["current_phase"] = "teacher_outline_confirmed"
+                task["progress"] = 100
+                task["phase_progress"] = 100
+                task["message"] = "课程大纲已确认，可选择任一讲生成教案"
+                task["current_nodes"] = []
+                task["current_node_name"] = ""
+                task["updated_at"] = datetime.now().isoformat()
+                task["heartbeat_at"] = task["updated_at"]
+                self.save_tasks(strict=True)
+            await self._push_progress(task_id)
+            return
         if guided and not guided_workflow.get("review_step"):
             current_guided_step = str(
                 guided_workflow.get("current_step") or "outline"
@@ -6329,7 +6379,12 @@ class TaskManager:
             course_data.get("course_blueprint")
             and knowledge_base.get("lifecycle_status") == "active"
         )
-        if task.get("type") == "course_generation" and not pipeline_ready:
+        is_outline_generation = task.get("type") in {
+            "course_generation",
+            "teacher_outline_generation",
+        }
+        is_teacher_outline = task.get("type") == "teacher_outline_generation"
+        if is_outline_generation and not pipeline_ready:
 
             async def on_phase(
                 phase: str,
@@ -6423,7 +6478,11 @@ class TaskManager:
                         "outline",
                         phase="outline_ready",
                         progress=35,
-                        message="课程目录等待确认；确认后将规划全课小节教案并生成正文",
+                        message=(
+                            "课程大纲等待确认；确认后可按讲生成教案"
+                            if is_teacher_outline
+                            else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+                        ),
                         revision=guided_artifact_revision(
                             "outline",
                             course_data,
@@ -6451,7 +6510,11 @@ class TaskManager:
                 await self._update_task_status(
                     task_id,
                     "waiting_for_review",
-                    message="课程目录等待确认；确认后将规划全课小节教案并生成正文",
+                    message=(
+                        "课程大纲等待确认；确认后可按讲生成教案"
+                        if is_teacher_outline
+                        else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+                    ),
                     completed_nodes=0,
                     total_nodes=int(outline_actual.get("section_count") or 0),
                 )
@@ -6466,6 +6529,25 @@ class TaskManager:
             course_data["blueprint_revision_id"] = frozen["blueprint_revision_id"]
             task["blueprint_revision_id"] = frozen["blueprint_revision_id"]
             await self._save_task_course(task_id, course_data)
+
+        if is_teacher_outline and not review_pending:
+            course_data["generation_status"] = "teacher_outline_confirmed"
+            course_data["authoring_surface"] = "teacher"
+            await self._save_task_course(task_id, course_data)
+            async with self._lock:
+                task["status"] = "completed"
+                task["phase"] = "teacher_outline_confirmed"
+                task["current_phase"] = "teacher_outline_confirmed"
+                task["progress"] = 100
+                task["phase_progress"] = 100
+                task["message"] = "课程大纲已确认，可选择任一讲生成教案"
+                task["current_nodes"] = []
+                task["current_node_name"] = ""
+                task["updated_at"] = datetime.now().isoformat()
+                task["heartbeat_at"] = task["updated_at"]
+                self.save_tasks(strict=True)
+            await self._push_progress(task_id)
+            return
 
         if task.get("type") == "course_generation" and not review_pending:
             if not course_data.get("course_knowledge_base"):

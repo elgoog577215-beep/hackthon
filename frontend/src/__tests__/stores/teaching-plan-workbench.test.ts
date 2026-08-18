@@ -8,7 +8,7 @@ const httpMock = vi.hoisted(() => ({
   post: vi.fn(),
 }))
 
-vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/http', () => ({ default: httpMock, getTeacherIdentity: () => 'teacher-test' }))
 
 import {
   useTeachingPlanWorkbenchStore,
@@ -94,7 +94,10 @@ describe('teaching plan workbench store', () => {
         base_course_document_revision: 'cdr-1',
         idempotency_key: expect.stringMatching(/^initialize_plan_/),
       }),
-      { silentError: true },
+      expect.objectContaining({
+        silentError: true,
+        headers: { 'X-User-Id': 'teacher-test' },
+      }),
     )
     expect(receipt).toEqual({ operation: 'initialize_teaching_plan_baseline' })
     expect(store.workbench?.available).toBe(true)
@@ -154,7 +157,10 @@ describe('teaching plan workbench store', () => {
     expect(httpMock.post).toHaveBeenCalledWith(
       '/api/courses/course-1/teaching-plan/drafts/draft-1/ai-candidates',
       expect.objectContaining({ paths, instruction: '重新设计当前小节' }),
-      { silentError: true },
+      expect.objectContaining({
+        silentError: true,
+        headers: { 'X-User-Id': 'teacher-test' },
+      }),
     )
     expect(candidate?.status).toBe('ready')
     expect(store.workbench?.current_plan_revision_id).toBe('tpr-1')

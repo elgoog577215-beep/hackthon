@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { getTeacherIdentity } from '../utils/http'
 import type { CourseTeachingPlanProjection } from './types'
 
 export interface TeachingPlanOperation {
@@ -9,6 +9,11 @@ export interface TeachingPlanOperation {
   after: unknown
   source?: 'manual' | 'ai' | 'restore'
 }
+
+const teacherRequestConfig = <T extends Record<string, unknown>>(extra?: T) => ({
+  headers: { 'X-User-Id': getTeacherIdentity() },
+  ...(extra || {}),
+})
 
 export interface TeachingPlanDraft {
   draft_id: string
@@ -155,7 +160,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
     } | null,
     loading: false,
     savingPaths: [] as string[],
-    pendingAction: '' as '' | 'initialize' | 'ai' | 'review' | 'apply' | 'restore' | 'discard',
+    pendingAction: '' as '' | 'confirmSource' | 'initialize' | 'ai' | 'review' | 'apply' | 'restore' | 'discard',
     errorCode: '',
     errorMessage: '',
     errorDetail: {} as Record<string, unknown>,
@@ -196,7 +201,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorMessage = ''
       this.errorDetail = {}
       try {
-        const { data } = await http.get(`/api/courses/${courseId}/teaching-plan/workbench`, { silentError: true })
+        const { data } = await http.get(`/api/courses/${courseId}/teaching-plan/workbench`, teacherRequestConfig({ silentError: true }))
         this.applyWorkbench(data.workbench)
         return this.workbench
       } catch (error) {
@@ -206,6 +211,30 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         throw error
       } finally {
         this.loading = false
+      }
+    },
+
+    async confirmGenerationPreview(courseId: string, sourceTaskId: string) {
+      if (!courseId) return null
+      this.pendingAction = 'confirmSource'
+      this.errorCode = ''
+      this.errorMessage = ''
+      this.errorDetail = {}
+      try {
+        const { data } = await http.post(
+          `/api/teacher/courses/${courseId}/authoring/confirm-generation-preview`,
+          { confirm: true, source_task_id: sourceTaskId },
+          teacherRequestConfig({ silentError: true }),
+        )
+        await this.load(courseId)
+        return data
+      } catch (error) {
+        this.errorCode = apiErrorCode(error)
+        this.errorMessage = apiErrorMessage(error)
+        this.errorDetail = apiErrorDetail(error)
+        throw error
+      } finally {
+        this.pendingAction = ''
       }
     },
 
@@ -221,7 +250,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
             base_course_document_revision: this.workbench.course_document_revision,
             idempotency_key: requestId('initialize_plan'),
           },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         return data.receipt || null
@@ -247,7 +276,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
             base_course_document_revision: this.workbench.course_document_revision,
             idempotency_key: requestId('create_draft'),
           },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         this.review = null
@@ -279,7 +308,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
             base_plan_revision_id: draft.base_plan_revision_id,
             idempotency_key: requestId('patch_draft'),
           },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         this.review = null
@@ -305,7 +334,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/validate`,
           { draft_id: draft.draft_id, idempotency_key: requestId('validate_draft') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.review = data.review
         return this.review
@@ -329,10 +358,10 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       try {
         const { data } = await http.delete(
           `/api/courses/${this.courseId}/teaching-plan/drafts/${draft.draft_id}`,
-          {
+          teacherRequestConfig({
             data: { idempotency_key: requestId('discard_draft') },
             silentError: true,
-          },
+          }),
         )
         this.applyWorkbench(data.workbench)
         this.review = null
@@ -357,7 +386,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/drafts/${draft.draft_id}/ai-candidates`,
           { paths, instruction, idempotency_key: requestId('ai_candidate') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         return this.workbench?.ai_candidates.find(item => item.status === 'ready') || null
@@ -380,7 +409,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/ai-candidates/${candidateId}/accept`,
           { operation_ids: operationIds, idempotency_key: requestId('ai_accept') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         return this.draft
@@ -401,7 +430,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/ai-candidates/${candidateId}/reject`,
           { idempotency_key: requestId('ai_reject') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
       } catch (error) {
@@ -420,10 +449,10 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       try {
         const { data } = await http.get(
           `/api/courses/${this.courseId}/teaching-plan/revisions/${revisionId}/diff`,
-          {
+          teacherRequestConfig({
             params: { against: this.workbench.current_plan_revision_id },
             silentError: true,
-          },
+          }),
         )
         this.revisionDiff = data
         return this.revisionDiff
@@ -445,7 +474,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/revisions/${revisionId}/restore`,
           { idempotency_key: requestId('restore_revision') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         this.revisionDiff = null
@@ -471,7 +500,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/change-sets`,
           { draft_id: draft.draft_id, idempotency_key: requestId('create_change_set') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         const changeSet = this.workbench?.change_sets.find(item => item.draft_id === draft.draft_id)
@@ -505,7 +534,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/change-sets/${changeSetId}/apply`,
           { idempotency_key: requestId('apply_change_set') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         this.review = null
@@ -529,7 +558,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         const { data } = await http.post(
           `/api/courses/${this.courseId}/teaching-plan/change-sets/${changeSetId}/reject`,
           { idempotency_key: requestId('reject_change_set') },
-          { silentError: true },
+          teacherRequestConfig({ silentError: true }),
         )
         this.applyWorkbench(data.workbench)
         this.review = null

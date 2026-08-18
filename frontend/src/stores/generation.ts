@@ -40,6 +40,33 @@ const ACTIVE_BACKEND_TASK_STATUSES = new Set([
 const backendTaskTimestamp = (task: Record<string, any>) => (
   Date.parse(String(task.updated_at || task.created_at || '')) || 0
 )
+const COURSE_LIFECYCLE_TASK_TYPES = new Set(['course_generation', 'course_import'])
+const DEFAULT_GLOBAL_TASK_BACKOFF_MS = 60_000
+const GLOBAL_TASK_POLL_INTERVAL_MS = 15_000
+
+export const canPollGlobalTasks = () => (
+  typeof document === 'undefined' || document.visibilityState === 'visible'
+)
+
+export const globalTaskRetryDelayMs = (error: unknown): number => {
+  const response = (error as any)?.response
+  if (Number(response?.status || 0) !== 429) return 0
+  const headers = response?.headers
+  const retryAfter = typeof headers?.get === 'function'
+    ? headers.get('retry-after')
+    : headers?.['retry-after'] ?? headers?.['Retry-After']
+  const seconds = Number(retryAfter)
+  return Number.isFinite(seconds) && seconds > 0
+    ? Math.max(1_000, seconds * 1_000)
+    : DEFAULT_GLOBAL_TASK_BACKOFF_MS
+}
+
+export const isCourseLifecycleBackendTask = (task: Record<string, any>) => {
+  const taskType = String(task?.type || '')
+  // Older persisted jobs did not always expose a type. Preserve their legacy
+  // course-generation projection while keeping newer PPT jobs out of it.
+  return !taskType || COURSE_LIFECYCLE_TASK_TYPES.has(taskType)
+}
 const generatingNodeLabel = (nodeName: string) => t(
   'courseGeneration.workspace.generatingNamed',
   '正在生成：{name}',
@@ -47,6 +74,7 @@ const generatingNodeLabel = (nodeName: string) => t(
 const currentBackendTasksByCourse = (tasks: Record<string, any>[]) => {
   const selected = new Map<string, Record<string, any>>()
   for (const task of tasks) {
+    if (!isCourseLifecycleBackendTask(task)) continue
     const courseId = String(task?.course_id || '')
     if (!courseId) continue
     const current = selected.get(courseId)
@@ -134,6 +162,8 @@ export const useGenerationStore = defineStore('generation', {
     tasks: new Map<string, Task>(),
     globalTasks: [] as any[],
     globalPollingTimer: null as number | null,
+    globalTasksLoading: false,
+    globalTasksBackoffUntil: 0,
     activeTaskId: null as string | null,
     taskProgress: {} as Record<string, TaskProgressState>,
     isGenerating: false,
@@ -857,8 +887,11 @@ export const useGenerationStore = defineStore('generation', {
     },
 
     async fetchGlobalTasks() {
+      if (this.globalTasksLoading || Date.now() < this.globalTasksBackoffUntil) return
+      this.globalTasksLoading = true
       try {
         const res = await http.get('/api/tasks?limit=100', { silentError: true })
+        this.globalTasksBackoffUntil = 0
         const listedTasks = Array.isArray(res.data) ? res.data : []
         const recoveredTasks = await this.reconcileMissingLocalTasks(listedTasks)
         this.globalTasks = [...listedTasks, ...recoveredTasks]
@@ -888,6 +921,7 @@ export const useGenerationStore = defineStore('generation', {
             else if (backendTask.status === 'conflict') localTask.status = 'conflict'
             localTask.progress = backendTask.progress
             localTask.id = backendTask.id
+            localTask.taskType = String(backendTask.type || localTask.taskType || '') || undefined
             if (backendTask.course_type) localTask.courseType = backendTask.course_type
             localTask.recovery = backendTask.recovery || undefined
             localTask.error = backendTask.error ? String(backendTask.error) : undefined
@@ -963,13 +997,25 @@ export const useGenerationStore = defineStore('generation', {
           this.lastGenerationPreviewRefreshAt = now
           await cs.refreshGenerationPreview(cs.currentCourseId)
         }
-      } catch (e) { console.error('Failed to fetch global tasks', e) }
+      } catch (e) {
+        const retryDelay = globalTaskRetryDelayMs(e)
+        if (retryDelay > 0) {
+          this.globalTasksBackoffUntil = Date.now() + retryDelay
+          return
+        }
+        console.error('Failed to fetch global tasks', e)
+      } finally {
+        this.globalTasksLoading = false
+      }
     },
 
     startGlobalMonitor() {
       if (this.globalPollingTimer) return
-      this.fetchGlobalTasks()
-      this.globalPollingTimer = window.setInterval(() => { this.fetchGlobalTasks() }, 5000)
+      const pollVisiblePage = () => {
+        if (canPollGlobalTasks()) void this.fetchGlobalTasks()
+      }
+      pollVisiblePage()
+      this.globalPollingTimer = window.setInterval(pollVisiblePage, GLOBAL_TASK_POLL_INTERVAL_MS)
     },
 
     stopGlobalMonitor() {

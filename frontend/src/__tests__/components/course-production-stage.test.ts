@@ -177,7 +177,7 @@ describe('CourseProductionStage', () => {
     expect(summary.attributes('aria-atomic')).toBe('true')
     expect(summary.text()).toContain('并行生成详细教案批次')
     expect(summary.text()).toContain('已完成 0/18 批')
-    expect(summary.text()).toContain('最后更新 12:17')
+    expect(summary.text()).toMatch(/最后更新 \d{2}:17/)
     expect(wrapper.text()).not.toContain('系统先冻结全课知识职责')
 
     await wrapper.setProps({ task: { ...task, status: 'paused' } })

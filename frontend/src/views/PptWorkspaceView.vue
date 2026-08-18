@@ -222,6 +222,10 @@ let workspaceAttempt = 0
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const courseId = computed(() => String(route.params.courseId || ''))
+const isTeacherSurface = computed(() => route.meta?.courseSurface === 'teacher')
+const teacherLessonId = computed(() => isTeacherSurface.value
+  ? String(route.query.lesson || route.query.node || '')
+  : '')
 const courseTitle = computed(() => (
   store.selectedSpec?.payload?.content?.title
   || courseStore.currentCourse?.course_name
@@ -413,6 +417,12 @@ const buildErrorLabel = computed(() => (
 async function loadWorkspace() {
   const id = courseId.value
   if (!id) return
+  store.setTeacherLessonScope(teacherLessonId.value)
+  if (isTeacherSurface.value && !teacherLessonId.value) {
+    documentLoadError.value = '请先从课程生产页选择一讲，再进入 PPT 工作台。'
+    initializing.value = false
+    return
+  }
   const attempt = ++workspaceAttempt
   initializing.value = true
   documentEnvelope.value = null
@@ -459,7 +469,10 @@ function isCurrentAttempt(id: string, attempt: number) {
 }
 
 async function loadDocumentEnvelope(id: string, attempt: number) {
-  const response = await http.get<CourseDocumentEnvelope>(`/api/courses/${id}/document`)
+  const endpoint = isTeacherSurface.value
+    ? `/api/teacher/courses/${id}/lessons/${teacherLessonId.value}/ppt-v6/source`
+    : `/api/courses/${id}/document`
+  const response = await http.get<CourseDocumentEnvelope>(endpoint)
   const envelope = response.data
   if (!envelope?.document || !isCurrentAttempt(id, attempt)) return null
   courseStore.applyCourseDocumentEnvelope(envelope)
@@ -716,7 +729,14 @@ async function cancelBuild() {
 }
 
 function backToCourse() {
-  void router.push({ name: 'learning', params: { courseId: courseId.value } })
+  const returnTo = String(route.query.returnTo || '')
+  if (returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+    void router.push(returnTo)
+    return
+  }
+  void router.push(isTeacherSurface.value
+    ? { name: 'teacher-course-production', params: { courseId: courseId.value }, query: { stage: 'ppt' } }
+    : { name: 'learning', params: { courseId: courseId.value } })
 }
 
 function openMaterials() {
@@ -731,6 +751,14 @@ async function closeMaterials() {
 }
 
 function openSameSourceCourse(state: PptSameSourceHighlightState) {
+  if (isTeacherSurface.value) {
+    void router.push({
+      name: 'teacher-course-production',
+      params: { courseId: state.courseId },
+      query: { stage: 'teaching', lesson: teacherLessonId.value, section: state.sectionId },
+    })
+    return
+  }
   void router.push({
     name: 'learning',
     params: { courseId: state.courseId, nodeId: state.sectionId },
@@ -745,11 +773,12 @@ function openAiForSlide(payload: { text: string; nodeId: string; anchor: Record<
   aiVisible.value = true
 }
 
-watch(courseId, loadWorkspace)
+watch([courseId, teacherLessonId], loadWorkspace)
 onMounted(() => {
   void loadWorkspace()
 })
 onUnmounted(() => {
+  store.setTeacherLessonScope('')
   templateAssetAttempt += 1
   templateStore.releaseAllAssets()
 })

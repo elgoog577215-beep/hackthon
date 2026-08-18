@@ -3,7 +3,7 @@
     <header class="generation-lesson-plan__header">
       <div class="generation-lesson-plan__intro">
         <div class="generation-lesson-plan__title-line">
-          <h2>{{ t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
+          <h2>{{ preferProvidedPlan ? '本讲教案' : t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
           <span class="generation-lesson-plan__status">{{ planStatusLabel }}</span>
         </div>
         <p v-if="live && !planReady">
@@ -130,7 +130,9 @@
         >
           <BookOpenCheck :size="16" />
           <span>
-            <strong>{{ t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
+            <strong>{{ preferSectionView
+              ? (preferProvidedPlan ? '本讲总览' : t('courseGeneration.lessonPlan.teacherOverallTab', '全课设计'))
+              : t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
           </span>
         </button>
         <button
@@ -143,7 +145,9 @@
         >
           <ListTree :size="16" />
           <span>
-            <strong>{{ t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
+            <strong>{{ preferSectionView
+              ? t('courseGeneration.lessonPlan.teacherSectionTab', '本讲教案')
+              : t('courseGeneration.lessonPlan.sectionsTab', '教学设计') }}</strong>
           </span>
         </button>
       </div>
@@ -304,7 +308,8 @@
       </footer>
     </section>
 
-    <section v-if="aiOpen && editing" class="generation-lesson-plan__ai-panel" aria-live="polite">
+    <Teleport defer :to="aiDockTarget || 'body'" :disabled="!aiDockTarget">
+    <section v-if="aiOpen && editing" class="generation-lesson-plan__ai-panel" :class="{ 'is-docked': aiDockTarget }" aria-live="polite">
       <header>
         <div>
           <span>{{ t('courseGeneration.lessonPlan.aiEyebrow', 'AI 只生成候选') }}</span>
@@ -397,6 +402,7 @@
         </footer>
       </div>
     </section>
+    </Teleport>
 
     <section v-if="historyOpen && activeWorkbench" class="generation-lesson-plan__history" aria-live="polite">
       <header>
@@ -917,7 +923,7 @@
                 <small>{{ t('courseGeneration.lessonPlan.flowEyebrow', '课堂路径') }}</small>
                 <strong>{{ t('courseGeneration.lessonPlan.flowTitle', '这一节怎样展开') }}</strong>
               </span>
-              <p>{{ t('courseGeneration.lessonPlan.flowHelp', '每个环节都绑定具体教学职责和知识范围，正文与课件沿用同一顺序。') }}</p>
+              <p>{{ preferProvidedPlan ? '每个环节都绑定具体教学职责和知识范围，本讲课件沿用同一课堂顺序。' : t('courseGeneration.lessonPlan.flowHelp', '每个环节都绑定具体教学职责和知识范围，正文与课件沿用同一顺序。') }}</p>
             </div>
 
             <ol v-if="selectedSection.plan.teaching_modules?.length">
@@ -1244,16 +1250,24 @@ const props = withDefaults(defineProps<{
   plan?: CourseTeachingPlanProjection | null
   nodes?: Node[]
   activeNodeId?: string
+  lessonUnitId?: string
+  preferProvidedPlan?: boolean
   courseId?: string
   live?: boolean
   task?: Task
+  aiDockTarget?: string
+  preferSectionView?: boolean
 }>(), {
   plan: null,
   nodes: () => [],
   activeNodeId: '',
+  lessonUnitId: '',
+  preferProvidedPlan: false,
   courseId: '',
   live: false,
   task: undefined,
+  aiDockTarget: '',
+  preferSectionView: false,
 })
 
 const emit = defineEmits<{
@@ -1261,6 +1275,7 @@ const emit = defineEmits<{
   (event: 'open-knowledge', knowledgeId: string): void
   (event: 'applied'): void
   (event: 'open-outline-editor', target: { endpoint: string; revisionField: string }): void
+  (event: 'ai-open-change', open: boolean): void
 }>()
 
 const workbenchStore = useTeachingPlanWorkbenchStore()
@@ -1275,7 +1290,9 @@ const actionBusy = ref(false)
 const pendingValues = ref<Record<string, unknown>>({})
 const patchTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const activeWorkbench = computed(() => (
-  workbenchStore.courseId === props.courseId ? workbenchStore.workbench : null
+  !props.preferProvidedPlan && workbenchStore.courseId === props.courseId
+    ? workbenchStore.workbench
+    : null
 ))
 const effectivePlan = computed(() => (
   activeWorkbench.value?.teaching_plan?.sections?.length
@@ -1285,7 +1302,10 @@ const effectivePlan = computed(() => (
 const planByNode = computed(() => new Map(
   (effectivePlan.value?.sections || []).map(section => [section.node_id, section]),
 ))
-const lessonNodes = computed(() => props.nodes.filter(node => node.node_level === 2))
+const lessonNodes = computed(() => props.nodes.filter(node => (
+  node.node_level === 2
+  && (!props.lessonUnitId || String(node.parent_node_id || '') === props.lessonUnitId)
+)))
 const sections = computed(() => lessonNodes.value.map(node => ({
   node,
   plan: planByNode.value.get(node.node_id),
@@ -1308,7 +1328,8 @@ const hasClassroomDetails = computed(() => Boolean(
 const previousSection = computed(() => selectedIndex.value > 0 ? sections.value[selectedIndex.value - 1] : undefined)
 const nextSection = computed(() => selectedIndex.value < sections.value.length - 1 ? sections.value[selectedIndex.value + 1] : undefined)
 const planReady = computed(() => (
-  effectivePlan.value?.status === 'completed' && Boolean(effectivePlan.value.sections?.length)
+  Boolean(effectivePlan.value?.sections?.length)
+  && (props.preferProvidedPlan || effectivePlan.value?.status === 'completed')
 ))
 const completedSections = computed(() => Number(
   props.task?.recovery?.checkpoint?.completed_teaching_plan_sections
@@ -1379,13 +1400,13 @@ const teachingModeSummary = computed(() => (
 ))
 const planStatusLabel = computed(() => (
   planReady.value
-    ? t('courseGeneration.lessonPlan.planReady', '全课已汇编')
+    ? (props.preferProvidedPlan ? '本讲教案已就绪' : t('courseGeneration.lessonPlan.planReady', '全课已汇编'))
     : props.live
       ? t('courseGeneration.lessonPlan.planBuilding', '生成进行中')
       : t('courseGeneration.lessonPlan.planPreview', '教案预览')
 ))
 const showWorkbenchControls = computed(() => (
-  Boolean(props.courseId) && !props.live
+  Boolean(props.courseId) && !props.live && !props.preferProvidedPlan
 ))
 const workbenchAvailable = computed(() => Boolean(activeWorkbench.value?.available))
 const editing = computed(() => Boolean(activeWorkbench.value?.draft))
@@ -1810,7 +1831,12 @@ function setAiScope(scope: 'overall' | 'section') {
 async function openAiAssistant(scope: 'overall' | 'section') {
   actionBusy.value = true
   try {
-    if (!editing.value) await workbenchStore.beginDraft()
+    if (!editing.value && activeWorkbench.value?.can_initialize) {
+      await workbenchStore.initializeBaseline()
+      await workbenchStore.beginDraft()
+    } else if (!editing.value) {
+      await workbenchStore.beginDraft()
+    }
     if (!workbenchStore.draft) return
     setAiScope(scope)
     aiOpen.value = true
@@ -1966,9 +1992,23 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.activeNodeId,
+  activeNodeId => {
+    if (props.preferSectionView && activeNodeId) viewMode.value = 'sections'
+  },
+  { immediate: true },
+)
+
 watch(activeAiCandidate, candidate => {
   selectedAiOperationIds.value = candidate?.operations.map(operation => operation.operation_id) || []
 }, { immediate: true })
+
+watch(aiOpen, open => emit('ai-open-change', open), { immediate: true })
+
+defineExpose({
+  openAiAssistant,
+})
 
 onMounted(() => window.addEventListener('beforeunload', handleBeforeUnload))
 
@@ -2070,6 +2110,8 @@ function openKnowledge(knowledgeId: string): void {
 
 <style scoped>
 .generation-lesson-plan {
+  container-name:lesson-plan;
+  container-type:inline-size;
   min-height:0;
   flex:1;
   overflow:auto;
@@ -2368,6 +2410,12 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__review-button.is-primary { border-color:#555fb7; color:#fff; background:#555fb7; }
 .generation-lesson-plan__review-button:disabled { opacity:.5; cursor:not-allowed; }
 .generation-lesson-plan__ai-panel { width:min(1180px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d7d2eb; border-radius:8px; background:#fbfbff; }
+.generation-lesson-plan__ai-panel.is-docked { box-sizing:border-box; width:100%; min-height:100%; margin:0; padding:16px; border:0; border-radius:0; background:var(--lz-surface,#fff); }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request { grid-template-columns:1fr; align-items:stretch; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request textarea { min-height:126px; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request > .generation-lesson-plan__review-button { width:100%; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__candidate-change > span { grid-template-columns:1fr; }
+.generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__candidate-change > span > svg { transform:rotate(90deg); }
 .generation-lesson-plan__ai-panel > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
 .generation-lesson-plan__ai-panel > header span { color:#665db2; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__ai-panel h3 { margin:4px 0 0; color:#293146; font-size:17px; line-height:1.4; }
@@ -2423,6 +2471,16 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__section-execution-editor label:first-child { grid-column:1 / -1; max-width:220px; }
 @keyframes lesson-plan-spin { to { transform:rotate(360deg); } }
 @keyframes lesson-plan-shimmer { to { background-position:-220% 0; } }
+@container lesson-plan (max-width:820px) {
+  .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:10px; }
+  .generation-lesson-plan__title-line { flex-wrap:wrap; }
+  .generation-lesson-plan__header h2 { white-space:nowrap; }
+  .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }
+  .generation-lesson-plan__workbench-controls { justify-content:flex-start; }
+  .generation-lesson-plan__overview-hero { grid-template-columns:minmax(0,1fr) minmax(170px,.32fr); gap:20px; padding:28px 30px 26px; }
+  .generation-lesson-plan__overview-hero::before { left:30px; }
+  .generation-lesson-plan__overview-hero h3 { font-size:23px; }
+}
 @media (max-width:900px) {
   .generation-lesson-plan__header { grid-template-columns:1fr; align-items:start; gap:10px; }
   .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }

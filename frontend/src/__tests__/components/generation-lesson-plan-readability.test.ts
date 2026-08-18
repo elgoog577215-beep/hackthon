@@ -137,6 +137,21 @@ describe('课程教案阅读尺度', () => {
     expect(wrapper.text()).toContain('本节知识标签')
     expect(wrapper.text()).toContain('用生活情境建立变化率直觉')
 
+    const teacherFocusedWrapper = mount(GenerationLessonPlan, {
+      props: {
+        nodes,
+        plan,
+        activeNodeId: 'section-1',
+        preferSectionView: true,
+      },
+    })
+    const teacherTabs = teacherFocusedWrapper.findAll('.generation-lesson-plan__view-switch button')
+    expect(teacherTabs[0]!.text()).toContain('全课设计')
+    expect(teacherTabs[1]!.text()).toContain('本讲教案')
+    expect(teacherTabs[1]!.attributes('aria-selected')).toBe('true')
+    expect(teacherFocusedWrapper.get('.generation-lesson-plan__section-title h3').text()).toBe('一次函数斜率')
+    expect(teacherFocusedWrapper.text()).not.toContain('从变化率出发理解一次函数')
+
     const sparsePlan = {
       ...plan,
       knowledge_point_count: 0,
