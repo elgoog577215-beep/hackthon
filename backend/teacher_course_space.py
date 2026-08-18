@@ -321,6 +321,52 @@ class TeacherCourseSpaceRepository:
     # `mat-*`，搬过来会切断那条链路。改为在教师自己的包下登记一条**引用条目**，
     # 不复制字节，下载/预览转发到底层。教师因此在文件空间看得见、管得着。
 
+    def locate_material_reference(
+        self,
+        material_asset_id: str,
+        *,
+        owner_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """反查一份 `mat-*` 资料被登记在哪个包、哪个文件夹下。
+
+        引用是**双向可查**的：正向靠条目上的 `material_asset_id` 取解析产物，
+        反向靠这里从资料回到"教师在文件空间的哪个位置能看到它"。少了反向，
+        资料出问题时只能全量翻包才能定位。
+
+        返回列表而不是单个：全局去重会让同一份底层资料被多位教师各自引用
+        （见 `register_material_reference` 的说明），所以反查天然是一对多。
+        `owner_id` 给定时只看该教师的包——这也是接口层该用的调用方式，
+        避免把别人的位置暴露出去。
+        """
+        target = str(material_asset_id or "").strip()
+        if not target:
+            return []
+        found: list[dict[str, Any]] = []
+        for path in sorted(self.root.glob("tcs-*/manifest.json")):
+            try:
+                package = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if owner_id and package.get("owner_id") != owner_id:
+                continue
+            for asset in package.get("assets") or []:
+                if asset.get("source_kind") != MATERIAL_REFERENCE_KIND:
+                    continue
+                if str(asset.get("material_asset_id") or "") != target:
+                    continue
+                relative_path = str(asset.get("relative_path") or "")
+                folder = relative_path.rsplit("/", 1)[0] if "/" in relative_path else ""
+                found.append({
+                    "package_id": str(package.get("package_id") or ""),
+                    "course_name": str(package.get("course_name") or ""),
+                    "owner_id": str(package.get("owner_id") or ""),
+                    "asset_id": str(asset.get("asset_id") or ""),
+                    "relative_path": relative_path,
+                    "folder": folder,
+                    "filename": str(asset.get("filename") or ""),
+                })
+        return found
+
     def default_material_package(self, owner_id: str) -> dict[str, Any]:
         """取该教师承接生成侧资料的包，没有就建一个。
 
