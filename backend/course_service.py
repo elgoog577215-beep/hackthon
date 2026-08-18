@@ -1517,22 +1517,49 @@ class CourseService(AIBase):
         )
         if section_node_id and not target_sections:
             raise ValueError(f"Lesson section not found: {section_node_id}")
-        source = {**deepcopy(plan), "sections": deepcopy(target_sections)}
+        # Keep the provider contract intentionally small.  Sending the complete
+        # plan-v3 knowledge graph made real providers return the large source
+        # object unchanged, which looked like a successful candidate but had no
+        # teacher-visible edits.  The compact contract carries only editable
+        # fields plus grounded knowledge facts; the original plan is merged
+        # back locally after validation.
+        from teacher_lesson_authoring import teacher_lesson_section_content
+
+        compact_sections = []
+        for item in target_sections:
+            view = teacher_lesson_section_content(item)
+            compact_sections.append({
+                "node_id": str(item.get("node_id") or ""),
+                "title": str(item.get("title") or item.get("node_name") or ""),
+                "learning_objective": view["learning_objective"],
+                "key_difficulties": view["key_difficulties"],
+                "teacher_activities": view["teacher_activities"],
+                "student_activities": view["student_activities"],
+                "homework": view["homework"],
+                "knowledge_context": {
+                    "statements": view["knowledge_statements"],
+                    "boundaries": view["knowledge_boundaries"],
+                    "misconceptions": view["misconceptions"],
+                },
+            })
         response = await self._call_llm(
-            "请根据教师要求优化下面的讲次教案，只输出完整 JSON。\n"
+            "请根据教师要求优化下面的教案小节，只输出 JSON。\n"
             f"教师要求：{normalized_instruction}\n"
             f"作用域：{'小节 ' + section_node_id if section_node_id else '整讲'}\n"
-            "必须保留 schema、node_id 和未要求改变的事实；不得生成课程正文。\n"
-            f"原教案：{json.dumps(source, ensure_ascii=False)}",
+            "根对象只能包含 sections；每个 section 必须保留 node_id，并完整返回以下五个可编辑字段："
+            "learning_objective 字符串、key_difficulties 字符串数组、teacher_activities 字符串数组、"
+            "student_activities 字符串数组、homework 字符串数组。"
+            "必须按教师要求产生可见修改，不得返回 knowledge_context，不得改写知识事实或生成学生课程正文。\n"
+            f"当前教案与知识依据：{json.dumps({'sections': compact_sections}, ensure_ascii=False)}",
             system_prompt=(
-                "你是高校教师教案优化助手。输出一个 JSON 对象，根键为 plan。"
-                "plan.sections 中的 node_id 必须与输入完全一致。"
+                "你是高校教师教案优化助手。输出一个 JSON 对象，根键为 sections。"
+                "sections 中的 node_id、数量和顺序必须与输入完全一致；修改必须具体、可执行、可对比。"
             ),
             use_fast_model=True,
             retry_count=1,
             enable_thinking=False,
-            max_tokens=8000,
-            max_input_tokens=10000,
+            max_tokens=6000,
+            max_input_tokens=8000,
             max_attempts=2,
             reject_truncated=True,
             raise_on_failure=True,
@@ -1540,25 +1567,50 @@ class CourseService(AIBase):
             model_role="teacher_lesson_plan_optimizer",
         )
         parsed = self._extract_json(response or "")
-        candidate = parsed.get("plan") if isinstance(parsed, dict) else None
-        if not isinstance(candidate, dict):
-            raise AIProviderRequestError("AI 教案优化未返回有效 plan JSON")
         candidate_sections = [
-            item for item in candidate.get("sections") or []
+            item for item in (parsed.get("sections") if isinstance(parsed, dict) else []) or []
             if isinstance(item, dict) and item.get("node_id")
         ]
         expected_ids = [str(item.get("node_id")) for item in target_sections]
         actual_ids = [str(item.get("node_id")) for item in candidate_sections]
         if actual_ids != expected_ids:
             raise AIProviderRequestError("AI 教案优化改变了小节身份或顺序")
-        if section_node_id:
-            replacement = {str(item.get("node_id")): item for item in candidate_sections}
-            merged = deepcopy(plan)
-            merged["sections"] = [
-                deepcopy(replacement.get(str(item.get("node_id")), item))
-                for item in sections
-            ]
-            candidate = merged
+        editable_fields = {
+            "learning_objective": str,
+            "key_difficulties": list,
+            "teacher_activities": list,
+            "student_activities": list,
+            "homework": list,
+        }
+        compact_by_id = {str(item["node_id"]): item for item in compact_sections}
+        replacements: dict[str, dict[str, Any]] = {}
+        changed = False
+        for item in candidate_sections:
+            node_id = str(item.get("node_id") or "")
+            original = next(section for section in target_sections if str(section.get("node_id")) == node_id)
+            replacement = deepcopy(original)
+            source_view = compact_by_id[node_id]
+            for field, expected_type in editable_fields.items():
+                value = item.get(field)
+                if expected_type is str:
+                    value = str(value or "").strip()
+                    if not value:
+                        raise AIProviderRequestError(f"AI 教案优化缺少 {field}")
+                else:
+                    if not isinstance(value, list):
+                        raise AIProviderRequestError(f"AI 教案优化字段 {field} 必须为数组")
+                    value = [str(entry).strip() for entry in value if str(entry).strip()]
+                replacement[field] = value
+                if value != source_view[field]:
+                    changed = True
+            replacements[node_id] = replacement
+        if not changed:
+            raise AIProviderRequestError("AI 教案优化没有产生可见变化，请换一种要求后重试")
+        candidate = deepcopy(plan)
+        candidate["sections"] = [
+            deepcopy(replacements.get(str(item.get("node_id")), item))
+            for item in sections
+        ]
         return {
             "plan": candidate,
             "scope_section_node_id": section_node_id,
