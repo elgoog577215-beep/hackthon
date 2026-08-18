@@ -220,11 +220,11 @@
                     {{ selectedLessonJobRunning ? '正在生成本讲教案' : '生成本讲教案' }}
                   </button>
                   <button
-                    v-else-if="!selectedLessonAsset?.confirmed_revision_id"
+                    v-else-if="!selectedLessonCurrentConfirmed"
                     type="button"
                     class="secondary-button"
                     @click="confirmSelectedLessonPlan"
-                  ><CheckCircle2 :size="15" />确认本讲版本</button>
+                  ><CheckCircle2 :size="15" />确认当前草稿</button>
                   <button v-else type="button" class="secondary-button" @click="generateSelectedLesson"><RefreshCw :size="15" />生成新草稿</button>
                 </div>
               </section>
