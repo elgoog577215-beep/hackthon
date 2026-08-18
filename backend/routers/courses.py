@@ -99,9 +99,12 @@ def _resume_summary(snapshot: dict | None) -> dict | None:
 def _list_courses_with_resume(user_id: str, known_task_ids: set[str]) -> list[dict]:
     courses = [
         course for course in storage.list_courses()
-        if course.get("is_published")
-        or not course.get("generation_job_id")
-        or str(course.get("generation_job_id")) in known_task_ids
+        if course.get("authoring_surface") != "teacher"
+        and (
+            course.get("is_published")
+            or not course.get("generation_job_id")
+            or str(course.get("generation_job_id")) in known_task_ids
+        )
     ]
     for course in courses:
         course_id = str(course.get("course_id") or "")
@@ -109,6 +112,15 @@ def _list_courses_with_resume(user_id: str, known_task_ids: set[str]) -> list[di
         if summary:
             course["resume"] = summary
     return courses
+
+
+def _list_teacher_courses(known_task_ids: set[str]) -> list[dict]:
+    return [
+        course for course in storage.list_courses()
+        if course.get("is_published")
+        or not course.get("generation_job_id")
+        or str(course.get("generation_job_id")) in known_task_ids
+    ]
 
 
 @router.get("/courses")
@@ -119,6 +131,14 @@ async def list_courses(
     user_id = resolve_user_id(request.headers.get("X-User-Id"))
     known_task_ids = {str(task_id) for task_id in tm.tasks}
     return await run_in_threadpool(_list_courses_with_resume, user_id, known_task_ids)
+
+
+@router.get("/teacher/courses")
+async def list_teacher_courses(
+    tm: TaskManager = Depends(require_task_manager),
+):
+    known_task_ids = {str(task_id) for task_id in tm.tasks}
+    return await run_in_threadpool(_list_teacher_courses, known_task_ids)
 
 
 @router.get("/courses/{course_id}")

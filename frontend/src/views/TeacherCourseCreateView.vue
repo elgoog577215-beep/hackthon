@@ -41,7 +41,7 @@
                 <label><span>{{ t('teacherCourseCreate.academicYear', '学年') }}</span><input v-model.trim="draft.academicYear" placeholder="2026-2027" /></label>
                 <label><span>{{ t('teacherCourseCreate.term', '学期') }}</span><select v-model="draft.term"><option value="">{{ t('teacherCourseCreate.termUnset', '暂不设置') }}</option><option>{{ t('teacherCourseCreate.autumnWinter', '秋冬') }}</option><option>{{ t('teacherCourseCreate.springSummer', '春夏') }}</option></select></label>
                 <label><span>{{ t('teacherCourseCreate.totalHours', '总学时') }}</span><input v-model.number="draft.totalHours" type="number" min="1" max="300" /></label>
-                <label><span>{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span><input v-model.number="draft.expectedSessions" type="number" min="1" max="120" /></label>
+                <label><span>{{ t('teacherCourseCreate.expectedSessions', '讲次数') }}</span><input v-model.number="draft.expectedSessions" type="number" min="1" max="120" /></label>
               </div></section>
               <section><h2>默认上课设置</h2><div class="form-grid schedule-grid">
                 <label><span>{{ t('teacherCourseCreate.lessonDuration', '单次课时长（分钟）') }}</span><input v-model.number="draft.lessonDuration" type="number" min="15" max="300" step="5" /></label>
@@ -86,7 +86,7 @@
       :initial-academic-term="academicTerm"
       :initial-total-class-hours="draft.totalHours"
       :initial-lesson-duration-minutes="draft.lessonDuration"
-      :initial-section-count="draft.expectedSessions"
+      :initial-chapter-count="draft.expectedSessions"
       @generate="generateCourse"
       @error="message => operationError = message"
     />
@@ -170,7 +170,10 @@ async function generateCourse(payload: { subject: string; options: CourseGenerat
   creating.value = true
   operationError.value = ''
   try {
-    const result = await courseStore.generateCourse(payload.subject, payload.options)
+    const result = await courseStore.generateCourse(payload.subject, {
+      ...payload.options,
+      teacher_authoring_mode: 'lesson_assets_v1',
+    })
     if (!result?.courseId) { operationError.value = t('courseLibrary.createFailed', '课程创建失败'); return }
     localStorage.removeItem(STORAGE_KEY)
     generationDialogOpen.value = false
