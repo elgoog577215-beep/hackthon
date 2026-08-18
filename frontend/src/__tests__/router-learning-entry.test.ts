@@ -34,4 +34,13 @@ describe('learning routes', () => {
     expect(router.resolve('/teacher/course/course-1/ppt').meta.courseSurface).toBe('teacher')
     expect(router.resolve('/teacher/teaching-calendar').name).toBe('teacher-teaching-calendar')
   })
+
+  it('教师命名空间中的未知地址只能回教师工作台', () => {
+    const rootFallback = router.getRoutes().find(route => route.path === '/teacher')
+    const nestedFallback = router.getRoutes().find(route => route.path === '/teacher/:pathMatch(.*)*')
+
+    expect(rootFallback?.redirect).toBe('/teacher/courses')
+    expect(nestedFallback?.redirect).toBe('/teacher/courses')
+    expect(router.resolve('/teacher/not-a-real-page').matched.at(-1)?.path).toBe('/teacher/:pathMatch(.*)*')
+  })
 })
