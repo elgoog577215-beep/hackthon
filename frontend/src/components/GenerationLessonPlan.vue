@@ -3,7 +3,7 @@
     <header class="generation-lesson-plan__header">
       <div class="generation-lesson-plan__intro">
         <div class="generation-lesson-plan__title-line">
-          <h2>{{ t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
+          <h2>{{ preferProvidedPlan ? '本讲教案' : t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
           <span class="generation-lesson-plan__status">{{ planStatusLabel }}</span>
         </div>
         <p v-if="live && !planReady">
@@ -131,7 +131,7 @@
           <BookOpenCheck :size="16" />
           <span>
             <strong>{{ preferSectionView
-              ? t('courseGeneration.lessonPlan.teacherOverallTab', '全课设计')
+              ? (preferProvidedPlan ? '本讲总览' : t('courseGeneration.lessonPlan.teacherOverallTab', '全课设计'))
               : t('courseGeneration.lessonPlan.overallTab', '教学大纲') }}</strong>
           </span>
         </button>
@@ -1022,7 +1022,7 @@
                 <small>{{ t('courseGeneration.lessonPlan.flowEyebrow', '课堂路径') }}</small>
                 <strong>{{ t('courseGeneration.lessonPlan.flowTitle', '这一节怎样展开') }}</strong>
               </span>
-              <p>{{ t('courseGeneration.lessonPlan.flowHelp', '每个环节都绑定具体教学职责和知识范围，正文与课件沿用同一顺序。') }}</p>
+              <p>{{ preferProvidedPlan ? '每个环节都绑定具体教学职责和知识范围，本讲课件沿用同一课堂顺序。' : t('courseGeneration.lessonPlan.flowHelp', '每个环节都绑定具体教学职责和知识范围，正文与课件沿用同一顺序。') }}</p>
             </div>
 
             <ol v-if="selectedSection.plan.teaching_modules?.length">
@@ -1353,6 +1353,8 @@ const props = withDefaults(defineProps<{
   plan?: CourseTeachingPlanProjection | null
   nodes?: Node[]
   activeNodeId?: string
+  lessonUnitId?: string
+  preferProvidedPlan?: boolean
   courseId?: string
   live?: boolean
   task?: Task
@@ -1362,6 +1364,8 @@ const props = withDefaults(defineProps<{
   plan: null,
   nodes: () => [],
   activeNodeId: '',
+  lessonUnitId: '',
+  preferProvidedPlan: false,
   courseId: '',
   live: false,
   task: undefined,
@@ -1389,7 +1393,9 @@ const actionBusy = ref(false)
 const pendingValues = ref<Record<string, unknown>>({})
 const patchTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const activeWorkbench = computed(() => (
-  workbenchStore.courseId === props.courseId ? workbenchStore.workbench : null
+  !props.preferProvidedPlan && workbenchStore.courseId === props.courseId
+    ? workbenchStore.workbench
+    : null
 ))
 const effectivePlan = computed(() => (
   activeWorkbench.value?.teaching_plan?.sections?.length
@@ -1399,7 +1405,10 @@ const effectivePlan = computed(() => (
 const planByNode = computed(() => new Map(
   (effectivePlan.value?.sections || []).map(section => [section.node_id, section]),
 ))
-const lessonNodes = computed(() => props.nodes.filter(node => node.node_level === 2))
+const lessonNodes = computed(() => props.nodes.filter(node => (
+  node.node_level === 2
+  && (!props.lessonUnitId || String(node.parent_node_id || '') === props.lessonUnitId)
+)))
 const sections = computed(() => lessonNodes.value.map(node => ({
   node,
   plan: planByNode.value.get(node.node_id),
@@ -1426,7 +1435,8 @@ const hasClassroomDetails = computed(() => Boolean(
 const previousSection = computed(() => selectedIndex.value > 0 ? sections.value[selectedIndex.value - 1] : undefined)
 const nextSection = computed(() => selectedIndex.value < sections.value.length - 1 ? sections.value[selectedIndex.value + 1] : undefined)
 const planReady = computed(() => (
-  effectivePlan.value?.status === 'completed' && Boolean(effectivePlan.value.sections?.length)
+  Boolean(effectivePlan.value?.sections?.length)
+  && (props.preferProvidedPlan || effectivePlan.value?.status === 'completed')
 ))
 const completedSections = computed(() => Number(
   props.task?.recovery?.checkpoint?.completed_teaching_plan_sections
@@ -1497,13 +1507,13 @@ const teachingModeSummary = computed(() => (
 ))
 const planStatusLabel = computed(() => (
   planReady.value
-    ? t('courseGeneration.lessonPlan.planReady', '全课已汇编')
+    ? (props.preferProvidedPlan ? '本讲教案已就绪' : t('courseGeneration.lessonPlan.planReady', '全课已汇编'))
     : props.live
       ? t('courseGeneration.lessonPlan.planBuilding', '生成进行中')
       : t('courseGeneration.lessonPlan.planPreview', '教案预览')
 ))
 const showWorkbenchControls = computed(() => (
-  Boolean(props.courseId) && !props.live
+  Boolean(props.courseId) && !props.live && !props.preferProvidedPlan
 ))
 const workbenchAvailable = computed(() => Boolean(activeWorkbench.value?.available))
 const editing = computed(() => Boolean(activeWorkbench.value?.draft))

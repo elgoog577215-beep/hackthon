@@ -24,6 +24,9 @@ describe('teacher/student shared capability isolation', () => {
     expect(isCourseLifecycleBackendTask({})).toBe(true)
     expect(isCourseLifecycleBackendTask({ type: 'slide_deck_variant_build' })).toBe(false)
     expect(isCourseLifecycleBackendTask({ type: 'teaching_representation_build' })).toBe(false)
+    expect(isCourseLifecycleBackendTask({ type: 'teacher_outline_generation' })).toBe(false)
+    expect(isCourseLifecycleBackendTask({ type: 'teacher_lesson_plan_generation' })).toBe(false)
+    expect(isCourseLifecycleBackendTask({ type: 'teacher_lesson_ppt_generation' })).toBe(false)
   })
 
   it('opens the shared PPT capability through a teacher-owned route', () => {
@@ -34,7 +37,7 @@ describe('teacher/student shared capability isolation', () => {
       name: 'teacher-ppt-workspace',
       params: { courseId: 'course-1' },
       query: {
-        node: 'lesson-2',
+        lesson: 'lesson-2',
         returnTo: '/teacher/course/course-1/production?stage=ppt',
       },
     })

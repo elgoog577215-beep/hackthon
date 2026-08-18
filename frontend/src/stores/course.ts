@@ -197,10 +197,11 @@ export const useCourseStore = defineStore('course', {
         } catch (error) { logger.error(error); throw error }
     },
 
-    async fetchCourseList() {
+    async fetchCourseList(options: { surface?: 'student' | 'teacher' } = {}) {
         this.loading = true
         try {
-            const res = await http.get('/api/courses')
+            const endpoint = options.surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
+            const res = await http.get(endpoint)
             this.courseList = res.data
         } catch (error) {
             logger.error(error)
@@ -212,6 +213,8 @@ export const useCourseStore = defineStore('course', {
     async loadCourse(courseId: string, options: {
         includeLearningRecords?: boolean
         taskType?: string
+        monitorTask?: boolean
+        previewSurface?: 'student' | 'teacher'
     } = {}) {
         this.loading = true
         this.currentCourseId = courseId
@@ -256,7 +259,10 @@ export const useCourseStore = defineStore('course', {
                     if (typeof taskData.publication_allowed === 'boolean') {
                         localTask.publicationAllowed = taskData.publication_allowed
                     }
-                    if (taskData.status === 'running' || taskData.status === 'pending') {
+                    if (
+                        options.monitorTask !== false
+                        && (taskData.status === 'running' || taskData.status === 'pending')
+                    ) {
                         genStore.startGlobalMonitor()
                     }
                 }
@@ -265,7 +271,7 @@ export const useCourseStore = defineStore('course', {
             if (
                 backendTask
                 && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
-                && await this.refreshGenerationPreview(courseId)
+                && await this.refreshGenerationPreview(courseId, options.previewSurface)
             ) {
                 genStore.syncCurrentCourseGenerationState(
                     courseId,
@@ -279,7 +285,7 @@ export const useCourseStore = defineStore('course', {
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
-                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId)) {
+                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId, options.previewSurface)) {
                     return
                 }
                 if (options.includeLearningRecords !== false) {
@@ -423,14 +429,17 @@ export const useCourseStore = defineStore('course', {
         this.currentCourseSourceFormat = 'canonical'
     },
 
-    async refreshGenerationPreview(courseId: string): Promise<boolean> {
+    async refreshGenerationPreview(courseId: string, surface: 'student' | 'teacher' = 'student'): Promise<boolean> {
         if (this.currentCourseId !== courseId || this.generationPreviewLoading) {
             return this.currentCourseProjection === 'generation_preview'
         }
         this.generationPreviewLoading = true
         try {
+            const endpoint = surface === 'teacher'
+                ? `/api/teacher/courses/${courseId}/generation-preview`
+                : `/api/courses/${courseId}/generation-preview`
             const response = await http.get<GenerationPreviewEnvelope>(
-                `/api/courses/${courseId}/generation-preview`,
+                endpoint,
                 { silentError: true },
             )
             const preview = response.data
