@@ -191,12 +191,15 @@ def test_teacher_only_course_is_hidden_from_student_list(monkeypatch):
         {
             "course_id": "teacher-course",
             "generation_job_id": "teacher-job",
-            "authoring_surface": "teacher",
         },
     ]
     monkeypatch.setattr(courses_router.storage, "list_courses", lambda: courses)
     monkeypatch.setattr(courses_router.learning_snapshot_repository, "load", lambda *_args: None)
-    student = courses_router._list_courses_with_resume("learner", {"teacher-job"})
+    student = courses_router._list_courses_with_resume(
+        "learner",
+        {"teacher-job"},
+        {"teacher-course"},
+    )
     teacher = courses_router._list_teacher_courses({"teacher-job"})
     assert [item["course_id"] for item in student] == ["student-course"]
     assert [item["course_id"] for item in teacher] == ["student-course", "teacher-course"]
