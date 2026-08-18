@@ -209,3 +209,219 @@ async def test_upload_without_identity_still_works(stores, monkeypatch):
 
     assert payload["asset_id"].startswith("mat-")
     assert payload["course_space"] == {"registered": False}
+
+
+# --- 引用的双向可查 ---------------------------------------------------------
+# 引用只有单向可用是不够的：资料出问题时，得能从解析产物反查"教师在文件空间的
+# 哪个位置能看到它"，否则只能全量翻包。
+
+@pytest.mark.asyncio
+async def test_forward_lookup_reaches_the_parsed_artifacts(stores, monkeypatch):
+    """正向：从文件空间的引用条目，能取到底层解析产物。
+
+    这正是"不搬存储"的收益——引用留在文件空间，解析链路仍在 material_storage。
+    """
+    materials, space = stores
+    monkeypatch.setattr("material_storage.material_repository", materials)
+    asset = await materials.save_upload(_Upload("讲义.md", b"# vectors"))
+    # 模拟解析阶段的产物落盘（真实链路由 material_parser 写）
+    materials.save_evidence(asset.asset_id, [{"unit_id": "e1", "text": "向量的定义"}])
+
+    reference = space.register_material_reference("teacher-a", asset)
+    package = space.load_owned(reference["package_id"], "teacher-a")
+    entry = next(
+        item for item in package["assets"]
+        if item["asset_id"] == reference["asset_id"]
+    )
+
+    # 条目上带着底层 id，据此就能拿到解析产物
+    material_asset_id = entry["material_asset_id"]
+    assert materials.get_asset(material_asset_id) is not None
+    assert materials.load_evidence(material_asset_id) == [
+        {"unit_id": "e1", "text": "向量的定义"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reverse_lookup_finds_the_package_and_folder(stores):
+    """反向：从 `mat-*` 反查它在哪个包、哪个文件夹下。"""
+    materials, space = stores
+    asset = await materials.save_upload(_Upload("讲义.md", b"# reverse"))
+    reference = space.register_material_reference("teacher-a", asset)
+
+    located = space.locate_material_reference(asset.asset_id)
+
+    assert len(located) == 1
+    assert located[0]["package_id"] == reference["package_id"]
+    assert located[0]["asset_id"] == reference["asset_id"]
+    assert located[0]["folder"] == "生成资料"
+    assert located[0]["filename"] == "讲义.md"
+    assert located[0]["owner_id"] == "teacher-a"
+
+
+@pytest.mark.asyncio
+async def test_reverse_lookup_is_one_to_many_and_can_be_scoped_to_one_owner(stores):
+    """全局去重会让同一份资料被多位教师各自引用，所以反查天然一对多。
+
+    按 owner 收窄是接口层该用的调用方式——否则会把别人的位置暴露出去。
+    """
+    materials, space = stores
+    shared = b"# shared"
+    asset_a = await materials.save_upload(_Upload("讲义.md", shared))
+    asset_b = await materials.save_upload(_Upload("讲义.md", shared))
+    space.register_material_reference("teacher-a", asset_a)
+    space.register_material_reference("teacher-b", asset_b)
+
+    everywhere = space.locate_material_reference(asset_a.asset_id)
+    only_a = space.locate_material_reference(asset_a.asset_id, owner_id="teacher-a")
+
+    assert {item["owner_id"] for item in everywhere} == {"teacher-a", "teacher-b"}
+    assert [item["owner_id"] for item in only_a] == ["teacher-a"]
+
+
+def test_reverse_lookup_of_unknown_material_returns_empty(stores):
+    _materials, space = stores
+    assert space.locate_material_reference("mat-does-not-exist") == []
+    assert space.locate_material_reference("") == []
+
+
+# --- 幂等：重复上传与生成重跑都不得产生重复条目 -----------------------------
+
+@pytest.mark.asyncio
+async def test_uploading_the_same_file_twice_yields_one_entry(stores, monkeypatch):
+    """同一份资料重复上传：走完整的上传接口，文件空间只应有一条。
+
+    这条比直接调 register 更接近真实——`save_upload` 的全局去重会返回同一个
+    `mat-*`，登记侧必须据此判重。
+    """
+    from routers import materials as materials_router
+
+    materials, space = stores
+    monkeypatch.setattr(materials_router, "material_repository", materials)
+    monkeypatch.setattr(
+        materials_router, "teacher_course_space_repository", space,
+    )
+
+    first = await materials_router.upload_material(
+        file=_Upload("讲义.md", b"# same bytes"),
+        upload_batch_id="b1", x_user_id="teacher-a",
+    )
+    second = await materials_router.upload_material(
+        file=_Upload("讲义.md", b"# same bytes"),
+        upload_batch_id="b2", x_user_id="teacher-a",
+    )
+
+    assert first["asset_id"] == second["asset_id"]  # 底层全局去重
+    assert first["course_space"]["registered"] is True
+    assert second["course_space"]["registered"] is True
+    assert len(_references(space, "teacher-a")) == 1, "重复上传不得产生第二条引用"
+
+
+@pytest.mark.asyncio
+async def test_regeneration_reusing_the_same_material_does_not_duplicate(stores):
+    """生成重跑：同一份资料被反复绑定/引用，条目数必须稳定。
+
+    重跑是常态（语义重试、纠正轮、教师手动重生成），每跑一次多一条引用的话，
+    文件空间很快就会被同名条目淹没。
+    """
+    materials, space = stores
+    asset = await materials.save_upload(_Upload("讲义.md", b"# reused"))
+
+    for round_index in range(5):
+        materials.bind_asset(asset.asset_id, f"course-{round_index}")
+        space.register_material_reference("teacher-a", asset)
+
+    references = _references(space, "teacher-a")
+    assert len(references) == 1
+    # 幂等不是"跳过写入"，底层绑定该累积的仍然累积
+    assert len(materials.get_asset(asset.asset_id).bound_course_ids) == 5
+
+
+@pytest.mark.asyncio
+async def test_reregistering_after_deletion_creates_a_fresh_entry(stores):
+    """删掉之后再传同一份资料，应当重新出现——幂等不能退化成"删了就再也回不来"。"""
+    materials, space = stores
+    asset = await materials.save_upload(_Upload("讲义.md", b"# re-add"))
+    first = space.register_material_reference("teacher-a", asset)
+    package = space.load_owned(first["package_id"], "teacher-a")
+    space.delete_asset(package, first["asset_id"])
+    assert _references(space, "teacher-a") == []
+
+    again = space.register_material_reference("teacher-a", asset)
+
+    assert again["outcome"] == "registered"
+    assert len(_references(space, "teacher-a")) == 1
+
+
+# --- 与 F-2（生成产物入文件空间）的共存 -------------------------------------
+# lz-course-gen 的 F-2 也往同一个 package["assets"] 里写条目，但用的是
+# `origin="course_generation"`，我用的是 `source_kind="material_reference"`
+# ——**两个不同字段表达重叠的意图**。已用 F-2 的真实代码验证过互不踩，
+# 这里把结论钉住，避免任一侧改动时悄悄破坏另一侧。
+#
+# 两边的语义差异与建议见 NOTES 20.6 / 21.3，我没有改对方的文件。
+
+def _generated_artifact_entry() -> dict:
+    """按 F-2 的形状造一条生成产物条目（有真实字节，带 origin）。"""
+    return {
+        "asset_id": "tca-generated-1",
+        "filename": "课程大纲.md",
+        "relative_path": "01、教学设计/generated/课程大纲.md",
+        "stored_name": "tca-generated-1.md",
+        "materialized_path": "01、教学设计/generated/课程大纲.md",
+        "extension": ".md",
+        "size_bytes": 12,
+        "sha256": "deadbeef",
+        "suggested_category": "teaching_design",
+        "category": "teaching_design",
+        "category_reason": "",
+        "import_batch_id": "",
+        "uploaded_at": "2026-08-18T00:00:00+00:00",
+        "origin": "course_generation",
+    }
+
+
+@pytest.mark.asyncio
+async def test_material_reference_is_not_mistaken_for_a_generated_artifact(stores):
+    """我的引用条目不带 `origin`，所以 F-2 的守卫会把它当"教师自有文件"保护。
+
+    F-2 的逻辑是 `if existing.origin != "course_generation": 记 conflict 不覆盖`，
+    引用条目的 origin 为空 → 不等于 → 受保护。这正是期望行为：教师上传的资料
+    不该被重生成的产物覆盖掉。
+    """
+    materials, space = stores
+    asset = await materials.save_upload(_Upload("教师讲义.md", b"# teacher"))
+    reference = space.register_material_reference("teacher-a", asset)
+    package = space.load_owned(reference["package_id"], "teacher-a")
+    entry = next(item for item in package["assets"] if item["asset_id"] == reference["asset_id"])
+
+    assert entry.get("source_kind") == MATERIAL_REFERENCE_KIND
+    assert str(entry.get("origin") or "") != "course_generation", (
+        "引用条目必须不带 course_generation，否则会被 F-2 的重生成覆盖"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generated_artifacts_keep_their_own_delete_and_download_path(stores):
+    """反向：F-2 的产物条目没有 `source_kind`，在我这边走包内副本分支。
+
+    不能因为我加了引用分支，就把有真实字节的产物也当成引用去转发——
+    那会让 F-2 的产物下载不到。
+    """
+    materials, space = stores
+    asset = await materials.save_upload(_Upload("教师讲义.md", b"# teacher"))
+    reference = space.register_material_reference("teacher-a", asset)
+    package = space.load_owned(reference["package_id"], "teacher-a")
+
+    package["assets"].append(_generated_artifact_entry())
+    space.save(package)
+    reloaded = space.load_owned(reference["package_id"], "teacher-a")
+    generated = next(
+        item for item in reloaded["assets"] if item["asset_id"] == "tca-generated-1"
+    )
+
+    # 产物不是引用 -> 删除时会清理它的包内副本（F-2 期望的行为）
+    assert generated.get("source_kind") != MATERIAL_REFERENCE_KIND
+    # 反查只认引用条目，不会把产物误报成资料
+    located = space.locate_material_reference(asset.asset_id, owner_id="teacher-a")
+    assert [item["asset_id"] for item in located] == [reference["asset_id"]]
