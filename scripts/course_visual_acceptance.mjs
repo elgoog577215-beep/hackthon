@@ -33,7 +33,7 @@
  * 判据不是"截图拍到了"，而是每个场景都断言了可观察结果；任何一条失败即退出非零。
  */
 import { mkdir, writeFile, rm } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve, join } from 'node:path'
 import { createRequire } from 'node:module'
@@ -69,7 +69,7 @@ const { chromium } = require(resolvePlaywright())
 function parseArgs(argv) {
   const args = {
     course: '', out: '', nodes: 6, print: false, url: '', selector: '',
-    mathFirst: false, printOnly: false,
+    mathFirst: false, printOnly: false, courseId: '', dataDir: '',
   }
   for (let i = 2; i < argv.length; i += 1) {
     if (argv[i] === '--course') args.course = argv[++i]
@@ -84,8 +84,32 @@ function parseArgs(argv) {
     // 跳过屏幕态的布局判据，只跑打印两态。屏幕态由不带 --print 的常规模式覆盖，
     // 大批量跑打印验收时没必要重复。
     else if (argv[i] === '--print-only') { args.printOnly = true; args.print = true }
+    // 真机课程落在 `$LINGZHI_DATA_DIR/courses/<id>.json`；跑冒烟的人手上只有
+    // course_id，让脚本自己解析，避免每次手拼路径。
+    else if (argv[i] === '--course-id') args.courseId = argv[++i]
+    else if (argv[i] === '--data-dir') args.dataDir = argv[++i]
   }
   return args
+}
+
+/** 把 `--course-id` 解析成实际文件路径。 */
+function resolveCourseFile(args) {
+  if (args.course) return resolve(ROOT, args.course)
+  if (!args.courseId) return ''
+  const roots = [
+    args.dataDir,
+    process.env.LINGZHI_DATA_DIR,
+    resolve(ROOT, 'backend/data'),
+  ].filter(Boolean)
+  for (const root of roots) {
+    const candidate = resolve(root, 'courses', `${args.courseId}.json`)
+    if (existsSync(candidate)) return candidate
+  }
+  throw new Error(
+    `找不到课程 ${args.courseId}。找过：\n` +
+    roots.map(r => `  ${resolve(r, 'courses', `${args.courseId}.json`)}`).join('\n') +
+    '\n用 --data-dir 指定运行时数据目录，或直接用 --course <文件路径>。',
+  )
 }
 
 /** 正文里有没有会被渲染成公式的标记。 */
@@ -382,11 +406,12 @@ async function writeResult(outputDir, { title, subject, scenarioNote, failures, 
 
 async function main() {
   const args = parseArgs(process.argv)
-  if (!args.course && !args.url) {
+  if (!args.course && !args.url && !args.courseId) {
     console.error(
       '用法:\n' +
       '  node scripts/course_visual_acceptance.mjs --course <course.json> [--out <dir>] [--nodes N] [--print]\n' +
       '  node scripts/course_visual_acceptance.mjs --url <页面地址> [--selector <根选择器>] --print [--out <dir>]\n' +
+      '  node scripts/course_visual_acceptance.mjs --course-id <课程ID> [--data-dir <运行时数据目录>] --print\n' +
       '\n' +
       '--url 模式对着一个已经跑起来的页面判定，不需要改被测组件。\n' +
       '统一模板进 main 后，对它跑这道关卡就是 --url 加 --selector .lesson-dossier。',
@@ -400,7 +425,14 @@ async function main() {
     return await auditLiveUrl(args, outputDir)
   }
 
-  const course = JSON.parse(readFileSync(resolve(ROOT, args.course), 'utf8'))
+  let coursePath
+  try {
+    coursePath = resolveCourseFile(args)
+  } catch (error) {
+    console.error(String(error.message || error))
+    return 2
+  }
+  const course = JSON.parse(readFileSync(coursePath, 'utf8'))
   const all = extractBodies(course)
   if (!all.length) {
     console.error('这门课没有可渲染的正文。')
@@ -581,7 +613,7 @@ async function main() {
   const title = course.course_name || (course.course_document || {}).title || course.course_id || ''
   await writeResult(outputDir, {
     title,
-    subject: `课程文件 \`${args.course}\``,
+    subject: `课程文件 \`${args.course || coursePath}\``,
     scenarioNote:
       `每场景抽查最长的 ${bodies.length} 节正文，共 ${shots} 张截图` +
       (args.print ? '；每节额外在 print 媒体下判定一次' : ''),
