@@ -16,7 +16,11 @@ from models import CourseGenerationRequest, LocateNodeRequest, NodeGenerationCon
 from course_type_contracts import ENABLED_COURSE_TYPES
 from storage import storage
 from course_service import get_course_service
-from course_space_publication import publish_course_artifacts
+from course_space_publication import (
+    MISSING_TEACHER_IDENTITY,
+    SKIP_MESSAGES,
+    publish_course_artifacts,
+)
 from learning_progress import project_learning_objective_bindings
 from dependencies import (
     get_course_document_repository,
@@ -27,7 +31,7 @@ from dependencies import (
 from course_repository import CourseMigrationConflict
 from storage_utils import save_course_compat
 from task_manager import TaskManager
-from learner_context import resolve_user_id
+from learner_context import DEFAULT_USER_ID, resolve_user_id
 from learning_snapshots import learning_snapshot_repository
 from web_material_curation import (
     CURATION_METADATA_KEY,
@@ -372,7 +376,22 @@ async def publish_course_to_space(course_id: str, request: Request):
     同一套幂等规则（同路径同内容跳过、老师手动上传不覆盖），所以重复调用安全。
     """
     course_data = await get_course_or_404(course_id)
-    owner_id = resolve_user_id(request.headers.get("X-User-Id"))
+    # 与教师课程空间自身的写入口径一致（那边用 require_user_id）：缺身份或用了
+    # 共享的 default_user 都不能建包——否则产物会落进一个所有人共用的空间，
+    # 而且老师只会看到"没入库"，分不清是系统坏了还是身份没带上。
+    owner_id = str(request.headers.get("X-User-Id") or "").strip()
+    if not owner_id or owner_id == DEFAULT_USER_ID:
+        return {
+            "status": "skipped",
+            "course_id": course_id,
+            "package_id": "",
+            "written": [],
+            "unchanged": [],
+            "conflicts": [],
+            "failures": [],
+            "reason": MISSING_TEACHER_IDENTITY,
+            "message": SKIP_MESSAGES[MISSING_TEACHER_IDENTITY],
+        }
     report = await run_in_threadpool(
         publish_course_artifacts,
         course_data,
@@ -387,4 +406,7 @@ async def publish_course_to_space(course_id: str, request: Request):
         "conflicts": report.get("conflicts") or [],
         "failures": report.get("failures") or [],
         "reason": report.get("reason"),
+        # 跳过时必须说清是哪一种原因（缺教师身份 / 缺 course_id / 没有产物），
+        # 笼统的"入库失败"会把可自助修复的问题变成一张工单。
+        "message": report.get("message") or "",
     }
