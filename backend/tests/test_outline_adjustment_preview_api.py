@@ -244,3 +244,71 @@ def test_adjustment_apply_is_bound_to_previewed_operations_and_ignores_tampered_
     )
     assert rejected.status_code == 409
     assert len(repository.saved) == 1
+
+
+# --- D-1b：大纲确认页取的是 /blueprint，覆盖度判断必须走到这里 -------------
+
+
+def test_blueprint_endpoint_exposes_the_coverage_verdict(monkeypatch):
+    """确认页读 /blueprint，所以覆盖度必须挂在这个响应上。"""
+    course = _canonical_course()
+    course["generation_stage_artifacts"] = {
+        "outline": {
+            "course_coverage_verdict": {
+                "subject": "微积分",
+                "status": "partial",
+                "scale": "micro",
+                "scale_label": "微型课",
+                "class_hours": 8,
+                "may_claim_complete_subject": False,
+                "coverage_promise": "只覆盖一个可检查的核心切面",
+                "required_positioning": "微积分核心概览课",
+                "covered_topics": ["函数、极限与连续"],
+                "uncovered_topics": ["中值定理", "洛必达法则与未定式"],
+                "advisories": ["建议一：压缩为核心课"],
+            },
+        },
+    }
+
+    async def load_course(_course_id):
+        return course
+
+    monkeypatch.setattr(course_versions, "_course_for_blueprint", load_course)
+    monkeypatch.setattr(
+        course_versions, "course_version_repository", DraftRepository(None)
+    )
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.get("/api/courses/course-1/blueprint")
+
+    assert response.status_code == 200
+    coverage = response.json()["coverage"]
+    assert coverage["available"] is True
+    assert coverage["scale_label"] == "微型课"
+    assert coverage["may_claim_complete_subject"] is False
+    assert coverage["uncovered_count"] == 2
+    assert "中值定理" in coverage["uncovered_topics"]
+
+
+def test_blueprint_endpoint_reports_unknown_coverage_for_pre_d1_courses(monkeypatch):
+    """老课程没有判定时报 unknown，绝不能默认成"完整"。"""
+    course = _canonical_course()
+
+    async def load_course(_course_id):
+        return course
+
+    monkeypatch.setattr(course_versions, "_course_for_blueprint", load_course)
+    monkeypatch.setattr(
+        course_versions, "course_version_repository", DraftRepository(None)
+    )
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    client = TestClient(app)
+
+    coverage = client.get("/api/courses/course-1/blueprint").json()["coverage"]
+
+    assert coverage["available"] is False
+    assert coverage["status"] == "unknown"
+    assert coverage.get("may_claim_complete_subject") is not True

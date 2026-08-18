@@ -21,7 +21,70 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
+from course_type_contracts import (
+    COVERAGE_STATUS_COMPLETE,
+    judge_course_coverage,
+)
 from course_versioning import stable_hash
+
+
+def course_coverage_verdict(
+    *,
+    subject: str,
+    brief: dict[str, Any],
+    skeleton: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Judge requested size against subject scope during outline planning.
+
+    Called twice per course: once before the skeleton exists, so the size
+    verdict can shape the skeleton prompt, and once after, so the verdict can
+    name the topics the frozen skeleton actually left out. The verdict is a
+    statement about scope only — it never supplies course content.
+    """
+    classroom = brief.get("teacher_course_brief") or {}
+    shape = brief.get("course_shape_constraints") or {}
+    planned_topics: list[str] | None = None
+    if skeleton is not None:
+        planned_topics = _skeleton_topic_text(skeleton)
+    return judge_course_coverage(
+        subject=subject,
+        class_hours=classroom.get("total_class_hours"),
+        # Only a real planned size counts. ``minimum_section_count`` is the
+        # product floor for an unsized request, not evidence of capacity.
+        section_count=(
+            shape.get("section_count")
+            or _skeleton_section_count(skeleton)
+        ),
+        planned_topics=planned_topics,
+    )
+
+
+def _skeleton_topic_text(skeleton: dict[str, Any]) -> list[str]:
+    """Collect every chapter-level phrase a topic could be named in."""
+    values: list[str] = [
+        str(skeleton.get("course_title") or ""),
+        str(skeleton.get("positioning") or ""),
+    ]
+    values.extend(
+        str(item) for item in skeleton.get("learning_objectives") or []
+    )
+    for chapter in skeleton.get("chapters") or []:
+        if not isinstance(chapter, dict):
+            continue
+        values.append(str(chapter.get("title") or ""))
+        values.append(str(chapter.get("learning_focus") or ""))
+    return [item for item in values if item.strip()]
+
+
+def _skeleton_section_count(skeleton: dict[str, Any] | None) -> int | None:
+    if not isinstance(skeleton, dict):
+        return None
+    total = sum(
+        int(item.get("section_count") or 0)
+        for item in skeleton.get("chapters") or []
+        if isinstance(item, dict)
+    )
+    return total or None
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -187,6 +250,7 @@ def validate_outline_skeleton(
     shape_constraints: dict[str, Any],
     request_fingerprint: str,
     course_type_contract: dict[str, Any] | None = None,
+    coverage_verdict: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     issues: list[dict[str, Any]] = []
     chapters = [
@@ -304,6 +368,7 @@ def validate_outline_skeleton(
                 "outline_skeleton:planning_stage_order_mismatch",
                 "课程骨架的规划阶段顺序不符合课程类型合同",
             ))
+    issues.extend(_coverage_honesty_issues(skeleton, coverage_verdict))
     return {
         "schema_version": "course_outline_skeleton_validation_v2",
         "passed": not issues,
@@ -313,6 +378,48 @@ def validate_outline_skeleton(
             "section_count": actual_sections,
         },
     }
+
+
+_COMPLETENESS_CLAIMS = (
+    "完整课程",
+    "完整覆盖",
+    "全面覆盖",
+    "完整的课程",
+    "系统完整",
+    "面面俱到",
+)
+
+
+def _coverage_honesty_issues(
+    skeleton: dict[str, Any],
+    coverage_verdict: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Reject a completeness claim the requested course size cannot support.
+
+    This is the honesty gate: a course that cannot cover its subject may still
+    be generated, but it may not describe itself as if it had.
+    """
+    if not coverage_verdict:
+        return []
+    if coverage_verdict.get("status") == COVERAGE_STATUS_COMPLETE:
+        return []
+    if coverage_verdict.get("may_claim_complete_subject"):
+        return []
+    prose = " ".join([
+        str(skeleton.get("course_title") or ""),
+        str(skeleton.get("positioning") or ""),
+    ])
+    claims = [claim for claim in _COMPLETENESS_CLAIMS if claim in prose]
+    if not claims:
+        return []
+    return [_issue(
+        "outline_skeleton:unsupported_completeness_claim",
+        f"{coverage_verdict.get('scale_label') or '当前课程规格'}不足以完整覆盖"
+        f"{coverage_verdict.get('subject') or '本学科'}，"
+        f"课程名称或定位不得包含 {claims}；"
+        f"应改为「{coverage_verdict.get('required_positioning') or '核心概览课'}」"
+        "并显式列出本次不覆盖的知识点",
+    )]
 
 
 def build_outline_batch_specs(
@@ -708,6 +815,7 @@ __all__ = [
     "assemble_course_outline",
     "build_outline_batch_specs",
     "compile_fallback_outline_batch",
+    "course_coverage_verdict",
     "normalize_outline_batch",
     "normalize_outline_skeleton",
     "outline_neighbor_chapters",

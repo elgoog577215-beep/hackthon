@@ -611,3 +611,68 @@ def test_content_concurrency_default_matches_measured_endpoint_capacity(
 
     monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "999")
     assert CourseGenerationBudget.from_env().content_concurrency == 16
+
+
+@pytest.mark.asyncio
+async def test_node_runtime_counts_model_calls_cumulatively(monkeypatch):
+    """E-1 账单：真实服务必须逐次累加调用数，本地降级不计数。"""
+    service = CourseService()
+    node = {
+        "node_id": "L2-1-1",
+        "node_level": 2,
+        "node_name": "调用计数",
+        "learning_objective": "能解释调用计数",
+        "scope_boundary": "只覆盖当前小节",
+        "key_points": ["计数"],
+        "assessment": ["说明一次计数"],
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心讲解",
+            "required": True,
+            "output_contract": "解释计数",
+        }],
+        "difficulty_contract": {},
+        "grounding_contract": {},
+    }
+    course = {
+        "course_id": "course-call-ledger",
+        "course_name": "调用账单课程",
+        "course_generation_brief": {},
+        "nodes": [node],
+    }
+
+    async def fake_stream(**_kwargs):
+        yield "## 核心讲解\n\n稳定知识具有明确条件与边界，并可用于应用任务。"
+
+    async def on_chunk(_chunk):
+        return None
+
+    monkeypatch.setattr(service, "_stream_llm", fake_stream)
+    await service.generate_node_content_stream(
+        course_id=course["course_id"], node=node,
+        config=NodeGenerationConfig(), on_chunk=on_chunk, course_data=course,
+    )
+    assert node["generation_runtime"]["model_call_count"] == 1
+
+    # 第二次真实调用：累加，而不是被重置。
+    await service.generate_node_content_stream(
+        course_id=course["course_id"], node=node,
+        config=NodeGenerationConfig(), on_chunk=on_chunk, course_data=course,
+    )
+    assert node["generation_runtime"]["model_call_count"] == 2
+
+    # 本地降级没有打到提供方，不得计入账单。
+    async def failed_stream(**_kwargs):
+        if False:
+            yield ""
+        raise AIRequestBudgetExceeded("模拟提供方前置失败")
+
+    monkeypatch.setattr(service, "_stream_llm", failed_stream)
+    await service.generate_node_content_stream(
+        course_id=course["course_id"], node=node,
+        config=NodeGenerationConfig(), on_chunk=on_chunk, course_data=course,
+    )
+    assert node["generation_runtime"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
+    assert node["generation_runtime"]["model_call_count"] == 2

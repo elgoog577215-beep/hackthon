@@ -277,8 +277,23 @@
     "pageNumber": "Slide {count}",
     "editablePreview": "Editable text · {theme}",
     "restart": "Start over",
-    "roles": { "cover": "Cover", "chapter": "Chapter", "objectives": "Objectives", "definition": "Definition", "process": "Reasoning", "practice": "Practice", "evidence": "Evidence", "recap": "Recap" },
-    "themes": { "qizhi": "Qizhi Classroom", "academic": "Academic Editorial", "grid": "Grid Notebook", "modern": "Modern Geometric", "dark": "Dark Tech" }
+    "roles": {
+      "cover": "Cover",
+      "chapter": "Chapter",
+      "objectives": "Objectives",
+      "definition": "Definition",
+      "process": "Reasoning",
+      "practice": "Practice",
+      "evidence": "Evidence",
+      "recap": "Recap"
+    },
+    "themes": {
+      "qizhi": "Qizhi Classroom",
+      "academic": "Academic Editorial",
+      "grid": "Grid Notebook",
+      "modern": "Modern Geometric",
+      "dark": "Dark Tech"
+    }
   },
   "pptWorkspace": {
     "open": "Open PPT workspace",
@@ -2017,7 +2032,11 @@
       "diffUpdated": "Content changes",
       "changedName": "Title",
       "changedObjective": "Learning outcome",
-      "changedDependencies": "Prerequisites"
+      "changedDependencies": "Prerequisites",
+      "coverageHours": "{hours} class hours",
+      "coverageUncovered": "Not covered this time",
+      "coverageComplete": "This is a {label}; it can be organized as a complete course",
+      "coveragePartial": "This is a {label}; it does not promise complete subject coverage"
     },
     "lessonPlan": {
       "eyebrow": "Single official course plan",

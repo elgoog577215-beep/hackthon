@@ -1129,3 +1129,195 @@ def test_real_process_kill_and_restart_recovers_persisted_checkpoint(tmp_path):
     interrupted = payload["workspace"]["course_data"]["nodes"][1]
     assert interrupted["generation_status"] == "pending"
     assert interrupted["node_content_draft"] == "强制终止前的草稿"
+
+
+# --- D-1b：覆盖度判定必须出现在大纲确认页 ---------------------------------
+
+
+def _outline_review_workflow(course: dict) -> dict:
+    """把工作流停在 outline 复核步，等待用户确认。"""
+    snapshot = {}
+    workflow = create_guided_workflow(snapshot)
+    revision = artifact_revision("outline", course, request=snapshot)
+    mark_waiting(workflow, "outline", revision=revision)
+    return workflow
+
+
+async def _outline_review(tmp_path, monkeypatch, *, verdict):
+    manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch
+    )
+    course = workspaces.load_course("job-recovery")
+    course["course_name"] = "微积分核心概览课"
+    course["course_plan"] = {
+        "positioning": "在 8 课时内掌握微积分的核心推理链条",
+        "learning_objectives": ["能够计算导数与定积分"],
+    }
+    stage = course.setdefault("generation_stage_artifacts", {}).setdefault(
+        "outline", {}
+    )
+    if verdict is not None:
+        stage["course_coverage_verdict"] = verdict
+    workspaces.save_course("job-recovery", course)
+    manager.tasks["job-recovery"].update({
+        "status": "waiting_for_review",
+        "phase": "outline_ready",
+        "guided_workflow": _outline_review_workflow(course),
+    })
+    return manager.get_generation_review("course-recovery")
+
+
+_CALCULUS_VERDICT = {
+    "schema_version": "course_coverage_verdict_v1",
+    "subject": "微积分",
+    "status": "partial",
+    "scale": "micro",
+    "scale_label": "微型课",
+    "class_hours": 8,
+    "may_claim_complete_subject": False,
+    "coverage_promise": "只覆盖一个可检查的核心切面，不承担学科完整覆盖",
+    "required_positioning": "微积分核心概览课",
+    "covered_topics": ["函数、极限与连续", "导数定义与求导法则"],
+    "uncovered_topics": [
+        "隐函数求导与相关变化率",
+        "中值定理",
+        "洛必达法则与未定式",
+        "微分方程入门",
+    ],
+    "advisories": ["建议一：压缩为核心课", "建议二：增加课时"],
+}
+
+
+@pytest.mark.asyncio
+async def test_outline_review_page_shows_the_coverage_verdict(tmp_path, monkeypatch):
+    """用户在确认目录时就能看到覆盖度判断和不覆盖清单。"""
+    review = await _outline_review(tmp_path, monkeypatch, verdict=_CALCULUS_VERDICT)
+
+    assert review is not None
+    coverage = review["artifact"]["course_coverage"]
+    assert coverage["available"] is True
+    assert coverage["status"] == "partial"
+    assert coverage["scale_label"] == "微型课"
+    assert coverage["may_claim_complete_subject"] is False
+    assert coverage["class_hours"] == 8
+    assert coverage["uncovered_count"] == 4
+    assert "中值定理" in coverage["uncovered_topics"]
+    assert "函数、极限与连续" in coverage["covered_topics"]
+    assert coverage["required_positioning"] == "微积分核心概览课"
+
+
+@pytest.mark.asyncio
+async def test_outline_review_without_a_verdict_is_not_reported_as_complete(
+    tmp_path, monkeypatch,
+):
+    """D-1 之前生成的老课程没有判定——必须报 unknown，不能默认为完整。"""
+    review = await _outline_review(tmp_path, monkeypatch, verdict=None)
+
+    assert review is not None
+    coverage = review["artifact"]["course_coverage"]
+    assert coverage["available"] is False
+    assert coverage["status"] == "unknown"
+    assert coverage.get("may_claim_complete_subject") is not True
+
+
+def test_outline_gate_message_names_the_uncovered_count():
+    """确认门上的提示必须点出规格与不覆盖数量，不能只说"N 节已就绪"。"""
+    message = TaskManager._outline_review_message({
+        "available": True,
+        "may_claim_complete_subject": False,
+        "scale_label": "微型课",
+        "uncovered_count": 4,
+    })
+
+    assert "微型课" in message
+    assert "4" in message
+
+
+def test_outline_gate_message_stays_plain_for_a_full_term_course():
+    """完整学期课不应被这条提示打扰。"""
+    message = TaskManager._outline_review_message({
+        "available": True,
+        "may_claim_complete_subject": True,
+        "scale_label": "完整学期课",
+        "uncovered_count": 0,
+    })
+
+    assert message == "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+
+
+# --- 大纲确认文案的两个维度必须正交（与 main 0fe4108d 合并后的语义） ---------
+#
+# 一、视角：教师大纲 vs 学习者课程，决定"确认之后会发生什么"；
+# 二、覆盖度：D-1 的规格判定，决定"这门课能不能覆盖这个学科"。
+# 二者互不覆盖——尤其覆盖度不能因为是教师大纲就被丢掉，那正是诚实性门的意义。
+
+
+def test_teacher_outline_message_still_carries_the_coverage_verdict():
+    """教师大纲也要看到覆盖度结论——不能因为换了视角就把诚实性门丢掉。"""
+    message = TaskManager._outline_review_message(
+        {
+            "available": True,
+            "may_claim_complete_subject": False,
+            "scale_label": "微型课",
+            "uncovered_count": 5,
+        },
+        is_teacher_outline=True,
+    )
+
+    # 覆盖度维度
+    assert "微型课" in message
+    assert "5" in message
+    # 视角维度：教师大纲的下一步是按讲生成教案，不是生成正文
+    assert "按讲生成教案" in message
+    assert "生成正文" not in message
+
+
+def test_learner_course_message_keeps_its_own_next_step():
+    """学习者课程的下一步文案不得被教师视角串味。"""
+    message = TaskManager._outline_review_message(
+        {
+            "available": True,
+            "may_claim_complete_subject": False,
+            "scale_label": "微型课",
+            "uncovered_count": 5,
+        },
+        is_teacher_outline=False,
+    )
+
+    assert "微型课" in message
+    assert "将规划全课小节教案并生成正文" in message
+    assert "按讲生成教案" not in message
+
+
+def test_teacher_outline_without_coverage_verdict_uses_plain_teacher_wording():
+    """完整学期课/无判定时，教师大纲用自己的朴素文案，不掺覆盖度。"""
+    plain = TaskManager._outline_review_message(
+        {"available": True, "may_claim_complete_subject": True,
+         "scale_label": "完整学期课", "uncovered_count": 0},
+        is_teacher_outline=True,
+    )
+    unknown = TaskManager._outline_review_message(
+        {"available": False, "status": "unknown"},
+        is_teacher_outline=True,
+    )
+
+    assert plain == "课程大纲等待确认；确认后可按讲生成教案"
+    assert unknown == "课程大纲等待确认；确认后可按讲生成教案"
+
+
+def test_two_dimensions_are_independent():
+    """正交性：换视角只改下一步那半句，覆盖度那半句逐字不变。"""
+    coverage = {
+        "available": True,
+        "may_claim_complete_subject": False,
+        "scale_label": "单元课",
+        "uncovered_count": 3,
+    }
+    learner = TaskManager._outline_review_message(coverage, is_teacher_outline=False)
+    teacher = TaskManager._outline_review_message(coverage, is_teacher_outline=True)
+
+    verdict = "本次为单元课，有 3 个核心主题不覆盖"
+    assert learner.startswith(verdict)
+    assert teacher.startswith(verdict)
+    # 两者只在"下一步"那半句上不同
+    assert learner[len(verdict):] != teacher[len(verdict):]

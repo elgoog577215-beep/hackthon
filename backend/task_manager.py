@@ -2589,6 +2589,85 @@ class TaskManager:
             "nodes": nodes,
         }
 
+    @staticmethod
+    def project_course_coverage(course_data: dict[str, Any]) -> dict[str, Any]:
+        """Project the outline-stage coverage verdict for the confirmation page.
+
+        Read-only: the verdict is decided during outline planning (D-1) and only
+        reshaped here. A course generated before D-1 has no verdict; it is
+        reported as ``unknown`` rather than being presented as complete, because
+        silence is what made a short course read as a full one in the first place.
+        """
+        verdict = (
+            (course_data.get("generation_stage_artifacts") or {})
+            .get("outline") or {}
+        ).get("course_coverage_verdict")
+        if not isinstance(verdict, dict) or not verdict:
+            return {"status": "unknown", "available": False}
+        uncovered = [
+            str(item) for item in verdict.get("uncovered_topics") or []
+        ]
+        return {
+            "available": True,
+            "status": str(verdict.get("status") or "unknown"),
+            "scale": str(verdict.get("scale") or ""),
+            "scale_label": str(verdict.get("scale_label") or ""),
+            "class_hours": verdict.get("class_hours"),
+            "may_claim_complete_subject": bool(
+                verdict.get("may_claim_complete_subject")
+            ),
+            "coverage_promise": str(verdict.get("coverage_promise") or ""),
+            "required_positioning": str(
+                verdict.get("required_positioning") or ""
+            ),
+            "covered_topics": [
+                str(item) for item in verdict.get("covered_topics") or []
+            ],
+            "uncovered_topics": uncovered,
+            "uncovered_count": len(uncovered),
+            "advisories": [
+                str(item) for item in verdict.get("advisories") or []
+            ],
+        }
+
+    @staticmethod
+    def _outline_review_message(
+        coverage: dict[str, Any],
+        *,
+        is_teacher_outline: bool = False,
+    ) -> str:
+        """Compose the outline gate message from two independent dimensions.
+
+        They are orthogonal and must not overwrite each other:
+
+        * **视角** (``is_teacher_outline``) decides what happens next -- a teacher
+          outline goes on to per-lesson teaching plans, a learner course goes on
+          to full-course sections and body text.
+        * **覆盖度** (``coverage``) is the honesty verdict from the outline stage:
+          whether the requested class hours can actually cover the subject. This
+          is the whole point of the D-1 gate -- telling the user *before*
+          generation that a course cannot be complete, instead of shipping
+          something that calls itself 完整课程 while missing half the subject.
+
+        So the verdict is prepended to whichever next-step sentence applies,
+        rather than replacing it.
+        """
+        next_step = (
+            "课程大纲等待确认；确认后可按讲生成教案"
+            if is_teacher_outline
+            else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+        )
+        if not coverage.get("available") or coverage.get("may_claim_complete_subject"):
+            return next_step
+        label = coverage.get("scale_label") or "当前规格"
+        uncovered = int(coverage.get("uncovered_count") or 0)
+        verdict = (
+            f"本次为{label}，有 {uncovered} 个核心主题不覆盖"
+            if uncovered
+            else f"本次为{label}，不承担学科完整覆盖"
+        )
+        return f"{verdict}；{next_step}"
+
     def get_generation_review(self, course_id: str) -> dict[str, Any] | None:
         """Return the safe, product-facing artifact for the current review step."""
         candidates = [
@@ -2625,6 +2704,10 @@ class TaskManager:
                 "learner_starting_profile": deepcopy(
                     course_data.get("learner_starting_profile") or {}
                 ),
+                # D-1：用户在确认目录时就必须看到覆盖度判断，而不是等课程生成完
+                # 才发现这门"完整课程"其实没覆盖半个学科。判定在大纲阶段已算好
+                # 并落在 outline stage 里，这里只做投影，不重新判定。
+                "course_coverage": self.project_course_coverage(course_data),
                 "course_positioning": str(
                     plan.get("course_positioning")
                     or plan.get("positioning")
@@ -6449,6 +6532,12 @@ class TaskManager:
                 ).get("actual") or {}
                 course_data["generation_status"] = "outline_ready"
                 await self._save_task_course(task_id, course_data)
+                # D-1：确认门上的提示要带覆盖度结论，否则用户只看到"N 节已就绪"，
+                # 仍然以为这是一门完整课程。
+                coverage = self.project_course_coverage(course_data)
+                coverage_detail = (
+                    {"course_coverage": coverage} if coverage.get("available") else {}
+                )
                 if guided:
                     await self._pause_for_guided_review(
                         task_id,
@@ -6456,10 +6545,9 @@ class TaskManager:
                         "outline",
                         phase="outline_ready",
                         progress=35,
-                        message=(
-                            "课程大纲等待确认；确认后可按讲生成教案"
-                            if is_teacher_outline
-                            else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+                        message=self._outline_review_message(
+                            coverage,
+                            is_teacher_outline=is_teacher_outline,
                         ),
                         revision=guided_artifact_revision(
                             "outline",
@@ -6469,6 +6557,7 @@ class TaskManager:
                         phase_detail={
                             "completed_items": int(outline_actual.get("section_count") or 0),
                             "total_items": int(outline_actual.get("section_count") or 0),
+                            **coverage_detail,
                         },
                     )
                     return
@@ -6483,15 +6572,15 @@ class TaskManager:
                         "blueprint_revision_id": impact.get("draft_blueprint_revision_id"),
                         "completed_items": int(outline_actual.get("section_count") or 0),
                         "total_items": int(outline_actual.get("section_count") or 0),
+                        **coverage_detail,
                     },
                 )
                 await self._update_task_status(
                     task_id,
                     "waiting_for_review",
-                    message=(
-                        "课程大纲等待确认；确认后可按讲生成教案"
-                        if is_teacher_outline
-                        else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+                    message=self._outline_review_message(
+                        coverage,
+                        is_teacher_outline=is_teacher_outline,
                     ),
                     completed_nodes=0,
                     total_nodes=int(outline_actual.get("section_count") or 0),
@@ -6711,6 +6800,13 @@ class TaskManager:
                 ),
                 "completed_section_count": completed_section_count,
                 "failed_section_count": failed_section_count,
+                # E-1 验收口径：本轮（含恢复）为正文实际发出的模型调用总数。
+                # 恢复后已完成小节不再进入生成，其计数不增长，因此这个总数
+                # 与"重跑了多少节"一致，可以直接核对，不用肉眼判断。
+                "model_call_count": sum(
+                    int(item.get("model_call_count") or 0)
+                    for item in runtimes
+                ),
                 "resume_available": (
                     completed_section_count < len(generated_nodes)
                 ),
