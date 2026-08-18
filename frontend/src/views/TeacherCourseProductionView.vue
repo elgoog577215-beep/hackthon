@@ -501,6 +501,10 @@ const selectedLessonNeedsReview = computed(() => Boolean(
   selectedLessonWorkingRevision.value?.generation_source === 'deterministic_local_fallback'
   || selectedLessonWorkingRevision.value?.warnings?.length,
 ))
+const selectedLessonCurrentConfirmed = computed(() => Boolean(
+  selectedLessonWorkingRevision.value
+  && selectedLessonAsset.value?.confirmed_revision_id === selectedLessonWorkingRevision.value.revision_id,
+))
 const selectedLessonPlan = computed<CourseTeachingPlanProjection | null>(() => (
   selectedLessonWorkingRevision.value?.plan as CourseTeachingPlanProjection | undefined
 ) || null)
@@ -516,9 +520,10 @@ const lessonPlanJobRunningCount = computed(() => lessons.value.filter((lesson) =
 const selectedLessonAuthoringLabel = computed(() => {
   if (selectedLessonJobRunning.value) return `${selectedLessonJob.value?.message || '正在生成'} · ${Math.round(selectedLessonJob.value?.progress || 0)}%`
   if (selectedLessonJob.value?.status === 'failed') return selectedLessonJob.value.error?.message || '本讲生成失败，可单独重试'
-  if (selectedLessonNeedsReview.value && selectedLessonAsset.value?.confirmed_revision_id) return '当前确认版来自基础兜底稿，建议 AI 优化后重新确认'
+  if (selectedLessonNeedsReview.value && selectedLessonCurrentConfirmed.value) return '当前确认版来自基础兜底稿，建议 AI 优化后重新确认'
   if (selectedLessonWorkingRevision.value?.status === 'needs_ai_review') return '基础草稿已就绪，建议继续 AI 优化'
-  if (selectedLessonAsset.value?.confirmed_revision_id) return '本讲教案已确认，可制作本讲 PPT'
+  if (selectedLessonCurrentConfirmed.value) return '本讲教案已确认，可制作本讲 PPT'
+  if (selectedLessonAsset.value?.confirmed_revision_id && selectedLessonWorkingRevision.value) return '当前工作稿尚未确认；学生与 PPT 仍使用上一确认版'
   if (selectedLessonWorkingRevision.value) return '本讲教案草稿已就绪，可编辑、AI优化或制作PPT'
   return '本讲教案尚未生成，不影响其他讲次'
 })
@@ -529,8 +534,7 @@ const selectedLessonLabel = computed(() => {
 })
 const selectedPptAsset = computed(() => selectedLessonAsset.value?.ppt_assets?.find(item => item.role === 'primary') || null)
 const pptAvailable = computed(() => Boolean(
-  selectedLessonWorkingRevision.value
-  && selectedLessonAsset.value?.confirmed_revision_id === selectedLessonWorkingRevision.value.revision_id,
+  selectedLessonCurrentConfirmed.value,
 ))
 const pptBlockedReason = computed(() => {
   return selectedLessonWorkingRevision.value
@@ -631,8 +635,10 @@ function lessonState(node: Node) {
   const activeJob = lessonAuthoringStore.activeJobByLesson(node.node_id)
   if (activeJob) return '生成中'
   const revision = projection?.plan.revisions.find(item => item.revision_id === projection.plan.working_revision_id)
-  if (revision?.generation_source === 'deterministic_local_fallback' || revision?.warnings?.length) return projection?.plan.confirmed_revision_id ? '基础稿已确认' : '基础稿需优化'
-  if (projection?.plan.confirmed_revision_id) return '已确认'
+  const currentConfirmed = Boolean(revision && projection?.plan.confirmed_revision_id === revision.revision_id)
+  if (revision?.generation_source === 'deterministic_local_fallback' || revision?.warnings?.length) return currentConfirmed ? '基础稿已确认' : '基础稿需优化'
+  if (currentConfirmed) return '已确认'
+  if (projection?.plan.confirmed_revision_id && revision) return '新草稿待确认'
   if (projection?.plan.working_revision_id) return '教案草稿'
   return node.error_summary ? '需要处理' : '等待生成'
 }
