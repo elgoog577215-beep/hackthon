@@ -883,6 +883,13 @@ async def test_task_length_preflight_repairs_before_independent_solving():
 async def test_choice_generation_uses_fast_non_thinking_json_mode(
     monkeypatch,
 ):
+    # 断言的是代码里的默认上限（2048），所以必须屏蔽运行环境的 floor。
+    #
+    # 部署侧把 ASSESSMENT_MIN_OUTPUT_TOKENS 设进 .env 之后（qwen3.6-35b-a3b
+    # 的推理会吃光 3072/4096 的裸上限），这条用例会读到 8192 而失败——
+    # 失败的是用例读了运行环境，不是行为回归。同目录的
+    # test_assessment_output_token_floor.py:35 早就用 delenv 做了同样的隔离。
+    monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
     captured = {}
     model = UniversalAssessmentModel()
 
