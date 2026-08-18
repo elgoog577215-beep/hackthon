@@ -6423,6 +6423,32 @@ class TaskManager:
         request = task.get("request_snapshot") or course_data.get("generation_request") or {}
         guided_workflow = task.get("guided_workflow")
         guided = isinstance(guided_workflow, dict)
+        # Teacher authoring owns everything after the confirmed outline through
+        # lesson-scoped jobs.  Finalize here before the shared guided workflow
+        # advances its current step to ``teaching``; otherwise a resumed queue
+        # item can accidentally enter the learner full-course plan/content path.
+        if (
+            task.get("type") == "teacher_outline_generation"
+            and guided
+            and guided_step_confirmed(guided_workflow, "outline")
+        ):
+            course_data["generation_status"] = "teacher_outline_confirmed"
+            course_data["authoring_surface"] = "teacher"
+            await self._save_task_course(task_id, course_data)
+            async with self._lock:
+                task["status"] = "completed"
+                task["phase"] = "teacher_outline_confirmed"
+                task["current_phase"] = "teacher_outline_confirmed"
+                task["progress"] = 100
+                task["phase_progress"] = 100
+                task["message"] = "课程大纲已确认，可选择任一讲生成教案"
+                task["current_nodes"] = []
+                task["current_node_name"] = ""
+                task["updated_at"] = datetime.now().isoformat()
+                task["heartbeat_at"] = task["updated_at"]
+                self.save_tasks(strict=True)
+            await self._push_progress(task_id)
+            return
         if guided and not guided_workflow.get("review_step"):
             current_guided_step = str(
                 guided_workflow.get("current_step") or "outline"

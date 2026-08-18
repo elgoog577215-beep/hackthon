@@ -42,6 +42,142 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _text_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [item.strip() for item in value.splitlines() if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if isinstance(item, str) and item.strip()]
+    return []
+
+
+def _unique_text(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(item.strip() for item in values if item.strip()))
+
+
+def teacher_lesson_section_content(section: dict[str, Any]) -> dict[str, Any]:
+    """Project plan-v3 knowledge/modules into concrete teacher-editable fields.
+
+    Real provider fallbacks keep useful knowledge facts but often omit the old
+    ``learning_objective`` / ``teacher_activities`` convenience fields.  This
+    projection is the compatibility boundary shared by preview, editing and
+    PPT source compilation; it never serializes module dictionaries as prose.
+    """
+    points = [
+        point
+        for group in section.get("knowledge_structure") or []
+        if isinstance(group, dict)
+        for point in group.get("knowledge_points") or []
+        if isinstance(point, dict)
+    ]
+    modules = [
+        item for item in section.get("teaching_modules") or []
+        if isinstance(item, dict)
+    ]
+    capability_objectives = [
+        str(capability.get("observable_behavior") or capability.get("name") or "").strip()
+        for point in points
+        for capability in point.get("capability_points") or []
+        if isinstance(capability, dict)
+        and str(capability.get("observable_behavior") or capability.get("name") or "").strip()
+    ]
+    statements = [
+        str(point.get("statement") or point.get("description") or "").strip()
+        for point in points
+        if str(point.get("statement") or point.get("description") or "").strip()
+    ]
+    boundaries = [
+        item for point in points for item in _text_list(point.get("boundaries"))
+    ]
+    misconceptions = [
+        str(item.get("discrimination") or item.get("name") or "").strip()
+        for point in points
+        for item in point.get("misconceptions") or []
+        if isinstance(item, dict)
+        and str(item.get("discrimination") or item.get("name") or "").strip()
+    ]
+
+    def module_line(module: dict[str, Any]) -> str:
+        labels = {
+            "lesson_goal": "本节目标",
+            "core_explanation": "核心讲解",
+            "math_problem_strategy": "策略选择",
+            "math_worked_example": "例题推演",
+            "math_intuition": "直觉导入",
+            "math_representation": "多重表征",
+            "math_formalization": "正式定义",
+            "math_variation": "变式练习",
+            "learner_action": "学习者行动",
+            "feedback_check": "检查与反馈",
+        }
+        module_id = str(module.get("module_id") or "")
+        label = str(module.get("label") or labels.get(module_id) or "教学活动")
+        knowledge = _text_list(module.get("knowledge_names"))
+        guidance = str(module.get("teaching_guidance") or "").strip()
+        if guidance.startswith("按模板完成"):
+            guidance = ""
+        details = [f"围绕{'、'.join(knowledge)}" if knowledge else "", guidance]
+        suffix = "；".join(item for item in details if item)
+        return f"{label}：{suffix}" if suffix else label
+
+    explicit_objective = str(
+        section.get("learning_objective") or section.get("objective") or ""
+    ).strip()
+    learning_objective = (
+        explicit_objective
+        or "；".join(capability_objectives)
+        or "；".join(statements)
+        or "；".join(_text_list(section.get("key_points")))
+    )
+    key_difficulties = _text_list(section.get("key_difficulties")) or _unique_text([
+        *_text_list(section.get("key_points")),
+        *boundaries,
+        *misconceptions,
+    ])
+    teacher_activities = _text_list(section.get("teacher_activities")) or _unique_text([
+        module_line(module)
+        for module in modules
+        if str(module.get("module_id") or "") not in {
+            "learner_action", "math_variation", "feedback_check",
+        }
+    ])
+    student_activities = _text_list(section.get("student_activities")) or _unique_text([
+        module_line(module)
+        for module in modules
+        if str(module.get("module_id") or "") in {"learner_action", "math_variation"}
+    ])
+    homework = _text_list(section.get("homework")) or _unique_text([
+        module_line(module)
+        for module in modules
+        if str(module.get("module_id") or "") == "feedback_check"
+    ])
+    return {
+        "learning_objective": learning_objective,
+        "key_difficulties": key_difficulties,
+        "teacher_activities": teacher_activities,
+        "student_activities": student_activities,
+        "homework": homework,
+        "knowledge_statements": statements,
+        "knowledge_boundaries": boundaries,
+        "misconceptions": misconceptions,
+    }
+
+
+def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
+    normalized = deepcopy(plan)
+    normalized["sections"] = []
+    for section in plan.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        next_section = deepcopy(section)
+        for key, value in teacher_lesson_section_content(next_section).items():
+            if key.startswith("knowledge_") or key == "misconceptions":
+                continue
+            if not next_section.get(key):
+                next_section[key] = deepcopy(value)
+        normalized["sections"].append(next_section)
+    return normalized
+
+
 def _default_root() -> Path:
     configured = os.getenv("TEACHER_LESSON_AUTHORING_DIR", "").strip()
     if configured:
@@ -113,9 +249,10 @@ def lesson_plan_ppt_source(
     source_revision_id: str,
 ) -> dict[str, Any]:
     """Compile the teacher-only source contract for one lesson deck."""
+    normalized_plan = normalize_teacher_lesson_plan(plan)
     sections = [
         deepcopy(item)
-        for item in plan.get("sections") or []
+        for item in normalized_plan.get("sections") or []
         if isinstance(item, dict) and item.get("node_id")
     ]
     if not sections:
@@ -184,7 +321,7 @@ def teacher_lesson_v6_source(
     persisted to the learner CourseDocument repository.
     """
     scope = lesson_scope(course_data, lesson_unit_id)
-    plan = deepcopy(plan_revision.get("plan") or {})
+    plan = normalize_teacher_lesson_plan(plan_revision.get("plan") or {})
     plan_sections = {
         str(item.get("node_id") or ""): deepcopy(item)
         for item in plan.get("sections") or []
@@ -208,6 +345,7 @@ def teacher_lesson_v6_source(
     for section_index, outline_section in enumerate(scope["sections"], start=1):
         section_id = str(outline_section.get("node_id") or "")
         planned = plan_sections.get(section_id) or {}
+        section_content = teacher_lesson_section_content(planned)
         modules = [
             item for item in planned.get("teaching_modules") or []
             if isinstance(item, dict)
@@ -226,17 +364,50 @@ def teacher_lesson_v6_source(
                 str(item) for item in module.get("knowledge_names") or []
                 if str(item).strip()
             ]
-            paragraphs = [
-                str(module.get("teaching_purpose") or "").strip(),
-                str(module.get("teaching_guidance") or "").strip(),
+            labels = {
+                "lesson_goal": "本节目标",
+                "core_explanation": "核心讲解",
+                "math_problem_strategy": "策略选择",
+                "math_worked_example": "例题推演",
+                "math_intuition": "直觉导入",
+                "math_representation": "多重表征",
+                "math_formalization": "正式定义",
+                "math_variation": "变式练习",
+                "learner_action": "学习者行动",
+                "feedback_check": "检查与反馈",
+            }
+            purpose = str(module.get("teaching_purpose") or "").strip()
+            if purpose.startswith("按模板完成"):
+                purpose = ""
+            guidance = str(module.get("teaching_guidance") or "").strip()
+            if guidance.startswith("按模板完成"):
+                guidance = ""
+            if module_id == "lesson_goal":
+                concrete = [section_content["learning_objective"]]
+            elif module_id in {"learner_action", "math_variation"}:
+                concrete = section_content["student_activities"]
+            elif module_id == "feedback_check":
+                concrete = [
+                    *section_content["homework"],
+                    *section_content["misconceptions"],
+                ]
+            else:
+                concrete = [
+                    *section_content["knowledge_statements"],
+                    *section_content["key_difficulties"],
+                ]
+            paragraphs = _unique_text([
+                *[str(item) for item in concrete if str(item).strip()],
+                purpose,
+                guidance,
                 f"教师活动：{module.get('teacher_activity')}" if module.get("teacher_activity") else "",
                 f"学生活动：{module.get('student_activity')}" if module.get("student_activity") else "",
                 f"知识要点：{'、'.join(knowledge_names)}" if knowledge_names else "",
-            ]
+            ])
             blocks.append({
                 "block_id": f"{section_id}-teacher-{module_index}",
                 "type": role,
-                "title": str(module.get("label") or module.get("teaching_purpose") or module_id),
+                "title": str(module.get("label") or labels.get(module_id) or module_id),
                 "content": "\n\n".join(item for item in paragraphs if item),
                 "metadata": {
                     "role": role,
@@ -252,7 +423,7 @@ def teacher_lesson_v6_source(
                 "type": "concept",
                 "title": str(outline_section.get("node_name") or "核心教学"),
                 "content": "\n\n".join(filter(None, [
-                    str(planned.get("learning_objective") or outline_section.get("learning_objective") or ""),
+                    str(section_content.get("learning_objective") or outline_section.get("learning_objective") or ""),
                     f"知识要点：{'、'.join(key_points)}" if key_points else "",
                 ])),
                 "metadata": {"role": "concept", "concept_refs": key_points},
@@ -264,7 +435,7 @@ def teacher_lesson_v6_source(
             "node_level": 2,
             "node_name": str(outline_section.get("node_name") or f"第{section_index}节"),
             "learning_objective": str(
-                planned.get("learning_objective")
+                section_content.get("learning_objective")
                 or outline_section.get("learning_objective")
                 or ""
             ),
@@ -851,6 +1022,7 @@ class TeacherLessonAuthoringService:
                     "lesson_plan_empty",
                     "本讲教案生成结果为空。",
                 )
+            plan = normalize_teacher_lesson_plan(plan)
             warnings = list(result.get("warnings") or [])
             generation_source = str(result.get("generation_source") or ("deterministic_local_fallback" if warnings else "model"))
             outline_revision = str(
@@ -873,7 +1045,11 @@ class TeacherLessonAuthoringService:
                 status=status,
                 phase="lesson_plan_ready",
                 progress=100,
-                message="本讲教案已生成" if not warnings else "本讲基础教案已生成，建议继续 AI 优化",
+                message=(
+                    "本讲教案已生成"
+                    if not warnings
+                    else "模型内容校验未通过；已保留可编辑基础稿，请审核或 AI 优化后再确认"
+                ),
                 warnings=warnings,
                 result_revision_id=lesson.get("working_revision_id"),
                 error=None,
