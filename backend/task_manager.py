@@ -95,6 +95,10 @@ from course_type_contracts import (
     ensure_course_type_enabled,
     resolve_course_type,
 )
+from course_space_publication import (
+    PUBLISH_SCHEMA_VERSION,
+    publish_course_artifacts,
+)
 from course_versioning import (
     analyze_blueprint_impact,
     blueprint_draft_revision_id,
@@ -8762,6 +8766,45 @@ class TaskManager:
             publication_allowed,
         )
 
+    async def _publish_course_artifacts_to_space(
+        self, task_id: str, course_data: dict
+    ) -> dict[str, Any]:
+        """Write finished artifacts into the teacher's course space (F-2).
+
+        Runs at completion, after artifacts are final. Failure is recorded on the
+        task and surfaced to the caller, but never changes the generation outcome:
+        the course generated fine, filing it is a downstream action.
+        """
+        task = self.tasks.get(task_id) or {}
+        owner_id = str(
+            (task.get("request_snapshot") or {}).get("_retrieval_actor_id")
+            or (course_data.get("generation_request") or {}).get("_retrieval_actor_id")
+            or ""
+        ).strip()
+        if not owner_id:
+            report = {
+                "schema_version": PUBLISH_SCHEMA_VERSION,
+                "status": "skipped",
+                "reason": "no_owner_id",
+            }
+        else:
+            report = await asyncio.to_thread(
+                publish_course_artifacts,
+                course_data,
+                owner_id=owner_id,
+            )
+        async with self._lock:
+            fresh = self.tasks.get(task_id)
+            if fresh is not None:
+                fresh["course_space_publication"] = deepcopy(report)
+                self.save_tasks()
+        if report.get("status") == "failed":
+            logger.warning(
+                "课程产物入教师文件空间部分失败（课程仍然有效）：%s",
+                report.get("failures"),
+            )
+        return report
+
     async def _complete_task(
         self, task_id: str, course_data: dict
     ) -> None:
@@ -8999,6 +9042,14 @@ class TaskManager:
                     "课程已发布，但基础教学表达编译将在后续对账中重试：%s",
                     exc,
                 )
+
+        # F-2：产物已经定稿，落进教师文件空间。这是下游动作——写入失败如实记在
+        # 任务上，但绝不改变课程的生成结果（`publish_course_artifacts` 本身
+        # 不抛异常，这里再加一层保险）。
+        try:
+            await self._publish_course_artifacts_to_space(task_id, course_data)
+        except Exception as exc:  # noqa: BLE001 - 入库失败不得回滚课程
+            logger.warning("课程产物入教师文件空间失败：%s", exc)
 
         if promotion_conflict:
             await self._update_task_status(
