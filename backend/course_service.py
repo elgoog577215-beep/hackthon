@@ -1963,6 +1963,349 @@ class CourseService(AIBase):
         )
         return working
 
+    async def prepare_teacher_lesson_plan(
+        self,
+        *,
+        course_data: dict[str, Any],
+        lesson_unit_id: str,
+        on_phase: Callable[[str, int, str], Awaitable[None] | None] | None = None,
+    ) -> dict[str, Any]:
+        """Generate one teacher lesson without entering learner content flow.
+
+        The existing teaching-plan planner remains the capability engine, but
+        it receives a frozen single-lesson scope and is allowed to return a
+        schema-valid deterministic fallback.  No CourseDocument or student
+        publication is written here.
+        """
+        source_plan = deepcopy(
+            course_data.get("course_plan")
+            or course_data.get("course_outline")
+            or {}
+        )
+        chapters = [
+            chapter for chapter in source_plan.get("chapters") or []
+            if isinstance(chapter, dict)
+        ]
+        chapter = next(
+            (
+                chapter for chapter in chapters
+                if str(
+                    chapter.get("node_id")
+                    or chapter.get("chapter_id")
+                    or ""
+                ) == lesson_unit_id
+            ),
+            None,
+        )
+        if chapter is None:
+            raise ValueError(f"Lesson unit not found: {lesson_unit_id}")
+        sections = [
+            section for section in chapter.get("sections") or []
+            if isinstance(section, dict)
+        ]
+        if not sections:
+            raise ValueError(f"Lesson unit has no sections: {lesson_unit_id}")
+
+        scoped_plan = deepcopy(source_plan)
+        scoped_plan["chapters"] = [deepcopy(chapter)]
+        scoped_course = deepcopy(course_data)
+        scoped_course["course_plan"] = scoped_plan
+        scoped_course["course_outline"] = deepcopy(scoped_plan)
+        scoped_course["nodes"] = [
+            deepcopy(node)
+            for node in course_data.get("nodes") or []
+            if str(node.get("node_id") or "") == lesson_unit_id
+            or str(node.get("parent_node_id") or "") == lesson_unit_id
+        ]
+        scoped_course.pop("course_teaching_plan", None)
+        scoped_course.setdefault("generation_stage_artifacts", {}).pop(
+            "course_teaching_plan",
+            None,
+        )
+
+        async def phase_adapter(
+            phase: str,
+            progress: int,
+            message: str,
+            _phase_progress: int = 0,
+            _phase_detail: dict[str, Any] | None = None,
+            **_kwargs: Any,
+        ) -> None:
+            if on_phase is None:
+                return
+            result = on_phase(phase, progress, message)
+            if inspect.isawaitable(result):
+                await result
+
+        planned_course = await self._prepare_course_teaching_plan(
+            course_data=scoped_course,
+            plan=scoped_plan,
+            artifacts=None,
+            on_phase=phase_adapter,
+            on_checkpoint=None,
+            allow_validated_fallback=True,
+        )
+        teaching_stage = (
+            scoped_course.get("generation_stage_artifacts") or {}
+        ).get("course_teaching_plan") or {}
+        lesson_plan = deepcopy(scoped_course.get("course_teaching_plan") or {})
+        warnings = deepcopy(teaching_stage.get("fallback_units") or [])
+        return {
+            "schema_version": "teacher_lesson_plan_result_v1",
+            "lesson_unit_id": lesson_unit_id,
+            "source_outline_revision_id": str(
+                teaching_stage.get("source_outline_revision_id") or ""
+            ),
+            "plan": lesson_plan,
+            "planned_course": planned_course,
+            "warnings": warnings,
+            "generation_source": (
+                "deterministic_local_fallback" if warnings else "model"
+            ),
+        }
+
+    async def optimize_teacher_lesson_plan(
+        self,
+        *,
+        plan: dict[str, Any],
+        instruction: str,
+        section_node_id: str = "",
+    ) -> dict[str, Any]:
+        """Create a teacher-reviewable lesson-plan candidate.
+
+        The candidate is scoped to one lesson asset.  A section request is
+        merged back into the original plan so the model cannot silently alter
+        sibling sections.
+        """
+        normalized_instruction = instruction.strip()
+        if not normalized_instruction:
+            raise ValueError("AI optimization instruction cannot be blank")
+        sections = [
+            item for item in plan.get("sections") or []
+            if isinstance(item, dict) and item.get("node_id")
+        ]
+        if not sections:
+            raise ValueError("Lesson plan has no sections")
+        target_sections = (
+            [item for item in sections if str(item.get("node_id")) == section_node_id]
+            if section_node_id
+            else sections
+        )
+        if section_node_id and not target_sections:
+            raise ValueError(f"Lesson section not found: {section_node_id}")
+        source = {**deepcopy(plan), "sections": deepcopy(target_sections)}
+        response = await self._call_llm(
+            "请根据教师要求优化下面的讲次教案，只输出完整 JSON。\n"
+            f"教师要求：{normalized_instruction}\n"
+            f"作用域：{'小节 ' + section_node_id if section_node_id else '整讲'}\n"
+            "必须保留 schema、node_id 和未要求改变的事实；不得生成课程正文。\n"
+            f"原教案：{json.dumps(source, ensure_ascii=False)}",
+            system_prompt=(
+                "你是高校教师教案优化助手。输出一个 JSON 对象，根键为 plan。"
+                "plan.sections 中的 node_id 必须与输入完全一致。"
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            max_tokens=8000,
+            max_input_tokens=10000,
+            max_attempts=2,
+            reject_truncated=True,
+            raise_on_failure=True,
+            json_mode=True,
+            model_role="teacher_lesson_plan_optimizer",
+        )
+        parsed = self._extract_json(response or "")
+        candidate = parsed.get("plan") if isinstance(parsed, dict) else None
+        if not isinstance(candidate, dict):
+            raise AIProviderRequestError("AI 教案优化未返回有效 plan JSON")
+        candidate_sections = [
+            item for item in candidate.get("sections") or []
+            if isinstance(item, dict) and item.get("node_id")
+        ]
+        expected_ids = [str(item.get("node_id")) for item in target_sections]
+        actual_ids = [str(item.get("node_id")) for item in candidate_sections]
+        if actual_ids != expected_ids:
+            raise AIProviderRequestError("AI 教案优化改变了小节身份或顺序")
+        if section_node_id:
+            replacement = {str(item.get("node_id")): item for item in candidate_sections}
+            merged = deepcopy(plan)
+            merged["sections"] = [
+                deepcopy(replacement.get(str(item.get("node_id")), item))
+                for item in sections
+            ]
+            candidate = merged
+        return {
+            "plan": candidate,
+            "scope_section_node_id": section_node_id,
+            "instruction": normalized_instruction,
+        }
+
+    @staticmethod
+    def _deterministic_teacher_lesson_deck(source: dict[str, Any]) -> dict[str, Any]:
+        sections = [item for item in source.get("sections") or [] if isinstance(item, dict)]
+        lesson_title = str(source.get("title") or "本讲课件")
+        slides: list[dict[str, Any]] = [{
+            "slide_id": "slide-1",
+            "title": lesson_title,
+            "body": ["本讲学习目标与课堂安排"],
+            "speaker_notes": "教师可在此补充导入语。",
+        }]
+        for section in sections:
+            title = str(section.get("title") or section.get("node_name") or section.get("node_id") or "教学小节")
+            objective = str(section.get("learning_objective") or section.get("objective") or "").strip()
+            difficulties = section.get("key_difficulties") or section.get("key_points") or []
+            if isinstance(difficulties, str):
+                difficulties = [difficulties]
+            activities = section.get("teaching_modules") or section.get("teacher_activities") or []
+            activity_labels = []
+            for item in activities if isinstance(activities, list) else []:
+                if isinstance(item, dict):
+                    label = item.get("title") or item.get("module_name") or item.get("teacher_activity")
+                else:
+                    label = item
+                if str(label or "").strip():
+                    activity_labels.append(str(label).strip())
+            body = [value for value in [objective, *[str(item) for item in difficulties], *activity_labels] if value]
+            slides.append({
+                "slide_id": f"slide-{len(slides) + 1}",
+                "title": title,
+                "body": body[:6] or ["核心概念、示例与课堂活动"],
+                "speaker_notes": "根据本讲教案展开讲解。",
+            })
+        slides.append({
+            "slide_id": f"slide-{len(slides) + 1}",
+            "title": "课堂小结与任务",
+            "body": ["回顾本讲重点", "完成课后任务并记录疑问"],
+            "speaker_notes": "确认学生掌握情况。",
+        })
+        return {
+            "schema_version": "teacher_lesson_deck_v1",
+            "title": lesson_title,
+            "slides": slides,
+        }
+
+    async def generate_teacher_lesson_ppt(
+        self,
+        *,
+        source: dict[str, Any],
+        on_phase: Callable[..., Awaitable[None] | None] | None = None,
+    ) -> dict[str, Any]:
+        """Generate one teacher lesson deck without creating student content."""
+        if on_phase:
+            progress_result = on_phase("lesson_ppt_planning", 20, "正在规划本讲 PPT")
+            if inspect.isawaitable(progress_result):
+                await progress_result
+        fallback = self._deterministic_teacher_lesson_deck(source)
+        try:
+            response = await self._call_llm(
+                "请把下面的一讲教师教案编排为课堂 PPT，只输出 JSON。\n"
+                "必须覆盖全部小节，适合真实课堂讲授；每页只保留一个清晰任务。\n"
+                "JSON 根键 deck；deck 包含 title 和 slides；每页包含 slide_id、title、body 字符串数组、speaker_notes。\n"
+                f"教师讲次来源：{json.dumps(source, ensure_ascii=False)}",
+                system_prompt=(
+                    "你是高校课堂课件设计师。只生成当前一讲课件，不生成学生课程正文，"
+                    "不得改变 lesson_unit_id 或教案事实。"
+                ),
+                use_fast_model=True,
+                retry_count=1,
+                enable_thinking=False,
+                max_tokens=10000,
+                max_input_tokens=14000,
+                max_attempts=2,
+                reject_truncated=True,
+                raise_on_failure=True,
+                json_mode=True,
+                model_role="teacher_lesson_ppt_generator",
+            )
+            parsed = self._extract_json(response or "")
+            deck = parsed.get("deck") if isinstance(parsed, dict) else None
+            slides = deck.get("slides") if isinstance(deck, dict) else None
+            if not isinstance(slides, list) or not slides:
+                raise AIProviderRequestError("AI PPT 未返回有效页面")
+            normalized_slides = []
+            for index, slide in enumerate(slides, start=1):
+                if not isinstance(slide, dict) or not str(slide.get("title") or "").strip():
+                    raise AIProviderRequestError("AI PPT 页面结构无效")
+                body = slide.get("body") or []
+                if isinstance(body, str):
+                    body = [body]
+                normalized_slides.append({
+                    "slide_id": str(slide.get("slide_id") or f"slide-{index}"),
+                    "title": str(slide.get("title") or "").strip(),
+                    "body": [str(item) for item in body if str(item).strip()],
+                    "speaker_notes": str(slide.get("speaker_notes") or ""),
+                })
+            deck = {
+                "schema_version": "teacher_lesson_deck_v1",
+                "title": str(deck.get("title") or source.get("title") or "本讲课件"),
+                "slides": normalized_slides,
+            }
+            warnings: list[dict[str, Any]] = []
+            generation_source = "model"
+        except Exception as exc:
+            deck = fallback
+            warnings = [{
+                "code": "teacher_lesson_ppt_ai_fallback",
+                "message": f"AI 课件暂不可用，已建立可编辑基础课件：{exc}",
+            }]
+            generation_source = "deterministic_local_fallback"
+        if on_phase:
+            progress_result = on_phase("lesson_ppt_ready", 90, "本讲 PPT 已生成")
+            if inspect.isawaitable(progress_result):
+                await progress_result
+        return {
+            "deck": deck,
+            "warnings": warnings,
+            "generation_source": generation_source,
+        }
+
+    async def optimize_teacher_lesson_ppt(
+        self,
+        *,
+        deck: dict[str, Any],
+        instruction: str,
+        slide_indexes: list[int] | None = None,
+    ) -> dict[str, Any]:
+        normalized_instruction = instruction.strip()
+        if not normalized_instruction:
+            raise ValueError("AI PPT optimization instruction cannot be blank")
+        slides = [deepcopy(item) for item in deck.get("slides") or [] if isinstance(item, dict)]
+        if not slides:
+            raise ValueError("Lesson PPT has no slides")
+        requested = sorted({index for index in (slide_indexes or []) if 0 <= index < len(slides)})
+        target_indexes = requested or list(range(len(slides)))
+        target_slides = [slides[index] for index in target_indexes]
+        response = await self._call_llm(
+            "请根据教师要求优化下面的 PPT 页面，只输出 JSON。\n"
+            f"教师要求：{normalized_instruction}\n"
+            f"页面：{json.dumps(target_slides, ensure_ascii=False)}\n"
+            "根键为 slides，数量、顺序和 slide_id 必须保持不变。",
+            system_prompt="你是高校 PPT 优化助手。只改指定页面，不改变其他页面与教案。",
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            max_tokens=8000,
+            max_input_tokens=10000,
+            max_attempts=2,
+            reject_truncated=True,
+            raise_on_failure=True,
+            json_mode=True,
+            model_role="teacher_lesson_ppt_optimizer",
+        )
+        parsed = self._extract_json(response or "")
+        candidate_slides = parsed.get("slides") if isinstance(parsed, dict) else None
+        if not isinstance(candidate_slides, list) or len(candidate_slides) != len(target_slides):
+            raise AIProviderRequestError("AI PPT 优化没有返回完整候选")
+        if [str(item.get("slide_id") or "") for item in candidate_slides] != [str(item.get("slide_id") or "") for item in target_slides]:
+            raise AIProviderRequestError("AI PPT 优化改变了页面身份或顺序")
+        merged = deepcopy(deck)
+        merged_slides = [deepcopy(item) for item in slides]
+        for position, candidate in zip(target_indexes, candidate_slides):
+            merged_slides[position] = deepcopy(candidate)
+        merged["slides"] = merged_slides
+        return {"deck": merged, "slide_indexes": target_indexes}
+
     async def _prepare_course_teaching_plan(
         self,
         *,
@@ -1972,6 +2315,7 @@ class CourseService(AIBase):
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None,
         semantic_retry_count: int = 0,
+        allow_validated_fallback: bool = False,
     ) -> dict[str, Any]:
         """Build one official plan through the complete 1-N-1 path."""
         sections: list[dict[str, Any]] = []
@@ -2890,7 +3234,10 @@ class CourseService(AIBase):
             if (
                 isinstance(stored, dict)
                 and stored.get("status") == "completed"
-                and stored.get("generation_source") == "model"
+                and (
+                    stored.get("generation_source") == "model"
+                    or allow_validated_fallback
+                )
                 and stored.get("skeleton_revision_id") == skeleton.get("revision_id")
                 and list(stored.get("section_ids") or []) == list(spec.get("section_ids") or [])
                 and candidate_report.get("passed")
@@ -3500,11 +3847,19 @@ class CourseService(AIBase):
 
         planned_course = apply_course_teaching_plan(plan, course_teaching_plan)
         semantic_status = (
-            "retry_required" if fallback_units else "ai_complete"
+            "degraded_usable"
+            if fallback_units and allow_validated_fallback
+            else "retry_required"
+            if fallback_units
+            else "ai_complete"
         )
         teaching_stage.update({
             "status": (
-                "retry_required" if fallback_units else "completed"
+                "completed_with_warnings"
+                if fallback_units and allow_validated_fallback
+                else "retry_required"
+                if fallback_units
+                else "completed"
             ),
             "schema_version": course_teaching_plan.get("schema_version"),
             "revision_id": course_teaching_plan.get("revision_id"),
@@ -3582,6 +3937,8 @@ class CourseService(AIBase):
             )
         await self._notify_checkpoint(on_checkpoint, course_data)
         if fallback_units:
+            if allow_validated_fallback:
+                return planned_course
             if semantic_retry_count < _semantic_retry_budget():
                 teaching_stage["semantic_retry_count"] = (
                     semantic_retry_count + 1
@@ -3611,6 +3968,7 @@ class CourseService(AIBase):
                     on_phase=on_phase,
                     on_checkpoint=on_checkpoint,
                     semantic_retry_count=semantic_retry_count + 1,
+                    allow_validated_fallback=allow_validated_fallback,
                 )
             raise AIProviderRequestError(
                 "全课教案仍有非 AI 语义单元，已保留成功批次并停止在正文之前；"

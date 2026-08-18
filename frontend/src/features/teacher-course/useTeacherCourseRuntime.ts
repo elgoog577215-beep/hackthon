@@ -1,5 +1,6 @@
 import { useCourseStore } from '../../stores/course'
 import { useGenerationStore } from '../../stores/generation'
+import { useTeacherLessonAuthoringStore } from '../../stores/teacherLessonAuthoring'
 import type { RouteLocationRaw } from 'vue-router'
 
 export const TEACHER_COURSE_CAPABILITY_CONTRACT = 'teacher-course-capabilities/v1' as const
@@ -18,7 +19,7 @@ export function teacherPptRoute(
     params: { courseId },
     query: {
       ...(options.returnTo ? { returnTo: options.returnTo } : {}),
-      ...(options.nodeId ? { node: options.nodeId } : {}),
+      ...(options.nodeId ? { lesson: options.nodeId } : {}),
     },
   }
 }
@@ -34,14 +35,18 @@ export function teacherPptRoute(
 export function useTeacherCourseRuntime() {
   const course = useCourseStore()
   const generation = useGenerationStore()
+  const lessonAuthoring = useTeacherLessonAuthoringStore()
 
   return {
     contractVersion: TEACHER_COURSE_CAPABILITY_CONTRACT,
     course,
     generation,
+    lessonAuthoring,
     loadCourse: (courseId: string) => course.loadCourse(courseId, {
       includeLearningRecords: false,
-      taskType: 'course_generation',
+      taskType: 'teacher_outline_generation',
+      monitorTask: false,
+      previewSurface: 'teacher',
     }),
     pptRoute: teacherPptRoute,
   }

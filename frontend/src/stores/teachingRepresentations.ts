@@ -444,6 +444,7 @@ export async function consumeTeachingRepresentationStream(
 export const useTeachingRepresentationsStore = defineStore('teachingRepresentations', {
   state: () => ({
     courseId: '',
+    teacherLessonId: '',
     registry: null as Record<string, any> | null,
     selectedId: '',
     selectedSpec: null as TeachingRepresentationSpec | null,
@@ -488,6 +489,19 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
   },
   actions: {
+    setTeacherLessonScope(lessonUnitId = '') {
+      if (this.teacherLessonId === lessonUnitId) return
+      this.teacherLessonId = lessonUnitId
+      const activeCourse = this.courseId
+      this.courseId = ''
+      if (activeCourse) this.switchCourse(activeCourse)
+    },
+    representationBase(courseId?: string) {
+      const resolvedCourseId = courseId || this.courseId
+      return this.teacherLessonId
+        ? `/api/teacher/courses/${resolvedCourseId}/lessons/${this.teacherLessonId}/ppt-v6`
+        : `/api/courses/${resolvedCourseId}/teaching-representations`
+    },
     switchCourse(courseId: string) {
       if (this.courseId === courseId) return
       this.courseId = courseId
@@ -535,7 +549,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       )
       this.loading = true
       try {
-        const response = await http.get(`/api/courses/${courseId}/teaching-representations`)
+        const response = await http.get(this.representationBase(courseId))
         if (!isCurrentRequest()) return null
         this.registry = response.data.registry
         this.slideTargetSchema = String(this.registry?.slide_deck_target_schema || '')
@@ -558,6 +572,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       }
     },
     async upgradeCourseLogic(courseId: string) {
+      if (this.teacherLessonId) return { registry: this.registry }
       this.switchCourse(courseId)
       const courseToken = this.courseRequestToken
       const response = await http.post(
@@ -619,9 +634,11 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       let durableMonitorStarted = false
       try {
         const response = await fetch(
-          withApiBase(options
-            ? `/api/courses/${courseId}/teaching-representations/slide-decks/build/stream`
-            : `/api/courses/${courseId}/teaching-representations/build/stream`),
+          withApiBase(this.teacherLessonId
+            ? `${this.representationBase(courseId)}/build/stream`
+            : options
+              ? `/api/courses/${courseId}/teaching-representations/slide-decks/build/stream`
+              : `/api/courses/${courseId}/teaching-representations/build/stream`),
           {
             method: 'POST',
             headers: learnerIdentityHeaders({
@@ -1009,6 +1026,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     },
     async recoverDurableBuild(courseId: string) {
       this.switchCourse(courseId)
+      if (this.teacherLessonId) return null
       const response = await http.get(`/api/courses/${courseId}/task`)
       if (this.courseId !== courseId) return null
       const task = response.data || {}
@@ -1062,7 +1080,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       this.buildFailure = null
       try {
         const response = await http.post(
-          `/api/courses/${courseId}/teaching-representations/${representationId}/slide-decks/visual-repair`,
+          `${this.representationBase(courseId)}/${representationId}/slide-decks/visual-repair`,
           { page_ids: pageIds },
         )
         if (
@@ -1260,7 +1278,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       const courseToken = this.courseRequestToken
       const requestToken = ++this.specRequestToken
       const response = await http.get(
-        `/api/courses/${courseId}/teaching-representations/${representationId}/spec`,
+        `${this.representationBase(courseId)}/${representationId}/spec`,
       )
       if (
         this.courseId !== courseId
@@ -1297,7 +1315,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
     ) {
       if (!this.courseId) return
       const response = await http.get(
-        `/api/courses/${this.courseId}/teaching-representations/${representationId}/export.pptx`,
+        `${this.representationBase(this.courseId)}/${representationId}/export.pptx`,
         { params: { theme }, responseType: 'blob' },
       )
       const url = URL.createObjectURL(response.data)
@@ -1317,7 +1335,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       payload: { unit_id: string; field: string; before: unknown; after: unknown; semantic_intent?: boolean },
     ) {
       const response = await http.post(
-        `/api/courses/${this.courseId}/teaching-representations/${representationId}/edits/preview`,
+        `${this.representationBase(this.courseId)}/${representationId}/edits/preview`,
         payload,
       )
       return response.data
@@ -1327,7 +1345,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       payload: { unit_id: string; field: string; before: unknown; after: unknown; decision: 'representation_only' | 'course_semantic'; semantic_intent?: boolean },
     ) {
       const response = await http.post(
-        `/api/courses/${this.courseId}/teaching-representations/${representationId}/edits/apply`,
+        `${this.representationBase(this.courseId)}/${representationId}/edits/apply`,
         payload,
       )
       if (response.data.registry) {

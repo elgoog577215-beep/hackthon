@@ -1243,3 +1243,81 @@ def test_outline_gate_message_stays_plain_for_a_full_term_course():
     })
 
     assert message == "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+
+
+# --- 大纲确认文案的两个维度必须正交（与 main 0fe4108d 合并后的语义） ---------
+#
+# 一、视角：教师大纲 vs 学习者课程，决定"确认之后会发生什么"；
+# 二、覆盖度：D-1 的规格判定，决定"这门课能不能覆盖这个学科"。
+# 二者互不覆盖——尤其覆盖度不能因为是教师大纲就被丢掉，那正是诚实性门的意义。
+
+
+def test_teacher_outline_message_still_carries_the_coverage_verdict():
+    """教师大纲也要看到覆盖度结论——不能因为换了视角就把诚实性门丢掉。"""
+    message = TaskManager._outline_review_message(
+        {
+            "available": True,
+            "may_claim_complete_subject": False,
+            "scale_label": "微型课",
+            "uncovered_count": 5,
+        },
+        is_teacher_outline=True,
+    )
+
+    # 覆盖度维度
+    assert "微型课" in message
+    assert "5" in message
+    # 视角维度：教师大纲的下一步是按讲生成教案，不是生成正文
+    assert "按讲生成教案" in message
+    assert "生成正文" not in message
+
+
+def test_learner_course_message_keeps_its_own_next_step():
+    """学习者课程的下一步文案不得被教师视角串味。"""
+    message = TaskManager._outline_review_message(
+        {
+            "available": True,
+            "may_claim_complete_subject": False,
+            "scale_label": "微型课",
+            "uncovered_count": 5,
+        },
+        is_teacher_outline=False,
+    )
+
+    assert "微型课" in message
+    assert "将规划全课小节教案并生成正文" in message
+    assert "按讲生成教案" not in message
+
+
+def test_teacher_outline_without_coverage_verdict_uses_plain_teacher_wording():
+    """完整学期课/无判定时，教师大纲用自己的朴素文案，不掺覆盖度。"""
+    plain = TaskManager._outline_review_message(
+        {"available": True, "may_claim_complete_subject": True,
+         "scale_label": "完整学期课", "uncovered_count": 0},
+        is_teacher_outline=True,
+    )
+    unknown = TaskManager._outline_review_message(
+        {"available": False, "status": "unknown"},
+        is_teacher_outline=True,
+    )
+
+    assert plain == "课程大纲等待确认；确认后可按讲生成教案"
+    assert unknown == "课程大纲等待确认；确认后可按讲生成教案"
+
+
+def test_two_dimensions_are_independent():
+    """正交性：换视角只改下一步那半句，覆盖度那半句逐字不变。"""
+    coverage = {
+        "available": True,
+        "may_claim_complete_subject": False,
+        "scale_label": "单元课",
+        "uncovered_count": 3,
+    }
+    learner = TaskManager._outline_review_message(coverage, is_teacher_outline=False)
+    teacher = TaskManager._outline_review_message(coverage, is_teacher_outline=True)
+
+    verdict = "本次为单元课，有 3 个核心主题不覆盖"
+    assert learner.startswith(verdict)
+    assert teacher.startswith(verdict)
+    # 两者只在"下一步"那半句上不同
+    assert learner[len(verdict):] != teacher[len(verdict):]

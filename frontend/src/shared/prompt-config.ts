@@ -306,6 +306,7 @@ export interface GenerateCourseParams {
   secondary_mode?: PedagogyMode;
   secondary_intensity?: SecondaryIntensity;
   generation_mode?: 'review_blueprint';
+  teacher_authoring_mode?: 'lesson_assets_v1';
   assessment_generation_profile?: 'fast' | 'deliberate';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   course_type?: CourseType;

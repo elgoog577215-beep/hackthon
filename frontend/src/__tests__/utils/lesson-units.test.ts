@@ -3,7 +3,9 @@ import type { Node } from '../../stores/types'
 import {
   lessonUnitHasContent,
   lessonUnitMembers,
+  lessonUnitSections,
   projectLessonUnits,
+  resolveLessonSection,
   resolveLessonUnit,
 } from '../../utils/lesson-units'
 
@@ -35,7 +37,13 @@ describe('lesson unit projection', () => {
 
   it('keeps all knowledge nodes inside their lecture', () => {
     expect(lessonUnitMembers(nodes, 'lesson-1').map(item => item.node_id)).toEqual(['knowledge-1', 'knowledge-2'])
+    expect(lessonUnitSections(nodes, 'lesson-1').map(item => item.node_id)).toEqual(['knowledge-1', 'knowledge-2'])
     expect(resolveLessonUnit(nodes, 'knowledge-2')?.node_id).toBe('lesson-1')
+  })
+
+  it('keeps lesson and section selection independent', () => {
+    expect(resolveLessonSection(nodes, 'lesson-1', 'knowledge-2')?.node_id).toBe('knowledge-2')
+    expect(resolveLessonSection(nodes, 'lesson-1', 'missing')?.node_id).toBe('knowledge-1')
   })
 
   it('derives lecture readiness from descendant content', () => {
