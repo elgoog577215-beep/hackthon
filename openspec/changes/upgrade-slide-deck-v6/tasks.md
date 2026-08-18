@@ -34,6 +34,9 @@
 - [x] 4.9 Select the full-width table family for dense three-column evidence and size exported rows from measured wrapped text.
 - [x] 4.10 Add atomic published-V6 visual repair with frozen story/template/source checks, race protection and last-good-version retention.
 - [x] 4.11 Remove the teaching page-count cap, paginate code/steps/tables/prose without semantic loss, preserve sole-body and artifact-support source text, and gate visible artifact/prose fidelity plus generated ellipses.
+- [ ] 4.12 Compile source-derived two-level agenda entries, cap each agenda page at the sample-backed readable density and keep Web/PPTX agenda hierarchy identical.
+- [ ] 4.13 Persist code language/line-range metadata, keep adjacent declarations together when capacity permits, and render language, continuation and line-number reading aids without changing source code.
+- [ ] 4.14 Add a post-export region visibility gate so missing title, prose, steps, table cells or code fails before atomic publication.
 
 ## 5. Adaptive progress
 
@@ -48,3 +51,4 @@
 - [x] 6.2 Render/export cross-subject fixtures and verify notes, overflow, Web/PPTX parity and PPTX openability.
 - [ ] 6.3 Run one shadow chapter through the official website chain for Unity, linear algebra and machine learning.
 - [ ] 6.4 Enable V6 as the default for new builds only after all three shadow gates pass; keep V5 readable/exportable and document rollback/metrics.
+- [ ] 6.5 Compare the full-course V6 output against the published Qizhi sample for agenda hierarchy, source-region visibility and code readability, then render every page and run overflow/export audits.

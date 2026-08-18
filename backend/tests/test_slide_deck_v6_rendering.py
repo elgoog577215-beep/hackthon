@@ -1743,6 +1743,84 @@ def test_official_v6_export_preserves_literal_csharp_interpolation(
     assert code_source in visible
 
 
+def test_v6_code_regions_export_language_continuation_and_line_number_gutter(
+    tmp_path: Path,
+) -> None:
+    code_source = """```csharp
+public interface IPoolable
+{
+    void OnSpawn();
+    void OnDespawn();
+}
+
+public class Bullet : MonoBehaviour
+{
+    public void ResetState()
+    {
+        transform.position = Vector3.zero;
+    }
+}
+```"""
+    _document, deck = _code_deck(code_source)
+    code_pages = [
+        page
+        for page in deck.pages
+        if any(region.content_kind == "code" for region in page.regions)
+    ]
+
+    assert code_pages
+    assert all(
+        region.metadata["code_language"] == "csharp"
+        and region.metadata["code_start_line"] >= 1
+        and region.metadata["code_end_line"] >= region.metadata["code_start_line"]
+        for page in code_pages
+        for region in page.regions
+        if region.content_kind == "code"
+    )
+
+    output = export_slide_deck_v6_pptx(deck, tmp_path / "readable-code.pptx")
+    presentation = Presentation(output)
+    first_code_slide = presentation.slides[0]
+    visible = "\n".join(
+        str(shape.text or "")
+        for shape in first_code_slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+
+    assert "C#" in visible
+    assert "CODE" not in visible
+    assert "SOURCE" not in visible
+    assert any(
+        "v6-code-line-numbers" in str(shape.name or "")
+        for shape in first_code_slide.shapes
+    )
+
+
+def test_v6_export_fails_when_renderer_omits_materialized_source_regions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import slide_deck_v6_renderer as renderer
+
+    _document, deck = _code_deck()
+
+    def render_nothing(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(renderer, "_render_slide", render_nothing)
+
+    with pytest.raises(slide_deck_renderer.SlideDeckQualityError) as captured:
+        renderer.export_slide_deck_v6_pptx(
+            deck,
+            tmp_path / "missing-exported-source.pptx",
+        )
+
+    assert "exported_source_region_missing" in {
+        blocker["code"]
+        for blocker in captured.value.report["blockers"]
+    }
+
+
 def test_practice_code_layout_exports_numbered_steps_and_readable_code(
     tmp_path: Path,
 ) -> None:

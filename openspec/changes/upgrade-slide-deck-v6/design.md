@@ -94,6 +94,12 @@ Full block text, full code and supplemental detail are stored in speaker notes w
 
 Table projection is semantic before geometric. The compiler measures wrapped cell demand, prefers a declared full-width/wide variant for dense tables, and otherwise paginates complete rows with repeated headers. A row that cannot remain complete becomes a source-bound detail page. Generated ellipses, lost protected tokens and pre-render cell truncation are hard failures even when object bounds do not overflow.
 
+Course agenda projection is also semantic before geometric. Each entry keeps a stable chapter number and full source title, and MAY add a complete source-derived learning objective or path explanation when it fits the shared agenda geometry. The agenda uses at most four two-level entries per page and continues through the same published `agenda-path` contract. It never invents a chapter description, repeats the title as a fake description or shrinks text to keep all chapters on one page.
+
+Every visible source region carries renderer metadata. Code regions additionally carry the fenced language, original start/end line and continuation position. These fields only control presentation; they do not rewrite the source text. Both renderers show a compact language/continuation header and a separate line-number gutter while keeping code bytes, indentation and blank lines unchanged. Pagination treats adjacent declaration signatures, their opening bodies and comment groups as atomic whenever the declared page capacity permits.
+
+Export validation compares the final PPTX object's visible text against every materialized title and source region. A note binding, Story summary, hidden shape or pre-render fidelity score cannot stand in for actual exported visibility. Missing rendered source fails with a page- and region-scoped diagnostic before publication.
+
 ### `slide_build_progress_v2`
 
 The backend creates and persists work items before or as work becomes known. Item kinds and default weights are local validation/unit `1`, render page `3`, asset `5`, AI batch `10`. Progress equals completed cost divided by a monotonic total-cost high-water mark. Newly discovered items increase the high-water mark without decreasing the displayed percentage; completion cannot reach 100% before atomic publication.
@@ -120,6 +126,9 @@ Every failure contains `stage`, `code`, `message`, `retryable`, and optional `ch
 - exactly one primary teaching job per page;
 - template layout and teaching intent compatible;
 - no empty required slot, fake visual, duplicate heading/body, prose wall, clipping, overlap or Web/PPTX drift;
+- agenda hierarchy uses full source titles and source-derived descriptions at readable template density;
+- every materialized title/body/item/step/table/code region is visible in the exported PPTX;
+- code keeps exact source lines and blank lines while exposing language, continuation and line-number reading aids without internal `CODE`/`SOURCE` labels;
 - source and template revisions unchanged;
 - exported PPTX opens and contains the expected page/note contracts.
 

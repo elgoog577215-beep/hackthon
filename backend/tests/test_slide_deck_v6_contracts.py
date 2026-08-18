@@ -17,6 +17,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     _bounded_slot_content,
+    _compile_course_agenda_pages,
     _complete_sentence_excerpt,
     _display_excerpt,
     _protected_tokens,
@@ -2671,6 +2672,59 @@ def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda(
     assert [page.page_ordinal for page in deck.pages] == list(range(len(deck.pages)))
     assert deck.quality.formal_block_visible_coverage == 1.0
     assert deck.quality.source_order_preserved is True
+
+
+def test_course_agenda_uses_source_descriptions_and_sample_backed_page_density() -> None:
+    descriptions = [
+        "先验证环境与语言基线，再进入可运行项目。",
+        "用生命周期实验建立场景对象的状态模型。",
+        "把交互输入连接到物理反馈与可观察结果。",
+        "用界面与持久化证据验证运行时数据流。",
+        "通过性能与架构复核形成可交付工程。",
+    ]
+    document = refresh_document_revision(CourseDocument(
+        course_id="generic-agenda-hierarchy",
+        title="工程学习路径",
+        sections=[
+            CourseSection(
+                section_id=f"chapter-{index}",
+                title=f"第{index}章 完整章节标题 {index}",
+                position=index - 1,
+                attributes={"path_reason": descriptions[index - 1]},
+            )
+            for index in range(1, 6)
+        ],
+        blocks=[
+            _block(
+                f"chapter-{index}-source",
+                f"chapter-{index}",
+                0,
+                role="concept",
+                text=f"第{index}章的正式来源正文。",
+            )
+            for index in range(1, 6)
+        ],
+    ))
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    pages = _compile_course_agenda_pages(document, template)
+
+    assert [len(page.regions[0].metadata["agenda_entries"]) for page in pages] == [4, 1]
+    assert [
+        entry["title"]
+        for page in pages
+        for entry in page.regions[0].metadata["agenda_entries"]
+    ] == [section.title for section in document.sections]
+    assert [
+        entry["description"]
+        for page in pages
+        for entry in page.regions[0].metadata["agenda_entries"]
+    ] == descriptions
+    assert all(
+        entry["description"] != entry["title"]
+        for page in pages
+        for entry in page.regions[0].metadata["agenda_entries"]
+    )
 
 
 def test_story_summary_rejects_raw_markdown_table_content() -> None:

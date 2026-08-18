@@ -174,6 +174,53 @@ The system SHALL compile `slide_deck_v6` with resolved template layout IDs, type
 - **AND** no renderer or compiler inserts an ellipsis that was absent from the source
 - **AND** every visible identifier, number, formula and code token remains complete; otherwise the candidate fails before publication
 
+### Requirement: Course Agenda Preserves The Sample's Editorial Hierarchy
+The system SHALL render the course agenda as a source-bound editorial route rather than a compressed title inventory.
+
+#### Scenario: A course has several top-level chapters
+- **WHEN** V6 compiles the full-course agenda
+- **THEN** each entry shows a stable chapter number and the complete source chapter title
+- **AND** it shows a complete source-derived learning objective or path explanation when one fits the declared agenda geometry
+- **AND** a missing description remains empty rather than being invented or copied from the title
+
+#### Scenario: More chapters exist than one agenda page can present readably
+- **WHEN** more than four two-level entries are required, or the shared agenda geometry rejects the current set
+- **THEN** V6 creates ordered `agenda-path` continuation pages
+- **AND** it does not shrink below the template font floor, truncate a title or description, or force all entries onto one page
+
+### Requirement: Exported Slides Preserve Every Materialized Source Region
+The system SHALL verify exported PPTX visibility against the final `slide_deck_v6` regions, not only against the pre-render page model.
+
+#### Scenario: A renderer omits a body or step region
+- **WHEN** a materialized source region cannot be found in the corresponding exported slide objects in source order
+- **THEN** publication fails with `exported_source_region_missing`
+- **AND** speaker-note presence or a passing geometric overflow audit cannot convert the candidate to success
+
+#### Scenario: A renderer omits a page title or table cell
+- **WHEN** the final PPTX lacks the complete materialized title or any complete source table cell
+- **THEN** publication fails with a page- and region-scoped export diagnostic
+- **AND** the last published deck remains available
+
+### Requirement: Code Pages Preserve Source And Add Teaching-Readable Formatting
+The system SHALL preserve exact code lines, indentation and blank lines while adding renderer-only reading aids shared by Web and PPTX.
+
+#### Scenario: Fenced code spans several pages
+- **WHEN** a source code block exceeds one declared code slot
+- **THEN** every page records the source language, original start line, end line and continuation position
+- **AND** both renderers show a compact language/continuation header and a separate line-number gutter
+- **AND** these aids do not alter the source code used by fidelity checks
+
+#### Scenario: A declaration group fits on one page
+- **WHEN** adjacent interface members, a method signature and opening body, or a comment and its declaration fit within one declared code page
+- **THEN** pagination keeps that group together
+- **AND** it does not leave a declaration, opening brace or isolated comment as an avoidable orphan
+
+#### Scenario: A code group is genuinely longer than one page
+- **WHEN** no complete-page allocation can retain the whole group
+- **THEN** V6 splits at the least harmful complete statement boundary
+- **AND** no code byte, blank source line or indentation is removed
+- **AND** audience-facing pages do not expose generic internal labels such as `CODE` or `SOURCE`
+
 ### Requirement: V6 Applies Fidelity And Render Gates Before Atomic Publication
 The system SHALL publish only after course coverage, order, fact traceability, subject artifacts, teaching intent, template capacity, render integrity and export checks pass.
 

@@ -59,6 +59,11 @@ describe('slide deck V6 web adapter', () => {
             content_kind: 'code',
             content: 'function onEvent(value) { return validate(value); }',
             source_block_ids: ['implementation'],
+            metadata: {
+              code_language: 'javascript',
+              code_start_line: 7,
+              code_end_line: 7,
+            },
           },
           {
             region_id: 'page-code:annotation',
@@ -91,6 +96,8 @@ describe('slide deck V6 web adapter', () => {
     expect(slide.quality.v6_layout_slug).toBe('evidence-code')
     expect(slide.quality.v6_template_layout_id).toBe(page.resolved_layout)
     expect(slide.blocks[0]!.type).toBe('code')
+    expect(slide.blocks[0]!.metadata.code_language).toBe('javascript')
+    expect(slide.blocks[0]!.metadata.code_start_line).toBe(7)
     expect(slide.source_block_ids).toEqual(page.source_block_ids)
     expect(slide.speaker_notes).toContain('course-rev-1')
     expect(slide.quality.template_theme_overrides).toEqual(content.template_theme_overrides)

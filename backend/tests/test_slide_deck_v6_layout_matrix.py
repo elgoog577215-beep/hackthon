@@ -1142,6 +1142,40 @@ def test_code_pagination_keeps_method_declarations_with_their_bodies() -> None:
     )
 
 
+def test_code_pagination_keeps_adjacent_interface_members_together() -> None:
+    source = """using UnityEngine;
+
+public interface IPoolable
+{
+    void OnSpawn();
+    void OnDespawn();
+}
+
+public class Bullet : MonoBehaviour
+{
+    public void ResetState()
+    {
+        transform.position = Vector3.zero;
+    }
+}"""
+
+    chunks = deck_v6._pack_code_lines(
+        source.splitlines(),
+        max_lines=8,
+        max_chars=220,
+    )
+
+    assert "\n".join(chunks) == source
+    assert not any(
+        chunk.rstrip().endswith("void OnSpawn();")
+        for chunk in chunks[:-1]
+    )
+    assert any(
+        "void OnSpawn();\n    void OnDespawn();" in chunk
+        for chunk in chunks
+    )
+
+
 def test_prose_pagination_rebalances_a_short_lead_page_without_loss() -> None:
     lead = "请按照以下步骤完成实战任务。"
     detail = "".join(
