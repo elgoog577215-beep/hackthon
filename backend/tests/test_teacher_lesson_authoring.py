@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 
 from fastapi import FastAPI
@@ -16,6 +17,7 @@ from teacher_lesson_authoring import (
     teacher_lesson_v6_source,
 )
 from course_presentation_graph import compile_course_presentation_graph
+from course_service import CourseService
 from dependencies import get_teacher_lesson_authoring_repository, require_task_manager
 from routers import teacher_lesson_authoring as teacher_lesson_router
 from routers import courses as courses_router
@@ -189,12 +191,15 @@ def test_teacher_only_course_is_hidden_from_student_list(monkeypatch):
         {
             "course_id": "teacher-course",
             "generation_job_id": "teacher-job",
-            "authoring_surface": "teacher",
         },
     ]
     monkeypatch.setattr(courses_router.storage, "list_courses", lambda: courses)
     monkeypatch.setattr(courses_router.learning_snapshot_repository, "load", lambda *_args: None)
-    student = courses_router._list_courses_with_resume("learner", {"teacher-job"})
+    student = courses_router._list_courses_with_resume(
+        "learner",
+        {"teacher-job"},
+        {"teacher-course"},
+    )
     teacher = courses_router._list_teacher_courses({"teacher-job"})
     assert [item["course_id"] for item in student] == ["student-course"]
     assert [item["course_id"] for item in teacher] == ["student-course", "teacher-course"]
@@ -227,6 +232,59 @@ def test_ai_candidate_acceptance_creates_new_working_revision(tmp_path):
     assert accepted["working_revision_id"] != lesson["working_revision_id"]
     assert accepted["revisions"][-1]["plan"]["sections"][0]["learning_objective"] == "after"
     assert accepted["ai_candidates"][0]["status"] == "accepted"
+
+
+def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
+    plan = {
+        "schema_version": "course_teaching_plan_v3",
+        "sections": [
+            {
+                "node_id": "L2-1-1",
+                "learning_objective": "原目标",
+                "key_difficulties": ["原难点"],
+                "teacher_activities": ["原教师活动"],
+                "student_activities": ["原学生活动"],
+                "homework": ["原作业"],
+                "knowledge_structure": [{"knowledge_points": [{"statement": "不可改写的事实"}]}],
+            },
+            {"node_id": "L2-1-2", "learning_objective": "兄弟小节"},
+        ],
+    }
+
+    class FakeOptimizer:
+        captured_prompt = ""
+
+        async def _call_llm(self, prompt, **_kwargs):
+            self.captured_prompt = prompt
+            return json.dumps({
+                "sections": [{
+                    "node_id": "L2-1-1",
+                    "learning_objective": "学生能够独立完成一次进制转换并解释步骤。",
+                    "key_difficulties": ["位权展开"],
+                    "teacher_activities": ["演示十进制转二进制并逐步核对余数。"],
+                    "student_activities": ["独立完成一道转换题并说明每一步。"],
+                    "homework": ["完成两道相邻进制转换题。"],
+                }],
+            }, ensure_ascii=False)
+
+        @staticmethod
+        def _extract_json(value):
+            return json.loads(value)
+
+    fake = FakeOptimizer()
+    result = asyncio.run(CourseService.optimize_teacher_lesson_plan(
+        fake,
+        plan=plan,
+        instruction="增加可观察目标和课堂练习",
+        section_node_id="L2-1-1",
+    ))
+
+    optimized = result["plan"]["sections"]
+    assert optimized[0]["learning_objective"].startswith("学生能够独立")
+    assert optimized[0]["knowledge_structure"] == plan["sections"][0]["knowledge_structure"]
+    assert optimized[1] == plan["sections"][1]
+    assert '"schema_version"' not in fake.captured_prompt
+    assert '"knowledge_context"' in fake.captured_prompt
 
 
 def test_lesson_ppt_binds_exact_plan_revision_and_becomes_stale(tmp_path):
