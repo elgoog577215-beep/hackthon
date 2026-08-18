@@ -53,11 +53,9 @@ $$\text{函数契约} = \underbrace{\text{输入}}_{\text{参数}} + \underbrace
         enableCodeRun: false,
       },
     })
-    // MarkdownRenderer 把渲染对齐到 requestAnimationFrame（见其 scheduleUpdate，
-    // 为流式输出合帧）。只等微任务队列会在渲染发生**之前**就断言，于是看到空 DOM
-    // 并报「公式没渲染」——但 KaTeX 全程都是好的。实测同一次挂载：只
-    // flushPromises 得到 0 个 .katex-display，等一帧后得到 1 个，且源码未泄漏。
-    await new Promise(resolve => requestAnimationFrame(() => resolve(null)))
+    // 渲染对齐到动画帧（见文件顶部 flushFrames 的说明），
+    // 只等微任务会在帧还没到来时就检查 DOM，测出来的「没渲染」是假的。
+    await flushFrames()
     await flushPromises()
 
     expect(wrapper.find('.katex-display').exists()).toBe(true)

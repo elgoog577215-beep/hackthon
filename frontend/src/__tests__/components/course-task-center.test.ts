@@ -19,8 +19,8 @@ const router = createRouter({
   ],
 })
 
-const mountCenter = () => mount(CourseTaskCenter, {
-  props: { modelValue: true, courseId: 'course-1' },
+const mountCenter = (surface: 'learner' | 'teacher' = 'learner') => mount(CourseTaskCenter, {
+  props: { modelValue: true, courseId: 'course-1', surface },
   global: { plugins: [router], stubs: { Teleport: true } },
 })
 
@@ -708,13 +708,23 @@ describe('CourseTaskCenter', () => {
         checkpoint: { phase: 'completed', completed_nodes: 4, total_nodes: 4, draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [] },
       },
     }]
-    const wrapper = mountCenter()
+    // 任务中心被教师端与学生端共用，同一状态两边的说法不同：
+    // 教师是「我发布了」，学生是「我可以学了」。两边都要钉住，
+    // 否则改文案时很容易只顾一侧，让另一侧显示不属于它的话。
+    const teacherWrapper = mountCenter('teacher')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已发布，有优化建议')
-    expect(wrapper.text()).toContain('课程已经发布，仍有优化建议')
-    expect(wrapper.text()).not.toContain('可以继续补齐失败节点')
-    expect(wrapper.find('.task-actions__open').exists()).toBe(true)
-    expect(wrapper.find('.task-actions .primary-button').exists()).toBe(false)
+    expect(teacherWrapper.text()).toContain('已发布，有优化建议')
+    expect(teacherWrapper.text()).not.toContain('可以学习，有优化建议')
+    expect(teacherWrapper.text()).toContain('课程已经发布，仍有优化建议')
+    expect(teacherWrapper.text()).not.toContain('可以继续补齐失败节点')
+    expect(teacherWrapper.find('.task-actions__open').exists()).toBe(true)
+    expect(teacherWrapper.find('.task-actions .primary-button').exists()).toBe(false)
+
+    const learnerWrapper = mountCenter()
+    await flushPromises()
+
+    expect(learnerWrapper.text()).toContain('可以学习，有优化建议')
+    expect(learnerWrapper.text()).not.toContain('已发布，有优化建议')
   })
 })
