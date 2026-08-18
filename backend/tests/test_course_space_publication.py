@@ -20,6 +20,10 @@ import pytest
 
 from course_space_publication import (
     GENERATED_DIR,
+    MISSING_COURSE_ID,
+    MISSING_TEACHER_IDENTITY,
+    NO_COURSE_SPACE_PACKAGE,
+    SKIP_MESSAGES,
     build_course_artifact_documents,
     publish_course_artifacts,
 )
@@ -235,7 +239,9 @@ def test_missing_owner_is_reported_not_raised(repo):
     report = publish_course_artifacts(_course(), owner_id="", repository=repo)
 
     assert report["status"] == "skipped"
-    assert report["reason"] == "no_course_space_package"
+    # 原因必须指向"缺教师身份"，而不是笼统的"没有课程包"——后者会把人
+    # 引去检查空间配置，而真正要做的是带上 X-User-Id。
+    assert report["reason"] == MISSING_TEACHER_IDENTITY
 
 
 def test_course_without_artifacts_is_skipped_cleanly(repo):
@@ -289,3 +295,126 @@ def test_generated_assets_are_marked_and_folders_registered(repo):
         if item.get("kind") == "folder"
     }
     assert f"1、教案/{GENERATED_DIR}/第1章 极限" in folders
+
+
+# --- 缺教师身份：不建包、不入库、如实说明原因 -------------------------------
+#
+# 「入库失败」这种笼统说法会把一个老师自己就能修的问题（没带 X-User-Id）
+# 变成一张工单。所以每种跳过都必须说清是哪一种原因。
+
+
+def test_missing_teacher_identity_creates_nothing_and_says_why(repo, tmp_path):
+    """缺教师身份：不建包、不写文件，且原因明确指向身份而不是笼统失败。"""
+    report = publish_course_artifacts(_course(), owner_id="", repository=repo)
+
+    assert report["status"] == "skipped"
+    assert report["reason"] == MISSING_TEACHER_IDENTITY
+    # 不是"没有课程包"这种会把人引向错误方向的说法。
+    assert report["reason"] != NO_COURSE_SPACE_PACKAGE
+    assert "教师身份" in report["message"]
+    assert "X-User-Id" in report["message"]
+    # 什么都没建、什么都没写。
+    assert repo.list_owned("") == []
+    assert report["written"] == []
+    assert not list((tmp_path / "spaces").glob("tcs-*"))
+
+
+def test_blank_teacher_identity_is_treated_as_missing(repo):
+    """只有空白字符的身份等同于没有身份，不得被当成合法 owner。"""
+    report = publish_course_artifacts(_course(), owner_id="   ", repository=repo)
+
+    assert report["reason"] == MISSING_TEACHER_IDENTITY
+    assert report["written"] == []
+
+
+def test_missing_course_id_is_reported_separately_from_identity(repo):
+    """缺 course_id 与缺身份是两回事，修法不同，不能混成一个原因。"""
+    course = _course()
+    course.pop("course_id")
+
+    report = publish_course_artifacts(course, owner_id="t1", repository=repo)
+
+    assert report["reason"] == MISSING_COURSE_ID
+    assert "course_id" in report["message"]
+    assert repo.list_owned("t1") == []
+
+
+def test_every_skip_reason_carries_an_actionable_message():
+    """每个跳过原因都必须有对应文案，不能有"沉默的跳过"。"""
+    for reason, message in SKIP_MESSAGES.items():
+        assert message.strip(), f"{reason} 缺少说明文案"
+        # 都要说清"没写任何文件"，避免老师以为写了一半。
+        assert "未" in message
+
+
+def test_publish_endpoint_rejects_missing_identity_without_creating_a_package(
+    tmp_path, monkeypatch,
+):
+    """走真实 HTTP 端点：不带 X-User-Id 时不建包、不入库，并说清原因。"""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from dependencies import get_course_or_404
+    from routers import courses as courses_router
+
+    async def fake_course(course_id: str):
+        return _course()
+
+    monkeypatch.setattr(courses_router, "get_course_or_404", fake_course)
+    called = {"n": 0}
+
+    def unexpected(*args, **kwargs):
+        called["n"] += 1
+        raise AssertionError("缺身份时不得进入入库流程")
+
+    monkeypatch.setattr(courses_router, "publish_course_artifacts", unexpected)
+
+    app = FastAPI()
+    app.include_router(courses_router.router, prefix="/api")
+    app.dependency_overrides[get_course_or_404] = fake_course
+    client = TestClient(app)
+
+    response = client.post("/api/courses/course-f2/course-space/publish")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "skipped"
+    assert body["reason"] == MISSING_TEACHER_IDENTITY
+    assert "教师身份" in body["message"]
+    assert body["written"] == [] and body["package_id"] == ""
+    # 根本没有走到入库这一步。
+    assert called["n"] == 0
+
+
+def test_publish_endpoint_rejects_the_shared_default_identity(
+    tmp_path, monkeypatch,
+):
+    """共享的 default_user 不算教师身份——否则产物会落进所有人共用的空间。
+
+    教师课程空间自身的写入口（require_user_id）就是这么判的，这里必须一致。
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from learner_context import DEFAULT_USER_ID
+    from routers import courses as courses_router
+
+    async def fake_course(course_id: str):
+        return _course()
+
+    monkeypatch.setattr(courses_router, "get_course_or_404", fake_course)
+    monkeypatch.setattr(
+        courses_router, "publish_course_artifacts",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("不得入库")),
+    )
+
+    app = FastAPI()
+    app.include_router(courses_router.router, prefix="/api")
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/courses/course-f2/course-space/publish",
+        headers={"X-User-Id": DEFAULT_USER_ID},
+    )
+
+    assert response.json()["reason"] == MISSING_TEACHER_IDENTITY

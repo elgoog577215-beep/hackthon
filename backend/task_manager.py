@@ -96,7 +96,9 @@ from course_type_contracts import (
     resolve_course_type,
 )
 from course_space_publication import (
+    MISSING_TEACHER_IDENTITY,
     PUBLISH_SCHEMA_VERSION,
+    SKIP_MESSAGES,
     publish_course_artifacts,
 )
 from course_versioning import (
@@ -8812,10 +8814,18 @@ class TaskManager:
             or ""
         ).strip()
         if not owner_id:
+            # 缺教师身份时不建包、不写文件，并如实说明原因——否则老师只会看到
+            # "没入库"，分不清是系统坏了还是身份没带上。
             report = {
                 "schema_version": PUBLISH_SCHEMA_VERSION,
                 "status": "skipped",
-                "reason": "no_owner_id",
+                "reason": MISSING_TEACHER_IDENTITY,
+                "message": SKIP_MESSAGES[MISSING_TEACHER_IDENTITY],
+                "package_id": "",
+                "written": [],
+                "unchanged": [],
+                "conflicts": [],
+                "failures": [],
             }
         else:
             report = await asyncio.to_thread(

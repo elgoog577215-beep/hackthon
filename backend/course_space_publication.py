@@ -50,6 +50,31 @@ _LESSON_FOLDER = "1、教案"
 _SLIDES_FOLDER = "2、PPT"
 
 
+MISSING_TEACHER_IDENTITY = "missing_teacher_identity"
+MISSING_COURSE_ID = "missing_course_id"
+NO_COURSE_SPACE_PACKAGE = "no_course_space_package"
+
+# Human-facing explanation per skip reason. A caller that only logs
+# ``status=skipped`` would leave the teacher guessing, and "入库失败" without a
+# cause is the kind of message that turns a fixable setup problem into a support
+# ticket. Each reason therefore carries what went wrong and what to do.
+SKIP_MESSAGES = {
+    MISSING_TEACHER_IDENTITY: (
+        "缺少教师身份（X-User-Id），未创建课程包也未写入任何文件；"
+        "请在请求头带上教师身份后重试"
+    ),
+    MISSING_COURSE_ID: (
+        "课程缺少 course_id，无法与课程包建立绑定；未创建课程包也未写入任何文件"
+    ),
+    NO_COURSE_SPACE_PACKAGE: (
+        "该课程没有绑定的教师课程空间，且当前调用不允许自动创建；未写入任何文件"
+    ),
+    "no_publishable_artifact": (
+        "这门课当前没有可归档的产物（大纲/教案/正文都为空）；未写入任何文件"
+    ),
+}
+
+
 def _digest(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
@@ -281,15 +306,17 @@ def publish_course_artifacts(
         documents = build_course_artifact_documents(course_data)
         if not documents:
             report["reason"] = "no_publishable_artifact"
+            report["message"] = SKIP_MESSAGES["no_publishable_artifact"]
             return report
-        package = _resolve_package(
+        package, skip_reason = _resolve_package(
             course_data,
             owner_id=owner_id,
             repository=repo,
             create_if_missing=create_package_if_missing,
         )
         if package is None:
-            report["reason"] = "no_course_space_package"
+            report["reason"] = skip_reason
+            report["message"] = SKIP_MESSAGES.get(skip_reason, "")
             return report
         report["package_id"] = str(package.get("package_id") or "")
         for document in documents:
@@ -312,21 +339,31 @@ def _resolve_package(
     owner_id: str,
     repository: Any,
     create_if_missing: bool,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, str]:
     """Find the package bound to this course, creating one when allowed.
+
+    Returns ``(package, skip_reason)``. The reason distinguishes the three ways
+    this can come back empty -- missing teacher identity, missing course id, and
+    "no package and not allowed to create one" -- because they need different
+    fixes and a single vague failure would hide which one happened.
 
     Binding is recorded on the package (``course_id``) rather than only on the
     course, so a package that already exists for the course is reused across
     regenerations even if the course record was rebuilt.
     """
+    if not str(owner_id or "").strip():
+        return None, MISSING_TEACHER_IDENTITY
     course_id = str(course_data.get("course_id") or "")
-    if not owner_id or not course_id:
-        return None
+    if not course_id:
+        return None, MISSING_COURSE_ID
     for summary in repository.list_owned(owner_id):
         if str(summary.get("course_id") or "") == course_id:
-            return repository.load_owned(str(summary.get("package_id")), owner_id)
+            return (
+                repository.load_owned(str(summary.get("package_id")), owner_id),
+                "",
+            )
     if not create_if_missing:
-        return None
+        return None, NO_COURSE_SPACE_PACKAGE
     classroom = (
         course_data.get("teacher_course_brief")
         or (course_data.get("generation_request") or {}).get("teacher_course_brief")
@@ -346,7 +383,7 @@ def _resolve_package(
     package["course_id"] = course_id
     package["created_by"] = "course_generation"
     repository.save(package)
-    return package
+    return package, ""
 
 
 def _split_academic_term(value: str) -> tuple[str, str]:
@@ -500,6 +537,10 @@ def _now() -> str:
 
 __all__ = [
     "GENERATED_DIR",
+    "MISSING_COURSE_ID",
+    "MISSING_TEACHER_IDENTITY",
+    "NO_COURSE_SPACE_PACKAGE",
+    "SKIP_MESSAGES",
     "PUBLISH_SCHEMA_VERSION",
     "build_course_artifact_documents",
     "publish_course_artifacts",
