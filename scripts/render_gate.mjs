@@ -55,15 +55,42 @@ if (!process.env.RENDER_GATE_UNDER_VITE) {
 
 
 function parseArgs(argv) {
-  const args = { course: '', out: '', format: 'json', quiet: false }
+  const args = {
+    course: '', out: '', format: 'json', quiet: false,
+    courseId: '', dataDir: '',
+  }
   for (let i = 2; i < argv.length; i += 1) {
     const flag = argv[i]
     if (flag === '--course') args.course = argv[++i]
     else if (flag === '--out') args.out = argv[++i]
     else if (flag === '--format') args.format = argv[++i]
     else if (flag === '--quiet') args.quiet = true
+    // 真机生成的课程落在 `$LINGZHI_DATA_DIR/courses/<id>.json`，跑冒烟的人
+    // 手上只有 course_id。让脚本自己解析路径，省得每次拼一遍。
+    else if (flag === '--course-id') args.courseId = argv[++i]
+    else if (flag === '--data-dir') args.dataDir = argv[++i]
   }
   return args
+}
+
+/** 把 `--course-id` 解析成实际文件路径。 */
+function resolveCourseFile(args) {
+  if (args.course) return resolve(ROOT, args.course)
+  if (!args.courseId) return ''
+  const roots = [
+    args.dataDir,
+    process.env.LINGZHI_DATA_DIR,
+    resolve(ROOT, 'backend/data'),
+  ].filter(Boolean)
+  for (const root of roots) {
+    const candidate = resolve(root, 'courses', `${args.courseId}.json`)
+    if (existsSync(candidate)) return candidate
+  }
+  throw new Error(
+    `找不到课程 ${args.courseId}。找过：\n` +
+    roots.map(r => `  ${resolve(r, 'courses', `${args.courseId}.json`)}`).join('\n') +
+    '\n用 --data-dir 指定运行时数据目录，或直接用 --course <文件路径>。',
+  )
 }
 
 /**
@@ -102,8 +129,21 @@ function extractBodies(course) {
 
 async function main() {
   const args = parseArgs(process.argv)
-  if (!args.course) {
-    console.error('用法: node scripts/render_gate.mjs --course <course.json> [--out <report.json>] [--format json|text]')
+  if (!args.course && !args.courseId) {
+    console.error(
+      '用法:\n' +
+      '  node scripts/render_gate.mjs --course <course.json> [--out <report.json>] [--format json|text]\n' +
+      '  node scripts/render_gate.mjs --course-id <课程ID> [--data-dir <运行时数据目录>]\n' +
+      '\n--course-id 会到 <data-dir>/courses/<ID>.json 找；data-dir 默认取\n' +
+      '$LINGZHI_DATA_DIR，再退回 backend/data。真机冒烟时用它，不必手拼路径。',
+    )
+    return 2
+  }
+  let coursePath
+  try {
+    coursePath = resolveCourseFile(args)
+  } catch (error) {
+    console.error(String(error.message || error))
     return 2
   }
 
@@ -125,7 +165,7 @@ async function main() {
   const { renderFailures, resetRenderFailures, withRenderContext } =
     await import('@/utils/render-diagnostics')
 
-  const course = JSON.parse(readFileSync(resolve(ROOT, args.course), 'utf8'))
+  const course = JSON.parse(readFileSync(coursePath, 'utf8'))
   const bodies = extractBodies(course)
 
   const nodes = []
@@ -197,7 +237,7 @@ async function main() {
     dimension: 'visual',
     course_id: course.course_id || '',
     course_name: course.course_name || (course.course_document || {}).title || '',
-    source: args.course,
+    source: args.course || coursePath,
     renderer: 'frontend/src/utils/markdown.ts (markdown-it + KaTeX + DOMPurify)',
     passed: failing.length === 0,
     checked_nodes: nodes.length,
