@@ -2524,6 +2524,7 @@
       "label": "参考资料",
       "subtitle": "上传教材、讲义或题目，让生成内容有据可循",
       "fileCount": "{count} 份资料",
+      "savedToSpace": "资料已存入课程文件空间，可在「课程文件」中查看与管理",
       "chooseFiles": "选择文件",
       "addText": "添加文本资料",
       "dropTitle": "拖入文件，或从电脑中选择",
