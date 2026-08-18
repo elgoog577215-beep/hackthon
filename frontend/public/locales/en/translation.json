@@ -2543,6 +2543,7 @@
       "label": "Reference materials",
       "subtitle": "Upload textbooks, notes, or questions to ground the generated course",
       "fileCount": "{count} materials",
+      "savedToSpace": "Saved to the course file space — view and manage it under Course files",
       "chooseFiles": "Choose files",
       "addText": "Add text material",
       "dropTitle": "Drop files here or choose from your computer",
