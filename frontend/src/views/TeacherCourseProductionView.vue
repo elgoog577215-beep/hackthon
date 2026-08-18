@@ -327,6 +327,33 @@
       </div>
       <template #footer><button type="button" class="secondary-button" @click="lessonEditorOpen = false">取消</button><button type="button" class="primary-button" :disabled="lessonEditorSaving" @click="saveLessonEditor">{{ lessonEditorSaving ? '保存中' : '保存为新草稿' }}</button></template>
     </el-dialog>
+    <el-dialog
+      v-model="candidateReviewOpen"
+      title="审阅 AI 教案候选"
+      width="min(980px, calc(100vw - 32px))"
+      append-to-body
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
+      <div class="candidate-review">
+        <header>
+          <div><small>教师要求</small><strong>{{ pendingPlanCandidate?.instruction }}</strong></div>
+          <span>{{ candidateChangedCount }} 项变化</span>
+        </header>
+        <div class="candidate-review__head"><span>字段</span><span>当前草稿</span><span>AI 候选</span></div>
+        <article v-for="row in candidateDiffRows" :key="row.key" :class="{ changed: row.changed }">
+          <strong>{{ row.label }}</strong>
+          <p>{{ row.before || '未填写' }}</p>
+          <p>{{ row.after || '未填写' }}</p>
+        </article>
+        <p v-if="!candidateChangedCount" class="candidate-review__empty">AI 没有产生可见变化，建议拒绝并重新说明优化要求。</p>
+      </div>
+      <template #footer>
+        <button type="button" class="secondary-button" :disabled="candidateReviewSaving" @click="resolvePlanCandidate(false)">拒绝候选</button>
+        <button type="button" class="primary-button" :disabled="candidateReviewSaving || !candidateChangedCount" @click="resolvePlanCandidate(true)">{{ candidateReviewSaving ? '处理中' : '接受并形成新草稿' }}</button>
+      </template>
+    </el-dialog>
     <el-drawer v-model="knowledgeDrawerOpen" title="本讲知识依据" size="min(520px, 92vw)" append-to-body>
       <div v-if="knowledgeLoading" class="workspace-state"><LoaderCircle class="spin" :size="22" /><span>正在读取本讲知识依据</span></div>
       <div v-else-if="knowledgeError" class="knowledge-error" role="alert">{{ knowledgeError }}</div>
@@ -359,7 +386,7 @@ import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCo
 import { useTeachingRepresentationsStore } from '../stores/teachingRepresentations'
 import { useTeachingPlanWorkbenchStore } from '../stores/teachingPlanWorkbench'
 import { useTeachingCalendarStore } from '../stores/teachingCalendar'
-import type { TeacherLessonKnowledgeEvidence } from '../stores/teacherLessonAuthoring'
+import type { TeacherLessonKnowledgeEvidence, TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
 import type { CourseTeachingPlanProjection, GuidedGenerationStepKey, Node } from '../stores/types'
 import {
   lessonUnitSections,
@@ -367,6 +394,11 @@ import {
   resolveLessonSection,
   resolveLessonUnit,
 } from '../utils/lesson-units'
+import {
+  teacherLessonSectionDiff,
+  teacherLessonSectionMarkdown,
+  teacherLessonSectionView,
+} from '../utils/teacher-lesson-plan'
 
 type StageKey = 'overview' | 'teaching' | 'ppt'
 type PageMode = 'outline' | 'production' | 'release'
@@ -392,6 +424,10 @@ const loadedCourseId = ref('')
 const lessonEditorOpen = ref(false)
 const lessonEditorSaving = ref(false)
 const lessonEditorDraft = reactive({ learningObjective: '', keyDifficulties: '', teacherActivities: '', studentActivities: '', homework: '' })
+const candidateReviewOpen = ref(false)
+const candidateReviewSaving = ref(false)
+const pendingPlanCandidate = ref<TeacherLessonPlanCandidate | null>(null)
+const pendingCandidateBaseSection = ref<Record<string, any> | null>(null)
 const knowledgeDrawerOpen = ref(false)
 const knowledgeLoading = ref(false)
 const knowledgeError = ref('')
@@ -461,10 +497,17 @@ const selectedLessonWorkingRevision = computed(() => {
   if (!asset?.working_revision_id) return null
   return asset.revisions.find(item => item.revision_id === asset.working_revision_id) || null
 })
+const selectedLessonNeedsReview = computed(() => Boolean(
+  selectedLessonWorkingRevision.value?.generation_source === 'deterministic_local_fallback'
+  || selectedLessonWorkingRevision.value?.warnings?.length,
+))
 const selectedLessonPlan = computed<CourseTeachingPlanProjection | null>(() => (
   selectedLessonWorkingRevision.value?.plan as CourseTeachingPlanProjection | undefined
 ) || null)
 const selectedPlanSection = computed(() => selectedLessonPlan.value?.sections?.find(section => section.node_id === selectedSectionNodeId.value) || null)
+const pendingCandidateSection = computed(() => pendingPlanCandidate.value?.plan?.sections?.find((item: any) => item.node_id === pendingPlanCandidate.value?.section_node_id) || null)
+const candidateDiffRows = computed(() => teacherLessonSectionDiff(pendingCandidateBaseSection.value, pendingCandidateSection.value))
+const candidateChangedCount = computed(() => candidateDiffRows.value.filter(item => item.changed).length)
 const selectedLessonJobs = computed(() => lessonAuthoringStore.jobs.filter(item => item.lesson_unit_id === selectedLessonUnitId.value))
 const selectedLessonJob = computed(() => [...selectedLessonJobs.value].reverse().find(item => item.type === 'teacher_lesson_plan_generation'))
 const selectedLessonJobRunning = computed(() => ['pending', 'running'].includes(selectedLessonJob.value?.status || ''))
@@ -473,6 +516,7 @@ const lessonPlanJobRunningCount = computed(() => lessons.value.filter((lesson) =
 const selectedLessonAuthoringLabel = computed(() => {
   if (selectedLessonJobRunning.value) return `${selectedLessonJob.value?.message || '正在生成'} · ${Math.round(selectedLessonJob.value?.progress || 0)}%`
   if (selectedLessonJob.value?.status === 'failed') return selectedLessonJob.value.error?.message || '本讲生成失败，可单独重试'
+  if (selectedLessonNeedsReview.value && selectedLessonAsset.value?.confirmed_revision_id) return '当前确认版来自基础兜底稿，建议 AI 优化后重新确认'
   if (selectedLessonWorkingRevision.value?.status === 'needs_ai_review') return '基础草稿已就绪，建议继续 AI 优化'
   if (selectedLessonAsset.value?.confirmed_revision_id) return '本讲教案已确认，可制作本讲 PPT'
   if (selectedLessonWorkingRevision.value) return '本讲教案草稿已就绪，可编辑、AI优化或制作PPT'
@@ -484,9 +528,14 @@ const selectedLessonLabel = computed(() => {
   return lesson ? `第 ${String(index + 1).padStart(2, '0')} 讲 · ${lesson.node_name}` : '全课教案'
 })
 const selectedPptAsset = computed(() => selectedLessonAsset.value?.ppt_assets?.find(item => item.role === 'primary') || null)
-const pptAvailable = computed(() => Boolean(selectedLessonWorkingRevision.value))
+const pptAvailable = computed(() => Boolean(
+  selectedLessonWorkingRevision.value
+  && selectedLessonAsset.value?.confirmed_revision_id === selectedLessonWorkingRevision.value.revision_id,
+))
 const pptBlockedReason = computed(() => {
-  return '请先生成当前讲教案，再制作本讲 PPT。'
+  return selectedLessonWorkingRevision.value
+    ? '请先确认当前讲教案版本，再制作本讲 PPT。'
+    : '请先生成当前讲教案，再制作本讲 PPT。'
 })
 const pptStageState = computed(() => {
   if (!pptAvailable.value) return 'locked'
@@ -581,6 +630,8 @@ function lessonState(node: Node) {
   const projection = lessonAuthoringStore.lessonById(node.node_id)
   const activeJob = lessonAuthoringStore.activeJobByLesson(node.node_id)
   if (activeJob) return '生成中'
+  const revision = projection?.plan.revisions.find(item => item.revision_id === projection.plan.working_revision_id)
+  if (revision?.generation_source === 'deterministic_local_fallback' || revision?.warnings?.length) return projection?.plan.confirmed_revision_id ? '基础稿已确认' : '基础稿需优化'
   if (projection?.plan.confirmed_revision_id) return '已确认'
   if (projection?.plan.working_revision_id) return '教案草稿'
   return node.error_summary ? '需要处理' : '等待生成'
@@ -658,17 +709,7 @@ function nodePreviewContent(node: Node) {
   const revision = projection?.plan.revisions.find(item => item.revision_id === projection.plan.working_revision_id)
   const sections = revision?.plan?.sections || []
   if (!sections.length) return '本讲教师教案尚未生成。旧课程正文不会作为教师教案显示。'
-  return sections.map((section: any, index: number) => {
-    const objective = String(section.learning_objective || section.objective || '').trim()
-    const activities = (section.teacher_activities || section.teaching_modules || [])
-      .map((item: unknown) => typeof item === 'string' ? item : JSON.stringify(item))
-      .filter(Boolean)
-    return [
-      `### ${index + 1}. ${section.title || section.node_name || '未命名小节'}`,
-      objective ? `**教学目标：** ${objective}` : '',
-      activities.length ? `**课堂活动：**\n${activities.map((item: string) => `- ${item}`).join('\n')}` : '',
-    ].filter(Boolean).join('\n\n')
-  }).join('\n\n')
+  return sections.map((section: any, index: number) => teacherLessonSectionMarkdown(section, index)).join('\n\n')
 }
 function showPreviousLesson() { if (previousPreviewLesson.value) previewLesson.value = previousPreviewLesson.value }
 function showNextLesson() { if (nextPreviewLesson.value) previewLesson.value = nextPreviewLesson.value }
@@ -712,11 +753,12 @@ function lines(value: string) { return value.split(/\r?\n/).map(item => item.tri
 function openLessonEditor() {
   const section = selectedPlanSection.value as any
   if (!section) return
-  lessonEditorDraft.learningObjective = String(section.learning_objective || '')
-  lessonEditorDraft.keyDifficulties = (section.key_difficulties || []).join('\n')
-  lessonEditorDraft.teacherActivities = (section.teacher_activities || []).join('\n')
-  lessonEditorDraft.studentActivities = (section.student_activities || []).join('\n')
-  lessonEditorDraft.homework = (section.homework || []).join('\n')
+  const view = teacherLessonSectionView(section)
+  lessonEditorDraft.learningObjective = view.learningObjective
+  lessonEditorDraft.keyDifficulties = view.keyDifficulties.join('\n')
+  lessonEditorDraft.teacherActivities = view.teacherActivities.join('\n')
+  lessonEditorDraft.studentActivities = view.studentActivities.join('\n')
+  lessonEditorDraft.homework = view.homework.join('\n')
   lessonEditorOpen.value = true
 }
 async function saveLessonEditor() {
@@ -748,34 +790,30 @@ async function optimizeSelectedLesson() {
     const instruction = String(promptResult?.value || '').trim()
     if (!instruction) return
     const candidate = await lessonAuthoringStore.createAiCandidate(courseId.value, selectedLessonUnitId.value, revisionId, instruction, selectedSectionNodeId.value)
-    const currentSection = selectedPlanSection.value as any
-    const candidateSection = candidate.plan?.sections?.find((item: any) => item.node_id === selectedSectionNodeId.value)
-    const planDiffMessage = [
-      'AI候选已生成，以下是当前小节的变化摘要：',
-      `当前目标：${brief(currentSection?.learning_objective || currentSection?.objective)}`,
-      `候选目标：${brief(candidateSection?.learning_objective || candidateSection?.objective)}`,
-      `当前课堂活动：${brief(currentSection?.teacher_activities || currentSection?.teaching_modules)}`,
-      `候选课堂活动：${brief(candidateSection?.teacher_activities || candidateSection?.teaching_modules)}`,
-      '接受后形成新的讲次草稿，当前确认版不会被直接覆盖。',
-    ].join('\n')
-    try {
-      await ElMessageBox.confirm(planDiffMessage, '审阅AI候选', { confirmButtonText: '接受候选', cancelButtonText: '拒绝候选', distinguishCancelAndClose: true })
-      await lessonAuthoringStore.resolveAiCandidate(courseId.value, selectedLessonUnitId.value, candidate.candidate_id, true)
-      ElMessage.success('AI候选已接受并形成新草稿')
-    } catch (decision) {
-      await lessonAuthoringStore.resolveAiCandidate(courseId.value, selectedLessonUnitId.value, candidate.candidate_id, false)
-      if (decision !== 'close') ElMessage.info('AI候选已拒绝，当前草稿未改变')
-    }
+    pendingCandidateBaseSection.value = JSON.parse(JSON.stringify(selectedPlanSection.value || {}))
+    pendingPlanCandidate.value = candidate
+    candidateReviewOpen.value = true
   } catch (error: any) {
     if (error === 'cancel' || error === 'close') return
     ElMessage.error(lessonAuthoringStore.error || String(error?.message || 'AI优化失败'))
   }
 }
-function brief(value: unknown) {
-  const text = Array.isArray(value)
-    ? value.map(item => typeof item === 'string' ? item : JSON.stringify(item)).join('；')
-    : typeof value === 'object' && value ? JSON.stringify(value) : String(value || '未填写')
-  return text.length > 180 ? `${text.slice(0, 180)}…` : text
+async function resolvePlanCandidate(accept: boolean) {
+  const candidate = pendingPlanCandidate.value
+  if (!candidate || candidateReviewSaving.value) return
+  candidateReviewSaving.value = true
+  try {
+    await lessonAuthoringStore.resolveAiCandidate(courseId.value, selectedLessonUnitId.value, candidate.candidate_id, accept)
+    candidateReviewOpen.value = false
+    pendingPlanCandidate.value = null
+    pendingCandidateBaseSection.value = null
+    if (accept) ElMessage.success('AI候选已接受并形成新草稿')
+    else ElMessage.info('AI候选已拒绝，当前草稿未改变')
+  } catch {
+    ElMessage.error(lessonAuthoringStore.error || 'AI候选处理失败')
+  } finally {
+    candidateReviewSaving.value = false
+  }
 }
 function openPpt() {
   if (!pptAvailable.value) return
@@ -918,6 +956,7 @@ button { font:inherit; }
 .lesson-plan-empty{min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;margin:18px;border:1px dashed var(--lz-border);border-radius:14px;background:var(--lz-surface);text-align:center}.lesson-plan-empty>div{width:48px;height:48px;display:grid;place-items:center;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.lesson-plan-empty>strong{font-size:16px}.lesson-plan-empty>span{max-width:520px;color:var(--lz-text-secondary);font-size:12px;line-height:1.7}.lesson-plan-empty .primary-button{height:36px;display:inline-flex;align-items:center;gap:6px;margin-top:4px;padding:0 14px;border:1px solid var(--lz-brand);border-radius:8px;color:#fff;background:var(--lz-brand);cursor:pointer}.lesson-plan-empty .primary-button:disabled{opacity:.55;cursor:not-allowed}
 .lesson-authoring-bar{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.lesson-authoring-bar>div:first-child{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:3px 8px}.lesson-authoring-bar small{color:var(--lz-brand);font-size:9px;font-weight:800}.lesson-authoring-bar strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.lesson-authoring-bar span{grid-column:1/-1;color:var(--lz-text-muted);font-size:9px}.lesson-authoring-bar>div:last-child{display:flex;gap:6px}.lesson-authoring-bar .primary-button,.lesson-authoring-bar .secondary-button{height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border-radius:7px;white-space:nowrap;cursor:pointer}.lesson-authoring-bar .primary-button{border:1px solid var(--lz-brand);color:#fff;background:var(--lz-brand)}.lesson-authoring-bar .secondary-button{border:1px solid var(--lz-border);color:var(--lz-text-secondary);background:var(--lz-surface)}.lesson-authoring-bar button:disabled{opacity:.5;cursor:not-allowed}
 .lesson-editor-form{display:grid;gap:14px}.lesson-editor-form>div{display:grid;grid-template-columns:1fr 1fr;gap:12px}.lesson-editor-form label{display:grid;gap:6px;color:var(--lz-text-secondary);font-size:11px;font-weight:700}.lesson-editor-form textarea,.lesson-editor-form input{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-primary);background:var(--lz-surface);font:inherit;line-height:1.55;resize:vertical;outline:0}.lesson-editor-form textarea:focus,.lesson-editor-form input:focus{border-color:var(--lz-brand);box-shadow:0 0 0 3px rgb(99 102 241 / 9%)}
+.candidate-review{display:grid;border-top:1px solid var(--lz-border)}.candidate-review>header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 12px;border-bottom:1px solid var(--lz-border)}.candidate-review>header>div{min-width:0;display:grid;gap:3px}.candidate-review>header small{color:var(--lz-text-muted);font-size:9px}.candidate-review>header strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.candidate-review>header>span{padding:4px 8px;border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px;font-weight:800}.candidate-review__head,.candidate-review article{display:grid;grid-template-columns:120px minmax(0,1fr) minmax(0,1fr);gap:12px}.candidate-review__head{min-height:34px;align-items:center;padding:0 12px;color:var(--lz-text-muted);background:var(--lz-fill);font-size:9px}.candidate-review article{padding:11px 12px;border-bottom:1px solid var(--lz-border)}.candidate-review article.changed{border-left:3px solid var(--lz-brand);background:var(--lz-brand-soft)}.candidate-review article>strong{font-size:10px}.candidate-review article>p{margin:0;white-space:pre-wrap;color:var(--lz-text-secondary);font-size:10px;line-height:1.65}.candidate-review article>p:last-child{color:var(--lz-text-primary)}.candidate-review__empty{margin:14px 12px;color:var(--lz-warning);font-size:10px}.candidate-review+* .primary-button:disabled{opacity:.45;cursor:not-allowed}
 .production-tabs__actions{display:flex;flex:0 0 auto;align-items:center;gap:6px;margin-left:auto}.production-tabs__actions button{height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);cursor:pointer;white-space:nowrap}.production-tabs__actions .next-step-button{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand);font-weight:700}.production-tabs__actions button:disabled{opacity:.45;cursor:not-allowed}.production-tabs__actions .ai-toggle[aria-expanded="true"]{border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 .workspace-grid { flex:1 1 auto; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); }
 .workspace-grid.immersive { grid-template-columns:196px minmax(0,1fr); }

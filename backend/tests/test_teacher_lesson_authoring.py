@@ -11,6 +11,8 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringService,
     lesson_plan_ppt_source,
     lesson_scope,
+    normalize_teacher_lesson_plan,
+    teacher_lesson_section_content,
     teacher_lesson_v6_source,
 )
 from course_presentation_graph import compile_course_presentation_graph
@@ -98,6 +100,80 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
     lesson = repository.view("course-1")["lessons"]["L1-1"]
     assert lesson["revisions"][0]["status"] == "needs_ai_review"
     assert lesson["revisions"][0]["plan"]["sections"][0]["node_id"] == "L2-1-1"
+    assert "模型内容校验未通过" in completed["message"]
+
+
+def test_plan_v3_projection_is_editable_and_never_serializes_module_json():
+    section = {
+        "node_id": "L2-1-1",
+        "key_points": ["二进制转换"],
+        "knowledge_structure": [{
+            "knowledge_points": [{
+                "name": "二进制转换",
+                "statement": "完成二进制与十进制之间的相互转换。",
+                "boundaries": ["仅处理无符号整数"],
+                "capability_points": [{"observable_behavior": "能够独立完成一次进制转换并核对结果。"}],
+            }],
+        }],
+        "teaching_modules": [
+            {
+                "module_id": "core_explanation",
+                "teaching_purpose": "按模板完成「核心讲解」",
+                "teaching_guidance": "使用位权展开演示转换过程",
+                "knowledge_names": ["二进制转换"],
+            },
+            {
+                "module_id": "learner_action",
+                "teaching_guidance": "学生独立完成一道转换题",
+                "knowledge_names": ["二进制转换"],
+            },
+        ],
+    }
+
+    view = teacher_lesson_section_content(section)
+    assert view["learning_objective"] == "能够独立完成一次进制转换并核对结果。"
+    assert "仅处理无符号整数" in view["key_difficulties"]
+    assert view["teacher_activities"] == ["核心讲解：围绕二进制转换；使用位权展开演示转换过程"]
+    assert view["student_activities"] == ["学习者行动：围绕二进制转换；学生独立完成一道转换题"]
+
+    normalized = normalize_teacher_lesson_plan({"sections": [section]})
+    projected = normalized["sections"][0]
+    assert projected["learning_objective"] == view["learning_objective"]
+    assert projected["teacher_activities"] == view["teacher_activities"]
+    assert "{" not in "\n".join(projected["teacher_activities"])
+
+
+def test_v6_source_materializes_knowledge_facts_instead_of_template_prompts():
+    source = course_data()
+    revision = {
+        "revision_id": "fallback-v1",
+        "plan": {
+            "sections": [{
+                "node_id": "L2-1-1",
+                "knowledge_structure": [{
+                    "knowledge_points": [{
+                        "name": "位权展开",
+                        "statement": "二进制数可按位权展开并转换为十进制。",
+                    }],
+                }],
+                "teaching_modules": [{
+                    "module_id": "core_explanation",
+                    "teaching_purpose": "按模板完成「正式定义」",
+                    "teaching_guidance": "逐位演示位权展开",
+                    "knowledge_names": ["位权展开"],
+                }],
+            }],
+        },
+    }
+    _document, view, _synthetic_id = teacher_lesson_v6_source(
+        source,
+        lesson_unit_id="L1-1",
+        plan_revision=revision,
+    )
+    first_section = next(node for node in view["nodes"] if node["node_id"] == "L2-1-1")
+    rendered = first_section["node_content"]
+    assert "二进制数可按位权展开并转换为十进制" in rendered
+    assert "按模板完成" not in rendered
 
 
 def test_request_id_is_idempotent(tmp_path):
@@ -332,6 +408,7 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     assert FakeTaskManager.course_service.calls == ["L1-2"]
     assets = repository.view("course-1")["lessons"]
     assert set(assets) == {"L1-2"}
-    assert assets["L1-2"]["revisions"][0]["plan"]["sections"] == [
-        {"node_id": "L2-2-1", "teaching_modules": []}
-    ]
+    generated_section = assets["L1-2"]["revisions"][0]["plan"]["sections"][0]
+    assert generated_section["node_id"] == "L2-2-1"
+    assert generated_section["teaching_modules"] == []
+    assert generated_section["teacher_activities"] == []
