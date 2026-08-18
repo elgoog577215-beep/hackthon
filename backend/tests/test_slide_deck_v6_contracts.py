@@ -725,7 +725,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         ),
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v6"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v7"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
 
@@ -2709,7 +2709,7 @@ def test_course_agenda_uses_source_descriptions_and_sample_backed_page_density()
 
     pages = _compile_course_agenda_pages(document, template)
 
-    assert [len(page.regions[0].metadata["agenda_entries"]) for page in pages] == [4, 1]
+    assert [len(page.regions[0].metadata["agenda_entries"]) for page in pages] == [3, 2]
     assert [
         entry["title"]
         for page in pages

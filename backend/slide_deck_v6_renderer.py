@@ -12,6 +12,7 @@ from slide_asset_repository import SlideAssetRepository, slide_asset_repository
 from slide_deck import SlideBlockSpec, SlideSpec
 from slide_deck_renderer import (
     SlideDeckQualityError,
+    _display_text,
     _render_slide,
     validate_theme,
 )
@@ -95,6 +96,11 @@ def _layout_variant(
     ):
         return str(policy["detail_variant"]), "full"
     if page.continuation_index > 1:
+        if has_artifact and has_support and artifact_kind == "table":
+            return (
+                str(policy.get("wide_variant") or policy.get("split_variant") or ""),
+                str(policy.get("wide_support_mode") or "band"),
+            )
         return str(policy.get("continuation_variant") or ""), "full"
     if (
         has_artifact
@@ -162,6 +168,7 @@ def _region_block(page: SlidePageV6, region: Any) -> SlideBlockSpec:
         "v6_region_id": region.region_id,
         "source_block_ids": list(region.source_block_ids),
         "source_asset_refs": list(region.source_asset_refs),
+        **dict(region.metadata or {}),
     }
     block_type = "statement"
     items: list[str] = []
@@ -377,6 +384,133 @@ def _mark_v6_title_shape(slide: Any, unit: SlideSpec) -> None:
     title_shape.name = f"{title_shape.name} [v6-title-max-lines={max_lines}]"
 
 
+def _exported_slide_text(slide: Any) -> tuple[str, list[str]]:
+    values: list[str] = []
+    for shape in slide.shapes:
+        if getattr(shape, "has_text_frame", False):
+            values.append(str(shape.text or ""))
+        if getattr(shape, "has_table", False):
+            values.extend(
+                str(cell.text or "")
+                for row in shape.table.rows
+                for cell in row.cells
+            )
+    return "\n".join(values), values
+
+
+def _canonical_export_text(value: str) -> str:
+    display = _display_text(str(value or ""))
+    display = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)、]\s*)", "", display)
+    display = re.sub(r"[*`]+", "", display)
+    # Renderers may turn source list markers/colon separators into native
+    # numbers, columns or distinct text boxes. Compare the substantive glyph
+    # sequence while code remains subject to the stricter byte-preserving path.
+    display = re.sub(
+        r"[\s:：;；,.，。!?！？()（）\[\]{}<>《》“”‘’'\"|/\\-]+",
+        "",
+        display,
+    )
+    return display.casefold()
+
+
+def _export_region_fragments(region: Any) -> list[str]:
+    agenda_entries = (region.metadata or {}).get("agenda_entries")
+    if isinstance(agenda_entries, list):
+        return [
+            str(value)
+            for entry in agenda_entries
+            if isinstance(entry, dict)
+            for value in (entry.get("title"), entry.get("description"))
+            if str(value or "").strip()
+        ]
+    if region.content_kind == "table":
+        headers, rows = _parse_markdown_table(region.content)
+        return [cell for cell in [*headers, *(cell for row in rows for cell in row)] if cell]
+    if region.content_kind in {"items", "steps"}:
+        return [line for line in region.content.splitlines() if line.strip()]
+    if region.content_kind == "body":
+        paragraphs = [
+            paragraph.strip()
+            for paragraph in re.split(
+                r"\n\s*\n|(?<=[。！？])|(?<=[.!?])\s+",
+                region.content,
+            )
+            if paragraph.strip()
+        ]
+        return paragraphs or [region.content]
+    return [region.content]
+
+
+def _validate_exported_source_regions(
+    deck: SlideDeckV6,
+    presentation: Any,
+) -> None:
+    blockers: list[dict[str, Any]] = []
+    for page, slide in zip(deck.pages, presentation.slides):
+        full_text, shape_texts = _exported_slide_text(slide)
+        _ = full_text
+        canonical_full = "".join(
+            _canonical_export_text(value)
+            for value in shape_texts
+            if str(value or "").strip()
+            not in {"依据", "推论", "阅读线索", "核验对照"}
+        )
+        title = _audience_title(page)
+        if title and _canonical_export_text(title) not in canonical_full:
+            blockers.append({
+                "severity": "critical",
+                "code": "exported_source_region_missing",
+                "message": "Exported PPTX omitted the complete page title",
+                "page_id": page.page_id,
+                "region_id": "title",
+            })
+        for region in page.regions:
+            if region.content_kind == "visual":
+                continue
+            if region.content_kind == "code":
+                normalized_code = region.content.replace("\r\n", "\n").replace("\r", "\n")
+                if not any(
+                    normalized_code
+                    in str(value or "")
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                    .replace("\v", "\n")
+                    for value in shape_texts
+                ):
+                    blockers.append({
+                        "severity": "critical",
+                        "code": "exported_source_region_missing",
+                        "message": "Exported PPTX omitted complete source code",
+                        "page_id": page.page_id,
+                        "region_id": region.region_id,
+                    })
+                continue
+            missing_fragment = next(
+                (
+                    fragment
+                    for fragment in _export_region_fragments(region)
+                    if _canonical_export_text(fragment)
+                    and _canonical_export_text(fragment) not in canonical_full
+                ),
+                "",
+            )
+            if missing_fragment:
+                blockers.append({
+                    "severity": "critical",
+                    "code": "exported_source_region_missing",
+                    "message": "Exported PPTX omitted materialized source text",
+                    "page_id": page.page_id,
+                    "region_id": region.region_id,
+                })
+    if blockers:
+        raise SlideDeckQualityError({
+            "passed": False,
+            "score": 0,
+            "blockers": blockers,
+            "warnings": [],
+        })
+
+
 def _validate_deck_for_export(deck: SlideDeckV6) -> None:
     checks = {
         "formal_block_visible_coverage": deck.quality.formal_block_visible_coverage == 1.0,
@@ -479,6 +613,8 @@ def export_slide_deck_v6_pptx(
         _render_slide(slide, unit, index + 1, len(slides), theme, assets)
         _mark_v6_title_shape(slide, unit)
         slide.notes_slide.notes_text_frame.text = unit.speaker_notes
+
+    _validate_exported_source_regions(deck, presentation)
 
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)

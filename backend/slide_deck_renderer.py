@@ -1454,6 +1454,7 @@ def _render_table_row_detail(
     headers: list[str],
     row: list[str],
     theme: dict[str, str],
+    support_text: str = "",
 ) -> None:
     """Render one oversized source row as readable labeled evidence fields."""
 
@@ -1466,7 +1467,7 @@ def _render_table_row_detail(
     ]
     if not pairs:
         return
-    available_height = 4.48
+    available_height = 3.34 if support_text else 4.48
     gap = 0.08
     usable_height = available_height - gap * max(0, len(pairs) - 1)
     value_fonts = [17 if len(value) <= 72 else 16 for _label, value in pairs]
@@ -1537,6 +1538,29 @@ def _render_table_row_detail(
             bold=len(value) <= 48,
         )
         y += height + gap
+    if support_text:
+        support_y = 1.94 + available_height + 0.12
+        _shape(
+            slide,
+            0.8,
+            support_y,
+            11.76,
+            1.02,
+            theme["accent_soft"],
+            radius=True,
+            line=theme["chart_bg"],
+        )
+        _shape(slide, 0.8, support_y, 0.08, 1.02, theme["accent"], radius=False)
+        _text(
+            slide,
+            support_text,
+            1.1,
+            support_y + 0.13,
+            11.08,
+            0.74,
+            16,
+            theme["ink"],
+        )
 
 
 def _table_support_text(blocks: list[SlideBlockSpec]) -> str:
@@ -1603,6 +1627,10 @@ def _render_table_visual(
     parameters = visual.get("parameters") or {}
     parameter_rows = parameters.get("rows") or []
     if parameter_rows:
+        supporting_blocks = [
+            block for block in unit.blocks
+            if not block.metadata.get("table_source")
+        ]
         if (
             str(unit.quality.get("v6_layout_variant") or "")
             == "table-row-detail"
@@ -1613,12 +1641,9 @@ def _render_table_visual(
                 [str(value) for value in parameters.get("headers") or []],
                 [str(value) for value in parameter_rows[0]],
                 theme,
+                _table_support_text(supporting_blocks),
             )
             return
-        supporting_blocks = [
-            block for block in unit.blocks
-            if not block.metadata.get("table_source")
-        ]
         support_mode = str(unit.quality.get("v6_artifact_support_mode") or "")
         split_support = bool(supporting_blocks and support_mode == "split")
         band_support = bool(supporting_blocks and support_mode == "band")
@@ -2304,13 +2329,29 @@ def _render_roadmap(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
 def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     """Render the course route as an editorial sequence instead of a card grid."""
     _heading(slide, unit, theme)
-    items = _all_items(unit)[:6]
-    if not items:
+    agenda_block = next(
+        (
+            block
+            for block in unit.blocks
+            if isinstance(block.metadata.get("agenda_entries"), list)
+        ),
+        None,
+    )
+    entries = list(agenda_block.metadata.get("agenda_entries") or []) if agenda_block else []
+    if not entries:
+        entries = [
+            {"index": index, "title": item, "description": ""}
+            for index, item in enumerate(_all_items(unit)[:4], start=1)
+        ]
+    if not entries:
         _render_navigation_statement(slide, unit, theme, heading_already_rendered=True)
         return
-    row_h = min(0.76, 4.35 / max(1, len(items)))
-    for index, item in enumerate(items):
-        y = 1.9 + index * row_h
+    row_h = min(1.03, 4.35 / max(1, len(entries)))
+    for fallback_index, entry in enumerate(entries[:4], start=1):
+        index = int(entry.get("index") or fallback_index)
+        title = str(entry.get("title") or "").strip()
+        description = str(entry.get("description") or "").strip()
+        y = 1.9 + (fallback_index - 1) * row_h
         _shape(
             slide,
             0.82,
@@ -2322,7 +2363,7 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
         )
         _text(
             slide,
-            f"{index + 1:02d}",
+            f"{index:02d}",
             0.88,
             y + 0.13,
             0.72,
@@ -2334,15 +2375,26 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
         )
         _text(
             slide,
-            item,
+            title,
             1.78,
             y + 0.08,
-            9.95,
+            4.15,
             row_h - 0.12,
-            18 if len(item) <= 24 else 16,
+            18 if len(title) <= 24 else 16,
             theme["ink"],
             bold=True,
         )
+        if description:
+            _text(
+                slide,
+                description,
+                6.18,
+                y + 0.08,
+                5.55,
+                row_h - 0.12,
+                16,
+                theme["muted"],
+            )
 
 
 def _render_chapter(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -3243,19 +3295,16 @@ def _render_practice_artifact(
     if artifact_kind == "code":
         code = _find_block(unit, "code")
         _shape(slide, artifact_x, artifact_y, artifact_w, artifact_h, theme["code"], radius=True)
-        _text(slide, "SOURCE", 6.16, 2.20, 1.2, 0.25, 10, "AEB6D0", bold=True, font=CODE_FONT)
-        _text(
+        _render_code_reading_frame(
             slide,
-            code.content if code else "",
-            6.16,
-            2.66,
-            6.02,
-            3.28,
-            16,
-            "F5F7FF",
-            font=CODE_FONT,
-            east_asian_font=theme["body_east_asian_font"],
-            literal=True,
+            unit,
+            code,
+            x=6.16,
+            header_y=2.20,
+            code_y=2.66,
+            width=6.02,
+            height=3.28,
+            text_color="F5F7FF",
         )
     elif artifact_kind == "formula":
         visual = next((item for item in unit.visuals if item.get("kind") == "formula"), {})
@@ -3299,6 +3348,131 @@ def _split_ordered_step(value: str) -> tuple[str, str]:
     return clean, ""
 
 
+def _display_code_language(value: str) -> str:
+    normalized = str(value or "").strip().casefold()
+    return {
+        "csharp": "C#",
+        "python": "Python",
+        "javascript": "JavaScript",
+        "typescript": "TypeScript",
+        "java": "Java",
+        "cpp": "C++",
+        "c++": "C++",
+        "sql": "SQL",
+        "bash": "Bash",
+    }.get(normalized, normalized.upper() if normalized else "")
+
+
+def _v6_code_header(unit: SlideSpec, code: SlideBlockSpec | None) -> str:
+    if code is None or not unit.quality.get("v6_template_layout_id"):
+        return ""
+    language = _display_code_language(str(code.metadata.get("code_language") or ""))
+    continuation_index = int(
+        code.metadata.get("code_chunk_index")
+        or unit.quality.get("v6_continuation_index")
+        or 1
+    )
+    continuation_count = int(
+        code.metadata.get("code_chunk_count")
+        or unit.quality.get("v6_continuation_count")
+        or 1
+    )
+    progress = (
+        f"{continuation_index}/{continuation_count}"
+        if continuation_count > 1
+        else ""
+    )
+    return " · ".join(value for value in (language, progress) if value)
+
+
+def _render_code_reading_frame(
+    slide: Any,
+    unit: SlideSpec,
+    code: SlideBlockSpec | None,
+    *,
+    x: float,
+    header_y: float,
+    code_y: float,
+    width: float,
+    height: float,
+    text_color: str,
+    label_color: str = "AEB6D0",
+) -> None:
+    code_text = str(code.content if code else "")
+    is_v6 = bool(unit.quality.get("v6_template_layout_id"))
+    header = _v6_code_header(unit, code)
+    if not is_v6:
+        header = str(code.metadata.get("language") or "code").upper() if code else "CODE"
+    if header:
+        _text(
+            slide,
+            header,
+            x,
+            header_y,
+            max(1.4, width),
+            0.28,
+            10,
+            label_color,
+            bold=True,
+            font=CODE_FONT,
+        )
+    if not is_v6:
+        _text(
+            slide,
+            code_text,
+            x,
+            code_y,
+            width,
+            height,
+            16,
+            text_color,
+            font=CODE_FONT,
+            literal=True,
+        )
+        return
+    start_line = max(1, int(code.metadata.get("code_start_line") or 1)) if code else 1
+    line_count = len(code_text.split("\n"))
+    line_numbers = "\n".join(
+        str(start_line + index)
+        for index in range(line_count)
+    )
+    gutter = _text(
+        slide,
+        line_numbers,
+        x,
+        code_y,
+        0.46,
+        height,
+        16,
+        "73839B",
+        align="right",
+        font=CODE_FONT,
+        literal=True,
+    )
+    gutter.name = f"{gutter.name} [v6-code-line-numbers]"
+    _shape(
+        slide,
+        x + 0.58,
+        code_y,
+        0.012,
+        height,
+        "34465C",
+        radius=False,
+    )
+    _text(
+        slide,
+        code_text,
+        x + 0.76,
+        code_y,
+        max(0.5, width - 0.76),
+        height,
+        16,
+        text_color,
+        font=CODE_FONT,
+        literal=True,
+    )
+
+
 def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
     _heading(slide, unit, theme)
     code = _find_block(unit, "code")
@@ -3321,19 +3495,16 @@ def _render_code(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
         text="F5F7FF",
     )
     _semantic_panel(slide, 0.76, 1.75, code_panel_width, 4.72, evidence_style, rail=False)
-    language = str(code.metadata.get("language") or "code") if code else "code"
-    _text(slide, language.upper(), 1.05, 2.02, 1.4, 0.28, 10, "AEB6D0", bold=True, font="Aptos Mono")
-    _text(
+    _render_code_reading_frame(
         slide,
-        code_text,
-        1.05,
-        2.48,
-        code_text_width,
-        3.6,
-        16,
-        evidence_style["text"],
-        font="Aptos Mono",
-        literal=True,
+        unit,
+        code,
+        x=1.05,
+        header_y=2.02,
+        code_y=2.48,
+        width=code_text_width,
+        height=3.6,
+        text_color=evidence_style["text"],
     )
     if not items:
         return

@@ -9,6 +9,7 @@ interface V6Region {
   source_block_ids?: string[]
   source_section_ids?: string[]
   source_asset_refs?: string[]
+  metadata?: Record<string, any>
 }
 
 interface V6NoteBlock {
@@ -129,6 +130,7 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
     policy.artifact_content_kind === 'table'
     && artifactRegion
     && policy.detail_variant
+    && parseMarkdownTable(artifactRegion.content).rows.length === 1
     && (
       Number(page.continuation_index || 1) > 1
       || (!hasSupport && tableRowRequiresDetail(artifactRegion.content))
@@ -137,6 +139,12 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
     return { variant: policy.detail_variant, supportMode: 'full' }
   }
   if (Number(page.continuation_index || 1) > 1) {
+    if (hasArtifact && hasSupport && policy.artifact_content_kind === 'table') {
+      return {
+        variant: policy.wide_variant || policy.split_variant,
+        supportMode: policy.wide_support_mode || 'band',
+      }
+    }
     return { variant: policy.continuation_variant, supportMode: 'full' }
   }
   const wideMinimum = Number(policy.wide_min_columns || 0)
@@ -183,6 +191,7 @@ function regionBlock(region: V6Region): Record<string, unknown> {
     content: items.length ? '' : region.content,
     items,
     metadata: {
+      ...(region.metadata || {}),
       v6_slot_id: region.slot_id,
       v6_region_id: region.region_id,
       source_block_ids: region.source_block_ids || [],

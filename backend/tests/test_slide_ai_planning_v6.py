@@ -1399,13 +1399,12 @@ async def test_real_shape_activity_code_replay_is_lossless_through_resume_and_qu
         template,
     )
 
-    rendered_code = [
-        line
+    rendered_code = "\n".join(
+        region.content
         for page in deck.pages
         for region in page.regions
         if region.content_kind == "code"
-        for line in region.content.splitlines()
-    ]
+    ).splitlines()
     rendered_steps = [
         line
         for page in deck.pages

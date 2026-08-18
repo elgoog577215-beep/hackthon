@@ -330,6 +330,50 @@ describe('slide deck V6 web adapter', () => {
     expect(slides[0]!.quality.v6_artifact_support_mode).toBe('full')
   })
 
+  it('keeps interpretation visible on a multi-row table continuation', () => {
+    const slides = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        page_id: 'page-table-continuation',
+        page_ordinal: 1,
+        title: 'Compare the evidence',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.12.7/evidence-table',
+        source_block_ids: ['evidence', 'interpretation'],
+        continuation_of_page_id: 'page-table',
+        continuation_index: 2,
+        continuation_count: 2,
+        regions: [
+          {
+            region_id: 'page-table-continuation:table',
+            slot_id: 'table',
+            content_kind: 'table',
+            content: '| Check | Evidence |\n| --- | --- |\n| Input | Recorded |\n| Output | Verified |',
+            source_block_ids: ['evidence'],
+          },
+          {
+            region_id: 'page-table-continuation:interpretation',
+            slot_id: 'interpretation',
+            content_kind: 'body',
+            content: 'Compare every field before publishing.',
+            source_block_ids: ['interpretation'],
+          },
+        ],
+        visual_decision: { decision: 'table' },
+        speaker_notes: {
+          source_document_revision: 'r1',
+          teaching_unit_id: 'u1',
+          source_blocks: [],
+        },
+      }],
+    })
+
+    expect(slides[0]!.quality.v6_layout_variant).toBe('table-wide-with-summary')
+    expect(slides[0]!.quality.v6_artifact_support_mode).toBe('band')
+    expect(slides[0]!.blocks.some((block: any) => (
+      block.content === 'Compare every field before publishing.'
+    ))).toBe(true)
+  })
+
   it('uses the wide-table summary band for four-or-more-column evidence', () => {
     const page = {
       schema_version: 'slide_page_v6',

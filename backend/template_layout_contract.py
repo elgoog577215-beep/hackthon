@@ -258,7 +258,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
     },
     "agenda-path": {
         "intents": ["orientation", "recap"],
-        "slots": [_TITLE, _slot("agenda_items", "items", items=6, chars=180), _NOTES],
+        "slots": [_TITLE, _slot("agenda_items", "items", items=4, chars=520), _NOTES],
         "continuations": [],
     },
     "content-stack": {

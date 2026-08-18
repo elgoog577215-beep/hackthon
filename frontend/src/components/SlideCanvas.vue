@@ -66,10 +66,20 @@
         v-if="slide.quality?.v6_layout_variant === 'table-row-detail'"
         class="deck-table-row-detail"
       >
-        <article v-for="entry in tableRowDetailEntries" :key="entry.label">
-          <small>{{ entry.label }}</small>
-          <MarkdownRenderer :content="entry.value" :enable-code-run="false" />
-        </article>
+        <section class="deck-table-row-detail__fields">
+          <article v-for="entry in tableRowDetailEntries" :key="entry.label">
+            <small>{{ entry.label }}</small>
+            <MarkdownRenderer :content="entry.value" :enable-code-run="false" />
+          </article>
+        </section>
+        <aside v-if="sourceBlocks.length" class="deck-table-row-detail__support">
+          <MarkdownRenderer
+            v-for="block in sourceBlocks"
+            :key="block.block_id"
+            :content="block.content || block.items?.join('\n') || ''"
+            :enable-code-run="false"
+          />
+        </aside>
       </div>
 
       <div
@@ -88,7 +98,13 @@
         </section>
         <section class="deck-practice-artifact__evidence">
           <small>{{ practiceArtifactLabel }}</small>
-          <pre v-if="practiceArtifactKind === 'code'"><code>{{ practiceArtifactCode }}</code></pre>
+          <SlideCodeFrame
+            v-if="practiceArtifactKind === 'code'"
+            :code="practiceArtifactCode"
+            :metadata="practiceArtifactCodeBlock?.metadata"
+            :continuation-index="slide.quality?.v6_continuation_index || 1"
+            :continuation-count="slide.quality?.v6_continuation_count || 1"
+          />
           <MarkdownRenderer
             v-else-if="practiceArtifactKind === 'formula'"
             class="deck-practice-artifact__formula"
@@ -124,7 +140,13 @@
           <small>{{ slide.teaching_job }}</small>
           <section v-for="block in sourceBlocks" :key="block.block_id" :data-type="block.type">
             <b v-if="block.title">{{ block.title }}</b>
-            <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
+            <SlideCodeFrame
+              v-if="block.type === 'code'"
+              :code="block.content || ''"
+              :metadata="block.metadata"
+              :continuation-index="slide.quality?.v6_continuation_index || 1"
+              :continuation-count="slide.quality?.v6_continuation_count || 1"
+            />
             <ol v-else-if="block.type === 'process'">
               <li v-for="(item, itemIndex) in block.items" :key="item">
                 <i>{{ itemIndex + 1 }}</i>
@@ -144,6 +166,23 @@
             />
           </section>
         </div>
+      </div>
+
+      <div
+        v-else-if="visualLayout === 'agenda-linear'"
+        class="deck-agenda"
+      >
+        <ol>
+          <li
+            v-for="entry in agendaEntries"
+            :key="`${entry.index}-${entry.title}`"
+            class="deck-agenda__item"
+          >
+            <b>{{ String(entry.index).padStart(2, '0') }}</b>
+            <strong>{{ entry.title }}</strong>
+            <p v-if="entry.description">{{ entry.description }}</p>
+          </li>
+        </ol>
       </div>
 
       <div
@@ -310,7 +349,13 @@
           :data-type="block.type"
         >
           <small v-if="block.title && (slide.blocks?.length || 0) > 1">{{ block.title }}</small>
-          <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
+          <SlideCodeFrame
+            v-if="block.type === 'code'"
+            :code="block.content || ''"
+            :metadata="block.metadata"
+            :continuation-index="slide.quality?.v6_continuation_index || 1"
+            :continuation-count="slide.quality?.v6_continuation_count || 1"
+          />
           <ul v-else-if="block.items?.length">
             <li v-for="item in block.items" :key="item">
               <MarkdownRenderer :content="item" :enable-code-run="false" />
@@ -338,7 +383,13 @@
             <b>{{ String(blockIndex + 1).padStart(2, '0') }}</b>
             <span>{{ block.title }}</span>
           </header>
-          <pre v-if="block.type === 'code'"><code>{{ block.content }}</code></pre>
+          <SlideCodeFrame
+            v-if="block.type === 'code'"
+            :code="block.content || ''"
+            :metadata="block.metadata"
+            :continuation-index="slide.quality?.v6_continuation_index || 1"
+            :continuation-count="slide.quality?.v6_continuation_count || 1"
+          />
           <table v-else-if="block.type === 'comparison' && block.metadata?.rows?.length">
             <thead>
               <tr><th v-for="header in block.metadata.headers || []" :key="header">{{ header }}</th></tr>
@@ -402,6 +453,7 @@ import { computed } from 'vue'
 import { t } from '../shared/i18n'
 import type { SlideDeckTheme } from '../stores/teachingRepresentations'
 import SlideVisualRenderer from './SlideVisualRenderer.vue'
+import SlideCodeFrame from './SlideCodeFrame.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import themePack from '../data/slide-themes.json'
 import layoutContract from '../../../shared/slide-layout-contract-v5.json'
@@ -454,6 +506,8 @@ interface Slide {
     v6_layout_variant?: string
     v6_artifact_support_mode?: 'split' | 'full' | 'band' | ''
     v6_practice_artifact_kind?: 'code' | 'formula' | 'table' | ''
+    v6_continuation_index?: number
+    v6_continuation_count?: number
     audience_label_policy?: 'source_only'
   }
 }
@@ -532,7 +586,10 @@ const sourceBlocks = computed(() => {
     return blocks.filter(block => block.type !== 'formula' && !block.metadata?.formula)
   }
   if (visualKind === 'table') {
-    if (props.slide.quality?.v6_artifact_support_mode === 'full') return []
+    if (
+      props.slide.quality?.v6_artifact_support_mode === 'full'
+      && props.slide.quality?.v6_layout_variant !== 'table-row-detail'
+    ) return []
     return blocks.filter(block => !block.metadata?.table_source)
   }
   return blocks
@@ -564,6 +621,23 @@ const semanticItems = computed(() => (props.slide.blocks || []).flatMap((block) 
   if (block.items?.length) return block.items.filter(Boolean)
   return block.content ? [block.content] : []
 }))
+const agendaEntries = computed(() => {
+  const declared = (props.slide.blocks || []).find(
+    block => Array.isArray(block.metadata?.agenda_entries),
+  )?.metadata?.agenda_entries
+  if (Array.isArray(declared) && declared.length) {
+    return declared.slice(0, 4).map((entry: Record<string, any>, index: number) => ({
+      index: Number(entry.index || index + 1),
+      title: String(entry.title || ''),
+      description: String(entry.description || ''),
+    }))
+  }
+  return semanticItems.value.slice(0, 4).map((title, index) => ({
+    index: index + 1,
+    title: String(title),
+    description: '',
+  }))
+})
 function blockItems(block: SlideBlock | undefined) {
   if (!block) return []
   if (block.items?.length) return block.items.filter(Boolean)
@@ -599,6 +673,9 @@ const practiceArtifactKind = computed(() => {
 })
 const practiceArtifactCode = computed(() => String(
   (props.slide.blocks || []).find(block => block.type === 'code')?.content || '',
+))
+const practiceArtifactCodeBlock = computed(() => (
+  (props.slide.blocks || []).find(block => block.type === 'code')
 ))
 const practiceArtifactFormula = computed(() => String(
   (props.slide.visuals || []).find(visual => visual.kind === 'formula')?.parameters?.formula
@@ -1824,6 +1901,12 @@ function layoutLabel(value: string) {
   position:absolute;
   inset:25% 5.5% 10.5%;
   display:grid;
+  grid-template-rows:minmax(0,1fr) auto;
+  gap:.8cqw;
+  min-height:0;
+}
+.deck-table-row-detail__fields {
+  display:grid;
   grid-template-rows:repeat(auto-fit,minmax(0,1fr));
   gap:.8cqw;
   min-height:0;
@@ -1848,6 +1931,18 @@ function layoutLabel(value: string) {
   color:var(--deck-ink);
   font-size:1.55cqw;
   line-height:1.42;
+}
+.deck-table-row-detail__support {
+  padding:.75cqw 1.4cqw;
+  border:1px solid var(--deck-line);
+  border-left:.32cqw solid var(--deck-blue);
+  border-radius:.8cqw;
+  background:var(--deck-blue-soft);
+}
+.deck-table-row-detail__support :deep(.markdown-body) {
+  color:var(--deck-ink);
+  font-size:1.2cqw;
+  line-height:1.34;
 }
 .deck-canvas__source {
   min-width:0;
@@ -2452,6 +2547,42 @@ function layoutLabel(value: string) {
   color:var(--deck-blue);
   background:transparent;
   font:800 1cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-agenda {
+  position:absolute;
+  inset:25% 7% 11%;
+  min-height:0;
+}
+.deck-agenda ol {
+  display:grid;
+  grid-template-rows:repeat(auto-fit,minmax(0,1fr));
+  height:100%;
+  margin:0;
+  padding:0;
+  list-style:none;
+}
+.deck-agenda__item {
+  display:grid;
+  grid-template-columns:3.4cqw minmax(0,.82fr) minmax(0,1.18fr);
+  align-items:center;
+  gap:1.1cqw;
+  min-height:0;
+  padding:.72cqw 0;
+  border-bottom:1px solid var(--deck-line);
+}
+.deck-agenda__item > b {
+  color:var(--deck-blue);
+  font:800 1cqw/1 "Aptos Mono","SFMono-Regular",monospace;
+}
+.deck-agenda__item > strong {
+  color:var(--deck-ink);
+  font-size:1.55cqw;
+  line-height:1.28;
+}
+.deck-agenda__item > p {
+  color:var(--deck-muted);
+  font-size:1.68cqw;
+  line-height:1.38;
 }
 .deck-chapter__panel {
   position:absolute;

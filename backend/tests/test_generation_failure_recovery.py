@@ -185,7 +185,7 @@ async def test_new_v6_task_records_the_current_checkpoint_contract(
     )
 
     assert manager.tasks[task_id]["slide_build_contract_version"] == (
-        "slide_deck_v6_build_contract_v23"
+        "slide_deck_v6_build_contract_v24"
     )
 
 

@@ -29,7 +29,7 @@ from slide_layout_geometry import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v6"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v7"
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
@@ -291,6 +291,7 @@ class SlideRegionV6(_StrictModel):
     source_block_ids: list[str] = Field(default_factory=list)
     source_section_ids: list[str] = Field(default_factory=list)
     source_asset_refs: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def require_source_binding(self) -> SlideRegionV6:
@@ -1399,6 +1400,77 @@ def _code_candidates(text: str) -> list[str]:
     return fenced or [text.strip("\r\n")]
 
 
+def _code_language(text: str, block: CourseBlock) -> str:
+    """Return a source-declared language, then a conservative generic inference."""
+
+    fence = re.search(
+        r"```([A-Za-z0-9_+.#-]+)?[^\S\r\n]*\r?\n",
+        str(text or ""),
+    )
+    declared = str(
+        (fence.group(1) if fence else "")
+        or (block.payload or {}).get("code_language")
+        or (block.payload or {}).get("language")
+        or ""
+    ).strip().casefold()
+    aliases = {
+        "cs": "csharp",
+        "c#": "csharp",
+        "py": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "sh": "bash",
+        "shell": "bash",
+    }
+    if declared:
+        return aliases.get(declared, declared)
+    source = max(_code_candidates(text), key=len)
+    if re.search(r"\b(?:MonoBehaviour|Debug\.Log|SerializeField|GameObject)\b", source):
+        return "csharp"
+    if re.search(r"(?m)^\s*(?:async\s+)?def\s+\w+\s*\(", source):
+        return "python"
+    if re.search(r"\b(?:const|let|function)\s+\w+|=>", source):
+        return "javascript"
+    if re.search(r"(?im)^\s*(?:select|insert|update|delete|create\s+table)\b", source):
+        return "sql"
+    return ""
+
+
+def _code_chunk_blocks(
+    block: CourseBlock,
+    chunks: list[str],
+    *,
+    language: str,
+) -> list[CourseBlock]:
+    """Attach source-line identity without changing the code carried by a chunk."""
+
+    result: list[CourseBlock] = []
+    start_line = 1
+    chunk_count = len(chunks)
+    for chunk_index, chunk in enumerate(chunks, start=1):
+        source_line_count = len(chunk.split("\n"))
+        payload_metadata = {
+            "_v6_code_chunk_content": chunk,
+            "_v6_code_language": language,
+            "_v6_code_start_line": start_line,
+            "_v6_code_end_line": start_line + source_line_count - 1,
+            "_v6_code_chunk_index": chunk_index,
+            "_v6_code_chunk_count": chunk_count,
+        }
+        result.append(_block_with_source_excerpt(
+            block,
+            (
+                f"```{language}\n{chunk}\n```"
+                if block.kind != "code"
+                else chunk
+            ),
+            artifact_kind="code",
+            payload_metadata=payload_metadata,
+        ))
+        start_line += source_line_count
+    return result
+
+
 def _prose_source_text(block: CourseBlock) -> str:
     text = block_source_text(block)
     without_code = re.sub(
@@ -1588,15 +1660,19 @@ def _bounded_code_content(
     line_capacity = max_lines or 24
     complete_blocks: list[str] = []
     for block in blocks:
-        candidates = _code_candidates(block_source_text(block))
-        candidate = max(candidates, key=len)
+        payload = block.payload or {}
+        candidate = (
+            str(payload["_v6_code_chunk_content"])
+            if "_v6_code_chunk_content" in payload
+            else max(_code_candidates(block_source_text(block)), key=len)
+        )
         if candidate:
             complete_blocks.append(candidate)
     content = "\n\n".join(complete_blocks)
     line_width = max(24, capacity // max(1, line_capacity))
     rendered_line_cost = sum(
         _code_display_line_cost(line, line_width)
-        for line in content.splitlines()
+        for line in content.split("\n")
     )
     if len(content) > capacity or rendered_line_cost > line_capacity:
         raise ValueError("template_slot_capacity_exceeded")
@@ -2032,6 +2108,7 @@ def _block_with_source_excerpt(
     content: str,
     *,
     artifact_kind: str = "",
+    payload_metadata: dict[str, Any] | None = None,
 ) -> CourseBlock:
     payload = dict(block.payload or {})
     key = next(
@@ -2053,6 +2130,8 @@ def _block_with_source_excerpt(
     payload[key] = content
     if artifact_kind:
         payload["artifact_kind"] = artifact_kind
+    if payload_metadata:
+        payload.update(payload_metadata)
     return block.model_copy(update={"payload": payload}, deep=True)
 
 
@@ -2160,22 +2239,20 @@ def _pack_code_lines(
             return 0, 0
         left = nonblank_before(index)
         right = nonblank_after(index)
-        # block_source_text() trims a chunk's outer whitespace. Splitting on
-        # either side of a blank separator would therefore delete a source
-        # code line even though every nonblank token survived. Keep blank
-        # separators inside a continuation and choose the nearest structural
-        # boundary between two nonblank lines instead.
-        touches_blank_separator = bool(
-            not lines[index - 1].strip() or not lines[index].strip()
+        adjacent_declarations = bool(
+            re.search(r"\)\s*;\s*$", left)
+            and re.search(r"\)\s*;\s*$", right)
         )
         hard_break = bool(
-            touches_blank_separator
-            or left.endswith("{")
+            left.endswith("{")
             or method_declaration(left)
+            or adjacent_declarations
             or right in {"{", "}"}
             or re.match(r"^(?:else|catch|finally)\b", right)
         )
-        if left in {"}", "};"}:
+        if not lines[index - 1].strip():
+            semantic_rank = 0
+        elif left in {"}", "};"}:
             semantic_rank = 1
         elif left.endswith(";"):
             semantic_rank = 2
@@ -2270,14 +2347,16 @@ def _split_artifact_block(
         chunks = [formula]
     else:
         return [block]
+    if slot_kind == "code":
+        return _code_chunk_blocks(
+            block,
+            chunks,
+            language=_code_language(content, block),
+        )
     return [
         _block_with_source_excerpt(
             block,
-            (
-                f"```\n{chunk}\n```"
-                if slot_kind == "code" and block.kind != "code"
-                else chunk
-            ),
+            chunk,
             artifact_kind=slot_kind,
         )
         for chunk in chunks
@@ -2318,7 +2397,10 @@ def _split_code_block_for_layout_variants(
         max_chars=slot.max_chars,
     )
     first_chunk = split_chunks[0]
-    consumed_lines = len(first_chunk.splitlines())
+    # ``splitlines()`` discards a terminal blank source line. Count the exact
+    # newline-separated records so the continuation neither duplicates nor
+    # drops the blank separator represented at the page boundary.
+    consumed_lines = len(first_chunk.split("\n"))
     remaining_lines = lines[consumed_lines:]
     chunks = [first_chunk]
     if remaining_lines:
@@ -2327,18 +2409,11 @@ def _split_code_block_for_layout_variants(
             max_lines=continuation_lines,
             max_chars=continuation_chars,
         ))
-    return [
-        _block_with_source_excerpt(
-            block,
-            (
-                f"```\n{chunk}\n```"
-                if block.kind != "code"
-                else chunk
-            ),
-            artifact_kind="code",
-        )
-        for chunk in chunks
-    ]
+    return _code_chunk_blocks(
+        block,
+        chunks,
+        language=_code_language(block_source_text(block), block),
+    )
 
 
 def _semantic_prose_groups(value: str) -> list[str]:
@@ -3381,7 +3456,9 @@ def _complete_slot_content(blocks: list[CourseBlock], slot_kind: str) -> str:
 
     if slot_kind == "code":
         return "\n\n".join(
-            max(_code_candidates(block_source_text(block)), key=len).strip("\n")
+            str((block.payload or {}).get("_v6_code_chunk_content"))
+            if "_v6_code_chunk_content" in (block.payload or {})
+            else max(_code_candidates(block_source_text(block)), key=len).strip("\n")
             for block in blocks
             if block_source_text(block)
         )
@@ -4627,6 +4704,29 @@ def _materialize_template_regions(
             )
         if not content:
             continue
+        region_metadata: dict[str, Any] = {}
+        if slot.slot_kind == "code" and len(slot_blocks) == 1:
+            payload = slot_blocks[0].payload or {}
+            if payload.get("_v6_code_language"):
+                region_metadata["code_language"] = str(
+                    payload["_v6_code_language"]
+                )
+            if payload.get("_v6_code_start_line") is not None:
+                region_metadata["code_start_line"] = int(
+                    payload["_v6_code_start_line"]
+                )
+            if payload.get("_v6_code_end_line") is not None:
+                region_metadata["code_end_line"] = int(
+                    payload["_v6_code_end_line"]
+                )
+            if payload.get("_v6_code_chunk_index") is not None:
+                region_metadata["code_chunk_index"] = int(
+                    payload["_v6_code_chunk_index"]
+                )
+            if payload.get("_v6_code_chunk_count") is not None:
+                region_metadata["code_chunk_count"] = int(
+                    payload["_v6_code_chunk_count"]
+                )
         regions.append(
             SlideRegionV6(
                 region_id=f"{page_id}:{slot.slot_id}",
@@ -4644,6 +4744,7 @@ def _materialize_template_regions(
                         if asset_ref
                     )
                 ),
+                metadata=region_metadata,
             )
         )
     visible_blocks = {
@@ -5050,6 +5151,32 @@ def _course_agenda_sections(document: CourseDocument) -> list[Any]:
     ]
 
 
+def _agenda_section_description(
+    section: Any,
+    *,
+    per_entry_capacity: int,
+) -> str:
+    """Choose one complete source-owned descriptor without inventing copy."""
+
+    title = _visible_prose_text(section.title).strip()
+    attributes = section.attributes if isinstance(section.attributes, dict) else {}
+    candidates = [
+        str(section.learning_objective or ""),
+        str(attributes.get("path_reason") or ""),
+        str(attributes.get("learning_focus") or ""),
+    ]
+    canonical_title = _canonical_visible_semantic_text(title)
+    for candidate in candidates:
+        description = _visible_prose_text(candidate).strip()
+        if not description:
+            continue
+        if _canonical_visible_semantic_text(description) == canonical_title:
+            continue
+        if _display_width_units(description) <= per_entry_capacity:
+            return description
+    return ""
+
+
 def _compile_course_agenda_pages(
     document: CourseDocument,
     template: TemplateLayoutPackContractV1,
@@ -5076,10 +5203,39 @@ def _compile_course_agenda_pages(
         )
     max_items = int(item_slot.max_items or 6)
     max_chars = int(item_slot.max_chars or 180)
-    chunks: list[list[Any]] = []
-    current: list[Any] = []
-    for section in sections:
-        title = _visible_prose_text(section.title).strip()
+    per_entry_capacity = max(1, (max_chars * 2) // max(1, max_items))
+    entries = [
+        {
+            "index": index,
+            "title": _visible_prose_text(section.title).strip(),
+            "description": _agenda_section_description(
+                section,
+                per_entry_capacity=per_entry_capacity,
+            ),
+            "source_section_ids": [section.section_id],
+            "section": section,
+        }
+        for index, section in enumerate(sections, start=1)
+    ]
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+
+    def agenda_text(candidate: list[dict[str, Any]]) -> str:
+        return "\n".join(
+            "\n".join(
+                value
+                for value in (
+                    str(item["title"]),
+                    str(item["description"]),
+                )
+                if value
+            )
+            for item in candidate
+        )
+
+    for entry in entries:
+        section = entry["section"]
+        title = str(entry["title"])
         if not title:
             raise V6BuildError(
                 stage="source",
@@ -5087,16 +5243,14 @@ def _compile_course_agenda_pages(
                 message="A course section cannot be represented in the agenda",
                 chapter_id=section.section_id,
             )
-        candidate = [*current, section]
-        candidate_text = "\n".join(
-            _visible_prose_text(item.title).strip() for item in candidate
-        )
+        candidate = [*current, entry]
+        candidate_text = agenda_text(candidate)
         if current and (
             len(candidate) > max_items
             or (max_chars and len(candidate_text) > max_chars)
         ):
             chunks.append(current)
-            current = [section]
+            current = [entry]
         else:
             current = candidate
         if max_chars and len(title) > max_chars:
@@ -5108,13 +5262,31 @@ def _compile_course_agenda_pages(
             )
     if current:
         chunks.append(current)
+    if len(chunks) > 1:
+        page_count = len(chunks)
+        base_size, larger_pages = divmod(len(entries), page_count)
+        sizes = [
+            base_size + (1 if index < larger_pages else 0)
+            for index in range(page_count)
+        ]
+        balanced: list[list[dict[str, Any]]] = []
+        cursor = 0
+        for size in sizes:
+            balanced.append(entries[cursor: cursor + size])
+            cursor += size
+        if all(
+            len(chunk) <= max_items
+            and (not max_chars or len(agenda_text(chunk)) <= max_chars)
+            for chunk in balanced
+        ):
+            chunks = balanced
 
     pages: list[SlidePageV6] = []
     for index, chunk in enumerate(chunks, start=1):
         page_id = f"course-agenda-{index}"
-        section_ids = [section.section_id for section in chunk]
+        section_ids = [str(entry["section"].section_id) for entry in chunk]
         content = "\n".join(
-            _visible_prose_text(section.title).strip() for section in chunk
+            str(entry["title"]) for entry in chunk
         )
         pages.append(SlidePageV6(
             page_id=page_id,
@@ -5130,6 +5302,16 @@ def _compile_course_agenda_pages(
                 content_kind=item_slot.slot_kind,
                 content=content,
                 source_section_ids=section_ids,
+                metadata={
+                    "agenda_entries": [
+                        {
+                            key: value
+                            for key, value in entry.items()
+                            if key != "section"
+                        }
+                        for entry in chunk
+                    ],
+                },
             )],
             source_section_ids=section_ids,
             visual_decision=SlideVisualDecisionV2(

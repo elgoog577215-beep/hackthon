@@ -1573,6 +1573,14 @@ def test_chapter_entry_title_contract_allows_only_declared_safe_wrapping(
     page.title = ("教学单元逻辑顺序与来源证据" * 4)[: title_slot.max_chars]
     page.title_max_lines = title_slot.max_lines
     page.resolved_layout = layout.template_layout_id
+    body_region = next(
+        region for region in page.regions if region.content_kind == "body"
+    )
+    page.regions = [body_region]
+    page.source_block_ids = list(body_region.source_block_ids)
+    page.artifact_kinds = []
+    page.visual_decision.decision = "text_native"
+    page.visual_decision.source_block_ids = list(body_region.source_block_ids)
     page.visual_decision.resolved_template_layout_id = layout.template_layout_id
 
     output = export_slide_deck_v6_pptx(deck, tmp_path / "v6-chapter-title.pptx")
@@ -1871,6 +1879,48 @@ def test_long_code_exports_every_source_line_across_content_driven_pages(
         if getattr(shape, "has_text_frame", False)
     )
     assert all(line in visible_text for line in code.splitlines())
+
+
+def test_table_continuation_keeps_its_source_interpretation_visible(
+    tmp_path: Path,
+) -> None:
+    deck, _template, summary = _wide_markdown_table_deck()
+    page = deepcopy(deck.pages[0])
+    page.page_id = "wide-table-page--continuation-2"
+    page.continuation_of_page_id = "wide-table-page"
+    page.continuation_index = 2
+    page.continuation_count = 2
+    page.visual_decision.page_id = page.page_id
+    first_table = next(
+        region for region in page.regions if region.content_kind == "table"
+    )
+    second_table = next(
+        region
+        for region in deck.pages[1].regions
+        if region.content_kind == "table"
+    )
+    first_lines = first_table.content.splitlines()
+    first_table.content = "\n".join([
+        *first_lines,
+        *second_table.content.splitlines()[2:],
+    ])
+    one_page = deck.model_copy(update={"pages": [page]})
+
+    adapted = adapt_v6_page_to_slide_spec(page)
+    assert adapted.quality["v6_layout_variant"] == "table-wide-with-summary"
+    assert adapted.quality["v6_artifact_support_mode"] == "band"
+
+    output = export_slide_deck_v6_pptx(
+        one_page,
+        tmp_path / "table-continuation-with-interpretation.pptx",
+    )
+    visible = "\n".join(
+        str(shape.text or "")
+        for shape in Presentation(output).slides[0].shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+
+    assert summary in visible
 
 
 def test_pptx_renderer_applies_the_frozen_template_theme_overrides(

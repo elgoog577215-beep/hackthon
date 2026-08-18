@@ -33,7 +33,7 @@
       },
       "template": {
         "template_id": "qizhi-classroom-v2",
-        "template_version": "2026.08.12.7",
+        "template_version": "2026.08.18.1",
         "aspect_ratio": "16:9",
         "design_intent": "明亮、亲和、结构清楚的通用课堂演示",
         "reference_deck": "/presentation-templates/qizhi-classroom-v2.pptx",
