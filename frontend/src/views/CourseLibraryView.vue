@@ -8,6 +8,15 @@
         <button
           type="button"
           class="global-action-button"
+          data-testid="switch-to-teacher-surface"
+          @click="router.push({ name: 'teacher-course-library' })"
+        >
+          <LayoutDashboard :size="17" />
+          <span class="action-label">教师端</span>
+        </button>
+        <button
+          type="button"
+          class="global-action-button"
           data-testid="open-teacher-course-space"
           @click="router.push('/teacher-course-space')"
         >

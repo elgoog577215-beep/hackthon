@@ -14,6 +14,15 @@
           <button
             type="button"
             class="global-action-button"
+            data-testid="switch-to-student-surface"
+            @click="router.push({ name: 'course-library' })"
+          >
+            <BookOpenText :size="17" />
+            <span class="action-label">学生端</span>
+          </button>
+          <button
+            type="button"
+            class="global-action-button"
             data-testid="open-teacher-calendar"
             @click="router.push({ name: 'teacher-teaching-calendar' })"
           >
