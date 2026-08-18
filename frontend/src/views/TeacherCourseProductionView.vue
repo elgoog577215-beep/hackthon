@@ -331,27 +331,46 @@
       v-model="candidateReviewOpen"
       title="审阅 AI 教案候选"
       width="min(980px, calc(100vw - 32px))"
+      class="candidate-review-dialog"
       append-to-body
       :show-close="false"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
     >
       <div class="candidate-review">
-        <header>
-          <div><small>教师要求</small><strong>{{ pendingPlanCandidate?.instruction }}</strong></div>
-          <span>{{ candidateChangedCount }} 项变化</span>
+        <header class="candidate-review__summary">
+          <div class="candidate-review__mark"><Sparkles :size="18" /></div>
+          <div><small>本次优化要求</small><strong>{{ pendingPlanCandidate?.instruction }}</strong></div>
+          <span><strong>{{ candidateChangedCount }}</strong> 项变化</span>
         </header>
-        <div class="candidate-review__head"><span>字段</span><span>当前草稿</span><span>AI 候选</span></div>
+        <div class="candidate-review__head"><span>教案字段</span><span>当前草稿</span><span aria-hidden="true" /><span>AI 候选</span></div>
         <article v-for="row in candidateDiffRows" :key="row.key" :class="{ changed: row.changed }">
-          <strong>{{ row.label }}</strong>
-          <p>{{ row.before || '未填写' }}</p>
-          <p>{{ row.after || '未填写' }}</p>
+          <header>
+            <strong>{{ row.label }}</strong>
+            <span :data-state="row.changed ? 'changed' : 'same'">{{ row.changed ? '有变化' : '未变化' }}</span>
+          </header>
+          <section class="candidate-review__before">
+            <small>当前草稿</small>
+            <ul><li v-for="line in candidateDiffLines(row.before)" :key="line">{{ line }}</li></ul>
+          </section>
+          <div class="candidate-review__arrow" aria-hidden="true"><ChevronRight :size="16" /></div>
+          <section class="candidate-review__after">
+            <small>{{ row.changed ? 'AI 建议修改为' : 'AI 保持不变' }}</small>
+            <ul><li v-for="line in candidateDiffLines(row.after)" :key="line">{{ line }}</li></ul>
+          </section>
         </article>
         <p v-if="!candidateChangedCount" class="candidate-review__empty">AI 没有产生可见变化，建议拒绝并重新说明优化要求。</p>
       </div>
       <template #footer>
-        <button type="button" class="secondary-button" :disabled="candidateReviewSaving" @click="resolvePlanCandidate(false)">拒绝候选</button>
-        <button type="button" class="primary-button" :disabled="candidateReviewSaving || !candidateChangedCount" @click="resolvePlanCandidate(true)">{{ candidateReviewSaving ? '处理中' : '接受并形成新草稿' }}</button>
+        <div class="candidate-review-footer">
+          <span>接受后仅生成新的教师草稿，当前确认版和学生版不会改变。</span>
+          <div>
+            <el-button :disabled="candidateReviewSaving" @click="resolvePlanCandidate(false)">拒绝候选</el-button>
+            <el-button type="primary" :loading="candidateReviewSaving" :disabled="!candidateChangedCount" @click="resolvePlanCandidate(true)">
+              <CheckCircle2 v-if="!candidateReviewSaving" :size="16" />接受并形成新草稿
+            </el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
     <el-drawer v-model="knowledgeDrawerOpen" title="本讲知识依据" size="min(520px, 92vw)" append-to-body>
@@ -756,6 +775,7 @@ async function openLessonKnowledge() {
   } finally { knowledgeLoading.value = false }
 }
 function lines(value: string) { return value.split(/\r?\n/).map(item => item.trim()).filter(Boolean) }
+function candidateDiffLines(value: string) { return lines(value).length ? lines(value) : ['未填写'] }
 function openLessonEditor() {
   const section = selectedPlanSection.value as any
   if (!section) return
@@ -962,7 +982,14 @@ button { font:inherit; }
 .lesson-plan-empty{min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;margin:18px;border:1px dashed var(--lz-border);border-radius:14px;background:var(--lz-surface);text-align:center}.lesson-plan-empty>div{width:48px;height:48px;display:grid;place-items:center;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.lesson-plan-empty>strong{font-size:16px}.lesson-plan-empty>span{max-width:520px;color:var(--lz-text-secondary);font-size:12px;line-height:1.7}.lesson-plan-empty .primary-button{height:36px;display:inline-flex;align-items:center;gap:6px;margin-top:4px;padding:0 14px;border:1px solid var(--lz-brand);border-radius:8px;color:#fff;background:var(--lz-brand);cursor:pointer}.lesson-plan-empty .primary-button:disabled{opacity:.55;cursor:not-allowed}
 .lesson-authoring-bar{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 16px;border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.lesson-authoring-bar>div:first-child{min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:3px 8px}.lesson-authoring-bar small{color:var(--lz-brand);font-size:9px;font-weight:800}.lesson-authoring-bar strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.lesson-authoring-bar span{grid-column:1/-1;color:var(--lz-text-muted);font-size:9px}.lesson-authoring-bar>div:last-child{display:flex;gap:6px}.lesson-authoring-bar .primary-button,.lesson-authoring-bar .secondary-button{height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border-radius:7px;white-space:nowrap;cursor:pointer}.lesson-authoring-bar .primary-button{border:1px solid var(--lz-brand);color:#fff;background:var(--lz-brand)}.lesson-authoring-bar .secondary-button{border:1px solid var(--lz-border);color:var(--lz-text-secondary);background:var(--lz-surface)}.lesson-authoring-bar button:disabled{opacity:.5;cursor:not-allowed}
 .lesson-editor-form{display:grid;gap:14px}.lesson-editor-form>div{display:grid;grid-template-columns:1fr 1fr;gap:12px}.lesson-editor-form label{display:grid;gap:6px;color:var(--lz-text-secondary);font-size:11px;font-weight:700}.lesson-editor-form textarea,.lesson-editor-form input{box-sizing:border-box;width:100%;padding:8px 10px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-primary);background:var(--lz-surface);font:inherit;line-height:1.55;resize:vertical;outline:0}.lesson-editor-form textarea:focus,.lesson-editor-form input:focus{border-color:var(--lz-brand);box-shadow:0 0 0 3px rgb(99 102 241 / 9%)}
-.candidate-review{display:grid;border-top:1px solid var(--lz-border)}.candidate-review>header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 12px;border-bottom:1px solid var(--lz-border)}.candidate-review>header>div{min-width:0;display:grid;gap:3px}.candidate-review>header small{color:var(--lz-text-muted);font-size:9px}.candidate-review>header strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.candidate-review>header>span{padding:4px 8px;border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px;font-weight:800}.candidate-review__head,.candidate-review article{display:grid;grid-template-columns:120px minmax(0,1fr) minmax(0,1fr);gap:12px}.candidate-review__head{min-height:34px;align-items:center;padding:0 12px;color:var(--lz-text-muted);background:var(--lz-fill);font-size:9px}.candidate-review article{padding:11px 12px;border-bottom:1px solid var(--lz-border)}.candidate-review article.changed{border-left:3px solid var(--lz-brand);background:var(--lz-brand-soft)}.candidate-review article>strong{font-size:10px}.candidate-review article>p{margin:0;white-space:pre-wrap;color:var(--lz-text-secondary);font-size:10px;line-height:1.65}.candidate-review article>p:last-child{color:var(--lz-text-primary)}.candidate-review__empty{margin:14px 12px;color:var(--lz-warning);font-size:10px}.candidate-review+* .primary-button:disabled{opacity:.45;cursor:not-allowed}
+.candidate-review{max-height:min(650px,calc(100vh - 220px));display:grid;overflow:auto;border-top:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}
+.candidate-review__summary{position:sticky;z-index:2;top:0;min-height:66px;display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}
+.candidate-review__mark{width:36px;height:36px;display:grid;place-items:center;border-radius:9px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
+.candidate-review__summary>div:nth-child(2){min-width:0;display:grid;gap:3px}.candidate-review__summary small{color:var(--lz-text-muted);font-size:9px;font-weight:700}.candidate-review__summary strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.candidate-review__summary>span{display:flex;align-items:baseline;gap:4px;padding:5px 9px;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px;font-weight:750}.candidate-review__summary>span strong{font-size:14px}
+.candidate-review__head,.candidate-review article{display:grid;grid-template-columns:126px minmax(0,1fr) 28px minmax(0,1fr);gap:12px}.candidate-review__head{position:sticky;z-index:1;top:67px;min-height:34px;align-items:center;padding:0 16px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:var(--lz-fill);font-size:9px;font-weight:750}.candidate-review article{align-items:start;padding:14px 16px;border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.candidate-review article:last-of-type{border-bottom:0}.candidate-review article>header{display:grid;gap:7px;padding-top:2px}.candidate-review article>header>strong{font-size:10px}.candidate-review article>header>span{width:max-content;padding:2px 6px;border-radius:6px;color:var(--lz-text-muted);background:var(--lz-fill);font-size:8px;font-weight:750}.candidate-review article>header>span[data-state="changed"]{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
+.candidate-review article section{min-width:0;padding:10px 11px;border:1px solid var(--lz-border);border-radius:8px;background:var(--lz-fill)}.candidate-review article section small{display:block;margin-bottom:7px;color:var(--lz-text-muted);font-size:8px;font-weight:750}.candidate-review article section ul{display:grid;gap:5px;margin:0;padding:0;list-style:none}.candidate-review article section li{position:relative;padding-left:11px;color:var(--lz-text-secondary);font-size:10px;line-height:1.58}.candidate-review article section li::before{content:"";position:absolute;top:.62em;left:0;width:4px;height:4px;border-radius:50%;background:var(--lz-border-strong)}.candidate-review article.changed .candidate-review__after{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.candidate-review article.changed .candidate-review__after small,.candidate-review article.changed .candidate-review__after li{color:var(--lz-brand-strong)}.candidate-review article.changed .candidate-review__after li::before{background:var(--lz-brand)}.candidate-review__arrow{align-self:center;display:grid;place-items:center;color:var(--lz-text-muted)}.candidate-review article:not(.changed){opacity:.72}.candidate-review__empty{margin:14px 16px;padding:10px 12px;border-radius:8px;color:var(--lz-warning);background:var(--lz-warning-soft);font-size:10px}
+.candidate-review-footer{width:100%;display:flex;align-items:center;justify-content:space-between;gap:16px}.candidate-review-footer>span{color:var(--lz-text-muted);font-size:9px;line-height:1.5;text-align:left}.candidate-review-footer>div{flex:0 0 auto;display:flex;gap:8px}.candidate-review-footer :deep(.el-button){height:36px;margin:0;padding:0 14px;border-radius:8px;font-weight:700}.candidate-review-footer :deep(.el-button--primary){min-width:166px;background:var(--lz-brand);border-color:var(--lz-brand)}.candidate-review-footer :deep(.el-button--primary span){display:flex;align-items:center;gap:6px}
+@media (max-width:760px){.candidate-review{max-height:calc(100vh - 190px)}.candidate-review__summary{grid-template-columns:34px minmax(0,1fr)}.candidate-review__summary>span{grid-column:2;justify-self:start;margin-bottom:10px}.candidate-review__head{display:none}.candidate-review article{grid-template-columns:1fr 24px 1fr;padding:13px}.candidate-review article>header{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between}.candidate-review-footer{align-items:flex-end}.candidate-review-footer>span{display:none}.candidate-review-footer>div{width:100%}.candidate-review-footer :deep(.el-button){flex:1}.candidate-review-footer :deep(.el-button--primary){min-width:0}}
 .production-tabs__actions{display:flex;flex:0 0 auto;align-items:center;gap:6px;margin-left:auto}.production-tabs__actions button{height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 10px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);cursor:pointer;white-space:nowrap}.production-tabs__actions .next-step-button{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand);font-weight:700}.production-tabs__actions button:disabled{opacity:.45;cursor:not-allowed}.production-tabs__actions .ai-toggle[aria-expanded="true"]{border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 .workspace-grid { flex:1 1 auto; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); }
 .workspace-grid.immersive { grid-template-columns:196px minmax(0,1fr); }
