@@ -25,6 +25,7 @@ describe('teacher and learner surface boundary', () => {
     expect(routerSource).toContain("path: '/teacher/courses'")
     expect(routerSource).toContain("path: '/teacher/course/:courseId/production'")
     expect(routerSource).toContain("path: '/teacher/course/:courseId/ppt'")
+    expect(routerSource).toMatch(/path:\s*'\/teacher\/:pathMatch\(\.\*\)\*'[\s\S]*redirect:\s*'\/teacher\/courses'/)
     expect(routerSource).toMatch(/path:\s*'\/course\/:courseId'[\s\S]*name:\s*'learning'/)
   })
 

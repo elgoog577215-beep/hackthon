@@ -110,6 +110,14 @@ const routes: Array<RouteRecordRaw> = [
     component: () => import('../views/PptWorkspaceView.vue')
   },
   {
+    path: '/teacher',
+    redirect: '/teacher/courses'
+  },
+  {
+    path: '/teacher/:pathMatch(.*)*',
+    redirect: '/teacher/courses'
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/courses'
   }
