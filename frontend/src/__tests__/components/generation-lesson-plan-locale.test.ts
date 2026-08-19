@@ -19,7 +19,7 @@ const plan: any = {
   overall: {
     course_title: '线性代数', positioning: '定位', target_audience: '大一',
     learning_objectives: ['能复合矩阵'], prerequisites: ['矩阵乘法'],
-    teaching_strategy: { primary_mode: 'conceptual', rationale: '先几何后代数' },
+    teaching_strategy: { primary_mode: 'conceptual', secondary_mode: 'math_formal', rationale: '先几何后代数' },
     assessment_methods: ['出口题'], chapters: [], knowledge_tags: [],
   },
   sections: [{ node_id: 'section-1', key_points: ['复合'], reused_knowledge_names: [],
@@ -46,6 +46,8 @@ describe('真实渲染：中英文教案页面', () => {
     expect(text).toContain('教学设计')
     expect(text).toContain('教学目标')
     expect(text).toContain('前置知识')
+    expect(text).not.toContain('math formal')
+    expect(text).not.toContain('math_formal')
     // 小节标题里的章节编号是内容，不受术语改名影响
     // 切到教学设计 tab：小节标题里的章节编号是课程内容，不受术语改名影响
     await w.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
@@ -60,6 +62,8 @@ describe('真实渲染：中英文教案页面', () => {
     expect(text).toContain('Lesson design')
     expect(text).toContain('Learning objectives')
     expect(text).toContain('Prerequisites')
+    expect(text).not.toContain('math formal')
+    expect(text).not.toContain('math_formal')
     expect(text).not.toContain('courseGeneration.lessonPlan')
     // 课程内容本身是中文（课名、目标、前置），那是数据不是界面文案。
     // 只检查界面 chrome：tab、眉标、按钮、区块标题。

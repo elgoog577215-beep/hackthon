@@ -1,6 +1,6 @@
 <template>
   <div v-if="blocks.length" class="course-block-stream">
-    <template v-for="item in streamItems" :key="item.block.block_revision_id || item.block.block_id">
+    <template v-for="(item, index) in streamItems" :key="item.block.block_revision_id || item.block.block_id">
       <article
         :id="`course-block-${item.block.block_id}`"
         class="course-content-block"
@@ -28,7 +28,11 @@
           <Sparkles :size="12" />
           {{ t('courseEvolution.applicationVisual.blockBadge', 'AI 个体化补充') }}
         </span>
-        <header v-if="item.block.title" class="block-heading">
+        <header
+          v-if="item.block.title"
+          class="block-heading"
+          :class="{ 'is-label-only': !shouldShowBlockTitle(item.block, index) }"
+        >
         <aside v-if="isPptSameSourcePrimary(item.block)" class="ppt-same-source-diff">
           <strong>{{ t('teachingRepresentations.sameSourceResultTitle', 'PPT 的修改已经联动到这里') }}</strong>
           <small>{{ t('teachingRepresentations.sameSourceTrigger', '由 PPT 学习目标修改触发 · 以下为真实前后差异') }}</small>
@@ -38,7 +42,7 @@
           </dl>
         </aside>
           <span>{{ blockLabel(item.block.type) }}</span>
-          <h4>{{ item.block.title }}</h4>
+          <h4 v-if="shouldShowBlockTitle(item.block, index)">{{ item.block.title }}</h4>
         </header>
         <button
           v-if="canImproveBlock(item.block.block_id)"
@@ -67,7 +71,7 @@
           :structure="item.block.metadata?.feedback_structure"
           :search-words="searchWords"
         />
-        <MarkdownRenderer v-else :content="item.block.content || ''" :search-words="searchWords" />
+        <MarkdownRenderer v-else :content="displayBlockContent(item.block, index)" :search-words="searchWords" />
         <InlineCourseBlockAI
           v-if="!isCanonicalBlock(item.block.block_id)"
           :node="node"
@@ -313,6 +317,29 @@ function blockLabel(type: ContentBlock['type'] | string) {
   } as Record<string, string>)[type] || t('courseBlocks.content', '内容'))
 }
 
+function shouldShowBlockTitle(block: ContentBlock, index: number) {
+  if (index !== 0) return true
+  return normalizeTitle(String(block.title || '')) !== normalizeTitle(props.node.node_name)
+}
+
+function displayBlockContent(block: ContentBlock, index: number) {
+  const content = String(block.content || '')
+  if (index !== 0) return content
+  const leadingHeading = content.match(/^\s{0,3}#{1,6}\s+([^\n]+)(?:\n|$)/)
+  if (!leadingHeading || normalizeTitle(leadingHeading[1] || '') !== normalizeTitle(props.node.node_name)) {
+    return content
+  }
+  return content.slice(leadingHeading[0].length).replace(/^\s*\n/, '')
+}
+
+function normalizeTitle(value: string) {
+  return value
+    .replace(/[《》「」“”]/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+    .toLocaleLowerCase()
+}
+
 function canImproveBlock(blockId: string) {
   return props.canImproveBlocks && isCanonicalBlock(blockId)
 }
@@ -380,6 +407,7 @@ async function deleteAiRecord(note: Note) {
 .course-content-block.is-ai-growth-highlight { border-color:rgba(129,140,248,.88); background:linear-gradient(135deg,rgba(245,247,255,1),rgba(236,254,255,.92)); box-shadow:0 0 0 3px rgba(99,102,241,.1),0 18px 38px rgba(30,64,175,.13); }
 .course-content-block.is-ai-growth-primary { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.13),0 20px 42px rgba(30,64,175,.16); animation:course-ai-growth-arrival 1.45s cubic-bezier(.2,.8,.2,1); }
 .block-heading { display:flex; align-items:center; gap:10px; margin-bottom:14px; padding-right:34px; }
+.block-heading.is-label-only { margin-bottom:12px; }
 .course-content-block.can-improve-formal .block-heading { padding-right:120px; }
 .block-heading span { flex:0 0 auto; display:inline-flex; align-items:center; min-height:25px; padding:3px 8px; border:1px solid color-mix(in srgb,var(--block-accent) 18%,white); border-radius:8px; color:var(--block-accent); background:var(--block-soft); font-size:11px; font-weight:800; line-height:1; }
 .block-heading h4 { margin:0; color:var(--lz-text-strong); font-size:18px; font-weight:750; line-height:1.35; }

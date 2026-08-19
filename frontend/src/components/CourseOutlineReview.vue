@@ -335,7 +335,16 @@
       <footer class="outline-review__footer">
         <p v-if="actionError" class="outline-review__action-error" role="alert">{{ actionError }}</p>
         <div class="outline-review__actions">
+          <span
+            v-if="!dirty && !saving && !loading && blueprintNodes.length"
+            class="outline-review__saved-state"
+            role="status"
+          >
+            <CircleCheck :size="15" />
+            {{ t('courseGeneration.outlineReview.savedState', '已保存') }}
+          </span>
           <button
+            v-else
             type="button"
             class="secondary"
             :disabled="loading || acting || !!adjustmentProposal || !dirty || !blueprintNodes.length"
@@ -345,9 +354,7 @@
             <Save v-else :size="15" />
             {{ saving
               ? t('courseGeneration.outlineReview.saving', '保存中')
-              : dirty
-                ? t('courseGeneration.outlineReview.save', '保存修改')
-                : t('courseGeneration.outlineReview.saved', '修改已保存') }}
+              : t('courseGeneration.outlineReview.save', '保存修改') }}
           </button>
           <button
             type="button"
@@ -368,7 +375,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowRight, LoaderCircle, Save, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowRight, CircleCheck, LoaderCircle, Save, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
@@ -1253,7 +1260,19 @@ async function confirmOutline() {
 .outline-review__actions {
   flex:0 0 auto;
   display:flex;
+  align-items:center;
   gap:8px;
+}
+.outline-review__saved-state {
+  min-height:40px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:0 8px;
+  color:#087a5b;
+  font-size:11px;
+  font-weight:750;
+  white-space:nowrap;
 }
 .outline-review__actions button {
   min-height:40px;

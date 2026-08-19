@@ -177,7 +177,8 @@
       class="generation-lesson-plan__workbench-notice"
       role="status"
     >
-      <CircleDashed :size="17" />
+      <FilePenLine v-if="activeWorkbench.can_initialize" :size="17" />
+      <LockKeyhole v-else :size="17" />
       <div>
         <strong>{{ activeWorkbench.can_initialize
           ? t('courseGeneration.lessonPlan.initializeTitle', '可编辑教案未建立')
@@ -789,7 +790,7 @@
           <div class="generation-lesson-plan__readiness" :data-ready="Boolean(selectedSection.plan)">
             <CircleCheck v-if="selectedSection.plan" :size="17" />
             <LoaderCircle v-else-if="live" :size="17" />
-            <CircleDashed v-else :size="17" />
+            <CircleMinus v-else :size="17" />
             <span>{{ selectedSection.plan
               ? t('courseGeneration.lessonPlan.planned', '备课就绪')
               : live
@@ -1212,11 +1213,14 @@ import {
   ChevronRight,
   CircleCheck,
   CircleDashed,
+  CircleMinus,
+  FilePenLine,
   GitCompare,
   GitBranch,
   History,
   ListTree,
   LoaderCircle,
+  LockKeyhole,
   Route,
   Sparkles,
   Target,
@@ -1391,10 +1395,10 @@ const selectedKnowledgeTags = computed(() => {
   }
   return [...tags.values()]
 })
-const teachingModeTags = computed(() => [
+const teachingModeTags = computed(() => [...new Set([
   overallPlan.value?.teaching_strategy.primary_mode,
   overallPlan.value?.teaching_strategy.secondary_mode,
-].filter((value): value is string => Boolean(value)))
+])].filter((value): value is string => Boolean(value && teachingModeLabel(value))))
 const teachingModeSummary = computed(() => (
   teachingModeTags.value.length
     ? t('courseGeneration.lessonPlan.strategyFromProfile', '以课程教学画像组织讲解、示例、练习与反馈。')
@@ -2104,7 +2108,7 @@ function teachingModeLabel(value: string): string {
     case_based: t('courseGeneration.lessonPlan.teachingModes.caseBased', '案例教学'),
     discussion: t('courseGeneration.lessonPlan.teachingModes.discussion', '讨论辨析'),
   }
-  return labels[value] || value.replace(/_/g, ' ')
+  return labels[value] || ''
 }
 
 function teachingContextLabel(value?: string): string {

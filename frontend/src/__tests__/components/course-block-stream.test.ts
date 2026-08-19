@@ -55,6 +55,36 @@ beforeEach(() => {
 })
 
 describe('CourseBlockStream', () => {
+  it('首个内容块与当前小节同名时只保留内容角色，不重复标题', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      content_blocks: [
+        { block_id: 'intro', type: 'orientation', title: '《向量空间》', content: '从问题进入。', order: 0 },
+        { block_id: 'concept', type: 'concept', title: '核心概念', content: '定义与性质。', order: 1 },
+      ],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.findAll('.block-heading h4').map(item => item.text())).toEqual(['核心概念'])
+    expect(wrapper.get('.block-heading.is-label-only').text()).toBe('引入')
+  })
+
+  it('首个正文块不重复渲染与当前小节同名的 Markdown 标题', () => {
+    const node: CourseNode = {
+      ...baseNode,
+      content_blocks: [{
+        block_id: 'intro', type: 'orientation', title: '引入问题',
+        content: '# 《向量空间》\n\n从问题进入。', order: 0,
+      }],
+    }
+
+    const wrapper = mount(CourseBlockStream, { props: { node, content: node.node_content }, global })
+
+    expect(wrapper.get('.block-heading h4').text()).toBe('引入问题')
+    expect(wrapper.get('.markdown-renderer').text()).toBe('从问题进入。')
+  })
+
   it('renders clickable source cards beneath a cited course section', () => {
     const node: CourseNode = {
       ...baseNode,

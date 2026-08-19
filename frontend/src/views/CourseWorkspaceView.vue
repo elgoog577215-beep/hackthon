@@ -47,7 +47,7 @@
       <div v-else-if="loadError" class="workspace-feedback is-error" role="alert">
         <TriangleAlert :size="22" />
         <strong>{{ t('unifiedCourseWorkspace.loadFailed', '课程读取失败') }}</strong>
-        <span>{{ loadError }}</span>
+        <span v-if="loadErrorDetail">{{ loadErrorDetail }}</span>
         <button type="button" @click="loadCourse(true)">{{ t('common.retry', '重试') }}</button>
       </div>
 
@@ -72,7 +72,6 @@
 
           <section class="workflow-note">
             <div class="workflow-copy">
-              <span>{{ t('unifiedCourseWorkspace.basic.nextStep', '下一步') }}</span>
               <strong>{{ nextStep.title }}</strong>
             </div>
             <div class="workflow-actions">
@@ -184,6 +183,11 @@ const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const loading = ref(false)
 const loadError = ref('')
+const loadErrorDetail = computed(() => {
+  const message = loadError.value.trim()
+  const generic = t('unifiedCourseWorkspace.loadFailed', '课程读取失败')
+  return message && message !== generic ? message : ''
+})
 const loadedCourseId = ref('')
 const visitedPanels = reactive(new Set<string>())
 
@@ -237,12 +241,12 @@ const formalContentLabel = computed(() => formalContentReady.value
   ? t('unifiedCourseWorkspace.basic.contentReady', '已发布正式版本')
   : t('unifiedCourseWorkspace.basic.notPublished', '尚未发布'))
 const nextStep = computed(() => teachingPlanReady.value ? {
-  title: t('unifiedCourseWorkspace.basic.nextOutlineTitle', '确认课程大纲'),
+  title: t('unifiedCourseWorkspace.basic.nextOutlineTitle', '课程大纲待确认'),
   primaryLabel: t('unifiedCourseWorkspace.basic.reviewOutline', '查看大纲'),
   secondaryLabel: t('unifiedCourseWorkspace.basic.reviewDesign', '查看课程设计'),
   primary: 'outline' as const,
 } : {
-  title: t('unifiedCourseWorkspace.basic.nextDesignTitle', '继续完善课程设计'),
+  title: t('unifiedCourseWorkspace.basic.nextDesignTitle', '课程设计未完成'),
   primaryLabel: t('unifiedCourseWorkspace.basic.continueDesign', '继续课程设计'),
   secondaryLabel: t('unifiedCourseWorkspace.basic.previewOutline', '先看大纲'),
   primary: 'design' as const,
@@ -380,8 +384,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .course-facts dd.fact-state[data-tone="ready"] i { background: var(--lz-success); }
 .course-facts dd.fact-state[data-tone="working"] i { background: var(--lz-brand); box-shadow: 0 0 0 4px var(--lz-brand-soft); }
 .workflow-note { min-height: 76px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; margin-top: 8px; padding: 18px 0; border-top: 1px solid var(--lz-border); }
-.workflow-copy { min-width: 0; display: grid; gap: 4px; }
-.workflow-copy > span { color: var(--lz-brand-strong); font-size: 10px; font-weight: 800; }
+.workflow-copy { min-width: 0; display: grid; }
 .workflow-copy > strong { color: var(--lz-text-strong); font-size: 14px; }
 .workflow-actions { display: flex; align-items: center; gap: 8px; }
 .workflow-actions button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
