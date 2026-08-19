@@ -23,6 +23,9 @@ describe('unified course workspace boundary', () => {
     expect(workspace.match(/<GenerationLessonPlan[\s\S]*?embedded/g)).toHaveLength(2)
     expect(workspace).toContain('<Teleport to="#app-header-route-actions">')
     expect(workspace).not.toContain('class="workspace-state"')
+    expect(workspace).not.toContain('class="external-entry"')
+    expect(workspace).toContain("section === 'practice'")
+    expect(workspace).toContain("section === 'ppt'")
     expect(workspace.indexOf('class="workspace-subtabs"')).toBeLessThan(workspace.indexOf('</header>'))
     expect(learning).toContain('<CourseModeTabs active="formal"')
     expect(workspace).not.toContain('useTeacherCourseRuntime')
@@ -61,6 +64,7 @@ describe('unified course workspace boundary', () => {
     expect(fileSpace).toContain("params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined")
     expect(fileSpace).toContain("course_id: embedded.value ? props.courseId : ''")
     expect(fileSpace).toContain("http.patch(`/api/teacher-course-spaces/${legacyMatches[0].package_id}`")
+    expect(fileSpace).toContain('v-if="!embedded || !courseTitle" class="create-field create-field--course"')
   })
 
   it('keeps the published formal workspace focused on course, practice, and PPT', () => {

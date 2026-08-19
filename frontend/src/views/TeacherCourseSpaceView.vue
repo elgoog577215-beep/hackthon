@@ -60,11 +60,11 @@
 
       <section v-if="!selected" class="workspace-create">
         <div class="workspace-create__copy">
-          <strong>{{ embedded ? t('unifiedCourseWorkspace.files.createTitle', '建立“{course}”的课程文件').replace('{course}', courseTitle || form.course_name) : t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
-          <span>{{ embedded ? t('unifiedCourseWorkspace.files.createHelp', '文件空间建立后会保留空目录，可继续整文件夹导入、预览、下载和删除。') : t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
+          <strong>{{ embedded ? t('unifiedCourseWorkspace.files.createTitle', '课程文件') : t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
+          <span v-if="!embedded">{{ t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
         </div>
         <form @submit.prevent="createPackage">
-          <label class="create-field create-field--course">
+          <label v-if="!embedded || !courseTitle" class="create-field create-field--course">
             <span>{{ t('teacherCourseSpace.courseName', '课程名称') }}</span>
             <input
               v-model.trim="form.course_name"

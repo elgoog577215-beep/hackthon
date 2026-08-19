@@ -69,7 +69,7 @@
       "previewOutline": "Preview outline"
     },
     "files": {
-      "createTitle": "Create files for “{course}”",
+      "createTitle": "Course files",
       "createHelp": "The file space keeps empty folders and supports folder import, preview, download, and deletion."
     },
     "practice": {
@@ -248,7 +248,7 @@
     "thisWeek": "This week",
     "yearUnset": "Academic year unset",
     "termUnset": "Term unset",
-    "unsaved": "Unsaved changes",
+    "unsaved": "Unsaved",
     "revision": "Revision",
     "table": "Table",
     "month": "Month",
@@ -270,7 +270,7 @@
     "delete": "Delete session",
     "deleteTitle": "Delete session",
     "deleteConfirm": "The session will be removed on the next save. Continue?",
-    "emptyTitle": "No sessions yet",
+    "emptyTitle": "No sessions",
     "emptyBody": "Create candidates from the outline or add a session manually.",
     "deriveResult": "Candidate sessions",
     "retained": "Manual sessions retained",
@@ -2155,10 +2155,10 @@
       "reviewChanges": "Review changes",
       "regenerateSection": "Regenerate current section",
       "adjustOverall": "Adjust whole course with AI",
-      "initializeTitle": "Create an editable lesson plan",
+      "initializeTitle": "Editable lesson plan not created",
       "readOnlyTitle": "This lesson plan is read only",
       "initializeReason": "The system will create a structured lesson-plan baseline from the published outline without changing the course body.",
-      "initializeAction": "Create and start editing",
+      "initializeAction": "Create lesson plan",
       "initializing": "Creating",
       "retryAction": "Reload",
       "readOnlyLegacy": "This course remains readable. Migrate it to a structured course before creating a reviewable lesson-plan draft.",
@@ -2288,7 +2288,7 @@
       "reusedKnowledge": "Builds on",
       "currentKnowledge": "Current knowledge",
       "relatedKnowledge": "Related knowledge",
-      "legacySectionTitle": "Existing objective retained",
+      "legacySectionTitle": "Learning objectives",
       "legacySectionHelp": "This legacy course has no structured teaching flow or assessment contract to display.",
       "knowledgeTypes": {
         "concept": "Concept",

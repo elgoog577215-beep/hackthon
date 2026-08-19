@@ -69,7 +69,7 @@
       "previewOutline": "先看大纲"
     },
     "files": {
-      "createTitle": "建立“{course}”的课程文件",
+      "createTitle": "课程文件",
       "createHelp": "文件空间建立后会保留空目录，可继续整文件夹导入、预览、下载和删除。"
     },
     "practice": {
@@ -248,7 +248,7 @@
     "thisWeek": "本周",
     "yearUnset": "未设学年",
     "termUnset": "未设学期",
-    "unsaved": "有未保存修改",
+    "unsaved": "未保存",
     "revision": "修订",
     "table": "表格",
     "month": "月历",
@@ -270,7 +270,7 @@
     "delete": "删除课次",
     "deleteTitle": "删除课次",
     "deleteConfirm": "删除后将在下次保存时生效，是否继续？",
-    "emptyTitle": "还没有课次",
+    "emptyTitle": "暂无课次",
     "emptyBody": "从教学大纲生成候选，或手动新增一条。",
     "deriveResult": "将形成课次候选",
     "retained": "保留人工课次",
@@ -2155,10 +2155,10 @@
       "reviewChanges": "审阅变更",
       "regenerateSection": "重新生成当前小节",
       "adjustOverall": "AI 调整全课",
-      "initializeTitle": "建立可编辑教案",
+      "initializeTitle": "可编辑教案未建立",
       "readOnlyTitle": "当前教案为只读",
       "initializeReason": "系统会从已发布目录建立结构化教案基线，原课程正文保持不变。",
-      "initializeAction": "建立并开始编辑",
+      "initializeAction": "建立教案",
       "initializing": "正在建立",
       "retryAction": "重新载入",
       "readOnlyLegacy": "这门课程仍可阅读；迁移为结构化课程后才能创建可审阅的教案草稿。",
@@ -2288,7 +2288,7 @@
       "reusedKnowledge": "承接已有知识",
       "currentKnowledge": "当前知识",
       "relatedKnowledge": "关联知识",
-      "legacySectionTitle": "保留现有学习目标",
+      "legacySectionTitle": "学习目标",
       "legacySectionHelp": "这门旧课程没有可展示的结构化教学流程与评价合同。",
       "knowledgeTypes": {
         "concept": "概念",

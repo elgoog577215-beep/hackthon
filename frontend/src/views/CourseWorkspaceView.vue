@@ -18,7 +18,6 @@
           <ArrowLeft :size="17" />
         </RouterLink>
         <div>
-          <span>{{ t('unifiedCourseWorkspace.label', '课程工作区') }}</span>
           <strong>{{ courseTitle }}</strong>
         </div>
       </div>
@@ -154,25 +153,6 @@
           />
         </div>
 
-        <section
-          v-if="visitedPanels.has('build:practice')"
-          v-show="activePanel === 'build:practice'"
-          class="external-entry"
-        >
-          <button type="button" class="primary-action" @click="openFormal('practice')">
-            {{ t('unifiedCourseWorkspace.practice.open', '打开正式课程练习') }}<ArrowRight :size="16" />
-          </button>
-        </section>
-
-        <section
-          v-if="visitedPanels.has('build:ppt')"
-          v-show="activePanel === 'build:ppt'"
-          class="external-entry"
-        >
-          <button type="button" class="primary-action" @click="openPpt">
-            {{ t('unifiedCourseWorkspace.ppt.open', '进入 PPT 工作台') }}<ArrowRight :size="16" />
-          </button>
-        </section>
       </template>
     </main>
   </section>
@@ -309,6 +289,14 @@ function openSecondaryNextStep() {
   else openBuild('outline')
 }
 function selectSection(section: SetupSection | BuildSection) {
+  if (activeMode.value === 'build' && section === 'practice') {
+    openFormal('practice')
+    return
+  }
+  if (activeMode.value === 'build' && section === 'ppt') {
+    openPpt()
+    return
+  }
   void router.push({
     name: 'course-workspace',
     params: { courseId: courseId.value, mode: activeMode.value },
@@ -331,7 +319,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: 54px minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, .88);
   border-radius: var(--lz-radius-surface);
@@ -351,8 +339,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-identity > a { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 9px; color: var(--lz-text-secondary); text-decoration: none; }
 .workspace-identity > a:hover { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
 .workspace-identity > a:focus-visible { outline: 3px solid rgba(99, 102, 241, .24); outline-offset: 2px; }
-.workspace-identity > div { min-width: 0; display: grid; gap: 3px; }
-.workspace-identity span { color: var(--lz-text-muted); font-size: 9px; }
+.workspace-identity > div { min-width: 0; }
 .workspace-identity strong { overflow: hidden; color: var(--lz-text-strong); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-top-status { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 9px; color: var(--lz-text-secondary); background: rgba(248, 250, 252, .8); font-size: 11px; font-weight: 750; }
 .workspace-top-status i { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--lz-text-muted); }
@@ -360,7 +347,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-top-status[data-state="working"] i { background: var(--lz-brand); box-shadow: 0 0 0 4px var(--lz-brand-soft); }
 .workspace-top-status[data-state="attention"] i { background: var(--lz-warning); }
 .workspace-subtabs { align-self:stretch; min-width:0; display:flex; align-items:stretch; gap:4px; padding:0; overflow-x:auto; }
-.workspace-subtabs button { min-width:0; height:63px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 15px; border:0; border-bottom:2px solid transparent; color:var(--lz-text-muted); background:transparent; font-size:11px; font-weight:700; white-space:nowrap; cursor:pointer; }
+.workspace-subtabs button { min-width:0; height:53px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 15px; border:0; border-bottom:2px solid transparent; color:var(--lz-text-muted); background:transparent; font-size:12px; font-weight:700; white-space:nowrap; cursor:pointer; }
 .workspace-subtabs button:hover { color: var(--lz-text-strong); background: var(--lz-fill); }
 .workspace-subtabs button:focus-visible { outline: 3px solid rgba(99, 102, 241, .24); outline-offset: -4px; }
 .workspace-subtabs button.is-active { color: var(--lz-brand-strong); border-bottom-color: var(--lz-brand); }
@@ -392,7 +379,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .course-facts dd.fact-state strong { font-size: 13px; }
 .course-facts dd.fact-state[data-tone="ready"] i { background: var(--lz-success); }
 .course-facts dd.fact-state[data-tone="working"] i { background: var(--lz-brand); box-shadow: 0 0 0 4px var(--lz-brand-soft); }
-.workflow-note { min-height: 100px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; margin-top: 24px; padding: 18px 20px; border: 1px solid var(--lz-brand-border); border-radius: 12px; background: var(--lz-brand-soft); }
+.workflow-note { min-height: 76px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; margin-top: 8px; padding: 18px 0; border-top: 1px solid var(--lz-border); }
 .workflow-copy { min-width: 0; display: grid; gap: 4px; }
 .workflow-copy > span { color: var(--lz-brand-strong); font-size: 10px; font-weight: 800; }
 .workflow-copy > strong { color: var(--lz-text-strong); font-size: 14px; }
@@ -406,7 +393,6 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .outline-panel { min-height: 100%; padding: 0; }
 .plan-panel > :deep(.generation-lesson-plan),
 .outline-panel > :deep(.outline-review) { min-height: calc(100% - 2px); }
-.external-entry { min-height: 100%; display: grid; place-items: center; padding: 32px; }
 @keyframes workspace-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) {
   .workspace-heading { grid-template-columns: minmax(180px, .75fr) minmax(400px, 1.5fr) auto; gap:10px; }

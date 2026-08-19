@@ -10,10 +10,7 @@
       @click="openMode(item.key)"
     >
       <component :is="item.icon" :size="17" />
-      <span>
-        <strong>{{ item.label }}</strong>
-        <small>{{ item.help }}</small>
-      </span>
+      <strong>{{ item.label }}</strong>
     </button>
   </nav>
 </template>
@@ -35,19 +32,16 @@ const modes = computed(() => [
     key: 'setup' as const,
     icon: Settings2,
     label: t('unifiedCourseWorkspace.modes.setup', '课程设置'),
-    help: t('unifiedCourseWorkspace.modes.setupHelp', '信息、资料与排课'),
   },
   {
     key: 'build' as const,
     icon: Sparkles,
     label: t('unifiedCourseWorkspace.modes.build', '备课制作'),
-    help: t('unifiedCourseWorkspace.modes.buildHelp', '大纲、讲次与课件'),
   },
   {
     key: 'formal' as const,
     icon: Presentation,
     label: t('unifiedCourseWorkspace.modes.formal', '正式课程'),
-    help: t('unifiedCourseWorkspace.modes.formalHelp', '上课与学习现场'),
   },
 ])
 
@@ -79,7 +73,7 @@ function openMode(mode: CourseMode) {
 }
 .course-mode-tabs button {
   min-width: 0;
-  min-height: 46px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -107,20 +101,14 @@ function openMode(mode: CourseMode) {
   box-shadow: 0 3px 10px rgba(79, 70, 229, .1);
 }
 .course-mode-tabs button > svg { flex: 0 0 auto; }
-.course-mode-tabs button > span { min-width: 0; display: grid; gap: 2px; text-align: left; }
-.course-mode-tabs strong,
-.course-mode-tabs small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.course-mode-tabs strong { font-size: 12px; }
-.course-mode-tabs small { color: var(--lz-text-muted); font-size: 9px; font-weight: 500; }
-.course-mode-tabs button.is-active small { color: #6366a8; }
+.course-mode-tabs strong { min-width: 0; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .course-mode-tabs.is-topbar { width:min(660px,100%); gap:5px; padding:0; border:0; background:transparent; }
-.course-mode-tabs.is-topbar button { min-height:46px; padding:4px 10px; }
+.course-mode-tabs.is-topbar button { min-height:42px; padding:4px 10px; }
 .course-mode-tabs.is-topbar button.is-active { background:var(--lz-brand-soft); box-shadow:none; }
 @media (max-width: 767px) {
   .course-mode-tabs { width: 100%; gap: 2px; padding: 3px; border-radius: 10px; }
   .course-mode-tabs button { min-height: 38px; gap: 4px; padding: 3px 4px; }
-  .course-mode-tabs button > svg,
-  .course-mode-tabs small { display: none; }
+  .course-mode-tabs button > svg { display: none; }
   .course-mode-tabs strong { font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {

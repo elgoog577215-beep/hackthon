@@ -180,9 +180,9 @@
       <CircleDashed :size="17" />
       <div>
         <strong>{{ activeWorkbench.can_initialize
-          ? t('courseGeneration.lessonPlan.initializeTitle', '建立可编辑教案')
+          ? t('courseGeneration.lessonPlan.initializeTitle', '可编辑教案未建立')
           : t('courseGeneration.lessonPlan.readOnlyTitle', '当前教案为只读') }}</strong>
-        <p>{{ workbenchReadOnlyReason }}</p>
+        <p v-if="!activeWorkbench.can_initialize">{{ workbenchReadOnlyReason }}</p>
       </div>
       <button
         v-if="activeWorkbench.can_initialize"
@@ -195,7 +195,7 @@
         <Pencil v-else :size="16" />
         {{ workbenchStore.pendingAction === 'initialize'
           ? t('courseGeneration.lessonPlan.initializing', '正在建立')
-          : t('courseGeneration.lessonPlan.initializeAction', '建立并开始编辑') }}
+          : t('courseGeneration.lessonPlan.initializeAction', '建立教案') }}
       </button>
     </aside>
 
@@ -1186,8 +1186,7 @@
         </div>
         <div v-else class="generation-lesson-plan__legacy">
           <BookOpenCheck :size="24" />
-          <strong>{{ t('courseGeneration.lessonPlan.legacySectionTitle', '保留现有学习目标') }}</strong>
-          <p>{{ t('courseGeneration.lessonPlan.legacySectionHelp', '这门旧课程没有可展示的结构化教学流程与评价合同。') }}</p>
+          <strong>{{ t('courseGeneration.lessonPlan.legacySectionTitle', '学习目标') }}</strong>
         </div>
       </article>
     </div>

@@ -130,7 +130,8 @@ describe('课程教案工作台', () => {
       props: { courseId: 'course-1', nodes, activeNodeId: 'section-1' },
     })
 
-    expect(wrapper.text()).toContain('建立可编辑教案')
+    expect(wrapper.text()).toContain('可编辑教案未建立')
+    expect(wrapper.text()).not.toContain('当前课程可以从已发布目录建立可编辑教案基线。')
     expect(wrapper.find('.generation-lesson-plan__workbench-controls').exists()).toBe(false)
     await wrapper.get('.generation-lesson-plan__workbench-notice button').trigger('click')
     await flushPromises()

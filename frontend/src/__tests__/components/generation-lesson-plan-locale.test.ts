@@ -37,7 +37,7 @@ async function mountWith(lang: 'zh' | 'en') {
 describe('真实渲染：中英文教案页面', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.unstubAllGlobals() })
 
-  it('中文模式显示教学大纲/教学设计/教学目标/学情分析', async () => {
+  it('中文模式显示教学大纲/教学设计/教学目标/前置知识', async () => {
     const w = await mountWith('zh')
     const text = w.text()
     console.log('--- ZH tabs:', w.findAll('.generation-lesson-plan__view-switch strong').map(n => n.text()))
@@ -45,7 +45,7 @@ describe('真实渲染：中英文教案页面', () => {
     expect(text).toContain('教学大纲')
     expect(text).toContain('教学设计')
     expect(text).toContain('教学目标')
-    expect(text).toContain('学情分析')
+    expect(text).toContain('前置知识')
     // 小节标题里的章节编号是内容，不受术语改名影响
     // 切到教学设计 tab：小节标题里的章节编号是课程内容，不受术语改名影响
     await w.findAll('.generation-lesson-plan__view-switch button')[1]!.trigger('click')
@@ -59,7 +59,7 @@ describe('真实渲染：中英文教案页面', () => {
     expect(text).toContain('Syllabus')
     expect(text).toContain('Lesson design')
     expect(text).toContain('Learning objectives')
-    expect(text).toContain('Learner analysis')
+    expect(text).toContain('Prerequisites')
     expect(text).not.toContain('courseGeneration.lessonPlan')
     // 课程内容本身是中文（课名、目标、前置），那是数据不是界面文案。
     // 只检查界面 chrome：tab、眉标、按钮、区块标题。

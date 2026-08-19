@@ -26,6 +26,9 @@ describe('CourseModeTabs', () => {
     expect(wrapper.text()).toContain('课程设置')
     expect(wrapper.text()).toContain('备课制作')
     expect(wrapper.text()).toContain('正式课程')
+    expect(wrapper.text()).not.toContain('信息、资料与排课')
+    expect(wrapper.text()).not.toContain('大纲、讲次与课件')
+    expect(wrapper.text()).not.toContain('上课与学习现场')
     expect(wrapper.text()).not.toContain('教师端')
   })
 
