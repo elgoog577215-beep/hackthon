@@ -19,7 +19,7 @@
       <TeacherCourseSidebar v-if="!embedded" :course-id="courseId" :title="courseTitle" :meta="courseMeta" active="calendar" />
       <main class="calendar-main">
         <div class="status-bar" role="status">
-          <strong>{{ courseTitle }}</strong>
+          <strong v-if="!embedded">{{ courseTitle }}</strong>
           <span>{{ editable?.academic_year || t('teacherCalendar.yearUnset', '未设学年') }}</span>
           <span>{{ editable?.term || t('teacherCalendar.termUnset', '未设学期') }}</span>
           <span>{{ t('teacherCalendar.sessions', '课次') }} {{ editable?.sessions.length || 0 }}</span>
@@ -33,7 +33,7 @@
         <section class="calendar-workspace">
           <header class="workspace-toolbar">
             <div class="segmented" role="tablist">
-              <button type="button" data-testid="calendar-table-view" :class="{ active: view === 'table' }" @click="view = 'table'"><Table2 :size="15" />教学日历</button>
+              <button type="button" data-testid="calendar-table-view" :class="{ active: view === 'table' }" @click="view = 'table'"><Table2 :size="15" />{{ t('teacherCalendar.tableView', '表格') }}</button>
               <button type="button" data-testid="calendar-month-view" :class="{ active: view === 'month' }" @click="view = 'month'"><CalendarDays :size="15" />月历</button>
               <button type="button" data-testid="calendar-week-view" :class="{ active: view === 'week' }" @click="view = 'week'"><Columns3 :size="15" />周历</button>
             </div>

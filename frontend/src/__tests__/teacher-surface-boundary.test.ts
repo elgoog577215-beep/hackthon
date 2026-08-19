@@ -16,6 +16,9 @@ describe('unified course workspace boundary', () => {
     expect(workspace).toContain('<CourseOutlineReview')
     expect(workspace).toContain('visible-scope="overall"')
     expect(workspace).toContain('visible-scope="sections"')
+    expect(workspace.match(/<GenerationLessonPlan[\s\S]*?embedded/g)).toHaveLength(2)
+    expect(workspace).toContain('<Teleport to="#app-header-route-actions">')
+    expect(workspace).not.toContain('class="workspace-state"')
     expect(learning).toContain('<CourseModeTabs active="formal"')
     expect(workspace).not.toContain('useTeacherCourseRuntime')
     expect(workspace).not.toContain('useTeacherLessonAuthoringStore')
@@ -42,6 +45,8 @@ describe('unified course workspace boundary', () => {
     expect(workspace.match(/<GenerationLessonPlan/g)).toHaveLength(2)
     expect(workspace).toContain(':plan="courseStore.currentTeachingPlan"')
     expect(lessonPlan).toContain("visibleScope?: 'both' | 'overall' | 'sections'")
+    expect(lessonPlan).toContain('embedded?: boolean')
+    expect(lessonPlan).toContain('v-if="!embedded" class="generation-lesson-plan__intro"')
     expect(lessonPlan).not.toContain('teacherLessonAuthoring')
   })
 

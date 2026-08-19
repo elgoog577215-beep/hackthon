@@ -1,5 +1,17 @@
 <template>
   <section class="course-workspace-view glass-panel-elevated">
+    <Teleport to="#app-header-route-actions">
+      <div
+        class="workspace-top-status"
+        :data-state="courseState.tone"
+        role="status"
+        :aria-label="t('unifiedCourseWorkspace.courseState', '课程状态')"
+      >
+        <i aria-hidden="true"></i>
+        <span>{{ courseState.label }}</span>
+      </div>
+    </Teleport>
+
     <header class="workspace-heading">
       <div class="workspace-identity">
         <RouterLink :to="{ name: 'course-library' }" :aria-label="t('unifiedCourseWorkspace.back', '返回课程库')">
@@ -11,10 +23,6 @@
         </div>
       </div>
       <CourseModeTabs :active="activeMode" :course-id="courseId" />
-      <div class="workspace-state" :data-state="courseState.tone">
-        <i aria-hidden="true"></i>
-        <span>{{ courseState.label }}</span>
-      </div>
     </header>
 
     <nav class="workspace-subtabs" :aria-label="sectionNavigationLabel">
@@ -49,7 +57,6 @@
         <section v-show="activePanel === 'setup:basic'" class="basic-panel">
           <header>
             <div>
-              <span>{{ t('unifiedCourseWorkspace.basic.eyebrow', '基本课程信息') }}</span>
               <h1>{{ courseTitle }}</h1>
               <p>{{ t('unifiedCourseWorkspace.basic.help', '集中查看这门课的结构、课程设计与正式内容状态。资料与排课在上方对应模块维护。') }}</p>
             </div>
@@ -112,6 +119,7 @@
             :nodes="courseStore.nodes"
             :active-node-id="courseStore.currentNode?.node_id"
             :course-id="courseId"
+            embedded
             visible-scope="overall"
             @select="selectNode"
             @open-outline-editor="openBuild('outline')"
@@ -150,6 +158,7 @@
             :nodes="courseStore.nodes"
             :active-node-id="courseStore.currentNode?.node_id"
             :course-id="courseId"
+            embedded
             prefer-section-view
             visible-scope="sections"
             @select="selectNode"
@@ -164,7 +173,6 @@
           class="handoff-panel"
         >
           <ClipboardCheck :size="25" />
-          <span>{{ t('unifiedCourseWorkspace.practice.eyebrow', '沿用正式练习资产') }}</span>
           <h2>{{ t('unifiedCourseWorkspace.practice.title', '在正式课程中检查和试做练习') }}</h2>
           <p>{{ t('unifiedCourseWorkspace.practice.help', '练习继续读取同一题目资产、作答记录和质量状态。这里不建立一份教师专用题库。') }}</p>
           <button type="button" class="primary-action" @click="openFormal('practice')">
@@ -178,7 +186,6 @@
           class="handoff-panel"
         >
           <Presentation :size="25" />
-          <span>{{ t('unifiedCourseWorkspace.ppt.eyebrow', '沿用原 PPT 工作台') }}</span>
           <h2>{{ t('unifiedCourseWorkspace.ppt.title', '从同一课程设计生成和维护课件') }}</h2>
           <p>{{ t('unifiedCourseWorkspace.ppt.help', '课件继续绑定课程、知识、目标和来源修订。预览、页级编辑、演示与导出都在原工作台完成。') }}</p>
           <button type="button" class="primary-action" @click="openPpt">
@@ -368,11 +375,11 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-identity > div { min-width: 0; display: grid; gap: 3px; }
 .workspace-identity span { color: var(--lz-text-muted); font-size: 9px; }
 .workspace-identity strong { overflow: hidden; color: var(--lz-text-strong); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
-.workspace-state { justify-self: end; display: flex; align-items: center; gap: 7px; color: var(--lz-text-secondary); font-size: 10px; font-weight: 700; }
-.workspace-state i { width: 7px; height: 7px; border-radius: 50%; background: var(--lz-text-muted); }
-.workspace-state[data-state="ready"] i { background: var(--lz-success); }
-.workspace-state[data-state="working"] i { background: var(--lz-brand); box-shadow: 0 0 0 4px var(--lz-brand-soft); }
-.workspace-state[data-state="attention"] i { background: var(--lz-warning); }
+.workspace-top-status { min-height: 32px; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px; border-radius: 9px; color: var(--lz-text-secondary); background: rgba(248, 250, 252, .8); font-size: 11px; font-weight: 750; }
+.workspace-top-status i { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--lz-text-muted); }
+.workspace-top-status[data-state="ready"] i { background: var(--lz-success); }
+.workspace-top-status[data-state="working"] i { background: var(--lz-brand); box-shadow: 0 0 0 4px var(--lz-brand-soft); }
+.workspace-top-status[data-state="attention"] i { background: var(--lz-warning); }
 .workspace-subtabs { display: flex; align-items: end; gap: 4px; padding: 0 18px; border-bottom: 1px solid var(--lz-border); background: var(--lz-surface); overflow-x: auto; }
 .workspace-subtabs button { height: 47px; display: inline-flex; align-items: center; gap: 7px; padding: 0 15px; border: 0; border-bottom: 2px solid transparent; color: var(--lz-text-muted); background: transparent; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .workspace-subtabs button:hover { color: var(--lz-text-strong); background: var(--lz-fill); }
@@ -390,9 +397,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .basic-panel { width: min(980px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 52px; }
 .basic-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
 .basic-panel > header > div { min-width: 0; max-width: 720px; }
-.basic-panel > header span,
-.handoff-panel > span { color: var(--lz-brand-strong); font-size: 11px; font-weight: 800; }
-.basic-panel h1 { margin: 7px 0 8px; color: var(--lz-text-strong); font-size: clamp(23px, 2.1vw, 28px); line-height: 1.28; letter-spacing: -.025em; }
+.basic-panel h1 { margin: 0 0 8px; color: var(--lz-text-strong); font-size: clamp(23px, 2.1vw, 28px); line-height: 1.28; letter-spacing: -.025em; }
 .basic-panel p,
 .handoff-panel p { max-width: 68ch; margin: 0; color: var(--lz-text-secondary); font-size: 13px; line-height: 1.7; }
 .primary-action { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border: 1px solid var(--lz-brand); border-radius: 9px; color: #fff; background: var(--lz-brand); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
@@ -436,14 +441,13 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 @keyframes workspace-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) {
   .workspace-heading { grid-template-columns: minmax(150px, .8fr) minmax(420px, 1.4fr) auto; gap: 10px; }
-  .workspace-state span { display: none; }
 }
 @media (max-width: 767px) {
   .course-workspace-view { height: 100%; min-height: 0; grid-template-rows: auto 44px minmax(0, 1fr); border: 0; border-radius: 0; }
   .workspace-heading { grid-template-columns: minmax(0, 1fr); gap: 9px; padding: 10px; }
   .workspace-identity { order: 1; }
   .workspace-heading > :deep(.course-mode-tabs) { order: 2; }
-  .workspace-state { position: absolute; top: 17px; right: 14px; }
+  .workspace-top-status { min-height: 30px; padding: 0 8px; font-size: 10px; }
   .workspace-subtabs { padding: 0 6px; }
   .workspace-subtabs button { height: 43px; padding: 0 10px; }
   .workspace-subtabs button svg { display: none; }

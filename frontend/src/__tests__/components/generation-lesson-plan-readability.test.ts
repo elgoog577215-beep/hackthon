@@ -166,6 +166,13 @@ describe('课程教案阅读尺度', () => {
       props: { nodes, plan: sparsePlan, activeNodeId: 'section-1' },
     })
     expect(sparseWrapper.findAll('.generation-lesson-plan__metrics dt').map(item => item.text())).toEqual(['小节'])
+
+    const embeddedWrapper = mount(GenerationLessonPlan, {
+      props: { nodes, plan, activeNodeId: 'section-1', visibleScope: 'overall', embedded: true },
+    })
+    expect(embeddedWrapper.find('.generation-lesson-plan__header').exists()).toBe(false)
+    expect(embeddedWrapper.find('.generation-lesson-plan__overview-hero > div > span').exists()).toBe(false)
+    expect(embeddedWrapper.get('.generation-lesson-plan__overview-hero h3').text()).toBe('一次函数')
   })
 
   it('把教学流程、掌握证据、易错纠偏与知识衔接放在同一份小节教案中', async () => {

@@ -1,7 +1,11 @@
 <template>
-  <section class="generation-lesson-plan">
-    <header class="generation-lesson-plan__header">
-      <div class="generation-lesson-plan__intro">
+  <section class="generation-lesson-plan" :class="{ 'is-embedded': embedded }">
+    <header
+      v-if="showDocumentHeader"
+      class="generation-lesson-plan__header"
+      :class="{ 'is-tools-only': embedded }"
+    >
+      <div v-if="!embedded" class="generation-lesson-plan__intro">
         <div class="generation-lesson-plan__title-line">
           <h2>{{ workspaceTitle }}</h2>
           <span class="generation-lesson-plan__status">{{ planStatusLabel }}</span>
@@ -107,7 +111,7 @@
             <i :style="{ transform: `scaleX(${planProgress / 100})` }" />
           </div>
         </div>
-        <dl v-if="hasPlanSummary" class="generation-lesson-plan__metrics">
+        <dl v-if="!embedded && hasPlanSummary" class="generation-lesson-plan__metrics">
           <div v-if="sectionCount">
             <dt>{{ t('courseGeneration.lessonPlan.sections', '小节') }}</dt>
             <dd>{{ sectionCount }}</dd>
@@ -462,7 +466,7 @@
     >
       <header class="generation-lesson-plan__overview-hero">
         <div>
-          <span>{{ t('courseGeneration.lessonPlan.overallEyebrow', '全课教学设计') }}</span>
+          <span v-if="!embedded">{{ t('courseGeneration.lessonPlan.overallEyebrow', '全课教学设计') }}</span>
           <h3>{{ overallPlan.course_title || t('courseGeneration.lessonPlan.untitledCourse', '未命名课程') }}</h3>
           <textarea
             v-if="editing"
@@ -782,7 +786,7 @@
             {{ String(selectedIndex + 1).padStart(2, '0') }}
           </div>
           <div class="generation-lesson-plan__section-title">
-            <span>{{ t('courseGeneration.lessonPlan.currentSection', '当前小节') }}</span>
+            <span v-if="!embedded">{{ t('courseGeneration.lessonPlan.currentSection', '当前小节') }}</span>
             <h3>{{ selectedSection.node.node_name }}</h3>
             <textarea
               v-if="editing && selectedSection.plan"
@@ -1258,6 +1262,7 @@ const props = withDefaults(defineProps<{
   aiDockTarget?: string
   preferSectionView?: boolean
   visibleScope?: 'both' | 'overall' | 'sections'
+  embedded?: boolean
 }>(), {
   plan: null,
   nodes: () => [],
@@ -1270,6 +1275,7 @@ const props = withDefaults(defineProps<{
   aiDockTarget: '',
   preferSectionView: false,
   visibleScope: 'both',
+  embedded: false,
 })
 
 const emit = defineEmits<{
@@ -1417,6 +1423,11 @@ const showWorkbenchControls = computed(() => (
   Boolean(props.courseId) && !props.live && !props.preferProvidedPlan
 ))
 const workbenchAvailable = computed(() => Boolean(activeWorkbench.value?.available))
+const showDocumentHeader = computed(() => (
+  !props.embedded
+  || (showWorkbenchControls.value && workbenchAvailable.value)
+  || (props.live && !planReady.value)
+))
 const editing = computed(() => Boolean(activeWorkbench.value?.draft))
 const workbenchReadOnlyReason = computed(() => {
   if (!activeWorkbench.value) return ''
@@ -2151,6 +2162,7 @@ function openKnowledge(knowledgeId: string): void {
   padding:0 0 18px;
   border-bottom:1px solid var(--plan-line);
 }
+.generation-lesson-plan__header.is-tools-only { display:flex; justify-content:flex-end; padding-bottom:12px; border-bottom:0; }
 .generation-lesson-plan__title-line { min-width:0; display:flex; align-items:center; gap:10px; }
 .generation-lesson-plan__header h2 { margin:0; color:var(--plan-heading); font-family:inherit; font-size:23px; font-weight:750; line-height:1.3; letter-spacing:-.01em; }
 .generation-lesson-plan__status { display:inline-flex; align-items:center; min-height:20px; padding-left:10px; border-left:1px solid #d5d9e2; color:var(--plan-muted); font-size:11px; font-weight:700; white-space:nowrap; }
@@ -2178,6 +2190,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__overview-hero > div { min-width:0; padding-right:48px; }
 .generation-lesson-plan__overview-hero > div > span { color:var(--plan-accent); font-size:12px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__overview-hero h3 { margin:8px 0 10px; color:var(--plan-heading); font-family:inherit; font-size:28px; font-weight:750; line-height:1.3; letter-spacing:-.015em; }
+.generation-lesson-plan.is-embedded .generation-lesson-plan__overview-hero h3 { margin-top:0; }
 .generation-lesson-plan__overview-hero p { max-width:70ch; margin:0; color:var(--plan-body); font-size:14px; line-height:1.72; }
 .generation-lesson-plan__overview-hero aside { align-self:stretch; display:grid; grid-template-columns:28px minmax(0,1fr); align-content:center; gap:3px 10px; padding:10px 0 10px 32px; border-left:1px solid var(--plan-line); }
 .generation-lesson-plan__overview-hero aside svg { grid-row:1 / 3; align-self:center; color:#6067bd; }
@@ -2252,6 +2265,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__section-mark { padding-top:5px; color:#535ab7; font:750 15px/1.4 ui-monospace,SFMono-Regular,monospace; }
 .generation-lesson-plan__section-title > span { color:#8a92a1; font-size:12px; font-weight:750; letter-spacing:0; }
 .generation-lesson-plan__section-title h3 { margin:5px 0 8px; color:#1d2737; font-family:inherit; font-size:23px; font-weight:750; line-height:1.35; }
+.generation-lesson-plan.is-embedded .generation-lesson-plan__section-title h3 { margin-top:0; }
 .generation-lesson-plan__section-title p { max-width:760px; margin:0; color:#687285; font-size:14px; line-height:1.68; }
 .generation-lesson-plan__readiness { display:inline-flex; align-items:center; gap:7px; margin-top:3px; padding:7px 10px; border:1px solid #e2e5ea; border-radius:999px; color:#788191; background:#f7f8fa; font-size:12px; font-weight:750; white-space:nowrap; }
 .generation-lesson-plan__readiness[data-ready="true"] { border-color:#cceadd; color:#08785a; background:#effaf5; }
