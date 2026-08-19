@@ -1,10 +1,12 @@
 <template>
   <nav
     class="course-workspace-tabs"
+    :class="{ 'is-three': !showLessonPlan }"
     role="tablist"
     :aria-label="t('courseWorkspaceTabs.navigation', '课程工作区')"
   >
     <button
+      v-if="showLessonPlan"
       type="button"
       role="tab"
       data-workspace-item="lesson-plan"
@@ -86,6 +88,7 @@ const props = withDefaults(defineProps<{
   lessonPlanPending?: boolean
   lessonPlanBuilding?: boolean
   pptAvailable?: boolean
+  showLessonPlan?: boolean
 }>(), {
   practiceAvailable: false,
   practiceRepairAvailable: false,
@@ -93,6 +96,7 @@ const props = withDefaults(defineProps<{
   lessonPlanPending: false,
   lessonPlanBuilding: false,
   pptAvailable: true,
+  showLessonPlan: true,
 })
 
 const practiceEntryAvailable = computed(() => (
@@ -169,6 +173,7 @@ const emit = defineEmits<{
     padding:3px;
     border-radius:10px;
   }
+  .course-workspace-tabs.is-three { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .course-workspace-tabs button {
     width:100%;
     min-width:0;

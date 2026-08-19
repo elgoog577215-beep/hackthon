@@ -10,7 +10,8 @@ from material_storage import MaterialStorageError
 from teacher_course_space import CATEGORIES, package_folder_paths, teacher_course_space_repository as repository
 
 router = APIRouter(prefix="/teacher-course-spaces", tags=["teacher_course_spaces"])
-class PackageCreate(BaseModel): course_name: str; academic_year: str; term: str; template: str = "blank"
+class PackageCreate(BaseModel): course_name: str; academic_year: str; term: str; template: str = "blank"; course_id: str = ""
+class PackageBinding(BaseModel): course_id: str
 class CategoryUpdate(BaseModel): category: str
 class FolderCreate(BaseModel): name: str
 def owner(request: Request) -> str: return require_user_id(request.headers.get("X-User-Id"))
@@ -20,14 +21,18 @@ def http_error(exc: Exception):
     raise exc
 
 @router.get("")
-def list_packages(request: Request): return repository.list_owned(owner(request))
+def list_packages(request: Request, course_id: str | None = None): return repository.list_owned(owner(request), course_id)
 @router.post("", status_code=201)
 def create_package(body: PackageCreate, request: Request):
-    try: return repository.create_package(owner(request), body.course_name, body.academic_year, body.term, body.template)
+    try: return repository.create_package(owner(request), body.course_name, body.academic_year, body.term, body.template, body.course_id)
     except Exception as exc: http_error(exc)
 @router.get("/{package_id}")
 def get_package(package_id: str, request: Request):
     try: return repository.public(repository.load_owned(package_id, owner(request)))
+    except Exception as exc: http_error(exc)
+@router.patch("/{package_id}")
+def bind_package(package_id: str, body: PackageBinding, request: Request):
+    try: return repository.bind_course(repository.load_owned(package_id, owner(request)), body.course_id)
     except Exception as exc: http_error(exc)
 @router.post("/{package_id}/imports")
 async def import_folder(package_id: str, request: Request, files: list[UploadFile] | None = File(default=None), relative_paths: list[str] | None = Form(default=None), folder_paths: list[str] | None = Form(default=None)):

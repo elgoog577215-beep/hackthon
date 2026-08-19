@@ -215,6 +215,7 @@ export const useCourseStore = defineStore('course', {
         taskType?: string
         monitorTask?: boolean
         previewSurface?: 'student' | 'teacher'
+        silentError?: boolean
     } = {}) {
         this.loading = true
         this.currentCourseId = courseId
@@ -237,7 +238,9 @@ export const useCourseStore = defineStore('course', {
                 const taskTypeQuery = options.taskType
                     ? `?task_type=${encodeURIComponent(options.taskType)}`
                     : ''
-                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`)
+                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, {
+                    silentError: options.silentError,
+                })
                 const taskData = taskRes.data as Record<string, any> | null
                 if (taskData && taskData.status !== 'none') {
                     backendTask = taskData
@@ -282,7 +285,9 @@ export const useCourseStore = defineStore('course', {
                 return
             }
 
-            const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
+            const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`, {
+                silentError: options.silentError,
+            })
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
                 if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId, options.previewSurface)) {
@@ -311,7 +316,7 @@ export const useCourseStore = defineStore('course', {
             }
         } catch (error) {
             logger.error(error)
-            ElMessage.error('加载课程失败')
+            if (!options.silentError) ElMessage.error('加载课程失败')
             this.currentCourseId = ''
             this.currentNode = null
             this.currentCourseVersionId = ''

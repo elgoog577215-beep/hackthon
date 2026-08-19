@@ -9,6 +9,73 @@
     "previous": "Previous",
     "next": "Next"
   },
+  "unifiedCourseWorkspace": {
+    "label": "Course workspace",
+    "back": "Back to course library",
+    "untitled": "Untitled course",
+    "modeNavigation": "Course working modes",
+    "setupNavigation": "Course setup sections",
+    "buildNavigation": "Course preparation sections",
+    "loading": "Loading course",
+    "loadingHelp": "Only this section loads now. Other tools load when opened.",
+    "loadFailed": "Could not load the course",
+    "loadFailedHelp": "Check the service and try again.",
+    "modes": {
+      "setup": "Course setup",
+      "setupHelp": "Details, files, schedule",
+      "build": "Preparation",
+      "buildHelp": "Outline, lessons, slides",
+      "formal": "Live course",
+      "formalHelp": "Teach and learn"
+    },
+    "sections": {
+      "basic": "Basic details",
+      "files": "Files",
+      "design": "Course design",
+      "calendar": "Teaching calendar",
+      "outline": "Outline",
+      "lesson": "Lesson preparation",
+      "practice": "Practice"
+    },
+    "state": {
+      "generating": "Generating",
+      "attention": "Needs attention",
+      "ready": "Live course ready",
+      "draft": "Course draft"
+    },
+    "basic": {
+      "eyebrow": "Basic course details",
+      "help": "This page shows which formal course assets are connected. Continue with files, course design, and scheduling above.",
+      "prepareFiles": "Organize course files",
+      "status": "Course status",
+      "structure": "Course structure",
+      "nodes": "teaching nodes",
+      "plan": "Course design",
+      "revision": "Content revision",
+      "notPublished": "Not published",
+      "planMissing": "Not created",
+      "planReady": "Ready and editable",
+      "planWorking": "In progress",
+      "orderTitle": "Suggested order",
+      "orderHelp": "Organize files and course design, then confirm the outline and prepare each lesson. Switch to the live course when teaching. Each step can be saved and resumed independently."
+    },
+    "files": {
+      "createTitle": "Create files for “{course}”",
+      "createHelp": "The file space keeps empty folders and supports folder import, preview, download, and deletion."
+    },
+    "practice": {
+      "eyebrow": "Uses formal practice assets",
+      "title": "Review and try practice in the live course",
+      "help": "Practice keeps using the same question assets, attempts, and quality status. No teacher-only question bank is created here.",
+      "open": "Open live-course practice"
+    },
+    "ppt": {
+      "eyebrow": "Uses the existing PPT workspace",
+      "title": "Build and maintain slides from the same course design",
+      "help": "Slides stay bound to the course, knowledge, objectives, and source revision. Preview, page editing, presenting, and export remain in the existing workspace.",
+      "open": "Open PPT workspace"
+    }
+  },
   "teacherCourseLibrary": {
     "eyebrow": "My courses",
     "title": "Course workspace",
@@ -2022,6 +2089,9 @@
     "lessonPlan": {
       "eyebrow": "Single official course plan",
       "title": "Course lesson plan",
+      "providedTitle": "Lesson plan",
+      "courseDesignTitle": "Course design",
+      "lessonPreparationTitle": "Lesson preparation",
       "ready": "Every teaching decision, from objectives to assessment, comes from one whole-course plan",
       "pending": "The outline is fixed. Detailed plans are generated section by section and assembled into the whole-course plan",
       "legacyUnavailable": "This legacy course has no structured whole-course lesson plan yet. Existing objectives are shown below",

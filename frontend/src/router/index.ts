@@ -15,19 +15,17 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/courses',
     name: 'teacher-course-library',
-    component: () => import('../views/TeacherCourseLibraryView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: { name: 'course-library' }
   },
   {
     path: '/teacher/courses/new',
     name: 'teacher-course-create',
-    component: () => import('../views/TeacherCourseCreateView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: { name: 'course-library', query: { create: '1' } }
   },
   {
     path: '/teacher-course-space',
     name: 'teacher-course-space',
-    component: () => import('../views/TeacherCourseSpaceView.vue')
+    redirect: { name: 'course-library' }
   },
   {
     path: '/workspace-concept',
@@ -49,55 +47,53 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/course/:courseId',
-    redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'basic' } })
+  },
+  {
+    path: '/course/:courseId/workspace/:mode(setup|build)?',
+    name: 'course-workspace',
+    component: () => import('../views/CourseWorkspaceView.vue'),
+    props: true,
   },
   {
     path: '/teacher/course/:courseId/overview',
     name: 'teacher-course-overview',
-    component: () => import('../views/TeacherCourseOverviewView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'basic' } })
   },
   {
     path: '/teacher/course/:courseId/production',
     name: 'teacher-course-production',
-    component: () => import('../views/TeacherCourseProductionView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'build' }, query: { section: 'lesson' } })
   },
   {
     path: '/teacher/course/:courseId/outline',
     name: 'teacher-course-outline',
-    component: () => import('../views/TeacherCourseProductionView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'build' }, query: { section: 'outline' } })
   },
   {
     path: '/teacher/course/:courseId/release',
     name: 'teacher-course-release',
-    component: () => import('../views/TeacherCourseProductionView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
   },
   {
     path: '/teacher/course/:courseId/files',
     name: 'teacher-course-files',
-    component: () => import('../views/TeacherCourseFilesView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'files' } })
   },
   {
     path: '/teacher/course/:courseId/teaching-calendar',
     name: 'teacher-course-calendar',
-    component: () => import('../views/TeacherCourseCalendarView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'calendar', ...(to.query.session ? { session: to.query.session } : {}) } })
   },
   {
     path: '/teacher/course/:courseId/ppt',
     name: 'teacher-ppt-workspace',
-    component: () => import('../views/PptWorkspaceView.vue'),
-    meta: { fullscreenConcept: true, courseSurface: 'teacher' }
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'build' }, query: { section: 'ppt' } })
   },
   {
     path: '/teacher/teaching-calendar',
     name: 'teacher-teaching-calendar',
-    component: () => import('../views/TeacherTeachingCalendarView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: { name: 'course-library', query: { view: 'calendar' } }
   },
   {
     path: '/course/:courseId/learn/:nodeId?',
@@ -111,11 +107,11 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/teacher',
-    redirect: '/teacher/courses'
+    redirect: '/courses'
   },
   {
     path: '/teacher/:pathMatch(.*)*',
-    redirect: '/teacher/courses'
+    redirect: '/courses'
   },
   {
     path: '/:pathMatch(.*)*',

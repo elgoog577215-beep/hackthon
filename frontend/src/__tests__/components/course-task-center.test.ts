@@ -711,7 +711,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已发布，有优化建议')
+    expect(wrapper.text()).toContain('可以学习，有优化建议')
     expect(wrapper.text()).toContain('课程已经发布，仍有优化建议')
     expect(wrapper.text()).not.toContain('可以继续补齐失败节点')
     expect(wrapper.find('.task-actions__open').exists()).toBe(true)

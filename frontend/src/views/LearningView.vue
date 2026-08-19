@@ -21,6 +21,9 @@
         <span><Eye :size="15" /><strong>教师只读预览</strong>当前页面不会记录学习进度、笔记或 AI 对话。</span>
         <button type="button" @click="leaveTeacherPreview"><ArrowLeft :size="15" />返回教师工作台</button>
       </div>
+      <div v-if="!isTeacherPreview" class="learning-mode-tabs">
+        <CourseModeTabs active="formal" :course-id="String(route.params.courseId || courseStore.currentCourseId)" />
+      </div>
       <div
         class="learning-context-bar"
         :class="{ 'is-generation': isGenerationPreview, 'has-workspace-tabs': showWorkspaceTabs }"
@@ -44,6 +47,7 @@
           :practice-pending="isGenerationPreview"
           :lesson-plan-pending="isGenerationPreview && !canOpenGenerationLessonPlan"
           :lesson-plan-building="generationLessonPlanBuilding"
+          :show-lesson-plan="isGenerationPreview"
           :ppt-available="!isGenerationPreview"
           @lesson-plan="selectWorkspace('lesson-plan')"
           @course="selectWorkspace('course')"
@@ -278,6 +282,7 @@ import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseProductionNotice from '../components/CourseProductionNotice.vue'
 import CourseProductionStage from '../components/CourseProductionStage.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
+import CourseModeTabs from '../components/CourseModeTabs.vue'
 import CourseWorkspaceTabs from '../components/CourseWorkspaceTabs.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import LearningDock from '../components/LearningDock.vue'
@@ -506,12 +511,12 @@ watch(() => route.params.courseId, async value => {
   taskOpen.value = false
   workspaceStore.mistakeBookAttempts = []
   workspaceStore.practiceNeedsReviewCount = 0
-  await courseStore.fetchCourseList()
-  if (isTeacherPreview.value) {
-    await courseStore.loadCourse(courseId, { includeLearningRecords: false })
-  } else {
-    await courseStore.loadCourse(courseId)
-  }
+  await Promise.all([
+    courseStore.fetchCourseList(),
+    isTeacherPreview.value
+      ? courseStore.loadCourse(courseId, { includeLearningRecords: false })
+      : courseStore.loadCourse(courseId),
+  ])
   if (!isTeacherPreview.value) generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()
@@ -519,6 +524,7 @@ watch(() => route.params.courseId, async value => {
   }
   await loadPublishedLearningContext(courseId)
   selectInitialNode()
+  if (route.query.workspace === 'practice') selectWorkspace('practice')
 }, { immediate: true })
 
 watch(() => courseStore.showTeachingResources, visible => {
@@ -533,16 +539,22 @@ watch(() => courseStore.showKnowledgeLibrary, visible => {
 
 async function loadPublishedLearningContext(courseId: string) {
   if (courseStore.currentCourseProjection !== 'published' || loadedLearningCourseId.value === courseId) return
-  await workspaceStore.loadAssets(courseId)
+  const sharedLoads: Promise<unknown>[] = [workspaceStore.loadAssets(courseId)]
   if (isTeacherPreview.value) {
+    await Promise.all(sharedLoads)
     loadedLearningCourseId.value = courseId
     return
   }
-  await noteStore.loadCourseRecords(courseId)
-  await workspaceStore.migrateLegacyPracticeData(courseId, courseStore.nodes.map(node => node.node_id)).catch(() => undefined)
-  await workspaceStore.loadMistakeBook(courseId).catch(() => undefined)
-  await learningProgressStore.load(courseId, String(route.params.nodeId || '') || undefined)
-  await aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined)
+  sharedLoads.push(
+    noteStore.loadCourseRecords(courseId),
+    learningProgressStore.load(courseId, String(route.params.nodeId || '') || undefined),
+    aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined),
+  )
+  await Promise.all(sharedLoads)
+  await Promise.all([
+    workspaceStore.migrateLegacyPracticeData(courseId, courseStore.nodes.map(node => node.node_id)).catch(() => undefined),
+    workspaceStore.loadMistakeBook(courseId).catch(() => undefined),
+  ])
   loadedLearningCourseId.value = courseId
   void changeProposalsStore.fetchChangeProposals(courseId)
   // Natural pause #3: arriving at the course, before any reading has started.
@@ -1161,8 +1173,9 @@ function leaveTeacherPreview() {
     return
   }
   void router.push({
-    name: 'teacher-course-overview',
-    params: { courseId: courseStore.currentCourseId || route.params.courseId },
+    name: 'course-workspace',
+    params: { courseId: courseStore.currentCourseId || route.params.courseId, mode: 'setup' },
+    query: { section: 'basic' },
   })
 }
 
@@ -1179,6 +1192,7 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
+.learning-mode-tabs { min-height: 62px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; padding: 7px 12px; border-bottom: 1px solid var(--lz-border); background: rgba(255,255,255,.96); }
 .teacher-preview-bar{min-height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;border-bottom:1px solid var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:10px}.teacher-preview-bar span,.teacher-preview-bar button{display:flex;align-items:center;gap:6px}.teacher-preview-bar button{height:28px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}
 .learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
@@ -1215,7 +1229,7 @@ function closeMobileSurfaces() {
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }
-.focus-mode :deep(.learning-context-bar) { display: none; }
+.focus-mode :deep(.learning-context-bar),.focus-mode .learning-mode-tabs { display: none; }
 .slide-left-enter-active, .slide-left-leave-active, .slide-right-enter-active, .slide-right-leave-active { transition: transform .2s ease, opacity .2s ease; }
 .slide-left-enter-from, .slide-left-leave-to { transform: translateX(-100%); opacity: 0; }
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
@@ -1234,6 +1248,7 @@ function closeMobileSurfaces() {
   .learning-view.has-mobile-resume { padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px)); }
   .navigator-surface { left:0; top:56px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
+  .learning-mode-tabs { min-height: 48px; padding: 4px 7px; }
   .learning-context-bar { min-height:52px; grid-template-columns:auto minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
   .context-copy { display:none; }
   .learning-context-bar.is-generation .context-copy { display:flex; }

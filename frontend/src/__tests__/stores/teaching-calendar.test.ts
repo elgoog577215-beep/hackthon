@@ -100,7 +100,7 @@ describe('teaching calendar store', () => {
     await store.loadTotal('2026-08-01', '2026-08-31')
 
     expect(http.get).toHaveBeenCalledWith('/api/teachers/me/teaching-calendar', {
-      params: { date_from: '2026-08-01', date_to: '2026-08-31' },
+      params: { date_from: '2026-08-01', date_to: '2026-08-31', include_incomplete: false },
       headers: { 'X-User-Id': 'teacher-calendar-test' },
     })
   })

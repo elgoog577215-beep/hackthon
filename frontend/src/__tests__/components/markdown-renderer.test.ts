@@ -53,6 +53,7 @@ $$\text{函数契约} = \underbrace{\text{输入}}_{\text{参数}} + \underbrace
         enableCodeRun: false,
       },
     })
+    await flushFrames()
     await flushPromises()
 
     expect(wrapper.find('.katex-display').exists()).toBe(true)

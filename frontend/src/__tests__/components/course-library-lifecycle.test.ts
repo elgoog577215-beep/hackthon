@@ -13,7 +13,8 @@ const router = createRouter({
   routes: [
     { path: '/courses', name: 'course-library', component: CourseLibraryView },
     { path: '/teacher-course-space', name: 'teacher-course-space', component: { template: '<div />' } },
-    { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
+    { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
+    { path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: { template: '<div />' } },
   ],
 })
 
@@ -387,8 +388,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     await wrapper.get('.generate-now').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('learning')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-live')
+    expect(router.currentRoute.value.params.mode).toBe('build')
+    expect(router.currentRoute.value.query.section).toBe('outline')
     expect(wrapper.findComponent({ name: 'CourseWorkbench' }).props('modelValue')).toBe(false)
   })
 
@@ -487,7 +490,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(workbench.props('initialSection')).toBe('tasks')
   })
 
-  it('从全局顶栏进入教师文件空间', async () => {
+  it('移除全局教师文件空间并保留统一任务入口', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
@@ -509,13 +512,12 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[data-testid="open-teacher-course-space"]').trigger('click')
-    await flushPromises()
-
-    expect(router.currentRoute.value.name).toBe('teacher-course-space')
+    expect(wrapper.find('[data-testid="open-teacher-course-space"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="switch-to-teacher-surface"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="open-course-workbench"]').exists()).toBe(true)
   })
 
-  it('opens a published course directly in the learning workspace', async () => {
+  it('opens a published course in the unified setup workspace', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-ready', course_name: '矩阵与线性变换', node_count: 12 }]
@@ -542,8 +544,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     await wrapper.get('.course-main').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('learning')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-ready')
+    expect(router.currentRoute.value.params.mode).toBe('setup')
+    expect(router.currentRoute.value.query.section).toBe('basic')
     wrapper.unmount()
   })
 })

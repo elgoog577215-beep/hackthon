@@ -9,6 +9,73 @@
     "previous": "上一步",
     "next": "下一步"
   },
+  "unifiedCourseWorkspace": {
+    "label": "课程工作区",
+    "back": "返回课程库",
+    "untitled": "未命名课程",
+    "modeNavigation": "课程工作模式",
+    "setupNavigation": "课程设置模块",
+    "buildNavigation": "备课制作模块",
+    "loading": "正在读取课程",
+    "loadingHelp": "先打开当前模块，其余工具会在需要时加载。",
+    "loadFailed": "课程读取失败",
+    "loadFailedHelp": "请检查服务后重试。",
+    "modes": {
+      "setup": "课程设置",
+      "setupHelp": "信息、资料与排课",
+      "build": "备课制作",
+      "buildHelp": "大纲、讲次与课件",
+      "formal": "正式课程",
+      "formalHelp": "上课与学习现场"
+    },
+    "sections": {
+      "basic": "基本信息",
+      "files": "资料",
+      "design": "课程设计",
+      "calendar": "教学日历",
+      "outline": "大纲",
+      "lesson": "讲次备课",
+      "practice": "练习"
+    },
+    "state": {
+      "generating": "正在生成",
+      "attention": "需要处理",
+      "ready": "正式课程可用",
+      "draft": "课程草稿"
+    },
+    "basic": {
+      "eyebrow": "基本课程信息",
+      "help": "这里说明这门课当前连接了哪些正式内容。资料、课程设计与排课分别在上方继续维护。",
+      "prepareFiles": "整理课程资料",
+      "status": "课程状态",
+      "structure": "课程结构",
+      "nodes": "个教学节点",
+      "plan": "课程设计",
+      "revision": "正文修订",
+      "notPublished": "尚未发布",
+      "planMissing": "尚未形成",
+      "planReady": "已形成，可继续修订",
+      "planWorking": "正在形成",
+      "orderTitle": "建议顺序",
+      "orderHelp": "先整理资料与课程设计，再确认大纲和逐讲备课；需要上课时切到正式课程。每一步都可单独保存和返回。"
+    },
+    "files": {
+      "createTitle": "建立“{course}”的课程文件",
+      "createHelp": "文件空间建立后会保留空目录，可继续整文件夹导入、预览、下载和删除。"
+    },
+    "practice": {
+      "eyebrow": "沿用正式练习资产",
+      "title": "在正式课程中检查和试做练习",
+      "help": "练习继续读取同一题目资产、作答记录和质量状态。这里不建立一份教师专用题库。",
+      "open": "打开正式课程练习"
+    },
+    "ppt": {
+      "eyebrow": "沿用原 PPT 工作台",
+      "title": "从同一课程设计生成和维护课件",
+      "help": "课件继续绑定课程、知识、目标和来源修订。预览、页级编辑、演示与导出都在原工作台完成。",
+      "open": "进入 PPT 工作台"
+    }
+  },
   "teacherCourseLibrary": {
     "eyebrow": "我的课程",
     "title": "课程工作台",
@@ -2022,6 +2089,9 @@
     "lessonPlan": {
       "eyebrow": "唯一正式全课教案",
       "title": "课程教案",
+      "providedTitle": "本讲教案",
+      "courseDesignTitle": "课程设计",
+      "lessonPreparationTitle": "讲次备课",
       "ready": "从目标到评价，所有教学安排都来自同一份全课计划",
       "pending": "目录已经确定；详细教案会逐节生成并汇编为全课计划",
       "legacyUnavailable": "这门旧课程还没有结构化全课教案，现展示已有学习目标",

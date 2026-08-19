@@ -7,24 +7,6 @@
       <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
         <button
           type="button"
-          class="global-action-button"
-          data-testid="switch-to-teacher-surface"
-          @click="router.push({ name: 'teacher-course-library' })"
-        >
-          <LayoutDashboard :size="17" />
-          <span class="action-label">教师端</span>
-        </button>
-        <button
-          type="button"
-          class="global-action-button"
-          data-testid="open-teacher-course-space"
-          @click="router.push('/teacher-course-space')"
-        >
-          <FolderOpen :size="17" />
-          <span class="action-label">{{ t('courseLibrary.teacherSpace', '教师文件空间') }}</span>
-        </button>
-        <button
-          type="button"
           class="global-action-button task-center-button"
           data-testid="open-course-workbench"
           :title="workbenchLabel"
@@ -347,9 +329,9 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, FolderOpen, History, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, History, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
@@ -362,6 +344,7 @@ import { latestResumableCourse, resumeKindLabel } from '../utils/learning-resume
 import { formatCourseTitle } from '../utils/course-presentation'
 
 const router = useRouter()
+const route = useRoute()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const COURSES_PER_PAGE = 9
@@ -423,6 +406,10 @@ onMounted(async () => {
   generationStore.restoreGenerationState()
   await Promise.all([courseStore.fetchCourseList(), generationStore.fetchGlobalTasks()])
   generationStore.startGlobalMonitor()
+  if (route.query.create === '1') {
+    openBlankCourse()
+    void router.replace({ name: 'course-library' })
+  }
 })
 
 onBeforeUnmount(() => {
@@ -541,6 +528,14 @@ function taskRequiresAction(task: { status: string; publicationAllowed?: boolean
 
 function openCourse(courseId: string, nodeId?: string) {
   closeCourseMenu()
+  if (!nodeId) {
+    void router.push({
+      name: 'course-workspace',
+      params: { courseId, mode: 'setup' },
+      query: { section: 'basic' },
+    })
+    return
+  }
   void router.push({
     name: 'learning',
     params: { courseId, ...(nodeId ? { nodeId } : {}) },
@@ -556,7 +551,7 @@ function handleCoursePrimary(courseId: string, active: boolean) {
 }
 
 function openGeneratingCourse(courseId: string) {
-  void router.push({ name: 'learning', params: { courseId } })
+  void router.push({ name: 'course-workspace', params: { courseId, mode: 'build' }, query: { section: 'outline' } })
 }
 
 function openTaskCenter(courseId = '') {

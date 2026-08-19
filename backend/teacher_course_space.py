@@ -103,14 +103,27 @@ class TeacherCourseSpaceRepository:
             raise MaterialStorageError("文件相对路径不合法") from exc
         return destination
 
-    def create_package(self, owner_id: str, course_name: str, academic_year: str, term: str, template: str = "blank") -> dict[str, Any]:
+    def create_package(
+        self,
+        owner_id: str,
+        course_name: str,
+        academic_year: str,
+        term: str,
+        template: str = "blank",
+        course_id: str = "",
+    ) -> dict[str, Any]:
         name, year = course_name.strip(), academic_year.strip()
         if not name or not year or not term.strip():
             raise MaterialStorageError("课程名称、学年和学期不能为空")
+        normalized_course_id = str(course_id or "").strip()
+        if len(normalized_course_id) > 160:
+            raise MaterialStorageError("课程 ID 不合法")
+        if normalized_course_id and self.list_owned(owner_id, normalized_course_id):
+            raise MaterialStorageError("当前课程已经有文件库")
         package_id = f"tcs-{uuid.uuid4().hex}"
         if template not in {"blank", "school_course_materials"}: raise MaterialStorageError("课程模板不合法")
         entries = [{**entry, "path": entry["name"]} for entry in SCHOOL_TEMPLATE] if template == "school_course_materials" else []
-        package = {"package_id": package_id, "owner_id": owner_id, "course_name": name, "academic_year": year,
+        package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
                    "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "imports": [],
                    "entries": entries}
         package_path = self._path(package_id)
@@ -172,14 +185,36 @@ class TeacherCourseSpaceRepository:
                     break
         return changed
 
-    def list_owned(self, owner_id: str) -> list[dict[str, Any]]:
+    def list_owned(self, owner_id: str, course_id: str | None = None) -> list[dict[str, Any]]:
         result = []
+        normalized_course_id = str(course_id or "").strip()
         for path in self.root.glob("tcs-*/manifest.json"):
             try:
                 item = json.loads(path.read_text(encoding="utf-8"))
-                if item.get("owner_id") == owner_id: result.append(self.public(item))
+                if item.get("owner_id") != owner_id:
+                    continue
+                if normalized_course_id and str(item.get("course_id") or "") != normalized_course_id:
+                    continue
+                result.append(self.public(item))
             except (OSError, json.JSONDecodeError): pass
         return sorted(result, key=lambda item: item.get("updated_at", ""), reverse=True)
+
+    def bind_course(self, package: dict[str, Any], course_id: str) -> dict[str, Any]:
+        normalized_course_id = str(course_id or "").strip()
+        if not normalized_course_id or len(normalized_course_id) > 160:
+            raise MaterialStorageError("课程 ID 不合法")
+        current = str(package.get("course_id") or "")
+        if current and current != normalized_course_id:
+            raise MaterialStorageError("文件库已经绑定其他课程")
+        conflicts = [
+            item for item in self.list_owned(str(package.get("owner_id") or ""), normalized_course_id)
+            if item.get("package_id") != package.get("package_id")
+        ]
+        if conflicts:
+            raise MaterialStorageError("当前课程已经有文件库")
+        package["course_id"] = normalized_course_id
+        self.save(package)
+        return self.public(package)
 
     def public(self, package: dict[str, Any]) -> dict[str, Any]:
         result = dict(package); result.pop("owner_id", None)

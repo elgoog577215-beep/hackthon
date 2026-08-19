@@ -29,6 +29,26 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(MaterialStorageError):
             normalize_relative_path("../private.docx")
 
+    async def test_course_binding_uses_stable_id_and_preserves_legacy_packages(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        bound = repository.create_package(
+            "teacher-a", "数据结构", "2025-2026", "春季", course_id="course-1"
+        )
+        legacy = repository.create_package("teacher-a", "数据结构", "2024-2025", "秋季")
+
+        self.assertEqual(repository.list_owned("teacher-a", "course-1"), [bound])
+        self.assertEqual(repository.load_owned(legacy["package_id"], "teacher-a").get("course_id"), "")
+        with self.assertRaises(MaterialStorageError):
+            repository.bind_course(
+                repository.load_owned(legacy["package_id"], "teacher-a"), "course-1"
+            )
+
+        migrated = repository.bind_course(
+            repository.load_owned(legacy["package_id"], "teacher-a"), "course-legacy"
+        )
+        self.assertEqual(migrated["package_id"], legacy["package_id"])
+        self.assertEqual(migrated["course_id"], "course-legacy")
+
     async def test_school_template_and_custom_folder_exist_on_disk(self):
         root = Path(tempfile.mkdtemp())
         repository = TeacherCourseSpaceRepository(root)

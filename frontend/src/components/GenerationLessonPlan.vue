@@ -3,7 +3,7 @@
     <header class="generation-lesson-plan__header">
       <div class="generation-lesson-plan__intro">
         <div class="generation-lesson-plan__title-line">
-          <h2>{{ preferProvidedPlan ? '本讲教案' : t('courseGeneration.lessonPlan.title', '课程教案') }}</h2>
+          <h2>{{ workspaceTitle }}</h2>
           <span class="generation-lesson-plan__status">{{ planStatusLabel }}</span>
         </div>
         <p v-if="live && !planReady">
@@ -115,7 +115,7 @@
       class="generation-lesson-plan__context-row"
     >
       <div
-        v-if="overallPlan || selectedSection"
+        v-if="visibleScope === 'both' && (overallPlan || selectedSection)"
         class="generation-lesson-plan__view-switch"
         role="tablist"
         :aria-label="t('courseGeneration.lessonPlan.viewLabel', '教案视图')"
@@ -1257,6 +1257,7 @@ const props = withDefaults(defineProps<{
   task?: Task
   aiDockTarget?: string
   preferSectionView?: boolean
+  visibleScope?: 'both' | 'overall' | 'sections'
 }>(), {
   plan: null,
   nodes: () => [],
@@ -1268,6 +1269,7 @@ const props = withDefaults(defineProps<{
   task: undefined,
   aiDockTarget: '',
   preferSectionView: false,
+  visibleScope: 'both',
 })
 
 const emit = defineEmits<{
@@ -1279,7 +1281,13 @@ const emit = defineEmits<{
 }>()
 
 const workbenchStore = useTeachingPlanWorkbenchStore()
-const viewMode = ref<'overall' | 'sections'>('overall')
+const viewMode = ref<'overall' | 'sections'>(props.visibleScope === 'sections' ? 'sections' : 'overall')
+const workspaceTitle = computed(() => {
+  if (props.preferProvidedPlan) return t('courseGeneration.lessonPlan.providedTitle', '本讲教案')
+  if (props.visibleScope === 'overall') return t('courseGeneration.lessonPlan.courseDesignTitle', '课程设计')
+  if (props.visibleScope === 'sections') return t('courseGeneration.lessonPlan.lessonPreparationTitle', '讲次备课')
+  return t('courseGeneration.lessonPlan.title', '课程教案')
+})
 const reviewOpen = ref(false)
 const aiOpen = ref(false)
 const historyOpen = ref(false)
@@ -1996,6 +2004,14 @@ watch(
   () => props.activeNodeId,
   activeNodeId => {
     if (props.preferSectionView && activeNodeId) viewMode.value = 'sections'
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.visibleScope,
+  scope => {
+    if (scope === 'overall' || scope === 'sections') viewMode.value = scope
   },
   { immediate: true },
 )

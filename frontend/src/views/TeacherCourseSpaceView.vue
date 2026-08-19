@@ -60,8 +60,8 @@
 
       <section v-if="!selected" class="workspace-create">
         <div class="workspace-create__copy">
-          <strong>{{ embedded ? `建立「${courseTitle || form.course_name}」的课程文件` : t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
-          <span>{{ embedded ? '文件空间建立后会保留空目录，可继续整文件夹导入、预览、下载和删除。' : t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
+          <strong>{{ embedded ? t('unifiedCourseWorkspace.files.createTitle', '建立“{course}”的课程文件').replace('{course}', courseTitle || form.course_name) : t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
+          <span>{{ embedded ? t('unifiedCourseWorkspace.files.createHelp', '文件空间建立后会保留空目录，可继续整文件夹导入、预览、下载和删除。') : t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
         </div>
         <form @submit.prevent="createPackage">
           <label class="create-field create-field--course">
@@ -302,9 +302,19 @@ const size = (value: number) => value > 1024 * 1024 ? `${(value / 1024 / 1024).t
 
 async function refresh() {
   try {
-    packages.value = (await http.get('/api/teacher-course-spaces')).data
+    packages.value = (await http.get('/api/teacher-course-spaces', {
+      params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined,
+    })).data
     if (embedded.value && !selected.value) {
-      const match = packages.value.find(item => String(item.course_name).trim() === props.courseTitle.trim())
+      let match = packages.value.find(item => String(item.course_id || '') === props.courseId)
+      if (!match && props.courseTitle) {
+        const allPackages = (await http.get('/api/teacher-course-spaces')).data
+        const legacyMatches = allPackages.filter((item: any) => !item.course_id && String(item.course_name).trim() === props.courseTitle.trim())
+        if (legacyMatches.length === 1 && props.courseId) {
+          match = (await http.patch(`/api/teacher-course-spaces/${legacyMatches[0].package_id}`, { course_id: props.courseId })).data
+          packages.value = [match]
+        }
+      }
       if (match) await openPackage(match.package_id)
       else if (props.courseTitle) form.value.course_name = props.courseTitle
     }
@@ -316,7 +326,10 @@ async function createPackage() {
   busy.value = true
   status.value = ''
   try {
-    const data = (await http.post('/api/teacher-course-spaces', form.value)).data
+    const data = (await http.post('/api/teacher-course-spaces', {
+      ...form.value,
+      course_id: embedded.value ? props.courseId : '',
+    })).data
     await refresh()
     await openPackage(data.package_id)
     form.value.course_name = embedded.value ? props.courseTitle : ''
