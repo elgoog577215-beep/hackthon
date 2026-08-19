@@ -107,11 +107,25 @@
             <i :style="{ transform: `scaleX(${planProgress / 100})` }" />
           </div>
         </div>
+        <dl v-if="hasPlanSummary" class="generation-lesson-plan__metrics">
+          <div v-if="sectionCount">
+            <dt>{{ t('courseGeneration.lessonPlan.sections', '小节') }}</dt>
+            <dd>{{ sectionCount }}</dd>
+          </div>
+          <div v-if="effectiveKnowledgeCount">
+            <dt>{{ t('courseGeneration.lessonPlan.knowledge', '知识点') }}</dt>
+            <dd>{{ effectiveKnowledgeCount }}</dd>
+          </div>
+          <div v-if="effectiveModuleCount">
+            <dt>{{ t('courseGeneration.lessonPlan.modules', '教学环节') }}</dt>
+            <dd>{{ effectiveModuleCount }}</dd>
+          </div>
+        </dl>
       </div>
     </header>
 
     <div
-      v-if="overallPlan || selectedSection || hasPlanSummary"
+      v-if="visibleScope === 'both' && (overallPlan || selectedSection)"
       class="generation-lesson-plan__context-row"
     >
       <div
@@ -152,20 +166,6 @@
         </button>
       </div>
 
-      <dl v-if="hasPlanSummary" class="generation-lesson-plan__metrics">
-        <div v-if="sectionCount">
-          <dt>{{ t('courseGeneration.lessonPlan.sections', '小节') }}</dt>
-          <dd>{{ sectionCount }}</dd>
-        </div>
-        <div v-if="effectiveKnowledgeCount">
-          <dt>{{ t('courseGeneration.lessonPlan.knowledge', '知识点') }}</dt>
-          <dd>{{ effectiveKnowledgeCount }}</dd>
-        </div>
-        <div v-if="effectiveModuleCount">
-          <dt>{{ t('courseGeneration.lessonPlan.modules', '教学环节') }}</dt>
-          <dd>{{ effectiveModuleCount }}</dd>
-        </div>
-      </dl>
     </div>
 
     <aside
@@ -2126,35 +2126,41 @@ function openKnowledge(knowledgeId: string): void {
 
 <style scoped>
 .generation-lesson-plan {
+  --plan-content:1180px;
+  --plan-accent:#545bb8;
+  --plan-heading:#1d2737;
+  --plan-body:#596579;
+  --plan-muted:#7b8494;
+  --plan-line:#e4e7ec;
   container-name:lesson-plan;
   container-type:inline-size;
   min-height:0;
   flex:1;
   overflow:auto;
-  padding:22px clamp(24px,4vw,64px) 96px;
+  padding:24px clamp(24px,4.5vw,72px) 96px;
   color:#253044;
   background:#fff;
 }
 .generation-lesson-plan__header {
-  width:min(1280px,100%);
+  width:min(var(--plan-content),100%);
   display:grid;
   grid-template-columns:minmax(0,1fr) auto;
   align-items:center;
   gap:20px;
-  margin:0 auto 10px;
-  padding:0 3px 12px;
-  border-bottom:1px solid #d8dce4;
+  margin:0 auto;
+  padding:0 0 18px;
+  border-bottom:1px solid var(--plan-line);
 }
 .generation-lesson-plan__title-line { min-width:0; display:flex; align-items:center; gap:10px; }
-.generation-lesson-plan__header h2 { margin:0; color:#172131; font-family:inherit; font-size:22px; font-weight:750; line-height:1.3; letter-spacing:0; }
-.generation-lesson-plan__status { display:inline-flex; align-items:center; min-height:24px; padding:0; color:#626a82; font-size:11px; font-weight:750; white-space:nowrap; }
+.generation-lesson-plan__header h2 { margin:0; color:var(--plan-heading); font-family:inherit; font-size:23px; font-weight:750; line-height:1.3; letter-spacing:-.01em; }
+.generation-lesson-plan__status { display:inline-flex; align-items:center; min-height:20px; padding-left:10px; border-left:1px solid #d5d9e2; color:var(--plan-muted); font-size:11px; font-weight:700; white-space:nowrap; }
 .generation-lesson-plan__intro > p { max-width:660px; margin:5px 0 0; color:#687285; font-size:12px; line-height:1.55; }
-.generation-lesson-plan__summary { min-width:0; display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:9px; }
+.generation-lesson-plan__summary { min-width:0; display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; }
 .generation-lesson-plan__progress { min-width:184px; padding:3px 0 3px 14px; border-left:1px solid #dfe1f6; }
 .generation-lesson-plan__progress > div:first-child { display:flex; justify-content:space-between; gap:14px; color:#5a60bb; font-size:12px; font-weight:750; }
 .generation-lesson-plan__progress-track { height:4px; overflow:hidden; margin-top:8px; border-radius:999px; background:#e5e7f5; }
 .generation-lesson-plan__progress-track i { display:block; width:100%; height:100%; border-radius:inherit; background:#6268cc; transform-origin:left center; transition:transform .25s ease; }
-.generation-lesson-plan__context-row { width:min(1280px,100%); min-height:38px; display:flex; align-items:center; justify-content:space-between; gap:14px; margin:0 auto 10px; }
+.generation-lesson-plan__context-row { width:min(var(--plan-content),100%); min-height:38px; display:flex; align-items:center; gap:14px; margin:12px auto 0; }
 .generation-lesson-plan__view-switch { min-width:0; display:flex; gap:3px; margin:0; padding:3px; border:1px solid #dfe2e8; border-radius:10px; background:#f4f5f8; }
 .generation-lesson-plan__view-switch button { min-width:0; display:flex; align-items:center; gap:8px; padding:7px 11px; border:0; border-radius:7px; color:#737c8c; background:transparent; cursor:pointer; text-align:left; }
 .generation-lesson-plan__view-switch button:hover { color:#4d55ae; background:#f6f6fc; }
@@ -2163,46 +2169,47 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__view-switch button strong { color:inherit; font-size:12px; line-height:1.35; }
 .generation-lesson-plan__view-switch button small { color:#969daa; font-size:11px; line-height:1.35; }
 .generation-lesson-plan__metrics { min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:0; margin:0; }
-.generation-lesson-plan__metrics > div { display:flex; align-items:baseline; gap:5px; padding:0 11px; border-left:1px solid #dfe2e8; }
+.generation-lesson-plan__metrics > div { display:flex; align-items:baseline; gap:6px; padding:0 12px; border-left:1px solid #dfe2e8; }
 .generation-lesson-plan__metrics > div:first-child { border-left:0; }
 .generation-lesson-plan__metrics dt { color:#858e9e; font-size:11px; line-height:1.3; }
-.generation-lesson-plan__metrics dd { margin:0; color:#354057; font-size:13px; font-weight:800; line-height:1; }
-.generation-lesson-plan__overview { width:min(1280px,100%); overflow:hidden; margin:0 auto; }
-.generation-lesson-plan__overview-hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(230px,.34fr); gap:40px; padding:34px 0 30px; border-bottom:1px solid #e0e3e9; }
-.generation-lesson-plan__overview-hero > div > span { color:#696fc0; font-size:12px; font-weight:800; letter-spacing:0; }
-.generation-lesson-plan__overview-hero h3 { margin:8px 0 9px; color:#1b2636; font-family:inherit; font-size:27px; font-weight:750; line-height:1.3; letter-spacing:-.01em; }
-.generation-lesson-plan__overview-hero p { max-width:760px; margin:0; color:#687285; font-size:14px; line-height:1.75; }
-.generation-lesson-plan__overview-hero aside { align-self:center; display:grid; grid-template-columns:28px minmax(0,1fr); gap:2px 8px; padding:10px 0 10px 22px; border-left:1px solid #dfe2ec; }
+.generation-lesson-plan__metrics dd { margin:0; color:#354057; font-size:14px; font-weight:800; line-height:1; }
+.generation-lesson-plan__overview { width:min(var(--plan-content),100%); overflow:hidden; margin:0 auto; }
+.generation-lesson-plan__overview-hero { display:grid; grid-template-columns:minmax(0,2fr) minmax(240px,1fr); gap:0; padding:34px 0 32px; border-bottom:1px solid var(--plan-line); }
+.generation-lesson-plan__overview-hero > div { min-width:0; padding-right:48px; }
+.generation-lesson-plan__overview-hero > div > span { color:var(--plan-accent); font-size:12px; font-weight:800; letter-spacing:0; }
+.generation-lesson-plan__overview-hero h3 { margin:8px 0 10px; color:var(--plan-heading); font-family:inherit; font-size:28px; font-weight:750; line-height:1.3; letter-spacing:-.015em; }
+.generation-lesson-plan__overview-hero p { max-width:70ch; margin:0; color:var(--plan-body); font-size:14px; line-height:1.72; }
+.generation-lesson-plan__overview-hero aside { align-self:stretch; display:grid; grid-template-columns:28px minmax(0,1fr); align-content:center; gap:3px 10px; padding:10px 0 10px 32px; border-left:1px solid var(--plan-line); }
 .generation-lesson-plan__overview-hero aside svg { grid-row:1 / 3; align-self:center; color:#6067bd; }
-.generation-lesson-plan__overview-hero aside span { color:#9198a5; font-size:11px; font-weight:750; }
-.generation-lesson-plan__overview-hero aside strong { color:#4b5669; font-size:13px; line-height:1.5; }
-.generation-lesson-plan__overview-grid { display:grid; grid-template-columns:1.18fr .82fr; gap:0; border-bottom:1px solid #e4e6eb; }
-.generation-lesson-plan__overview-card { min-width:0; padding:27px 30px 29px 0; border-top:1px solid #e8eaee; border-left:1px solid #e8eaee; }
+.generation-lesson-plan__overview-hero aside span { color:#8a93a3; font-size:11px; font-weight:750; }
+.generation-lesson-plan__overview-hero aside strong { color:#404b5e; font-size:13px; line-height:1.55; }
+.generation-lesson-plan__overview-grid { display:grid; grid-template-columns:minmax(0,2fr) minmax(240px,1fr); gap:0; border-bottom:1px solid var(--plan-line); }
+.generation-lesson-plan__overview-card { min-width:0; padding:30px 40px 32px 0; border-top:1px solid var(--plan-line); border-left:1px solid var(--plan-line); }
 .generation-lesson-plan__overview-card:nth-child(-n+2) { border-top:0; }
-.generation-lesson-plan__overview-card:nth-child(odd) { padding-right:30px; border-left:0; }
-.generation-lesson-plan__overview-card:nth-child(even) { padding-left:30px; }
-.generation-lesson-plan__overview-card > header { display:flex; align-items:center; gap:11px; margin-bottom:18px; }
+.generation-lesson-plan__overview-card:nth-child(odd) { padding-right:40px; border-left:0; }
+.generation-lesson-plan__overview-card:nth-child(even) { padding-right:0; padding-left:32px; }
+.generation-lesson-plan__overview-card > header { display:flex; align-items:flex-start; gap:12px; margin-bottom:18px; }
 .generation-lesson-plan__overview-card > header > svg { flex:none; color:#5960b7; }
 .generation-lesson-plan__overview-card > header span { display:grid; gap:2px; }
-.generation-lesson-plan__overview-card > header small { color:#9198a6; font-size:11px; font-weight:750; letter-spacing:0; }
-.generation-lesson-plan__overview-card > header strong { color:#364154; font-size:15px; line-height:1.4; }
+.generation-lesson-plan__overview-card > header small { color:#8a93a3; font-size:11px; font-weight:750; letter-spacing:0; }
+.generation-lesson-plan__overview-card > header strong { color:#344054; font-size:15px; line-height:1.45; }
 .generation-lesson-plan__overview-card ol { display:grid; gap:10px; margin:0; padding:0; list-style:none; }
 .generation-lesson-plan__overview-card ol li { display:grid; grid-template-columns:26px minmax(0,1fr); gap:10px; align-items:start; }
 .generation-lesson-plan__overview-card ol li > span { display:block; width:24px; color:#6268b6; font:700 12px/1.5 ui-monospace,SFMono-Regular,monospace; }
-.generation-lesson-plan__overview-card ol p { margin:1px 0 0; color:#596579; font-size:13px; line-height:1.62; }
+.generation-lesson-plan__overview-card ol p { margin:1px 0 0; color:var(--plan-body); font-size:13px; line-height:1.62; }
 .generation-lesson-plan__plain-list { display:grid; gap:7px; margin:0; padding-left:18px; }
-.generation-lesson-plan__plain-list li { padding-left:2px; color:#596579; font-size:13px; line-height:1.55; }
+.generation-lesson-plan__plain-list li { padding-left:2px; color:var(--plan-body); font-size:13px; line-height:1.6; }
 .generation-lesson-plan__strategy-copy,.generation-lesson-plan__card-empty { margin:0; color:#667185; font-size:13px; line-height:1.7; }
 .generation-lesson-plan__card-empty { color:#939aa6; }
 .generation-lesson-plan__strategy-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:13px; }
 .generation-lesson-plan__strategy-tags span { padding:5px 8px; border:1px solid #dfe2f4; border-radius:999px; color:#5b62b6; background:#f5f5fc; font-size:11px; font-weight:750; }
-.generation-lesson-plan__overview-section { padding:30px 0 33px; border-bottom:1px solid #e4e6eb; }
+.generation-lesson-plan__overview-section { padding:32px 0 35px; border-bottom:1px solid var(--plan-line); }
 .generation-lesson-plan__overview-section:last-child { border-bottom:0; }
 .generation-lesson-plan__overview-section > header { display:flex; align-items:end; justify-content:space-between; gap:28px; margin-bottom:21px; }
 .generation-lesson-plan__overview-section > header > span { display:grid; gap:3px; }
-.generation-lesson-plan__overview-section > header small { color:#8e96a4; font-size:11px; font-weight:750; letter-spacing:0; }
+.generation-lesson-plan__overview-section > header small { color:#8a93a3; font-size:11px; font-weight:750; letter-spacing:0; }
 .generation-lesson-plan__overview-section > header strong { color:#303b4d; font-size:16px; }
-.generation-lesson-plan__overview-section > header p { max-width:570px; margin:0; color:#7a8393; font-size:12px; line-height:1.6; text-align:right; }
+.generation-lesson-plan__overview-section > header p { max-width:65ch; margin:0; color:var(--plan-muted); font-size:12px; line-height:1.6; text-align:right; }
 .generation-lesson-plan__classroom-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:0; border-top:1px solid #e1e5ee; border-bottom:1px solid #e1e5ee; }
 .generation-lesson-plan__classroom-grid > label,.generation-lesson-plan__classroom-notes > label { min-width:0; display:grid; gap:6px; padding:14px 16px; }
 .generation-lesson-plan__classroom-grid > label + label,.generation-lesson-plan__classroom-notes > label + label { border-left:1px solid #e1e5ee; }
@@ -2228,7 +2235,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__knowledge-tags button:hover:not(:disabled) { border-color:#bfc4e8; background:#f0f1fb; transform:translateY(-1px); }
 .generation-lesson-plan__knowledge-tags button:disabled { color:#8b91a1; background:#f5f6f8; cursor:default; }
 .generation-lesson-plan__knowledge-tags button small { display:grid; place-items:center; min-width:18px; height:18px; border-radius:6px; color:#7278b7; background:#e8e9f7; font-size:11px; font-weight:800; }
-.generation-lesson-plan__workspace { width:min(1280px,100%); margin:0 auto; }
+.generation-lesson-plan__workspace { width:min(var(--plan-content),100%); margin:0 auto; }
 .generation-lesson-plan__pager { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:14px; margin:0 2px 12px; }
 .generation-lesson-plan__pager > button { min-width:0; display:flex; align-items:center; gap:9px; padding:7px 9px; border:0; border-radius:9px; color:#687285; background:transparent; cursor:pointer; text-align:left; }
 .generation-lesson-plan__pager > button:last-child { justify-content:flex-end; text-align:right; }
@@ -2366,19 +2373,21 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__tool-button.is-danger { color:#a05252; }
 .generation-lesson-plan__tool-button.is-danger:hover:not(:disabled) { border-color:#e6c9c9; color:#923f3f; background:#fff7f7; }
 .generation-lesson-plan__tool-button:disabled { opacity:.5; cursor:wait; }
-.generation-lesson-plan__workbench-notice,.generation-lesson-plan__workbench-error { box-sizing:border-box; width:min(1280px,100%); display:flex; align-items:flex-start; gap:10px; margin:0 auto 14px; padding:11px 12px; border:1px solid #dce0e8; border-radius:8px; color:#6c7586; background:#fafbfc; font-size:12px; line-height:1.55; }
+.generation-lesson-plan__workbench-notice,.generation-lesson-plan__workbench-error { box-sizing:border-box; width:min(var(--plan-content),100%); display:flex; align-items:flex-start; gap:11px; font-size:12px; line-height:1.55; }
+.generation-lesson-plan__workbench-notice { align-items:center; margin:0 auto; padding:15px 0; border-bottom:1px solid var(--plan-line); color:#667085; }
+.generation-lesson-plan__workbench-error { margin:14px auto; padding:11px 12px; border:1px solid #ecd7c4; border-radius:8px; color:#9b6333; background:#fffaf5; }
 .generation-lesson-plan__workbench-notice svg,.generation-lesson-plan__workbench-error svg { flex:none; margin-top:1px; }
+.generation-lesson-plan__workbench-notice > svg { color:var(--plan-accent); }
 .generation-lesson-plan__workbench-notice > div { flex:1; min-width:0; }
-.generation-lesson-plan__workbench-notice strong { display:block; color:#465166; font-size:13px; }
+.generation-lesson-plan__workbench-notice strong { display:block; color:#344054; font-size:13px; }
 .generation-lesson-plan__workbench-notice p,.generation-lesson-plan__workbench-error { margin-top:0; margin-bottom:0; }
 .generation-lesson-plan__workbench-notice p { margin-top:2px; }
 .generation-lesson-plan__workbench-notice > button { flex:none; margin-left:auto; }
-.generation-lesson-plan__workbench-error { border-color:#ecd7c4; color:#9b6333; background:#fffaf5; }
 .generation-lesson-plan__error-action { margin-left:auto; padding:3px 10px; border:1px solid #e0c3a4; border-radius:7px; color:#9b6333; background:#fff; font-size:12px; cursor:pointer; white-space:nowrap; }
 .generation-lesson-plan__error-action:hover { background:#fdf3e9; }
 .generation-lesson-plan__workbench-error > span { flex:1; min-width:0; }
 .generation-lesson-plan__workbench-error > button { display:inline-flex; flex:none; align-items:center; gap:5px; min-height:28px; padding:0 8px; border:1px solid #dfc5ae; border-radius:6px; color:#8e572a; background:#fff; font-size:12px; font-weight:750; cursor:pointer; }
-.generation-lesson-plan__review { width:min(1280px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #cfd4e9; border-radius:8px; background:#fdfdff; }
+.generation-lesson-plan__review { width:min(var(--plan-content),100%); margin:16px auto 0; padding:20px 22px; border:1px solid #cfd4e9; border-radius:8px; background:#fdfdff; }
 .generation-lesson-plan__review > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
 .generation-lesson-plan__review > header span { color:#5b64b8; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__review h3 { margin:4px 0 0; color:#263145; font-size:17px; line-height:1.4; }
@@ -2420,7 +2429,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__review-button:hover:not(:disabled) { border-color:#aab2dc; background:#f4f5ff; }
 .generation-lesson-plan__review-button.is-primary { border-color:#555fb7; color:#fff; background:#555fb7; }
 .generation-lesson-plan__review-button:disabled { opacity:.5; cursor:not-allowed; }
-.generation-lesson-plan__ai-panel { width:min(1280px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d7d2eb; border-radius:8px; background:#fbfbff; }
+.generation-lesson-plan__ai-panel { width:min(var(--plan-content),100%); margin:16px auto 0; padding:20px 22px; border:1px solid #d7d2eb; border-radius:8px; background:#fbfbff; }
 .generation-lesson-plan__ai-panel.is-docked { box-sizing:border-box; width:100%; min-height:100%; margin:0; padding:16px; border:0; border-radius:0; background:var(--lz-surface,#fff); }
 .generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request { grid-template-columns:1fr; align-items:stretch; }
 .generation-lesson-plan__ai-panel.is-docked .generation-lesson-plan__ai-request textarea { min-height:126px; }
@@ -2452,7 +2461,7 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__candidate-change del,.generation-lesson-plan__candidate-change ins { overflow-wrap:anywhere; color:#6c7483; font-size:12px; line-height:1.45; text-decoration:none; }
 .generation-lesson-plan__candidate-change ins { color:#246d59; }
 .generation-lesson-plan__ai-candidate footer { display:flex; justify-content:flex-end; gap:8px; }
-.generation-lesson-plan__history { width:min(1280px,100%); margin:0 auto 16px; padding:20px 22px; border:1px solid #d9dce5; border-radius:8px; background:#fff; }
+.generation-lesson-plan__history { width:min(var(--plan-content),100%); margin:16px auto 0; padding:20px 22px; border:1px solid #d9dce5; border-radius:8px; background:#fff; }
 .generation-lesson-plan__history > header { display:flex; align-items:start; justify-content:space-between; gap:14px; }
 .generation-lesson-plan__history > header span { color:#68728a; font-size:11px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__history h3 { margin:4px 0 0; color:#293346; font-size:17px; line-height:1.4; }
@@ -2488,7 +2497,9 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__header h2 { white-space:nowrap; }
   .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }
   .generation-lesson-plan__workbench-controls { justify-content:flex-start; }
-  .generation-lesson-plan__overview-hero { grid-template-columns:minmax(0,1fr) minmax(170px,.32fr); gap:20px; padding:28px 30px 26px; }
+  .generation-lesson-plan__overview-hero { grid-template-columns:1fr; padding:28px 0 26px; }
+  .generation-lesson-plan__overview-hero > div { padding-right:0; }
+  .generation-lesson-plan__overview-hero aside { margin-top:22px; padding:20px 0 0; border-top:1px solid var(--plan-line); border-left:0; }
   .generation-lesson-plan__overview-hero h3 { font-size:23px; }
 }
 @media (max-width:900px) {
@@ -2496,7 +2507,8 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__summary { width:100%; justify-content:flex-start; }
   .generation-lesson-plan__context-row { align-items:flex-start; flex-wrap:wrap; }
   .generation-lesson-plan__overview-hero { grid-template-columns:1fr; gap:20px; }
-  .generation-lesson-plan__overview-hero aside { max-width:520px; }
+  .generation-lesson-plan__overview-hero > div { padding-right:0; }
+  .generation-lesson-plan__overview-hero aside { max-width:none; margin-top:2px; padding:20px 0 0; border-top:1px solid var(--plan-line); border-left:0; }
   .generation-lesson-plan__chapter-path { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .generation-lesson-plan__classroom-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .generation-lesson-plan__classroom-notes { grid-template-columns:1fr; }
@@ -2512,16 +2524,16 @@ function openKnowledge(knowledgeId: string): void {
 }
 @media (max-width:767px) {
   .generation-lesson-plan { padding:12px 16px 86px; }
-  .generation-lesson-plan__header { margin-bottom:8px; padding:0 4px 10px; }
+  .generation-lesson-plan__header { margin-bottom:0; padding:0 0 14px; }
   .generation-lesson-plan__header h2 { font-size:21px; }
-  .generation-lesson-plan__status { min-height:22px; padding:0 7px; font-size:11px; }
+  .generation-lesson-plan__status { min-height:20px; padding:0 0 0 8px; font-size:11px; }
   .generation-lesson-plan__summary { gap:7px; }
   .generation-lesson-plan__progress { width:100%; min-width:0; }
   .generation-lesson-plan__context-row { min-height:0; align-items:stretch; flex-direction:column; gap:7px; margin-bottom:9px; }
   .generation-lesson-plan__workbench-controls { align-items:stretch; justify-content:flex-start; }
   .generation-lesson-plan__revision-badge,.generation-lesson-plan__draft-state { align-self:center; }
   .generation-lesson-plan__workbench-notice { flex-wrap:wrap; }
-  .generation-lesson-plan__workbench-notice > button { flex-basis:calc(100% - 27px); width:auto; margin-left:27px; }
+  .generation-lesson-plan__workbench-notice > button { flex-basis:100%; width:100%; margin:4px 0 0; }
   .generation-lesson-plan__workbench-error { flex-wrap:wrap; }
   .generation-lesson-plan__workbench-error > button { margin-left:26px; }
   .generation-lesson-plan__review { padding:16px; }
@@ -2538,10 +2550,13 @@ function openKnowledge(knowledgeId: string): void {
   .generation-lesson-plan__view-switch button small { display:none; }
   .generation-lesson-plan__metrics { justify-content:flex-start; overflow-x:auto; padding:0 2px; }
   .generation-lesson-plan__metrics > div { padding:0 9px; }
-  .generation-lesson-plan__overview-hero { padding:29px 20px 24px; }
+  .generation-lesson-plan__overview-hero { padding:28px 0 25px; }
   .generation-lesson-plan__overview-hero h3 { font-size:24px; }
   .generation-lesson-plan__overview-grid { grid-template-columns:1fr; }
-  .generation-lesson-plan__overview-card,.generation-lesson-plan__overview-card:nth-child(-n+2) { padding:24px 0; border-top:1px solid #e8eaee; border-left:0; }
+  .generation-lesson-plan__overview-card,
+  .generation-lesson-plan__overview-card:nth-child(-n+2),
+  .generation-lesson-plan__overview-card:nth-child(odd),
+  .generation-lesson-plan__overview-card:nth-child(even) { padding:24px 0; border-top:1px solid var(--plan-line); border-left:0; }
   .generation-lesson-plan__overview-card:first-child { border-top:0; }
   .generation-lesson-plan__overview-section { padding:25px 0 27px; }
   .generation-lesson-plan__overview-section > header { display:grid; gap:8px; }

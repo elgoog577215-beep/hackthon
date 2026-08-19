@@ -18,7 +18,7 @@ describe('课程教案阅读尺度', () => {
     )
 
     expect(component).not.toMatch(/font-size:\s*(?:8|9|10)px/)
-    expect(component).toContain('width:min(1280px,100%)')
+    expect(component).toContain('--plan-content:1180px')
     expect(component).toContain('.generation-lesson-plan__section-title h3')
     expect(component).toContain('.generation-lesson-plan__knowledge-detail')
   })
