@@ -51,24 +51,44 @@
             <div>
               <span>{{ t('unifiedCourseWorkspace.basic.eyebrow', '基本课程信息') }}</span>
               <h1>{{ courseTitle }}</h1>
-              <p>{{ t('unifiedCourseWorkspace.basic.help', '这里说明这门课当前连接了哪些正式内容。资料、课程设计与排课分别在上方继续维护。') }}</p>
+              <p>{{ t('unifiedCourseWorkspace.basic.help', '集中查看这门课的结构、课程设计与正式内容状态。资料与排课在上方对应模块维护。') }}</p>
             </div>
             <button type="button" class="primary-action" @click="selectSection('files')">
               <FolderOpen :size="16" />{{ t('unifiedCourseWorkspace.basic.prepareFiles', '整理课程资料') }}
             </button>
           </header>
-          <dl class="course-facts">
-            <div><dt>{{ t('unifiedCourseWorkspace.basic.status', '课程状态') }}</dt><dd>{{ courseState.label }}</dd></div>
-            <div><dt>{{ t('unifiedCourseWorkspace.basic.structure', '课程结构') }}</dt><dd>{{ courseStore.nodes.length }} {{ t('unifiedCourseWorkspace.basic.nodes', '个教学节点') }}</dd></div>
-            <div><dt>{{ t('unifiedCourseWorkspace.basic.plan', '课程设计') }}</dt><dd>{{ teachingPlanLabel }}</dd></div>
-            <div><dt>{{ t('unifiedCourseWorkspace.basic.revision', '正文修订') }}</dt><dd>{{ courseStore.currentDocumentRevision || t('unifiedCourseWorkspace.basic.notPublished', '尚未发布') }}</dd></div>
-          </dl>
+
+          <section class="course-overview" :aria-label="t('unifiedCourseWorkspace.basic.overview', '课程概况')">
+            <strong>{{ t('unifiedCourseWorkspace.basic.overview', '课程概况') }}</strong>
+            <dl class="course-facts">
+              <div>
+                <dt><ListTree :size="15" />{{ t('unifiedCourseWorkspace.basic.structure', '课程结构') }}</dt>
+                <dd><strong>{{ courseStore.nodes.length }}</strong><span>{{ t('unifiedCourseWorkspace.basic.nodes', '个教学节点') }}</span></dd>
+              </div>
+              <div>
+                <dt><BookOpenCheck :size="15" />{{ t('unifiedCourseWorkspace.basic.plan', '课程设计') }}</dt>
+                <dd class="fact-state" :data-tone="teachingPlanTone"><i aria-hidden="true"></i><strong>{{ teachingPlanLabel }}</strong></dd>
+              </div>
+              <div>
+                <dt><FileCheck2 :size="15" />{{ t('unifiedCourseWorkspace.basic.content', '正式内容') }}</dt>
+                <dd class="fact-state" :data-tone="formalContentReady ? 'ready' : 'muted'"><i aria-hidden="true"></i><strong>{{ formalContentLabel }}</strong></dd>
+              </div>
+            </dl>
+          </section>
+
           <section class="workflow-note">
-            <strong>{{ t('unifiedCourseWorkspace.basic.orderTitle', '建议顺序') }}</strong>
-            <p>{{ t('unifiedCourseWorkspace.basic.orderHelp', '先整理资料与课程设计，再确认大纲和逐讲备课；需要上课时切到正式课程。每一步都可单独保存和返回。') }}</p>
-            <div>
-              <button type="button" @click="selectSection('design')">{{ t('unifiedCourseWorkspace.sections.design', '课程设计') }}<ArrowRight :size="14" /></button>
-              <button type="button" @click="openBuild('outline')">{{ t('unifiedCourseWorkspace.sections.outline', '大纲') }}<ArrowRight :size="14" /></button>
+            <div class="workflow-copy">
+              <span>{{ t('unifiedCourseWorkspace.basic.nextStep', '下一步') }}</span>
+              <strong>{{ nextStep.title }}</strong>
+              <p>{{ nextStep.help }}</p>
+            </div>
+            <div class="workflow-actions">
+              <button type="button" class="primary-action" @click="openPrimaryNextStep">
+                {{ nextStep.primaryLabel }}<ArrowRight :size="14" />
+              </button>
+              <button type="button" class="secondary-action" @click="openSecondaryNextStep">
+                {{ nextStep.secondaryLabel }}
+              </button>
             </div>
           </section>
         </section>
@@ -175,7 +195,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft, ArrowRight, BookOpenCheck, CalendarDays, ClipboardCheck, FileText,
-  FolderOpen, Info, ListTree, LoaderCircle, Presentation, TriangleAlert,
+  FileCheck2, FolderOpen, Info, ListTree, LoaderCircle, Presentation, TriangleAlert,
 } from 'lucide-vue-next'
 import CourseModeTabs, { type CourseMode } from '../components/CourseModeTabs.vue'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
@@ -239,8 +259,27 @@ const courseState = computed(() => {
 const teachingPlanLabel = computed(() => {
   const plan = courseStore.currentTeachingPlan
   if (!plan) return t('unifiedCourseWorkspace.basic.planMissing', '尚未形成')
-  if (plan.status === 'completed') return t('unifiedCourseWorkspace.basic.planReady', '已形成，可继续修订')
+  if (plan.status === 'completed') return t('unifiedCourseWorkspace.basic.planReady', '已形成')
   return t('unifiedCourseWorkspace.basic.planWorking', '正在形成')
+})
+const teachingPlanReady = computed(() => courseStore.currentTeachingPlan?.status === 'completed')
+const teachingPlanTone = computed(() => teachingPlanReady.value ? 'ready' : (courseStore.currentTeachingPlan ? 'working' : 'muted'))
+const formalContentReady = computed(() => Boolean(courseStore.currentCourse?.is_published || courseStore.currentDocumentRevision))
+const formalContentLabel = computed(() => formalContentReady.value
+  ? t('unifiedCourseWorkspace.basic.contentReady', '已发布正式版本')
+  : t('unifiedCourseWorkspace.basic.notPublished', '尚未发布'))
+const nextStep = computed(() => teachingPlanReady.value ? {
+  title: t('unifiedCourseWorkspace.basic.nextOutlineTitle', '确认课程大纲'),
+  help: t('unifiedCourseWorkspace.basic.nextOutlineHelp', '课程设计已经形成，可进入大纲检查讲次结构与顺序。'),
+  primaryLabel: t('unifiedCourseWorkspace.basic.reviewOutline', '查看大纲'),
+  secondaryLabel: t('unifiedCourseWorkspace.basic.reviewDesign', '查看课程设计'),
+  primary: 'outline' as const,
+} : {
+  title: t('unifiedCourseWorkspace.basic.nextDesignTitle', '继续完善课程设计'),
+  help: t('unifiedCourseWorkspace.basic.nextDesignHelp', '课程设计仍在形成。确认教学目标、节奏与评价方式后，再进入大纲。'),
+  primaryLabel: t('unifiedCourseWorkspace.basic.continueDesign', '继续课程设计'),
+  secondaryLabel: t('unifiedCourseWorkspace.basic.previewOutline', '先看大纲'),
+  primary: 'design' as const,
 })
 
 watch(activePanel, panel => visitedPanels.add(panel), { immediate: true })
@@ -275,6 +314,14 @@ async function loadCourse(force = false) {
 
 function reloadCurrentCourse() { void loadCourse(true) }
 function selectNode(node: Node) { courseStore.selectNode(node) }
+function openPrimaryNextStep() {
+  if (nextStep.value.primary === 'outline') openBuild('outline')
+  else selectSection('design')
+}
+function openSecondaryNextStep() {
+  if (nextStep.value.primary === 'outline') selectSection('design')
+  else openBuild('outline')
+}
 function selectSection(section: SetupSection | BuildSection) {
   void router.push({
     name: 'course-workspace',
@@ -340,26 +387,44 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-feedback button { height: 32px; margin-top: 5px; padding: 0 14px; border: 1px solid var(--lz-brand-border); border-radius: 8px; color: var(--lz-brand-strong); background: var(--lz-surface); cursor: pointer; }
 .workspace-feedback.is-error > svg { color: var(--lz-danger); }
 .spin { animation: workspace-spin .9s linear infinite; }
-.basic-panel { width: min(920px, calc(100% - 48px)); margin: 0 auto; padding: 44px 0 56px; }
-.basic-panel > header { display: flex; align-items: end; justify-content: space-between; gap: 28px; padding-bottom: 24px; border-bottom: 1px solid var(--lz-border); }
-.basic-panel > header > div { min-width: 0; }
+.basic-panel { width: min(980px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 52px; }
+.basic-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+.basic-panel > header > div { min-width: 0; max-width: 720px; }
 .basic-panel > header span,
-.handoff-panel > span { color: var(--lz-brand-strong); font-size: 10px; font-weight: 800; }
-.basic-panel h1 { margin: 6px 0 8px; color: var(--lz-text-strong); font-size: clamp(24px, 3vw, 38px); letter-spacing: -.025em; }
+.handoff-panel > span { color: var(--lz-brand-strong); font-size: 11px; font-weight: 800; }
+.basic-panel h1 { margin: 7px 0 8px; color: var(--lz-text-strong); font-size: clamp(23px, 2.1vw, 28px); line-height: 1.28; letter-spacing: -.025em; }
 .basic-panel p,
-.handoff-panel p { max-width: 68ch; margin: 0; color: var(--lz-text-secondary); font-size: 12px; line-height: 1.75; }
+.handoff-panel p { max-width: 68ch; margin: 0; color: var(--lz-text-secondary); font-size: 13px; line-height: 1.7; }
 .primary-action { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border: 1px solid var(--lz-brand); border-radius: 9px; color: #fff; background: var(--lz-brand); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .primary-action:hover { background: var(--lz-brand-strong); }
 .primary-action:focus-visible { outline: 3px solid rgba(99, 102, 241, .25); outline-offset: 2px; }
-.course-facts { margin: 0; }
-.course-facts > div { min-height: 58px; display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); align-items: center; gap: 20px; border-bottom: 1px solid var(--lz-border); }
-.course-facts dt { color: var(--lz-text-muted); font-size: 10px; font-weight: 700; }
-.course-facts dd { margin: 0; overflow-wrap: anywhere; color: var(--lz-text-strong); font-size: 12px; }
-.workflow-note { margin-top: 28px; padding: 20px 0 0; }
-.workflow-note > strong { color: var(--lz-text-strong); font-size: 13px; }
-.workflow-note p { margin: 7px 0 14px; }
-.workflow-note > div { display: flex; gap: 8px; }
-.workflow-note button { min-height: 32px; display: inline-flex; align-items: center; gap: 6px; padding: 0 11px; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-secondary); background: var(--lz-surface); font-size: 10px; cursor: pointer; }
+.course-overview { margin-top: 34px; }
+.course-overview > strong { color: var(--lz-text-strong); font-size: 13px; }
+.course-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 11px 0 0; padding: 18px 0; border-top: 1px solid var(--lz-border); border-bottom: 1px solid var(--lz-border); }
+.course-facts > div { min-width: 0; min-height: 58px; display: grid; align-content: center; gap: 9px; padding: 0 24px; border-right: 1px solid var(--lz-border); }
+.course-facts > div:first-child { padding-left: 0; }
+.course-facts > div:last-child { padding-right: 0; border-right: 0; }
+.course-facts dt { display: flex; align-items: center; gap: 7px; color: var(--lz-text-muted); font-size: 11px; font-weight: 700; }
+.course-facts dt svg { color: var(--lz-brand); }
+.course-facts dd { min-width: 0; min-height: 24px; display: flex; align-items: baseline; gap: 6px; margin: 0; overflow-wrap: anywhere; color: var(--lz-text-strong); }
+.course-facts dd > strong { font-size: 16px; line-height: 1.3; }
+.course-facts dd > span { color: var(--lz-text-secondary); font-size: 12px; }
+.course-facts dd.fact-state { align-items: center; gap: 8px; }
+.course-facts dd.fact-state i { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--lz-text-muted); }
+.course-facts dd.fact-state strong { font-size: 13px; }
+.course-facts dd.fact-state[data-tone="ready"] i { background: var(--lz-success); }
+.course-facts dd.fact-state[data-tone="working"] i { background: var(--lz-brand); box-shadow: 0 0 0 4px var(--lz-brand-soft); }
+.workflow-note { min-height: 100px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; margin-top: 24px; padding: 18px 20px; border: 1px solid var(--lz-brand-border); border-radius: 12px; background: var(--lz-brand-soft); }
+.workflow-copy { min-width: 0; display: grid; gap: 4px; }
+.workflow-copy > span { color: var(--lz-brand-strong); font-size: 10px; font-weight: 800; }
+.workflow-copy > strong { color: var(--lz-text-strong); font-size: 14px; }
+.workflow-copy p { color: var(--lz-text-secondary); font-size: 12px; line-height: 1.6; }
+.workflow-actions { display: flex; align-items: center; gap: 8px; }
+.workflow-actions button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.workflow-actions .primary-action { border-color: var(--lz-brand); }
+.secondary-action { border: 1px solid var(--lz-border); color: var(--lz-text-secondary); background: var(--lz-surface); }
+.secondary-action:hover { color: var(--lz-brand-strong); border-color: var(--lz-brand-border); }
+.secondary-action:focus-visible { outline: 3px solid rgba(99, 102, 241, .2); outline-offset: 2px; }
 .plan-panel,
 .outline-panel { min-height: 100%; padding: 18px; }
 .plan-panel > :deep(.generation-lesson-plan),
@@ -374,7 +439,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
   .workspace-state span { display: none; }
 }
 @media (max-width: 767px) {
-  .course-workspace-view { height: auto; min-height: 100%; grid-template-rows: auto 44px minmax(0, 1fr); border: 0; border-radius: 0; }
+  .course-workspace-view { height: 100%; min-height: 0; grid-template-rows: auto 44px minmax(0, 1fr); border: 0; border-radius: 0; }
   .workspace-heading { grid-template-columns: minmax(0, 1fr); gap: 9px; padding: 10px; }
   .workspace-identity { order: 1; }
   .workspace-heading > :deep(.course-mode-tabs) { order: 2; }
@@ -384,9 +449,19 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
   .workspace-subtabs button svg { display: none; }
   .workspace-content.is-files,
   .workspace-content.is-calendar { overflow: auto; }
-  .basic-panel { width: calc(100% - 28px); padding: 28px 0 40px; }
-  .basic-panel > header { display: grid; align-items: start; }
-  .course-facts > div { grid-template-columns: 100px minmax(0, 1fr); }
+  .basic-panel { width: calc(100% - 28px); padding: 24px 0 36px; }
+  .basic-panel > header { display: grid; align-items: start; gap: 18px; }
+  .basic-panel > header .primary-action { width: 100%; }
+  .basic-panel h1 { font-size: 22px; }
+  .course-overview { margin-top: 26px; }
+  .course-facts { grid-template-columns: minmax(0, 1fr); padding: 0; }
+  .course-facts > div,
+  .course-facts > div:first-child,
+  .course-facts > div:last-child { min-height: 64px; grid-template-columns: minmax(116px, .8fr) minmax(0, 1fr); align-items: center; gap: 14px; padding: 0; border-right: 0; border-bottom: 1px solid var(--lz-border); }
+  .course-facts > div:last-child { border-bottom: 0; }
+  .course-facts dd > strong { font-size: 14px; }
+  .workflow-note { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 17px 16px; }
+  .workflow-actions { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
   .plan-panel,
   .outline-panel { padding: 8px; }
   .handoff-panel h2 { font-size: 20px; }
