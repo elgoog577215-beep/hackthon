@@ -54,18 +54,7 @@
 
       <template v-else>
         <section v-show="activePanel === 'setup:basic'" class="basic-panel">
-          <header>
-            <div>
-              <h1>{{ courseTitle }}</h1>
-              <p>{{ t('unifiedCourseWorkspace.basic.help', '集中查看这门课的结构、课程设计与正式内容状态。资料与排课在上方对应模块维护。') }}</p>
-            </div>
-            <button type="button" class="primary-action" @click="selectSection('files')">
-              <FolderOpen :size="16" />{{ t('unifiedCourseWorkspace.basic.prepareFiles', '整理课程资料') }}
-            </button>
-          </header>
-
           <section class="course-overview" :aria-label="t('unifiedCourseWorkspace.basic.overview', '课程概况')">
-            <strong>{{ t('unifiedCourseWorkspace.basic.overview', '课程概况') }}</strong>
             <dl class="course-facts">
               <div>
                 <dt><ListTree :size="15" />{{ t('unifiedCourseWorkspace.basic.structure', '课程结构') }}</dt>
@@ -86,7 +75,6 @@
             <div class="workflow-copy">
               <span>{{ t('unifiedCourseWorkspace.basic.nextStep', '下一步') }}</span>
               <strong>{{ nextStep.title }}</strong>
-              <p>{{ nextStep.help }}</p>
             </div>
             <div class="workflow-actions">
               <button type="button" class="primary-action" @click="openPrimaryNextStep">
@@ -169,11 +157,8 @@
         <section
           v-if="visitedPanels.has('build:practice')"
           v-show="activePanel === 'build:practice'"
-          class="handoff-panel"
+          class="external-entry"
         >
-          <ClipboardCheck :size="25" />
-          <h2>{{ t('unifiedCourseWorkspace.practice.title', '在正式课程中检查和试做练习') }}</h2>
-          <p>{{ t('unifiedCourseWorkspace.practice.help', '练习继续读取同一题目资产、作答记录和质量状态。这里不建立一份教师专用题库。') }}</p>
           <button type="button" class="primary-action" @click="openFormal('practice')">
             {{ t('unifiedCourseWorkspace.practice.open', '打开正式课程练习') }}<ArrowRight :size="16" />
           </button>
@@ -182,11 +167,8 @@
         <section
           v-if="visitedPanels.has('build:ppt')"
           v-show="activePanel === 'build:ppt'"
-          class="handoff-panel"
+          class="external-entry"
         >
-          <Presentation :size="25" />
-          <h2>{{ t('unifiedCourseWorkspace.ppt.title', '从同一课程设计生成和维护课件') }}</h2>
-          <p>{{ t('unifiedCourseWorkspace.ppt.help', '课件继续绑定课程、知识、目标和来源修订。预览、页级编辑、演示与导出都在原工作台完成。') }}</p>
           <button type="button" class="primary-action" @click="openPpt">
             {{ t('unifiedCourseWorkspace.ppt.open', '进入 PPT 工作台') }}<ArrowRight :size="16" />
           </button>
@@ -276,13 +258,11 @@ const formalContentLabel = computed(() => formalContentReady.value
   : t('unifiedCourseWorkspace.basic.notPublished', '尚未发布'))
 const nextStep = computed(() => teachingPlanReady.value ? {
   title: t('unifiedCourseWorkspace.basic.nextOutlineTitle', '确认课程大纲'),
-  help: t('unifiedCourseWorkspace.basic.nextOutlineHelp', '课程设计已经形成，可进入大纲检查讲次结构与顺序。'),
   primaryLabel: t('unifiedCourseWorkspace.basic.reviewOutline', '查看大纲'),
   secondaryLabel: t('unifiedCourseWorkspace.basic.reviewDesign', '查看课程设计'),
   primary: 'outline' as const,
 } : {
   title: t('unifiedCourseWorkspace.basic.nextDesignTitle', '继续完善课程设计'),
-  help: t('unifiedCourseWorkspace.basic.nextDesignHelp', '课程设计仍在形成。确认教学目标、节奏与评价方式后，再进入大纲。'),
   primaryLabel: t('unifiedCourseWorkspace.basic.continueDesign', '继续课程设计'),
   secondaryLabel: t('unifiedCourseWorkspace.basic.previewOutline', '先看大纲'),
   primary: 'design' as const,
@@ -394,18 +374,11 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-feedback button { height: 32px; margin-top: 5px; padding: 0 14px; border: 1px solid var(--lz-brand-border); border-radius: 8px; color: var(--lz-brand-strong); background: var(--lz-surface); cursor: pointer; }
 .workspace-feedback.is-error > svg { color: var(--lz-danger); }
 .spin { animation: workspace-spin .9s linear infinite; }
-.basic-panel { width: min(980px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 52px; }
-.basic-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 32px; }
-.basic-panel > header > div { min-width: 0; max-width: 720px; }
-.basic-panel h1 { margin: 0 0 8px; color: var(--lz-text-strong); font-size: clamp(23px, 2.1vw, 28px); line-height: 1.28; letter-spacing: -.025em; }
-.basic-panel p,
-.handoff-panel p { max-width: 68ch; margin: 0; color: var(--lz-text-secondary); font-size: 13px; line-height: 1.7; }
+.basic-panel { width: min(980px, calc(100% - 48px)); margin: 0 auto; padding: 28px 0 52px; }
 .primary-action { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 14px; border: 1px solid var(--lz-brand); border-radius: 9px; color: #fff; background: var(--lz-brand); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .primary-action:hover { background: var(--lz-brand-strong); }
 .primary-action:focus-visible { outline: 3px solid rgba(99, 102, 241, .25); outline-offset: 2px; }
-.course-overview { margin-top: 34px; }
-.course-overview > strong { color: var(--lz-text-strong); font-size: 13px; }
-.course-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 11px 0 0; padding: 18px 0; border-top: 1px solid var(--lz-border); border-bottom: 1px solid var(--lz-border); }
+.course-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; padding: 18px 0; border-bottom: 1px solid var(--lz-border); }
 .course-facts > div { min-width: 0; min-height: 58px; display: grid; align-content: center; gap: 9px; padding: 0 24px; border-right: 1px solid var(--lz-border); }
 .course-facts > div:first-child { padding-left: 0; }
 .course-facts > div:last-child { padding-right: 0; border-right: 0; }
@@ -423,7 +396,6 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workflow-copy { min-width: 0; display: grid; gap: 4px; }
 .workflow-copy > span { color: var(--lz-brand-strong); font-size: 10px; font-weight: 800; }
 .workflow-copy > strong { color: var(--lz-text-strong); font-size: 14px; }
-.workflow-copy p { color: var(--lz-text-secondary); font-size: 12px; line-height: 1.6; }
 .workflow-actions { display: flex; align-items: center; gap: 8px; }
 .workflow-actions button { min-height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; border-radius: 8px; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .workflow-actions .primary-action { border-color: var(--lz-brand); }
@@ -434,10 +406,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .outline-panel { min-height: 100%; padding: 0; }
 .plan-panel > :deep(.generation-lesson-plan),
 .outline-panel > :deep(.outline-review) { min-height: calc(100% - 2px); }
-.handoff-panel { width: min(680px, calc(100% - 40px)); min-height: 100%; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; margin: 0 auto; padding: 48px 0; }
-.handoff-panel > svg { margin-bottom: 18px; color: var(--lz-brand); }
-.handoff-panel h2 { margin: 7px 0 10px; color: var(--lz-text-strong); font-size: 24px; letter-spacing: -.02em; }
-.handoff-panel .primary-action { margin-top: 20px; }
+.external-entry { min-height: 100%; display: grid; place-items: center; padding: 32px; }
 @keyframes workspace-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) {
   .workspace-heading { grid-template-columns: minmax(180px, .75fr) minmax(400px, 1.5fr) auto; gap:10px; }
@@ -454,10 +423,6 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
   .workspace-content.is-files,
   .workspace-content.is-calendar { overflow: auto; }
   .basic-panel { width: calc(100% - 28px); padding: 24px 0 36px; }
-  .basic-panel > header { display: grid; align-items: start; gap: 18px; }
-  .basic-panel > header .primary-action { width: 100%; }
-  .basic-panel h1 { font-size: 22px; }
-  .course-overview { margin-top: 26px; }
   .course-facts { grid-template-columns: minmax(0, 1fr); padding: 0; }
   .course-facts > div,
   .course-facts > div:first-child,
@@ -468,7 +433,6 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
   .workflow-actions { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
   .plan-panel,
   .outline-panel { padding: 0; }
-  .handoff-panel h2 { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .spin { animation: none; }

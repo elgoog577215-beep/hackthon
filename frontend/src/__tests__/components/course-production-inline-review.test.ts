@@ -69,8 +69,10 @@ describe('课程生产内联确认', () => {
     await flushPromises()
 
     expect(wrapper.find('.generation-outline-dialog').exists()).toBe(false)
-    expect(wrapper.text()).toContain('确认这门课怎样展开')
     expect(wrapper.text()).toContain('1 个目录节点')
+    expect(wrapper.find('.outline-review__header').exists()).toBe(false)
+    expect(wrapper.find('.outline-review__course-name').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('线性代数')
 
     await wrapper.get('.outline-review__nodes input').setValue('向量与空间')
     const buttons = wrapper.findAll('.outline-review__actions button')
@@ -321,7 +323,7 @@ describe('课程生产内联确认', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('你的项目起点（暂定）')
+    expect(wrapper.text()).toContain('项目起点')
     expect(wrapper.text()).toContain('产品设计方案与可验证原型')
     expect(wrapper.text()).toContain('熟悉产品造型与结构')
     expect(wrapper.text()).toContain('玻璃材料与隔热原理')
@@ -366,8 +368,9 @@ describe('课程生产内联确认', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Confirm how this course unfolds')
     expect(wrapper.text()).toContain('Outline nodes · 1')
+    expect(wrapper.find('.outline-review__header').exists()).toBe(false)
+    expect(wrapper.find('.outline-review__course-name').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('确认这门课')
     expect(wrapper.text()).not.toContain('courseGeneration.')
   })

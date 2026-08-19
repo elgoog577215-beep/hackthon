@@ -467,7 +467,7 @@
       <header class="generation-lesson-plan__overview-hero">
         <div>
           <span v-if="!embedded">{{ t('courseGeneration.lessonPlan.overallEyebrow', '全课教学设计') }}</span>
-          <h3>{{ overallPlan.course_title || t('courseGeneration.lessonPlan.untitledCourse', '未命名课程') }}</h3>
+          <h3 v-if="!embedded">{{ overallPlan.course_title || t('courseGeneration.lessonPlan.untitledCourse', '未命名课程') }}</h3>
           <textarea
             v-if="editing"
             class="generation-lesson-plan__inline-editor"
@@ -496,15 +496,14 @@
           <header>
             <Target :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.overallObjectivesEyebrow', '教学目标') }}</small>
-              <strong>{{ t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够') }}</strong>
+              <strong>{{ t('courseGeneration.lessonPlan.overallObjectives', '教学目标') }}</strong>
             </span>
           </header>
           <textarea
             v-if="editing"
             class="generation-lesson-plan__inline-editor"
             :value="draftListText('overall/learning_objectives', overallPlan.learning_objectives)"
-            :aria-label="t('courseGeneration.lessonPlan.overallObjectives', '学完这门课，学生能够')"
+            :aria-label="t('courseGeneration.lessonPlan.overallObjectives', '教学目标')"
             @input="queueListPatch('overall/learning_objectives', overallPlan.learning_objectives, $event)"
           />
           <ol v-else-if="overallPlan.learning_objectives.length">
@@ -520,15 +519,14 @@
           <header>
             <Route :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.entryEyebrow', '学情分析') }}</small>
-              <strong>{{ t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备') }}</strong>
+              <strong>{{ t('courseGeneration.lessonPlan.prerequisitesTitle', '前置知识') }}</strong>
             </span>
           </header>
           <textarea
             v-if="editing"
             class="generation-lesson-plan__inline-editor"
             :value="draftListText('overall/prerequisites', overallPlan.prerequisites)"
-            :aria-label="t('courseGeneration.lessonPlan.prerequisitesTitle', '开始前需要具备')"
+            :aria-label="t('courseGeneration.lessonPlan.prerequisitesTitle', '前置知识')"
             @input="queueListPatch('overall/prerequisites', overallPlan.prerequisites, $event)"
           />
           <ul v-else-if="overallPlan.prerequisites.length" class="generation-lesson-plan__plain-list">
@@ -541,15 +539,14 @@
           <header>
             <Sparkles :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.strategyEyebrow', '教学策略') }}</small>
-              <strong>{{ t('courseGeneration.lessonPlan.strategyTitle', '这门课准备怎样教') }}</strong>
+              <strong>{{ t('courseGeneration.lessonPlan.strategyTitle', '教学策略') }}</strong>
             </span>
           </header>
           <textarea
             v-if="editing"
             class="generation-lesson-plan__inline-editor"
             :value="draftText('overall/teaching_strategy/rationale', overallPlan.teaching_strategy.rationale)"
-            :aria-label="t('courseGeneration.lessonPlan.strategyTitle', '这门课准备怎样教')"
+            :aria-label="t('courseGeneration.lessonPlan.strategyTitle', '教学策略')"
             @input="queueTextPatch('overall/teaching_strategy/rationale', overallPlan.teaching_strategy.rationale, $event)"
           />
           <p v-else class="generation-lesson-plan__strategy-copy">
@@ -564,8 +561,7 @@
           <header>
             <BadgeCheck :size="18" />
             <span>
-              <small>{{ t('courseGeneration.lessonPlan.assessmentEyebrow', '评价设计') }}</small>
-              <strong>{{ t('courseGeneration.lessonPlan.assessmentTitle', '怎样知道学生已经学会') }}</strong>
+              <strong>{{ t('courseGeneration.lessonPlan.assessmentTitle', '评价方式') }}</strong>
             </span>
           </header>
           <ul v-if="overallPlan.assessment_methods.length" class="generation-lesson-plan__plain-list">
@@ -580,10 +576,8 @@
       <section class="generation-lesson-plan__overview-section generation-lesson-plan__classroom-section">
         <header>
           <span>
-            <small>{{ t('courseGeneration.lessonPlan.classroomEyebrow', '课堂交付') }}</small>
-            <strong>{{ t('courseGeneration.lessonPlan.classroomTitle', '这门课按什么课堂条件实施') }}</strong>
+            <strong>{{ t('courseGeneration.lessonPlan.classroomTitle', '课堂条件') }}</strong>
           </span>
-          <p>{{ t('courseGeneration.lessonPlan.classroomHelp', '总课时、单次时长和课堂活动共同约束教学安排；修改后会在审阅中说明需要重建的内容。') }}</p>
         </header>
         <div class="generation-lesson-plan__classroom-grid">
           <label>
@@ -643,7 +637,6 @@
         <details v-if="editing || hasClassroomDetails" class="generation-lesson-plan__classroom-details" :open="editing">
           <summary>
             <span>{{ t('courseGeneration.lessonPlan.classroomDetailsTitle', '补充课堂信息') }}</span>
-            <small>{{ t('courseGeneration.lessonPlan.classroomDetailsHelp', '班级规模、学情、准备与评价') }}</small>
           </summary>
           <div class="generation-lesson-plan__classroom-notes">
             <label v-if="editing || classroomPlan.class_size" class="generation-lesson-plan__classroom-detail-field">
@@ -703,10 +696,8 @@
       <section class="generation-lesson-plan__overview-section">
         <header>
           <span>
-            <small>{{ t('courseGeneration.lessonPlan.courseStructureEyebrow', '教学进程') }}</small>
-            <strong>{{ t('courseGeneration.lessonPlan.courseStructureTitle', '章节怎样推动学习发生') }}</strong>
+            <strong>{{ t('courseGeneration.lessonPlan.courseStructureTitle', '教学进程') }}</strong>
           </span>
-          <p>{{ t('courseGeneration.lessonPlan.courseStructureHelp', '章节负责阶段性推进，教学设计负责把每一步落实为知识与课程块。') }}</p>
         </header>
         <ol class="generation-lesson-plan__chapter-path">
           <li v-for="(chapter, index) in overallPlan.chapters" :key="chapter.chapter_id || index">
@@ -723,10 +714,8 @@
       <section v-if="overallPlan.knowledge_tags.length" class="generation-lesson-plan__overview-section is-knowledge-map">
         <header>
           <span>
-            <small>{{ t('courseGeneration.lessonPlan.courseKnowledgeEyebrow', '全课知识') }}</small>
-            <strong>{{ t('courseGeneration.lessonPlan.courseKnowledgeTitle', '教案引用的知识坐标') }}</strong>
+            <strong>{{ t('courseGeneration.lessonPlan.courseKnowledgeTitle', '知识结构') }}</strong>
           </span>
-          <p>{{ t('courseGeneration.lessonPlan.courseKnowledgeHelp', '标签来自当前课程知识库；数字表示该知识覆盖的小节数。') }}</p>
         </header>
         <div class="generation-lesson-plan__knowledge-tags">
           <button
@@ -2190,7 +2179,6 @@ function openKnowledge(knowledgeId: string): void {
 .generation-lesson-plan__overview-hero > div { min-width:0; padding-right:48px; }
 .generation-lesson-plan__overview-hero > div > span { color:var(--plan-accent); font-size:12px; font-weight:800; letter-spacing:0; }
 .generation-lesson-plan__overview-hero h3 { margin:8px 0 10px; color:var(--plan-heading); font-family:inherit; font-size:28px; font-weight:750; line-height:1.3; letter-spacing:-.015em; }
-.generation-lesson-plan.is-embedded .generation-lesson-plan__overview-hero h3 { margin-top:0; }
 .generation-lesson-plan__overview-hero p { max-width:70ch; margin:0; color:var(--plan-body); font-size:14px; line-height:1.72; }
 .generation-lesson-plan__overview-hero aside { align-self:stretch; display:grid; grid-template-columns:28px minmax(0,1fr); align-content:center; gap:3px 10px; padding:10px 0 10px 32px; border-left:1px solid var(--plan-line); }
 .generation-lesson-plan__overview-hero aside svg { grid-row:1 / 3; align-self:center; color:#6067bd; }

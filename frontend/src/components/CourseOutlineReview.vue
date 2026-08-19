@@ -1,20 +1,6 @@
 <template>
   <section class="outline-review" :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程目录确认')">
     <article class="outline-review__sheet">
-      <header class="outline-review__header">
-        <div>
-          <span class="outline-review__eyebrow">
-            <CircleCheckBig :size="14" />
-            {{ t('courseGeneration.outlineReview.eyebrow', '需要你的判断') }}
-          </span>
-          <h1>{{ t('courseGeneration.outlineReview.title', '确认这门课怎样展开') }}</h1>
-          <p>{{ t('courseGeneration.outlineReview.help', '只检查课程名称、章节顺序和学习目标。确认后，教案与正文会沿用这份结构在当前页面继续生长。') }}</p>
-        </div>
-        <span class="outline-review__count">
-          {{ t('courseGeneration.outlineReview.sectionCount', '{count} 个目录节点').replace('{count}', String(blueprintNodes.length)) }}
-        </span>
-      </header>
-
       <div v-if="loading" class="outline-review__loading" aria-live="polite">
         <LoaderCircle :size="18" />
         <span>{{ t('courseGeneration.outlineReview.loading', '正在载入可编辑目录') }}</span>
@@ -32,17 +18,6 @@
       <template v-else>
         <div class="outline-review__body">
           <div class="outline-review__setup">
-          <label class="outline-review__course-name">
-            <span>{{ t('courseWorkspace.blueprint.courseName', '课程名称') }}</span>
-            <input
-              v-model="blueprintDraft.course_name"
-              type="text"
-              :placeholder="courseName"
-              :disabled="adjustmentBusy"
-              @input="invalidateProposal"
-            />
-          </label>
-
           <section
             v-if="retrievalProposal"
             class="outline-retrieval"
@@ -114,7 +89,7 @@
 
           <section v-if="isProjectCourse" class="outline-review__starting-point" :data-status="startingProfileStatus">
             <header>
-              <span>{{ t('courseGeneration.outlineReview.startingPoint', '你的项目起点（暂定）') }}</span>
+              <span>{{ t('courseGeneration.outlineReview.startingPoint', '项目起点') }}</span>
               <strong>{{ startingProfileStatusLabel }}</strong>
             </header>
             <div>
@@ -131,12 +106,11 @@
                 <span>{{ startingFocus || t('courseGeneration.outlineReview.discoverInProject', '将在项目过程中继续识别') }}</span>
               </p>
             </div>
-            <footer>{{ t('courseGeneration.outlineReview.startingPointGuard', '起点来自你的自述，只用于安排第一版路径，不等同于已经掌握。') }}</footer>
           </section>
           <section v-else-if="courseType === 'inquiry'" class="outline-review__starting-point" data-status="tentative">
             <header>
-              <span>{{ t('courseGeneration.outlineReview.inquiryContract', '问题探究契约') }}</span>
-              <strong>{{ t('courseGeneration.outlineReview.inquiryGuard', '观点待检验') }}</strong>
+              <span>{{ t('courseGeneration.outlineReview.inquiryContract', '探究信息') }}</span>
+              <strong>{{ t('courseGeneration.outlineReview.inquiryGuard', '待验证') }}</strong>
             </header>
             <div>
               <p>
@@ -152,12 +126,11 @@
                 <span>{{ courseIntent.desired_output }}</span>
               </p>
             </div>
-            <footer>{{ t('courseGeneration.outlineReview.inquiryContractHelp', '请检查目录是否真正经过子问题、证据和反例，而不是把普通章节改成问句。') }}</footer>
           </section>
 
           <section v-else-if="courseType === 'exam'" class="outline-review__starting-point" data-status="tentative">
             <header>
-              <span>{{ t('courseGeneration.outlineReview.examContract', '考试冲刺契约') }}</span>
+              <span>{{ t('courseGeneration.outlineReview.examContract', '考试信息') }}</span>
               <strong>{{ courseIntent.exam_date || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</strong>
             </header>
             <div>
@@ -174,15 +147,16 @@
                 <span>{{ courseIntent.current_preparation || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</span>
               </p>
             </div>
-            <footer>{{ t('courseGeneration.outlineReview.examContractHelp', '请检查目录是否按时间和薄弱点排序，并保留专项练习、模拟验证与考前巩固。') }}</footer>
           </section>
 
           <section class="outline-review__adjustment" :aria-busy="generatingProposal">
-            <div>
+            <div class="outline-review__adjustment-heading">
               <label for="outline-adjustment-instruction">
-                {{ t('courseGeneration.outlineReview.adjustmentTitle', '一句话调整目录') }}
+                {{ t('courseGeneration.outlineReview.adjustmentTitle', '目录调整') }}
               </label>
-              <p>{{ t('courseGeneration.outlineReview.adjustmentHelp', '可以增删、排序、跨章移动、拆章、并章，也可以修改标题和学习目标。系统会先展示整套差异。') }}</p>
+              <span class="outline-review__count">
+                {{ t('courseGeneration.outlineReview.sectionCount', '{count} 个目录节点').replace('{count}', String(blueprintNodes.length)) }}
+              </span>
             </div>
             <textarea
               id="outline-adjustment-instruction"
@@ -359,11 +333,7 @@
       </template>
 
       <footer class="outline-review__footer">
-        <div>
-          <strong>{{ footerTitle }}</strong>
-          <p>{{ t('courseGeneration.outlineReview.guard', '这是唯一需要编辑课程结构的步骤；下一步还会确认全课教案，再开始生成正文。') }}</p>
-          <p v-if="actionError" class="outline-review__action-error">{{ actionError }}</p>
-        </div>
+        <p v-if="actionError" class="outline-review__action-error" role="alert">{{ actionError }}</p>
         <div class="outline-review__actions">
           <button
             type="button"
@@ -398,7 +368,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowRight, CircleCheckBig, LoaderCircle, Save, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowRight, LoaderCircle, Save, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
@@ -520,14 +490,6 @@ const draftSignature = computed(() => JSON.stringify({
   })),
 }))
 const dirty = computed(() => Boolean(baseline.value && draftSignature.value !== baseline.value))
-const footerTitle = computed(() => {
-  if (confirming.value) return t('courseGeneration.outlineReview.confirming', '正在确认目录')
-  if (saving.value) return t('courseGeneration.outlineReview.savingChanges', '正在保存修改')
-  if (dirty.value) return t('courseGeneration.outlineReview.unsaved', '有未保存的修改')
-  const progress = Math.max(0, Math.min(100, Math.round(Number(props.task?.progress || 0))))
-  return t('courseGeneration.outlineReview.ready', '目录已就绪 · 当前生产进度 {progress}%')
-    .replace('{progress}', String(progress))
-})
 
 onMounted(loadBlueprint)
 watch(() => props.courseId, (courseId, previous) => {
@@ -843,54 +805,20 @@ async function confirmOutline() {
   height:100%;
   min-height:0;
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-rows:minmax(0,1fr) auto;
   margin:0 auto;
   overflow:hidden;
   background:#fff;
 }
-.outline-review__header {
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:28px;
-  padding:24px 0 20px;
-  border-bottom:1px solid #e7e9ee;
-}
-.outline-review__eyebrow {
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  color:#087a5b;
-  font-size:12px;
-  font-weight:850;
-  letter-spacing:0;
-}
-.outline-review__header h1 {
-  margin:6px 0 5px;
-  color:#182230;
-  font-family:inherit;
-  font-size:clamp(24px,2vw,28px);
-  font-weight:750;
-  line-height:1.25;
-  letter-spacing:-.015em;
-}
-.outline-review__header p {
-  max-width:660px;
-  margin:0;
-  color:#687386;
-  font-size:13px;
-  line-height:1.65;
-}
 .outline-review__count {
   flex:0 0 auto;
-  padding:3px 0;
-  color:#26715d;
-  font-size:12px;
+  color:#7b8494;
+  font-size:11px;
   font-weight:750;
 }
 .outline-review__loading,
 .outline-review__load-error {
-  grid-row:2;
+  grid-row:1;
   min-height:260px;
   display:flex;
   align-items:center;
@@ -932,19 +860,7 @@ async function confirmOutline() {
   min-width:0;
   border-bottom:1px solid #eceef2;
 }
-.outline-review__course-name {
-  display:grid;
-  grid-template-columns:100px minmax(0,1fr);
-  align-items:center;
-  gap:14px;
-  margin:0;
-  padding:16px 0 14px;
-}
-.outline-review__course-name span {
-  color:#7b8494;
-  font-size:12px;
-  font-weight:750;
-}
+.outline-review__setup > :first-child { border-top:0; }
 .outline-review input,
 .outline-review textarea {
   width:100%;
@@ -962,12 +878,6 @@ async function confirmOutline() {
   border-color:#aeb4e9;
   background:#fff;
   box-shadow:0 0 0 3px rgba(79,70,217,.08);
-}
-.outline-review__course-name input {
-  height:36px;
-  padding:0 10px;
-  font-size:14px;
-  font-weight:780;
 }
 .outline-review__starting-point {
   margin:0;
@@ -1014,12 +924,6 @@ async function confirmOutline() {
   font-size:12px;
   line-height:1.5;
 }
-.outline-review__starting-point > footer {
-  margin-top:9px;
-  color:#7b8494;
-  font-size:11px;
-  line-height:1.5;
-}
 .outline-retrieval { margin:0; padding:18px 0 20px 114px; border-top:1px solid #eceef2; }
 .outline-retrieval > header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .outline-retrieval > header div { display:grid; gap:2px; }
@@ -1061,12 +965,7 @@ async function confirmOutline() {
   font-size:12px;
   font-weight:850;
 }
-.outline-review__adjustment p {
-  margin:3px 0 0;
-  color:#7b8494;
-  font-size:11px;
-  line-height:1.45;
-}
+.outline-review__adjustment-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .outline-review__adjustment textarea {
   min-height:56px;
   padding:9px 11px;
@@ -1341,19 +1240,16 @@ async function confirmOutline() {
   font-size:13px;
 }
 .outline-review__footer {
-  grid-row:3;
+  grid-row:2;
   display:flex;
   align-items:center;
-  justify-content:space-between;
+  justify-content:flex-end;
   gap:24px;
   padding:13px 0 14px;
   border-top:1px solid #dfe3e9;
   background:rgba(255,255,255,.98);
 }
-.outline-review__footer > div:first-child { min-width:0; }
-.outline-review__footer strong { color:#344054; font-size:13px; }
-.outline-review__footer p { margin:3px 0 0; color:#7b8494; font-size:11px; line-height:1.5; }
-.outline-review__footer p.outline-review__action-error { color:#b42318; }
+.outline-review__footer p.outline-review__action-error { min-width:0; margin:0 auto 0 0; color:#b42318; font-size:11px; line-height:1.5; }
 .outline-review__actions {
   flex:0 0 auto;
   display:flex;
@@ -1388,11 +1284,7 @@ async function confirmOutline() {
 @keyframes outline-review-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .outline-review { padding:0 16px; }
-  .outline-review__header { display:grid; gap:9px; padding:19px 0 15px; }
-  .outline-review__header h1 { font-size:23px; }
-  .outline-review__count { justify-self:start; }
   .outline-review__setup { min-height:0; }
-  .outline-review__course-name { grid-template-columns:1fr; gap:3px; margin:0; padding:10px 0 8px; }
   .outline-review__starting-point { margin:0; padding:11px 0 13px; }
   .outline-review__starting-point > div { grid-template-columns:1fr; gap:8px; }
   .outline-retrieval { padding:14px 0 16px; }

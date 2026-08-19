@@ -26,7 +26,7 @@ describe('course outline review layout', () => {
     expect(nodesStart).toBeLessThan(footerStart)
 
     expect(cssDeclarations('.outline-review__sheet')).toContain(
-      'grid-template-rows:auto minmax(0,1fr) auto',
+      'grid-template-rows:minmax(0,1fr) auto',
     )
     expect(cssDeclarations('.outline-review')).toContain('height:100%')
     expect(cssDeclarations('.outline-review')).toContain('box-sizing:border-box')
@@ -35,5 +35,7 @@ describe('course outline review layout', () => {
     expect(cssDeclarations('.outline-review__body')).toContain('scrollbar-gutter:stable')
     expect(componentSource).toContain('class="outline-review__chapter-nav"')
     expect(componentSource).toContain('@click="jumpToChapter(chapter.index)"')
+    expect(componentSource).not.toContain('class="outline-review__header"')
+    expect(componentSource).not.toContain('class="outline-review__course-name"')
   })
 })

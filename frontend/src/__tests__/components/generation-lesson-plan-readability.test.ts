@@ -119,7 +119,7 @@ describe('课程教案阅读尺度', () => {
     expect(wrapper.text()).toContain('从变化率出发理解一次函数')
     expect(wrapper.text()).toContain('建立斜率的几何与情境直觉')
     expect(wrapper.text()).toContain('一次函数斜率')
-    expect(wrapper.text()).toContain('这门课按什么课堂条件实施')
+    expect(wrapper.text()).toContain('课堂条件')
     expect(wrapper.text()).toContain('2026-2027 学年第一学期')
     expect(wrapper.text()).toContain('准备坐标纸')
     expect(wrapper.findAll('.generation-lesson-plan__classroom-grid > label')).toHaveLength(4)
@@ -127,7 +127,7 @@ describe('课程教案阅读尺度', () => {
     const classroomDetails = wrapper.get('.generation-lesson-plan__classroom-details')
     expect(classroomDetails.attributes('open')).toBeUndefined()
     expect(classroomDetails.text()).toContain('补充课堂信息')
-    expect(classroomDetails.text()).toContain('班级规模、学情、准备与评价')
+    expect(classroomDetails.find('summary small').exists()).toBe(false)
 
     const knowledgeTag = wrapper.get('.generation-lesson-plan__knowledge-tags button')
     await knowledgeTag.trigger('click')
@@ -172,7 +172,7 @@ describe('课程教案阅读尺度', () => {
     })
     expect(embeddedWrapper.find('.generation-lesson-plan__header').exists()).toBe(false)
     expect(embeddedWrapper.find('.generation-lesson-plan__overview-hero > div > span').exists()).toBe(false)
-    expect(embeddedWrapper.get('.generation-lesson-plan__overview-hero h3').text()).toBe('一次函数')
+    expect(embeddedWrapper.find('.generation-lesson-plan__overview-hero h3').exists()).toBe(false)
   })
 
   it('把教学流程、掌握证据、易错纠偏与知识衔接放在同一份小节教案中', async () => {
