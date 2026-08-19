@@ -426,7 +426,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .secondary-action:hover { color: var(--lz-brand-strong); border-color: var(--lz-brand-border); }
 .secondary-action:focus-visible { outline: 3px solid rgba(99, 102, 241, .2); outline-offset: 2px; }
 .plan-panel,
-.outline-panel { min-height: 100%; padding: 18px; }
+.outline-panel { min-height: 100%; padding: 0; }
 .plan-panel > :deep(.generation-lesson-plan),
 .outline-panel > :deep(.outline-review) { min-height: calc(100% - 2px); }
 .handoff-panel { width: min(680px, calc(100% - 40px)); min-height: 100%; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; margin: 0 auto; padding: 48px 0; }
@@ -463,7 +463,7 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
   .workflow-note { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 17px 16px; }
   .workflow-actions { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
   .plan-panel,
-  .outline-panel { padding: 8px; }
+  .outline-panel { padding: 0; }
   .handoff-panel h2 { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) {
