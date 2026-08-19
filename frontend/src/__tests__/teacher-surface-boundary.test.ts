@@ -9,8 +9,12 @@ describe('unified course workspace boundary', () => {
   it('uses one active course shell for setup, preparation, and formal use', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const learning = source('views/LearningView.vue')
+    const app = source('App.vue')
 
-    expect(workspace).toContain('<CourseModeTabs :active="activeMode"')
+    expect(workspace).toContain('class="workspace-mobile-modes"')
+    expect(app).toContain('class="app-course-modes"')
+    expect(app).toContain(':active="headerCourseMode"')
+    expect(app).toContain('topbar')
     expect(workspace).toContain('<TeacherCourseSpaceView')
     expect(workspace).toContain('<TeacherCourseCalendarView')
     expect(workspace).toContain('<CourseOutlineReview')
@@ -19,6 +23,7 @@ describe('unified course workspace boundary', () => {
     expect(workspace.match(/<GenerationLessonPlan[\s\S]*?embedded/g)).toHaveLength(2)
     expect(workspace).toContain('<Teleport to="#app-header-route-actions">')
     expect(workspace).not.toContain('class="workspace-state"')
+    expect(workspace.indexOf('class="workspace-subtabs"')).toBeLessThan(workspace.indexOf('</header>'))
     expect(learning).toContain('<CourseModeTabs active="formal"')
     expect(workspace).not.toContain('useTeacherCourseRuntime')
     expect(workspace).not.toContain('useTeacherLessonAuthoringStore')

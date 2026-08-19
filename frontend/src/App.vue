@@ -1,10 +1,23 @@
 <template>
   <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute, 'is-fullscreen-concept': isFullscreenConceptRoute }">
-    <header v-if="!isPptRoute && !isFullscreenConceptRoute" class="app-header glass-panel-elevated">
+    <header
+      v-if="!isPptRoute && !isFullscreenConceptRoute"
+      class="app-header glass-panel-elevated"
+      :class="{ 'has-course-modes': Boolean(headerCourseMode) }"
+    >
       <RouterLink class="brand-button" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
         <span class="brand-name">启智</span>
       </RouterLink>
+
+      <CourseModeTabs
+        v-if="headerCourseMode && headerCourseId"
+        class="app-course-modes"
+        :active="headerCourseMode"
+        :course-id="headerCourseId"
+        topbar
+      />
+      <div v-else class="app-header-center" aria-hidden="true" />
 
       <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions" />
 
@@ -94,6 +107,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
+import CourseModeTabs, { type CourseMode } from './components/CourseModeTabs.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
@@ -131,6 +145,12 @@ const isLearningRoute = computed(() => route.name === 'learning')
 const isPptRoute = computed(() => route.name === 'ppt-workspace')
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)
+const headerCourseMode = computed<CourseMode | null>(() => {
+  if (route.name === 'learning') return 'formal'
+  if (route.name !== 'course-workspace') return null
+  return route.params.mode === 'build' ? 'build' : 'setup'
+})
+const headerCourseId = computed(() => String(route.params.courseId || courseStore.currentCourseId || ''))
 const searchQuery = computed({
   get: () => courseStore.globalSearchQuery,
   set: value => { courseStore.globalSearchQuery = value },
@@ -180,7 +200,7 @@ function changeLocale(locale: 'zh' | 'en') {
   z-index: 80;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr);
+  grid-template-columns: minmax(150px, 1fr) minmax(480px, 660px) minmax(150px, 1fr);
   align-items: center;
   gap: 16px;
   padding: 0 17px;
@@ -227,14 +247,15 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .brand-name { color:#001081; font-size:20px; font-weight:850; letter-spacing:.08em; }
 
-.route-header-actions { min-width:0; justify-self:end; }
+.app-header-center,.app-course-modes { min-width:0; width:100%; justify-self:center; }
+.route-header-actions { min-width:0; grid-column:3; justify-self:end; }
 .course-context-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
-.header-actions { position:relative; display:flex; align-items:center; justify-content:flex-end; gap:5px; padding-left:13px; }
+.header-actions { position:relative; grid-column:3; justify-self:end; display:flex; align-items:center; justify-content:flex-end; gap:5px; padding-left:13px; }
 .header-actions::before { content:""; position:absolute; left:0; width:1px; height:26px; background:linear-gradient(180deg,transparent,#dbe3ef,transparent); }
 .header-icon-button { width:36px; height:36px; display:grid; place-items:center; border:1px solid transparent; border-radius:11px; color:var(--lz-text-secondary); background:transparent; transition:transform .16s ease,color .16s ease,background .16s ease,border-color .16s ease; }
 .header-icon-button:hover, .header-icon-button.active { transform:translateY(-1px); border-color:#e0e7ff; color:var(--lz-brand-strong); background:#f5f3ff; }
@@ -266,8 +287,12 @@ function changeLocale(locale: 'zh' | 'en') {
 .language-control { grid-template-columns: repeat(2, 1fr); }
 
 @media (max-width: 900px) {
-  .app-header { grid-template-columns: auto minmax(0, 1fr); gap: 8px; padding: 0 10px; }
+  .app-header { grid-template-columns: auto minmax(360px, 1fr) auto; gap: 8px; padding: 0 10px; }
   .header-search { display: none; }
+}
+
+@media (max-width: 1400px) {
+  .app-header.has-course-modes .header-search { display:none; }
 }
 
 @media (max-width: 600px) {
@@ -275,6 +300,8 @@ function changeLocale(locale: 'zh' | 'en') {
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
   .app-header { grid-template-columns: auto minmax(0, 1fr); }
+  .app-course-modes,.app-header-center { display:none; }
+  .route-header-actions,.header-actions { grid-column:2; }
   .brand-mark { width:32px; height:32px; }
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),

@@ -29,6 +29,16 @@ describe('CourseModeTabs', () => {
     expect(wrapper.text()).not.toContain('教师端')
   })
 
+  it('uses the flat topbar treatment when promoted to the global header', () => {
+    const wrapper = mount(CourseModeTabs, {
+      props: { active: 'build', courseId: 'course-1', topbar: true },
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.classes()).toContain('is-topbar')
+    expect(wrapper.get('[data-testid="course-mode-build"]').classes()).toContain('is-active')
+  })
+
   it('routes preparation and formal use to the same course', async () => {
     const wrapper = mount(CourseModeTabs, {
       props: { active: 'setup', courseId: 'course-1' },

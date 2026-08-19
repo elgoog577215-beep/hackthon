@@ -58,6 +58,8 @@ describe('App home navigation', () => {
 
     const homeLink = wrapper.get('a.brand-button')
     expect(homeLink.attributes('href')).toBe('/courses')
+    expect(wrapper.get('.app-course-modes').classes()).toContain('is-topbar')
+    expect(wrapper.get('[data-testid="course-mode-formal"]').classes()).toContain('is-active')
 
     await homeLink.trigger('click')
     await flushPromises()

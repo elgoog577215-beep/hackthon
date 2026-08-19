@@ -1,5 +1,5 @@
 <template>
-  <nav class="course-mode-tabs" :aria-label="t('unifiedCourseWorkspace.modeNavigation', '课程工作模式')">
+  <nav class="course-mode-tabs" :class="{ 'is-topbar': topbar }" :aria-label="t('unifiedCourseWorkspace.modeNavigation', '课程工作模式')">
     <button
       v-for="item in modes"
       :key="item.key"
@@ -26,7 +26,9 @@ import { t } from '../shared/i18n'
 
 export type CourseMode = 'setup' | 'build' | 'formal'
 
-const props = defineProps<{ active: CourseMode; courseId: string }>()
+const props = withDefaults(defineProps<{ active: CourseMode; courseId: string; topbar?: boolean }>(), {
+  topbar: false,
+})
 const router = useRouter()
 const modes = computed(() => [
   {
@@ -111,6 +113,9 @@ function openMode(mode: CourseMode) {
 .course-mode-tabs strong { font-size: 12px; }
 .course-mode-tabs small { color: var(--lz-text-muted); font-size: 9px; font-weight: 500; }
 .course-mode-tabs button.is-active small { color: #6366a8; }
+.course-mode-tabs.is-topbar { width:min(660px,100%); gap:5px; padding:0; border:0; background:transparent; }
+.course-mode-tabs.is-topbar button { min-height:46px; padding:4px 10px; }
+.course-mode-tabs.is-topbar button.is-active { background:var(--lz-brand-soft); box-shadow:none; }
 @media (max-width: 767px) {
   .course-mode-tabs { width: 100%; gap: 2px; padding: 3px; border-radius: 10px; }
   .course-mode-tabs button { min-height: 38px; gap: 4px; padding: 3px 4px; }
