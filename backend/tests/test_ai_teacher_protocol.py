@@ -223,6 +223,29 @@ def test_ai_teacher_receives_bounded_current_course_knowledge_as_runtime_truth(m
     assert context_public_summary(package)["knowledge"]["knowledge_library_id"].startswith("ckb_")
 
 
+def test_teacher_perspective_prioritizes_teaching_and_same_source_change_control(monkeypatch):
+    monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
+    monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
+
+    package = build_ai_teacher_context(
+        _course(),
+        user_id="teacher-1",
+        question="DeepSeek 3 升级到 4 后教案和 PPT 怎么处理？",
+        node_id="node-1",
+        perspective="teacher",
+    )
+
+    assert package["request"]["perspective"] == "teacher"
+    assert package["request"]["intent"] == "teacher_design"
+    assert package["permissions"]["allowed_proposals"] == []
+    prompt = format_ai_teacher_context_prompt(package)
+    assert "教师智能体" in prompt
+    assert "怎么教" in prompt
+    assert "稳定块 ID" in prompt
+    assert "先说明影响" in prompt
+    assert "不得声称已自动修改" in prompt
+
+
 def test_ai_teacher_does_not_treat_degraded_course_index_as_runtime_truth(monkeypatch):
     monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
     monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])

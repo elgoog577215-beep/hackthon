@@ -1230,6 +1230,9 @@
   "learningShell": {
     "openNavigator": "打开课程目录",
     "openAi": "打开 AI 老师",
+    "teacherPreviewTitle": "正式课程预览",
+    "teacherPreviewHelp": "正文块与练习已按当前版本组装；预览不记录学习数据。",
+    "backToCourseFiles": "返回课程文件",
     "selectNode": "选择一个学习目标",
     "course": "当前课程",
     "closeRecords": "关闭学习记录",
@@ -3320,6 +3323,17 @@
         }
       }
     },
+    "teacherAgent": {
+      "title": "教师智能体",
+      "close": "关闭教师智能体",
+      "emptyTitle": "从教案与 PPT 开始协同备课",
+      "emptyBody": "我会基于当前课程真源分析怎么教，正式改动会先说明影响。",
+      "placeholder": "询问怎么教、怎么改教案或 PPT",
+      "quickAnalyze": "分析教学结构",
+      "quickAnalyzePrompt": "请从教学设计角度分析当前课程结构、重点与风险。",
+      "quickTeach": "给出教学建议",
+      "quickTeachPrompt": "请围绕当前课程说明怎么教，并给出可执行的课堂组织建议。"
+    },
     "sources": {
       "title": "本节来源",
       "summaryOnly": "网页内容仅使用摘要核验"
@@ -3717,6 +3731,8 @@
     "classHours": "学时",
     "preparation": "备课状态",
     "preparationHint": "按本讲文件检查",
+    "continuePreparing": "继续备课",
+    "enterSession": "预览正式课程",
     "lessonPlan": "教案",
     "notCreated": "未新建",
     "openFiles": "查看本讲文件",
@@ -3737,6 +3753,15 @@
   },
   "courseFiles": {
     "spaceLabel": "课程文件空间",
+    "sameSource": "结构化同源",
+    "teacherAgent": "教师智能体",
+    "previewCourse": "预览正式课程",
+    "folderNavigation": "课程文件夹",
+    "courseLevel": "整课层",
+    "lessonLevel": "按课次",
+    "otherLevel": "其他",
+    "assembledCourseTitle": "正式课程按结构块组装",
+    "assembledCourseHelp": "正文和练习在文件中分开管理，预览时按当前版本合并展示。",
     "allCourseFiles": "课程文件",
     "backToCalendar": "返回日历",
     "taskCenter": "任务中心",
@@ -3750,7 +3775,7 @@
     "preparingSpace": "正在准备课程文件空间",
     "spaceUnavailable": "课程文件空间暂不可用",
     "courseLabel": "当前课程",
-    "rootName": "课程文件",
+    "rootName": "全课文件",
     "exportCourse": "导出整课文件",
     "filePath": "文件路径",
     "searchCurrent": "搜索当前目录",
@@ -3764,7 +3789,7 @@
     "createHere": "在这里新建",
     "selectFile": "选择一个文件",
     "selectFileHelp": "右侧会显示状态、版本、来源关系和可执行操作。",
-    "sourceRelationship": "上下游关系",
+    "sourceRelationship": "结构化同源",
     "updateNeeded": "上游已变化，需要更新",
     "notUpdated": "尚未形成",
     "lessonHours": "约 {hours} 学时",
@@ -3800,12 +3825,22 @@
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。"
     },
     "names": { "outline": "课程大纲", "reference": "参考资料", "lessonPlan": "教案", "material": "资料", "ppt": "PPT", "practice": "练习", "other": "其他文件", "newMaterial": "新建资料" },
-    "meta": { "location": "位置", "lesson": "所属课次", "version": "当前版本", "size": "文件大小", "updated": "更新时间" },
+    "ppt": {
+      "chooseMethodSubtitle": "可 AI 生成，也可上传老师的旧课件",
+      "generatedSubtitle": "AI 生成 · 跟随教案同源更新",
+      "uploadedSubtitle": "老师上传 · 保留原文件",
+      "generatedOrigin": "AI 生成课件",
+      "uploadedOrigin": "老师上传的旧课件"
+    },
+    "meta": { "location": "位置", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "更新时间" },
     "relationship": {
       "outline": "大纲是课程结构来源；调整后会提示教案、资料、PPT 和练习检查更新。",
       "lessonPlan": "教案依据大纲与参考资料形成，并作为本讲资料、PPT 和练习的主要来源。",
       "material": "资料可作为教案和 PPT 的补充依据，也可直接发给学生或课堂使用。",
-      "ppt": "PPT 依据本讲教案生成；教案版本变化后会标记为待更新。",
+      "ppt": "PPT 按来源分别管理，不把上传旧课件和 AI 生成课件混为同一条更新链。",
+      "pptPending": "新建时请选择 AI 生成或上传旧课件。两种课件会采用不同的更新规则。",
+      "pptGenerated": "AI 生成课件绑定本讲教案版本；教案变化时先提示影响，确认后再更新受影响页面。",
+      "pptUploaded": "老师上传的旧课件保留原件；系统只做内容映射和过期提示，未经确认不会自动改写。",
       "practice": "练习依据本讲教学目标与知识点组织，后续可汇总为题库、作业或试卷。",
       "file": "这是课程空间中的本地文件，可作为教学资产或生成输入。"
     },
@@ -3814,16 +3849,17 @@
       "folderName": "文件夹名称", "folderPlaceholder": "如：补充阅读", "classHours": "计划学时", "generationMode": "创建方式",
       "aiGenerate": "AI 生成", "importFile": "从文件导入", "slideCount": "预计页数", "style": "版式风格", "simpleTeaching": "简洁教学",
       "followTemplate": "沿用参考模板", "exerciseCount": "题目数量", "difficulty": "难度", "basic": "基础", "mixed": "综合", "challenge": "挑战",
-      "requirements": "补充要求", "sourceFile": "来源文件", "chooseFile": "选择本地文件", "importAndCreate": "导入并创建", "startCreate": "开始创建"
+      "pptOrigin": "课件来源", "pptGenerated": "AI 生成课件", "pptGeneratedHelp": "随教案联动更新", "pptUploaded": "上传旧课件", "pptUploadedHelp": "保留老师原文件", "afterUpload": "上传后处理", "derivePlanFromPpt": "解析课件并生成教案草稿（推荐）", "derivePlanHelp": "系统从每页课件提取结构和内容，新增一份待老师审阅的教案草稿；已有确认版本不会被覆盖。", "storePptOnly": "仅保存旧课件", "storePptHelp": "只把原文件存入本讲，不发起教案生成。",
+      "requirements": "补充要求", "sourceFile": "来源文件", "oldDeckFile": "旧课件文件", "templateFile": "个人模板（可选）", "chooseFile": "选择本地文件", "importOldDeck": "上传旧课件", "generatePpt": "生成 PPT", "importAndCreate": "导入并创建", "startCreate": "开始创建"
     },
     "dialog": {
       "outline": { "title": "新建课程大纲", "help": "使用课程生成控制台建立整体结构，也可先导入已有大纲。", "requirements": "补充课程目标、学时或结构要求", "sourceHint": "支持导入已有大纲作为生成依据" },
       "lesson_plan": { "title": "新建教案", "help": "先选课次，再基于已确认大纲与资料生成本讲教案。", "requirements": "补充教学方法、重点难点或课堂安排", "sourceHint": "可导入已有教案，保留在本讲文件夹" },
       "material": { "title": "新建资料", "help": "资料统一包含讲义、正文、案例、阅读材料和课堂辅助文件。", "requirements": "填写资料用途或需要覆盖的内容", "sourceHint": "可直接上传 PDF、Word、图片或其他本地文件" },
-      "ppt": { "title": "新建 PPT", "help": "PPT 按本讲教案生成；也可上传老师自己的模板或成品。", "requirements": "补充页数、讲授节奏、重点页面或模板要求", "sourceHint": "上传 PPT/PPTX 时将作为本讲课件或风格参考" },
+      "ppt": { "title": "新建 PPT", "help": "先区分 AI 生成课件与老师上传的旧课件，系统会分别管理。", "requirements": "补充讲授节奏、重点页面或迁移要求", "sourceHint": "请选择课件来源", "generatedSourceHint": "可上传个人模板作为风格参考；模板不会被当作课程正文。", "uploadSourceHint": "上传 PPTX 原件，系统保留原文件，并可据此生成教案草稿。", "generatedPolicy": "AI 生成课件跟随教案同源更新；上游变化时先提示影响，再由老师确认更新。", "uploadedPolicy": "旧课件保留原文件，不静默改写；可解析为教案草稿，老师确认后再进入同源链。" },
       "practice": { "title": "新建练习", "help": "练习覆盖课堂检查、作业和试卷，题库只是汇总视图。", "requirements": "补充题型、知识点范围或使用场景", "sourceHint": "可导入现有习题、作业或试卷" },
       "folder": { "title": "新建文件夹", "help": "在当前目录下建立自定义文件夹。", "requirements": "", "sourceHint": "" }
     },
-    "errors": { "createLessonFirst": "请先生成本讲教案，再生成 PPT。", "createFailed": "创建失败，请重试。", "previewFailed": "文件预览读取失败，请重试。", "deleteFailed": "删除失败，请重试。" }
+    "errors": { "createLessonFirst": "请先生成本讲教案，再生成 PPT。", "selectOldDeck": "请选择要上传的 PPT 或 PPTX 旧课件。", "createFailed": "创建失败，请重试。", "previewFailed": "文件预览读取失败，请重试。", "deleteFailed": "删除失败，请重试。" }
   }
 }

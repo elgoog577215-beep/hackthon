@@ -18,8 +18,8 @@
 
     <main class="learning-main glass-panel-elevated">
       <div v-if="isTeacherPreview" class="teacher-preview-bar" role="status">
-        <span><Eye :size="15" /><strong>教师只读预览</strong>当前页面不会记录学习进度、笔记或 AI 对话。</span>
-        <button type="button" @click="leaveTeacherPreview"><ArrowLeft :size="15" />返回教师工作台</button>
+        <span><Eye :size="15" /><strong>{{ t('learningShell.teacherPreviewTitle', '正式课程预览') }}</strong>{{ t('learningShell.teacherPreviewHelp', '正文块与练习已按当前版本组装；预览不记录学习数据。') }}</span>
+        <button type="button" @click="leaveTeacherPreview"><ArrowLeft :size="15" />{{ t('learningShell.backToCourseFiles', '返回课程文件') }}</button>
       </div>
       <div
         class="learning-context-bar"
@@ -129,6 +129,7 @@
         />
         <ContentArea
           ref="contentAreaRef"
+          :read-only="isTeacherPreview"
           :side-ai-panel-visible="aiVisible"
           :inert="resourcesOpen"
           :aria-hidden="resourcesOpen ? 'true' : undefined"

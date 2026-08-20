@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from teacher_lesson_authoring import (
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
+    extract_uploaded_pptx_evidence,
     lesson_plan_ppt_source,
     lesson_scope,
     normalize_teacher_lesson_plan,
@@ -47,6 +48,24 @@ def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     assert scoped["lesson"]["node_name"] == "第一讲"
     assert [item["node_id"] for item in scoped["sections"]] == ["L2-1-1", "L2-1-2"]
     assert scoped["chapter"]["node_id"] == "L1-1"
+
+
+def test_uploaded_pptx_is_extracted_as_immutable_lesson_evidence(tmp_path):
+    from pptx import Presentation
+
+    source = tmp_path / "旧课件.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "DeepSeek 4"
+    slide.placeholders[1].text = "从模型能力变化到课堂案例"
+    presentation.save(source)
+
+    evidence = extract_uploaded_pptx_evidence(source, asset_id="asset-1")
+
+    assert len(evidence) == 1
+    assert evidence[0]["evidence_id"] == "uploaded-ppt-asset-1-slide-1"
+    assert "DeepSeek 4" in evidence[0]["source_text"]
+    assert source.is_file()
 
 
 def test_repository_keeps_sibling_lesson_assets_independent(tmp_path):
@@ -87,6 +106,7 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
             "plan": {"sections": [{"node_id": "L2-1-1", "teaching_modules": []}]},
             "warnings": [{"code": "model_output_failed_validation"}],
             "generation_source": "deterministic_local_fallback",
+            "source_refs": [{"source_kind": "uploaded_ppt", "asset_id": "asset-1", "slide": 1}],
             "source_outline_revision_id": "outline-v1",
         }
 
@@ -102,6 +122,7 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
     lesson = repository.view("course-1")["lessons"]["L1-1"]
     assert lesson["revisions"][0]["status"] == "needs_ai_review"
     assert lesson["revisions"][0]["plan"]["sections"][0]["node_id"] == "L2-1-1"
+    assert lesson["revisions"][0]["source_refs"][0]["asset_id"] == "asset-1"
     assert "模型内容校验未通过" in completed["message"]
 
 
@@ -411,8 +432,9 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     class FakeCourseService:
         calls = []
 
-        async def prepare_teacher_lesson_plan(self, *, course_data, lesson_unit_id, on_phase):
+        async def prepare_teacher_lesson_plan(self, *, course_data, lesson_unit_id, on_phase, source_evidence=None):
             self.calls.append(lesson_unit_id)
+            assert source_evidence == []
             await on_phase("lesson_plan_batch", 60, "生成中")
             scope = lesson_scope(course_data, lesson_unit_id)
             return {

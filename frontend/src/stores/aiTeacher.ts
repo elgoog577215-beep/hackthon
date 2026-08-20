@@ -104,6 +104,7 @@ export interface AIConversation {
 
 export interface SendAIMessagePayload {
   courseId: string
+  perspective?: 'learner' | 'teacher'
   courseVersionId?: string
   nodeId?: string
   nodeName?: string
@@ -361,6 +362,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
           request_id: localUserId,
           course_id: payload.courseId,
           conversation_id: conversation.conversation_id,
+          perspective: payload.perspective || 'learner',
           entrypoint: payload.entrypoint || 'global',
           node_id: payload.nodeId || '',
           node_name: payload.nodeName || '',

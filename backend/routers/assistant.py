@@ -116,6 +116,7 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
         question=req.question,
         node_id=req.node_id or None,
         selection=req.selection or "",
+        perspective=req.perspective,
         entrypoint=req.entrypoint,
         context_ref=req.context_ref,
         task_ref=req.task_ref,
@@ -123,8 +124,8 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
     )
     public_context = context_public_summary(context_package)
     assistant_message_id = f"aim_{os.urandom(16).hex()}"
-    direct_action = _direct_action(req.question)
-    retrieval_requested = should_retrieve_for_message(
+    direct_action = None if req.perspective == "teacher" else _direct_action(req.question)
+    retrieval_requested = req.perspective != "teacher" and should_retrieve_for_message(
         conversation,
         direct_action=direct_action,
     )

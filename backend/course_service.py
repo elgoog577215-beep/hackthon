@@ -1393,6 +1393,7 @@ class CourseService(AIBase):
         course_data: dict[str, Any],
         lesson_unit_id: str,
         on_phase: Callable[[str, int, str], Awaitable[None] | None] | None = None,
+        source_evidence: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate one teacher lesson without entering learner content flow.
 
@@ -1432,6 +1433,21 @@ class CourseService(AIBase):
 
         scoped_plan = deepcopy(source_plan)
         scoped_plan["chapters"] = [deepcopy(chapter)]
+        source_hints = [
+            {
+                "evidence_id": str(item.get("evidence_id") or ""),
+                "kind": str(item.get("kind") or "uploaded_ppt_slide"),
+                "summary": str(item.get("summary") or item.get("source_text") or "")[:1200],
+            }
+            for item in source_evidence or []
+            if str(item.get("summary") or item.get("source_text") or "").strip()
+        ]
+        scoped_sections = scoped_plan["chapters"][0].get("sections") or []
+        if source_hints and scoped_sections:
+            per_section = max(1, min(4, (len(source_hints) + len(scoped_sections) - 1) // len(scoped_sections)))
+            for index, section in enumerate(scoped_sections):
+                start = min(index * per_section, max(0, len(source_hints) - 1))
+                section["evidence_hints"] = deepcopy(source_hints[start:start + per_section] or source_hints[-1:])
         scoped_course = deepcopy(course_data)
         scoped_course["course_plan"] = scoped_plan
         scoped_course["course_outline"] = deepcopy(scoped_plan)
@@ -1483,8 +1499,23 @@ class CourseService(AIBase):
             "plan": lesson_plan,
             "planned_course": planned_course,
             "warnings": warnings,
+            "source_refs": [
+                {
+                    "source_kind": "uploaded_ppt",
+                    "asset_id": str(item.get("asset_id") or ""),
+                    "evidence_id": str(item.get("evidence_id") or ""),
+                    "slide": item.get("slide"),
+                }
+                for item in source_evidence or []
+            ],
             "generation_source": (
-                "deterministic_local_fallback" if warnings else "model"
+                "uploaded_ppt_with_local_fallback"
+                if source_hints and warnings
+                else "uploaded_ppt"
+                if source_hints
+                else "deterministic_local_fallback"
+                if warnings
+                else "model"
             ),
         }
 
@@ -1810,11 +1841,13 @@ class CourseService(AIBase):
                 sections.append(section)
                 item = deepcopy(section)
                 item["chapter_id"] = chapter_id
+                computed_evidence_hints = build_section_knowledge_skeleton_evidence_hints(
+                    artifacts or course_data,
+                    section,
+                )
                 item["evidence_hints"] = (
-                    build_section_knowledge_skeleton_evidence_hints(
-                        artifacts or course_data,
-                        section,
-                    )
+                    computed_evidence_hints
+                    or deepcopy(section.get("evidence_hints") or [])[:4]
                 )
                 planning_sections.append(item)
 

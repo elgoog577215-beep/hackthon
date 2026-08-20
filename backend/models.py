@@ -515,6 +515,7 @@ class AskQuestionRequest(BaseModel):
     request_id: Optional[str] = Field(default=None, min_length=8, max_length=200)
     course_id: str = Field(..., min_length=1, max_length=160)
     conversation_id: Optional[str] = Field(default=None, max_length=160)
+    perspective: Literal["learner", "teacher"] = "learner"
     entrypoint: Literal["global", "selection", "practice", "continuity", "record", "block"] = "global"
     node_id: str = Field(default="", max_length=160)
     node_name: str = Field(default="", max_length=500)

@@ -1,33 +1,35 @@
 ## 1. Contract and navigation
 
-- [x] 1.1 Freeze the course-outline-content-PPT information architecture, terminology and source-of-truth boundaries.
-- [x] 1.2 Add the unified course route and persistent four-stage navigation in zh/en.
-- [x] 1.3 Make course cards enter the unified workspace while resume actions still enter the saved learning location.
-- [x] 1.4 Redirect legacy teacher routes to the matching unified mode and remove the production overview from the active product flow.
+- [x] 1.1 Freeze the calendar-file-space-formal-course information architecture, terminology and source-of-truth boundaries.
+- [x] 1.2 Make the teaching calendar the teacher home with a wider course rail and non-title-derived course icons.
+- [x] 1.3 Make course entries open the file space and add an explicit formal-course preview route.
+- [x] 1.4 Redirect legacy teacher routes without preserving the duplicate four-stage tab bar.
 
-## 2. Course stage
+## 2. Course file space
 
-- [x] 2.1 Build overview, files, teaching design and calendar submodules in the original course visual system.
-- [x] 2.2 Add stable `course_id` ownership to course-space packages and cover backward-compatible repository/API behavior.
-- [x] 2.3 Embed file and calendar workspaces without their old teacher shell or duplicate course reload.
+- [x] 2.1 Separate left folder navigation, current-folder files, and right-side file details.
+- [x] 2.2 Group assets as outline, lesson plan, material, PPT and practice without splitting material into duplicate categories.
+- [x] 2.3 Provide type-specific create dialogs and keep stable `course_id` ownership for file packages.
+- [x] 2.4 Project folder navigation to a horizontal mobile control instead of stacking the desktop tree.
+- [x] 2.5 Split PPT creation into AI-generated and teacher-uploaded flows, preserving uploaded originals and optionally deriving a reviewable lesson-plan draft from PPTX evidence.
 
-## 3. Outline, content and PPT
+## 3. Formal course and teacher agent
 
-- [x] 3.1 Reuse `CourseOutlineReview` for outline editing without creating a second outline tree.
-- [x] 3.2 Present `CourseTeachingPlan.overall` and `.sections` as two views inside one teaching-design workbench revision chain.
-- [x] 3.3 Keep formal practice inside content and keep PPT truth in the existing same-source workspace.
-- [x] 3.4 Keep the original learning surface as the content stage and remove its duplicate course/practice/PPT navigation.
-- [x] 3.5 Keep the four-stage navigation visible in the PPT workspace and on mobile.
+- [x] 3.1 Reuse the formal learning surface as a read-only teacher preview assembled from course blocks and formal practice.
+- [x] 3.2 Add a teacher-agent entry in the course file space with teacher-specific prompts and actions.
+- [x] 3.3 Prevent teacher mode from exposing learner evidence, learner-note actions or web retrieval.
+- [x] 3.4 Keep semantic changes behind impact preview, teacher confirmation and affected-unit rebuild.
 
-## 4. Performance and convergence
+## 4. Same-source authoring
 
-- [x] 4.1 Load only the current submode and keep visited submodes alive within the same course.
-- [x] 4.2 Stop the unified flow from reading or writing the parallel teacher lesson-authoring repository.
-- [x] 4.3 Record the compatibility and production-data audit required before deleting old teacher APIs and files.
+- [x] 4.1 Reuse `CourseOutlineReview` and the structured lesson-plan revision chain rather than creating parallel truth.
+- [x] 4.2 Keep PPT truth in `TeachingRepresentation / SlideDeckSpec` and expose stale source status in the file space.
+- [ ] 4.3 Complete durable dependency indexes and asynchronous precise rebuild for every lesson-plan, content, practice and PPT unit.
+- [ ] 4.4 Verify failure recovery keeps the last usable representation for all supported asset types.
 
 ## 5. Verification and release
 
-- [x] 5.1 Add/update backend and frontend tests for course binding, routes, navigation and module behavior.
-- [x] 5.2 Run relevant backend tests, frontend tests/build, `openspec validate --all` and diff checks.
-- [x] 5.3 Verify zh/en and desktop/mobile real pages, including loading, empty, error and focus states.
-- [x] 5.4 Update canonical product/status/architecture docs, commit only task files and push the branch.
+- [x] 5.1 Add/update backend and frontend tests for teacher perspective, folder navigation, formal preview and same-source wording.
+- [x] 5.2 Run relevant backend tests, frontend tests/build, `openspec validate --all` and the frontend design detector.
+- [x] 5.3 Verify zh/en and desktop/mobile real pages for calendar, file navigation, teacher agent and formal preview.
+- [x] 5.4 Update canonical product/status docs, commit only task files and push the branch.

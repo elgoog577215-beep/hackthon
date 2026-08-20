@@ -73,7 +73,7 @@
         />
         <MarkdownRenderer v-else :content="displayBlockContent(item.block, index)" :search-words="searchWords" />
         <InlineCourseBlockAI
-          v-if="!isCanonicalBlock(item.block.block_id)"
+          v-if="!props.readOnly && !isCanonicalBlock(item.block.block_id)"
           :node="node"
           :block="item.block"
           :active="activeBlockId === item.block.block_id"
@@ -161,6 +161,7 @@ const props = withDefaults(defineProps<{
   searchWords?: string[]
   isStreaming?: boolean
   canImproveBlocks?: boolean
+  readOnly?: boolean
 }>(), { records: () => [], canImproveBlocks: false })
 const emit = defineEmits<{
   openRecord: [payload: { note: Note; x: number; y: number }]

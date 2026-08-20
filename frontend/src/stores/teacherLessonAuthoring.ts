@@ -10,6 +10,7 @@ export interface TeacherLessonPlanRevision {
   generation_source: string
   status: 'draft' | 'needs_ai_review' | 'confirmed'
   warnings: Array<Record<string, unknown>>
+  source_refs?: Array<Record<string, unknown>>
   plan: Record<string, any>
   actor: string
   created_at: string
@@ -186,13 +187,21 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.loading = false
       }
     },
-    async generateLesson(courseId: string, lessonUnitId: string) {
+    async generateLesson(
+      courseId: string,
+      lessonUnitId: string,
+      source?: { packageId: string; assetId: string },
+    ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
       try {
         const response = await http.post<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/generate`,
-          { request_id: crypto.randomUUID() },
+          {
+            request_id: crypto.randomUUID(),
+            source_package_id: source?.packageId || '',
+            source_asset_id: source?.assetId || '',
+          },
           requestConfig(),
         )
         const job = response.data.job

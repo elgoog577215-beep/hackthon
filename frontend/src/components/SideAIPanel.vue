@@ -4,16 +4,16 @@
       v-if="isOverlayMode"
       type="button"
       class="ai-teacher-backdrop"
-      :aria-label="t('courseWorkspace.aiTeacher.close', '关闭 AI 老师')"
+      :aria-label="assistantCloseLabel"
       @click="emit('close')"
     />
 
-    <section class="ai-teacher-surface" :aria-label="t('courseWorkspace.aiTeacher.title', 'AI 老师')">
+    <section class="ai-teacher-surface" :aria-label="assistantTitle">
       <header class="ai-teacher-header">
         <div class="ai-teacher-heading">
           <span class="ai-teacher-icon"><Sparkles :size="16" /></span>
           <div class="ai-teacher-heading-copy">
-            <strong>{{ t('courseWorkspace.aiTeacher.title', 'AI 老师') }}</strong>
+            <strong>{{ assistantTitle }}</strong>
           </div>
         </div>
         <div class="ai-teacher-header-actions">
@@ -29,7 +29,7 @@
           <button
             type="button"
             class="icon-button"
-            :title="t('courseWorkspace.aiTeacher.close', '关闭 AI 老师')"
+            :title="assistantCloseLabel"
             @click="emit('close')"
           >
             <X :size="18" />
@@ -87,12 +87,12 @@
           <span>{{ t('courseWorkspace.aiTeacher.context', '当前上下文') }}</span>
           <strong>{{ contextLabel }}</strong>
           <small
-            v-if="modelEvidenceLabel"
+            v-if="!isTeacherMode && modelEvidenceLabel"
             class="context-evidence"
             :title="t('courseWorkspace.aiTeacher.evidenceReady', '已加载学习证据')"
           >{{ modelEvidenceLabel }}</small>
         </div>
-        <label v-if="!props.blockTarget" class="retrieval-setting">
+        <label v-if="!props.blockTarget && !isTeacherMode" class="retrieval-setting">
           <span>
             <strong>{{ t('courseWorkspace.aiTeacher.retrieval', '联网检索') }}</strong>
             <small>{{ aiStore.currentConversation?.retrieval_enabled
@@ -496,8 +496,8 @@
 
         <div v-else-if="!aiStore.messages.length" class="ai-teacher-empty">
           <span class="empty-mark"><MessageSquareText :size="22" /></span>
-          <strong>{{ t('courseWorkspace.aiTeacher.emptyTitle', '从当前学习现场开始提问') }}</strong>
-          <p>{{ t('courseWorkspace.aiTeacher.emptyBody', '从没弄懂的概念、题目或课程内容开始。') }}</p>
+          <strong>{{ assistantEmptyTitle }}</strong>
+          <p>{{ assistantEmptyBody }}</p>
         </div>
 
         <article
@@ -592,7 +592,7 @@
               </div>
 
               <div
-                v-if="message.status === 'complete' && message.content && !message.receipt && !message.proposal"
+                v-if="!isTeacherMode && message.status === 'complete' && message.content && !message.receipt && !message.proposal"
                 class="message-commands"
               >
                 <button type="button" @click="saveAnswerAsNote(message)">
@@ -709,15 +709,18 @@ import logger from '../utils/logger'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 import { modelFailureHint, modelFailureLabel } from '../utils/ai-teacher-failures'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
+  mode?: 'learner' | 'teacher'
   quoteText: string
   quoteNodeId: string
   quoteAnchor?: Record<string, unknown>
   prefill?: string
   entrypoint?: 'global' | 'selection' | 'practice' | 'continuity' | 'record'
   blockTarget?: CourseBlockEditTarget
-}>()
+}>(), {
+  mode: 'learner',
+})
 
 const emit = defineEmits<{
   (event: 'close'): void
@@ -751,13 +754,28 @@ let personalizationGenerationToken = 0
 let personalizationApplyToken = 0
 const focusedEvolutionPlanId = ref('')
 
+const isTeacherMode = computed(() => props.mode === 'teacher')
+const assistantTitle = computed(() => isTeacherMode.value
+  ? t('courseWorkspace.teacherAgent.title', '教师智能体')
+  : t('courseWorkspace.aiTeacher.title', 'AI 老师'))
+const assistantCloseLabel = computed(() => isTeacherMode.value
+  ? t('courseWorkspace.teacherAgent.close', '关闭教师智能体')
+  : t('courseWorkspace.aiTeacher.close', '关闭 AI 老师'))
+const assistantEmptyTitle = computed(() => isTeacherMode.value
+  ? t('courseWorkspace.teacherAgent.emptyTitle', '从教案与 PPT 开始协同备课')
+  : t('courseWorkspace.aiTeacher.emptyTitle', '从当前学习现场开始提问'))
+const assistantEmptyBody = computed(() => isTeacherMode.value
+  ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前课程真源分析怎么教，正式改动会先说明影响。')
+  : t('courseWorkspace.aiTeacher.emptyBody', '从没弄懂的概念、题目或课程内容开始。'))
 const isOverlayMode = computed(() => windowWidth.value < 1280)
 const panelClasses = computed(() => isOverlayMode.value ? 'is-overlay' : 'is-docked')
 const currentNode = computed(() => (
   courseStore.nodes.find(node => node.node_id === (props.quoteNodeId || courseStore.currentNode?.node_id))
   || courseStore.currentNode
 ))
-const contextLabel = computed(() => currentNode.value?.node_name || t('courseWorkspace.aiTeacher.courseContext', '当前课程'))
+const contextLabel = computed(() => currentNode.value?.node_name
+  || courseStore.currentCourse?.course_name
+  || t('courseWorkspace.aiTeacher.courseContext', '当前课程'))
 const modelEvidenceLevel = computed(() => String(
   aiStore.currentContext?.data_sufficiency?.level
   || progressStore.runtime?.learner_model?.data_sufficiency?.level
@@ -871,25 +889,40 @@ const canSend = computed(() => Boolean(
   && isOnline.value
   && !aiStore.loading,
 ))
-const composerPlaceholder = computed(() => t('courseWorkspace.aiTeacher.placeholder', '询问当前内容或作答过程'))
+const composerPlaceholder = computed(() => isTeacherMode.value
+  ? t('courseWorkspace.teacherAgent.placeholder', '询问怎么教、怎么改教案或 PPT')
+  : t('courseWorkspace.aiTeacher.placeholder', '询问当前内容或作答过程'))
 const composerDisabled = computed(() => !isOnline.value || aiStore.loading)
 const composerButtonDisabled = computed(() => !aiStore.loading && !canSend.value)
 const composerButtonTitle = computed(() => {
   if (aiStore.loading) return t('courseWorkspace.aiTeacher.stop', '停止')
   return t('courseWorkspace.aiTeacher.send', '发送')
 })
-const quickPrompts = computed(() => [
-  {
-    icon: WandSparkles,
-    label: t('courseWorkspace.aiTeacher.quickExplain', '解释当前内容'),
-    prompt: t('courseWorkspace.aiTeacher.quickExplainPrompt', '请解释当前内容的核心概念。'),
-  },
-  {
-    icon: Lightbulb,
-    label: t('courseWorkspace.aiTeacher.quickExample', '举一个例子'),
-    prompt: t('courseWorkspace.aiTeacher.quickExamplePrompt', '请用一个具体例子解释当前内容。'),
-  },
-])
+const quickPrompts = computed(() => isTeacherMode.value
+  ? [
+      {
+        icon: Layers3,
+        label: t('courseWorkspace.teacherAgent.quickAnalyze', '分析教学结构'),
+        prompt: t('courseWorkspace.teacherAgent.quickAnalyzePrompt', '请从教学设计角度分析当前课程结构、重点与风险。'),
+      },
+      {
+        icon: Lightbulb,
+        label: t('courseWorkspace.teacherAgent.quickTeach', '给出教学建议'),
+        prompt: t('courseWorkspace.teacherAgent.quickTeachPrompt', '请围绕当前课程说明怎么教，并给出可执行的课堂组织建议。'),
+      },
+    ]
+  : [
+      {
+        icon: WandSparkles,
+        label: t('courseWorkspace.aiTeacher.quickExplain', '解释当前内容'),
+        prompt: t('courseWorkspace.aiTeacher.quickExplainPrompt', '请解释当前内容的核心概念。'),
+      },
+      {
+        icon: Lightbulb,
+        label: t('courseWorkspace.aiTeacher.quickExample', '举一个例子'),
+        prompt: t('courseWorkspace.aiTeacher.quickExamplePrompt', '请用一个具体例子解释当前内容。'),
+      },
+    ])
 
 function contextRef() {
   const runtimeContext = progressStore.runtime?.context || {}
@@ -946,6 +979,7 @@ async function send() {
     nodeName: currentNode.value?.node_name,
     question,
     selection: quoteVisible.value ? props.quoteText : '',
+    perspective: props.mode,
     entrypoint: props.entrypoint || (quoteVisible.value ? 'selection' : 'global'),
     contextRef: contextRef(),
     taskRef: progressStore.runtime?.active_task || {},
@@ -1609,7 +1643,7 @@ onUnmounted(() => {
 .conversation-reveal-enter-active,.conversation-reveal-leave-active { transition: opacity .16s ease, transform .16s ease; }
 .conversation-reveal-enter-from,.conversation-reveal-leave-to { opacity: 0; transform: translateY(-4px); }
 
-.context-panel { flex: 0 0 auto; margin: 0 12px 10px; padding: 10px 11px; border-left: 3px solid #818cf8; border-radius: 0 10px 10px 0; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
+.context-panel { flex: 0 0 auto; margin: 0 12px 10px; padding: 10px 11px; border: 1px solid rgba(165,180,252,.58); border-radius: 10px; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
 .retrieval-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(129,140,248,.2); cursor:pointer; }
 .retrieval-setting > span { min-width:0; display:flex; flex-direction:column; gap:1px; }
 .retrieval-setting strong { color:#3730a3; font-size:11px; }
@@ -1696,7 +1730,7 @@ onUnmounted(() => {
 .personalization-original-preview :deep(.markdown-renderer > :first-child),.personalization-original-preview :deep(.markdown-renderer > :last-child) { margin-block:0; }
 .personalization-generate,.personalization-apply { width:100%; min-height:36px; }
 .personalization-generate:disabled,.personalization-apply:disabled { opacity:.5; cursor:not-allowed; }
-.personalization-error { display:flex; align-items:flex-start; gap:7px; margin-top:10px; padding:9px 10px; border-left:3px solid var(--lz-danger); border-radius:0 8px 8px 0; color:var(--lz-danger); background:var(--lz-danger-soft); font-size:10px; line-height:1.5; }
+.personalization-error { display:flex; align-items:flex-start; gap:7px; margin-top:10px; padding:9px 10px; border:1px solid rgba(220,38,38,.24); border-radius:8px; color:var(--lz-danger); background:var(--lz-danger-soft); font-size:10px; line-height:1.5; }
 .personalization-proposal-summary { display:flex; align-items:center; gap:7px; margin:13px 0 8px; color:var(--lz-brand-strong); font-size:10px; font-weight:750; }
 .personalization-diff-list { display:grid; gap:9px; }
 .personalization-diff-card { padding:9px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; transition:border-color .16s ease,box-shadow .16s ease; }
@@ -1715,7 +1749,7 @@ onUnmounted(() => {
 .personalization-before :deep(.markdown-renderer > :first-child),.personalization-before :deep(.markdown-renderer > :last-child),.personalization-after :deep(.markdown-renderer > :first-child),.personalization-after :deep(.markdown-renderer > :last-child) { margin-block:0; }
 .personalization-diff-card > p { margin:7px 1px 0; color:var(--lz-text-muted); font-size:9px; line-height:1.45; }
 .personalization-apply { margin-top:11px; }
-.personalization-apply-receipt { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:8px; margin-top:12px; padding:10px; border-left:3px solid var(--lz-success); border-radius:0 9px 9px 0; color:#166534; background:var(--lz-success-soft); }
+.personalization-apply-receipt { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:8px; margin-top:12px; padding:10px; border:1px solid rgba(22,163,74,.24); border-radius:9px; color:#166534; background:var(--lz-success-soft); }
 .personalization-apply-receipt > div { min-width:0; display:grid; gap:3px; }
 .personalization-apply-receipt strong { font-size:10px; }
 .personalization-apply-receipt span { color:#47705b; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
@@ -1733,7 +1767,7 @@ onUnmounted(() => {
 .assistant-avatar { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid #e2e8f0; border-radius: 9px; color: #4f46e5; background: #fff; box-shadow: 0 4px 12px rgba(15,23,42,.06); }
 .assistant-message-column { min-width: 0; display: grid; gap: 10px; }
 .assistant-answer { min-width: 0; padding: 0 3px 2px 0; color: #334155; font-size: 12.5px; line-height: 1.76; overflow-wrap: anywhere; }
-.assistant-answer.failed { padding: 9px 10px; border-left: 3px solid var(--lz-danger); border-radius: 0 7px 7px 0; color: var(--lz-danger); background: var(--lz-danger-soft); }
+.assistant-answer.failed { padding: 9px 10px; border: 1px solid rgba(220,38,38,.24); border-radius: 7px; color: var(--lz-danger); background: var(--lz-danger-soft); }
 .assistant-answer :deep(.markdown-renderer) { color: inherit; font-size: inherit; line-height: inherit; }
 .assistant-answer :deep(.markdown-renderer > :first-child) { margin-top: 0; }
 .assistant-answer :deep(.markdown-renderer > :last-child) { margin-bottom: 0; }
@@ -1755,7 +1789,7 @@ onUnmounted(() => {
 .assistant-answer :deep(li) { padding-left: 2px; }
 .assistant-answer :deep(li + li) { margin-top: .38em; }
 .assistant-answer :deep(li::marker) { color: #6366f1; font-weight: 720; }
-.assistant-answer :deep(blockquote) { margin: .85em 0 1em; padding: 9px 11px; border-left: 3px solid #a5b4fc; border-radius: 0 9px 9px 0; color: #475569; background: #f8fafc; }
+.assistant-answer :deep(blockquote) { margin: .85em 0 1em; padding: 9px 11px; border: 1px solid #e0e7ff; border-radius: 9px; color: #475569; background: #f8fafc; }
 .assistant-answer :deep(blockquote p:last-child) { margin-bottom: 0; }
 .assistant-answer :deep(a) { color: #4f46e5; text-decoration-color: #c7d2fe; text-underline-offset: 3px; }
 .assistant-answer :deep(code) { padding: .13em .38em; border: 1px solid #e2e8f0; border-radius: 5px; color: #4338ca; background: #f8fafc; font-size: .92em; }
@@ -1780,7 +1814,7 @@ onUnmounted(() => {
 .message-retrieval-status { width:max-content; max-width:100%; margin:0; border-radius:999px; padding:3px 7px; color:#475569; background:#f1f5f9; font-size:9px; }
 .message-retrieval-status.is-completed { color:#166534; background:#dcfce7; }
 .message-retrieval-status.is-failed_fallback_local { color:#9a3412; background:#ffedd5; }
-.model-failure { min-width:0; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:start; gap:7px; padding:8px 9px; border-left:3px solid var(--lz-danger); border-radius:0 8px 8px 0; color:#991b1b; background:var(--lz-danger-soft); }
+.model-failure { min-width:0; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:start; gap:7px; padding:8px 9px; border:1px solid rgba(220,38,38,.24); border-radius:8px; color:#991b1b; background:var(--lz-danger-soft); }
 .model-failure > div { min-width:0; display:grid; gap:2px; }
 .model-failure strong { font-size:10px; line-height:1.4; overflow-wrap:anywhere; }
 .model-failure small { color:#a75757; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
@@ -1794,8 +1828,8 @@ onUnmounted(() => {
 .primary-command,.secondary-command { min-height: 29px; display: inline-flex; align-items: center; justify-content: center; gap: 5px; padding: 0 9px; border-radius: 7px; font-size: 10px; font-weight: 700; cursor: pointer; }
 .primary-command { border: 1px solid var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
 .secondary-command { border: 1px solid rgba(165,180,252,.8); color: var(--lz-text-secondary); background: rgba(255,255,255,.8); }
-.action-receipt { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 8px 9px; border-left: 3px solid var(--lz-success); border-radius: 0 8px 8px 0; color: #166534; background: var(--lz-success-soft); font-size: 10px; }
-.action-receipt:not(.is-succeeded) { border-left-color: var(--lz-danger); color: #991b1b; background: var(--lz-danger-soft); }
+.action-receipt { min-width: 0; display: flex; align-items: center; gap: 7px; padding: 8px 9px; border: 1px solid rgba(22,163,74,.24); border-radius: 8px; color: #166534; background: var(--lz-success-soft); font-size: 10px; }
+.action-receipt:not(.is-succeeded) { border-color: rgba(220,38,38,.24); color: #991b1b; background: var(--lz-danger-soft); }
 .action-receipt span { min-width: 0; flex: 1; }
 .action-receipt button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; border: 0; color: inherit; background: transparent; font-size: 9px; font-weight: 700; cursor: pointer; }
 

@@ -25,6 +25,7 @@ def build_ai_teacher_context(
     question: str,
     node_id: str | None = None,
     selection: str = "",
+    perspective: str = "learner",
     entrypoint: str = "global",
     context_ref: dict[str, Any] | None = None,
     task_ref: dict[str, Any] | None = None,
@@ -33,7 +34,7 @@ def build_ai_teacher_context(
     """Build one immutable package without copying domain state into AI storage."""
     projected_course = project_course_content_blocks(course_data)
     runtime = build_learning_runtime(projected_course, user_id=user_id, node_id=node_id)
-    intent = _request_intent(question, entrypoint)
+    intent = "teacher_design" if perspective == "teacher" else _request_intent(question, entrypoint)
     runtime_context = runtime.get("context") or {}
     effective_node_id = str(
         node_id
@@ -76,6 +77,7 @@ def build_ai_teacher_context(
         "request": {
             "question": _clip(question, 5000),
             "selection": _clip(selection, 10000),
+            "perspective": perspective,
             "entrypoint": entrypoint,
             "intent": intent,
         },
@@ -104,7 +106,7 @@ def build_ai_teacher_context(
         "permissions": {
             "answer": True,
             "explain_runtime_action": True,
-            "allowed_proposals": [
+            "allowed_proposals": [] if perspective == "teacher" else [
                 "create_note",
                 "create_issue",
                 "create_review_task",
@@ -159,6 +161,34 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
         f"- {item.get('role')}：{item.get('content')}"
         for item in (conversation.get("recent_messages") or [])
     ] or ["- 新会话。"]
+
+    if request.get("perspective") == "teacher":
+        return f"""你是灵知教师端的教师智能体。你帮教师分析“怎么教”，优先服务教案与 PPT 备课，不代替教师做正式发布决定。
+
+## 当前教师请求
+- 问题：{request.get('question')}
+- 当前课节：{scene.get('node_name') or '全课程'}
+- 意图：{request.get('intent')}
+
+## 课程结构与版本现场
+{json.dumps(scene, ensure_ascii=False, indent=2)}
+
+## 结构化同源知识切片
+{json.dumps(knowledge_context, ensure_ascii=False, indent=2)}
+
+## 当前版本课程来源
+{chr(10).join(source_lines)}
+
+## 最近对话
+{chr(10).join(history_lines)}
+
+## 回答要求
+1. 先分析教学目标、原理、过程和课堂组织，再给可执行建议；不以直接代答学生题目为主。
+2. 课程事实优先使用上面当前版本的结构块；没有来源时明确说明是通用建议。
+3. 教案、PPT、正文和练习必须引用同一语义真源的稳定块 ID、修订号和依赖关系，不要建议多份脱节的副本。
+4. 当底层事实或版本变化时，先说明影响到哪些教案、PPT、正文和练习，再由教师确认是否精确重建。
+5. 不得声称已自动修改或发布正式课程；课程正式变更必须可预览、可确认、可追溯。
+"""
 
     return f"""你是灵知课程中的 AI 老师。你负责回答、解释和提出可确认动作，但不拥有学习状态，也不能修改正式课程、掌握结论、画像、诊断结论或替学生提交答案。
 

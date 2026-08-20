@@ -178,6 +178,62 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def extract_uploaded_pptx_evidence(
+    path: Path,
+    *,
+    asset_id: str,
+) -> list[dict[str, Any]]:
+    """Extract visible slide text without mutating the teacher's source deck."""
+    if path.suffix.lower() != ".pptx":
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_format_unsupported",
+            "旧课件同源解析目前仅支持 PPTX 文件。",
+        )
+    try:
+        from pptx import Presentation
+
+        presentation = Presentation(path)
+    except Exception as exc:
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_parse_failed",
+            "旧课件无法解析，请确认文件未损坏。",
+        ) from exc
+
+    evidence: list[dict[str, Any]] = []
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        parts: list[str] = []
+        for shape in slide.shapes:
+            text = ""
+            if getattr(shape, "has_text_frame", False):
+                text = str(getattr(shape, "text", "") or "")
+            elif getattr(shape, "has_table", False):
+                text = "\n".join(
+                    str(cell.text or "")
+                    for row in shape.table.rows
+                    for cell in row.cells
+                )
+            normalized = " ".join(text.split()).strip()
+            if normalized and normalized not in parts:
+                parts.append(normalized)
+        source_text = "\n".join(parts).strip()
+        if not source_text:
+            continue
+        evidence.append({
+            "evidence_id": f"uploaded-ppt-{asset_id}-slide-{slide_number}",
+            "kind": "uploaded_ppt_slide",
+            "summary": source_text[:1200],
+            "source_text": source_text[:2400],
+            "slide": slide_number,
+            "asset_id": asset_id,
+        })
+    if not evidence:
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_empty",
+            "旧课件中没有可用于生成教案的文字内容。",
+        )
+    return evidence
+
+
 def _default_root() -> Path:
     configured = os.getenv("TEACHER_LESSON_AUTHORING_DIR", "").strip()
     if configured:
@@ -605,6 +661,7 @@ class TeacherLessonAuthoringRepository:
         source_outline_revision_id: str,
         generation_source: str = "model",
         warnings: list[dict[str, Any]] | None = None,
+        source_refs: list[dict[str, Any]] | None = None,
         actor: str = "teacher",
     ) -> dict[str, Any]:
         with self._lock:
@@ -626,6 +683,7 @@ class TeacherLessonAuthoringRepository:
                 "generation_source": generation_source,
                 "status": "needs_ai_review" if warnings else "draft",
                 "warnings": deepcopy(warnings or []),
+                "source_refs": deepcopy(source_refs or []),
                 "plan": deepcopy(plan),
                 "actor": actor,
                 "created_at": _now(),
@@ -1025,6 +1083,11 @@ class TeacherLessonAuthoringService:
             plan = normalize_teacher_lesson_plan(plan)
             warnings = list(result.get("warnings") or [])
             generation_source = str(result.get("generation_source") or ("deterministic_local_fallback" if warnings else "model"))
+            source_refs = [
+                deepcopy(item)
+                for item in result.get("source_refs") or []
+                if isinstance(item, dict)
+            ]
             outline_revision = str(
                 result.get("source_outline_revision_id")
                 or self.repository.get_job(course_id, job_id).get("source_outline_revision_id")
@@ -1037,6 +1100,7 @@ class TeacherLessonAuthoringService:
                 source_outline_revision_id=outline_revision,
                 generation_source=generation_source,
                 warnings=warnings,
+                source_refs=source_refs,
             )
             status = "completed_with_warnings" if warnings else "completed"
             return self.repository.update_job(

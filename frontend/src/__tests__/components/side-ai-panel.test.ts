@@ -29,6 +29,7 @@ function mountPanel(
   quoteText = '',
   blockTarget?: CourseBlockEditTarget,
   configureCourseStore?: (store: ReturnType<typeof useCourseStore>) => void,
+  mode: 'learner' | 'teacher' = 'learner',
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -61,6 +62,7 @@ function mountPanel(
   return mount(SideAIPanel, {
     props: {
       visible: true,
+      mode,
       quoteText,
       quoteNodeId: node.node_id,
       quoteAnchor: quoteText ? { block_id: 'block-1' } : undefined,
@@ -113,6 +115,26 @@ describe('SideAIPanel', () => {
     await wrapper.get('.conversation-toggle').trigger('click')
     expect(wrapper.find('.conversation-drawer').exists()).toBe(true)
     expect((wrapper.get('.conversation-select').element as HTMLSelectElement).value).toBe('conversation-1')
+  })
+
+  it('在课程文件空间以教师视角分析怎么教', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher')
+    const aiStore = useAITeacherStore()
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(null)
+    const sendMessage = vi.spyOn(aiStore, 'sendMessage').mockResolvedValue(undefined)
+
+    expect(wrapper.get('.ai-teacher-heading').text()).toContain('教师智能体')
+    expect(wrapper.get('.ai-teacher-empty').text()).toContain('教案与 PPT')
+    expect(wrapper.find('.retrieval-setting').exists()).toBe(false)
+    expect(wrapper.find('.context-evidence').exists()).toBe(false)
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
+
+    await wrapper.findAll('.quick-actions button')[0]!.trigger('click')
+    await flushPromises()
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      perspective: 'teacher',
+      question: expect.stringContaining('教学设计'),
+    }))
   })
 
   it('在同一回答下保留来源、动作提案和持久回执表达', () => {

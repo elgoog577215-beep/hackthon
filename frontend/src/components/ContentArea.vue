@@ -6,7 +6,7 @@
     </div>
 
     <div
-        v-if="courseStore.currentCourseId && !isGenerationPreview"
+        v-if="courseStore.currentCourseId && !isGenerationPreview && !props.readOnly"
         class="absolute top-3 right-3 z-20 inline-flex h-8 items-center gap-1.5 rounded-md border px-2.5 text-xs font-medium shadow-sm backdrop-blur-md"
         :class="learningSyncClass"
         :title="t('courseWorkspace.learningSession.title', '学习现场')"
@@ -343,7 +343,8 @@
                         :search-words="searchTokens"
                         :is-streaming="node.generation_status === 'generating'"
                         :generation-preview="isGenerationPreview"
-                        :can-improve-blocks="!isGenerationPreview && courseStore.currentCourseSourceFormat === 'canonical'"
+                        :can-improve-blocks="!props.readOnly && !isGenerationPreview && courseStore.currentCourseSourceFormat === 'canonical'"
+                        :read-only="props.readOnly"
                         @start-practice="handleStartPractice"
                         @open-record="openInlineRecord"
                         @improve-block="emit('improveBlock', $event)"
@@ -426,6 +427,7 @@ dayjs.locale('zh-cn')
 
 const props = defineProps<{
   sideAiPanelVisible?: boolean
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{

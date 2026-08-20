@@ -17,16 +17,19 @@ from dependencies import (
     require_task_manager,
 )
 from learner_context import resolve_user_id
+from material_storage import MaterialStorageError
 from task_manager import TaskManager
 from teacher_lesson_authoring import (
     TeacherLessonAuthoringError,
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
+    extract_uploaded_pptx_evidence,
     lesson_plan_ppt_source,
     lesson_scope,
     teacher_lesson_deck_to_structured_slide_deck,
     teacher_lesson_v6_source,
 )
+from teacher_course_space import teacher_course_space_repository
 from slide_deck_renderer import export_structured_slide_deck
 from representation_compiler import export_slide_deck_pptx
 from representation_edits import (
@@ -56,6 +59,8 @@ _background_jobs: set[asyncio.Task] = set()
 
 class GenerateLessonPlanRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
+    source_package_id: str = Field(default="", max_length=160)
+    source_asset_id: str = Field(default="", max_length=160)
 
 
 class SaveLessonPlanDraftRequest(BaseModel):
@@ -778,6 +783,40 @@ async def generate_lesson_plan(
     try:
         source = _source_course(tm, course_id)
         lesson_scope(source, lesson_unit_id)
+        source_evidence: list[dict[str, Any]] = []
+        source_filename = ""
+        if bool(body.source_package_id) != bool(body.source_asset_id):
+            raise TeacherLessonAuthoringError(
+                "uploaded_ppt_source_incomplete",
+                "旧课件来源信息不完整。",
+            )
+        if body.source_package_id and body.source_asset_id:
+            actor = resolve_user_id(request.headers.get("X-User-Id"))
+            try:
+                package = teacher_course_space_repository.load_owned(
+                    body.source_package_id,
+                    actor,
+                )
+                source_asset, source_path = teacher_course_space_repository.source_file(
+                    package,
+                    body.source_asset_id,
+                )
+            except (FileNotFoundError, MaterialStorageError) as exc:
+                raise TeacherLessonAuthoringError(
+                    "uploaded_ppt_source_not_found",
+                    "旧课件来源不存在或无权访问。",
+                ) from exc
+            if str(package.get("course_id") or "") != course_id:
+                raise TeacherLessonAuthoringError(
+                    "uploaded_ppt_course_mismatch",
+                    "旧课件不属于当前课程。",
+                )
+            source_filename = str(source_asset.get("filename") or "")
+            source_evidence = await run_in_threadpool(
+                extract_uploaded_pptx_evidence,
+                source_path,
+                asset_id=body.source_asset_id,
+            )
         outline_revision = str(
             source.get("blueprint_revision_id")
             or (source.get("course_knowledge_scope_contract") or {}).get("revision_id")
@@ -790,6 +829,15 @@ async def generate_lesson_plan(
             request_id=body.request_id,
             source_outline_revision_id=outline_revision,
         )
+        if source_evidence:
+            job = repository.update_job(
+                course_id,
+                str(job["id"]),
+                source_asset_id=body.source_asset_id,
+                source_package_id=body.source_package_id,
+                source_filename=source_filename,
+                source_kind="uploaded_ppt",
+            )
         if job.get("status") in {"running", "completed", "completed_with_warnings"}:
             return {"job": job}
 
@@ -804,6 +852,7 @@ async def generate_lesson_plan(
                 course_data=course,
                 lesson_unit_id=lesson_id,
                 on_phase=on_progress,
+                source_evidence=source_evidence,
             )
 
         async def run() -> None:
