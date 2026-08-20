@@ -60,6 +60,12 @@ describe('TeacherCourseSpaceView', () => {
     await wrapper.findAll('.file-row')[0]!.trigger('click')
     expect(wrapper.get('.file-inspector').text()).toContain('内容来源')
     expect(wrapper.get('.file-inspector').text()).not.toContain('结构化同源')
+
+    await wrapper.get('.list-search input').setValue('__missing_file__')
+    expect(wrapper.get('.file-empty').text()).toContain('没有找到匹配文件')
+    expect(wrapper.get('.file-empty').text()).not.toContain('这个文件夹还是空的')
+    await wrapper.get('.file-empty button').trigger('click')
+    expect((wrapper.get('.list-search input').element as HTMLInputElement).value).toBe('')
   })
 
   it('按当前目录提供单例教学资产和资料文件的新建入口', () => {
@@ -75,7 +81,11 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain('function handleCreateCommand(command: unknown)')
     expect(source).toContain('const createOptions = computed')
     expect(source).toContain("item.type === type && item.status !== 'missing'")
-    expect(source).toContain("if (type === 'folder' && !isMaterialArea.value) return")
+    expect(source).toContain("targetFolderId: 'folder:reference'")
+    expect(source).toContain("if (type === 'folder' && targetFolder?.kind !== 'folder') return")
+    expect(source).toContain("@click=\"node.kind === 'folder' ? openFolder(node.id) : selectNode(node)\"")
+    expect(source).not.toContain(':disabled="!createOptions.length"')
+    expect(source).toContain("t('courseFiles.noSearchResults')")
     expect(source).toContain("emit('createOutline')")
     expect(source).toContain("pptImportAction: 'derive_plan'")
     expect(storeSource).toContain('source_package_id: source?.packageId')
@@ -102,7 +112,7 @@ describe('TeacherCourseSpaceView', () => {
     await flushPromises()
 
     const lessonRow = wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))
-    await lessonRow!.trigger('dblclick')
+    await lessonRow!.trigger('click')
     const contentRow = wrapper.findAll('.file-row').find(row => row.text().includes('正文'))
     expect(contentRow?.text()).toContain('正文')
     expect(contentRow?.text()).toContain('已就绪')

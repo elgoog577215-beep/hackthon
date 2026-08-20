@@ -14,6 +14,9 @@ describe('calendar and course file-space boundary', () => {
     expect(app).not.toContain('CourseStageTabs')
     expect(app).not.toContain('class="app-course-stages"')
     expect(home).toContain('class="course-rail"')
+    expect(home).toContain('class="course-search" role="search"')
+    expect(home).toContain("t('teacherHome.noSearchResults')")
+    expect(home).toContain("@click=\"courseQuery = ''\"")
     expect(home).toContain('class="calendar-surface"')
     expect(home).toContain('class="day-inspector"')
     expect(home).toContain('<CreateCourseSpaceDialog')
@@ -81,6 +84,9 @@ describe('calendar and course file-space boundary', () => {
     expect(fileSpace).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
     expect(fileSpace).toContain('const createOptions = computed')
     expect(fileSpace).toContain("item.type === type && item.status !== 'missing'")
+    expect(fileSpace).toContain("targetFolderId: 'folder:reference'")
+    expect(fileSpace).not.toContain(':disabled="!createOptions.length"')
+    expect(fileSpace).toContain("@click=\"node.kind === 'folder' ? openFolder(node.id) : selectNode(node)\"")
   })
 
   it('keeps the published formal workspace focused on course, practice, and PPT', () => {

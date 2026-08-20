@@ -45,9 +45,13 @@
             </template>
           </nav>
           <div class="toolbar-actions">
-            <label class="list-search"><Search :size="14" /><input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" /></label>
-            <el-dropdown trigger="click" :disabled="!createOptions.length" @command="handleCreateCommand">
-              <button class="new-button" type="button" :disabled="!createOptions.length"><Plus :size="15" />{{ t('courseFiles.new') }}<ChevronDown :size="14" /></button>
+            <div class="list-search" role="search">
+              <Search :size="15" />
+              <input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
+              <button v-if="query" type="button" :aria-label="t('courseFiles.clearSearch')" @click="query = ''"><X :size="14" /></button>
+            </div>
+            <el-dropdown trigger="click" @command="handleCreateCommand">
+              <button class="new-button" type="button"><Plus :size="15" />{{ t('courseFiles.new') }}<ChevronDown :size="14" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item v-for="option in createOptions" :key="option.type" :command="option.type" :divided="option.divided">
@@ -79,8 +83,8 @@
             class="file-row"
             :class="{ selected: selectedNode?.id === node.id }"
             role="row"
-            @click="selectNode(node)"
-            @dblclick="node.kind === 'folder' ? openFolder(node.id) : primaryAction(node)"
+            @click="node.kind === 'folder' ? openFolder(node.id) : selectNode(node)"
+            @dblclick="node.kind !== 'folder' && primaryAction(node)"
           >
             <span class="file-name" role="cell"><span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="17" /></span><span><strong>{{ node.label }}</strong><small v-if="node.subtitle">{{ node.subtitle }}</small></span></span>
             <span role="cell">{{ displayUpdated(node) }}</span>
@@ -89,8 +93,14 @@
             <span role="cell"><i class="status-dot" :data-state="node.status" />{{ statusLabel(node) }}</span>
           </button>
           <div v-if="!filteredChildren.length" class="file-empty">
-            <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong><span>{{ emptyFolderHelp }}</span>
-            <button v-if="createOptions.length" type="button" @click="handleCreateCommand(defaultCreateType)"><Plus :size="14" />{{ t('courseFiles.createHere') }}</button>
+            <template v-if="query.trim()">
+              <SearchX :size="27" /><strong>{{ t('courseFiles.noSearchResults') }}</strong><span>{{ t('courseFiles.noSearchResultsHelp') }}</span>
+              <button type="button" @click="query = ''"><X :size="14" />{{ t('courseFiles.clearSearch') }}</button>
+            </template>
+            <template v-else>
+              <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong><span>{{ emptyFolderHelp }}</span>
+              <button type="button" @click="handleCreateCommand(defaultCreateType)"><Plus :size="14" />{{ t('courseFiles.createHere') }}</button>
+            </template>
           </div>
         </div>
         <p v-if="status" class="runtime-note" role="status">{{ status }}</p>
@@ -219,7 +229,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, BookOpen, BookOpenText, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
   FileText, Folder, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
-  GitBranch, Pencil, Plus, Presentation, RefreshCw, Search, Sparkles, Trash2, TriangleAlert, Upload, X,
+  GitBranch, Pencil, Plus, Presentation, RefreshCw, Search, SearchX, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore, type Node } from '../stores/course'
@@ -258,6 +268,7 @@ const selectedNode = ref<WorkspaceNode | null>(null)
 const query = ref('')
 const createOpen = ref(false)
 const createType = ref<CreateType>('material')
+const createTargetFolderId = ref('')
 const importInput = ref<HTMLInputElement>()
 const createDialog = ref<HTMLElement>()
 const createForm = ref({ lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null as File | null })
@@ -432,25 +443,23 @@ const createOptionIcons = {
   outline: markRaw(FileText), lesson_plan: markRaw(ClipboardList), material: markRaw(BookOpen),
   ppt: markRaw(Presentation), practice: markRaw(ListChecks), folder: markRaw(FolderPlus),
 }
-const isMaterialArea = computed(() => {
-  let node = currentFolder.value
-  while (node) {
-    if (node.type === 'material' || node.type === 'reference') return true
-    node = node.parentId ? flatNodes.value.get(node.parentId) : undefined
-  }
-  return false
-})
-const createOptions = computed<Array<{ type: CreateType; label: string; divided?: boolean }>>(() => {
+type CreateOption = { type: CreateType; label: string; divided?: boolean; targetFolderId?: string }
+const createOptions = computed<CreateOption[]>(() => {
   const folder = currentFolder.value
   if (!folder) return []
   if (folder.type === 'root') {
     const outline = folder.children?.find(item => item.type === 'outline')
-    return outline?.status === 'missing'
+    const options: CreateOption[] = outline?.status === 'missing'
       ? [{ type: 'outline', label: t('courseFiles.types.outline') }]
       : []
+    options.push(
+      { type: 'material', label: t('courseFiles.types.material'), divided: Boolean(options.length), targetFolderId: 'folder:reference' },
+      { type: 'folder', label: t('courseFiles.types.folder'), targetFolderId: 'folder:reference' },
+    )
+    return options
   }
   if (folder.type === 'lesson') {
-    const options: Array<{ type: CreateType; label: string; divided?: boolean }> = []
+    const options: CreateOption[] = []
     const singletonTypes: CreateType[] = ['lesson_plan', 'ppt', 'practice']
     singletonTypes.forEach(type => {
       const existing = folder.children?.find(item => item.type === type && item.status !== 'missing')
@@ -459,15 +468,13 @@ const createOptions = computed<Array<{ type: CreateType; label: string; divided?
     options.push({ type: 'material', label: t('courseFiles.types.material'), divided: Boolean(options.length) })
     return options
   }
-  if (isMaterialArea.value) {
-    return [
-      { type: 'material', label: t('courseFiles.types.material') },
-      { type: 'folder', label: t('courseFiles.types.folder'), divided: true },
-    ]
-  }
-  return []
+  return [
+    { type: 'material', label: t('courseFiles.types.material') },
+    { type: 'folder', label: t('courseFiles.types.folder'), divided: true },
+  ]
 })
 const defaultCreateType = computed<CreateType>(() => createOptions.value[0]?.type || 'material')
+const createTargetFolder = computed(() => flatNodes.value.get(createTargetFolderId.value) || currentFolder.value)
 const emptyFolderTitle = computed(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
 const emptyFolderHelp = computed(() => currentFolder.value?.type === 'material'
   ? t('courseFiles.emptyLessonMaterialsHelp')
@@ -677,16 +684,17 @@ async function reloadPackage() { if (selected.value) selected.value = (await htt
 
 function handleCreateCommand(command: unknown) {
   const type = String(command || '') as CreateType
-  if (!createOptions.value.some(option => option.type === type)) return
+  const option = createOptions.value.find(item => item.type === type)
+  if (!option) return
   if (type === 'outline') {
     const outline = flatNodes.value.get('managed:outline')
     if (outline?.status === 'missing') emit('createOutline')
     else emit('openOutline')
     return
   }
-  openCreateDialog(type)
+  openCreateDialog(type, '', option.targetFolderId)
 }
-function openCreateDialog(command: CreateType | string, lessonId: unknown = '') {
+function openCreateDialog(command: CreateType | string, lessonId: unknown = '', targetFolderId = '') {
   const type = command as CreateType
   if (type === 'outline') {
     handleCreateCommand(type)
@@ -701,9 +709,11 @@ function openCreateDialog(command: CreateType | string, lessonId: unknown = '') 
       return
     }
   }
-  if (type === 'folder' && !isMaterialArea.value) return
+  const targetFolder = flatNodes.value.get(targetFolderId) || currentFolder.value
+  if (type === 'folder' && targetFolder?.kind !== 'folder') return
   resetCreateForm()
   createType.value = type
+  createTargetFolderId.value = targetFolder?.id || ''
   createForm.value.lessonId = targetLessonId
   createOpen.value = true
   void nextTick(() => createDialog.value?.focus())
@@ -711,7 +721,7 @@ function openCreateDialog(command: CreateType | string, lessonId: unknown = '') 
 function closeCreateDialog() { createOpen.value = false; resetCreateForm() }
 const dialogTitle = computed(() => t(`courseFiles.dialog.${createType.value}.title`))
 const dialogHelp = computed(() => t(`courseFiles.dialog.${createType.value}.help`))
-const needsLesson = computed(() => ['lesson_plan', 'ppt', 'practice'].includes(createType.value) || createType.value === 'material' && currentFolder.value?.type !== 'reference')
+const needsLesson = computed(() => ['lesson_plan', 'ppt', 'practice'].includes(createType.value) && !createForm.value.lessonId)
 const createLocationLabel = computed(() => {
   if (needsLesson.value && !createForm.value.lessonId) {
     const typeKey = createType.value === 'lesson_plan' ? 'lessonPlan' : createType.value
@@ -736,15 +746,23 @@ const submitLabel = computed(() => {
 })
 const submitDisabled = computed(() => busy.value || needsLesson.value && !createForm.value.lessonId || createType.value === 'ppt' && createForm.value.mode === 'import' && !createForm.value.file)
 function captureImportFile(event: Event) { const input = event.target as HTMLInputElement; createForm.value.file = input.files?.[0] || null; input.value = '' }
-function resetCreateForm() { createForm.value = { lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null } }
+function resetCreateForm() {
+  createTargetFolderId.value = ''
+  createForm.value = { lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null }
+}
 
 function targetPath(type: CreateType, lessonId: string) {
   const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
-  if (type === 'material') return currentFolder.value?.type === 'reference' ? '参考资料' : lesson ? `${lessonPath(lesson)}/资料` : '参考资料'
+  const folder = createTargetFolder.value
+  if (type === 'material') {
+    if (folder?.type === 'lesson') return `${folder.path}/资料`
+    if (folder && (folder.type === 'reference' || folder.type === 'material' || folder.type === 'folder')) return folder.path
+    return lesson ? `${lessonPath(lesson)}/资料` : '参考资料'
+  }
   if (type === 'lesson_plan') return lesson ? `${lessonPath(lesson)}/教案` : '教案'
   if (type === 'ppt') return lesson ? `${lessonPath(lesson)}/PPT` : 'PPT'
   if (type === 'practice') return lesson ? `${lessonPath(lesson)}/练习` : '练习'
-  return currentFolder.value?.path || ''
+  return folder?.path || ''
 }
 async function uploadFile(file: File, path: string): Promise<Asset | null> {
   if (!selected.value) return null
@@ -846,10 +864,10 @@ onMounted(refresh)
 .file-tree-pane footer { display:grid; gap:8px; padding:12px 14px; border-top:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; }.file-tree-pane footer button { display:flex; align-items:center; gap:6px; padding:0; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }
 .file-list-pane { display:flex; flex-direction:column; background:#fff; }
 .list-toolbar { min-height:54px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--lz-border); }.list-toolbar nav { min-width:0; display:flex; align-items:center; gap:3px; overflow:hidden; }.list-toolbar nav button { display:flex; align-items:center; gap:5px; min-width:0; padding:4px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; white-space:nowrap; cursor:pointer; }.list-toolbar nav svg { flex:none; color:#94a3b8; }
-.toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:180px; height:32px; display:flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:#94a3b8; }.list-search input { width:100%; border:0; outline:0; font-size:11px; }.new-button { height:34px; display:flex; align-items:center; gap:6px; padding:0 11px; border:1px solid #4f46e5; border-radius:8px; background:#4f46e5; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
+.toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:226px; height:36px; display:flex; align-items:center; gap:7px; padding:0 9px 0 11px; border:1px solid transparent; border-radius:9px; color:#94a3b8; background:#f1f5f9; transition:border-color .15s ease,background .15s ease,box-shadow .15s ease; }.list-search:focus-within { border-color:var(--lz-brand-border); background:#fff; box-shadow:0 0 0 3px var(--lz-brand-soft); }.list-search input { min-width:0; width:100%; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:11px; }.list-search input::-webkit-search-cancel-button { display:none; }.list-search button { width:24px; height:24px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:6px; color:#64748b; background:transparent; cursor:pointer; }.list-search button:hover { color:var(--lz-text-strong); background:#e2e8f0; }.new-button { height:36px; display:flex; align-items:center; gap:6px; padding:0 12px; border:1px solid #4f46e5; border-radius:9px; background:#4f46e5; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }.new-button:hover { background:#4338ca; }.new-button:focus-visible,.list-search button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .folder-title { min-height:58px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:8px 16px; }.folder-title h2 { margin:0; font-size:16px; }.folder-title>span { color:var(--lz-text-muted); font-size:10px; }
-.file-table { min-height:0; flex:1; overflow:auto; padding:0 10px 18px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(220px,1.65fr) 112px 82px 68px 88px; align-items:center; gap:10px; }.file-table__head { min-height:34px; padding:0 9px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:9px; font-weight:700; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-row { width:100%; min-height:48px; padding:5px 9px; border:0; border-bottom:1px solid #edf1f6; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:10px; cursor:default; }.file-row:hover{background:#f7f9fc}.file-row.selected { background:#e9eeff; }.file-name { min-width:0; display:flex; align-items:center; gap:9px; }.file-name>span:last-child { min-width:0; display:grid; gap:2px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:11px; }.file-name small { color:var(--lz-text-muted); font-size:9px; }.file-icon { width:28px; height:28px; flex:none; display:grid; place-items:center; border-radius:7px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
-.file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { font-size:11px; }.file-empty button { display:flex; align-items:center; gap:5px; margin-top:6px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; }
+.file-table { min-height:0; flex:1; overflow:auto; padding:0 10px 18px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(220px,1.65fr) 112px 82px 68px 88px; align-items:center; gap:10px; }.file-table__head { min-height:34px; padding:0 9px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:9px; font-weight:700; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-row { width:100%; min-height:48px; padding:5px 9px; border:0; border-bottom:1px solid #edf1f6; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:10px; cursor:pointer; }.file-row:hover,.file-row:focus-visible{outline:0;background:#f7f9fc}.file-row.selected { background:#e9eeff; }.file-name { min-width:0; display:flex; align-items:center; gap:9px; }.file-name>span:last-child { min-width:0; display:grid; gap:2px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:11px; }.file-name small { color:var(--lz-text-muted); font-size:9px; }.file-icon { width:28px; height:28px; flex:none; display:grid; place-items:center; border-radius:7px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
+.file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { max-width:300px; font-size:11px; line-height:1.55; }.file-empty button { display:flex; align-items:center; gap:5px; margin-top:6px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; cursor:pointer; }.file-empty button:hover { border-color:var(--lz-brand-border); background:var(--lz-brand-soft); }
 .runtime-note { margin:0; padding:8px 16px; border-top:1px solid var(--lz-border); color:#9a3412; background:#fff7ed; font-size:11px; }
 .file-inspector { display:flex; flex-direction:column; border-left:1px solid var(--lz-border); background:#fbfcfe; }.file-inspector>header { display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:center; gap:9px; padding:16px 14px 13px; border-bottom:1px solid var(--lz-border); }.inspector-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; background:#eef2ff; color:#4f46e5; }.file-inspector header div { min-width:0; display:grid; gap:2px; }.file-inspector header small { color:var(--lz-text-muted); font-size:10px; }.file-inspector header strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .inspector-status { padding:12px 14px; border-bottom:1px solid #e8edf4; }.inspector-status>span { display:flex; align-items:center; gap:6px; color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.inspector-status i { width:7px; height:7px; border-radius:50%; background:#94a3b8; }.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i { background:#10b981; }.inspector-status[data-state="working"] i { background:#6366f1; }.inspector-status[data-state="stale"] i { background:#f97316; }.inspector-status p { margin:5px 0 0; color:var(--lz-text-muted); font-size:9px; line-height:1.5; }
@@ -861,7 +879,7 @@ onMounted(refresh)
 .asset-create-help { margin:0 0 14px; color:var(--lz-text-secondary); font-size:11px; line-height:1.55; }
 .create-location{min-height:36px;display:grid;grid-template-columns:18px auto minmax(0,1fr);align-items:center;gap:6px;padding:0 10px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;background:#f8fafc;font-size:10px}.create-location strong{overflow:hidden;color:#334155;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.asset-form { display:grid; gap:13px; padding-top:15px; }.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }.form-field { display:grid; gap:6px; }.form-field>span,.source-picker>div>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.form-field>small { color:var(--lz-text-muted); font-size:9px; line-height:1.5; }.form-field input,.form-field select,.form-field textarea { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--lz-border); border-radius:8px; outline:0; color:var(--lz-text-strong); background:#fff; font:inherit; font-size:11px; }.form-field textarea { resize:vertical; }.form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }.source-picker { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px; border:1px dashed #cbd5e1; border-radius:9px; }.source-picker>div { display:grid; gap:3px; }.source-picker small { color:var(--lz-text-muted); font-size:9px; }.source-picker button { max-width:220px; display:flex; align-items:center; gap:6px; overflow:hidden; padding:7px 9px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .ppt-origin-picker { display:grid; gap:7px; }.ppt-origin-picker>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.ppt-origin-picker>div { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.ppt-origin-picker button { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr); gap:1px 7px; padding:9px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; }.ppt-origin-picker button svg { grid-row:1/3; align-self:center; color:#64748b; }.ppt-origin-picker button strong { font-size:11px; }.ppt-origin-picker button small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.ppt-origin-picker button.active { border-color:var(--lz-brand); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.ppt-origin-picker button.active svg { color:var(--lz-brand); }.ppt-origin-note { display:flex; align-items:flex-start; gap:7px; margin:0; padding:9px 10px; border:1px solid #e0e7ff; border-radius:8px; color:#4f46e5; background:#f8faff; font-size:10px; line-height:1.5; }.ppt-origin-note[data-mode="import"] { border-color:#e2e8f0; color:#475569; background:#f8fafc; }
-.dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }.dialog-actions button { min-height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; }.dialog-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }
+.dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }.dialog-actions button { min-height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }.dialog-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }.dialog-actions button:disabled { opacity:.45; cursor:not-allowed; }
 .preview-surface { min-height:420px; display:grid; place-items:center; }.preview-surface img { max-width:100%; max-height:75vh; }.preview-surface iframe { width:100%; min-height:72vh; border:0; }.office-note { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.office-note strong { color:var(--lz-text-strong); }.office-note button { padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }.spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1080px) { .file-layout { grid-template-columns:220px minmax(420px,1fr) 250px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(190px,1.5fr) 98px 72px 78px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
