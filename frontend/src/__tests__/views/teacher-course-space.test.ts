@@ -14,7 +14,7 @@ import { useCourseStore } from '@/stores/course'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
 const coursePackage = {
-  package_id: 'package-1', course_id: '', course_name: '数据结构', academic_year: '2026-2027', term: '秋季', asset_count: 0,
+  package_id: 'package-1', course_id: 'course-1', course_name: '数据结构', academic_year: '2026-2027', term: '秋季', asset_count: 0,
   assets: [], entries: [],
 }
 const router = createRouter({
@@ -42,7 +42,7 @@ describe('TeacherCourseSpaceView', () => {
     const wrapper = mount(TeacherCourseSpaceView, {
       global: {
         plugins: [pinia, router],
-        stubs: { ElDialog: true, ElTree: { template: '<div class="workspace-tree" />' }, ElDropdown: true, ElDropdownMenu: true, ElDropdownItem: true },
+        stubs: { ElDialog: true },
       },
     })
     await flushPromises()
@@ -58,8 +58,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-inspector').text()).toContain('全课文件')
     expect(wrapper.find('.course-assembly-note').exists()).toBe(false)
     await wrapper.findAll('.file-row')[0]!.trigger('click')
-    expect(wrapper.get('.file-inspector').text()).toContain('内容来源')
-    expect(wrapper.get('.file-inspector').text()).not.toContain('结构化同源')
+    expect(wrapper.emitted('createOutline')).toBeTruthy()
 
     await wrapper.get('.list-search input').setValue('__missing_file__')
     expect(wrapper.get('.file-empty').text()).toContain('没有找到匹配文件')
@@ -68,7 +67,7 @@ describe('TeacherCourseSpaceView', () => {
     expect((wrapper.get('.list-search input').element as HTMLInputElement).value).toBe('')
   })
 
-  it('按当前目录提供单例教学资产和资料文件的新建入口', () => {
+  it('把固定课程资产直接作为入口，教师文件只在资料目录添加', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
     const storeSource = readFileSync(resolve(process.cwd(), 'src/stores/teacherLessonAuthoring.ts'), 'utf8')
     expect(source).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
@@ -77,18 +76,26 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain("createType === 'practice'")
     expect(source).toContain('class="source-picker"')
     expect(source).toContain('class="ppt-origin-picker"')
-    expect(source).toContain('@command="handleCreateCommand"')
-    expect(source).toContain('function handleCreateCommand(command: unknown)')
-    expect(source).toContain('const createOptions = computed')
-    expect(source).toContain("item.type === type && item.status !== 'missing'")
-    expect(source).toContain("targetFolderId: 'folder:reference'")
+    expect(source).not.toContain('class="new-button"')
+    expect(source).not.toContain('<el-dropdown')
+    expect(source).toContain('const canAddTeacherFiles = computed')
+    expect(source).toContain("t('courseFiles.addMaterial')")
+    expect(source).toContain(':data-role="assetRole(node)"')
+    expect(source).toContain('function handleNodeClick(node: WorkspaceNode)')
+    expect(source).toContain("['outline', 'lesson_plan', 'content', 'ppt', 'practice'].includes(node.type)")
+    expect(source).toContain("node.status === 'missing' ? t('courseFiles.createContent')")
+    expect(source).toContain("? emit('openTasks')")
+    expect(source).toContain("id: `ppt:${lesson.lesson_unit_id}`")
+    expect(source).not.toContain('ppt || !uploadedPpts.length')
     expect(source).toContain("if (type === 'folder' && targetFolder?.kind !== 'folder') return")
-    expect(source).toContain("@click=\"node.kind === 'folder' ? openFolder(node.id) : selectNode(node)\"")
-    expect(source).not.toContain(':disabled="!createOptions.length"')
+    expect(source).toContain('@click="handleNodeClick(node)"')
     expect(source).toContain("t('courseFiles.noSearchResults')")
     expect(source).toContain("emit('createOutline')")
     expect(source).toContain("pptImportAction: 'derive_plan'")
     expect(storeSource).toContain('source_package_id: source?.packageId')
+    expect(zhMessages.courseFiles.status.missing).toBe('未生成')
+    expect(zhMessages.courseFiles.assetRole.required).toBe('课程必备')
+    expect(zhMessages.courseFiles.assetRole.teacher).toBe('教师文件')
     expect(zhMessages.courseFiles.form.derivePlanFromPpt).toContain('生成教案草稿')
     expect(zhMessages.courseFiles.relationship.pptUploaded).toContain('保留原件')
   })
@@ -104,9 +111,10 @@ describe('TeacherCourseSpaceView', () => {
       generation_status: 'completed', generated_chars: 15,
     }]
     const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
       global: {
         plugins: [pinia, router],
-        stubs: { ElDialog: true, ElDropdown: true, ElDropdownMenu: true, ElDropdownItem: true },
+        stubs: { ElDialog: true },
       },
     })
     await flushPromises()
@@ -117,8 +125,11 @@ describe('TeacherCourseSpaceView', () => {
     expect(contentRow?.text()).toContain('正文')
     expect(contentRow?.text()).toContain('已就绪')
     await contentRow!.trigger('click')
-    expect(wrapper.get('.file-inspector').text()).toContain('打开正文')
-    expect(wrapper.get('.file-inspector').text()).toContain('导出')
-    expect(wrapper.get('.file-inspector').text()).toContain('不要求先生成实体文件')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('learning')
+    expect(router.currentRoute.value.params.nodeId).toBe('lesson-1')
+    const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
+    expect(source).toContain('async function exportManagedNode')
+    expect(zhMessages.courseFiles.relationship.content).toContain('不要求先生成实体文件')
   })
 })

@@ -12,7 +12,7 @@
 - [x] 2.3 Provide type-specific create dialogs and keep stable `course_id` ownership for file packages.
 - [x] 2.4 Project folder navigation to a horizontal mobile control instead of stacking the desktop tree.
 - [x] 2.5 Split PPT creation into AI-generated and teacher-uploaded flows, preserving uploaded originals and optionally deriving a reviewable lesson-plan draft from PPTX evidence.
-- [x] 2.6 Create an empty course space before generation; keep contextual New actionable in every folder while enforcing one outline per course, one lesson plan/PPT/practice per lesson, and multiple materials.
+- [x] 2.6 Create an empty course space before generation; keep outline, lesson plan, content, practice and companion PPT visible as direct asset entries with `Not generated` states, while materials use explicit add-file and add-folder actions.
 
 ## 3. Formal course and teacher agent
 

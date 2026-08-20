@@ -3797,6 +3797,8 @@
     "noSearchResults": "没有找到匹配文件",
     "noSearchResultsHelp": "换个文件名关键词，或清空搜索查看当前目录。",
     "new": "新建",
+    "addMaterial": "添加资料",
+    "newFolder": "新建文件夹",
     "folder": "文件夹",
     "lessonFolder": "课次文件夹",
     "itemCount": "{count} 项",
@@ -3816,6 +3818,7 @@
     "lessonHours": "约 {hours} 学时",
     "openFolder": "打开文件夹",
     "openContent": "打开正文",
+    "createContent": "生成正文",
     "preview": "预览",
     "create": "新建",
     "openEdit": "打开编辑",
@@ -3843,12 +3846,13 @@
       "root": "课程文件", "reference": "参考资料", "outline": "大纲", "lesson": "课次", "lessonPlan": "教案",
       "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "folder": "文件夹", "file": "文件"
     },
-    "status": { "ready": "已就绪", "draft": "草稿", "missing": "未新建", "working": "生成中", "stale": "待更新", "uploaded": "已上传" },
+    "status": { "ready": "已就绪", "draft": "草稿", "missing": "未生成", "working": "生成中", "stale": "待更新", "uploaded": "已上传" },
     "statusHelp": {
-      "ready": "当前版本可直接使用。", "draft": "已形成工作稿，可继续编辑和确认。", "missing": "当前还没有这类文件，可从右侧直接新建。",
+      "ready": "当前版本可直接使用。", "draft": "已形成工作稿，可继续编辑和确认。", "missing": "当前还没有内容，点击该项即可开始生成或创建。",
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。"
     },
     "names": { "outline": "课程大纲", "reference": "参考资料", "lessonPlan": "教案", "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "other": "其他文件", "newMaterial": "新建资料" },
+    "assetRole": { "required": "课程必备", "companion": "配套课件", "teacher": "教师文件" },
     "ppt": {
       "chooseMethodSubtitle": "可 AI 生成，也可上传老师的旧课件",
       "generatedSubtitle": "AI 生成 · 跟随教案同源更新",

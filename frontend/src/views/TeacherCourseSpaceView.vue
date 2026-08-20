@@ -50,22 +50,16 @@
               <input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
               <button v-if="query" type="button" :aria-label="t('courseFiles.clearSearch')" @click="query = ''"><X :size="14" /></button>
             </div>
-            <el-dropdown trigger="click" @command="handleCreateCommand">
-              <button class="new-button" type="button"><Plus :size="15" />{{ t('courseFiles.new') }}<ChevronDown :size="14" /></button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item v-for="option in createOptions" :key="option.type" :command="option.type" :divided="option.divided">
-                    <component :is="createOptionIcons[option.type]" :size="14" />{{ option.label }}
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
           </div>
         </header>
 
         <div class="folder-title">
           <h2>{{ currentFolder?.label || t('courseFiles.rootName') }}</h2>
-          <span>{{ t('courseFiles.itemCount').replace('{count}', String(filteredChildren.length)) }}</span>
+          <div class="folder-title__actions">
+            <span>{{ t('courseFiles.itemCount').replace('{count}', String(filteredChildren.length)) }}</span>
+            <button v-if="canAddTeacherFiles" class="add-material-button" type="button" @click="openCreateDialog('material', '', currentFolder?.id)"><Plus :size="14" />{{ t('courseFiles.addMaterial') }}</button>
+            <button v-if="canAddTeacherFiles" class="add-folder-button" type="button" :title="t('courseFiles.newFolder')" :aria-label="t('courseFiles.newFolder')" @click="openCreateDialog('folder', '', currentFolder?.id)"><FolderPlus :size="15" /></button>
+          </div>
         </div>
 
         <div class="file-table" role="table" :aria-label="t('courseFiles.fileList')">
@@ -82,11 +76,12 @@
             type="button"
             class="file-row"
             :class="{ selected: selectedNode?.id === node.id }"
+            :data-role="assetRole(node)"
             role="row"
-            @click="node.kind === 'folder' ? openFolder(node.id) : selectNode(node)"
-            @dblclick="node.kind !== 'folder' && primaryAction(node)"
+            @click="handleNodeClick(node)"
+            @dblclick="node.asset && primaryAction(node)"
           >
-            <span class="file-name" role="cell"><span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="17" /></span><span><strong>{{ node.label }}</strong><small v-if="node.subtitle">{{ node.subtitle }}</small></span></span>
+            <span class="file-name" role="cell"><span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="17" /></span><span><strong>{{ node.label }}</strong><small>{{ displaySubtitle(node) }}</small></span></span>
             <span role="cell">{{ displayUpdated(node) }}</span>
             <span role="cell">{{ typeLabel(node) }}</span>
             <span role="cell">{{ displaySize(node) }}</span>
@@ -99,7 +94,6 @@
             </template>
             <template v-else>
               <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong><span>{{ emptyFolderHelp }}</span>
-              <button type="button" @click="handleCreateCommand(defaultCreateType)"><Plus :size="14" />{{ t('courseFiles.createHere') }}</button>
             </template>
           </div>
         </div>
@@ -227,7 +221,7 @@ import { computed, markRaw, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowLeft, BookOpen, BookOpenText, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
+  ArrowLeft, BookOpen, BookOpenText, ChevronRight, ClipboardList, Download, Eye,
   FileText, Folder, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
   GitBranch, Pencil, Plus, Presentation, RefreshCw, Search, SearchX, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
@@ -398,10 +392,10 @@ const treeData = computed<WorkspaceNode[]>(() => {
       children: [
         { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined },
         { id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `${base}/正文`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision, updatedAt: selected.value?.updated_at, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined },
-        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'ready', children: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`) },
-        ...(ppt || !uploadedPpts.length ? [{ id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed' as const, type: 'ppt' as const, path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' as const : ppt?.source_state === 'stale' ? 'stale' as const : ppt ? 'ready' as const : 'missing' as const, revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined, subtitle: ppt || activeJob?.type?.includes('ppt') ? t('courseFiles.ppt.generatedSubtitle') : t('courseFiles.ppt.chooseMethodSubtitle') }] : []),
-        ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const, subtitle: t('courseFiles.ppt.uploadedSubtitle') })),
         { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'missing' },
+        { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined, subtitle: ppt || activeJob?.type?.includes('ppt') ? t('courseFiles.ppt.generatedSubtitle') : t('courseFiles.ppt.chooseMethodSubtitle') },
+        ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const, subtitle: t('courseFiles.ppt.uploadedSubtitle') })),
+        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'ready', children: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`) },
       ],
     }
   })
@@ -439,42 +433,8 @@ const breadcrumbs = computed(() => {
   while (node?.parentId) { values.unshift(node); node = flatNodes.value.get(node.parentId) }
   return values
 })
-const createOptionIcons = {
-  outline: markRaw(FileText), lesson_plan: markRaw(ClipboardList), material: markRaw(BookOpen),
-  ppt: markRaw(Presentation), practice: markRaw(ListChecks), folder: markRaw(FolderPlus),
-}
-type CreateOption = { type: CreateType; label: string; divided?: boolean; targetFolderId?: string }
-const createOptions = computed<CreateOption[]>(() => {
-  const folder = currentFolder.value
-  if (!folder) return []
-  if (folder.type === 'root') {
-    const outline = folder.children?.find(item => item.type === 'outline')
-    const options: CreateOption[] = outline?.status === 'missing'
-      ? [{ type: 'outline', label: t('courseFiles.types.outline') }]
-      : []
-    options.push(
-      { type: 'material', label: t('courseFiles.types.material'), divided: Boolean(options.length), targetFolderId: 'folder:reference' },
-      { type: 'folder', label: t('courseFiles.types.folder'), targetFolderId: 'folder:reference' },
-    )
-    return options
-  }
-  if (folder.type === 'lesson') {
-    const options: CreateOption[] = []
-    const singletonTypes: CreateType[] = ['lesson_plan', 'ppt', 'practice']
-    singletonTypes.forEach(type => {
-      const existing = folder.children?.find(item => item.type === type && item.status !== 'missing')
-      if (!existing) options.push({ type, label: typeLabel({ type } as WorkspaceNode) })
-    })
-    options.push({ type: 'material', label: t('courseFiles.types.material'), divided: Boolean(options.length) })
-    return options
-  }
-  return [
-    { type: 'material', label: t('courseFiles.types.material') },
-    { type: 'folder', label: t('courseFiles.types.folder'), divided: true },
-  ]
-})
-const defaultCreateType = computed<CreateType>(() => createOptions.value[0]?.type || 'material')
 const createTargetFolder = computed(() => flatNodes.value.get(createTargetFolderId.value) || currentFolder.value)
+const canAddTeacherFiles = computed(() => Boolean(currentFolder.value && ['reference', 'material', 'folder'].includes(currentFolder.value.type)))
 const emptyFolderTitle = computed(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
 const emptyFolderHelp = computed(() => currentFolder.value?.type === 'material'
   ? t('courseFiles.emptyLessonMaterialsHelp')
@@ -483,6 +443,23 @@ const emptyFolderHelp = computed(() => currentFolder.value?.type === 'material'
     : t('courseFiles.emptyFolderHelp'))
 
 const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type}`)
+function assetRole(node: WorkspaceNode) {
+  if (node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'practice'].includes(node.type)) return 'required'
+  if (node.type === 'ppt') return 'companion'
+  if (node.type === 'reference' || node.type === 'material' || node.type === 'folder' || node.kind === 'asset' || node.type === 'file') return 'teacher'
+  return 'navigation'
+}
+function displaySubtitle(node: WorkspaceNode) {
+  const role = assetRole(node)
+  const roleLabel = role === 'required'
+    ? t('courseFiles.assetRole.required')
+    : role === 'companion'
+      ? t('courseFiles.assetRole.companion')
+      : role === 'teacher'
+        ? t('courseFiles.assetRole.teacher')
+        : ''
+  return [roleLabel, node.subtitle].filter(Boolean).join(' · ')
+}
 const statusLabel = (node: WorkspaceNode) => t(`courseFiles.status.${node.status}`)
 const statusHelp = (node: WorkspaceNode) => t(`courseFiles.statusHelp.${node.status}`)
 const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'ppt' ? Presentation : node.type === 'practice' ? ListChecks : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
@@ -522,12 +499,20 @@ function openFolder(id: string) {
   expandedFolderIds.value = [...new Set([...expandedFolderIds.value, ...folderPath(id)])]
 }
 function selectNode(node: WorkspaceNode) { selectedNode.value = node }
+function handleNodeClick(node: WorkspaceNode) {
+  if (node.kind === 'folder') { openFolder(node.id); return }
+  if (node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'ppt', 'practice'].includes(node.type)) {
+    void primaryAction(node)
+    return
+  }
+  selectNode(node)
+}
 
 function primaryLabel(node: WorkspaceNode) {
   if (node.kind === 'folder') return t('courseFiles.openFolder')
   if (node.asset) return t('courseFiles.preview')
   if (node.type === 'outline' || node.type === 'lesson_plan') return node.status === 'missing' ? t('courseFiles.create') : t('courseFiles.openEdit')
-  if (node.type === 'content') return t('courseFiles.openContent')
+  if (node.type === 'content') return node.status === 'missing' ? t('courseFiles.createContent') : t('courseFiles.openContent')
   if (node.type === 'ppt') return node.status === 'missing' ? t('courseFiles.createPpt') : t('courseFiles.openPpt')
   if (node.type === 'practice') return node.status === 'missing' ? t('courseFiles.createPractice') : t('courseFiles.openPractice')
   return t('courseFiles.open')
@@ -542,7 +527,12 @@ async function primaryAction(node: WorkspaceNode) {
   if (node.asset) { await previewFile(node.asset); return }
   if (node.type === 'outline') { node.status === 'missing' ? openCreateDialog('outline') : emit('openOutline'); return }
   if (node.type === 'lesson_plan') { node.status === 'missing' ? openCreateDialog('lesson_plan', node.lessonId) : emit('openTeachingPlan', node.lessonId || ''); return }
-  if (node.type === 'content') { router.push({ name: 'learning', params: { courseId: props.courseId, nodeId: node.lessonId } }); return }
+  if (node.type === 'content') {
+    node.status === 'missing'
+      ? emit('openTasks')
+      : router.push({ name: 'learning', params: { courseId: props.courseId, nodeId: node.lessonId } })
+    return
+  }
   if (node.type === 'ppt') { node.status === 'missing' ? openCreateDialog('ppt', node.lessonId) : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } }); return }
   if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : openPractice(node.lessonId || ''); return }
 }
@@ -682,22 +672,12 @@ async function refresh() {
 async function reloadAll() { busy.value = true; try { await Promise.all([refresh(), props.courseId ? courseStore.loadCourse(props.courseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }) : Promise.resolve()]) } finally { busy.value = false } }
 async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`)).data }
 
-function handleCreateCommand(command: unknown) {
-  const type = String(command || '') as CreateType
-  const option = createOptions.value.find(item => item.type === type)
-  if (!option) return
+function openCreateDialog(command: CreateType | string, lessonId: unknown = '', targetFolderId = '') {
+  const type = command as CreateType
   if (type === 'outline') {
     const outline = flatNodes.value.get('managed:outline')
     if (outline?.status === 'missing') emit('createOutline')
     else emit('openOutline')
-    return
-  }
-  openCreateDialog(type, '', option.targetFolderId)
-}
-function openCreateDialog(command: CreateType | string, lessonId: unknown = '', targetFolderId = '') {
-  const type = command as CreateType
-  if (type === 'outline') {
-    handleCreateCommand(type)
     return
   }
   const targetLessonId = typeof lessonId === 'string' && lessonId ? lessonId : currentFolder.value?.lessonId || ''
@@ -864,10 +844,11 @@ onMounted(refresh)
 .file-tree-pane footer { display:grid; gap:8px; padding:12px 14px; border-top:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; }.file-tree-pane footer button { display:flex; align-items:center; gap:6px; padding:0; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }
 .file-list-pane { display:flex; flex-direction:column; background:#fff; }
 .list-toolbar { min-height:54px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--lz-border); }.list-toolbar nav { min-width:0; display:flex; align-items:center; gap:3px; overflow:hidden; }.list-toolbar nav button { display:flex; align-items:center; gap:5px; min-width:0; padding:4px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; white-space:nowrap; cursor:pointer; }.list-toolbar nav svg { flex:none; color:#94a3b8; }
-.toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:226px; height:36px; display:flex; align-items:center; gap:7px; padding:0 9px 0 11px; border:1px solid transparent; border-radius:9px; color:#94a3b8; background:#f1f5f9; transition:border-color .15s ease,background .15s ease,box-shadow .15s ease; }.list-search:focus-within { border-color:var(--lz-brand-border); background:#fff; box-shadow:0 0 0 3px var(--lz-brand-soft); }.list-search input { min-width:0; width:100%; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:11px; }.list-search input::-webkit-search-cancel-button { display:none; }.list-search button { width:24px; height:24px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:6px; color:#64748b; background:transparent; cursor:pointer; }.list-search button:hover { color:var(--lz-text-strong); background:#e2e8f0; }.new-button { height:36px; display:flex; align-items:center; gap:6px; padding:0 12px; border:1px solid #4f46e5; border-radius:9px; background:#4f46e5; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }.new-button:hover { background:#4338ca; }.new-button:focus-visible,.list-search button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
-.folder-title { min-height:58px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:8px 16px; }.folder-title h2 { margin:0; font-size:16px; }.folder-title>span { color:var(--lz-text-muted); font-size:10px; }
+.toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:226px; height:36px; display:flex; align-items:center; gap:7px; padding:0 9px 0 11px; border:1px solid transparent; border-radius:9px; color:#94a3b8; background:#f1f5f9; transition:border-color .15s ease,background .15s ease,box-shadow .15s ease; }.list-search:focus-within { border-color:var(--lz-brand-border); background:#fff; box-shadow:0 0 0 3px var(--lz-brand-soft); }.list-search input { min-width:0; width:100%; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:11px; }.list-search input::-webkit-search-cancel-button { display:none; }.list-search button { width:24px; height:24px; flex:none; display:grid; place-items:center; padding:0; border:0; border-radius:6px; color:#64748b; background:transparent; cursor:pointer; }.list-search button:hover { color:var(--lz-text-strong); background:#e2e8f0; }.list-search button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.folder-title { min-height:58px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 16px; }.folder-title h2 { min-width:0; margin:0; overflow:hidden; font-size:16px; text-overflow:ellipsis; white-space:nowrap; }.folder-title__actions { flex:none; display:flex; align-items:center; gap:6px; }.folder-title__actions>span { margin-right:2px; color:var(--lz-text-muted); font-size:10px; }.folder-title__actions button { height:32px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-secondary); background:#fff; font-size:10px; font-weight:700; cursor:pointer; }.folder-title__actions button:hover { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.add-material-button { padding:0 10px; }.add-folder-button { width:32px; padding:0; }
 .file-table { min-height:0; flex:1; overflow:auto; padding:0 10px 18px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(220px,1.65fr) 112px 82px 68px 88px; align-items:center; gap:10px; }.file-table__head { min-height:34px; padding:0 9px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:9px; font-weight:700; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-row { width:100%; min-height:48px; padding:5px 9px; border:0; border-bottom:1px solid #edf1f6; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:10px; cursor:pointer; }.file-row:hover,.file-row:focus-visible{outline:0;background:#f7f9fc}.file-row.selected { background:#e9eeff; }.file-name { min-width:0; display:flex; align-items:center; gap:9px; }.file-name>span:last-child { min-width:0; display:grid; gap:2px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:11px; }.file-name small { color:var(--lz-text-muted); font-size:9px; }.file-icon { width:28px; height:28px; flex:none; display:grid; place-items:center; border-radius:7px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
-.file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { max-width:300px; font-size:11px; line-height:1.55; }.file-empty button { display:flex; align-items:center; gap:5px; margin-top:6px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; cursor:pointer; }.file-empty button:hover { border-color:var(--lz-brand-border); background:var(--lz-brand-soft); }
+.file-row[data-role="required"] .file-name small { color:#4f46e5; }.file-row[data-role="companion"] .file-name small { color:#6366f1; }
+.file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { max-width:300px; font-size:11px; line-height:1.55; }.file-empty button { display:flex; align-items:center; gap:5px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; cursor:pointer; }.file-empty button:hover { border-color:var(--lz-brand-border); background:var(--lz-brand-soft); }
 .runtime-note { margin:0; padding:8px 16px; border-top:1px solid var(--lz-border); color:#9a3412; background:#fff7ed; font-size:11px; }
 .file-inspector { display:flex; flex-direction:column; border-left:1px solid var(--lz-border); background:#fbfcfe; }.file-inspector>header { display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:center; gap:9px; padding:16px 14px 13px; border-bottom:1px solid var(--lz-border); }.inspector-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; background:#eef2ff; color:#4f46e5; }.file-inspector header div { min-width:0; display:grid; gap:2px; }.file-inspector header small { color:var(--lz-text-muted); font-size:10px; }.file-inspector header strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .inspector-status { padding:12px 14px; border-bottom:1px solid #e8edf4; }.inspector-status>span { display:flex; align-items:center; gap:6px; color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.inspector-status i { width:7px; height:7px; border-radius:50%; background:#94a3b8; }.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i { background:#10b981; }.inspector-status[data-state="working"] i { background:#6366f1; }.inspector-status[data-state="stale"] i { background:#f97316; }.inspector-status p { margin:5px 0 0; color:var(--lz-text-muted); font-size:9px; line-height:1.5; }
@@ -883,5 +864,5 @@ onMounted(refresh)
 .preview-surface { min-height:420px; display:grid; place-items:center; }.preview-surface img { max-width:100%; max-height:75vh; }.preview-surface iframe { width:100%; min-height:72vh; border:0; }.office-note { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.office-note strong { color:var(--lz-text-strong); }.office-note button { padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }.spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1080px) { .file-layout { grid-template-columns:220px minmax(420px,1fr) 250px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(190px,1.5fr) 98px 72px 78px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
-@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:160px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px minmax(0,1fr); overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { min-height:42px; padding:0 10px; }.folder-navigation { overflow:auto; padding:5px 7px 10px; }.file-tree-pane footer { display:none; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:52px; padding:7px 11px; }.folder-title h2 { font-size:15px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1fr) 82px; }.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
+@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:160px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px minmax(0,1fr); overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { min-height:42px; padding:0 10px; }.folder-navigation { overflow:auto; padding:5px 7px 10px; }.file-tree-pane footer { display:none; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:52px; padding:7px 11px; }.folder-title h2 { font-size:15px; }.folder-title__actions>span { display:none; }.add-material-button { padding:0 9px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1fr) 82px; }.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
 </style>
