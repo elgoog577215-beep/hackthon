@@ -321,10 +321,7 @@ class CourseGenerationRequest(BaseModel):
     ] = None
     generation_mode: Literal["fast", "review_blueprint"] = "review_blueprint"
     teacher_authoring_mode: Optional[Literal["lesson_assets_v1"]] = None
-    assessment_generation_profile: Literal[
-        "fast",
-        "deliberate",
-    ] = "deliberate"
+    assessment_generation_profile: Literal["complete"] = "complete"
     course_purpose: Literal[
         "systematic",
         "exam_sprint",
@@ -352,6 +349,16 @@ class CourseGenerationRequest(BaseModel):
         )
 
         normalized = dict(value)
+        if "assessment_generation_profile" in normalized:
+            from assessment_generation_policy import (
+                normalize_assessment_generation_profile,
+            )
+
+            normalized["assessment_generation_profile"] = (
+                normalize_assessment_generation_profile(
+                    normalized.get("assessment_generation_profile")
+                )
+            )
         intent_type = (
             normalized.get("course_intent", {}).get("type")
             if isinstance(normalized.get("course_intent"), dict)

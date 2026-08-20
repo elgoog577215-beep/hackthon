@@ -11,37 +11,43 @@ from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers.question_bank import QuestionBankRebuildRequest
 
 
-def test_generation_profile_defaults_preserve_legacy_behavior() -> None:
+def test_generation_profile_defaults_and_legacy_values_use_complete() -> None:
     course_request = CourseGenerationRequest(subject="线性代数")
     rebuild_request = QuestionBankRebuildRequest()
 
-    assert course_request.assessment_generation_profile == "deliberate"
-    assert rebuild_request.assessment_generation_profile == "deliberate"
-    assert QuestionBankRebuildRequest(
-        assessment_generation_profile="fast"
-    ).assessment_generation_profile == "fast"
+    assert course_request.assessment_generation_profile == "complete"
+    assert rebuild_request.assessment_generation_profile == "complete"
+    for legacy_value in ("fast", "deliberate", "complete"):
+        assert CourseGenerationRequest(
+            subject="线性代数",
+            assessment_generation_profile=legacy_value,
+        ).assessment_generation_profile == "complete"
+        assert QuestionBankRebuildRequest(
+            assessment_generation_profile=legacy_value
+        ).assessment_generation_profile == "complete"
 
 
-def test_fast_policy_has_bounded_repairs_and_provider_budget() -> None:
-    policy = resolve_assessment_generation_policy("fast")
+def test_complete_policy_preserves_the_full_quality_budget() -> None:
+    policy = resolve_assessment_generation_policy("complete")
 
     assert policy.version == ASSESSMENT_GENERATION_POLICY_VERSION
-    assert policy.profile == "fast"
-    assert policy.max_generation_attempts == 2
-    assert policy.generation_batch_size == 3
-    assert policy.solution_batch_size == 2
-    assert policy.max_provider_attempts == 1
-    assert policy.compact_candidate is True
+    assert policy.profile == "complete"
+    assert policy.max_generation_attempts == 4
+    assert policy.generation_batch_size == 2
+    assert policy.solution_batch_size == 1
+    assert policy.max_provider_attempts is None
+    assert policy.compact_candidate is False
     assert policy.stage_timeouts == {
-        "generate": 45.0,
-        "repair": 35.0,
-        "solve": 35.0,
-        "review": 30.0,
+        "generate": None,
+        "repair": None,
+        "solve": None,
+        "review": None,
     }
 
 
-def test_fast_policy_never_requests_thinking_for_complex_items() -> None:
-    policy = resolve_assessment_generation_policy("fast")
+def test_complete_policy_uses_thinking_selectively(monkeypatch) -> None:
+    monkeypatch.setenv("AI_THINKING_ENABLED", "true")
+    policy = resolve_assessment_generation_policy("complete")
     context = {
         "assessment_slot": {
             "input_mode": "code",
@@ -55,10 +61,10 @@ def test_fast_policy_never_requests_thinking_for_complex_items() -> None:
         "issue_codes": ["semantic_contradiction"],
     }
 
-    for stage in ("generate", "repair", "solve", "review"):
-        call_policy = policy.call_policy(stage, context)
-        assert call_policy.enable_thinking is False
-        assert call_policy.thinking_reason_codes == ()
+    assert policy.call_policy("generate", context).enable_thinking is True
+    assert policy.call_policy("repair", context).enable_thinking is True
+    assert policy.call_policy("solve", context).enable_thinking is True
+    assert policy.call_policy("review", context).enable_thinking is False
 
 
 def test_deliberation_is_selective_and_reasoned() -> None:
@@ -102,7 +108,7 @@ def test_deliberation_is_selective_and_reasoned() -> None:
 def test_global_thinking_switch_vetoes_provider_request(monkeypatch) -> None:
     monkeypatch.setenv("AI_THINKING_ENABLED", "false")
 
-    policy = resolve_assessment_generation_policy("fast")
+    policy = resolve_assessment_generation_policy("complete")
     call_policy = policy.call_policy(
         "solve",
         {"input_contract": {"mode": "code"}},
@@ -112,7 +118,7 @@ def test_global_thinking_switch_vetoes_provider_request(monkeypatch) -> None:
     assert call_policy.thinking_reason_codes == ()
 
 
-def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
+def test_legacy_profiles_share_one_complete_rebuild_identity(tmp_path) -> None:
     repository = QuestionBankRebuildJobRepository(tmp_path)
 
     fast, fast_created = repository.create_job(
@@ -135,10 +141,10 @@ def test_rebuild_job_identity_and_receipt_include_profile(tmp_path) -> None:
     )
 
     assert fast_created is True
-    assert deliberate_created is True
-    assert fast["job_id"] != deliberate["job_id"]
-    assert fast["assessment_generation_profile"] == "fast"
-    assert deliberate["assessment_generation_profile"] == "deliberate"
+    assert deliberate_created is False
+    assert fast["job_id"] == deliberate["job_id"]
+    assert fast["assessment_generation_profile"] == "complete"
+    assert deliberate["assessment_generation_profile"] == "complete"
     assert fast["assessment_generation_policy_version"] == (
         ASSESSMENT_GENERATION_POLICY_VERSION
     )
@@ -215,20 +221,18 @@ def test_local_solver_returns_none_on_unparsable_expression() -> None:
     })["answer"] == {"value": 90, "unit": "J"}
 
 
-# --- M1：本地确定性解题器在 deliberate 档也生效 -----------------------------
+# --- M1：本地确定性解题器在完整链路中生效 -----------------------------
 
 
-def test_deliberate_profile_prefers_the_local_solver() -> None:
-    """生产用的 deliberate 档此前把本地解题器关着，每道题都要模型再解一遍。
+def test_complete_profile_prefers_the_local_solver() -> None:
+    """完整链路使用本地确定性解题器时不降低验证强度。
 
     打开它不降低验证强度：解题器只在题目自带可确定性求解的 solver_contract
     时才接手，解不出就落回模型求解。
     """
-    deliberate = resolve_assessment_generation_policy("deliberate")
-    fast = resolve_assessment_generation_policy("fast")
+    complete = resolve_assessment_generation_policy("complete")
 
-    assert deliberate.prefer_local_solver is True
-    assert fast.prefer_local_solver is True
+    assert complete.prefer_local_solver is True
 
 
 def test_local_solver_still_declines_anything_it_cannot_prove() -> None:
@@ -301,15 +305,13 @@ def test_generation_schema_carries_the_solver_kind_hint() -> None:
 # --- G3：按题的模型求解预算 -------------------------------------------------
 
 
-def test_both_profiles_bound_model_solving_per_question() -> None:
+def test_complete_profile_bounds_model_solving_per_question() -> None:
     """独立求解不能删（它承担真实正确性验证），但必须有按题上限。"""
-    deliberate = resolve_assessment_generation_policy("deliberate")
-    fast = resolve_assessment_generation_policy("fast")
+    complete = resolve_assessment_generation_policy("complete")
 
-    assert deliberate.max_model_solve_calls_per_question == 3
-    assert fast.max_model_solve_calls_per_question == 2
+    assert complete.max_model_solve_calls_per_question == 3
     # 预算必须够健康题走完「首轮 + 一轮修复」，否则会误杀正常题
-    assert deliberate.max_model_solve_calls_per_question >= 2
+    assert complete.max_model_solve_calls_per_question >= 2
 
 
 def test_solve_budget_counts_one_per_round_not_per_branch() -> None:

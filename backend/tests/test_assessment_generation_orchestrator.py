@@ -939,7 +939,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     # M2：scoped_repair 也走批量首轮候选与合批评审。
     #
     # 改动前这里是 batch=0 / generate=3 / solve=4 / repair=1，共 8 次模型调用——
-    # deliberate 档的 scoped_repair 落进全链路最慢的分支。而 scoped_repair 正是
+    # scoped_repair 曾落进全链路最慢的分支，而它正是
     # 教师点了重建、正等着看结果的场景。现在同样的输入是 5 次。
     assert model.batch_generate_calls == 1
     assert model.generate_calls == 1
@@ -972,7 +972,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert len(chapter_events[0]["audit_items"]) == 3
     assert chapter_events[0]["audit_snapshot"][
         "assessment_generation_profile"
-    ] == "deliberate"
+    ] == "complete"
     assert chapter_events[0]["audit_snapshot"][
         "assessment_generation_policy_version"
     ]
@@ -980,7 +980,7 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert chapter_events[0]["audit_snapshot"]["wall_clock_ms"] >= 0
 
 
-async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
+async def test_legacy_fast_profile_resolves_to_complete_policy():
     model = ProfileAwareBatchModel()
 
     prepared = await AssessmentGenerationOrchestrator(
@@ -992,51 +992,44 @@ async def test_fast_profile_batches_three_candidates_and_two_simple_solutions():
     )
 
     audit = prepared["_assessment_generation_audit"]
-    assert model.generation_batch_sizes == [3]
-    assert 2 in model.solve_batch_sizes
-    assert model.generate_calls == 0
-    assert audit["assessment_generation_profile"] == "fast"
+    assert audit["assessment_generation_profile"] == "complete"
     assert audit["assessment_generation_policy_version"]
-    assert audit["max_generation_attempts_per_question"] == 2
-    assert audit["max_repairs_per_question"] == 1
-    assert audit["thinking_requested_call_count"] == 0
-    assert all(
-        timing.get("thinking_requested") is False
-        for timing in audit["call_timings"]
-    )
+    assert audit["max_generation_attempts_per_question"] == 4
+    assert audit["max_repairs_per_question"] == 3
 
 
-async def test_fast_profile_batches_all_failed_repairs_once():
+async def test_complete_profile_batches_failed_repairs():
     model = BatchRepairAwareModel()
 
     prepared = await AssessmentGenerationOrchestrator(
         model=model
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="complete",
         generation_scope="full_generation",
     )
 
     audit = prepared["_assessment_generation_audit"]
-    assert model.repair_batch_sizes == [3]
+    assert model.repair_batch_sizes
+    assert max(model.repair_batch_sizes) <= 2
     assert model.repair_calls == 0
     assert audit["repair_calls"] == 1
     assert audit["batch_repair_calls"] == 1
     assert audit["batch_repair_fallback_count"] == 0
     assert any(
         timing.get("operation") == "repair_batch"
-        and timing.get("batch_size") == 3
+        and timing.get("batch_size") in model.repair_batch_sizes
         for timing in audit["call_timings"]
     )
     assert audit["failure_count"] == 0
 
 
-async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
+async def test_complete_batch_repair_recovers_when_a_slot_is_missing():
     prepared = await AssessmentGenerationOrchestrator(
         model=PartialBatchRepairModel()
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="complete",
         generation_scope="full_generation",
     )
 
@@ -1045,16 +1038,16 @@ async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
     assert {
         contract["generation_status"]
         for contract in contracts.values()
-    } == {"discarded"}
-    assert audit["failure_count"] == 3
+    } == {"ready"}
+    assert audit["failure_count"] == 0
     assert audit["batch_repair_fallback_count"] == 1
     assert all(
-        item["final_decision"] == "discard"
+        item["final_decision"] == "publish"
         for item in audit["items"]
     )
 
 
-def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
+def test_compact_batch_prompt_deduplicates_shared_course_context() -> None:
     shared_marker = "SHARED_COURSE_FACTS_MARKER"
     contexts = [
         {
@@ -1081,14 +1074,14 @@ def test_fast_batch_prompt_deduplicates_shared_course_context() -> None:
         assert prompt.count(f"slot-{index}") == 1
 
 
-async def test_fast_profile_stops_after_one_repair_attempt():
+async def test_complete_profile_keeps_repairs_bounded():
     model = DisagreeingModel()
 
     prepared = await AssessmentGenerationOrchestrator(
         model=model
     ).prepare_course(
         _course(),
-        generation_profile="fast",
+        generation_profile="complete",
         generation_scope="scoped_repair",
     )
 
@@ -1100,8 +1093,8 @@ async def test_fast_profile_stops_after_one_repair_attempt():
         for item in prepared["_assessment_generation_audit"]["items"]
         if item["practice_level"] == "objective_practice"
     )
-    assert model.repair_calls == 1
-    assert len(audit_item["attempts"]) == 2
+    assert model.repair_calls <= 3
+    assert len(audit_item["attempts"]) <= 4
     assert contract["generation_status"] == "discarded"
 
 

@@ -1,4 +1,4 @@
-"""Execution policies for fast and deliberate assessment generation."""
+"""The single complete execution policy for assessment generation."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-AssessmentGenerationProfile = Literal["fast", "deliberate"]
+AssessmentGenerationProfile = Literal["complete"]
 AssessmentGenerationScope = Literal[
     "full_generation",
     "scoped_repair",
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v2"
+    "assessment_generation_policy_v3"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -97,18 +97,15 @@ class AssessmentGenerationPolicy:
     ) -> AssessmentModelCallPolicy:
         resolved_context = context or {}
         decision = requires_deliberation(stage, resolved_context)
-        if self.profile == "fast":
+        if stage == "review":
             decision = DeliberationDecision(False)
-        else:
-            if stage == "review":
-                decision = DeliberationDecision(False)
-            elif stage == "generate" and resolved_context.get(
-                "batch_generation"
-            ):
-                decision = DeliberationDecision(
-                    True,
-                    ("deliberate_batch_generation",),
-                )
+        elif stage == "generate" and resolved_context.get(
+            "batch_generation"
+        ):
+            decision = DeliberationDecision(
+                True,
+                ("complete_batch_generation",),
+            )
         if not _global_thinking_enabled():
             decision = DeliberationDecision(False)
         return AssessmentModelCallPolicy(
@@ -124,38 +121,22 @@ class AssessmentGenerationPolicy:
 def normalize_assessment_generation_profile(
     value: str | None,
 ) -> AssessmentGenerationProfile:
-    normalized = str(value or "deliberate").strip().lower()
-    if normalized not in {"fast", "deliberate"}:
+    normalized = str(value or "complete").strip().lower()
+    if normalized not in {"complete", "fast", "deliberate"}:
         raise ValueError(
-            "assessment_generation_profile must be fast or deliberate"
+            "assessment_generation_profile must be complete"
         )
-    return normalized  # type: ignore[return-value]
+    # `fast` and `deliberate` are accepted only as historical wire values.
+    # Every new or resumed job receives the same complete quality policy.
+    return "complete"
 
 
 def resolve_assessment_generation_policy(
     profile: str | None,
 ) -> AssessmentGenerationPolicy:
-    normalized = normalize_assessment_generation_profile(profile)
-    if normalized == "fast":
-        return AssessmentGenerationPolicy(
-            profile="fast",
-            version=ASSESSMENT_GENERATION_POLICY_VERSION,
-            max_generation_attempts=2,
-            generation_batch_size=3,
-            solution_batch_size=2,
-            max_provider_attempts=1,
-            compact_candidate=True,
-            prefer_local_solver=True,
-            max_model_solve_calls_per_question=2,
-            stage_timeouts={
-                "generate": 45.0,
-                "repair": 35.0,
-                "solve": 35.0,
-                "review": 30.0,
-            },
-        )
+    normalize_assessment_generation_profile(profile)
     return AssessmentGenerationPolicy(
-        profile="deliberate",
+        profile="complete",
         version=ASSESSMENT_GENERATION_POLICY_VERSION,
         max_generation_attempts=4,
         generation_batch_size=2,
@@ -163,7 +144,7 @@ def resolve_assessment_generation_policy(
         max_provider_attempts=None,
         compact_candidate=False,
         max_model_solve_calls_per_question=3,
-        # 本地确定性解题器在 deliberate 档也开。
+        # 本地确定性解题器在完整链路中继续启用。
         #
         # 它不是"快但不准"的近似：`IndependentSolverRegistry.solve` 只在题目
         # 自带 `solver_contract.kind` 且命中已注册的确定性解法时才返回结果，
@@ -171,7 +152,7 @@ def resolve_assessment_generation_policy(
         # （`assessment_orchestrator._solve_and_build`）。所以打开它只会把
         # "本来就能被确定性算清的题"从模型手里接走，不会降低任何题的验证强度。
         #
-        # 反过来说，deliberate 档关掉它并不换来更强的正确性——只是让模型把
+        # 反过来说，关掉它并不换来更强的正确性——只是让模型把
         # 同一道算术题再算一遍，这正是"6 道题 42 次请求"里最没有信息量的那部分。
         prefer_local_solver=True,
         stage_timeouts={

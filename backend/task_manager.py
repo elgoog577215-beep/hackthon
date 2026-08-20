@@ -1055,13 +1055,30 @@ class TaskManager:
         """
         task_id = task_id or str(uuid.uuid4())
         now = datetime.now().isoformat()
+        normalized_request_snapshot = deepcopy(request_snapshot or {})
+        normalized_generation_profile = (
+            normalize_assessment_generation_profile(
+                normalized_request_snapshot.get(
+                    "assessment_generation_profile"
+                )
+            )
+        )
+        if (
+            task_type in {"course_generation", "teacher_outline_generation"}
+            or "assessment_generation_profile"
+            in normalized_request_snapshot
+        ):
+            normalized_request_snapshot[
+                "assessment_generation_profile"
+            ] = normalized_generation_profile
         task: dict[str, Any] = {
             "id": task_id,
             "course_id": course_id,
             "type": task_type,
             "course_name": course_name,
             "course_type": str(
-                (request_snapshot or {}).get("course_type") or "systematic"
+                normalized_request_snapshot.get("course_type")
+                or "systematic"
             ),
             "status": "pending",
             "phase": "queued",
@@ -1082,31 +1099,35 @@ class TaskManager:
             "error": None,
             "retry_count": 0,
             "logs": [],
-            "request_snapshot": request_snapshot or {},
-            "assessment_generation_profile": (
-                normalize_assessment_generation_profile(
-                    (request_snapshot or {}).get(
-                        "assessment_generation_profile"
-                    )
-                )
-            ),
+            "request_snapshot": normalized_request_snapshot,
+            "assessment_generation_profile": normalized_generation_profile,
             "assessment_generation_policy_version": (
                 ASSESSMENT_GENERATION_POLICY_VERSION
             ),
             "node_drafts": {},
-            "operation": str((request_snapshot or {}).get("operation") or "generate"),
-            "candidate_id": (request_snapshot or {}).get("candidate_id"),
-            "base_version_id": (request_snapshot or {}).get("base_version_id"),
-            "blueprint_confirmed": bool((request_snapshot or {}).get("blueprint_confirmed", False)),
-            "blueprint_revision_id": (request_snapshot or {}).get("blueprint_revision_id"),
+            "operation": str(
+                normalized_request_snapshot.get("operation") or "generate"
+            ),
+            "candidate_id": normalized_request_snapshot.get("candidate_id"),
+            "base_version_id": normalized_request_snapshot.get(
+                "base_version_id"
+            ),
+            "blueprint_confirmed": bool(
+                normalized_request_snapshot.get("blueprint_confirmed", False)
+            ),
+            "blueprint_revision_id": normalized_request_snapshot.get(
+                "blueprint_revision_id"
+            ),
             "workspace_id": workspace_id,
             "base_document_revision": base_document_revision,
         }
         if task_type == "slide_deck_variant_build":
             task["slide_build_request_contract"] = (
-                _slide_build_request_contract(request_snapshot)
+                _slide_build_request_contract(normalized_request_snapshot)
             )
-            if str((request_snapshot or {}).get("target_schema") or "") == (
+            if str(
+                normalized_request_snapshot.get("target_schema") or ""
+            ) == (
                 "slide_deck_v6"
             ):
                 task["slide_build_contract_version"] = (
@@ -3657,7 +3678,7 @@ class TaskManager:
             "phase": self._effective_phase(task),
             "assessment_generation_profile": str(
                 task.get("assessment_generation_profile")
-                or "deliberate"
+                or "complete"
             ),
             "assessment_generation_policy_version": str(
                 task.get("assessment_generation_policy_version")
@@ -7533,10 +7554,25 @@ class TaskManager:
                         )
                     )
                 except ValueError:
-                    persisted_generation_profile = "deliberate"
+                    persisted_generation_profile = "complete"
                 task["assessment_generation_profile"] = (
                     persisted_generation_profile
                 )
+                request_snapshot = task.get("request_snapshot")
+                if (
+                    isinstance(request_snapshot, dict)
+                    and (
+                        str(task.get("type") or "") in {
+                            "course_generation",
+                            "teacher_outline_generation",
+                        }
+                        or "assessment_generation_profile"
+                        in request_snapshot
+                    )
+                ):
+                    request_snapshot["assessment_generation_profile"] = (
+                        persisted_generation_profile
+                    )
                 task.setdefault(
                     "assessment_generation_policy_version",
                     ASSESSMENT_GENERATION_POLICY_VERSION,
@@ -8263,7 +8299,7 @@ class TaskManager:
                 (self.tasks[task_id].get("request_snapshot") or {}).get(
                     "assessment_generation_profile"
                 )
-                or "deliberate"
+                or "complete"
             ),
             generation_scope="scoped_repair",
         )
@@ -8484,7 +8520,7 @@ class TaskManager:
                     (task.get("request_snapshot") or {}).get(
                         "assessment_generation_profile"
                     )
-                    or "deliberate"
+                    or "complete"
                 ),
                 generation_scope="full_generation",
             )

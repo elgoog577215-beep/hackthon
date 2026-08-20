@@ -14,11 +14,12 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Header, HTTPException, Query, status
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from assessment_orchestrator import AssessmentGenerationOrchestrator
 from assessment_generation_policy import (
     ASSESSMENT_GENERATION_POLICY_VERSION,
+    normalize_assessment_generation_profile,
 )
 from assessment_contracts import (
     compile_assessment_objectives,
@@ -80,10 +81,12 @@ class QuestionBankRebuildRequest(BaseModel):
     mode: Literal["incremental", "full"] = "incremental"
     resume_existing: bool = True
     retrieval_enabled: bool = False
-    assessment_generation_profile: Literal[
-        "fast",
-        "deliberate",
-    ] = "deliberate"
+    assessment_generation_profile: Literal["complete"] = "complete"
+
+    @field_validator("assessment_generation_profile", mode="before")
+    @classmethod
+    def normalize_legacy_generation_profile(cls, value: Any) -> str:
+        return normalize_assessment_generation_profile(value)
 
     @model_validator(mode="after")
     def validate_scope(self):
@@ -496,7 +499,7 @@ def _generation_summary(
         "generation_calls": audit.get("generation_calls", 0),
         "assessment_generation_profile": audit.get(
             "assessment_generation_profile",
-            "deliberate",
+            "complete",
         ),
         "assessment_generation_policy_version": audit.get(
             "assessment_generation_policy_version",
@@ -645,18 +648,16 @@ async def rebuild_question_bank(
         payload.scope == "course"
         and payload.resume_existing
         and str(checkpoint.get("status") or "") in {"running", "failed"}
-        and str(
+        and normalize_assessment_generation_profile(
             checkpoint.get("assessment_generation_profile")
-            or "deliberate"
         ) != payload.assessment_generation_profile
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "assessment_generation_profile_mismatch",
-                "checkpoint_profile": str(
+                "checkpoint_profile": normalize_assessment_generation_profile(
                     checkpoint.get("assessment_generation_profile")
-                    or "deliberate"
                 ),
             },
         )
@@ -675,7 +676,7 @@ async def rebuild_question_bank(
                 "active_job_id": active.get("job_id"),
                 "active_profile": active.get(
                     "assessment_generation_profile",
-                    "deliberate",
+                    "complete",
                 ),
                 "status_url": (
                     f"/api/courses/{course_id}/question-bank/"
@@ -736,7 +737,7 @@ def _same_rebuild_request(
         and bool(job.get("retrieval_enabled"))
         is bool(payload.retrieval_enabled)
         and str(
-            job.get("assessment_generation_profile") or "deliberate"
+            job.get("assessment_generation_profile") or "complete"
         ) == payload.assessment_generation_profile
     )
 
@@ -1083,9 +1084,8 @@ async def _execute_question_bank_rebuild(
         and checkpoint.get("status") in {"running", "failed"}
         and checkpoint.get("blueprint_revision_id")
         == assessment_blueprint.get("blueprint_revision_id")
-        and str(
+        and normalize_assessment_generation_profile(
             checkpoint.get("assessment_generation_profile")
-            or "deliberate"
         ) == payload.assessment_generation_profile
     )
     checkpoint_node_ids = {

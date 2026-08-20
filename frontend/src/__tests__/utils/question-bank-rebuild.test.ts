@@ -267,7 +267,6 @@ describe('runQuestionBankRebuild', () => {
         scope: 'course',
         node_ids: [],
         mode: 'full',
-        assessment_generation_profile: 'fast',
       },
       { pollIntervalMs: 0, maxPolls: 1 },
     )

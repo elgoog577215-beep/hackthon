@@ -473,6 +473,23 @@
 - **THEN** 后端 MAY 通过现有 `AIBase` 参数启用更强模型路径或 thinking
 - **AND** API key 缺失时 MUST 继续保持现有降级行为
 
+### Requirement: 题目生成必须使用唯一完整质量策略
+
+课程初次题目生成、整课题库重建、节点重建和单题修复 MUST 共用唯一的 `complete` 策略。前端 MUST NOT 暴露快速、思考或其他题目生成档位；服务端 MUST 在任务身份、检查点和生成审计落盘前将历史档位值归一为 `complete`。完整策略 MUST 保留完整候选合同、独立求解、选择性模型思考、质量修复和正式发布门，MUST NOT 恢复历史快速策略的紧缩候选、较少修复或超时预算。
+
+#### Scenario: 新的题目生成请求
+
+- **WHEN** 新建课程或题库重建请求没有提交 `assessment_generation_profile`
+- **THEN** 服务端 MUST 使用 `complete` 策略
+- **AND** 用户界面 MUST 直接进入生成操作，MUST NOT 增加档位选择步骤
+
+#### Scenario: 历史档位请求或检查点
+
+- **WHEN** 旧客户端、运行中任务或持久化检查点携带 `assessment_generation_profile=fast` 或 `assessment_generation_profile=deliberate`
+- **THEN** 服务端 MUST 将其归一为 `complete`
+- **AND** 恢复任务 MUST 继续使用完整质量策略，MUST NOT 因历史值拒绝继续或开启旧策略
+- **AND** 任务回执、检查点与生成审计 MUST 记录 `assessment_generation_profile=complete`
+
 ### Requirement: 课程生成必须使用唯一可恢复任务
 
 系统 MUST 为一次课程生成或局部再生成创建唯一 `GenerationJob`。brief、资料解析、证据编译、教学画像、难度契约、覆盖计划、蓝图、可选蓝图等待、正文、学习资产、质量检查、候选版本和最终保存 MUST 使用同一任务模型与 TaskManager；前端 MUST NOT 创建独立任务身份或调用第二阶段生成入口。

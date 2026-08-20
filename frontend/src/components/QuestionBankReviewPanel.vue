@@ -5,14 +5,6 @@
         <h3 id="question-bank-title">{{ t('questionBank.title', '课程题库质量管理') }}</h3>
       </div>
       <div class="question-bank-panel__header-action">
-        <AssessmentGenerationProfileSelector
-          v-model="assessmentGenerationProfile"
-          compact
-          :disabled="rebuilding"
-          :hint="canContinueGeneration
-            ? `继续生成将锁定为${generationProfileLabel(checkpointGenerationProfile)}`
-            : ''"
-        />
         <div class="question-bank-panel__header-copy">
           <small>{{ generationActionHelp }}</small>
           <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
@@ -697,11 +689,9 @@ import {
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
-import AssessmentGenerationProfileSelector from './AssessmentGenerationProfileSelector.vue'
 import {
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
-  type AssessmentGenerationProfile,
   type QuestionBankRebuildJob,
 } from '@/utils/question-bank-rebuild'
 
@@ -787,7 +777,6 @@ const items = ref<QuestionBankItem[]>([])
 const reviewNotes = reactive<Record<string, string>>({})
 const expandedQuestionRevision = ref('')
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
-const assessmentGenerationProfile = ref<AssessmentGenerationProfile>('fast')
 const solutionLoadingRevision = ref('')
 const solutions = reactive<Record<string, Record<string, any>>>({})
 const browserQuery = ref('')
@@ -827,12 +816,6 @@ const canContinueGeneration = computed(() => Boolean(
   && completedChapters.value > 0
   && remainingChapters.value > 0,
 ))
-const checkpointGenerationProfile = computed<AssessmentGenerationProfile>(
-  () => normalizeGenerationProfile(
-    chapterRebuild.value.assessment_generation_profile,
-    'deliberate',
-  ),
-)
 const generationActionHelp = computed(() => (
   canContinueGeneration.value
     ? `已完成的 ${completedChapters.value} 章不会重做；每完成一章立即替换该章旧题`
@@ -1156,10 +1139,6 @@ async function recoverActiveRebuild() {
             || props.courseId !== courseId
           ) return
           rebuildJob.value = update
-          assessmentGenerationProfile.value = normalizeGenerationProfile(
-            update.assessment_generation_profile,
-            assessmentGenerationProfile.value,
-          )
           rebuilding.value = (
             update.status === 'queued'
             || update.status === 'running'
@@ -1242,11 +1221,6 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
   rebuildJob.value = null
   try {
     const scopedNodeId = String(nodeId || '')
-    const generationProfile = (
-      !scopedNodeId && resumeExisting && canContinueGeneration.value
-        ? checkpointGenerationProfile.value
-        : assessmentGenerationProfile.value
-    )
     await runQuestionBankRebuild(
       props.courseId,
       {
@@ -1254,7 +1228,6 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
         scope: scopedNodeId ? 'nodes' : 'course',
         node_ids: scopedNodeId ? [scopedNodeId] : [],
         mode: scopedNodeId ? 'incremental' : 'full',
-        assessment_generation_profile: generationProfile,
         retrieval_enabled: retrievalEnabled,
         ...(!scopedNodeId ? { resume_existing: resumeExisting } : {}),
       },
@@ -1292,17 +1265,6 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
 
 function isAbortError(error: any) {
   return error?.name === 'AbortError'
-}
-
-function normalizeGenerationProfile(
-  value: unknown,
-  fallback: AssessmentGenerationProfile,
-): AssessmentGenerationProfile {
-  return value === 'fast' || value === 'deliberate' ? value : fallback
-}
-
-function generationProfileLabel(value: AssessmentGenerationProfile) {
-  return value === 'fast' ? '快速版' : '思考版'
 }
 
 async function loadSolution(item: QuestionBankItem) {
@@ -1361,7 +1323,6 @@ async function rework(item: QuestionBankItem) {
         node_ids: [],
         revision_ids: [item.revision_id],
         mode: 'incremental',
-        assessment_generation_profile: assessmentGenerationProfile.value,
         retrieval_enabled: retrievalEnabled,
       },
       {

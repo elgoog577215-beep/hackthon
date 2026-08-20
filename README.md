@@ -136,7 +136,7 @@ AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
 AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
 ```
 
-Fast 与思考版共用 `MODELSCOPE_MODEL` 指定的同一个模型。Fast 会关闭所有模型思考请求，将同一章节的三道题合并生成，共享课程上下文只发送一次；本地校验后，失败题最多执行一次原子批量修复。Fast 的生成、修复、独立求解和评审调用分别限制在 45、35、35、30 秒，且每个逻辑调用只允许一次供应商请求。思考版保留更完整的候选内容、独立求解和选择性思考，以换取复杂题质量。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
+题目生成固定使用唯一的完整质量策略，不再暴露速度或思考档位。链路保留完整候选内容、逐题独立求解、选择性模型思考和最多三轮质量修复；确定性本地解题器只处理能严格证明的合同，其余继续交给模型独立求解。历史客户端传入的 `fast` 或 `deliberate` 只作为兼容值接收，服务端会在创建或恢复任务前统一归一为 `complete`。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 

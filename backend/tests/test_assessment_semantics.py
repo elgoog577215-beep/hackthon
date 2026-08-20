@@ -391,7 +391,7 @@ async def test_semantic_failure_is_blocked_before_independent_solver():
             base,
             candidate,
             audit,
-            generation_policy=resolve_assessment_generation_policy("deliberate"),
+            generation_policy=resolve_assessment_generation_policy("complete"),
             solution_batcher=None,
         )
 

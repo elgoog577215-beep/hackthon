@@ -146,7 +146,7 @@ def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     assert payload["status"] == "queued"
     assert payload["job_id"].startswith("qbr_")
     assert payload["scope"] == "nodes"
-    assert payload["assessment_generation_profile"] == "deliberate"
+    assert payload["assessment_generation_profile"] == "complete"
     assert payload["node_ids"] == ["node-1", "node-2"]
     assert payload["status_url"].endswith(
         f"/question-bank/rebuilds/{payload['job_id']}"
@@ -247,7 +247,7 @@ def test_rebuild_api_deduplicates_and_validates_node_scope(
     assert invalid.status_code == 422
 
 
-def test_rebuild_api_rejects_conflicting_active_profile(
+def test_rebuild_api_deduplicates_legacy_profiles_into_complete(
     monkeypatch,
     tmp_path,
 ):
@@ -275,10 +275,10 @@ def test_rebuild_api_rejects_conflicting_active_profile(
     )
 
     assert first.status_code == 202
-    assert conflict.status_code == 409
-    assert conflict.json()["detail"]["code"] == (
-        "question_bank_rebuild_conflict"
-    )
+    assert conflict.status_code == 202
+    assert first.json()["assessment_generation_profile"] == "complete"
+    assert conflict.json()["assessment_generation_profile"] == "complete"
+    assert first.json()["job_id"] == conflict.json()["job_id"]
     assert len(executor.submissions) == 1
 
 

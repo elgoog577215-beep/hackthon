@@ -726,7 +726,7 @@ class _SemanticEvaluationBatcher:
         self.max_wait_seconds = max(0.0, max_wait_seconds)
         self.generation_policy = (
             generation_policy
-            or resolve_assessment_generation_policy("deliberate")
+            or resolve_assessment_generation_policy("complete")
         )
         self._lock = asyncio.Lock()
         self._pending: list[
@@ -970,7 +970,7 @@ class _SemanticEvaluationBatcher:
 
 
 class _CandidateRepairBatcher:
-    """Coalesce failed Fast candidates into one bounded repair call."""
+    """Coalesce failed candidates into one bounded repair call."""
 
     def __init__(
         self,
@@ -1125,7 +1125,7 @@ class _CandidateRepairBatcher:
 
 
 class _IndependentSolutionBatcher:
-    """Batch compatible public-only solves for the fast profile."""
+    """Batch compatible public-only solves inside the complete policy."""
 
     def __init__(
         self,
@@ -1327,7 +1327,7 @@ class AssessmentGenerationOrchestrator:
         on_progress: AssessmentProgressCallback | None = None,
         on_chapter_complete: AssessmentChapterCallback | None = None,
         reference_package: dict[str, Any] | None = None,
-        generation_profile: str = "deliberate",
+        generation_profile: str = "complete",
         generation_scope: str | None = None,
     ) -> dict[str, Any]:
         generation_policy = resolve_assessment_generation_policy(
@@ -1473,8 +1473,8 @@ class AssessmentGenerationOrchestrator:
                 practice_levels_by_node=requested_levels_by_node,
                 # 批量生成与合批评审不再看生成范围。
                 #
-                # 改动前是 `scope == "full_generation" or profile == "fast"`，
-                # 于是 deliberate 档的 scoped_repair 落进最慢的一条分支：不批量
+                # 改动前生成范围会改变节点内部的并发方式，
+                # 于是 scoped_repair 会落进最慢的一条分支：不批量
                 # 首轮候选、语义评审 batch wait 归零（等于不合批）、三个练习层级
                 # 串行 await。而 scoped_repair 正是"教师点了重建、正等着看结果"
                 # 的场景——最需要快的路径用了全链路最慢的实现。
@@ -2022,8 +2022,8 @@ class AssessmentGenerationOrchestrator:
                     generation_policy=generation_policy,
                     max_wait_seconds=0.01,
                 )
-                # 修复也合批。此前只有 fast 档创建 batcher，deliberate 下为
-                # None，于是每一次修复都是单独的 repair_single——而修复是按
+                # 修复也合批。此前部分路径不创建 batcher，于是每一次
+                # 修复都是单独的 repair_single——而修复是按
                 # 「同一节的多个层级同时不过」成批发生的，正是最该合批的调用。
                 repair_batcher = _CandidateRepairBatcher(
                     model=self.model,
@@ -2241,7 +2241,7 @@ class AssessmentGenerationOrchestrator:
             list[dict[str, Any]],
         ] = {}
         for context in contexts:
-            if generation_policy.profile == "deliberate":
+            if generation_policy.profile == "complete":
                 call_policy = generation_policy.call_policy(
                     "generate",
                     {"batch_generation": True},
@@ -2275,7 +2275,7 @@ class AssessmentGenerationOrchestrator:
                     "generate",
                     (
                         {"batch_generation": True}
-                        if generation_policy.profile == "deliberate"
+                        if generation_policy.profile == "complete"
                         else batch_contexts[0]
                     ),
                 )
@@ -3281,7 +3281,7 @@ def _audit_snapshot(audit: dict[str, Any]) -> dict[str, Any]:
     ]
     return {
         "assessment_generation_profile": str(
-            audit.get("assessment_generation_profile") or "deliberate"
+            audit.get("assessment_generation_profile") or "complete"
         ),
         "assessment_generation_policy_version": str(
             audit.get("assessment_generation_policy_version")

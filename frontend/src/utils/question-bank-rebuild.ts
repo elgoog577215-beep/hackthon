@@ -7,8 +7,6 @@ export type QuestionBankRebuildStatus =
   | 'completed'
   | 'failed'
 
-export type AssessmentGenerationProfile = 'fast' | 'deliberate'
-
 export interface QuestionBankRebuildRequest {
   request_id: string
   scope: 'course' | 'nodes' | 'items'
@@ -17,7 +15,6 @@ export interface QuestionBankRebuildRequest {
   mode: 'incremental' | 'full'
   resume_existing?: boolean
   retrieval_enabled?: boolean
-  assessment_generation_profile?: AssessmentGenerationProfile
 }
 
 export interface QuestionBankRebuildJob {
@@ -27,7 +24,7 @@ export interface QuestionBankRebuildJob {
   current_stage?: string
   message?: string
   status_url: string
-  assessment_generation_profile?: AssessmentGenerationProfile
+  assessment_generation_profile?: 'complete'
   assessment_generation_policy_version?: string
   error?: {
     code?: string

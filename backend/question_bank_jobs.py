@@ -58,7 +58,7 @@ class QuestionBankRebuildJobRepository:
         revision_ids: list[str] | None = None,
         worker_id: str = "",
         retrieval_enabled: bool = False,
-        assessment_generation_profile: str = "deliberate",
+        assessment_generation_profile: str = "complete",
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
@@ -454,7 +454,11 @@ class QuestionBankRebuildJobRepository:
     def _read(path: Path) -> dict[str, Any]:
         with path.open("r", encoding="utf-8") as handle:
             value = json.load(handle)
-        value.setdefault("assessment_generation_profile", "deliberate")
+        value["assessment_generation_profile"] = (
+            normalize_assessment_generation_profile(
+                value.get("assessment_generation_profile")
+            )
+        )
         value.setdefault(
             "assessment_generation_policy_version",
             ASSESSMENT_GENERATION_POLICY_VERSION,
