@@ -13,7 +13,7 @@
         <ArrowLeft :size="17" /><span>{{ t('courseFiles.backToCalendar') }}</span>
       </button>
       <div class="workspace-title">
-        <span>{{ t('courseFiles.spaceLabel') }}</span>
+        <FolderOpen :size="16" />
         <strong>{{ courseTitle || t('courseFiles.untitledCourse') }}</strong>
         <small class="workspace-state" :data-state="courseState">{{ courseStateLabel }}</small>
       </div>
@@ -80,7 +80,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, ListTodo, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, ListTodo, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
@@ -167,12 +167,12 @@ onMounted(loadWorkspace)
 </script>
 
 <style scoped>
-.course-workspace-page { height:100%; min-height:0; display:grid; grid-template-rows:54px minmax(0,1fr); overflow:hidden; color:var(--lz-text-strong); }
-.workspace-local-header { display:flex; align-items:center; gap:18px; padding:0 18px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.9); }
+.course-workspace-page { height:100%; min-height:0; display:grid; grid-template-rows:50px minmax(0,1fr); overflow:hidden; color:var(--lz-text-strong); }
+.workspace-local-header { display:flex; align-items:center; gap:14px; padding:0 14px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:12px; font-weight:700; cursor:pointer; }
-.workspace-title { min-width:0; display:flex; align-items:baseline; gap:10px; }
-.workspace-title span { color:var(--lz-text-muted); font-size:11px; }
-.workspace-title strong { overflow:hidden; color:var(--lz-text-strong); font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-title { min-width:0; display:flex; align-items:center; gap:8px; }
+.workspace-title>svg { flex:none; color:#64748b; }
+.workspace-title strong { overflow:hidden; color:var(--lz-text-strong); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .workspace-route-actions { display:flex; align-items:center; gap:8px; }
 .workspace-route-actions button { min-height:34px; padding:0 9px; border:1px solid var(--lz-border); border-radius:9px; background:#fff; white-space:nowrap; }
 .workspace-route-actions .agent-action { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
@@ -191,9 +191,9 @@ onMounted(loadWorkspace)
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:720px) {
-  .course-workspace-page { grid-template-rows:48px minmax(0,1fr); }
+  .course-workspace-page { grid-template-rows:46px minmax(0,1fr); }
   .workspace-local-header { padding:0 10px; gap:10px; }
-  .back-button span,.workspace-title span { display:none; }
+  .back-button span { display:none; }
   .workspace-title small { display:none; }
   .workspace-route-actions { gap:5px; }
   .workspace-route-actions button { padding:0 7px; font-size:11px; }

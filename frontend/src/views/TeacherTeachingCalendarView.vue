@@ -84,11 +84,6 @@
             @select="selectSession"
             @prepare="openPreparation"
           />
-          <div v-if="!visibleSessions.length" class="calendar-empty">
-            <CalendarRange :size="24" />
-            <strong>{{ t('teacherHome.emptyCalendar') }}</strong>
-            <span>{{ t('teacherHome.emptyCalendarHelp') }}</span>
-          </div>
         </div>
 
         <div v-else class="week-canvas">

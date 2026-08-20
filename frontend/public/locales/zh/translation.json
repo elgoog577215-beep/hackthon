@@ -3754,6 +3754,8 @@
     "teacherAgent": "教师智能体",
     "previewCourse": "预览正式课程",
     "folderNavigation": "课程文件夹",
+    "expandFolder": "展开文件夹",
+    "collapseFolder": "收起文件夹",
     "courseLevel": "整课层",
     "lessonLevel": "按课次",
     "otherLevel": "其他",
@@ -3789,6 +3791,7 @@
     "sourceRelationship": "结构化同源",
     "updateNeeded": "上游已变化，需要更新",
     "notUpdated": "尚未形成",
+    "unknownSize": "—",
     "lessonHours": "约 {hours} 学时",
     "openFolder": "打开文件夹",
     "preview": "预览",
@@ -3811,7 +3814,7 @@
     "officeSaved": "文件已安全保存在本地服务器",
     "officeSavedHelp": "Office 文件请下载后用本机应用打开；PDF、图片和文本支持页内预览。",
     "states": { "ready": "课程已就绪", "working": "生成进行中", "attention": "需要处理", "draft": "准备中" },
-    "columns": { "name": "名称", "type": "类型", "status": "状态", "updated": "最近更新" },
+    "columns": { "name": "名称", "type": "类型", "status": "状态", "updated": "修改时间", "size": "大小" },
     "types": {
       "root": "课程文件", "reference": "参考资料", "outline": "大纲", "lesson": "课次", "lessonPlan": "教案",
       "material": "资料", "ppt": "PPT", "practice": "练习", "folder": "文件夹", "file": "文件"
@@ -3829,7 +3832,7 @@
       "generatedOrigin": "AI 生成课件",
       "uploadedOrigin": "老师上传的旧课件"
     },
-    "meta": { "location": "位置", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "更新时间" },
+    "meta": { "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
     "relationship": {
       "outline": "大纲是课程结构来源；调整后会提示教案、资料、PPT 和练习检查更新。",
       "lessonPlan": "教案依据大纲与参考资料形成，并作为本讲资料、PPT 和练习的主要来源。",
@@ -3847,7 +3850,7 @@
       "aiGenerate": "AI 生成", "importFile": "从文件导入", "slideCount": "预计页数", "style": "版式风格", "simpleTeaching": "简洁教学",
       "followTemplate": "沿用参考模板", "exerciseCount": "题目数量", "difficulty": "难度", "basic": "基础", "mixed": "综合", "challenge": "挑战",
       "pptOrigin": "课件来源", "pptGenerated": "AI 生成课件", "pptGeneratedHelp": "随教案联动更新", "pptUploaded": "上传旧课件", "pptUploadedHelp": "保留老师原文件", "afterUpload": "上传后处理", "derivePlanFromPpt": "解析课件并生成教案草稿（推荐）", "derivePlanHelp": "系统从每页课件提取结构和内容，新增一份待老师审阅的教案草稿；已有确认版本不会被覆盖。", "storePptOnly": "仅保存旧课件", "storePptHelp": "只把原文件存入本讲，不发起教案生成。",
-      "requirements": "补充要求", "sourceFile": "来源文件", "oldDeckFile": "旧课件文件", "templateFile": "个人模板（可选）", "chooseFile": "选择本地文件", "importOldDeck": "上传旧课件", "generatePpt": "生成 PPT", "importAndCreate": "导入并创建", "startCreate": "开始创建"
+      "requirements": "补充要求", "sourceFile": "来源文件", "oldDeckFile": "旧课件文件", "templateFile": "个人模板（可选）", "chooseFile": "选择本地文件", "saveTo": "保存到", "importOldDeck": "上传旧课件", "generatePpt": "生成 PPT", "importAndCreate": "导入并创建", "startCreate": "开始创建"
     },
     "dialog": {
       "outline": { "title": "新建课程大纲", "help": "使用课程生成控制台建立整体结构，也可先导入已有大纲。", "requirements": "补充课程目标、学时或结构要求", "sourceHint": "支持导入已有大纲作为生成依据" },

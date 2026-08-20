@@ -14,47 +14,21 @@
     <section v-else class="file-layout">
       <aside class="file-tree-pane">
         <header class="pane-heading">
-          <strong>{{ t('courseFiles.folderNavigation') }}</strong>
+          <span><FolderTree :size="15" /><strong>{{ t('courseFiles.folderNavigation') }}</strong></span>
           <button type="button" :aria-label="t('common.refresh')" @click="reloadAll"><RefreshCw :size="15" :class="{ spin: busy }" /></button>
         </header>
         <nav class="folder-navigation" :aria-label="t('courseFiles.folderNavigation')">
-          <span>{{ t('courseFiles.courseLevel') }}</span>
-          <button
-            v-for="folder in courseFolders"
-            :key="folder.id"
-            type="button"
-            :class="{ active: currentFolderId === folder.id }"
-            @click="openFolder(folder.id)"
-          >
-            <Layers3 v-if="folder.type === 'root'" :size="15" />
-            <Folder v-else :size="15" />
-            <strong>{{ folder.label }}</strong>
-          </button>
-          <span>{{ t('courseFiles.lessonLevel') }}</span>
-          <button
-            v-for="folder in lessonFolders"
-            :key="folder.id"
-            type="button"
-            :class="{ active: currentFolderId === folder.id }"
-            @click="openFolder(folder.id)"
-          >
-            <Folder :size="15" />
-            <strong>{{ folder.label }}</strong>
-            <i v-if="folder.children?.some(item => item.status === 'stale')" :title="t('courseFiles.updateNeeded')" />
-          </button>
-          <template v-if="otherFolders.length">
-            <span>{{ t('courseFiles.otherLevel') }}</span>
-            <button
-              v-for="folder in otherFolders"
+          <ul role="tree">
+            <WorkspaceFolderTreeNode
+              v-for="folder in folderTreeData"
               :key="folder.id"
-              type="button"
-              :class="{ active: currentFolderId === folder.id }"
-              @click="openFolder(folder.id)"
-            >
-              <Folder :size="15" />
-              <strong>{{ folder.label }}</strong>
-            </button>
-          </template>
+              :node="folder"
+              :current-id="currentFolderId"
+              :expanded-ids="expandedFolderIds"
+              @select="openFolder"
+              @toggle="toggleFolder"
+            />
+          </ul>
         </nav>
         <footer>
           <span>{{ selected.academic_year }} · {{ termLabel(selected.term) }}</span>
@@ -95,7 +69,11 @@
 
         <div class="file-table" role="table" :aria-label="t('courseFiles.fileList')">
           <div class="file-table__head" role="row">
-            <span>{{ t('courseFiles.columns.name') }}</span><span>{{ t('courseFiles.columns.type') }}</span><span>{{ t('courseFiles.columns.status') }}</span><span>{{ t('courseFiles.columns.updated') }}</span><span />
+            <span>{{ t('courseFiles.columns.name') }}</span>
+            <span>{{ t('courseFiles.columns.updated') }}</span>
+            <span>{{ t('courseFiles.columns.type') }}</span>
+            <span>{{ t('courseFiles.columns.size') }}</span>
+            <span>{{ t('courseFiles.columns.status') }}</span>
           </div>
           <button
             v-for="node in filteredChildren"
@@ -108,10 +86,10 @@
             @dblclick="node.kind === 'folder' ? openFolder(node.id) : primaryAction(node)"
           >
             <span class="file-name" role="cell"><span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="17" /></span><span><strong>{{ node.label }}</strong><small v-if="node.subtitle">{{ node.subtitle }}</small></span></span>
+            <span role="cell">{{ displayUpdated(node) }}</span>
             <span role="cell">{{ typeLabel(node) }}</span>
+            <span role="cell">{{ displaySize(node) }}</span>
             <span role="cell"><i class="status-dot" :data-state="node.status" />{{ statusLabel(node) }}</span>
-            <span role="cell">{{ dateLabel(node.updatedAt) }}</span>
-            <span role="cell"><ChevronRight :size="15" /></span>
           </button>
           <div v-if="!filteredChildren.length" class="file-empty">
             <FolderOpen :size="27" /><strong>{{ t('courseFiles.emptyFolder') }}</strong><span>{{ t('courseFiles.emptyFolderHelp') }}</span>
@@ -122,29 +100,30 @@
       </section>
 
       <aside class="file-inspector">
-        <template v-if="selectedNode">
+        <template v-if="inspectedNode">
           <header>
-            <span class="inspector-icon" :data-type="selectedNode.type"><component :is="selectedNode.kind === 'folder' ? Folder : nodeIcon(selectedNode)" :size="22" /></span>
-            <div><small v-if="typeLabel(selectedNode) !== selectedNode.label">{{ typeLabel(selectedNode) }}</small><strong>{{ selectedNode.label }}</strong></div>
-            <button type="button" :aria-label="t('common.close')" @click="selectedNode = null"><X :size="15" /></button>
+            <span class="inspector-icon" :data-type="inspectedNode.type"><component :is="inspectedNode.kind === 'folder' ? FolderOpen : nodeIcon(inspectedNode)" :size="22" /></span>
+            <div><small v-if="typeLabel(inspectedNode) !== inspectedNode.label">{{ typeLabel(inspectedNode) }}</small><strong>{{ inspectedNode.label }}</strong></div>
+            <button v-if="selectedNode" type="button" :aria-label="t('common.close')" @click="selectedNode = null"><X :size="15" /></button>
           </header>
-          <section class="inspector-status" :data-state="selectedNode.status">
-            <span><i />{{ statusLabel(selectedNode) }}</span>
-            <p>{{ statusHelp(selectedNode) }}</p>
+          <section class="inspector-status" :data-state="inspectedNode.status">
+            <span><i />{{ statusLabel(inspectedNode) }}</span>
+            <p>{{ statusHelp(inspectedNode) }}</p>
           </section>
           <dl class="file-meta">
-            <div><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ selectedNode.path || t('courseFiles.rootName') }}</dd></div>
-            <div v-if="selectedNode.lessonId"><dt>{{ t('courseFiles.meta.lesson') }}</dt><dd>{{ lessonLabel(selectedNode.lessonId) }}</dd></div>
-            <div v-if="selectedNode.revision"><dt>{{ t('courseFiles.meta.version') }}</dt><dd>{{ selectedNode.revision }}</dd></div>
-            <div v-if="selectedNode.type === 'ppt' && selectedNode.origin"><dt>{{ t('courseFiles.meta.origin') }}</dt><dd>{{ selectedNode.origin === 'uploaded' ? t('courseFiles.ppt.uploadedOrigin') : t('courseFiles.ppt.generatedOrigin') }}</dd></div>
-            <div v-if="selectedNode.asset"><dt>{{ t('courseFiles.meta.size') }}</dt><dd>{{ size(selectedNode.asset.size_bytes) }}</dd></div>
-            <div><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ dateLabel(selectedNode.updatedAt) }}</dd></div>
+            <div><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ inspectedNode.path || t('courseFiles.rootName') }}</dd></div>
+            <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.items') }}</dt><dd>{{ t('courseFiles.itemCount').replace('{count}', String(inspectedNode.children?.length || 0)) }}</dd></div>
+            <div v-if="inspectedNode.lessonId"><dt>{{ t('courseFiles.meta.lesson') }}</dt><dd>{{ lessonLabel(inspectedNode.lessonId) }}</dd></div>
+            <div v-if="inspectedNode.revision"><dt>{{ t('courseFiles.meta.version') }}</dt><dd>{{ inspectedNode.revision }}</dd></div>
+            <div v-if="inspectedNode.type === 'ppt' && inspectedNode.origin"><dt>{{ t('courseFiles.meta.origin') }}</dt><dd>{{ inspectedNode.origin === 'uploaded' ? t('courseFiles.ppt.uploadedOrigin') : t('courseFiles.ppt.generatedOrigin') }}</dd></div>
+            <div v-if="inspectedNode.kind !== 'folder'"><dt>{{ t('courseFiles.meta.size') }}</dt><dd>{{ displaySize(inspectedNode) }}</dd></div>
+            <div><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ displayUpdated(inspectedNode) }}</dd></div>
           </dl>
-          <section v-if="selectedNode.kind !== 'folder'" class="relationship-card">
+          <section v-if="inspectedNode.kind !== 'folder'" class="relationship-card">
             <small>{{ activeLocale === 'en' ? 'Content source' : '内容来源' }}</small>
-            <p>{{ relationship(selectedNode) }}</p>
+            <p>{{ relationship(inspectedNode) }}</p>
           </section>
-          <footer class="inspector-actions">
+          <footer v-if="selectedNode" class="inspector-actions">
             <button class="primary" type="button" :disabled="busy || primaryDisabled(selectedNode)" @click="primaryAction(selectedNode)">
               <LoaderCircle v-if="busy" :size="15" class="spin" /><component :is="primaryIcon(selectedNode)" v-else :size="15" />{{ primaryLabel(selectedNode) }}
             </button>
@@ -152,16 +131,16 @@
             <button v-if="selectedNode.asset" class="danger" type="button" @click="deleteAsset(selectedNode.asset)"><Trash2 :size="14" />{{ t('courseFiles.delete') }}</button>
           </footer>
         </template>
-        <div v-else class="inspector-empty"><MousePointer2 :size="25" /><strong>{{ t('courseFiles.selectFile') }}</strong><span>{{ t('courseFiles.selectFileHelp') }}</span></div>
       </aside>
     </section>
 
     <input ref="importInput" class="sr-only" type="file" @change="captureImportFile" />
     <Teleport to="body">
       <div v-if="createOpen" class="asset-create-overlay" role="presentation" @click.self="closeCreateDialog" @keydown.esc="closeCreateDialog">
-        <section class="asset-create-dialog" role="dialog" aria-modal="true" :aria-labelledby="'asset-create-title'" tabindex="-1">
+        <section ref="createDialog" class="asset-create-dialog" role="dialog" aria-modal="true" :aria-labelledby="'asset-create-title'" tabindex="-1">
           <header class="asset-create-header"><strong id="asset-create-title">{{ dialogTitle }}</strong><button type="button" :aria-label="t('common.close')" @click="closeCreateDialog"><X :size="17" /></button></header>
           <p class="asset-create-help">{{ dialogHelp }}</p>
+          <div class="create-location"><FolderOpen :size="15" /><span>{{ t('courseFiles.form.saveTo') }}</span><strong>{{ createLocationLabel }}</strong></div>
           <form class="asset-form" @submit.prevent="submitCreate">
         <label v-if="needsLesson" class="form-field">
           <span>{{ t('courseFiles.form.lesson') }}</span>
@@ -236,18 +215,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, onMounted, ref } from 'vue'
+import { computed, markRaw, nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowLeft, BookOpen, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
-  FileText, Folder, FolderOpen, FolderPlus, Home, ListChecks, LoaderCircle, MousePointer2,
-  GitBranch, Layers3, Pencil, Plus, Presentation, RefreshCw, Search, Sparkles, Trash2, TriangleAlert, Upload, X,
+  FileText, Folder, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
+  GitBranch, Pencil, Plus, Presentation, RefreshCw, Search, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import http from '../utils/http'
+import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; uploaded_at?: string; updated_at?: string }
 type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
@@ -256,8 +236,9 @@ type NodeType = 'root' | 'reference' | 'outline' | 'lesson' | 'lesson_plan' | 'm
 type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus; subtitle?: string;
-  lessonId?: string; revision?: string; updatedAt?: string; asset?: Asset; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
+  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
 }
+type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
 
 const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), { embedded: false, courseId: '', courseTitle: '' })
@@ -273,11 +254,13 @@ const initializing = ref(true)
 const busy = ref(false)
 const status = ref('')
 const currentFolderId = ref('root')
+const expandedFolderIds = ref<string[]>(['root'])
 const selectedNode = ref<WorkspaceNode | null>(null)
 const query = ref('')
 const createOpen = ref(false)
 const createType = ref<CreateType>('material')
 const importInput = ref<HTMLInputElement>()
+const createDialog = ref<HTMLElement>()
 const createForm = ref({ lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null as File | null })
 const previewOpen = ref(false)
 const previewAsset = ref<Asset | null>(null)
@@ -307,6 +290,11 @@ const termLabel = (term: string) => ({ 春季: t('teacherCourseSpace.terms.sprin
 const safePart = (value: string) => value.replace(/[\\/:*?"<>|]/g, '_').trim()
 const lessonPath = (lesson: TeacherLessonProjection) => `课次/${String(lesson.number).padStart(2, '0')}_${safePart(lesson.title)}`
 const localizedError = (error: any, fallback: string) => activeLocale.value === 'zh' && error?.response?.data?.detail ? String(error.response.data.detail) : fallback
+const serializedSize = (value: unknown) => {
+  if (!value) return undefined
+  const bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength
+  return bytes || undefined
+}
 
 function physicalChildren(basePath: string, parentId: string): WorkspaceNode[] {
   const result = new Map<string, WorkspaceNode>()
@@ -350,7 +338,8 @@ const otherRootChildren = computed(() => physicalChildren('', 'folder:other').fi
 const treeData = computed<WorkspaceNode[]>(() => {
   const outline: WorkspaceNode = {
     id: 'managed:outline', label: t('courseFiles.names.outline'), kind: 'managed', type: 'outline', path: t('courseFiles.names.outline'),
-    status: courseStore.currentDocumentRevision ? 'ready' : courseStore.nodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision || '',
+    status: courseStore.currentDocumentRevision ? 'ready' : courseStore.nodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision || '', parentId: 'root',
+    sizeBytes: serializedSize(courseStore.nodes.length ? { revision: courseStore.currentDocumentRevision, nodes: courseStore.nodes } : null),
   }
   const reference: WorkspaceNode = { id: 'folder:reference', label: t('courseFiles.names.reference'), kind: 'folder', type: 'reference', path: '参考资料', status: 'ready', parentId: 'root', children: physicalChildren('参考资料', 'folder:reference') }
   const lessonNodes: WorkspaceNode[] = lessons.value.map(lesson => {
@@ -363,9 +352,9 @@ const treeData = computed<WorkspaceNode[]>(() => {
       id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: base, status: 'ready', lessonId: lesson.lesson_unit_id, parentId: 'root',
       subtitle: t('courseFiles.lessonHours').replace('{hours}', String(Math.max(1, Math.round(lesson.duration_minutes / 45)))),
       children: [
-        { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at },
+        { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: serializedSize(working) },
         { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`).length ? 'ready' : 'missing', children: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`) },
-        ...(ppt || !uploadedPpts.length ? [{ id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed' as const, type: 'ppt' as const, path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' as const : ppt?.source_state === 'stale' ? 'stale' as const : ppt ? 'ready' as const : 'missing' as const, revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined, subtitle: ppt || activeJob?.type?.includes('ppt') ? t('courseFiles.ppt.generatedSubtitle') : t('courseFiles.ppt.chooseMethodSubtitle') }] : []),
+        ...(ppt || !uploadedPpts.length ? [{ id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed' as const, type: 'ppt' as const, path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' as const : ppt?.source_state === 'stale' ? 'stale' as const : ppt ? 'ready' as const : 'missing' as const, revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, sizeBytes: serializedSize(ppt), origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined, subtitle: ppt || activeJob?.type?.includes('ppt') ? t('courseFiles.ppt.generatedSubtitle') : t('courseFiles.ppt.chooseMethodSubtitle') }] : []),
         ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const, subtitle: t('courseFiles.ppt.uploadedSubtitle') })),
         { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'missing' },
       ],
@@ -374,14 +363,18 @@ const treeData = computed<WorkspaceNode[]>(() => {
   const other: WorkspaceNode | null = otherRootChildren.value.length ? { id: 'folder:other', label: t('courseFiles.names.other'), kind: 'folder', type: 'folder', path: '', status: 'ready', parentId: 'root', children: otherRootChildren.value } : null
   const courseRoot: WorkspaceNode = {
     id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: 'ready',
-    children: [outline, reference],
+    children: [outline, reference, ...lessonNodes, ...(other ? [other] : [])],
   }
-  return [courseRoot, ...lessonNodes, ...(other ? [other] : [])]
+  return [courseRoot]
 })
 
-const courseFolders = computed(() => treeData.value.filter(node => node.type === 'root'))
-const lessonFolders = computed(() => treeData.value.filter(node => node.type === 'lesson'))
-const otherFolders = computed(() => treeData.value.filter(node => node.type === 'folder'))
+function toFolderTreeItem(node: WorkspaceNode): WorkspaceFolderTreeItem | null {
+  if (node.kind !== 'folder') return null
+  const children = (node.children || []).map(toFolderTreeItem).filter((item): item is WorkspaceFolderTreeItem => Boolean(item))
+  const attention = (node.children || []).some(item => item.status === 'stale' || item.status === 'working' || item.kind === 'folder' && toFolderTreeItem(item)?.attention)
+  return { id: node.id, label: node.label, attention, children }
+}
+const folderTreeData = computed(() => treeData.value.map(toFolderTreeItem).filter((item): item is WorkspaceFolderTreeItem => Boolean(item)))
 
 const flatNodes = computed(() => {
   const map = new Map<string, WorkspaceNode>()
@@ -390,6 +383,7 @@ const flatNodes = computed(() => {
   return map
 })
 const currentFolder = computed(() => flatNodes.value.get(currentFolderId.value) || treeData.value[0])
+const inspectedNode = computed(() => selectedNode.value || currentFolder.value || null)
 const filteredChildren = computed(() => {
   const value = query.value.trim().toLocaleLowerCase()
   return (currentFolder.value?.children || []).filter(item => !value || item.label.toLocaleLowerCase().includes(value))
@@ -409,6 +403,8 @@ const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'ppt' ? Presenta
 const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
 const dateLabel = (value?: string) => value ? new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value)) : t('courseFiles.notUpdated')
 const size = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
+const displayUpdated = (node: WorkspaceNode) => dateLabel(node.updatedAt || selected.value?.updated_at)
+const displaySize = (node: WorkspaceNode) => node.asset ? size(node.asset.size_bytes) : node.sizeBytes ? size(node.sizeBytes) : t('courseFiles.unknownSize')
 
 function relationship(node: WorkspaceNode) {
   if (node.type === 'outline') return t('courseFiles.relationship.outline')
@@ -419,8 +415,26 @@ function relationship(node: WorkspaceNode) {
   return t('courseFiles.relationship.file')
 }
 
-function openFolder(id: string) { const node = flatNodes.value.get(id); if (node?.kind === 'folder') { currentFolderId.value = id; selectedNode.value = null; query.value = '' } }
-function selectNode(node: WorkspaceNode) { selectedNode.value = node; if (node.kind === 'folder') openFolder(node.id) }
+function folderPath(id: string) {
+  const values: string[] = []
+  let node = flatNodes.value.get(id)
+  while (node) { if (node.kind === 'folder') values.unshift(node.id); node = node.parentId ? flatNodes.value.get(node.parentId) : undefined }
+  return values
+}
+function toggleFolder(id: string) {
+  expandedFolderIds.value = expandedFolderIds.value.includes(id)
+    ? expandedFolderIds.value.filter(value => value !== id)
+    : [...expandedFolderIds.value, id]
+}
+function openFolder(id: string) {
+  const node = flatNodes.value.get(id)
+  if (node?.kind !== 'folder') return
+  currentFolderId.value = id
+  selectedNode.value = null
+  query.value = ''
+  expandedFolderIds.value = [...new Set([...expandedFolderIds.value, ...folderPath(id)])]
+}
+function selectNode(node: WorkspaceNode) { selectedNode.value = node }
 
 function primaryLabel(node: WorkspaceNode) {
   if (node.kind === 'folder') return t('courseFiles.openFolder')
@@ -468,6 +482,7 @@ async function refresh() {
     currentFolderId.value = requestedLessonId && flatNodes.value.has(`lesson:${requestedLessonId}`)
       ? `lesson:${requestedLessonId}`
       : 'root'
+    expandedFolderIds.value = folderPath(currentFolderId.value)
     selectedNode.value = null
   } catch (error: any) {
     status.value = localizedError(error, t('courseFiles.spaceUnavailable'))
@@ -482,11 +497,20 @@ function openCreateDialog(command: CreateType | string, lessonId: unknown = '') 
   createType.value = command as CreateType
   createForm.value.lessonId = typeof lessonId === 'string' && lessonId ? lessonId : currentFolder.value?.lessonId || ''
   createOpen.value = true
+  void nextTick(() => createDialog.value?.focus())
 }
 function closeCreateDialog() { createOpen.value = false; resetCreateForm() }
 const dialogTitle = computed(() => t(`courseFiles.dialog.${createType.value}.title`))
 const dialogHelp = computed(() => t(`courseFiles.dialog.${createType.value}.help`))
 const needsLesson = computed(() => ['lesson_plan', 'ppt', 'practice'].includes(createType.value) || createType.value === 'material' && currentFolder.value?.type !== 'reference')
+const createLocationLabel = computed(() => {
+  if (needsLesson.value && !createForm.value.lessonId) {
+    const typeKey = createType.value === 'lesson_plan' ? 'lessonPlan' : createType.value
+    return `${t('courseFiles.rootName')} / ${t('courseFiles.form.selectLesson')} / ${t(`courseFiles.types.${typeKey}`)}`
+  }
+  const path = targetPath(createType.value, createForm.value.lessonId)
+  return path ? `${t('courseFiles.rootName')} / ${path}` : t('courseFiles.rootName')
+})
 const requirementsPlaceholder = computed(() => t(`courseFiles.dialog.${createType.value}.requirements`))
 const sourceFileLabel = computed(() => createType.value === 'ppt'
   ? createForm.value.mode === 'import' ? t('courseFiles.form.oldDeckFile') : t('courseFiles.form.templateFile')
@@ -501,7 +525,7 @@ const submitLabel = computed(() => {
   if (createType.value === 'material') return t('courseFiles.createFile')
   return t('courseFiles.form.startCreate')
 })
-const submitDisabled = computed(() => busy.value || createType.value === 'ppt' && createForm.value.mode === 'import' && !createForm.value.file)
+const submitDisabled = computed(() => busy.value || needsLesson.value && !createForm.value.lessonId || createType.value === 'ppt' && createForm.value.mode === 'import' && !createForm.value.file)
 function captureImportFile(event: Event) { const input = event.target as HTMLInputElement; createForm.value.file = input.files?.[0] || null; input.value = '' }
 function resetCreateForm() { createForm.value = { lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null } }
 
@@ -603,38 +627,34 @@ onMounted(refresh)
 .file-space { height:100%; min-height:0; color:var(--lz-text-strong); background:#f8fafc; }
 .standalone-header { height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .standalone-header small,.standalone-header h1 { display:block; margin:0; }.standalone-header small { color:var(--lz-text-muted); }.standalone-header h1 { font-size:18px; }.standalone-header button { display:flex; gap:7px; border:0; background:transparent; }
-.file-layout { height:100%; min-height:0; display:grid; grid-template-columns:248px minmax(440px,1fr) 302px; overflow:hidden; background:#fff; }
+.file-layout { height:100%; min-height:0; display:grid; grid-template-columns:260px minmax(520px,1fr) 288px; overflow:hidden; background:#fff; }
 .file-tree-pane,.file-list-pane,.file-inspector { min-height:0; overflow:hidden; }
 .file-tree-pane { display:grid; grid-template-rows:auto minmax(0,1fr) auto; border-right:1px solid var(--lz-border); background:#f8fafc; }
-.pane-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:16px 14px 12px; }
-.pane-heading strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.pane-heading button,.file-inspector header>button { border:0; background:transparent; color:var(--lz-text-muted); cursor:pointer; }
-.folder-navigation { min-height:0; overflow:auto; padding:2px 9px 14px; }
-.folder-navigation>span { display:block; padding:12px 8px 5px; color:var(--lz-text-muted); font-size:9px; font-weight:800; }
-.folder-navigation button { width:100%; min-height:36px; display:grid; grid-template-columns:18px minmax(0,1fr) 8px; align-items:center; gap:7px; padding:5px 8px; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; }
-.folder-navigation button:hover,.folder-navigation button:focus-visible { outline:0; background:#fff; }.folder-navigation button.active { color:var(--lz-brand-strong); background:#eef2ff; }
-.folder-navigation button svg { color:#64748b; }.folder-navigation button.active svg { color:var(--lz-brand); }.folder-navigation button strong { overflow:hidden; font-size:11px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
-.folder-navigation button i { width:6px; height:6px; border-radius:50%; background:var(--lz-warning); }
+.pane-heading { min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:0 13px; border-bottom:1px solid #e8edf4; }
+.pane-heading>span { min-width:0; display:flex; align-items:center; gap:7px; color:#475569; }.pane-heading>span>svg{color:#64748b}.pane-heading strong { overflow:hidden; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }.pane-heading button,.file-inspector header>button { width:28px; height:28px; display:grid; place-items:center; padding:0; border:0; border-radius:6px; background:transparent; color:var(--lz-text-muted); cursor:pointer; }.pane-heading button:hover,.file-inspector header>button:hover{color:var(--lz-text-strong);background:#eef2f7}
+.folder-navigation { min-height:0; overflow:auto; padding:8px 7px 14px; }
+.folder-navigation>ul { margin:0; padding:0; list-style:none; }
 .file-tree-pane footer { display:grid; gap:8px; padding:12px 14px; border-top:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; }.file-tree-pane footer button { display:flex; align-items:center; gap:6px; padding:0; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }
 .file-list-pane { display:flex; flex-direction:column; background:#fff; }
 .list-toolbar { min-height:54px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--lz-border); }.list-toolbar nav { min-width:0; display:flex; align-items:center; gap:3px; overflow:hidden; }.list-toolbar nav button { display:flex; align-items:center; gap:5px; min-width:0; padding:4px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; white-space:nowrap; cursor:pointer; }.list-toolbar nav svg { flex:none; color:#94a3b8; }
 .toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:180px; height:32px; display:flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:#94a3b8; }.list-search input { width:100%; border:0; outline:0; font-size:11px; }.new-button { height:34px; display:flex; align-items:center; gap:6px; padding:0 11px; border:1px solid #4f46e5; border-radius:8px; background:#4f46e5; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
-.folder-title { min-height:62px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:8px 18px; }.folder-title h2 { margin:0; font-size:18px; }.folder-title>span { color:var(--lz-text-muted); font-size:11px; }
-.file-table { min-height:0; flex:1; overflow:auto; padding:0 12px 20px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(190px,1.6fr) 92px 96px 105px 24px; align-items:center; gap:8px; }.file-table__head { min-height:32px; padding:0 10px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; font-weight:700; }.file-row { width:100%; min-height:55px; padding:6px 10px; border:0; border-bottom:1px solid #f1f5f9; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:11px; cursor:pointer; }.file-row:hover,.file-row.selected { border-radius:8px; background:#f5f7ff; }.file-row.selected { box-shadow:inset 2px 0 #6366f1; }.file-name { min-width:0; display:flex; align-items:center; gap:10px; }.file-name>span:last-child { min-width:0; display:grid; gap:3px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:12px; }.file-name small { color:var(--lz-text-muted); font-size:10px; }.file-icon { width:30px; height:30px; flex:none; display:grid; place-items:center; border-radius:8px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
+.folder-title { min-height:58px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:8px 16px; }.folder-title h2 { margin:0; font-size:16px; }.folder-title>span { color:var(--lz-text-muted); font-size:10px; }
+.file-table { min-height:0; flex:1; overflow:auto; padding:0 10px 18px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(220px,1.65fr) 112px 82px 68px 88px; align-items:center; gap:10px; }.file-table__head { min-height:34px; padding:0 9px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:9px; font-weight:700; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-row { width:100%; min-height:48px; padding:5px 9px; border:0; border-bottom:1px solid #edf1f6; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:10px; cursor:default; }.file-row:hover{background:#f7f9fc}.file-row.selected { background:#e9eeff; }.file-name { min-width:0; display:flex; align-items:center; gap:9px; }.file-name>span:last-child { min-width:0; display:grid; gap:2px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:11px; }.file-name small { color:var(--lz-text-muted); font-size:9px; }.file-icon { width:28px; height:28px; flex:none; display:grid; place-items:center; border-radius:7px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
 .file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { font-size:11px; }.file-empty button { display:flex; align-items:center; gap:5px; margin-top:6px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; }
 .runtime-note { margin:0; padding:8px 16px; border-top:1px solid var(--lz-border); color:#9a3412; background:#fff7ed; font-size:11px; }
 .file-inspector { display:flex; flex-direction:column; border-left:1px solid var(--lz-border); background:#fbfcfe; }.file-inspector>header { display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:center; gap:9px; padding:16px 14px 13px; border-bottom:1px solid var(--lz-border); }.inspector-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; background:#eef2ff; color:#4f46e5; }.file-inspector header div { min-width:0; display:grid; gap:2px; }.file-inspector header small { color:var(--lz-text-muted); font-size:10px; }.file-inspector header strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
-.inspector-status { margin:13px 14px 0; padding:11px; border:1px solid #e2e8f0; border-radius:9px; background:#fff; }.inspector-status>span { display:flex; align-items:center; gap:6px; color:var(--lz-text-secondary); font-size:11px; font-weight:700; }.inspector-status i { width:7px; height:7px; border-radius:50%; background:#94a3b8; }.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i { background:#10b981; }.inspector-status[data-state="working"] i { background:#6366f1; }.inspector-status[data-state="stale"] i { background:#f97316; }.inspector-status p { margin:6px 0 0; color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
-.file-meta { display:grid; gap:0; margin:12px 14px 0; }.file-meta div { display:grid; grid-template-columns:66px minmax(0,1fr); gap:8px; padding:8px 0; border-bottom:1px solid #eef2f7; font-size:10px; }.file-meta dt { color:var(--lz-text-muted); }.file-meta dd { margin:0; overflow-wrap:anywhere; color:var(--lz-text-secondary); }
-.relationship-card { margin:14px; padding:11px; border:1px solid #e0e7ff; border-radius:9px; background:#f5f7ff; }.relationship-card small { color:#6366f1; font-size:10px; font-weight:700; }.relationship-card p { margin:5px 0 0; color:#596579; font-size:10px; line-height:1.55; }
+.inspector-status { padding:12px 14px; border-bottom:1px solid #e8edf4; }.inspector-status>span { display:flex; align-items:center; gap:6px; color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.inspector-status i { width:7px; height:7px; border-radius:50%; background:#94a3b8; }.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i { background:#10b981; }.inspector-status[data-state="working"] i { background:#6366f1; }.inspector-status[data-state="stale"] i { background:#f97316; }.inspector-status p { margin:5px 0 0; color:var(--lz-text-muted); font-size:9px; line-height:1.5; }
+.file-meta { display:grid; gap:0; margin:8px 14px 0; }.file-meta div { display:grid; grid-template-columns:66px minmax(0,1fr); gap:8px; padding:8px 0; border-bottom:1px solid #e8edf4; font-size:10px; }.file-meta dt { color:var(--lz-text-muted); }.file-meta dd { margin:0; overflow-wrap:anywhere; color:var(--lz-text-secondary); }
+.relationship-card { margin:4px 14px 0; padding:12px 0; border-bottom:1px solid #e8edf4; }.relationship-card small { color:#4f46e5; font-size:9px; font-weight:700; }.relationship-card p { margin:5px 0 0; color:#596579; font-size:9px; line-height:1.6; }
 .inspector-actions { display:grid; gap:7px; margin-top:auto; padding:14px; border-top:1px solid var(--lz-border); }.inspector-actions button { min-height:34px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }.inspector-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }.inspector-actions button.danger { color:#b91c1c; }.inspector-actions button:disabled { opacity:.45; cursor:not-allowed; }
 .inspector-empty,.space-state { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.inspector-empty strong,.space-state strong { color:var(--lz-text-secondary); font-size:13px; }.inspector-empty span,.space-state span { max-width:220px; font-size:11px; line-height:1.5; }.space-state button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
 .asset-create-overlay { position:fixed; inset:0; z-index:2600; display:grid; place-items:center; padding:14px; background:rgba(15,23,42,.38); backdrop-filter:blur(2px); }.asset-create-dialog { width:min(560px,calc(100vw - 28px)); max-height:calc(100vh - 28px); overflow:auto; padding:0 18px 18px; border:1px solid rgba(255,255,255,.65); border-radius:14px; background:#fff; box-shadow:0 24px 70px rgba(15,23,42,.22); }.asset-create-header { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; min-height:48px; margin:0 -18px 14px; padding:0 18px; border-bottom:1px solid #eef2f7; background:rgba(255,255,255,.96); }.asset-create-header strong { font-size:14px; }.asset-create-header button { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:7px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }.asset-create-header button:hover { background:#f1f5f9; color:var(--lz-text-strong); }
 .asset-create-help { margin:0 0 14px; color:var(--lz-text-secondary); font-size:11px; line-height:1.55; }
-.asset-form { display:grid; gap:13px; padding-top:15px; }.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }.form-field { display:grid; gap:6px; }.form-field>span,.source-picker>div>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.form-field>small { color:var(--lz-text-muted); font-size:9px; line-height:1.5; }.form-field input,.form-field select,.form-field textarea { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--lz-border); border-radius:8px; outline:0; color:var(--lz-text-strong); background:#fff; font:inherit; font-size:11px; }.form-field textarea { resize:vertical; }.form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }.source-picker { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px; border:1px dashed #cbd5e1; border-radius:9px; }.source-picker>div { display:grid; gap:3px; }.source-picker small { color:var(--lz-text-muted); font-size:9px; }.source-picker button { max-width:220px; display:flex; align-items:center; gap:6px; overflow:hidden; padding:7px 9px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.create-location{min-height:36px;display:grid;grid-template-columns:18px auto minmax(0,1fr);align-items:center;gap:6px;padding:0 10px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;background:#f8fafc;font-size:10px}.create-location strong{overflow:hidden;color:#334155;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.asset-form { display:grid; gap:13px; padding-top:15px; }.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }.form-field { display:grid; gap:6px; }.form-field>span,.source-picker>div>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.form-field>small { color:var(--lz-text-muted); font-size:9px; line-height:1.5; }.form-field input,.form-field select,.form-field textarea { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--lz-border); border-radius:8px; outline:0; color:var(--lz-text-strong); background:#fff; font:inherit; font-size:11px; }.form-field textarea { resize:vertical; }.form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }.source-picker { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px; border:1px dashed #cbd5e1; border-radius:9px; }.source-picker>div { display:grid; gap:3px; }.source-picker small { color:var(--lz-text-muted); font-size:9px; }.source-picker button { max-width:220px; display:flex; align-items:center; gap:6px; overflow:hidden; padding:7px 9px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .ppt-origin-picker { display:grid; gap:7px; }.ppt-origin-picker>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.ppt-origin-picker>div { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.ppt-origin-picker button { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr); gap:1px 7px; padding:9px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; }.ppt-origin-picker button svg { grid-row:1/3; align-self:center; color:#64748b; }.ppt-origin-picker button strong { font-size:11px; }.ppt-origin-picker button small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.ppt-origin-picker button.active { border-color:var(--lz-brand); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.ppt-origin-picker button.active svg { color:var(--lz-brand); }.ppt-origin-note { display:flex; align-items:flex-start; gap:7px; margin:0; padding:9px 10px; border:1px solid #e0e7ff; border-radius:8px; color:#4f46e5; background:#f8faff; font-size:10px; line-height:1.5; }.ppt-origin-note[data-mode="import"] { border-color:#e2e8f0; color:#475569; background:#f8fafc; }
 .dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }.dialog-actions button { min-height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; }.dialog-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }
 .preview-surface { min-height:420px; display:grid; place-items:center; }.preview-surface img { max-width:100%; max-height:75vh; }.preview-surface iframe { width:100%; min-height:72vh; border:0; }.office-note { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.office-note strong { color:var(--lz-text-strong); }.office-note button { padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }.spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:1080px) { .file-layout { grid-template-columns:220px minmax(380px,1fr) 260px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1.6fr) 78px 88px 24px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
-@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:96px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px 54px; overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { height:42px; padding:0 12px; }.folder-navigation { display:flex; align-items:center; gap:5px; overflow-x:auto; padding:6px 8px; scrollbar-width:none; }.folder-navigation::-webkit-scrollbar { display:none; }.folder-navigation>span,.file-tree-pane footer { display:none; }.folder-navigation button { width:auto; min-width:max-content; min-height:36px; display:flex; gap:6px; padding:5px 10px; border:1px solid transparent; background:#fff; }.folder-navigation button.active { border-color:var(--lz-brand-border); }.folder-navigation button i { margin-left:2px; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .file-meta,.relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:58px; padding:8px 12px; }.folder-title h2 { font-size:16px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(170px,1fr) 78px 24px; }.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
+@media (max-width:1080px) { .file-layout { grid-template-columns:220px minmax(420px,1fr) 250px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(190px,1.5fr) 98px 72px 78px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
+@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:160px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px minmax(0,1fr); overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { min-height:42px; padding:0 10px; }.folder-navigation { overflow:auto; padding:5px 7px 10px; }.file-tree-pane footer { display:none; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:52px; padding:7px 11px; }.folder-title h2 { font-size:15px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1fr) 82px; }.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
 </style>
