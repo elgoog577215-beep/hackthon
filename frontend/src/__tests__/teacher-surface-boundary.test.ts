@@ -71,6 +71,9 @@ describe('calendar and course file-space boundary', () => {
     expect(fileSpace).toContain('class="file-inspector"')
     expect(fileSpace).toContain("t('courseFiles.columns.size')")
     expect(fileSpace).toContain('const inspectedNode = computed')
+    expect(fileSpace).toContain("id: `content:${lesson.lesson_unit_id}`")
+    expect(fileSpace).toContain('async function exportManagedNode')
+    expect(fileSpace).toContain("node.type === 'content'")
     expect(fileSpace).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
   })
 

@@ -10,6 +10,7 @@ vi.mock('@/utils/http', () => ({ default: httpMock }))
 
 import TeacherCourseSpaceView from '@/views/TeacherCourseSpaceView.vue'
 import { setLocale } from '@/shared/i18n'
+import { useCourseStore } from '@/stores/course'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
 const coursePackage = {
@@ -76,5 +77,34 @@ describe('TeacherCourseSpaceView', () => {
     expect(storeSource).toContain('source_package_id: source?.packageId')
     expect(zhMessages.courseFiles.form.derivePlanFromPpt).toContain('生成教案草稿')
     expect(zhMessages.courseFiles.relationship.pptUploaded).toContain('保留原件')
+  })
+
+  it('把结构化正文投影为可打开和导出的课程资产', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const courseStore = useCourseStore()
+    courseStore.currentDocumentRevision = 'revision-1'
+    courseStore.nodes = [{
+      node_id: 'lesson-1', parent_node_id: 'root', node_name: '第一讲 内存管理', node_level: 1,
+      node_content: '# 引用计数\n\n正文内容', node_type: 'original',
+      generation_status: 'completed', generated_chars: 15,
+    }]
+    const wrapper = mount(TeacherCourseSpaceView, {
+      global: {
+        plugins: [pinia, router],
+        stubs: { ElDialog: true, ElDropdown: true, ElDropdownMenu: true, ElDropdownItem: true },
+      },
+    })
+    await flushPromises()
+
+    const lessonRow = wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))
+    await lessonRow!.trigger('dblclick')
+    const contentRow = wrapper.findAll('.file-row').find(row => row.text().includes('正文'))
+    expect(contentRow?.text()).toContain('正文')
+    expect(contentRow?.text()).toContain('已就绪')
+    await contentRow!.trigger('click')
+    expect(wrapper.get('.file-inspector').text()).toContain('打开正文')
+    expect(wrapper.get('.file-inspector').text()).toContain('导出')
+    expect(wrapper.get('.file-inspector').text()).toContain('不要求先生成实体文件')
   })
 })

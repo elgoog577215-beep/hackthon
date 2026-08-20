@@ -3785,6 +3785,9 @@
     "fileList": "课程文件列表",
     "emptyFolder": "这个文件夹还是空的",
     "emptyFolderHelp": "可新建内容，或从本地文件导入。",
+    "emptyMaterials": "暂无附加资料",
+    "emptyLessonMaterialsHelp": "正文已作为可打开、可导出的课程资产列在上一级；这里用于上传讲义、案例和参考文件。",
+    "emptyReferenceHelp": "这里用于全课参考文件；可以上传教材、标准、案例等来源。",
     "createHere": "在这里新建",
     "selectFile": "选择一个文件",
     "selectFileHelp": "右侧会显示状态、版本、来源关系和可执行操作。",
@@ -3794,6 +3797,7 @@
     "unknownSize": "—",
     "lessonHours": "约 {hours} 学时",
     "openFolder": "打开文件夹",
+    "openContent": "打开正文",
     "preview": "预览",
     "create": "新建",
     "openEdit": "打开编辑",
@@ -3803,6 +3807,8 @@
     "openPractice": "打开练习",
     "open": "打开",
     "download": "下载",
+    "exportFile": "导出",
+    "exported": "已导出当前课程资产。",
     "downloadOriginal": "下载原件",
     "delete": "删除",
     "deleteConfirm": "确定删除“{name}”吗？该文件会从本地服务器移除。",
@@ -3817,14 +3823,14 @@
     "columns": { "name": "名称", "type": "类型", "status": "状态", "updated": "修改时间", "size": "大小" },
     "types": {
       "root": "课程文件", "reference": "参考资料", "outline": "大纲", "lesson": "课次", "lessonPlan": "教案",
-      "material": "资料", "ppt": "PPT", "practice": "练习", "folder": "文件夹", "file": "文件"
+      "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "folder": "文件夹", "file": "文件"
     },
     "status": { "ready": "已就绪", "draft": "草稿", "missing": "未新建", "working": "生成中", "stale": "待更新", "uploaded": "已上传" },
     "statusHelp": {
       "ready": "当前版本可直接使用。", "draft": "已形成工作稿，可继续编辑和确认。", "missing": "当前还没有这类文件，可从右侧直接新建。",
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。"
     },
-    "names": { "outline": "课程大纲", "reference": "参考资料", "lessonPlan": "教案", "material": "资料", "ppt": "PPT", "practice": "练习", "other": "其他文件", "newMaterial": "新建资料" },
+    "names": { "outline": "课程大纲", "reference": "参考资料", "lessonPlan": "教案", "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "other": "其他文件", "newMaterial": "新建资料" },
     "ppt": {
       "chooseMethodSubtitle": "可 AI 生成，也可上传老师的旧课件",
       "generatedSubtitle": "AI 生成 · 跟随教案同源更新",
@@ -3836,6 +3842,7 @@
     "relationship": {
       "outline": "大纲是课程结构来源；调整后会提示教案、资料、PPT 和练习检查更新。",
       "lessonPlan": "教案依据大纲与参考资料形成，并作为本讲资料、PPT 和练习的主要来源。",
+      "content": "正文由当前课程结构与内容块动态组成，不要求先生成实体文件；导出时会生成 Markdown 文件。",
       "material": "资料可作为教案和 PPT 的补充依据，也可直接发给学生或课堂使用。",
       "ppt": "PPT 按来源分别管理，不把上传旧课件和 AI 生成课件混为同一条更新链。",
       "pptPending": "新建时请选择 AI 生成或上传旧课件。两种课件会采用不同的更新规则。",
@@ -3844,6 +3851,7 @@
       "practice": "练习依据本讲教学目标与知识点组织，后续可汇总为题库、作业或试卷。",
       "file": "这是课程空间中的本地文件，可作为教学资产或生成输入。"
     },
+    "exportLabels": { "objectives": "教学目标", "keyPoints": "教学重点", "difficultPoints": "教学难点", "teachingProcess": "教学过程", "activities": "教学活动", "assessment": "学习评价", "homework": "课后任务" },
     "form": {
       "lesson": "所属课次", "selectLesson": "请选择课次", "fileName": "资料名称", "materialPlaceholder": "如：课堂案例",
       "folderName": "文件夹名称", "folderPlaceholder": "如：补充阅读", "classHours": "计划学时", "generationMode": "创建方式",
@@ -3855,11 +3863,11 @@
     "dialog": {
       "outline": { "title": "新建课程大纲", "help": "使用课程生成控制台建立整体结构，也可先导入已有大纲。", "requirements": "补充课程目标、学时或结构要求", "sourceHint": "支持导入已有大纲作为生成依据" },
       "lesson_plan": { "title": "新建教案", "help": "先选课次，再基于已确认大纲与资料生成本讲教案。", "requirements": "补充教学方法、重点难点或课堂安排", "sourceHint": "可导入已有教案，保留在本讲文件夹" },
-      "material": { "title": "新建资料", "help": "资料统一包含讲义、正文、案例、阅读材料和课堂辅助文件。", "requirements": "填写资料用途或需要覆盖的内容", "sourceHint": "可直接上传 PDF、Word、图片或其他本地文件" },
+      "material": { "title": "新建资料", "help": "资料用于讲义、案例、阅读材料和课堂辅助文件；课程正文单独作为课程资产管理。", "requirements": "填写资料用途或需要覆盖的内容", "sourceHint": "可直接上传 PDF、Word、图片或其他本地文件" },
       "ppt": { "title": "新建 PPT", "help": "先区分 AI 生成课件与老师上传的旧课件，系统会分别管理。", "requirements": "补充讲授节奏、重点页面或迁移要求", "sourceHint": "请选择课件来源", "generatedSourceHint": "可上传个人模板作为风格参考；模板不会被当作课程正文。", "uploadSourceHint": "上传 PPTX 原件，系统保留原文件，并可据此生成教案草稿。", "generatedPolicy": "AI 生成课件跟随教案同源更新；上游变化时先提示影响，再由老师确认更新。", "uploadedPolicy": "旧课件保留原文件，不静默改写；可解析为教案草稿，老师确认后再进入同源链。" },
       "practice": { "title": "新建练习", "help": "练习覆盖课堂检查、作业和试卷，题库只是汇总视图。", "requirements": "补充题型、知识点范围或使用场景", "sourceHint": "可导入现有习题、作业或试卷" },
       "folder": { "title": "新建文件夹", "help": "在当前目录下建立自定义文件夹。", "requirements": "", "sourceHint": "" }
     },
-    "errors": { "createLessonFirst": "请先生成本讲教案，再生成 PPT。", "selectOldDeck": "请选择要上传的 PPT 或 PPTX 旧课件。", "createFailed": "创建失败，请重试。", "previewFailed": "文件预览读取失败，请重试。", "deleteFailed": "删除失败，请重试。" }
+    "errors": { "createLessonFirst": "请先生成本讲教案，再生成 PPT。", "selectOldDeck": "请选择要上传的 PPT 或 PPTX 旧课件。", "createFailed": "创建失败，请重试。", "previewFailed": "文件预览读取失败，请重试。", "deleteFailed": "删除失败，请重试。", "exportUnavailable": "当前课程资产还没有可导出的版本。", "exportFailed": "导出失败，请稍后重试。" }
   }
 }
