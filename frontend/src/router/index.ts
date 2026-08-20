@@ -10,7 +10,7 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/courses',
     name: 'course-library',
-    component: () => import('../views/CourseLibraryView.vue')
+    component: () => import('../views/TeacherTeachingCalendarView.vue')
   },
   {
     path: '/teacher/courses',
@@ -47,7 +47,7 @@ const routes: Array<RouteRecordRaw> = [
   },
   {
     path: '/course/:courseId',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'basic' } })
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
   },
   {
     path: '/course/:courseId/workspace/:mode(setup|build)?',
@@ -58,12 +58,12 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/course/:courseId/overview',
     name: 'teacher-course-overview',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'basic' } })
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
   },
   {
     path: '/teacher/course/:courseId/production',
     name: 'teacher-course-production',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'build' }, query: { section: 'lesson' } })
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
   },
   {
     path: '/teacher/course/:courseId/outline',
@@ -78,22 +78,22 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/course/:courseId/files',
     name: 'teacher-course-files',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'files' } })
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })
   },
   {
     path: '/teacher/course/:courseId/teaching-calendar',
     name: 'teacher-course-calendar',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'calendar', ...(to.query.session ? { session: to.query.session } : {}) } })
+    redirect: to => ({ name: 'course-library', query: { course: to.params.courseId, ...(to.query.session ? { session: to.query.session } : {}) } })
   },
   {
     path: '/teacher/course/:courseId/ppt',
     name: 'teacher-ppt-workspace',
-    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'build' }, query: { section: 'ppt' } })
+    redirect: to => ({ name: 'ppt-workspace', params: { courseId: to.params.courseId }, query: to.query })
   },
   {
     path: '/teacher/teaching-calendar',
     name: 'teacher-teaching-calendar',
-    redirect: { name: 'course-library', query: { view: 'calendar' } }
+    redirect: { name: 'course-library' }
   },
   {
     path: '/course/:courseId/learn/:nodeId?',

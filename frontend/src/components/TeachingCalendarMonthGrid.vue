@@ -30,25 +30,25 @@
             <header>
               <span class="course-mark"><i></i></span>
               <span class="course-heading">
-                <small>课程</small>
-                <strong>{{ session.course_title || '未命名课程' }}</strong>
+                <small>{{ t('teacherHome.calendarPopover.course', '课程') }}</small>
+                <strong>{{ session.course_title || t('teacherHome.untitledCourse', '未命名课程') }}</strong>
               </span>
-              <span class="session-index">第 {{ session.sequence }} 课次</span>
+              <span class="session-index">{{ t('teacherHome.sessionNumber', '第 {number} 课次').replace('{number}', String(session.sequence)) }}</span>
             </header>
             <section class="lesson-summary">
               <BookOpenText :size="15" />
-              <strong>{{ session.content_summary || '教学内容待补充' }}</strong>
+              <strong>{{ session.content_summary || t('teacherHome.contentPending', '教学内容待补充') }}</strong>
             </section>
-            <div v-if="session.has_conflict" class="popover-warning">同一教师在此时段还有其他课程</div>
-            <div v-else-if="session.calendar_layer === 'incomplete'" class="popover-warning">日期已填写，但时间尚未完整，暂未进入正式排期</div>
+            <div v-if="session.has_conflict" class="popover-warning">{{ t('teacherHome.calendarPopover.conflict', '同一教师在此时段还有其他课程') }}</div>
+            <div v-else-if="session.calendar_layer === 'incomplete'" class="popover-warning">{{ t('teacherHome.calendarPopover.incomplete', '日期已填写，但时间尚未完整，暂未进入正式排期') }}</div>
             <dl>
-              <div><dt><Clock3 :size="14" />时间</dt><dd>{{ sessionTime(session) }}</dd></div>
-              <div><dt><MapPin :size="14" />地点</dt><dd>{{ session.location || '地点未定' }}</dd></div>
-              <div v-if="session.teacher_name"><dt><UserRound :size="14" />教师</dt><dd>{{ session.teacher_name }}</dd></div>
+              <div><dt><Clock3 :size="14" />{{ t('teacherHome.calendarPopover.time', '时间') }}</dt><dd>{{ sessionTime(session) }}</dd></div>
+              <div><dt><MapPin :size="14" />{{ t('teacherHome.location', '地点') }}</dt><dd>{{ session.location || t('teacherHome.locationPending', '地点未定') }}</dd></div>
+              <div v-if="session.teacher_name"><dt><UserRound :size="14" />{{ t('teacherHome.calendarPopover.teacher', '教师') }}</dt><dd>{{ session.teacher_name }}</dd></div>
             </dl>
-            <div class="preparation-status"><span>教案 {{ session.lesson_plan_status || (session.lesson_unit_id ? '已关联讲次' : '待关联') }}</span><span>PPT {{ session.ppt_status || '进入备课查看' }}</span></div>
-            <footer v-if="showCourse"><button type="button" @click="$emit('select', session)">查看排期</button><button type="button" @click="$emit('prepare', session)">进入备课 <ArrowUpRight :size="13" /></button></footer>
-            <footer v-else>点击课次进入编辑 <ArrowUpRight :size="13" /></footer>
+            <div class="preparation-status"><span>{{ t('teacherHome.lessonPlan', '教案') }} {{ session.lesson_plan_status || (session.lesson_unit_id ? t('teacherHome.calendarPopover.linked', '已关联讲次') : t('teacherHome.calendarPopover.unlinked', '待关联')) }}</span><span>PPT {{ session.ppt_status || t('teacherHome.calendarPopover.openToCheck', '进入备课查看') }}</span></div>
+            <footer v-if="showCourse"><button type="button" @click="$emit('select', session)">{{ t('teacherHome.calendarPopover.viewSchedule', '查看排期') }}</button><button type="button" @click="$emit('prepare', session)">{{ t('teacherHome.calendarPopover.prepare', '进入备课') }} <ArrowUpRight :size="13" /></button></footer>
+            <footer v-else>{{ t('teacherHome.calendarPopover.editSession', '点击课次进入编辑') }} <ArrowUpRight :size="13" /></footer>
           </div>
           <template #reference>
             <button
@@ -73,6 +73,7 @@
 import { computed } from 'vue'
 import { ArrowUpRight, BookOpenText, Clock3, MapPin, UserRound } from 'lucide-vue-next'
 import type { ClassSession } from '../stores/teachingCalendar'
+import { activeLocale, t } from '../shared/i18n'
 
 const props = withDefaults(defineProps<{
   month: string
@@ -86,14 +87,14 @@ const emit = defineEmits<{
   day: [date: string]
 }>()
 
-const weekdayLabels = ['一', '二', '三', '四', '五', '六', '日']
+const weekdayLabels = computed(() => ['一', '二', '三', '四', '五', '六', '日'].map((fallback, index) => t(`teacherHome.weekdays.${index + 1}`, fallback)))
 const pad = (value: number) => String(value).padStart(2, '0')
 const iso = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
 const base = computed(() => {
   const parsed = new Date(`${props.month.slice(0, 7)}-01T12:00:00`)
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed
 })
-const monthLabel = computed(() => `${base.value.getFullYear()}年${base.value.getMonth() + 1}月`)
+const monthLabel = computed(() => new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long' }).format(base.value))
 const cells = computed(() => {
   const first = new Date(base.value.getFullYear(), base.value.getMonth(), 1, 12)
   const offset = (first.getDay() + 6) % 7
@@ -116,13 +117,13 @@ const cells = computed(() => {
 })
 
 function sessionTime(session: ClassSession) {
-  const date = session.date?.replace(/-/g, '/') || '日期未定'
+  const date = session.date?.replace(/-/g, '/') || t('teacherHome.datePending', '日期未定')
   const start = session.start_time?.slice(0, 5) || '--:--'
   const end = session.end_time?.slice(0, 5)
   return `${date} · ${start}${end ? `–${end}` : ''}`
 }
 function eventAriaLabel(session: ClassSession) {
-  return [session.course_title, session.content_summary, sessionTime(session), session.location].filter(Boolean).join('，')
+  return [session.course_title, session.content_summary, sessionTime(session), session.location].filter(Boolean).join(activeLocale.value === 'zh' ? '，' : ', ')
 }
 function emitDay(date: string) { emit('day', date) }
 </script>

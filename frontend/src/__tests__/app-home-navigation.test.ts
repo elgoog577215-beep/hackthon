@@ -58,8 +58,8 @@ describe('App home navigation', () => {
 
     const homeLink = wrapper.get('a.brand-button')
     expect(homeLink.attributes('href')).toBe('/courses')
-    expect(wrapper.find('.app-course-stages').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="course-stage-content"]').classes()).toContain('is-active')
+    expect(wrapper.find('.app-course-stages').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'CourseStageTabs' }).exists()).toBe(false)
 
     await homeLink.trigger('click')
     await flushPromises()

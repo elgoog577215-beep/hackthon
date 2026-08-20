@@ -1,116 +1,238 @@
 <template>
-  <section class="teacher-total-calendar">
-    <header class="product-bar">
-      <button type="button" class="brand" @click="router.push({ name: 'teacher-course-library' })"><img src="/qizhi-favicon.svg" alt="" /><strong>启智</strong></button>
-      <nav aria-label="教师工作台">
-        <button type="button" @click="router.push({ name: 'teacher-course-library' })">{{ t('teacherWorkbench.courseWorkbench', '课程工作台') }}</button><ChevronRight :size="14" /><strong>{{ t('teacherCalendar.total', '教学总日历') }}</strong>
-      </nav>
-      <div class="product-actions"><button type="button" @click="refresh"><RefreshCw :size="17" :class="{ spin: store.loading }" />{{ t('common.refresh', '刷新') }}</button></div>
-    </header>
-
-    <nav class="workspace-tabs" aria-label="教师工作台分类">
-      <button type="button" @click="router.push({ name: 'teacher-course-library' })"><LayoutGrid :size="16" />{{ t('teacherCalendar.myCourses', '我的课程') }}</button>
-      <button type="button" class="active" aria-current="page"><CalendarRange :size="16" />{{ t('teacherCalendar.total', '教学总日历') }}</button>
-    </nav>
-
-    <main class="calendar-main">
-      <div class="status-bar" role="status">
-        <strong>{{ monthLabel }}</strong><span>{{ t('teacherCalendar.courseCount', '课程') }} {{ courseCount }}</span><span>{{ t('teacherCalendar.sessions', '已排期') }} {{ officialSessions.length }}</span><span>待完善 {{ incompleteSessions.length }}</span><span v-if="conflictCount" class="conflict-status">冲突 {{ conflictCount }}</span><span class="spacer"></span><span>{{ t('teacherCalendar.totalReadOnly', '在单课程日历中修改') }}</span>
+  <section class="teacher-home">
+    <Teleport to="#app-header-route-actions">
+      <div class="home-header-actions">
+        <button type="button" class="header-quiet" @click="openTaskCenter()">
+          <ListTodo :size="16" />
+          <span>{{ t('teacherHome.tasks') }}</span>
+          <b v-if="actionTaskCount">{{ actionTaskCount }}</b>
+        </button>
+        <button type="button" class="header-primary" @click="createDialogOpen = true">
+          <Plus :size="16" />{{ t('teacherHome.newCourse') }}
+        </button>
       </div>
+    </Teleport>
 
-      <section class="workspace">
-        <header class="toolbar">
-          <div class="segmented" role="tablist">
-            <button type="button" data-testid="total-month-view" :class="{ active: view === 'month' }" @click="view = 'month'"><CalendarDays :size="15" />{{ t('teacherCalendar.month', '月历') }}</button>
-            <button type="button" data-testid="total-week-view" :class="{ active: view === 'week' }" @click="view = 'week'"><Columns3 :size="15" />{{ t('teacherCalendar.week', '周历') }}</button>
-            <button type="button" data-testid="total-list-view" :class="{ active: view === 'list' }" @click="view = 'list'"><List :size="15" />{{ t('teacherCalendar.list', '列表') }}</button>
+    <div class="home-layout">
+      <aside class="course-rail" :aria-label="t('teacherHome.courseRail')">
+        <header>
+          <div>
+            <strong>{{ t('teacherHome.myCourses') }}</strong>
+            <span>{{ courseStore.courseList.length }} {{ t('teacherHome.courseUnit') }}</span>
           </div>
-          <el-popover trigger="click" placement="bottom-start" :width="260">
-            <div class="course-filter-panel"><header><strong>显示课程</strong><button type="button" @click="selectedCourseIds = []">全部</button></header><label v-for="course in courseOptions" :key="course.id"><input type="checkbox" :checked="courseSelected(course.id)" @change="toggleCourse(course.id)" /><i :data-color="course.color"></i><span>{{ course.title }}</span></label></div>
-            <template #reference><button type="button" class="filter-button"><SlidersHorizontal :size="15" />课程筛选<span v-if="selectedCourseIds.length">{{ selectedCourseIds.length }}</span></button></template>
-          </el-popover>
-          <button type="button" class="incomplete-toggle" :class="{ active: showIncomplete }" @click="showIncomplete = !showIncomplete">待完善 {{ incompleteSessions.length }}</button>
-          <span class="toolbar-spacer"></span>
-          <button type="button" aria-label="上一周期" @click="movePeriod(-1)"><ChevronLeft :size="16" /></button><strong>{{ periodLabel }}</strong><button type="button" aria-label="下一周期" @click="movePeriod(1)"><ChevronRight :size="16" /></button><button type="button" @click="goToday">{{ t('teacherCalendar.today', '今天') }}</button>
+          <button type="button" :aria-label="t('teacherHome.newCourse')" @click="createDialogOpen = true"><Plus :size="16" /></button>
         </header>
 
-        <div v-if="store.error" class="issue-bar" role="alert"><TriangleAlert :size="16" /><span>{{ store.error }}</span><button type="button" @click="load">{{ t('common.retry', '重试') }}</button></div>
-        <div v-if="store.loading && !store.totalSessions.length" class="empty-state"><LoaderCircle class="spin" :size="22" />{{ t('teacherCalendar.loadingTotal', '正在汇总教学日历') }}</div>
+        <label class="course-search">
+          <Search :size="15" />
+          <input v-model="courseQuery" type="search" :placeholder="t('teacherHome.searchCourse')" :aria-label="t('teacherHome.searchCourse')" />
+        </label>
 
-        <div v-else-if="view === 'month'" class="month-view">
-          <TeachingCalendarMonthGrid :month="monthCursor" :sessions="visibleSessions" show-course @select="openSession" @prepare="openPreparation" />
-          <div v-if="!visibleSessions.length" class="calendar-empty-hint">
-        <CalendarRange :size="19" /><span><strong>{{ t('teacherCalendar.totalEmpty', '当前范围还没有已排期课次') }}</strong><small>先在任一课程的教学日历中排期，这里会自动按课程颜色汇总。</small></span><button type="button" @click="router.push({ name: 'teacher-course-library' })">返回我的课程</button>
+        <nav class="course-list">
+          <button
+            v-for="(course, index) in filteredCourses"
+            :key="course.course_id"
+            type="button"
+            class="course-entry"
+            @click="openCourse(course.course_id)"
+          >
+            <span class="course-monogram" :data-color="index % 8">{{ course.course_name.trim().slice(0, 1) || '·' }}</span>
+            <span class="course-entry__copy">
+              <strong>{{ course.course_name }}</strong>
+              <small>{{ courseStatus(course.course_id) }}</small>
+            </span>
+            <ChevronRight :size="15" />
+          </button>
+        </nav>
+
+        <button type="button" class="course-rail__new" @click="createDialogOpen = true">
+          <Plus :size="15" /><span>{{ t('teacherHome.createAnother') }}</span>
+        </button>
+      </aside>
+
+      <main class="calendar-surface">
+        <header class="calendar-toolbar">
+          <div class="calendar-title">
+            <CalendarRange :size="18" />
+            <div><strong>{{ periodLabel }}</strong><span>{{ t('teacherHome.calendarSubtitle') }}</span></div>
+          </div>
+          <div class="view-switch" role="tablist" :aria-label="t('teacherHome.calendarView')">
+            <button type="button" role="tab" :aria-selected="view === 'month'" :class="{ active: view === 'month' }" @click="view = 'month'">
+              <CalendarDays :size="14" />{{ t('teacherHome.month') }}
+            </button>
+            <button type="button" role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">
+              <Columns3 :size="14" />{{ t('teacherHome.week') }}
+            </button>
+          </div>
+          <span class="toolbar-spacer" />
+          <div class="period-actions">
+            <button type="button" :aria-label="t('teacherHome.previousPeriod')" @click="movePeriod(-1)"><ChevronLeft :size="16" /></button>
+            <button type="button" @click="goToday">{{ t('teacherHome.today') }}</button>
+            <button type="button" :aria-label="t('teacherHome.nextPeriod')" @click="movePeriod(1)"><ChevronRight :size="16" /></button>
+            <button type="button" :aria-label="t('common.refresh')" @click="refresh"><RefreshCw :size="16" :class="{ spin: calendarStore.loading }" /></button>
+          </div>
+        </header>
+
+        <div v-if="calendarStore.error" class="calendar-issue" role="alert">
+          <TriangleAlert :size="16" /><span>{{ calendarStore.error }}</span><button type="button" @click="loadCalendar">{{ t('common.retry') }}</button>
+        </div>
+
+        <div v-if="calendarStore.loading && !calendarStore.totalSessions.length" class="calendar-loading" role="status">
+          <LoaderCircle class="spin" :size="22" />{{ t('teacherHome.loadingCalendar') }}
+        </div>
+
+        <div v-else-if="view === 'month'" class="month-canvas">
+          <TeachingCalendarMonthGrid
+            :month="monthCursor"
+            :sessions="visibleSessions"
+            show-course
+            @select="selectSession"
+            @prepare="openPreparation"
+          />
+          <div v-if="!visibleSessions.length" class="calendar-empty">
+            <CalendarRange :size="24" />
+            <strong>{{ t('teacherHome.emptyCalendar') }}</strong>
+            <span>{{ t('teacherHome.emptyCalendarHelp') }}</span>
           </div>
         </div>
 
-        <div v-else-if="view === 'week'" class="week-view">
-          <section v-for="day in weekDays" :key="day.date">
+        <div v-else class="week-canvas">
+          <section v-for="day in weekDays" :key="day.date" :class="{ today: day.date === todayIso }">
             <header><strong>{{ day.label }}</strong><span>{{ day.date.slice(5) }}</span></header>
-            <button v-for="session in day.sessions" :key="session.session_id" type="button" :data-color="session.course_color_key ?? 0" :class="{ conflict: session.has_conflict, incomplete: session.calendar_layer === 'incomplete' }" @click="openSession(session)">
-              <time>{{ session.start_time?.slice(0, 5) || '--:--' }}</time><strong>{{ session.course_title }}</strong><span>{{ session.content_summary }}</span><small>{{ session.location || t('teacherCalendar.locationUnset', '地点未定') }}</small>
-              <em v-if="session.has_conflict">排课冲突</em><em v-else-if="session.calendar_layer === 'incomplete'">待完善</em>
+            <button
+              v-for="session in day.sessions"
+              :key="session.session_id || `${session.course_id}-${session.sequence}`"
+              type="button"
+              :data-color="session.course_color_key ?? 0"
+              :class="{ active: selectedSession?.session_id === session.session_id }"
+              @click="selectSession(session)"
+            >
+              <time>{{ session.start_time?.slice(0, 5) || t('teacherHome.timePending') }}</time>
+              <strong>{{ session.course_title || t('teacherHome.untitledCourse') }}</strong>
+              <span>{{ session.content_summary || t('teacherHome.contentPending') }}</span>
             </button>
-            <p v-if="!day.sessions.length">{{ t('teacherCalendar.noClass', '无课') }}</p>
+            <p v-if="!day.sessions.length">{{ t('teacherHome.noClass') }}</p>
           </section>
         </div>
+      </main>
 
-        <div v-else class="list-view">
-          <table><thead><tr><th>{{ t('teacherCalendar.columns.date', '日期') }}</th><th>{{ t('teacherCalendar.course', '课程') }}</th><th>{{ t('teacherCalendar.columns.content', '教学内容') }}</th><th>{{ t('teacherCalendar.columns.location', '上课地点') }}</th><th>{{ t('teacherCalendar.columns.teacher', '教师') }}</th><th>{{ t('teacherCalendar.columns.type', '类型') }}</th></tr></thead>
-            <tbody><tr v-for="session in visibleSessions" :key="session.session_id" data-testid="total-calendar-row" :class="{ conflict: session.has_conflict, incomplete: session.calendar_layer === 'incomplete' }" tabindex="0" @click="openSession(session)" @keydown.enter="openSession(session)"><td><strong>{{ session.date }}</strong><small>{{ session.start_time?.slice(0, 5) || '时间待定' }}<template v-if="session.end_time">—{{ session.end_time.slice(0, 5) }}</template></small></td><td><i :data-color="session.course_color_key ?? 0"></i>{{ session.course_title }}</td><td>{{ session.content_summary }}</td><td>{{ session.location || '—' }}</td><td>{{ session.teacher_name || '—' }}</td><td><span v-if="session.has_conflict" class="row-badge danger">冲突</span><span v-else-if="session.calendar_layer === 'incomplete'" class="row-badge">待完善</span><template v-else>{{ session.teaching_type }}</template></td></tr></tbody>
-          </table>
-          <div v-if="!visibleSessions.length" class="empty-state">{{ t('teacherCalendar.totalEmpty', '当前范围还没有已排期课次') }}</div>
-        </div>
-      </section>
-    </main>
+      <aside class="day-inspector" :aria-label="t('teacherHome.dayInspector')">
+        <template v-if="selectedSession">
+          <header>
+            <div><small>{{ t('teacherHome.selectedSession') }}</small><strong>{{ selectedSession.course_title || t('teacherHome.untitledCourse') }}</strong></div>
+            <button type="button" :aria-label="t('common.close')" @click="selectedSession = null"><X :size="16" /></button>
+          </header>
+          <section class="session-focus">
+            <span class="session-number">{{ t('teacherHome.sessionNumber').replace('{number}', String(selectedSession.sequence)) }}</span>
+            <h2>{{ selectedSession.content_summary || t('teacherHome.contentPending') }}</h2>
+            <dl>
+              <div><dt><CalendarDays :size="14" />{{ t('teacherHome.dateTime') }}</dt><dd>{{ sessionDateTime(selectedSession) }}</dd></div>
+              <div><dt><MapPin :size="14" />{{ t('teacherHome.location') }}</dt><dd>{{ selectedSession.location || t('teacherHome.locationPending') }}</dd></div>
+              <div><dt><Clock3 :size="14" />{{ t('teacherHome.classHours') }}</dt><dd>{{ selectedSession.credit_hours || 2 }}</dd></div>
+            </dl>
+          </section>
+          <section class="preparation-summary">
+            <header><strong>{{ t('teacherHome.preparation') }}</strong><span>{{ t('teacherHome.preparationHint') }}</span></header>
+            <div><span>{{ t('teacherHome.lessonPlan') }}</span><strong>{{ selectedSession.lesson_plan_status || t('teacherHome.notCreated') }}</strong></div>
+            <div><span>PPT</span><strong>{{ selectedSession.ppt_status || t('teacherHome.notCreated') }}</strong></div>
+          </section>
+          <footer class="inspector-actions">
+            <button type="button" class="primary" @click="openPreparation(selectedSession)">{{ t('teacherHome.openFiles') }}<ArrowUpRight :size="15" /></button>
+            <button type="button" @click="openCourse(selectedSession.course_id || '')">{{ t('teacherHome.enterCourse') }}</button>
+          </footer>
+        </template>
+
+        <template v-else>
+          <header><div><small>{{ t('teacherHome.today') }}</small><strong>{{ todayLabel }}</strong></div></header>
+          <section class="today-list">
+            <div class="today-list__heading"><strong>{{ t('teacherHome.upcoming') }}</strong><span>{{ upcomingSessions.length }}</span></div>
+            <button v-for="session in upcomingSessions" :key="session.session_id || `${session.course_id}-${session.sequence}`" type="button" @click="selectSession(session)">
+              <time>{{ session.date?.slice(5) }}<br />{{ session.start_time?.slice(0, 5) || '--:--' }}</time>
+              <span><strong>{{ session.course_title }}</strong><small>{{ session.content_summary }}</small></span>
+              <ChevronRight :size="14" />
+            </button>
+            <div v-if="!upcomingSessions.length" class="today-empty"><CheckCircle2 :size="24" /><strong>{{ t('teacherHome.noUpcoming') }}</strong><span>{{ t('teacherHome.noUpcomingHelp') }}</span></div>
+          </section>
+        </template>
+      </aside>
+    </div>
+
+    <CourseGenerationDialog
+      v-model="createDialogOpen"
+      :busy="creating"
+      @generate="generateCourse"
+      @error="message => ElMessage.error(message)"
+    />
+    <CourseWorkbench v-model="workbenchOpen" initial-section="tasks" :course-id="workbenchCourseId" />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { CalendarDays, CalendarRange, ChevronLeft, ChevronRight, Columns3, LayoutGrid, List, LoaderCircle, RefreshCw, SlidersHorizontal, TriangleAlert } from 'lucide-vue-next'
+import {
+  ArrowUpRight, CalendarDays, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight,
+  Clock3, Columns3, ListTodo, LoaderCircle, MapPin, Plus, RefreshCw, Search,
+  TriangleAlert, X,
+} from 'lucide-vue-next'
+import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
+import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import { t } from '../shared/i18n'
-import { TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY, useTeachingCalendarStore, type ClassSession } from '../stores/teachingCalendar'
+import type { CourseGenerationOptions } from '../shared/prompt-config'
+import { useCourseStore } from '../stores/course'
+import { useGenerationStore } from '../stores/generation'
+import {
+  TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY,
+  useTeachingCalendarStore, type ClassSession,
+} from '../stores/teachingCalendar'
 
 const router = useRouter()
-const store = useTeachingCalendarStore()
-const view = ref<'month' | 'week' | 'list'>('month')
+const route = useRoute()
+const courseStore = useCourseStore()
+const generationStore = useGenerationStore()
+const calendarStore = useTeachingCalendarStore()
+const courseQuery = ref('')
+const view = ref<'month' | 'week'>('month')
 const cursor = ref(new Date())
-const showIncomplete = ref(false)
-const selectedCourseIds = ref<string[]>([])
+const selectedSession = ref<ClassSession | null>(null)
+const createDialogOpen = ref(false)
+const creating = ref(false)
+const workbenchOpen = ref(false)
+const workbenchCourseId = ref('')
+
 const pad = (value: number) => String(value).padStart(2, '0')
 const iso = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+const todayIso = iso(new Date())
 const monthCursor = computed(() => `${cursor.value.getFullYear()}-${pad(cursor.value.getMonth() + 1)}-01`)
-const monthLabel = computed(() => `${cursor.value.getFullYear()}年${cursor.value.getMonth() + 1}月`)
-const weekStart = computed(() => { const value = new Date(cursor.value); value.setHours(12, 0, 0, 0); value.setDate(value.getDate() - ((value.getDay() + 6) % 7)); return value })
-const weekEnd = computed(() => { const value = new Date(weekStart.value); value.setDate(value.getDate() + 6); return value })
-const weekdayNames = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
-const officialSessions = computed(() => store.totalSessions.filter(item => item.calendar_layer !== 'incomplete'))
-const incompleteSessions = computed(() => store.totalSessions.filter(item => item.calendar_layer === 'incomplete'))
-const courseOptions = computed(() => Array.from(new Map(store.totalSessions.map(item => [item.course_id || '', { id: item.course_id || '', title: item.course_title || '未命名课程', color: item.course_color_key ?? 0 }])).values()).filter(item => item.id))
-const baseVisibleSessions = computed(() => showIncomplete.value ? store.totalSessions : officialSessions.value)
-const conflictIds = computed(() => {
-  const ids = new Set<string>()
-  const rows = baseVisibleSessions.value.filter(item => item.date && item.start_time && item.end_time && item.teacher_name)
-  rows.forEach((left, index) => rows.slice(index + 1).forEach(right => {
-    if (left.date !== right.date || left.teacher_name.trim() !== right.teacher_name.trim()) return
-    if (String(left.start_time) < String(right.end_time) && String(right.start_time) < String(left.end_time)) {
-      if (left.session_id) ids.add(left.session_id)
-      if (right.session_id) ids.add(right.session_id)
-    }
-  }))
-  return ids
+const weekStart = computed(() => {
+  const value = new Date(cursor.value)
+  value.setHours(12, 0, 0, 0)
+  value.setDate(value.getDate() - ((value.getDay() + 6) % 7))
+  return value
 })
-const visibleSessions = computed(() => baseVisibleSessions.value
-  .filter(item => !selectedCourseIds.value.length || selectedCourseIds.value.includes(item.course_id || ''))
-  .map(item => ({ ...item, has_conflict: Boolean(item.session_id && conflictIds.value.has(item.session_id)) })))
-const weekDays = computed(() => Array.from({ length: 7 }, (_, index) => { const value = new Date(weekStart.value); value.setDate(value.getDate() + index); const date = iso(value); return { date, label: weekdayNames[index], sessions: visibleSessions.value.filter(item => item.date === date) } }))
-const courseCount = computed(() => new Set(store.totalSessions.map(item => item.course_id)).size)
-const conflictCount = computed(() => conflictIds.value.size)
+const weekEnd = computed(() => { const value = new Date(weekStart.value); value.setDate(value.getDate() + 6); return value })
+const monthLabel = computed(() => t('teacherHome.monthLabel').replace('{year}', String(cursor.value.getFullYear())).replace('{month}', String(cursor.value.getMonth() + 1)))
 const periodLabel = computed(() => view.value === 'week' ? `${iso(weekStart.value)} — ${iso(weekEnd.value)}` : monthLabel.value)
+const todayLabel = computed(() => new Intl.DateTimeFormat(document.documentElement.lang || 'zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()))
+const weekdayNames = computed(() => [1, 2, 3, 4, 5, 6, 7].map(index => t(`teacherHome.weekdays.${index}`)))
+const filteredCourses = computed(() => {
+  const keyword = courseQuery.value.trim().toLocaleLowerCase()
+  return keyword ? courseStore.courseList.filter(course => course.course_name.toLocaleLowerCase().includes(keyword)) : courseStore.courseList
+})
+const visibleSessions = computed(() => calendarStore.totalSessions.filter(item => item.calendar_layer !== 'incomplete'))
+const weekDays = computed(() => Array.from({ length: 7 }, (_, index) => {
+  const value = new Date(weekStart.value)
+  value.setDate(value.getDate() + index)
+  const date = iso(value)
+  return { date, label: weekdayNames.value[index], sessions: visibleSessions.value.filter(item => item.date === date) }
+}))
+const upcomingSessions = computed(() => [...visibleSessions.value]
+  .filter(item => String(item.date || '') >= todayIso)
+  .sort((left, right) => `${left.date || ''}${left.start_time || ''}`.localeCompare(`${right.date || ''}${right.start_time || ''}`))
+  .slice(0, 6))
+const actionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)).length)
 
 function loadRange() {
   if (view.value === 'week') return { from: iso(weekStart.value), to: iso(weekEnd.value) }
@@ -118,25 +240,48 @@ function loadRange() {
   const to = new Date(cursor.value.getFullYear(), cursor.value.getMonth() + 1, 0, 12)
   return { from: iso(from), to: iso(to) }
 }
-async function load() { const range = loadRange(); try { await store.loadTotal(range.from, range.to, true) } catch { /* exact error remains visible */ } }
-async function refresh() { await load(); if (!store.error) ElMessage.success('教学总日历已刷新') }
-function movePeriod(delta: number) { const value = new Date(cursor.value); if (view.value === 'week') value.setDate(value.getDate() + delta * 7); else value.setMonth(value.getMonth() + delta); cursor.value = value }
+async function loadCalendar() { const range = loadRange(); try { await calendarStore.loadTotal(range.from, range.to, true) } catch { /* store owns the visible error */ } }
+async function refresh() { await Promise.all([courseStore.fetchCourseList({ surface: 'teacher' }), generationStore.fetchGlobalTasks(), loadCalendar()]) }
+function movePeriod(delta: number) { const value = new Date(cursor.value); view.value === 'week' ? value.setDate(value.getDate() + delta * 7) : value.setMonth(value.getMonth() + delta); cursor.value = value }
 function goToday() { cursor.value = new Date() }
-function openSession(session: ClassSession) { if (!session.course_id) return; void router.push({ name: 'teacher-course-calendar', params: { courseId: session.course_id }, query: { session: session.session_id || '' } }) }
-function openPreparation(session: ClassSession) { if (!session.course_id) return; void router.push({ name: 'teacher-course-production', params: { courseId: session.course_id }, query: { stage: 'teaching', node: session.lesson_unit_id || undefined, from: 'total-calendar' } }) }
-function courseSelected(courseId: string) { return !selectedCourseIds.value.length || selectedCourseIds.value.includes(courseId) }
-function toggleCourse(courseId: string) {
-  if (!selectedCourseIds.value.length) selectedCourseIds.value = courseOptions.value.map(item => item.id).filter(id => id !== courseId)
-  else if (selectedCourseIds.value.includes(courseId)) selectedCourseIds.value = selectedCourseIds.value.filter(id => id !== courseId)
-  else selectedCourseIds.value = [...selectedCourseIds.value, courseId]
-  if (selectedCourseIds.value.length === courseOptions.value.length) selectedCourseIds.value = []
+function selectSession(session: ClassSession) { selectedSession.value = session }
+function openCourse(courseId: string) { if (courseId) void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' } }) }
+function openPreparation(session: ClassSession) { if (session.course_id) void router.push({ name: 'course-workspace', params: { courseId: session.course_id, mode: 'setup' }, query: { lesson: session.lesson_unit_id || '' } }) }
+function openTaskCenter(courseId = '') { workbenchCourseId.value = courseId; workbenchOpen.value = true }
+function sessionDateTime(session: ClassSession) {
+  const date = session.date || t('teacherHome.datePending')
+  const start = session.start_time?.slice(0, 5) || '--:--'
+  const end = session.end_time?.slice(0, 5)
+  return `${date} · ${start}${end ? `–${end}` : ''}`
 }
-function refreshAfterCalendarSave() { void load() }
-function refreshAfterStorage(event: StorageEvent) { if (event.key === TEACHING_CALENDAR_SAVED_STORAGE_KEY) void load() }
-function refreshWhenVisible() { if (document.visibilityState === 'visible') void load() }
+function courseStatus(courseId: string) {
+  const task = generationStore.getTask(courseId)
+  if (!task) return t('teacherHome.courseReady')
+  return ({ running: t('teacherHome.courseGenerating'), pending: t('teacherHome.courseQueued'), paused: t('teacherHome.coursePaused'), waiting_for_review: t('teacherHome.courseReview'), error: t('teacherHome.courseError') } as Record<string, string>)[task.status] || t('teacherHome.courseReady')
+}
+async function generateCourse(payload: { subject: string; options: CourseGenerationOptions }) {
+  if (creating.value) return
+  creating.value = true
+  try {
+    const result = await courseStore.generateCourse(payload.subject, payload.options)
+    if (!result?.courseId) throw new Error(t('teacherHome.createFailed'))
+    createDialogOpen.value = false
+    await courseStore.fetchCourseList({ surface: 'teacher' })
+    openCourse(result.courseId)
+  } catch { ElMessage.error(t('teacherHome.createFailed')) } finally { creating.value = false }
+}
+function refreshAfterCalendarSave() { void loadCalendar() }
+function refreshAfterStorage(event: StorageEvent) { if (event.key === TEACHING_CALENDAR_SAVED_STORAGE_KEY) void loadCalendar() }
+function refreshWhenVisible() { if (document.visibilityState === 'visible') void loadCalendar() }
 
-watch([cursor, view], () => { void load() }, { immediate: true })
-onMounted(() => {
+watch([cursor, view], () => { void loadCalendar() })
+onMounted(async () => {
+  courseStore.currentCourseId = ''
+  await refresh()
+  if (route.query.create === '1') {
+    createDialogOpen.value = true
+    void router.replace({ name: 'course-library' })
+  }
   window.addEventListener(TEACHING_CALENDAR_SAVED_EVENT, refreshAfterCalendarSave)
   window.addEventListener('storage', refreshAfterStorage)
   window.addEventListener('focus', refreshAfterCalendarSave)
@@ -151,18 +296,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.teacher-total-calendar{min-height:100vh;height:100vh;overflow:hidden;color:var(--lz-text-primary);background:var(--lz-canvas)}button{font:inherit}.product-bar{height:52px;display:grid;grid-template-columns:188px minmax(0,1fr) auto;align-items:center;border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.brand{height:100%;display:flex;align-items:center;gap:10px;padding:0 20px;border:0;border-right:1px solid var(--lz-border);color:var(--lz-text-primary);background:transparent;cursor:pointer}.brand img{width:25px;height:25px}.brand strong{font-size:17px}.product-bar nav{min-width:0;display:flex;align-items:center;gap:8px;padding:0 24px;color:var(--lz-text-muted);font-size:12px}.product-bar nav button{padding:0;border:0;color:inherit;background:transparent;cursor:pointer}.product-bar nav strong{color:var(--lz-text-primary)}.product-actions{padding-right:14px}.product-actions button{height:34px;display:flex;align-items:center;gap:6px;padding:0 11px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:var(--lz-surface);cursor:pointer}.workspace-tabs{position:absolute;top:52px;bottom:0;left:0;width:188px;display:grid;align-content:start;gap:4px;padding:14px 8px;border-right:1px solid var(--lz-border);background:var(--lz-surface)}.workspace-tabs button{height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border:0;border-radius:8px;color:var(--lz-text-secondary);background:transparent;cursor:pointer}.workspace-tabs button.active{color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-weight:700}.calendar-main{height:calc(100vh - 52px);margin-left:188px;display:grid;grid-template-rows:42px minmax(0,1fr)}.status-bar{min-width:0;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--lz-border);background:var(--lz-surface);font-size:11px;white-space:nowrap}.status-bar>strong,.status-bar>span{padding:0 11px;border-right:1px solid var(--lz-border)}.status-bar>strong{padding-left:0}.status-bar .spacer{flex:1;border:0}.workspace{min-width:0;min-height:0;display:grid;grid-template-rows:auto auto minmax(0,1fr);background:var(--lz-surface)}.toolbar{height:48px;display:flex;align-items:center;gap:7px;padding:0 12px;border-bottom:1px solid var(--lz-border)}.toolbar>button{height:30px;display:grid;place-items:center;padding:0 9px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);cursor:pointer}.toolbar>strong{min-width:125px;font-size:11px;text-align:center}.toolbar-spacer{flex:1}.segmented{display:flex;padding:2px;border:1px solid var(--lz-border);border-radius:8px;background:var(--lz-fill)}.segmented button{height:28px;display:flex;align-items:center;gap:5px;padding:0 10px;border:0;border-radius:6px;color:var(--lz-text-secondary);background:transparent;cursor:pointer}.segmented button.active{color:var(--lz-brand-strong);background:var(--lz-surface);box-shadow:0 1px 2px rgb(0 0 0/.06)}.issue-bar{min-height:38px;display:flex;align-items:center;gap:8px;padding:7px 12px;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-text-secondary);background:var(--lz-warning-soft);font-size:10px}.issue-bar span{flex:1}.issue-bar button{height:26px;border:1px solid var(--lz-warning-border);border-radius:6px;background:var(--lz-surface)}.month-view,.list-view{min-width:0;min-height:0;overflow:auto;padding:12px}.week-view{min-width:760px;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(100px,1fr));overflow:auto;padding:12px}.week-view section{min-width:0;border-top:1px solid var(--lz-border);border-left:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border)}.week-view section:last-child{border-right:1px solid var(--lz-border)}.week-view section>header{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid var(--lz-border);font-size:10px}.week-view section>header span{color:var(--lz-text-muted)}.week-view section>button{width:calc(100% - 10px);display:grid;gap:3px;margin:5px;padding:7px;border:0;border-left:3px solid var(--lz-brand);border-radius:6px;color:var(--lz-text-secondary);background:var(--lz-brand-soft);text-align:left;cursor:pointer}.week-view section>button time{color:var(--lz-brand-strong);font-size:9px;font-weight:700}.week-view section>button strong,.week-view section>button span,.week-view section>button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.week-view section>button strong{font-size:10px}.week-view section>button span,.week-view section>button small{font-size:9px}.week-view section>p{margin:12px;color:var(--lz-text-muted);font-size:9px}.list-view table{width:100%;min-width:850px;border-collapse:collapse}.list-view th{height:34px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:var(--lz-fill);font-size:9px;text-align:left}.list-view td{height:48px;padding:7px 10px;border-bottom:1px solid var(--lz-border);font-size:10px}.list-view tr{cursor:pointer}.list-view tr:hover td{background:var(--lz-brand-soft)}.list-view td strong,.list-view td small{display:block}.list-view td small{margin-top:2px;color:var(--lz-text-muted)}.list-view td i{width:6px;height:6px;display:inline-block;margin-right:6px;border-radius:50%;background:var(--lz-brand)}.empty-state{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:11px}.spin{animation:spin .9s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-.week-view section>button{border:1px solid var(--lz-brand-border);border-left-width:1px}
-.week-view section>button[data-color="1"]{border-color:color-mix(in srgb,var(--lz-success) 32%,var(--lz-border));background:var(--lz-success-soft)}.week-view section>button[data-color="1"] time{color:var(--lz-success)}
-.week-view section>button[data-color="2"]{border-color:color-mix(in srgb,var(--lz-warning) 32%,var(--lz-border));background:var(--lz-warning-soft)}.week-view section>button[data-color="2"] time{color:var(--lz-warning)}
-.week-view section>button[data-color="3"]{border-color:color-mix(in srgb,var(--lz-danger) 25%,var(--lz-border));background:color-mix(in srgb,var(--lz-danger-soft) 58%,var(--lz-surface))}.week-view section>button[data-color="3"] time{color:var(--lz-danger)}
-.week-view section>button[data-color="4"]{border-color:color-mix(in srgb,var(--lz-brand) 48%,var(--lz-success));background:color-mix(in srgb,var(--lz-brand-soft) 55%,var(--lz-success-soft))}.week-view section>button[data-color="4"] time{color:color-mix(in srgb,var(--lz-brand) 48%,var(--lz-success))}
-.week-view section>button[data-color="5"]{border-color:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-warning));background:color-mix(in srgb,var(--lz-brand-soft) 58%,var(--lz-warning-soft))}.week-view section>button[data-color="5"] time{color:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-warning))}
-.week-view section>button[data-color="6"]{border-color:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-danger));background:color-mix(in srgb,var(--lz-brand-soft) 58%,var(--lz-danger-soft))}.week-view section>button[data-color="6"] time{color:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-danger))}
-.week-view section>button[data-color="7"]{border-color:color-mix(in srgb,var(--lz-success) 58%,var(--lz-warning));background:color-mix(in srgb,var(--lz-success-soft) 58%,var(--lz-warning-soft))}.week-view section>button[data-color="7"] time{color:color-mix(in srgb,var(--lz-success) 58%,var(--lz-warning))}
-.list-view td i[data-color="1"]{background:var(--lz-success)}.list-view td i[data-color="2"]{background:var(--lz-warning)}.list-view td i[data-color="3"]{background:var(--lz-danger)}.list-view td i[data-color="4"]{background:color-mix(in srgb,var(--lz-brand) 48%,var(--lz-success))}.list-view td i[data-color="5"]{background:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-warning))}.list-view td i[data-color="6"]{background:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-danger))}.list-view td i[data-color="7"]{background:color-mix(in srgb,var(--lz-success) 58%,var(--lz-warning))}
-.filter-button,.incomplete-toggle{height:30px!important;display:inline-flex!important;align-items:center;gap:5px}.filter-button span{min-width:17px;padding:1px 5px;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px}.incomplete-toggle.active{border-color:var(--lz-warning-border)!important;color:var(--lz-warning)!important;background:var(--lz-warning-soft)!important}.course-filter-panel{display:grid;gap:3px}.course-filter-panel header{height:32px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--lz-border)}.course-filter-panel header strong{font-size:11px}.course-filter-panel header button{border:0;color:var(--lz-brand-strong);background:transparent;cursor:pointer;font-size:10px}.course-filter-panel label{min-height:34px;display:grid;grid-template-columns:18px 8px minmax(0,1fr);align-items:center;gap:7px;padding:0 5px;border-radius:6px;cursor:pointer}.course-filter-panel label:hover{background:var(--lz-fill)}.course-filter-panel i{width:7px;height:7px;border-radius:50%;background:var(--lz-brand)}.course-filter-panel i[data-color="1"]{background:var(--lz-success)}.course-filter-panel i[data-color="2"]{background:var(--lz-warning)}.course-filter-panel i[data-color="3"]{background:var(--lz-danger)}.course-filter-panel i[data-color="4"]{background:color-mix(in srgb,var(--lz-brand) 48%,var(--lz-success))}.course-filter-panel i[data-color="5"]{background:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-warning))}.course-filter-panel i[data-color="6"]{background:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-danger))}.course-filter-panel i[data-color="7"]{background:color-mix(in srgb,var(--lz-success) 58%,var(--lz-warning))}.course-filter-panel span{overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.conflict-status{border:0!important;color:var(--lz-danger);font-weight:700}.week-view section>button em{width:max-content;padding:2px 5px;border-radius:5px;color:var(--lz-warning);background:var(--lz-warning-soft);font-style:normal;font-size:8px}.week-view section>button.conflict{border-color:var(--lz-danger);background:var(--lz-danger-soft)}.week-view section>button.conflict em{color:var(--lz-danger);background:transparent}.week-view section>button.incomplete{border-style:dashed;opacity:.8}.list-view tr.conflict td{background:var(--lz-danger-soft)}.list-view tr.incomplete td{color:var(--lz-text-muted)}.row-badge{padding:3px 6px;border-radius:6px;color:var(--lz-warning);background:var(--lz-warning-soft);font-size:9px}.row-badge.danger{color:var(--lz-danger);background:var(--lz-danger-soft)}
-.month-view{position:relative}.calendar-empty-hint{position:absolute;top:92px;left:50%;width:min(520px,calc(100% - 48px));display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px 14px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-brand-strong);background:rgb(255 255 255 / 94%);box-shadow:0 8px 24px rgb(15 23 42 / 7%);transform:translateX(-50%)}.calendar-empty-hint span{display:grid;gap:3px}.calendar-empty-hint strong{color:var(--lz-text-primary);font-size:11px}.calendar-empty-hint small{color:var(--lz-text-muted);font-size:9px}.calendar-empty-hint button{height:30px;padding:0 9px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}
-@media(max-width:900px){.product-bar{grid-template-columns:64px minmax(0,1fr) auto}.brand{justify-content:center;padding:0}.brand strong{display:none}.workspace-tabs{width:64px}.workspace-tabs button{justify-content:center;padding:0}.workspace-tabs button{font-size:0}.calendar-main{margin-left:64px}.status-bar>span:nth-of-type(n+3){display:none}}
-@media(max-width:680px){.product-bar nav button,.product-bar nav svg,.product-actions button{font-size:0}.toolbar>strong{min-width:90px}.status-bar>span{display:none}}
+.teacher-home,.teacher-home *{box-sizing:border-box}.teacher-home{width:100%;height:100%;min-height:0;overflow:hidden;border:1px solid rgba(255,255,255,.88);border-radius:var(--lz-radius-surface);color:var(--lz-text);background:var(--lz-surface);box-shadow:var(--lz-shadow-panel)}button,input{font:inherit}.home-header-actions{display:flex;align-items:center;gap:7px}.home-header-actions button{height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer}.header-quiet{border:1px solid var(--lz-border);color:var(--lz-text-secondary);background:var(--lz-surface)}.header-quiet b{min-width:17px;padding:1px 5px;border-radius:9px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px}.header-primary{border:1px solid var(--lz-brand);color:#fff;background:var(--lz-brand)}.home-layout{height:100%;min-height:0;display:grid;grid-template-columns:220px minmax(600px,1fr) 300px}.course-rail{min-width:0;min-height:0;display:grid;grid-template-rows:58px 42px minmax(0,1fr) 48px;border-right:1px solid var(--lz-border);background:var(--lz-fill)}.course-rail>header{display:flex;align-items:center;justify-content:space-between;padding:0 14px}.course-rail>header>div{display:grid;gap:3px}.course-rail>header strong{font-size:13px}.course-rail>header span{color:var(--lz-text-muted);font-size:10px}.course-rail>header button{width:29px;height:29px;display:grid;place-items:center;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}.course-search{height:34px;display:flex;align-items:center;gap:7px;margin:0 10px;padding:0 9px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-muted);background:var(--lz-surface)}.course-search:focus-within{border-color:var(--lz-brand-border);box-shadow:0 0 0 3px var(--lz-brand-soft)}.course-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:11px}.course-list{min-height:0;overflow:auto;padding:8px}.course-entry{width:100%;min-height:52px;display:grid;grid-template-columns:31px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:6px 7px;border:0;border-radius:9px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.course-entry:hover,.course-entry:focus-visible{outline:0;background:var(--lz-surface)}.course-monogram{width:31px;height:31px;display:grid;place-items:center;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:12px;font-weight:800}.course-monogram[data-color="1"]{color:var(--lz-success);background:var(--lz-success-soft)}.course-monogram[data-color="2"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.course-monogram[data-color="3"]{color:var(--lz-danger);background:var(--lz-danger-soft)}.course-entry__copy{min-width:0;display:grid;gap:3px}.course-entry__copy strong,.course-entry__copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-entry__copy strong{color:var(--lz-text-strong);font-size:11px}.course-entry__copy small{color:var(--lz-text-muted);font-size:9px}.course-rail__new{height:48px;display:flex;align-items:center;gap:7px;padding:0 15px;border:0;border-top:1px solid var(--lz-border);color:var(--lz-brand-strong);background:transparent;font-size:11px;font-weight:700;cursor:pointer}.calendar-surface{min-width:0;min-height:0;display:grid;grid-template-rows:58px auto minmax(0,1fr);background:var(--lz-surface)}.calendar-toolbar{display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--lz-border)}.calendar-title{min-width:0;display:flex;align-items:center;gap:9px}.calendar-title>svg{color:var(--lz-brand)}.calendar-title>div{display:grid;gap:2px}.calendar-title strong{font-size:13px}.calendar-title span{color:var(--lz-text-muted);font-size:9px}.toolbar-spacer{flex:1}.view-switch{display:flex;padding:2px;border:1px solid var(--lz-border);border-radius:8px;background:var(--lz-fill)}.view-switch button{height:27px;display:flex;align-items:center;gap:5px;padding:0 9px;border:0;border-radius:6px;color:var(--lz-text-secondary);background:transparent;font-size:10px;cursor:pointer}.view-switch button.active{color:var(--lz-brand-strong);background:var(--lz-surface);box-shadow:0 1px 2px rgb(15 23 42/.07)}.period-actions{display:flex;align-items:center;gap:4px}.period-actions button{height:29px;min-width:29px;display:grid;place-items:center;padding:0 8px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:10px;cursor:pointer}.calendar-issue{min-height:36px;display:flex;align-items:center;gap:8px;padding:7px 11px;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-warning);background:var(--lz-warning-soft);font-size:10px}.calendar-issue span{flex:1}.calendar-issue button{height:24px;border:1px solid var(--lz-warning-border);border-radius:6px;background:var(--lz-surface)}.calendar-loading{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:11px}.month-canvas{position:relative;min-width:0;min-height:0;overflow:auto;padding:10px}.month-canvas :deep(.month-grid){min-height:100%;border-radius:9px;overflow:hidden}.calendar-empty{position:absolute;top:96px;left:50%;width:min(440px,calc(100% - 48px));display:grid;justify-items:center;gap:7px;padding:17px;border:1px solid var(--lz-border);border-radius:12px;color:var(--lz-text-muted);background:rgba(255,255,255,.96);box-shadow:0 12px 32px rgb(15 23 42/.08);text-align:center;transform:translateX(-50%)}.calendar-empty strong{color:var(--lz-text-strong);font-size:12px}.calendar-empty span{font-size:10px}.week-canvas{min-width:720px;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(100px,1fr));overflow:auto;padding:10px}.week-canvas>section{min-width:0;border:1px solid var(--lz-border);border-right:0}.week-canvas>section:last-child{border-right:1px solid var(--lz-border)}.week-canvas>section>header{height:39px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid var(--lz-border);font-size:10px}.week-canvas>section.today>header{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.week-canvas>section>button{width:calc(100% - 10px);display:grid;gap:3px;margin:5px;padding:7px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-brand-soft);text-align:left;cursor:pointer}.week-canvas>section>button.active{border-color:var(--lz-brand);box-shadow:0 0 0 2px var(--lz-brand-soft)}.week-canvas time{color:var(--lz-brand-strong);font-size:9px;font-weight:700}.week-canvas button strong,.week-canvas button span{overflow:hidden;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.week-canvas section>p{margin:12px;color:var(--lz-text-muted);font-size:9px}.day-inspector{min-width:0;min-height:0;display:grid;grid-template-rows:58px minmax(0,1fr) auto;border-left:1px solid var(--lz-border);background:var(--lz-surface)}.day-inspector>header{display:flex;align-items:center;justify-content:space-between;padding:0 15px;border-bottom:1px solid var(--lz-border)}.day-inspector>header>div{min-width:0;display:grid;gap:3px}.day-inspector>header small{color:var(--lz-text-muted);font-size:9px}.day-inspector>header strong{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.day-inspector>header button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.session-focus{align-content:start;display:grid;gap:12px;padding:17px 15px;border-bottom:1px solid var(--lz-border)}.session-number{width:max-content;padding:3px 7px;border-radius:6px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:9px;font-weight:700}.session-focus h2{margin:0;font-size:16px;line-height:1.45}.session-focus dl{display:grid;gap:10px;margin:4px 0 0}.session-focus dl>div{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px}.session-focus dt{display:flex;align-items:center;gap:5px;color:var(--lz-text-muted);font-size:10px}.session-focus dd{margin:0;color:var(--lz-text-secondary);font-size:10px}.preparation-summary{align-self:start;display:grid;padding:13px 15px}.preparation-summary>header{display:grid;gap:3px;margin-bottom:7px}.preparation-summary>header strong{font-size:11px}.preparation-summary>header span{color:var(--lz-text-muted);font-size:9px}.preparation-summary>div{min-height:36px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--lz-border);font-size:10px}.preparation-summary>div strong{color:var(--lz-text-secondary)}.inspector-actions{display:grid;gap:7px;padding:12px 15px;border-top:1px solid var(--lz-border)}.inspector-actions button{height:34px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:10px;font-weight:700;cursor:pointer}.inspector-actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.today-list{min-height:0;overflow:auto;padding:12px}.today-list__heading{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 3px}.today-list__heading strong{font-size:11px}.today-list__heading span{color:var(--lz-text-muted);font-size:10px}.today-list>button{width:100%;min-height:55px;display:grid;grid-template-columns:42px minmax(0,1fr) 15px;align-items:center;gap:8px;padding:7px 4px;border:0;border-bottom:1px solid var(--lz-border);color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.today-list time{color:var(--lz-brand-strong);font-size:9px;line-height:1.5}.today-list button>span{min-width:0;display:grid;gap:3px}.today-list button strong,.today-list button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-list button strong{font-size:10px}.today-list button small{color:var(--lz-text-muted);font-size:9px}.today-empty{min-height:230px;display:grid;place-content:center;justify-items:center;gap:7px;color:var(--lz-text-muted);text-align:center}.today-empty strong{color:var(--lz-text-strong);font-size:11px}.today-empty span{max-width:210px;font-size:9px;line-height:1.6}.spin{animation:home-spin .85s linear infinite}@keyframes home-spin{to{transform:rotate(360deg)}}
+@media(max-width:1100px){.home-layout{grid-template-columns:190px minmax(520px,1fr) 270px}.calendar-title span{display:none}}
+@media(max-width:820px){.teacher-home{overflow:auto}.home-layout{height:auto;min-height:100%;grid-template-columns:160px minmax(560px,1fr)}.day-inspector{grid-column:1/-1;min-height:300px;border-top:1px solid var(--lz-border);border-left:0}.course-rail{min-height:650px}.calendar-surface{min-height:650px}}
+@media(max-width:620px){.home-header-actions .header-quiet span{display:none}.home-layout{display:block}.course-rail{min-height:0;grid-template-rows:52px 40px auto 44px}.course-list{max-height:210px}.calendar-surface{min-height:680px;grid-template-rows:auto auto minmax(0,1fr)}.calendar-toolbar{min-height:94px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:6px;padding:8px 10px}.calendar-title{grid-column:1}.view-switch{grid-column:2}.toolbar-spacer{display:none}.period-actions{grid-column:1/-1;justify-self:end;margin:0}.month-canvas{padding:6px}.day-inspector{min-height:330px}}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

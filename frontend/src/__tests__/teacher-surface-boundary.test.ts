@@ -5,31 +5,24 @@ import { describe, expect, it } from 'vitest'
 const sourceRoot = resolve(process.cwd(), 'src')
 const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
 
-describe('unified course workspace boundary', () => {
-  it('uses one active course shell for course, outline, content, and PPT', () => {
+describe('calendar and course file-space boundary', () => {
+  it('uses the calendar as home and removes the duplicated global stage bar', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
-    const learning = source('views/LearningView.vue')
     const app = source('App.vue')
+    const home = source('views/TeacherTeachingCalendarView.vue')
 
-    expect(app).toContain('class="app-course-stages"')
-    expect(app).toContain(':active="headerCourseStage"')
-    expect(app).toContain("if (route.name === 'learning') return 'content'")
-    expect(app).toContain("if (route.name === 'ppt-workspace') return 'ppt'")
+    expect(app).not.toContain('CourseStageTabs')
+    expect(app).not.toContain('class="app-course-stages"')
+    expect(home).toContain('class="course-rail"')
+    expect(home).toContain('class="calendar-surface"')
+    expect(home).toContain('class="day-inspector"')
     expect(workspace).toContain('<TeacherCourseSpaceView')
-    expect(workspace).toContain('<TeacherCourseCalendarView')
     expect(workspace).toContain('<CourseOutlineReview')
-    expect(workspace).toContain('visible-scope="both"')
     expect(workspace.match(/<GenerationLessonPlan[\s\S]*?embedded/g)).toHaveLength(1)
     expect(workspace).toContain('<Teleport to="#app-header-route-actions">')
-    expect(workspace).not.toContain('class="workspace-state"')
-    expect(workspace).not.toContain('class="external-entry"')
-    expect(workspace).not.toContain("section === 'practice'")
-    expect(workspace).not.toContain("section === 'ppt'")
-    expect(workspace.indexOf('class="workspace-subtabs"')).toBeLessThan(workspace.indexOf('</header>'))
-    expect(learning).not.toContain('CourseModeTabs')
-    expect(learning).toContain('isGenerationPreview && showWorkspaceTabs')
+    expect(workspace).not.toContain('workspace-subtabs')
+    expect(workspace).not.toContain('<TeacherCourseCalendarView')
     expect(workspace).not.toContain('useTeacherCourseRuntime')
-    expect(workspace).not.toContain('useTeacherLessonAuthoringStore')
   })
 
   it('keeps active routes in one namespace and redirects legacy teacher URLs', () => {
@@ -39,32 +32,38 @@ describe('unified course workspace boundary', () => {
     expect(router).toContain("path: '/course/:courseId/workspace/:mode(setup|build)?'")
     expect(router).toContain("path: '/course/:courseId/learn/:nodeId?'")
     expect(router).toContain("path: '/course/:courseId/ppt'")
-    expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/files'[\s\S]*?redirect:[\s\S]*?section:\s*'files'/)
-    expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/production'[\s\S]*?redirect:[\s\S]*?mode:\s*'build'/)
+    expect(router).toContain("component: () => import('../views/TeacherTeachingCalendarView.vue')")
+    expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/files'[\s\S]*?redirect:[\s\S]*?name:\s*'course-workspace'/)
+    expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/teaching-calendar'[\s\S]*?redirect:[\s\S]*?name:\s*'course-library'/)
     expect(router).toMatch(/path:\s*'\/teacher\/:pathMatch\(\.\*\)\*'[\s\S]*?redirect:\s*'\/courses'/)
     expect(router).not.toContain("import('../views/TeacherCourseOverviewView.vue')")
     expect(router).not.toContain("import('../views/TeacherCourseProductionView.vue')")
   })
 
-  it('projects course design and lesson preparation from one teaching plan', () => {
+  it('opens managed outline and lesson-plan files in drawers without adding tabs', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const lessonPlan = source('components/GenerationLessonPlan.vue')
 
     expect(workspace.match(/<GenerationLessonPlan/g)).toHaveLength(1)
-    expect(workspace).toContain(':plan="courseStore.currentTeachingPlan"')
+    expect(workspace).toContain(':plan="selectedLessonPlan"')
+    expect(workspace).toContain('@open-outline="outlineOpen = true"')
+    expect(workspace).toContain('@open-teaching-plan="openLessonPlan"')
     expect(lessonPlan).toContain("visibleScope?: 'both' | 'overall' | 'sections'")
     expect(lessonPlan).toContain('embedded?: boolean')
     expect(lessonPlan).toContain('v-if="!embedded" class="generation-lesson-plan__intro"')
     expect(lessonPlan).not.toContain('teacherLessonAuthoring')
   })
 
-  it('binds the embedded file space to the stable course identity', () => {
+  it('binds the file space to the stable course and presents one managed file tree', () => {
     const fileSpace = source('views/TeacherCourseSpaceView.vue')
 
     expect(fileSpace).toContain("params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined")
-    expect(fileSpace).toContain("course_id: embedded.value ? props.courseId : ''")
-    expect(fileSpace).toContain("http.patch(`/api/teacher-course-spaces/${legacyMatches[0].package_id}`")
-    expect(fileSpace).toContain('v-if="!embedded || !courseTitle" class="create-field create-field--course"')
+    expect(fileSpace).toContain("course_id: props.courseId")
+    expect(fileSpace).toContain("http.patch(`/api/teacher-course-spaces/${legacyMatches[0]!.package_id}`")
+    expect(fileSpace).toContain('class="file-tree-pane"')
+    expect(fileSpace).toContain('class="file-list-pane"')
+    expect(fileSpace).toContain('class="file-inspector"')
+    expect(fileSpace).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
   })
 
   it('keeps the published formal workspace focused on course, practice, and PPT', () => {

@@ -10,7 +10,7 @@ describe('learning routes', () => {
     const resolved = router.resolve(redirect)
 
     expect(resolved.name).toBe('course-workspace')
-    expect(resolved.fullPath).toBe('/course/course-1/workspace/setup?section=basic')
+    expect(resolved.fullPath).toBe('/course/course-1/workspace/setup')
     expect(router.getRoutes().map(route => route.name).filter(Boolean)).toEqual(
       expect.arrayContaining(['learning', 'course-library', 'course-workspace', 'ppt-workspace']),
     )
@@ -34,7 +34,7 @@ describe('learning routes', () => {
     expect(router.resolve('/teacher/teaching-calendar').name).toBe('teacher-teaching-calendar')
     const filesRoute = router.getRoutes().find(route => route.name === 'teacher-course-files')
     const redirected = (filesRoute!.redirect as Function)({ params: { courseId: 'course-1' }, query: {} })
-    expect(router.resolve(redirected).fullPath).toBe('/course/course-1/workspace/setup?section=files')
+    expect(router.resolve(redirected).fullPath).toBe('/course/course-1/workspace/setup')
   })
 
   it('教师命名空间中的未知地址只能回教师工作台', () => {

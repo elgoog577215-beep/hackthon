@@ -1,67 +1,63 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
-const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
+const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }))
 vi.mock('@/utils/http', () => ({ default: httpMock }))
 
 import TeacherCourseSpaceView from '@/views/TeacherCourseSpaceView.vue'
 import { setLocale } from '@/shared/i18n'
-import enMessages from '../../../public/locales/en/translation.json'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
+const coursePackage = {
+  package_id: 'package-1', course_id: '', course_name: '数据结构', academic_year: '2026-2027', term: '秋季', asset_count: 0,
+  assets: [], entries: [],
+}
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
-    { path: '/courses', component: { template: '<div />' } },
-    { path: '/teacher-course-space', component: TeacherCourseSpaceView },
+    { path: '/courses', name: 'course-library', component: { template: '<div />' } },
+    { path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: { template: '<div />' } },
+    { path: '/course/:courseId/ppt', name: 'ppt-workspace', component: { template: '<div />' } },
   ],
-})
-
-const mountView = () => mount(TeacherCourseSpaceView, {
-  global: {
-    plugins: [router],
-    stubs: { ElDialog: true, ElTree: true },
-  },
 })
 
 describe('TeacherCourseSpaceView', () => {
   beforeEach(async () => {
-    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
-      ok: true,
-      json: async () => String(input).includes('/en/') ? enMessages : zhMessages,
-    })))
-    httpMock.get.mockReset().mockResolvedValue({ data: [] })
-    httpMock.post.mockReset()
-    await setLocale('zh')
-    await router.push('/teacher-course-space')
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    httpMock.get.mockReset().mockImplementation((url: string) => Promise.resolve({ data: url === '/api/teacher-course-spaces' ? [coursePackage] : coursePackage }))
+    await router.push('/courses')
     await router.isReady()
+    await setLocale('zh')
   })
 
-  it('首次进入时直接显示创建主体，不渲染空的双栏工作台', async () => {
-    const wrapper = mountView()
+  it('以文件树、文件列表和右侧状态栏组成单一课程空间', async () => {
+    const pinia = createPinia()
+    const wrapper = mount(TeacherCourseSpaceView, {
+      global: {
+        plugins: [pinia, router],
+        stubs: { ElDialog: true, ElTree: { template: '<div class="workspace-tree" />' }, ElDropdown: true, ElDropdownMenu: true, ElDropdownItem: true },
+      },
+    })
     await flushPromises()
 
-    expect(wrapper.get('.knowledge-space').classes()).toContain('knowledge-space--first-run')
-    expect(wrapper.find('.knowledge-sidebar').exists()).toBe(false)
-    expect(wrapper.get('.workspace-create').text()).toContain('新建课程文件库')
-    expect(wrapper.find('label.create-field--course').text()).toContain('课程名称')
-    expect(wrapper.findAll('.create-template button')).toHaveLength(2)
-
-    await setLocale('en')
-    await flushPromises()
-    expect(wrapper.get('.workspace-create').text()).toContain('Create a course file library')
-    expect(wrapper.get('.library-header').text()).toContain('Course file library')
+    expect(wrapper.get('.file-layout')).toBeTruthy()
+    expect(wrapper.get('.file-tree-pane').text()).toContain('数据结构')
+    expect(wrapper.get('.file-list-pane').text()).toContain('课程大纲')
+    expect(wrapper.get('.file-inspector').text()).toContain('上下游关系')
   })
 
-  it('创建方式使用单选语义，并允许清楚切换', async () => {
-    const wrapper = mountView()
-    await flushPromises()
-    const options = wrapper.findAll('.create-template button')
-
-    expect(options[1]!.attributes('aria-pressed')).toBe('true')
-    await options[0]!.trigger('click')
-    expect(options[0]!.attributes('aria-pressed')).toBe('true')
-    expect(options[1]!.attributes('aria-pressed')).toBe('false')
+  it('为五类教学资产提供不同的新建表单', () => {
+    const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
+    expect(source).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
+    expect(source).toContain("createType === 'lesson_plan'")
+    expect(source).toContain("createType === 'ppt'")
+    expect(source).toContain("createType === 'practice'")
+    expect(source).toContain('class="source-picker"')
   })
 })

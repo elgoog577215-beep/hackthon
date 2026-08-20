@@ -1,1018 +1,540 @@
 <template>
-  <main class="course-library teacher-space" :class="{ 'teacher-space--embedded': embedded }">
-    <header v-if="!embedded" class="library-header">
-      <div class="library-header__copy">
-        <p>{{ t('teacherCourseSpace.eyebrow', '教师课程空间') }}</p>
-        <h1>{{ t('teacherCourseSpace.title', '课程文件库') }}</h1>
-        <span>{{ t('teacherCourseSpace.subtitle', '按课程、学年和目录保存原始资料。') }}</span>
-      </div>
-      <div class="library-actions">
-        <button class="secondary-button" type="button" @click="router.push({ name: 'teacher-course-library' })">
-          {{ t('teacherCourseSpace.backToCourses', '返回课程库') }}
-        </button>
-      </div>
+  <main class="file-space" :class="{ 'file-space--embedded': embedded }">
+    <header v-if="!embedded" class="standalone-header">
+      <div><small>{{ t('courseFiles.spaceLabel') }}</small><h1>{{ courseTitle || t('courseFiles.allCourseFiles') }}</h1></div>
+      <button type="button" @click="router.push({ name: 'course-library' })"><ArrowLeft :size="16" />{{ t('courseFiles.backToCalendar') }}</button>
     </header>
 
-    <section
-      class="knowledge-space"
-      :class="{
-        'knowledge-space--first-run': !packages.length && !selected,
-        'knowledge-space--creating': !selected,
-        'knowledge-space--embedded': embedded,
-      }"
-    >
-      <aside v-if="packages.length" class="knowledge-sidebar">
-        <div v-if="!embedded" class="sidebar-heading">
-          <strong>{{ t('teacherCourseSpace.myCourses', '我的课程') }}</strong>
-          <button type="button" @click="selected = null">{{ t('teacherCourseSpace.new', '新建') }}</button>
-        </div>
-        <button v-for="item in embedded ? [] : packages" :key="item.package_id" class="package-item" :class="{ active: item.package_id === selected?.package_id }" type="button" @click="openPackage(item.package_id)">
-          <strong>{{ item.course_name }}</strong>
-          <span>{{ t('teacherCourseSpace.courseMeta', '{year} / {term} / {count} 份资料')
-            .replace('{year}', item.academic_year)
-            .replace('{term}', termLabel(item.term))
-            .replace('{count}', String(item.asset_count)) }}</span>
-        </button>
+    <section v-if="initializing" class="space-state" role="status"><LoaderCircle class="spin" :size="22" />{{ t('courseFiles.preparingSpace') }}</section>
+    <section v-else-if="!selected" class="space-state is-error" role="alert">
+      <TriangleAlert :size="22" /><strong>{{ t('courseFiles.spaceUnavailable') }}</strong><span>{{ status }}</span>
+      <button type="button" @click="refresh">{{ t('common.retry') }}</button>
+    </section>
 
-        <template v-if="selected">
-          <div class="sidebar-divider" />
-          <div class="sidebar-heading"><strong>{{ t('teacherCourseSpace.fileDirectory', '文件目录') }}</strong></div>
-          <el-tree
-            class="folder-tree"
-            :data="treeData"
-            node-key="id"
-            :current-node-key="currentPath || 'root'"
-            :expand-on-click-node="false"
-            :default-expand-all="true"
-            :highlight-current="true"
-            @node-click="handleTreeClick"
-          >
-            <template #default="{ data }">
-              <span class="tree-node" :class="`tree-node--${data.kind}`">
-                <FolderOpen v-if="data.kind === 'root' || data.kind === 'folder'" :size="15" />
-                <FileText v-else :size="14" />
-                <span>{{ data.label }}</span>
-              </span>
-            </template>
-          </el-tree>
-        </template>
+    <section v-else class="file-layout">
+      <aside class="file-tree-pane">
+        <header class="pane-heading">
+          <div><small>{{ t('courseFiles.courseLabel') }}</small><strong>{{ selected.course_name }}</strong></div>
+          <button type="button" :aria-label="t('common.refresh')" @click="reloadAll"><RefreshCw :size="15" :class="{ spin: busy }" /></button>
+        </header>
+        <el-tree
+          class="workspace-tree"
+          :data="treeData"
+          node-key="id"
+          :current-node-key="selectedNode?.id || currentFolderId"
+          :default-expanded-keys="expandedKeys"
+          :expand-on-click-node="false"
+          highlight-current
+          @node-click="handleTreeClick"
+        >
+          <template #default="{ data }">
+            <span class="tree-node" :class="`is-${data.type}`">
+              <FolderOpen v-if="data.kind === 'folder'" :size="15" />
+              <component :is="nodeIcon(data)" v-else :size="15" />
+              <span>{{ data.label }}</span>
+              <i v-if="data.status === 'stale'" :title="t('courseFiles.updateNeeded')" />
+            </span>
+          </template>
+        </el-tree>
+        <footer>
+          <span>{{ selected.academic_year }} · {{ termLabel(selected.term) }}</span>
+          <button type="button" @click="downloadPackage"><Download :size="14" />{{ t('courseFiles.exportCourse') }}</button>
+        </footer>
       </aside>
 
-      <section v-if="!selected" class="workspace-create">
-        <div class="workspace-create__copy">
-          <strong>{{ embedded ? t('unifiedCourseWorkspace.files.createTitle', '课程文件') : t('teacherCourseSpace.createTitle', '新建课程文件库') }}</strong>
-          <span v-if="!embedded">{{ t('teacherCourseSpace.createHelp', '空白开始，或按学校课程材料目录创建。') }}</span>
-        </div>
-        <form @submit.prevent="createPackage">
-          <label v-if="!embedded || !courseTitle" class="create-field create-field--course">
-            <span>{{ t('teacherCourseSpace.courseName', '课程名称') }}</span>
-            <input
-              v-model.trim="form.course_name"
-              required
-              :readonly="embedded && Boolean(courseTitle)"
-              :placeholder="t('teacherCourseSpace.courseNamePlaceholder', '如：数据结构')"
-            />
-          </label>
-          <label class="create-field">
-            <span>{{ t('teacherCourseSpace.academicYear', '学年') }}</span>
-            <input
-              v-model.trim="form.academic_year"
-              required
-              inputmode="numeric"
-              :placeholder="t('teacherCourseSpace.academicYearPlaceholder', '如：2025-2026')"
-            />
-          </label>
-          <label class="create-field create-field--term">
-            <span>{{ t('teacherCourseSpace.term', '学期') }}</span>
-            <select v-model="form.term">
-              <option value="春季">{{ t('teacherCourseSpace.terms.spring', '春季') }}</option>
-              <option value="秋季">{{ t('teacherCourseSpace.terms.autumn', '秋季') }}</option>
-              <option value="夏季">{{ t('teacherCourseSpace.terms.summer', '夏季') }}</option>
-            </select>
-          </label>
-          <fieldset class="create-template">
-            <legend>{{ t('teacherCourseSpace.startMode', '创建方式') }}</legend>
-            <button
-              type="button"
-              :aria-pressed="form.template === 'blank'"
-              @click="form.template = 'blank'"
-            >
-              <FilePlus2 :size="16" />
-              <span><strong>{{ t('teacherCourseSpace.templates.blank', '空白文件库') }}</strong></span>
-            </button>
-            <button
-              type="button"
-              :aria-pressed="form.template === 'school_course_materials'"
-              @click="form.template = 'school_course_materials'"
-            >
-              <Folders :size="16" />
-              <span><strong>{{ t('teacherCourseSpace.templates.school', '学校材料模板') }}</strong></span>
-            </button>
-          </fieldset>
-          <button class="primary-button create-submit" :disabled="busy">
-            <LoaderCircle v-if="busy" :size="15" class="spin" />
-            <Plus v-else :size="15" />
-            {{ busy ? t('teacherCourseSpace.creating', '正在创建') : t('teacherCourseSpace.createAction', '创建文件库') }}
-          </button>
-        </form>
-        <p v-if="status" class="runtime-note" role="status">{{ status }}</p>
-      </section>
-
-      <section v-if="selected" class="folder-workbench">
-        <div class="folder-workbench__topline">
-          <nav class="workspace-breadcrumb" :aria-label="t('teacherCourseSpace.filePath', '文件路径')">
-            <button type="button" @click="openFolder('')"><Home :size="14" />{{ t('teacherCourseSpace.courseMaterials', '课程资料') }}</button>
-            <template v-for="crumb in breadcrumbs" :key="crumb.path">
-              <ChevronRight :size="14" /><button type="button" @click="openFolder(crumb.path)">{{ crumb.label }}</button>
+      <section class="file-list-pane">
+        <header class="list-toolbar">
+          <nav :aria-label="t('courseFiles.filePath')">
+            <button type="button" @click="openFolder('root')"><Home :size="14" />{{ t('courseFiles.rootName') }}</button>
+            <template v-for="crumb in breadcrumbs" :key="crumb.id">
+              <ChevronRight :size="13" /><button type="button" @click="openFolder(crumb.id)">{{ crumb.label }}</button>
             </template>
           </nav>
-          <button class="text-button" type="button" @click="downloadPackage"><Download :size="14" />{{ t('teacherCourseSpace.downloadCourseZip', '下载整课 ZIP') }}</button>
-        </div>
-
-        <div class="folder-workbench__heading">
-          <div>
-            <p>{{ selected.academic_year }} / {{ termLabel(selected.term) }}</p>
-            <h2>{{ currentFolderLabel }}</h2>
-            <span>{{ currentPath
-              ? t('teacherCourseSpace.currentFolderHelp', '正在查看此目录下的资料。')
-              : t('teacherCourseSpace.rootFolderHelp', '课程根目录。可建立目录或直接导入资料。') }}</span>
+          <div class="toolbar-actions">
+            <label class="list-search"><Search :size="14" /><input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" /></label>
+            <el-dropdown trigger="click" @command="openCreateDialog">
+              <button class="new-button" type="button"><Plus :size="15" />{{ t('courseFiles.new') }}<ChevronDown :size="14" /></button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="outline"><FileText :size="14" />{{ t('courseFiles.types.outline') }}</el-dropdown-item>
+                  <el-dropdown-item command="lesson_plan"><ClipboardList :size="14" />{{ t('courseFiles.types.lessonPlan') }}</el-dropdown-item>
+                  <el-dropdown-item command="material"><BookOpen :size="14" />{{ t('courseFiles.types.material') }}</el-dropdown-item>
+                  <el-dropdown-item command="ppt"><Presentation :size="14" />{{ t('courseFiles.types.ppt') }}</el-dropdown-item>
+                  <el-dropdown-item command="practice"><ListChecks :size="14" />{{ t('courseFiles.types.practice') }}</el-dropdown-item>
+                  <el-dropdown-item divided command="folder"><FolderPlus :size="14" />{{ t('courseFiles.types.folder') }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
           </div>
-          <div class="folder-actions">
-            <button class="secondary-button" type="button" @click="addFolder"><FolderPlus :size="15" />{{ t('teacherCourseSpace.newFolder', '新建文件夹') }}</button>
-            <button class="primary-button" type="button" :disabled="busy" @click="fileInput?.click()"><Upload :size="15" />{{ t('teacherCourseSpace.uploadHere', '上传到此处') }}</button>
+        </header>
+
+        <div class="folder-title">
+          <div><small>{{ currentFolder?.type === 'lesson' ? t('courseFiles.lessonFolder') : t('courseFiles.folder') }}</small><h2>{{ currentFolder?.label || t('courseFiles.rootName') }}</h2></div>
+          <span>{{ t('courseFiles.itemCount').replace('{count}', String(filteredChildren.length)) }}</span>
+        </div>
+
+        <div class="file-table" role="table" :aria-label="t('courseFiles.fileList')">
+          <div class="file-table__head" role="row">
+            <span>{{ t('courseFiles.columns.name') }}</span><span>{{ t('courseFiles.columns.type') }}</span><span>{{ t('courseFiles.columns.status') }}</span><span>{{ t('courseFiles.columns.updated') }}</span><span />
           </div>
-        </div>
-
-        <input ref="folderInput" class="sr-only" type="file" multiple webkitdirectory @change="pickFolder" />
-        <input ref="fileInput" class="sr-only" type="file" multiple @change="pickFiles" />
-        <div class="context-import" :class="{ dragging }" @dragover.prevent="dragging = true" @dragleave="dragging = false" @drop.prevent="dropFiles">
-          <FolderUp :size="18" />
-          <span>{{ t('teacherCourseSpace.dropHelp', '把文件或文件夹拖到这里，导入到“{folder}”').replace('{folder}', currentFolderLabel) }}</span>
-          <button class="text-button" type="button" :disabled="busy" @click="folderInput?.click()">{{ t('teacherCourseSpace.chooseFolder', '选择整个文件夹') }}</button>
-        </div>
-
-        <div class="folder-list" :class="{ 'folder-list--empty': !currentChildren.length }">
-          <template v-if="currentChildren.length">
-            <div class="folder-list__columns">
-              <span>{{ t('teacherCourseSpace.columns.name', '名称') }}</span>
-              <span>{{ t('teacherCourseSpace.columns.type', '类型') }}</span>
-              <span>{{ t('teacherCourseSpace.columns.size', '大小') }}</span>
-              <span>{{ t('teacherCourseSpace.columns.actions', '操作') }}</span>
-            </div>
-            <div v-for="node in currentChildren" :key="node.id" class="folder-row" :class="`folder-row--${node.kind}`" @dblclick="node.kind === 'folder' ? openNode(node) : previewNode(node)">
-              <button class="folder-row__name" type="button" @click="openNode(node)">
-                <Folder v-if="node.kind === 'folder'" :size="18" /><FileText v-else :size="17" />
-                <span>{{ node.label }}</span>
-              </button>
-              <span>{{ node.kind === 'folder' ? t('teacherCourseSpace.folder', '文件夹') : node.asset?.extension?.replace('.', '').toUpperCase() }}</span>
-              <span>{{ node.asset ? size(node.asset.size_bytes) : '-' }}</span>
-              <div class="row-actions">
-                <button v-if="node.asset" class="row-action" type="button" @click.stop="downloadAsset(node.asset)"><Download :size="14" />{{ t('teacherCourseSpace.download', '下载') }}</button>
-                <button v-if="node.kind === 'folder' || node.asset" class="row-action row-action--danger" type="button" @click.stop="deleteNode(node)"><Trash2 :size="14" />{{ t('teacherCourseSpace.delete', '删除') }}</button>
-              </div>
-            </div>
-          </template>
-          <div v-else class="folder-empty">
-            <FolderOpen :size="28" />
-            <strong>{{ t('teacherCourseSpace.folderEmpty', '这个目录还是空的') }}</strong>
-            <span>{{ t('teacherCourseSpace.folderEmptyHelp', '可把电脑里的文件或文件夹拖进来，也可以先新建下一层目录。') }}</span>
+          <button
+            v-for="node in filteredChildren"
+            :key="node.id"
+            type="button"
+            class="file-row"
+            :class="{ selected: selectedNode?.id === node.id }"
+            role="row"
+            @click="selectNode(node)"
+            @dblclick="node.kind === 'folder' ? openFolder(node.id) : primaryAction(node)"
+          >
+            <span class="file-name" role="cell"><span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="17" /></span><span><strong>{{ node.label }}</strong><small v-if="node.subtitle">{{ node.subtitle }}</small></span></span>
+            <span role="cell">{{ typeLabel(node) }}</span>
+            <span role="cell"><i class="status-dot" :data-state="node.status" />{{ statusLabel(node) }}</span>
+            <span role="cell">{{ dateLabel(node.updatedAt) }}</span>
+            <span role="cell"><ChevronRight :size="15" /></span>
+          </button>
+          <div v-if="!filteredChildren.length" class="file-empty">
+            <FolderOpen :size="27" /><strong>{{ t('courseFiles.emptyFolder') }}</strong><span>{{ t('courseFiles.emptyFolderHelp') }}</span>
+            <button type="button" @click="openCreateDialog(defaultCreateType)"><Plus :size="14" />{{ t('courseFiles.createHere') }}</button>
           </div>
         </div>
         <p v-if="status" class="runtime-note" role="status">{{ status }}</p>
       </section>
+
+      <aside class="file-inspector">
+        <template v-if="selectedNode">
+          <header>
+            <span class="inspector-icon" :data-type="selectedNode.type"><component :is="selectedNode.kind === 'folder' ? Folder : nodeIcon(selectedNode)" :size="22" /></span>
+            <div><small>{{ typeLabel(selectedNode) }}</small><strong>{{ selectedNode.label }}</strong></div>
+            <button type="button" :aria-label="t('common.close')" @click="selectedNode = null"><X :size="15" /></button>
+          </header>
+          <section class="inspector-status" :data-state="selectedNode.status">
+            <span><i />{{ statusLabel(selectedNode) }}</span>
+            <p>{{ statusHelp(selectedNode) }}</p>
+          </section>
+          <dl class="file-meta">
+            <div><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ selectedNode.path || t('courseFiles.rootName') }}</dd></div>
+            <div v-if="selectedNode.lessonId"><dt>{{ t('courseFiles.meta.lesson') }}</dt><dd>{{ lessonLabel(selectedNode.lessonId) }}</dd></div>
+            <div v-if="selectedNode.revision"><dt>{{ t('courseFiles.meta.version') }}</dt><dd>{{ selectedNode.revision }}</dd></div>
+            <div v-if="selectedNode.asset"><dt>{{ t('courseFiles.meta.size') }}</dt><dd>{{ size(selectedNode.asset.size_bytes) }}</dd></div>
+            <div><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ dateLabel(selectedNode.updatedAt) }}</dd></div>
+          </dl>
+          <section v-if="selectedNode.kind !== 'folder'" class="relationship-card">
+            <small>{{ t('courseFiles.sourceRelationship') }}</small>
+            <p>{{ relationship(selectedNode) }}</p>
+          </section>
+          <footer class="inspector-actions">
+            <button class="primary" type="button" :disabled="busy || primaryDisabled(selectedNode)" @click="primaryAction(selectedNode)">
+              <LoaderCircle v-if="busy" :size="15" class="spin" /><component :is="primaryIcon(selectedNode)" v-else :size="15" />{{ primaryLabel(selectedNode) }}
+            </button>
+            <button v-if="selectedNode.asset" type="button" @click="downloadAsset(selectedNode.asset)"><Download :size="14" />{{ t('courseFiles.download') }}</button>
+            <button v-if="selectedNode.asset" class="danger" type="button" @click="deleteAsset(selectedNode.asset)"><Trash2 :size="14" />{{ t('courseFiles.delete') }}</button>
+          </footer>
+        </template>
+        <div v-else class="inspector-empty"><MousePointer2 :size="25" /><strong>{{ t('courseFiles.selectFile') }}</strong><span>{{ t('courseFiles.selectFileHelp') }}</span></div>
+      </aside>
     </section>
-    <el-dialog v-model="previewOpen" :title="previewAsset?.filename || t('teacherCourseSpace.preview', '文件预览')" :width="previewDialogWidth" top="4vh" class="file-preview-dialog" destroy-on-close @closed="closePreview">
-      <div class="preview-surface" :class="`preview-surface--${previewKind}`">
-        <img v-if="previewKind === 'image'" class="file-preview-image" :src="previewUrl" :alt="previewAsset?.filename" />
-        <iframe v-else-if="previewKind === 'browser'" class="file-preview-frame" :src="previewUrl" :title="previewAsset?.filename" />
-        <div v-else class="office-preview-note">
-          <FileText :size="30" />
-          <strong>{{ t('teacherCourseSpace.officeSaved', '此 Office 文件已安全保存') }}</strong>
-          <span>{{ t('teacherCourseSpace.officeSavedHelp', 'Word、Excel 和 PPT 可下载后用本机 Office 打开；PDF、图片和文本支持页内预览。') }}</span>
-          <button class="text-button" type="button" @click="previewAsset && downloadAsset(previewAsset)"><Download :size="14" />{{ t('teacherCourseSpace.downloadOriginal', '下载原件') }}</button>
+
+    <input ref="importInput" class="sr-only" type="file" @change="captureImportFile" />
+    <el-dialog v-model="createOpen" :title="dialogTitle" width="min(560px, calc(100vw - 28px))" class="asset-create-dialog" destroy-on-close @closed="resetCreateForm">
+      <div class="create-intro" :data-type="createType">
+        <span><component :is="createIcon" :size="20" /></span>
+        <div><strong>{{ dialogTitle }}</strong><p>{{ dialogHelp }}</p></div>
+      </div>
+      <form class="asset-form" @submit.prevent="submitCreate">
+        <label v-if="needsLesson" class="form-field">
+          <span>{{ t('courseFiles.form.lesson') }}</span>
+          <select v-model="createForm.lessonId" required>
+            <option value="" disabled>{{ t('courseFiles.form.selectLesson') }}</option>
+            <option v-for="lesson in lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ lesson.number }}. {{ lesson.title }}</option>
+          </select>
+        </label>
+        <label v-if="['material', 'folder'].includes(createType)" class="form-field">
+          <span>{{ createType === 'folder' ? t('courseFiles.form.folderName') : t('courseFiles.form.fileName') }}</span>
+          <input v-model.trim="createForm.title" required :placeholder="createType === 'folder' ? t('courseFiles.form.folderPlaceholder') : t('courseFiles.form.materialPlaceholder')" />
+        </label>
+        <div v-if="createType === 'lesson_plan'" class="form-grid">
+          <label class="form-field"><span>{{ t('courseFiles.form.classHours') }}</span><select v-model="createForm.hours"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+          <label class="form-field"><span>{{ t('courseFiles.form.generationMode') }}</span><select v-model="createForm.mode"><option value="ai">{{ t('courseFiles.form.aiGenerate') }}</option><option value="import">{{ t('courseFiles.form.importFile') }}</option></select></label>
         </div>
+        <div v-if="createType === 'ppt'" class="form-grid">
+          <label class="form-field"><span>{{ t('courseFiles.form.slideCount') }}</span><input v-model.number="createForm.count" type="number" min="4" max="80" /></label>
+          <label class="form-field"><span>{{ t('courseFiles.form.style') }}</span><select v-model="createForm.style"><option value="simple">{{ t('courseFiles.form.simpleTeaching') }}</option><option value="template">{{ t('courseFiles.form.followTemplate') }}</option></select></label>
+        </div>
+        <div v-if="createType === 'practice'" class="form-grid">
+          <label class="form-field"><span>{{ t('courseFiles.form.exerciseCount') }}</span><input v-model.number="createForm.count" type="number" min="1" max="100" /></label>
+          <label class="form-field"><span>{{ t('courseFiles.form.difficulty') }}</span><select v-model="createForm.difficulty"><option value="basic">{{ t('courseFiles.form.basic') }}</option><option value="mixed">{{ t('courseFiles.form.mixed') }}</option><option value="challenge">{{ t('courseFiles.form.challenge') }}</option></select></label>
+        </div>
+        <label v-if="!['folder', 'outline'].includes(createType)" class="form-field">
+          <span>{{ t('courseFiles.form.requirements') }}</span>
+          <textarea v-model.trim="createForm.requirements" rows="3" :placeholder="requirementsPlaceholder" />
+        </label>
+        <section v-if="createType !== 'folder'" class="source-picker">
+          <div><span>{{ t('courseFiles.form.sourceFile') }}</span><small>{{ sourceHint }}</small></div>
+          <button type="button" @click="importInput?.click()"><Upload :size="14" />{{ createForm.file?.name || t('courseFiles.form.chooseFile') }}</button>
+        </section>
+        <footer class="dialog-actions">
+          <button type="button" @click="createOpen = false">{{ t('common.cancel') }}</button>
+          <button class="primary" type="submit" :disabled="busy"><LoaderCircle v-if="busy" class="spin" :size="15" />{{ submitLabel }}</button>
+        </footer>
+      </form>
+    </el-dialog>
+
+    <el-dialog v-model="previewOpen" :title="previewAsset?.filename || t('courseFiles.preview')" :width="previewDialogWidth" top="4vh" destroy-on-close @closed="closePreview">
+      <div class="preview-surface">
+        <img v-if="previewKind === 'image'" :src="previewUrl" :alt="previewAsset?.filename" />
+        <iframe v-else-if="previewKind === 'browser'" :src="previewUrl" :title="previewAsset?.filename" />
+        <div v-else class="office-note"><FileText :size="28" /><strong>{{ t('courseFiles.officeSaved') }}</strong><span>{{ t('courseFiles.officeSavedHelp') }}</span><button type="button" @click="previewAsset && downloadAsset(previewAsset)">{{ t('courseFiles.downloadOriginal') }}</button></div>
       </div>
     </el-dialog>
   </main>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, markRaw, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChevronRight, Download, FilePlus2, FileText, Folder, FolderOpen, FolderPlus,
-  FolderUp, Folders, Home, LoaderCircle, Plus, Trash2, Upload,
+  ArrowLeft, BookOpen, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
+  FileText, Folder, FolderOpen, FolderPlus, Home, ListChecks, LoaderCircle, MousePointer2,
+  Pencil, Plus, Presentation, RefreshCw, Search, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
-import { useRouter } from 'vue-router'
-import { activeLocale, t } from '@/shared/i18n'
-import http from '@/utils/http'
+import { activeLocale, t } from '../shared/i18n'
+import { useCourseStore } from '../stores/course'
+import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
+import http from '../utils/http'
 
-type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string }
-type Entry = { name: string; path?: string; kind: 'folder' }
-type TreeNode = { id: string; label: string; path: string; kind: 'root' | 'folder' | 'file'; children?: TreeNode[]; asset?: Asset }
-type UploadCandidate = { file: File; relativePath: string }
-type FileSystemEntryLike = {
-  isFile: boolean
-  isDirectory: boolean
-  name: string
-  file?: (success: (file: File) => void, failure?: (error: DOMException) => void) => void
-  createReader?: () => { readEntries: (success: (entries: FileSystemEntryLike[]) => void, failure?: (error: DOMException) => void) => void }
+type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; uploaded_at?: string; updated_at?: string }
+type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
+type NodeKind = 'folder' | 'managed' | 'asset'
+type NodeType = 'root' | 'reference' | 'outline' | 'lesson' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder' | 'file'
+type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded'
+type WorkspaceNode = {
+  id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus; subtitle?: string;
+  lessonId?: string; revision?: string; updatedAt?: string; asset?: Asset; children?: WorkspaceNode[]; parentId?: string
 }
+type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
 
+const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), { embedded: false, courseId: '', courseTitle: '' })
+const emit = defineEmits<{ (event: 'openOutline'): void; (event: 'openTeachingPlan', lessonId: string): void; (event: 'openTasks'): void }>()
 const router = useRouter()
-const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), {
-  embedded: false,
-  courseId: '',
-  courseTitle: '',
-})
+const courseStore = useCourseStore()
+const lessonStore = useTeacherLessonAuthoringStore()
 const embedded = computed(() => props.embedded)
 const courseTitle = computed(() => props.courseTitle)
-const packages = ref<any[]>([])
-const selected = ref<any | null>(null)
-const currentPath = ref('')
+const selected = ref<Package | null>(null)
+const initializing = ref(true)
 const busy = ref(false)
-const dragging = ref(false)
 const status = ref('')
+const currentFolderId = ref('root')
+const selectedNode = ref<WorkspaceNode | null>(null)
+const query = ref('')
+const createOpen = ref(false)
+const createType = ref<CreateType>('material')
+const importInput = ref<HTMLInputElement>()
+const createForm = ref({ lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', file: null as File | null })
 const previewOpen = ref(false)
 const previewAsset = ref<Asset | null>(null)
-const previewImageSize = ref<{ width: number; height: number } | null>(null)
-const folderInput = ref<HTMLInputElement>()
-const fileInput = ref<HTMLInputElement>()
-const form = ref({ course_name: props.courseTitle || '', academic_year: '2025-2026', term: '春季', template: 'school_course_materials' })
+const previewUrl = ref('')
 
-const termLabel = (term: string) => ({
-  春季: t('teacherCourseSpace.terms.spring', '春季'),
-  秋季: t('teacherCourseSpace.terms.autumn', '秋季'),
-  夏季: t('teacherCourseSpace.terms.summer', '夏季'),
-}[term] || term)
-const localizedError = (error: any, key: string, fallback: string) => (
-  activeLocale.value === 'zh' && error?.response?.data?.detail
-    ? String(error.response.data.detail)
-    : t(key, fallback)
-)
+const lessons = computed<TeacherLessonProjection[]>(() => {
+  if (lessonStore.lessons.length) return lessonStore.lessons
+  return courseStore.nodes
+    .filter(node => node.node_level === 1 || node.parent_node_id === 'root')
+    .map((node, index) => ({
+      lesson_unit_id: node.node_id,
+      number: index + 1,
+      title: node.node_name.replace(/^第\s*\d+\s*讲\s*/, ''),
+      duration_minutes: Number((node as any).estimated_minutes || 45),
+      sections: [],
+      plan: {
+        lesson_unit_id: node.node_id,
+        working_revision_id: '',
+        confirmed_revision_id: '',
+        source_state: 'current',
+        revisions: [],
+        ppt_assets: [],
+      },
+    }))
+})
+const termLabel = (term: string) => ({ 春季: t('teacherCourseSpace.terms.spring', '春季'), 秋季: t('teacherCourseSpace.terms.autumn', '秋季'), 夏季: t('teacherCourseSpace.terms.summer', '夏季') }[term] || term)
+const safePart = (value: string) => value.replace(/[\\/:*?"<>|]/g, '_').trim()
+const lessonPath = (lesson: TeacherLessonProjection) => `课次/${String(lesson.number).padStart(2, '0')}_${safePart(lesson.title)}`
+const localizedError = (error: any, fallback: string) => activeLocale.value === 'zh' && error?.response?.data?.detail ? String(error.response.data.detail) : fallback
 
-const treeData = computed<TreeNode[]>(() => {
-  const root: TreeNode = { id: 'root', label: t('teacherCourseSpace.courseMaterials', '课程资料'), path: '', kind: 'root', children: [] }
-  const folders = new Map<string, TreeNode>([['', root]])
-  const ensureFolder = (path: string) => {
-    const parts = path.split('/').filter(Boolean)
-    let parent = root
-    let accumulated = ''
-    for (const part of parts) {
-      accumulated = accumulated ? `${accumulated}/${part}` : part
-      let node = folders.get(accumulated)
-      if (!node) {
-        node = { id: `folder:${accumulated}`, label: part, path: accumulated, kind: 'folder', children: [] }
-        parent.children?.push(node)
-        folders.set(accumulated, node)
+function physicalChildren(basePath: string, parentId: string): WorkspaceNode[] {
+  const result = new Map<string, WorkspaceNode>()
+  const prefix = basePath ? `${basePath}/` : ''
+  const knownPaths = [
+    ...((selected.value?.entries || []).map(item => item.path || item.name)),
+    ...((selected.value?.assets || []).map(item => item.relative_path)),
+  ]
+  for (const fullPath of knownPaths) {
+    if (basePath && fullPath !== basePath && !fullPath.startsWith(prefix)) continue
+    if (!basePath && !fullPath) continue
+    const remaining = basePath ? fullPath.slice(prefix.length) : fullPath
+    if (!remaining || remaining.startsWith('../')) continue
+    const [first, ...rest] = remaining.split('/').filter(Boolean)
+    if (!first) continue
+    if (rest.length) {
+      const path = basePath ? `${basePath}/${first}` : first
+      if (!result.has(`folder:${path}`)) result.set(`folder:${path}`, { id: `folder:${path}`, label: first, kind: 'folder', type: 'folder', path, status: 'ready', parentId, children: [] })
+    } else {
+      const asset = selected.value?.assets.find(item => item.relative_path === fullPath)
+      if (asset) result.set(`asset:${asset.asset_id}`, { id: `asset:${asset.asset_id}`, label: asset.filename, kind: 'asset', type: 'file', path: asset.relative_path, status: 'uploaded', updatedAt: asset.updated_at || asset.uploaded_at || selected.value?.updated_at, asset, parentId })
+      else if (fullPath !== basePath) {
+        const path = basePath ? `${basePath}/${first}` : first
+        result.set(`folder:${path}`, { id: `folder:${path}`, label: first, kind: 'folder', type: 'folder', path, status: 'ready', parentId, children: [] })
       }
-      parent = node
     }
-    return parent
   }
-  const assets = selected.value?.assets || []
-  for (const entry of (selected.value?.entries || []) as Entry[]) if (entry.kind === 'folder') ensureFolder(entry.path || entry.name)
-  for (const asset of assets as Asset[]) {
-    const parts = asset.relative_path.split('/')
-    const parent = ensureFolder(parts.slice(0, -1).join('/'))
-    parent.children?.push({ id: `asset:${asset.asset_id}`, label: asset.filename, path: asset.relative_path, kind: 'file', asset })
+  return [...result.values()].map(node => node.kind === 'folder' ? { ...node, children: physicalChildren(node.path, node.id) } : node)
+}
+
+const managedPaths = computed(() => new Set([
+  '参考资料',
+  ...lessons.value.flatMap(lesson => [lessonPath(lesson), `${lessonPath(lesson)}/资料`]),
+]))
+const otherRootChildren = computed(() => physicalChildren('', 'folder:other').filter(node => ![...managedPaths.value].some(path => node.path === path || path.startsWith(`${node.path}/`) || node.path.startsWith(`${path}/`))))
+
+const treeData = computed<WorkspaceNode[]>(() => {
+  const outline: WorkspaceNode = {
+    id: 'managed:outline', label: t('courseFiles.names.outline'), kind: 'managed', type: 'outline', path: t('courseFiles.names.outline'),
+    status: courseStore.currentDocumentRevision ? 'ready' : courseStore.nodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision || '',
   }
-  const sortNodes = (nodes?: TreeNode[]) => {
-    nodes?.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN', { numeric: true }) || Number(a.kind !== 'folder') - Number(b.kind !== 'folder'))
-    nodes?.forEach(node => sortNodes(node.children))
-  }
-  sortNodes(root.children)
-  return [root]
+  const reference: WorkspaceNode = { id: 'folder:reference', label: t('courseFiles.names.reference'), kind: 'folder', type: 'reference', path: '参考资料', status: 'ready', parentId: 'root', children: physicalChildren('参考资料', 'folder:reference') }
+  const lessonNodes: WorkspaceNode[] = lessons.value.map(lesson => {
+    const working = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
+    const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
+    const activeJob = lessonStore.activeJobByLesson(lesson.lesson_unit_id)
+    const base = lessonPath(lesson)
+    return {
+      id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: base, status: 'ready', lessonId: lesson.lesson_unit_id, parentId: 'root',
+      subtitle: t('courseFiles.lessonHours').replace('{hours}', String(Math.max(1, Math.round(lesson.duration_minutes / 45)))),
+      children: [
+        { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at },
+        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`).length ? 'ready' : 'missing', children: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`) },
+        { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at },
+        { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'missing' },
+      ],
+    }
+  })
+  const other: WorkspaceNode | null = otherRootChildren.value.length ? { id: 'folder:other', label: t('courseFiles.names.other'), kind: 'folder', type: 'folder', path: '', status: 'ready', parentId: 'root', children: otherRootChildren.value } : null
+  return [{ id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: 'ready', children: [outline, reference, ...lessonNodes, ...(other ? [other] : [])] }]
 })
 
-function findFolder(node: TreeNode, path: string): TreeNode | undefined {
-  if (node.path === path && (node.kind === 'root' || node.kind === 'folder')) return node
-  for (const child of node.children || []) { const found = findFolder(child, path); if (found) return found }
-}
-const currentChildren = computed(() => {
-  const root = treeData.value[0]
-  return root ? findFolder(root, currentPath.value)?.children || [] : []
+const flatNodes = computed(() => {
+  const map = new Map<string, WorkspaceNode>()
+  const visit = (node: WorkspaceNode) => { map.set(node.id, node); node.children?.forEach(visit) }
+  treeData.value.forEach(visit)
+  return map
+})
+const currentFolder = computed(() => flatNodes.value.get(currentFolderId.value) || treeData.value[0])
+const filteredChildren = computed(() => {
+  const value = query.value.trim().toLocaleLowerCase()
+  return (currentFolder.value?.children || []).filter(item => !value || item.label.toLocaleLowerCase().includes(value))
 })
 const breadcrumbs = computed(() => {
-  let path = ''
-  return currentPath.value.split('/').filter(Boolean).map(label => ({ label, path: path = path ? `${path}/${label}` : label }))
+  const values: WorkspaceNode[] = []
+  let node = currentFolder.value
+  while (node?.parentId) { values.unshift(node); node = flatNodes.value.get(node.parentId) }
+  return values
 })
-const currentFolderLabel = computed(() => breadcrumbs.value.at(-1)?.label || t('teacherCourseSpace.courseMaterials', '课程资料'))
-const size = (value: number) => value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
+const expandedKeys = computed(() => ['root', currentFolderId.value, ...breadcrumbs.value.map(item => item.id)])
+const defaultCreateType = computed<CreateType>(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? 'material' : currentFolder.value?.type === 'lesson' ? 'lesson_plan' : 'folder')
+
+const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type}`)
+const statusLabel = (node: WorkspaceNode) => t(`courseFiles.status.${node.status}`)
+const statusHelp = (node: WorkspaceNode) => t(`courseFiles.statusHelp.${node.status}`)
+const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'ppt' ? Presentation : node.type === 'practice' ? ListChecks : node.type === 'lesson_plan' ? ClipboardList : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
+const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
+const dateLabel = (value?: string) => value ? new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value)) : t('courseFiles.notUpdated')
+const size = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
+
+function relationship(node: WorkspaceNode) {
+  if (node.type === 'outline') return t('courseFiles.relationship.outline')
+  if (node.type === 'lesson_plan') return t('courseFiles.relationship.lessonPlan')
+  if (node.type === 'material' || node.type === 'file') return t('courseFiles.relationship.material')
+  if (node.type === 'ppt') return t('courseFiles.relationship.ppt')
+  if (node.type === 'practice') return t('courseFiles.relationship.practice')
+  return t('courseFiles.relationship.file')
+}
+
+function openFolder(id: string) { const node = flatNodes.value.get(id); if (node?.kind === 'folder') { currentFolderId.value = id; selectedNode.value = node; query.value = '' } }
+function selectNode(node: WorkspaceNode) { selectedNode.value = node; if (node.kind === 'folder') openFolder(node.id) }
+function handleTreeClick(node: WorkspaceNode) { node.kind === 'folder' ? openFolder(node.id) : selectedNode.value = node }
+
+function primaryLabel(node: WorkspaceNode) {
+  if (node.kind === 'folder') return t('courseFiles.openFolder')
+  if (node.asset) return t('courseFiles.preview')
+  if (node.type === 'outline' || node.type === 'lesson_plan') return node.status === 'missing' ? t('courseFiles.create') : t('courseFiles.openEdit')
+  if (node.type === 'ppt') return node.status === 'missing' ? t('courseFiles.createPpt') : t('courseFiles.openPpt')
+  if (node.type === 'practice') return node.status === 'missing' ? t('courseFiles.createPractice') : t('courseFiles.openPractice')
+  return t('courseFiles.open')
+}
+function primaryIcon(node: WorkspaceNode) { return markRaw(node.kind === 'folder' ? FolderOpen : node.asset ? Eye : node.status === 'missing' ? Sparkles : Pencil) }
+function primaryDisabled(node: WorkspaceNode) { return node.type === 'ppt' && node.status === 'missing' && !lessonPlanRevision(node.lessonId || '') }
+function lessonPlanRevision(lessonId: string) { return lessons.value.find(item => item.lesson_unit_id === lessonId)?.plan.working_revision_id || '' }
+
+async function primaryAction(node: WorkspaceNode) {
+  selectedNode.value = node
+  if (node.kind === 'folder') { openFolder(node.id); return }
+  if (node.asset) { await previewFile(node.asset); return }
+  if (node.type === 'outline') { node.status === 'missing' ? openCreateDialog('outline') : emit('openOutline'); return }
+  if (node.type === 'lesson_plan') { node.status === 'missing' ? openCreateDialog('lesson_plan', node.lessonId) : emit('openTeachingPlan', node.lessonId || ''); return }
+  if (node.type === 'ppt') { node.status === 'missing' ? openCreateDialog('ppt', node.lessonId) : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } }); return }
+  if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : openPractice(node.lessonId || ''); return }
+}
 
 async function refresh() {
-  try {
-    packages.value = (await http.get('/api/teacher-course-spaces', {
-      params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined,
-    })).data
-    if (embedded.value && !selected.value) {
-      let match = packages.value.find(item => String(item.course_id || '') === props.courseId)
-      if (!match && props.courseTitle) {
-        const allPackages = (await http.get('/api/teacher-course-spaces')).data
-        const legacyMatches = allPackages.filter((item: any) => !item.course_id && String(item.course_name).trim() === props.courseTitle.trim())
-        if (legacyMatches.length === 1 && props.courseId) {
-          match = (await http.patch(`/api/teacher-course-spaces/${legacyMatches[0].package_id}`, { course_id: props.courseId })).data
-          packages.value = [match]
-        }
-      }
-      if (match) await openPackage(match.package_id)
-      else if (props.courseTitle) form.value.course_name = props.courseTitle
-    }
-  }
-  catch { status.value = t('teacherCourseSpace.errors.serviceUnavailable', '课程空间服务暂不可用，请确认后端已启动后重试。') }
-}
-async function openPackage(id: string) { selected.value = (await http.get(`/api/teacher-course-spaces/${id}`)).data; currentPath.value = '' }
-async function createPackage() {
-  busy.value = true
+  initializing.value = true
   status.value = ''
   try {
-    const data = (await http.post('/api/teacher-course-spaces', {
-      ...form.value,
-      course_id: embedded.value ? props.courseId : '',
-    })).data
-    await refresh()
-    await openPackage(data.package_id)
-    form.value.course_name = embedded.value ? props.courseTitle : ''
-  } catch (error: any) {
-    status.value = localizedError(error, 'teacherCourseSpace.errors.createFailed', '创建文件库失败，请检查课程名称和学年后重试。')
-  } finally { busy.value = false }
-}
-function openFolder(path: string) { currentPath.value = path }
-function handleTreeClick(node: TreeNode) { if (node.kind === 'root' || node.kind === 'folder') openFolder(node.path) }
-function openNode(node: TreeNode) { if (node.kind === 'folder') openFolder(node.path) }
-async function previewNode(node: TreeNode) {
-  if (!node.asset || !selected.value) return
-  try {
-    const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${node.asset.asset_id}/preview`, { responseType: 'blob' })
-    if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-    previewUrl.value = URL.createObjectURL(response.data)
-    previewAsset.value = node.asset
-    previewImageSize.value = previewKind.value === 'image' ? await imageSize(previewUrl.value) : null
-    previewOpen.value = true
-  } catch { ElMessage.error(t('teacherCourseSpace.errors.previewFailed', '文件预览读取失败，请重试。')) }
-}
-function directoryPaths(paths: string[]) {
-  const folders = new Set<string>()
-  paths.forEach(path => {
-    const parts = path.split('/').filter(Boolean)
-    for (let index = 1; index < parts.length; index += 1) folders.add(parts.slice(0, index).join('/'))
-  })
-  return [...folders]
-}
-function pickFolder(event: Event) {
-  const input = event.target as HTMLInputElement
-  const uploads = Array.from(input.files || []).map(file => ({ file, relativePath: file.webkitRelativePath || file.name }))
-  submitFiles(uploads, directoryPaths(uploads.map(item => item.relativePath)))
-  input.value = ''
-}
-function pickFiles(event: Event) {
-  const input = event.target as HTMLInputElement
-  submitFiles(Array.from(input.files || []).map(file => ({ file, relativePath: file.name })), [])
-  input.value = ''
-}
-function readEntryFile(entry: FileSystemEntryLike) {
-  return new Promise<File>((resolve, reject) => entry.file?.(resolve, reject))
-}
-function readDirectoryEntries(entry: FileSystemEntryLike) {
-  return new Promise<FileSystemEntryLike[]>((resolve, reject) => {
-    const reader = entry.createReader?.()
-    if (!reader) { resolve([]); return }
-    const entries: FileSystemEntryLike[] = []
-    const readBatch = () => reader.readEntries(batch => {
-      if (!batch.length) { resolve(entries); return }
-      entries.push(...batch); readBatch()
-    }, reject)
-    readBatch()
-  })
-}
-async function walkDroppedEntry(entry: FileSystemEntryLike, parentPath: string, uploads: UploadCandidate[], folders: string[]) {
-  const path = parentPath ? `${parentPath}/${entry.name}` : entry.name
-  if (entry.isFile) {
-    uploads.push({ file: await readEntryFile(entry), relativePath: path })
-    return
-  }
-  if (entry.isDirectory) {
-    folders.push(path)
-    const children = await readDirectoryEntries(entry)
-    for (const child of children) await walkDroppedEntry(child, path, uploads, folders)
-  }
-}
-async function dropFiles(event: DragEvent) {
-  dragging.value = false
-  const transfer = event.dataTransfer
-  if (!transfer) return
-  try {
-    const uploads: UploadCandidate[] = []
-    const folders: string[] = []
-    const entries = Array.from(transfer.items || []).map(item => (item as DataTransferItem & { webkitGetAsEntry?: () => FileSystemEntryLike | null }).webkitGetAsEntry?.()).filter(Boolean) as FileSystemEntryLike[]
-    if (entries.length) {
-      for (const entry of entries) await walkDroppedEntry(entry, '', uploads, folders)
-    } else {
-      uploads.push(...Array.from(transfer.files || []).map(file => ({ file, relativePath: file.name })))
+    let packages = (await http.get<Package[]>('/api/teacher-course-spaces', { params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined })).data
+    let match = embedded.value ? packages.find(item => String(item.course_id || '') === props.courseId) : packages[0]
+    if (embedded.value && !match && props.courseTitle) {
+      const allPackages = (await http.get<Package[]>('/api/teacher-course-spaces')).data
+      const legacyMatches = allPackages.filter((item: any) => !item.course_id && String(item.course_name).trim() === props.courseTitle.trim())
+      if (legacyMatches.length === 1 && props.courseId) {
+        match = (await http.patch(`/api/teacher-course-spaces/${legacyMatches[0]!.package_id}`, { course_id: props.courseId })).data
+      }
     }
-    await submitFiles(uploads, folders)
-  } catch { status.value = t('teacherCourseSpace.errors.folderReadFailed', '无法读取这个文件夹，请改用“选择整个文件夹”重试。') }
+    if (embedded.value && !match && props.courseTitle) {
+      const now = new Date()
+      const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1
+      match = (await http.post('/api/teacher-course-spaces', { course_name: props.courseTitle, academic_year: `${startYear}-${startYear + 1}`, term: now.getMonth() >= 7 ? '秋季' : '春季', template: 'blank', course_id: props.courseId })).data
+    }
+    if (match) selected.value = (await http.get(`/api/teacher-course-spaces/${match.package_id}`)).data
+    if (props.courseId) await lessonStore.load(props.courseId).catch(() => undefined)
+    selectedNode.value = flatNodes.value.get('managed:outline') || null
+  } catch (error: any) {
+    status.value = localizedError(error, t('courseFiles.spaceUnavailable'))
+  } finally { initializing.value = false }
 }
-async function submitFiles(uploads: UploadCandidate[], folders: string[]) {
-  if (!selected.value || (!uploads.length && !folders.length)) return
+async function reloadAll() { busy.value = true; try { await Promise.all([refresh(), props.courseId ? courseStore.loadCourse(props.courseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }) : Promise.resolve()]) } finally { busy.value = false } }
+async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`)).data }
+
+function openCreateDialog(command: CreateType | string, lessonId = '') {
+  createType.value = command as CreateType
+  createForm.value.lessonId = lessonId || currentFolder.value?.lessonId || ''
+  createOpen.value = true
+}
+const dialogTitle = computed(() => t(`courseFiles.dialog.${createType.value}.title`))
+const dialogHelp = computed(() => t(`courseFiles.dialog.${createType.value}.help`))
+const createIcon = computed(() => markRaw(createType.value === 'ppt' ? Presentation : createType.value === 'practice' ? ListChecks : createType.value === 'lesson_plan' ? ClipboardList : createType.value === 'folder' ? FolderPlus : createType.value === 'material' ? BookOpen : FileText))
+const needsLesson = computed(() => ['lesson_plan', 'ppt', 'practice'].includes(createType.value) || createType.value === 'material' && currentFolder.value?.type !== 'reference')
+const requirementsPlaceholder = computed(() => t(`courseFiles.dialog.${createType.value}.requirements`))
+const sourceHint = computed(() => t(`courseFiles.dialog.${createType.value}.sourceHint`))
+const submitLabel = computed(() => createForm.value.file ? t('courseFiles.form.importAndCreate') : createType.value === 'folder' ? t('courseFiles.createFolder') : createType.value === 'material' ? t('courseFiles.createFile') : t('courseFiles.form.startCreate'))
+function captureImportFile(event: Event) { const input = event.target as HTMLInputElement; createForm.value.file = input.files?.[0] || null; input.value = '' }
+function resetCreateForm() { createForm.value = { lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', file: null } }
+
+function targetPath(type: CreateType, lessonId: string) {
+  const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
+  if (type === 'material') return currentFolder.value?.type === 'reference' ? '参考资料' : lesson ? `${lessonPath(lesson)}/资料` : '参考资料'
+  if (type === 'lesson_plan') return lesson ? `${lessonPath(lesson)}/教案` : '教案'
+  if (type === 'ppt') return lesson ? `${lessonPath(lesson)}/PPT` : 'PPT'
+  if (type === 'practice') return lesson ? `${lessonPath(lesson)}/练习` : '练习'
+  return currentFolder.value?.path || ''
+}
+async function uploadFile(file: File, path: string) {
+  if (!selected.value) return
+  const data = new FormData(); data.append('files', file); data.append('relative_paths', path ? `${path}/${file.name}` : file.name)
+  const result = (await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/imports`, data)).data
+  selected.value = result.package
+}
+async function submitCreate() {
+  if (!selected.value) return
   busy.value = true
-  status.value = t('teacherCourseSpace.importing', '正在导入 {files} 份资料和 {folders} 个目录...')
-    .replace('{files}', String(uploads.length))
-    .replace('{folders}', String(folders.length))
   try {
-    const data = new FormData()
-    uploads.forEach(item => {
-      data.append('files', item.file)
-      data.append('relative_paths', currentPath.value ? `${currentPath.value}/${item.relativePath}` : item.relativePath)
-    })
-    folders.forEach(path => data.append('folder_paths', currentPath.value ? `${currentPath.value}/${path}` : path))
-    const result = (await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/imports`, data)).data
-    selected.value = result.package
-    const rejected = result.outcomes.filter((item: any) => item.outcome === 'rejected').length
-    status.value = rejected
-      ? t('teacherCourseSpace.importNeedsReview', '已导入，{count} 份资料需要检查。').replace('{count}', String(rejected))
-      : t('teacherCourseSpace.importComplete', '已完成导入，文件已保存到当前目录。')
-    await refresh()
-  } catch (error: any) {
-    status.value = localizedError(error, 'teacherCourseSpace.errors.importFailed', '导入失败，请检查文件类型、大小和目录名称后重试。')
-  } finally { busy.value = false }
+    if (createType.value === 'folder') {
+      const path = targetPath('folder', '')
+      await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/folders`, { name: path ? `${path}/${createForm.value.title}` : createForm.value.title })
+    } else if (createForm.value.file) {
+      await uploadFile(createForm.value.file, targetPath(createType.value, createForm.value.lessonId))
+    } else if (createType.value === 'outline') {
+      emit('openOutline')
+    } else if (createType.value === 'lesson_plan') {
+      await lessonStore.generateLesson(props.courseId, createForm.value.lessonId)
+    } else if (createType.value === 'ppt') {
+      const revision = lessonPlanRevision(createForm.value.lessonId)
+      if (!revision) throw new Error(t('courseFiles.errors.createLessonFirst'))
+      await lessonStore.generatePpt(props.courseId, createForm.value.lessonId, revision)
+    } else if (createType.value === 'practice') {
+      openPractice(createForm.value.lessonId)
+    } else if (createType.value === 'material') {
+      const name = `${safePart(createForm.value.title || t('courseFiles.names.newMaterial'))}.md`
+      await uploadFile(new File([`# ${createForm.value.title}\n\n${createForm.value.requirements}\n`], name, { type: 'text/markdown' }), targetPath('material', createForm.value.lessonId))
+    }
+    await reloadPackage()
+    await lessonStore.load(props.courseId).catch(() => undefined)
+    createOpen.value = false
+    ElMessage.success(t('courseFiles.created'))
+  } catch (error: any) { ElMessage.error(localizedError(error, String(error?.message || t('courseFiles.errors.createFailed')))) } finally { busy.value = false }
 }
-async function addFolder() {
+function openPractice(lessonId: string) { createOpen.value = false; router.push({ name: 'learning', params: { courseId: props.courseId, nodeId: lessonId }, query: { workspace: 'practice' } }) }
+
+async function previewFile(asset: Asset) {
   if (!selected.value) return
   try {
-    const response = await ElMessageBox.prompt(
-      t('teacherCourseSpace.folderPromptHelp', '将在当前目录创建文件夹'),
-      t('teacherCourseSpace.newFolder', '新建文件夹'),
-      {
-        confirmButtonText: t('teacherCourseSpace.create', '创建'),
-        cancelButtonText: t('common.cancel', '取消'),
-        inputPlaceholder: t('teacherCourseSpace.folderPlaceholder', '如：第 1 讲'),
-        inputPattern: /\S+/,
-        inputErrorMessage: t('teacherCourseSpace.folderRequired', '请输入文件夹名称'),
-      },
-    )
-    const name = String((response as any).value || '').trim()
-    const path = currentPath.value ? `${currentPath.value}/${name}` : name
-    await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/folders`, { name: path })
-    await openPackage(selected.value.package_id)
-    currentPath.value = path
-    ElMessage.success(t('teacherCourseSpace.folderCreated', '文件夹已创建。'))
-  } catch (error: any) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(localizedError(error, 'teacherCourseSpace.errors.createFolderFailed', '新建文件夹失败。'))
-    }
-  }
+    const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/preview`, { responseType: 'blob' })
+    previewUrl.value = URL.createObjectURL(response.data); previewAsset.value = asset; previewOpen.value = true
+  } catch { ElMessage.error(t('courseFiles.errors.previewFailed')) }
 }
-function nestedAssetCount(node: TreeNode): number {
-  return (node.children || []).reduce((total, child) => total + (child.asset ? 1 : nestedAssetCount(child)), 0)
-}
-async function reloadSelectedPackage() {
-  if (!selected.value) return
-  selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`)).data
-  await refresh()
-}
-async function deleteNode(node: TreeNode) {
-  if (!selected.value || (node.kind !== 'folder' && !node.asset)) return
-  const isFolder = node.kind === 'folder'
-  const contained = isFolder ? nestedAssetCount(node) : 0
-  const message = isFolder
-    ? (contained
-        ? t('teacherCourseSpace.deleteFolderWithFiles', '确定删除文件夹“{name}”吗？其中 {count} 个文件也会从服务器永久删除。')
-          .replace('{name}', node.label).replace('{count}', String(contained))
-        : t('teacherCourseSpace.deleteFolderConfirm', '确定删除文件夹“{name}”吗？这个文件夹会从服务器永久删除。').replace('{name}', node.label))
-    : t('teacherCourseSpace.deleteFileConfirm', '确定删除文件“{name}”吗？文件会从服务器永久删除。').replace('{name}', node.label)
-  try {
-    await ElMessageBox.confirm(message, isFolder ? t('teacherCourseSpace.deleteFolder', '删除文件夹') : t('teacherCourseSpace.deleteFile', '删除文件'), {
-      confirmButtonText: t('teacherCourseSpace.delete', '删除'), cancelButtonText: t('common.cancel', '取消'), type: 'warning', confirmButtonClass: 'el-button--danger', closeOnClickModal: false,
-    })
-    if (isFolder) await http.delete(`/api/teacher-course-spaces/${selected.value.package_id}/folders`, { params: { path: node.path } })
-    else if (node.asset) await http.delete(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${node.asset.asset_id}`)
-    if (node.asset && previewAsset.value?.asset_id === node.asset.asset_id) { previewOpen.value = false; closePreview() }
-    await reloadSelectedPackage()
-    ElMessage.success(isFolder
-      ? t('teacherCourseSpace.folderDeleted', '文件夹及其内容已删除。')
-      : t('teacherCourseSpace.fileDeleted', '文件已删除。'))
-  } catch (error: any) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(localizedError(error, 'teacherCourseSpace.errors.deleteFailed', '删除失败，请重试。'))
-    }
-  }
-}
-const previewUrl = ref('')
 const previewKind = computed(() => {
-  const extension = previewAsset.value?.extension.toLowerCase() || ''
-  if (['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff'].includes(extension)) return 'image'
-  if (['.pdf', '.md', '.markdown', '.txt', '.csv', '.json', '.py', '.js', '.ts', '.html', '.css'].includes(extension)) return 'browser'
+  const ext = previewAsset.value?.extension.toLowerCase() || ''
+  if (['.png', '.jpg', '.jpeg', '.webp', '.bmp'].includes(ext)) return 'image'
+  if (['.pdf', '.md', '.markdown', '.txt', '.csv', '.json', '.html'].includes(ext)) return 'browser'
   return 'office'
 })
-const previewDialogWidth = computed(() => {
-  const viewport = typeof window === 'undefined' ? 1200 : window.innerWidth
-  const available = Math.max(320, viewport - 48)
-  if (previewKind.value === 'image' && previewImageSize.value) return `${Math.min(available, Math.max(360, previewImageSize.value.width + 40))}px`
-  if (previewAsset.value?.extension.toLowerCase() === '.pdf') return `${Math.min(available, 1200)}px`
-  return `${Math.min(available, 920)}px`
-})
-function imageSize(url: string) {
-  return new Promise<{ width: number; height: number }>(resolve => {
-    const image = new Image()
-    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight })
-    image.onerror = () => resolve({ width: 800, height: 600 })
-    image.src = url
-  })
-}
-function closePreview() {
-  if (previewUrl.value) URL.revokeObjectURL(previewUrl.value)
-  previewUrl.value = ''; previewAsset.value = null; previewImageSize.value = null
-}
-async function downloadAsset(asset: Asset) {
+const previewDialogWidth = computed(() => `${Math.min(typeof window === 'undefined' ? 920 : window.innerWidth - 40, 1100)}px`)
+function closePreview() { if (previewUrl.value) URL.revokeObjectURL(previewUrl.value); previewUrl.value = ''; previewAsset.value = null }
+async function downloadAsset(asset: Asset) { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/download`, { responseType: 'blob' }); downloadBlob(response.data, asset.filename) }
+async function downloadPackage() { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/export`, { responseType: 'blob' }); downloadBlob(response.data, `${selected.value.course_name}-${t('courseFiles.archiveName')}.zip`) }
+function downloadBlob(blob: Blob, name: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 100) }
+async function deleteAsset(asset: Asset) {
   if (!selected.value) return
-  const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/download`, { responseType: 'blob' })
-  const url = URL.createObjectURL(response.data); const anchor = document.createElement('a'); anchor.href = url; anchor.download = asset.filename; anchor.click(); URL.revokeObjectURL(url)
+  try {
+    await ElMessageBox.confirm(t('courseFiles.deleteConfirm').replace('{name}', asset.filename), t('courseFiles.delete'), { type: 'warning', confirmButtonText: t('courseFiles.delete'), cancelButtonText: t('common.cancel') })
+    await http.delete(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}`)
+    selectedNode.value = null; await reloadPackage(); ElMessage.success(t('courseFiles.deleted'))
+  } catch (error: any) { if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseFiles.errors.deleteFailed')) }
 }
-async function downloadPackage() {
-  if (!selected.value) return
-  const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/export`, { responseType: 'blob' })
-  const url = URL.createObjectURL(response.data); const anchor = document.createElement('a'); anchor.href = url; anchor.download = `${selected.value.course_name}-${t('teacherCourseSpace.archiveName', '课程资料包')}.zip`; anchor.click(); URL.revokeObjectURL(url)
-}
+
 onMounted(refresh)
 </script>
 
 <style scoped>
-.teacher-space,
-.teacher-space * {
-  box-sizing: border-box;
-}
-.course-library {
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-  padding: 24px clamp(18px, 4vw, 54px) 38px;
-  border: 1px solid rgba(255,255,255,.82);
-  border-radius: var(--lz-radius-surface);
-  background: rgba(255,255,255,.76);
-  box-shadow: var(--lz-shadow-panel);
-}
-.library-header {
-  max-width: 1280px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-.library-header__copy {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0 12px;
-}
-.library-header p,
-.folder-workbench__heading p {
-  margin: 0;
-  color: var(--lz-brand);
-  font-size: 12px;
-  font-weight: 700;
-}
-.library-header h1 {
-  margin: 0;
-  color: #312e81;
-  font-size: clamp(23px, 2.4vw, 28px);
-  line-height: 1.2;
-}
-.library-header__copy > span,
-.folder-workbench__heading span {
-  display: block;
-  margin-top: 5px;
-  color: var(--lz-text-secondary);
-  font-size: 12px;
-}
-.library-header__copy p,
-.library-header__copy h1 { grid-row: 1; }
-.library-header__copy > span { grid-column: 2; }
-.library-actions,
-.folder-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.primary-button,
-.secondary-button {
-  min-height: 38px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 0 14px;
-  border-radius: 10px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
-}
-.primary-button {
-  border: 1px solid transparent;
-  color: #fff;
-  background: linear-gradient(135deg, #6366f1, #7c3aed);
-  box-shadow: 0 7px 16px rgba(99,102,241,.18);
-}
-.secondary-button {
-  border: 1px solid rgba(203,213,225,.78);
-  color: var(--lz-text-secondary);
-  background: rgba(255,255,255,.78);
-}
-.primary-button:not(:disabled):active,
-.secondary-button:not(:disabled):active,
-.create-template button:active {
-  transform: scale(.985);
-}
-.primary-button:focus-visible,
-.secondary-button:focus-visible,
-.text-button:focus-visible,
-.create-template button:focus-visible,
-.create-field input:focus-visible,
-.create-field select:focus-visible {
-  outline: 3px solid rgba(99,102,241,.16);
-  outline-offset: 2px;
-}
-.primary-button:disabled,
-.secondary-button:disabled {
-  opacity: .55;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-.text-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  color: var(--lz-brand-strong);
-  background: transparent;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.knowledge-space {
-  max-width: 1280px;
-  min-height: 560px;
-  margin: 18px auto 0;
-  display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--lz-border);
-  border-radius: 15px;
-  background: rgba(255,255,255,.82);
-}
-.knowledge-space--creating {
-  min-height: 0;
-}
-.knowledge-space--first-run {
-  max-width: 1100px;
-  grid-template-columns: minmax(0, 1fr);
-}
-.workspace-create {
-  min-width: 0;
-  padding: 22px 26px 24px;
-}
-.workspace-create__copy {
-  display: grid;
-  gap: 5px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--lz-border);
-}
-.workspace-create__copy strong {
-  color: var(--lz-text-strong);
-  font-size: 16px;
-}
-.workspace-create__copy span {
-  color: var(--lz-text-muted);
-  font-size: 12px;
-}
-.workspace-create form {
-  display: grid;
-  grid-template-columns: minmax(220px, 1.5fr) minmax(150px, .8fr) 156px;
-  gap: 15px 14px;
-  padding-top: 16px;
-}
-.create-field {
-  min-width: 0;
-  display: grid;
-  gap: 7px;
-}
-.create-field > span,
-.create-template legend {
-  color: var(--lz-text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-}
-.create-field input,
-.create-field select {
-  width: 100%;
-  min-height: 40px;
-  border: 1px solid var(--lz-border);
-  border-radius: 9px;
-  color: var(--lz-text-strong);
-  background: #fff;
-  padding: 0 11px;
-  font-size: 13px;
-  outline: none;
-}
-.create-field input::placeholder {
-  color: #64748b;
-}
-.create-field input:focus,
-.create-field select:focus {
-  border-color: rgba(99,102,241,.62);
-}
-.create-template {
-  min-width: 0;
-  grid-column: 1 / 3;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-.create-template legend {
-  width: 100%;
-  margin-bottom: 1px;
-}
-.create-template button {
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--lz-border);
-  border-radius: 9px;
-  color: var(--lz-text-secondary);
-  background: #fff;
-  cursor: pointer;
-  transition: transform .16s ease, border-color .16s ease, background .16s ease;
-}
-.create-template button svg {
-  color: var(--lz-brand-strong);
-}
-.create-template button strong {
-  font-size: 12px;
-}
-.create-template button[aria-pressed="true"] {
-  border-color: rgba(99,102,241,.44);
-  color: var(--lz-text-strong);
-  background: var(--lz-brand-soft);
-}
-.create-submit {
-  grid-column: 3;
-  align-self: end;
-  min-width: 156px;
-  white-space: nowrap;
-}
-.spin {
-  animation: spin 1s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.knowledge-sidebar {
-  min-width: 0;
-  padding: 14px 10px;
-  border-right: 1px solid var(--lz-border);
-  background: rgba(248,250,252,.76);
-}
-.sidebar-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 8px 8px;
-  color: var(--lz-text);
-  font-size: 12px;
-}
-.sidebar-heading button {
-  border: 0;
-  color: var(--lz-brand-strong);
-  background: transparent;
-  font-weight: 700;
-  cursor: pointer;
-}
-.package-item {
-  width: 100%;
-  display: grid;
-  gap: 4px;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  color: inherit;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.package-item:hover { background: rgba(255,255,255,.78); }
-.package-item.active {
-  border-color: rgba(199,210,254,.78);
-  background: var(--lz-brand-soft);
-}
-.package-item strong,
-.package-item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.package-item strong { color: var(--lz-text-strong); font-size: 12px; }
-.package-item span { color: var(--lz-text-muted); font-size: 10px; }
-.sidebar-divider {
-  height: 1px;
-  margin: 14px 7px;
-  background: var(--lz-border);
-}
-.folder-tree {
-  --el-tree-node-hover-bg-color: var(--lz-surface-muted);
-  --el-tree-text-color: var(--lz-text-secondary);
-  background: transparent;
-  font-size: 12px;
-}
-.tree-node {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-}
-.tree-node svg { flex: 0 0 auto; color: var(--lz-brand-strong); }
-.tree-node span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-workbench { min-width: 0; padding: 20px 24px; }
-.folder-workbench__topline {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-.workspace-breadcrumb {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  overflow: auto;
-  color: var(--lz-text-muted);
-}
-.workspace-breadcrumb button {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 0;
-  color: var(--lz-text-secondary);
-  background: transparent;
-  font-size: 12px;
-  cursor: pointer;
-}
-.workspace-breadcrumb button:last-child { color: var(--lz-text-strong); font-weight: 700; }
-.folder-workbench__heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 20px;
-  margin: 22px 0;
-}
-.folder-workbench__heading h2 { margin: 0; color: var(--lz-text-strong); font-size: 22px; }
-.context-import {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 12px;
-  border: 1px dashed rgba(99,102,241,.34);
-  border-radius: 10px;
-  color: var(--lz-text-secondary);
-  background: rgba(238,242,255,.4);
-  font-size: 12px;
-}
-.context-import svg { color: var(--lz-brand-strong); }
-.context-import .text-button { margin-left: auto; }
-.context-import.dragging { border-color: var(--lz-brand); background: var(--lz-brand-soft); }
-.folder-list { margin-top: 14px; border-top: 1px solid var(--lz-border); }
-.folder-list__columns,
-.folder-row {
-  display: grid;
-  grid-template-columns: minmax(0,1fr) 110px 82px 116px;
-  align-items: center;
-  gap: 12px;
-}
-.folder-list__columns { padding: 9px 12px; color: var(--lz-text-muted); font-size: 10px; }
-.folder-row {
-  min-height: 50px;
-  padding: 0 12px;
-  border-top: 1px solid var(--lz-border);
-  color: var(--lz-text-secondary);
-  font-size: 11px;
-}
-.folder-row:hover { background: var(--lz-surface-muted); }
-.folder-row__name {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border: 0;
-  color: var(--lz-text);
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.folder-row__name svg { flex: 0 0 auto; color: var(--lz-brand-strong); }
-.folder-row__name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.folder-empty {
-  min-height: 260px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--lz-text-muted);
-  text-align: center;
-}
-.folder-empty svg { color: var(--lz-brand-strong); }
-.folder-empty strong { color: var(--lz-text); font-size: 13px; }
-.folder-empty span { max-width: 420px; font-size: 11px; }
-.runtime-note { margin: 12px 0 0; color: #8a4b12; font-size: 12px; }
-.row-actions {
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-}
-.row-action {
-  min-width: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  padding: 5px 0;
-  border: 0;
-  color: var(--lz-brand-strong);
-  background: transparent;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.row-action svg { flex: 0 0 auto; }
-.row-action--danger { color: #b91c1c; }
-.preview-surface { width: 100%; display: grid; place-items: center; overflow: hidden; }
-.file-preview-image { display: block; width: auto; height: auto; max-width: 100%; max-height: calc(92vh - 126px); object-fit: contain; }
-.file-preview-frame { display: block; width: 100%; height: calc(92vh - 116px); min-height: 560px; border: 0; background: var(--lz-surface-muted); }
-.office-preview-note { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); text-align: center; }
-.office-preview-note strong { color: var(--lz-text-strong); }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-:deep(.file-preview-dialog) { max-width: calc(100vw - 32px); margin-bottom: 4vh; border-radius: 14px; overflow: hidden; }
-:deep(.file-preview-dialog .el-dialog__header) { padding: 18px 22px 14px; margin: 0; border-bottom: 1px solid var(--lz-border); }
-:deep(.file-preview-dialog .el-dialog__title) { display: block; overflow: hidden; color: var(--lz-text-strong); font-size: 17px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-:deep(.file-preview-dialog .el-dialog__body) { padding: 18px 20px 20px; }
-.teacher-space--embedded{min-height:0;height:100%;padding:0;border:0;border-radius:0;background:var(--lz-surface);box-shadow:none}
-.teacher-space--embedded .knowledge-space{height:100%;min-height:0;max-width:none;margin:0;grid-template-columns:214px minmax(0,1fr);border:0;border-radius:0;background:var(--lz-surface)}
-.teacher-space--embedded .knowledge-space--creating{display:block;overflow:auto}
-.teacher-space--embedded .workspace-create{width:min(760px,calc(100% - 48px));margin:24px auto;padding:24px 0}
-.teacher-space--embedded .knowledge-sidebar{background:var(--lz-fill)}
-.teacher-space--embedded .folder-workbench{min-height:0;padding:0 18px 24px;overflow:auto}
-.teacher-space--embedded .folder-workbench__topline{position:sticky;top:0;z-index:2;background:var(--lz-surface)}
-.teacher-space--embedded .folder-workbench__heading{padding-top:16px}
-@media (max-width: 760px) {
-  .course-library { padding: 22px 20px 40px; border: 0; border-radius: 0; box-shadow: none; }
-  .library-header__copy { display: block; }
-  .library-header,
-  .folder-workbench__heading { align-items: flex-start; flex-direction: column; }
-  .knowledge-space,
-  .knowledge-space--first-run { grid-template-columns: minmax(0, 1fr); }
-  .knowledge-sidebar { border-right: 0; border-bottom: 1px solid var(--lz-border); }
-  .workspace-create { padding: 22px 22px 24px; }
-  .workspace-create form { grid-template-columns: minmax(0, 1fr); }
-  .create-field,
-  .create-template,
-  .create-submit { grid-column: 1; }
-  .create-template { display: grid; grid-template-columns: 1fr 1fr; }
-  .create-template legend { grid-column: 1 / -1; }
-  .create-template button { width: 100%; justify-content: center; padding: 0 9px; }
-  .create-submit { width: 100%; }
-  .folder-workbench { padding: 18px; }
-  .folder-list__columns { display: none; }
-  .folder-row { grid-template-columns: minmax(0,1fr) auto; }
-  .folder-row > span { display: none; }
-  .context-import { align-items: flex-start; flex-wrap: wrap; }
-  .context-import .text-button { margin-left: 27px; }
-  .file-preview-frame { height: calc(96vh - 108px); min-height: 420px; }
-  :deep(.file-preview-dialog) { max-width: calc(100vw - 16px); }
-  :deep(.file-preview-dialog .el-dialog__body) { padding: 10px; }
-}
-@media (max-width: 420px) {
-  .course-library { padding-inline: 16px; }
-  .library-header h1 { font-size: 27px; }
-  .knowledge-space { margin-top: 24px; }
-  .workspace-create { padding: 20px 18px 22px; }
-  .create-template { grid-template-columns: minmax(0,1fr); }
-  .create-template legend { grid-column: 1; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .primary-button,
-  .secondary-button,
-  .create-template button { transition: none; }
-  .spin { animation: none; }
-}
+.file-space,.file-space * { box-sizing:border-box; }
+.file-space { height:100%; min-height:0; color:var(--lz-text-strong); background:#f8fafc; }
+.standalone-header { height:64px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--lz-border); background:#fff; }
+.standalone-header small,.standalone-header h1 { display:block; margin:0; }.standalone-header small { color:var(--lz-text-muted); }.standalone-header h1 { font-size:18px; }.standalone-header button { display:flex; gap:7px; border:0; background:transparent; }
+.file-layout { height:100%; min-height:0; display:grid; grid-template-columns:224px minmax(440px,1fr) 302px; overflow:hidden; background:#fff; }
+.file-tree-pane,.file-list-pane,.file-inspector { min-height:0; overflow:hidden; }
+.file-tree-pane { display:grid; grid-template-rows:auto minmax(0,1fr) auto; border-right:1px solid var(--lz-border); background:#f8fafc; }
+.pane-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:16px 14px 12px; }
+.pane-heading div { min-width:0; display:grid; gap:2px; }.pane-heading small { color:var(--lz-text-muted); font-size:10px; text-transform:uppercase; }.pane-heading strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.pane-heading button,.file-inspector header>button { border:0; background:transparent; color:var(--lz-text-muted); cursor:pointer; }
+.workspace-tree { overflow:auto; padding:0 8px 12px; background:transparent; --el-tree-node-hover-bg-color:#eef2ff; }
+.tree-node { min-width:0; display:flex; align-items:center; gap:7px; font-size:12px; }.tree-node span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.tree-node svg { flex:none; color:#64748b; }.tree-node.is-outline svg,.tree-node.is-lesson_plan svg,.tree-node.is-ppt svg { color:#5b5ce2; }.tree-node i { width:6px; height:6px; margin-left:auto; border-radius:50%; background:#f97316; }
+.file-tree-pane footer { display:grid; gap:8px; padding:12px 14px; border-top:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; }.file-tree-pane footer button { display:flex; align-items:center; gap:6px; padding:0; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }
+.file-list-pane { display:grid; grid-template-rows:54px 72px minmax(0,1fr) auto; background:#fff; }
+.list-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--lz-border); }.list-toolbar nav { min-width:0; display:flex; align-items:center; gap:3px; overflow:hidden; }.list-toolbar nav button { display:flex; align-items:center; gap:5px; min-width:0; padding:4px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; white-space:nowrap; cursor:pointer; }.list-toolbar nav svg { flex:none; color:#94a3b8; }
+.toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:180px; height:32px; display:flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:#94a3b8; }.list-search input { width:100%; border:0; outline:0; font-size:11px; }.new-button { height:34px; display:flex; align-items:center; gap:6px; padding:0 11px; border:1px solid #4f46e5; border-radius:8px; background:#4f46e5; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
+.folder-title { display:flex; align-items:center; justify-content:space-between; padding:10px 18px 8px; }.folder-title small { color:var(--lz-text-muted); font-size:10px; }.folder-title h2 { margin:3px 0 0; font-size:18px; }.folder-title>span { color:var(--lz-text-muted); font-size:11px; }
+.file-table { min-height:0; overflow:auto; padding:0 12px 20px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(190px,1.6fr) 92px 96px 105px 24px; align-items:center; gap:8px; }.file-table__head { min-height:32px; padding:0 10px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; font-weight:700; }.file-row { width:100%; min-height:55px; padding:6px 10px; border:0; border-bottom:1px solid #f1f5f9; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:11px; cursor:pointer; }.file-row:hover,.file-row.selected { border-radius:8px; background:#f5f7ff; }.file-row.selected { box-shadow:inset 2px 0 #6366f1; }.file-name { min-width:0; display:flex; align-items:center; gap:10px; }.file-name>span:last-child { min-width:0; display:grid; gap:3px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:12px; }.file-name small { color:var(--lz-text-muted); font-size:10px; }.file-icon { width:30px; height:30px; flex:none; display:grid; place-items:center; border-radius:8px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
+.file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { font-size:11px; }.file-empty button { display:flex; align-items:center; gap:5px; margin-top:6px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; }
+.runtime-note { margin:0; padding:8px 16px; border-top:1px solid var(--lz-border); color:#9a3412; background:#fff7ed; font-size:11px; }
+.file-inspector { display:flex; flex-direction:column; border-left:1px solid var(--lz-border); background:#fbfcfe; }.file-inspector>header { display:grid; grid-template-columns:38px minmax(0,1fr) auto; align-items:center; gap:9px; padding:16px 14px 13px; border-bottom:1px solid var(--lz-border); }.inspector-icon { width:38px; height:38px; display:grid; place-items:center; border-radius:10px; background:#eef2ff; color:#4f46e5; }.file-inspector header div { min-width:0; display:grid; gap:2px; }.file-inspector header small { color:var(--lz-text-muted); font-size:10px; }.file-inspector header strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.inspector-status { margin:13px 14px 0; padding:11px; border:1px solid #e2e8f0; border-radius:9px; background:#fff; }.inspector-status>span { display:flex; align-items:center; gap:6px; color:var(--lz-text-secondary); font-size:11px; font-weight:700; }.inspector-status i { width:7px; height:7px; border-radius:50%; background:#94a3b8; }.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i { background:#10b981; }.inspector-status[data-state="working"] i { background:#6366f1; }.inspector-status[data-state="stale"] i { background:#f97316; }.inspector-status p { margin:6px 0 0; color:var(--lz-text-muted); font-size:10px; line-height:1.5; }
+.file-meta { display:grid; gap:0; margin:12px 14px 0; }.file-meta div { display:grid; grid-template-columns:66px minmax(0,1fr); gap:8px; padding:8px 0; border-bottom:1px solid #eef2f7; font-size:10px; }.file-meta dt { color:var(--lz-text-muted); }.file-meta dd { margin:0; overflow-wrap:anywhere; color:var(--lz-text-secondary); }
+.relationship-card { margin:14px; padding:11px; border:1px solid #e0e7ff; border-radius:9px; background:#f5f7ff; }.relationship-card small { color:#6366f1; font-size:10px; font-weight:700; }.relationship-card p { margin:5px 0 0; color:#596579; font-size:10px; line-height:1.55; }
+.inspector-actions { display:grid; gap:7px; margin-top:auto; padding:14px; border-top:1px solid var(--lz-border); }.inspector-actions button { min-height:34px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }.inspector-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }.inspector-actions button.danger { color:#b91c1c; }.inspector-actions button:disabled { opacity:.45; cursor:not-allowed; }
+.inspector-empty,.space-state { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.inspector-empty strong,.space-state strong { color:var(--lz-text-secondary); font-size:13px; }.inspector-empty span,.space-state span { max-width:220px; font-size:11px; line-height:1.5; }.space-state button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
+.create-intro { display:flex; align-items:flex-start; gap:11px; padding:12px; border:1px solid #e0e7ff; border-radius:10px; background:#f5f7ff; }.create-intro>span { width:38px; height:38px; display:grid; place-items:center; border-radius:9px; background:#fff; color:#4f46e5; }.create-intro div { display:grid; gap:4px; }.create-intro strong { font-size:13px; }.create-intro p { margin:0; color:var(--lz-text-secondary); font-size:11px; line-height:1.5; }
+.asset-form { display:grid; gap:13px; padding-top:15px; }.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }.form-field { display:grid; gap:6px; }.form-field>span,.source-picker>div>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.form-field input,.form-field select,.form-field textarea { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--lz-border); border-radius:8px; outline:0; color:var(--lz-text-strong); background:#fff; font:inherit; font-size:11px; }.form-field textarea { resize:vertical; }.form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }.source-picker { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px; border:1px dashed #cbd5e1; border-radius:9px; }.source-picker>div { display:grid; gap:3px; }.source-picker small { color:var(--lz-text-muted); font-size:9px; }.source-picker button { max-width:220px; display:flex; align-items:center; gap:6px; overflow:hidden; padding:7px 9px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }.dialog-actions button { min-height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; }.dialog-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }
+.preview-surface { min-height:420px; display:grid; place-items:center; }.preview-surface img { max-width:100%; max-height:75vh; }.preview-surface iframe { width:100%; min-height:72vh; border:0; }.office-note { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.office-note strong { color:var(--lz-text-strong); }.office-note button { padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }.spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
+@media (max-width:1080px) { .file-layout { grid-template-columns:200px minmax(380px,1fr) 260px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1.6fr) 78px 88px 24px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
+@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:46px minmax(0,1fr) auto; }.file-tree-pane { display:block; overflow:auto; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { height:46px; padding:0 12px; }.workspace-tree,.file-tree-pane footer { display:none; }.file-list-pane { grid-template-rows:46px 58px minmax(0,1fr) auto; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .file-meta,.relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { padding:8px 12px; }.folder-title h2 { font-size:16px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(170px,1fr) 78px 24px; }.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
 </style>

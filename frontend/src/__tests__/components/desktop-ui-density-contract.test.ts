@@ -36,9 +36,11 @@ describe('desktop UI density contract', () => {
   it('removes repeated desktop containers and redundant return actions', () => {
     expect(reviewCenterSource).not.toContain("t('questionBank.currentCourse'")
     expect(reviewPanelSource).toMatch(/\.question-bank-panel\s*\{[^}]*border-top:1px solid[^}]*background:transparent/s)
-    expect(teacherSpaceSource).toContain('<header v-if="!embedded" class="library-header">')
-    expect(teacherSpaceSource).toMatch(/\.teacher-space--embedded\{[^}]*border:0[^}]*box-shadow:none/s)
-    expect(teacherSpaceSource).toMatch(/\.knowledge-space\s*\{[^}]*margin:\s*18px auto 0/s)
+    expect(teacherSpaceSource).toContain('<header v-if="!embedded" class="standalone-header">')
+    expect(teacherSpaceSource).toContain('class="file-tree-pane"')
+    expect(teacherSpaceSource).toContain('class="file-list-pane"')
+    expect(teacherSpaceSource).toContain('class="file-inspector"')
+    expect(teacherSpaceSource).not.toContain('knowledge-space')
   })
 
   it('opens only the active learning path instead of every second-level node', () => {
