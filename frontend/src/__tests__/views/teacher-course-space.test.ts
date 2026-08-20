@@ -47,12 +47,14 @@ describe('TeacherCourseSpaceView', () => {
     await flushPromises()
 
     expect(wrapper.get('.file-layout')).toBeTruthy()
-    expect(wrapper.get('.file-tree-pane').text()).toContain('数据结构')
+    expect(wrapper.get('.file-tree-pane').text()).toContain('课程文件夹')
+    expect(wrapper.get('.file-tree-pane').text()).not.toContain('数据结构')
     expect(wrapper.get('.file-list-pane').text()).toContain('课程大纲')
     expect(wrapper.get('.folder-navigation')).toBeTruthy()
-    expect(wrapper.get('.course-assembly-note').text()).toContain('正式课程按结构块组装')
+    expect(wrapper.find('.course-assembly-note').exists()).toBe(false)
     await wrapper.findAll('.file-row')[0]!.trigger('click')
-    expect(wrapper.get('.file-inspector').text()).toContain('结构化同源')
+    expect(wrapper.get('.file-inspector').text()).toContain('内容来源')
+    expect(wrapper.get('.file-inspector').text()).not.toContain('结构化同源')
   })
 
   it('为五类教学资产提供不同的新建表单', () => {

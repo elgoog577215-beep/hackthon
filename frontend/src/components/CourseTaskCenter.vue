@@ -36,8 +36,8 @@
             <span class="task-center-empty__icon">
               <Inbox :size="23" />
             </span>
-            <strong>{{ t('courseTasks.empty', '暂无课程任务') }}</strong>
-            <p>{{ t('courseTasks.emptyHelp', '新建或导入课程后，处理状态会出现在这里。') }}</p>
+            <strong>{{ props.courseId ? (activeLocale === 'en' ? 'No tasks for this course' : '当前课程暂无任务') : t('courseTasks.empty', '暂无课程任务') }}</strong>
+            <p>{{ props.courseId ? (activeLocale === 'en' ? 'There are no running or recoverable tasks for this course.' : '当前课程没有正在处理或可恢复的任务。') : t('courseTasks.emptyHelp', '新建或导入课程后，处理状态会出现在这里。') }}</p>
           </main>
 
           <template v-else>
@@ -72,7 +72,7 @@
                     <span class="status-chip" :data-status="selectedTask.status">{{ statusLabel(selectedTask.status, selectedTask.recovery, selectedTask.taskType) }}</span>
                   </div>
                   <h3>{{ selectedTask.courseName }}</h3>
-                  <p class="task-summary__live-status" role="status" aria-live="polite" aria-atomic="true">{{ taskStepLabel(selectedTask) }}</p>
+                  <p v-if="['running', 'pending', 'paused', 'waiting_for_review'].includes(selectedTask.status)" class="task-summary__live-status" role="status" aria-live="polite" aria-atomic="true">{{ taskStepLabel(selectedTask) }}</p>
                 </div>
                 <strong>{{ selectedDisplayProgress }}%</strong>
               </div>
@@ -96,6 +96,8 @@
               </dl>
             </section>
 
+            <details class="task-detail-group task-detail-group--technical">
+              <summary>{{ activeLocale === 'en' ? 'Processing details' : '处理详情' }}</summary>
             <section class="task-observability" :aria-label="t('taskObservability.label', '任务处理阶段')">
               <ol>
                 <li
@@ -121,6 +123,7 @@
                 {{ t('taskObservability.stalled', '任务长时间没有更新，可能已经停滞；请先刷新状态，再决定暂停或恢复。') }}
               </p>
             </section>
+            </details>
 
             <section
               v-if="webSearchSummary"
@@ -196,7 +199,9 @@
               </details>
             </section>
 
-            <section v-if="workflowSteps.length" class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
+            <details v-if="workflowSteps.length" class="task-detail-group">
+              <summary>{{ activeLocale === 'en' ? 'Generation steps' : '生成步骤' }}</summary>
+            <section class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
               <ol>
                 <li v-for="step in workflowSteps" :key="step.key" :data-status="step.displayStatus">
                   <button
@@ -219,6 +224,7 @@
                 </li>
               </ol>
             </section>
+            </details>
 
             <section v-if="shouldShowGenerationReview(selectedTask)" class="generation-review">
               <header>
@@ -497,7 +503,10 @@ const tasks = computed<TaskView[]>(() => {
   for (const local of generationStore.tasks.values()) {
     if (!byTaskId.has(local.id)) byTaskId.set(local.id, { ...local })
   }
-  return [...byTaskId.values()].sort((a, b) => {
+  const scopedTasks = props.courseId
+    ? [...byTaskId.values()].filter(task => task.courseId === props.courseId)
+    : [...byTaskId.values()]
+  return scopedTasks.sort((a, b) => {
     const priority = (task: TaskView) => taskNeedsAttention(task) ? 0 : 1
     return priority(a) - priority(b) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
   })
@@ -1230,6 +1239,10 @@ function formatDuration(seconds: number) {
 .task-summary h3 { margin:8px 0 4px; color:var(--lz-text-strong); font-size:19px; }.task-summary p { margin:0; color:var(--lz-text-secondary); font-size:11px; line-height:1.5; }
 .task-progress { height:5px; margin:15px 0 13px; overflow:hidden; border-radius:3px; background:var(--lz-surface-muted); }.task-progress span { display:block; width:100%; height:100%; border-radius:inherit; background:var(--lz-brand); transform-origin:left center; transition:transform .2s ease; }
 .task-summary dl { margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.task-summary dl div { min-width:0; }.task-summary dt { color:var(--lz-text-muted); font-size:10px; }.task-summary dd { margin:4px 0 0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+.task-detail-group { padding:14px 0; border-bottom:1px solid var(--lz-border); }
+.task-detail-group>summary { color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }
+.task-detail-group[open]>summary { margin-bottom:14px; color:var(--lz-brand-strong); }
+.task-detail-group .task-observability,.task-detail-group .guided-workflow { padding:0; border-bottom:0; }
 .task-observability { padding:17px 0; border-bottom:1px solid var(--lz-border); }
 .web-search-summary { padding:18px 0; border-bottom:1px solid var(--lz-border); display:grid; gap:9px; }
 .web-search-summary__head { display:flex; align-items:center; gap:10px; }

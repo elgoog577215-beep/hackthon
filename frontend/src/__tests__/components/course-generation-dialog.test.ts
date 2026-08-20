@@ -14,7 +14,7 @@ describe('CourseGenerationDialog', () => {
     await setLocale('zh')
   })
 
-  it('默认走四步确认流程，不提供直接生成入口', async () => {
+  it('保留分阶段生成契约，但不在表单重复解释流程', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -33,14 +33,8 @@ describe('CourseGenerationDialog', () => {
     const retrievalToggle = wrapper.get('[data-testid="web-retrieval"]')
     expect((retrievalToggle.element as HTMLInputElement).checked).toBe(false)
     await retrievalToggle.setValue(true)
-    expect(wrapper.text()).toContain('四步完成课程')
-    expect(wrapper.findAll('.guided-intro__steps li')).toHaveLength(4)
-    expect(wrapper.findAll('.guided-intro__steps strong').map(item => item.text())).toEqual([
-      '目录确认',
-      '教案确认',
-      '正文生成',
-      '确认发布',
-    ])
+    expect(wrapper.text()).not.toContain('四步完成课程')
+    expect(wrapper.find('.guided-intro__steps').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('直接生成')
     await wrapper.get('#course-requirements').setValue('保留完整推导，并提供独立练习')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
@@ -157,9 +151,11 @@ describe('CourseGenerationDialog', () => {
     const core = wrapper.get('.teacher-brief-section__core')
     const advanced = wrapper.get('.teacher-brief-section__advanced')
 
-    expect(core.findAll('input, select')).toHaveLength(4)
+    expect(core.findAll('input, select')).toHaveLength(2)
     expect(advanced.attributes('open')).toBeUndefined()
     expect(advanced.text()).toContain('更多课堂设置')
+    expect(advanced.find('#teacher-lesson-minutes').exists()).toBe(true)
+    expect(advanced.find('#teacher-context').exists()).toBe(true)
     expect(advanced.find('#teacher-chapter-count').exists()).toBe(true)
     expect(advanced.find('#teacher-class-profile').exists()).toBe(true)
   })
@@ -217,7 +213,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('[data-testid="web-retrieval"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
-    expect(wrapper.get('.course-type-summary').text()).toContain('按知识结构和先修关系')
+    expect(wrapper.find('.course-type-summary').exists()).toBe(false)
     expect(wrapper.get('.difficulty-summary').text()).toContain('独立分析')
     expect(wrapper.get('[data-course-type="systematic"]').attributes('aria-label')).toContain('由基础逐步进阶')
     expect(wrapper.text()).toContain('课程类型决定学习过程如何组织')
@@ -252,11 +248,8 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('[data-course-type="project"]').trigger('click')
     expect(wrapper.find('[data-testid="project-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('系统会标记起点信息不足')
-    expect(wrapper.text()).toContain('提交项目后，四步形成个人课程')
-    expect(wrapper.text()).toContain('个人路径')
-    expect(wrapper.text()).toContain('能力与知识')
-    expect(wrapper.text()).toContain('项目课程')
-    expect(wrapper.text()).toContain('确认课程')
+    expect(wrapper.text()).toContain('个人学习路径')
+    expect(wrapper.text()).not.toContain('四步形成个人课程')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
     await wrapper.get('#project-goal').setValue('设计一款适合大学生使用的环保保温玻璃杯')
@@ -296,7 +289,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('[data-course-type="inquiry"]').trigger('click')
     expect(wrapper.find('[data-testid="inquiry-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('已有认识会作为待检验假设')
-    expect(wrapper.text()).toContain('问题路径')
+    expect(wrapper.text()).not.toContain('提交需求后，四步完成课程')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
     await wrapper.get('#inquiry-core-question').setValue('生成式 AI 会如何改变大学教学评价？')
@@ -333,7 +326,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('[data-course-type="exam"]').trigger('click')
     expect(wrapper.find('[data-testid="exam-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).toContain('先定优先级，再用练习校准')
-    expect(wrapper.text()).toContain('冲刺计划')
+    expect(wrapper.text()).not.toContain('提交需求后，四步完成课程')
 
     await wrapper.get('#exam-name').setValue('大学英语六级考试')
     await wrapper.get('#exam-date').setValue('2026-12-20')

@@ -17,11 +17,7 @@
       >
         <header class="generation-dialog__header">
           <div class="generation-dialog__heading">
-            <span class="generation-dialog__mark"><Sparkles :size="18" /></span>
-            <div>
-              <p>{{ t('courseGeneration.dialog.eyebrow', '创建学习课程') }}</p>
-              <h2 :id="titleId">{{ t('courseGeneration.dialog.title', 'AI 智能课程生成') }}</h2>
-            </div>
+            <h2 :id="titleId">{{ t('teacherHome.newCourse', '新建课程') }}</h2>
           </div>
           <button type="button" class="icon-button" :title="t('common.cancel', '取消')" @click="close">
             <X :size="18" />
@@ -61,7 +57,6 @@
                   </span>
                 </button>
               </div>
-              <p class="course-type-summary" aria-live="polite">{{ selectedCourseTypeOption?.detail }}</p>
             </fieldset>
           </section>
 
@@ -291,7 +286,8 @@
             </p>
           </section>
 
-          <section class="form-section teaching-settings">
+          <details class="form-section teaching-settings generation-advanced">
+            <summary>{{ activeLocale === 'en' ? 'More generation settings' : '更多生成设置' }}</summary>
             <div class="teaching-settings__core teaching-settings__core--common">
               <fieldset class="choice-group difficulty-group">
                 <legend class="choice-group__title">
@@ -349,15 +345,11 @@
               </div>
               </div>
             </div>
-          </section>
+          </details>
 
           <section class="form-section teacher-brief-section" data-testid="teacher-course-brief-form">
             <div class="teacher-brief-section__heading">
-              <div>
-                <strong>{{ t('courseGeneration.teacherBrief.title', '课堂交付约束') }}</strong>
-                <span>{{ t('courseGeneration.teacherBrief.help', '这些信息会写入课程生成契约，并成为全课教案的可审阅字段。') }}</span>
-              </div>
-              <Target :size="18" />
+              <strong>{{ activeLocale === 'en' ? 'Teaching setup' : '授课信息' }}</strong>
             </div>
             <div class="teacher-brief-section__core">
               <label for="teacher-target-audience">
@@ -368,24 +360,24 @@
                 <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
                 <input id="teacher-total-hours" v-model.number="form.totalClassHours" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
               </label>
-              <label for="teacher-lesson-minutes">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
-                <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
-              </label>
-              <label for="teacher-context">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.context', '授课场景') }}</span>
-                <select id="teacher-context" v-model="form.teachingContext" class="select-input" :disabled="busy">
-                  <option value="classroom">{{ t('courseGeneration.teacherBrief.contextClassroom', '线下课堂') }}</option>
-                  <option value="online">{{ t('courseGeneration.teacherBrief.contextOnline', '在线授课') }}</option>
-                  <option value="blended">{{ t('courseGeneration.teacherBrief.contextBlended', '混合式授课') }}</option>
-                  <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
-                </select>
-              </label>
             </div>
             <details class="teacher-brief-section__advanced">
               <summary>{{ t('courseGeneration.teacherBrief.advancedSettings', '更多课堂设置') }}</summary>
               <div class="teacher-brief-section__advanced-body">
                 <div class="teacher-brief-section__advanced-grid">
+                  <label for="teacher-lesson-minutes">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
+                    <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
+                  </label>
+                  <label for="teacher-context">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.context', '授课场景') }}</span>
+                    <select id="teacher-context" v-model="form.teachingContext" class="select-input" :disabled="busy">
+                      <option value="classroom">{{ t('courseGeneration.teacherBrief.contextClassroom', '线下课堂') }}</option>
+                      <option value="online">{{ t('courseGeneration.teacherBrief.contextOnline', '在线授课') }}</option>
+                      <option value="blended">{{ t('courseGeneration.teacherBrief.contextBlended', '混合式授课') }}</option>
+                      <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
+                    </select>
+                  </label>
                   <label for="teacher-academic-term">
                     <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
                     <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
@@ -411,20 +403,10 @@
             </details>
           </section>
 
-          <section class="form-section guided-intro">
-            <div class="guided-intro__heading">
-              <strong>{{ guidedTitle }}</strong>
-              <span>{{ guidedHelp }}</span>
-            </div>
-            <ol class="guided-intro__steps">
-              <li v-for="(label, index) in guidedStepLabels" :key="label">
-                <span>{{ index + 1 }}</span>
-                <strong>{{ label }}</strong>
-              </li>
-            </ol>
-          </section>
-
-          <section class="form-section web-enrichment-setting">
+          <details class="form-section supplemental-settings">
+            <summary>{{ activeLocale === 'en' ? 'Research and additional requirements' : '联网与补充要求' }}</summary>
+            <div class="supplemental-settings__body">
+          <section class="web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
                 v-model="form.retrievalEnabled"
@@ -439,7 +421,7 @@
             </label>
           </section>
 
-          <section v-if="form.retrievalEnabled" class="form-section web-enrichment-setting">
+          <section v-if="form.retrievalEnabled" class="web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
                 v-model="form.webMaterialIngest"
@@ -454,7 +436,7 @@
             </label>
           </section>
 
-          <section class="form-section">
+          <section>
             <label class="field-label" for="course-requirements">{{ t('courseGeneration.form.requirements', '额外要求') }}</label>
             <textarea
               id="course-requirements"
@@ -464,6 +446,8 @@
               :placeholder="t('courseGeneration.form.requirementsPlaceholder', '例如：多一些推导过程，并给出可独立完成的练习')"
             />
           </section>
+            </div>
+          </details>
 
           <section class="form-section material-section">
             <MaterialInputPanel ref="materialInputRef" v-model="materials" :disabled="busy" />
@@ -627,7 +611,6 @@ const courseTypeOptions = computed(() => ([
     available: true,
   },
 ]))
-const selectedCourseTypeOption = computed(() => courseTypeOptions.value.find(item => item.value === form.courseType))
 const selectedDifficultyOption = computed(() => difficultyOptions.value.find(item => item.value === form.difficulty))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
 const secondaryPedagogyOptions = computed(() => [
@@ -655,29 +638,6 @@ const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Bool
   && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
   && (!form.chapterCount || !form.sectionCount || form.sectionCount >= form.chapterCount)
 )
-const guidedTitle = computed(() => t(
-  `courseGeneration.guided.${form.courseType}Title`,
-  t('courseGeneration.guided.title', '提交需求后，四步完成课程'),
-))
-const guidedHelp = computed(() => t(
-  `courseGeneration.guided.${form.courseType}Help`,
-  t('courseGeneration.guided.help', '目录和教案分别确认；正文边生成边显示，最后由你确认发布。'),
-))
-const guidedStepLabels = computed(() => {
-  const prefixes = form.courseType === 'systematic' ? ['', '', '', ''] : Array(4).fill(form.courseType)
-  const keys = ['Outline', 'Teaching', 'Content', 'Release']
-  const fallbacks = [
-    t('courseGeneration.guided.outline', '目录确认'),
-    t('courseGeneration.guided.teaching', '教案确认'),
-    t('courseGeneration.guided.content', '正文生成'),
-    t('courseGeneration.guided.release', '确认发布'),
-  ]
-  return keys.map((key, index) => t(
-    `courseGeneration.guided.${prefixes[index]}${prefixes[index] ? key : key.toLowerCase()}`,
-    fallbacks[index],
-  ))
-})
-
 watch(() => props.modelValue, async open => {
   if (!open) {
     submissionRequestId.value = ''
@@ -817,10 +777,8 @@ async function submit() {
 .generation-dialog-layer { position: fixed; inset: 0; z-index: 520; display: grid; place-items: center; padding: 20px; }
 .generation-dialog-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30, 41, 59, .34); backdrop-filter: blur(5px); cursor: default; }
 .generation-dialog { position: relative; width: min(920px, 100%); max-height: min(860px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid rgba(255,255,255,.92); border-radius: var(--lz-radius-surface); color: var(--lz-text); background: rgba(255,255,255,.98); box-shadow: var(--lz-shadow-overlay); outline: none; }
-.generation-dialog__header { min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--lz-border); }
-.generation-dialog__heading { min-width: 0; display: flex; align-items: center; gap: 11px; }
-.generation-dialog__mark { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
-.generation-dialog__heading p { margin: 0 0 2px; color: var(--lz-text-muted); font-size: 10px; font-weight: 700; }
+.generation-dialog__header { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--lz-border); }
+.generation-dialog__heading { min-width: 0; display: flex; align-items: center; }
 .generation-dialog__heading h2 { margin: 0; color: var(--lz-text-strong); font-size: 17px; line-height: 1.25; }
 .icon-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--lz-text-secondary); background: transparent; cursor: pointer; }
 .icon-button:hover { color: var(--lz-text-strong); background: var(--lz-surface-muted); }
@@ -828,6 +786,9 @@ async function submit() {
 .form-section { padding: 20px 0; border-bottom: 1px solid rgba(226,232,240,.78); }
 .form-section:last-child { border-bottom: 0; }
 .form-section--lead { padding-top: 22px; }
+.generation-advanced>summary,.supplemental-settings>summary { color:var(--lz-text-secondary); font-size:12px; font-weight:750; cursor:pointer; }
+.generation-advanced[open]>summary,.supplemental-settings[open]>summary { margin-bottom:18px; color:var(--lz-brand-strong); }
+.supplemental-settings__body { display:grid; gap:18px; padding-top:2px; }
 .course-type-section { padding-bottom: 18px; }
 .course-type-options { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:11px; background:var(--lz-surface-muted); }
 .course-type-option { min-width:0; min-height:48px; display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,box-shadow .16s ease; }

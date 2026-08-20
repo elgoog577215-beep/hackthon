@@ -14,7 +14,7 @@
     <section v-else class="file-layout">
       <aside class="file-tree-pane">
         <header class="pane-heading">
-          <div><small>{{ t('courseFiles.courseLabel') }}</small><strong>{{ selected.course_name }}</strong></div>
+          <strong>{{ t('courseFiles.folderNavigation') }}</strong>
           <button type="button" :aria-label="t('common.refresh')" @click="reloadAll"><RefreshCw :size="15" :class="{ spin: busy }" /></button>
         </header>
         <nav class="folder-navigation" :aria-label="t('courseFiles.folderNavigation')">
@@ -64,7 +64,7 @@
 
       <section class="file-list-pane">
         <header class="list-toolbar">
-          <nav :aria-label="t('courseFiles.filePath')">
+          <nav v-if="breadcrumbs.length" :aria-label="t('courseFiles.filePath')">
             <button type="button" @click="openFolder('root')"><Home :size="14" />{{ t('courseFiles.rootName') }}</button>
             <template v-for="crumb in breadcrumbs" :key="crumb.id">
               <ChevronRight :size="13" /><button type="button" @click="openFolder(crumb.id)">{{ crumb.label }}</button>
@@ -89,13 +89,8 @@
         </header>
 
         <div class="folder-title">
-          <div><small>{{ currentFolder?.type === 'lesson' ? t('courseFiles.lessonFolder') : t('courseFiles.folder') }}</small><h2>{{ currentFolder?.label || t('courseFiles.rootName') }}</h2></div>
+          <h2>{{ currentFolder?.label || t('courseFiles.rootName') }}</h2>
           <span>{{ t('courseFiles.itemCount').replace('{count}', String(filteredChildren.length)) }}</span>
-        </div>
-
-        <div v-if="currentFolder?.type === 'root'" class="course-assembly-note">
-          <Blocks :size="16" />
-          <span><strong>{{ t('courseFiles.assembledCourseTitle') }}</strong>{{ t('courseFiles.assembledCourseHelp') }}</span>
         </div>
 
         <div class="file-table" role="table" :aria-label="t('courseFiles.fileList')">
@@ -130,7 +125,7 @@
         <template v-if="selectedNode">
           <header>
             <span class="inspector-icon" :data-type="selectedNode.type"><component :is="selectedNode.kind === 'folder' ? Folder : nodeIcon(selectedNode)" :size="22" /></span>
-            <div><small>{{ typeLabel(selectedNode) }}</small><strong>{{ selectedNode.label }}</strong></div>
+            <div><small v-if="typeLabel(selectedNode) !== selectedNode.label">{{ typeLabel(selectedNode) }}</small><strong>{{ selectedNode.label }}</strong></div>
             <button type="button" :aria-label="t('common.close')" @click="selectedNode = null"><X :size="15" /></button>
           </header>
           <section class="inspector-status" :data-state="selectedNode.status">
@@ -146,7 +141,7 @@
             <div><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ dateLabel(selectedNode.updatedAt) }}</dd></div>
           </dl>
           <section v-if="selectedNode.kind !== 'folder'" class="relationship-card">
-            <small>{{ t('courseFiles.sourceRelationship') }}</small>
+            <small>{{ activeLocale === 'en' ? 'Content source' : '内容来源' }}</small>
             <p>{{ relationship(selectedNode) }}</p>
           </section>
           <footer class="inspector-actions">
@@ -166,17 +161,7 @@
       <div v-if="createOpen" class="asset-create-overlay" role="presentation" @click.self="closeCreateDialog" @keydown.esc="closeCreateDialog">
         <section class="asset-create-dialog" role="dialog" aria-modal="true" :aria-labelledby="'asset-create-title'" tabindex="-1">
           <header class="asset-create-header"><strong id="asset-create-title">{{ dialogTitle }}</strong><button type="button" :aria-label="t('common.close')" @click="closeCreateDialog"><X :size="17" /></button></header>
-          <div class="create-intro" :data-type="createType">
-            <span>
-              <Presentation v-if="createType === 'ppt'" :size="20" />
-              <ListChecks v-else-if="createType === 'practice'" :size="20" />
-              <ClipboardList v-else-if="createType === 'lesson_plan'" :size="20" />
-              <FolderPlus v-else-if="createType === 'folder'" :size="20" />
-              <BookOpen v-else-if="createType === 'material'" :size="20" />
-              <FileText v-else :size="20" />
-            </span>
-            <div><strong>{{ dialogTitle }}</strong><p>{{ dialogHelp }}</p></div>
-          </div>
+          <p class="asset-create-help">{{ dialogHelp }}</p>
           <form class="asset-form" @submit.prevent="submitCreate">
         <label v-if="needsLesson" class="form-field">
           <span>{{ t('courseFiles.form.lesson') }}</span>
@@ -255,7 +240,7 @@ import { computed, markRaw, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowLeft, Blocks, BookOpen, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
+  ArrowLeft, BookOpen, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
   FileText, Folder, FolderOpen, FolderPlus, Home, ListChecks, LoaderCircle, MousePointer2,
   GitBranch, Layers3, Pencil, Plus, Presentation, RefreshCw, Search, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
@@ -622,7 +607,7 @@ onMounted(refresh)
 .file-tree-pane,.file-list-pane,.file-inspector { min-height:0; overflow:hidden; }
 .file-tree-pane { display:grid; grid-template-rows:auto minmax(0,1fr) auto; border-right:1px solid var(--lz-border); background:#f8fafc; }
 .pane-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:16px 14px 12px; }
-.pane-heading div { min-width:0; display:grid; gap:2px; }.pane-heading small { color:var(--lz-text-muted); font-size:10px; text-transform:uppercase; }.pane-heading strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.pane-heading button,.file-inspector header>button { border:0; background:transparent; color:var(--lz-text-muted); cursor:pointer; }
+.pane-heading strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }.pane-heading button,.file-inspector header>button { border:0; background:transparent; color:var(--lz-text-muted); cursor:pointer; }
 .folder-navigation { min-height:0; overflow:auto; padding:2px 9px 14px; }
 .folder-navigation>span { display:block; padding:12px 8px 5px; color:var(--lz-text-muted); font-size:9px; font-weight:800; }
 .folder-navigation button { width:100%; min-height:36px; display:grid; grid-template-columns:18px minmax(0,1fr) 8px; align-items:center; gap:7px; padding:5px 8px; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; }
@@ -633,8 +618,7 @@ onMounted(refresh)
 .file-list-pane { display:flex; flex-direction:column; background:#fff; }
 .list-toolbar { min-height:54px; flex:none; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--lz-border); }.list-toolbar nav { min-width:0; display:flex; align-items:center; gap:3px; overflow:hidden; }.list-toolbar nav button { display:flex; align-items:center; gap:5px; min-width:0; padding:4px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:11px; white-space:nowrap; cursor:pointer; }.list-toolbar nav svg { flex:none; color:#94a3b8; }
 .toolbar-actions { display:flex; align-items:center; gap:8px; }.list-search { width:180px; height:32px; display:flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:#94a3b8; }.list-search input { width:100%; border:0; outline:0; font-size:11px; }.new-button { height:34px; display:flex; align-items:center; gap:6px; padding:0 11px; border:1px solid #4f46e5; border-radius:8px; background:#4f46e5; color:#fff; font-size:11px; font-weight:700; cursor:pointer; }
-.folder-title { min-height:72px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:10px 18px 8px; }.folder-title small { color:var(--lz-text-muted); font-size:10px; }.folder-title h2 { margin:3px 0 0; font-size:18px; }.folder-title>span { color:var(--lz-text-muted); font-size:11px; }
-.course-assembly-note { min-height:42px; flex:none; display:flex; align-items:center; gap:9px; margin:0 18px 10px; padding:7px 10px; border:1px solid var(--lz-brand-border); border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.course-assembly-note>span { display:grid; gap:1px; color:var(--lz-text-secondary); font-size:9px; }.course-assembly-note strong { color:var(--lz-brand-strong); font-size:10px; }
+.folder-title { min-height:62px; flex:none; display:flex; align-items:center; justify-content:space-between; padding:8px 18px; }.folder-title h2 { margin:0; font-size:18px; }.folder-title>span { color:var(--lz-text-muted); font-size:11px; }
 .file-table { min-height:0; flex:1; overflow:auto; padding:0 12px 20px; }.file-table__head,.file-row { display:grid; grid-template-columns:minmax(190px,1.6fr) 92px 96px 105px 24px; align-items:center; gap:8px; }.file-table__head { min-height:32px; padding:0 10px; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; font-weight:700; }.file-row { width:100%; min-height:55px; padding:6px 10px; border:0; border-bottom:1px solid #f1f5f9; background:transparent; color:var(--lz-text-secondary); text-align:left; font-size:11px; cursor:pointer; }.file-row:hover,.file-row.selected { border-radius:8px; background:#f5f7ff; }.file-row.selected { box-shadow:inset 2px 0 #6366f1; }.file-name { min-width:0; display:flex; align-items:center; gap:10px; }.file-name>span:last-child { min-width:0; display:grid; gap:3px; }.file-name strong,.file-name small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.file-name strong { color:var(--lz-text-strong); font-size:12px; }.file-name small { color:var(--lz-text-muted); font-size:10px; }.file-icon { width:30px; height:30px; flex:none; display:grid; place-items:center; border-radius:8px; background:#f1f5f9; color:#64748b; }.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"] { background:#eef2ff; color:#4f46e5; }.status-dot { width:6px; height:6px; display:inline-block; margin-right:5px; border-radius:50%; background:#94a3b8; }.status-dot[data-state="ready"],.status-dot[data-state="uploaded"] { background:#10b981; }.status-dot[data-state="working"] { background:#6366f1; }.status-dot[data-state="stale"] { background:#f97316; }.status-dot[data-state="missing"] { background:#cbd5e1; }
 .file-empty { min-height:260px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; color:var(--lz-text-muted); text-align:center; }.file-empty strong { color:var(--lz-text-secondary); font-size:13px; }.file-empty span { font-size:11px; }.file-empty button { display:flex; align-items:center; gap:5px; margin-top:6px; padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:11px; }
 .runtime-note { margin:0; padding:8px 16px; border-top:1px solid var(--lz-border); color:#9a3412; background:#fff7ed; font-size:11px; }
@@ -645,12 +629,12 @@ onMounted(refresh)
 .inspector-actions { display:grid; gap:7px; margin-top:auto; padding:14px; border-top:1px solid var(--lz-border); }.inspector-actions button { min-height:34px; display:flex; align-items:center; justify-content:center; gap:6px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }.inspector-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }.inspector-actions button.danger { color:#b91c1c; }.inspector-actions button:disabled { opacity:.45; cursor:not-allowed; }
 .inspector-empty,.space-state { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.inspector-empty strong,.space-state strong { color:var(--lz-text-secondary); font-size:13px; }.inspector-empty span,.space-state span { max-width:220px; font-size:11px; line-height:1.5; }.space-state button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
 .asset-create-overlay { position:fixed; inset:0; z-index:2600; display:grid; place-items:center; padding:14px; background:rgba(15,23,42,.38); backdrop-filter:blur(2px); }.asset-create-dialog { width:min(560px,calc(100vw - 28px)); max-height:calc(100vh - 28px); overflow:auto; padding:0 18px 18px; border:1px solid rgba(255,255,255,.65); border-radius:14px; background:#fff; box-shadow:0 24px 70px rgba(15,23,42,.22); }.asset-create-header { position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between; min-height:48px; margin:0 -18px 14px; padding:0 18px; border-bottom:1px solid #eef2f7; background:rgba(255,255,255,.96); }.asset-create-header strong { font-size:14px; }.asset-create-header button { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:7px; color:var(--lz-text-muted); background:transparent; cursor:pointer; }.asset-create-header button:hover { background:#f1f5f9; color:var(--lz-text-strong); }
-.create-intro { display:flex; align-items:flex-start; gap:11px; padding:12px; border:1px solid #e0e7ff; border-radius:10px; background:#f5f7ff; }.create-intro>span { width:38px; height:38px; display:grid; place-items:center; border-radius:9px; background:#fff; color:#4f46e5; }.create-intro div { display:grid; gap:4px; }.create-intro strong { font-size:13px; }.create-intro p { margin:0; color:var(--lz-text-secondary); font-size:11px; line-height:1.5; }
+.asset-create-help { margin:0 0 14px; color:var(--lz-text-secondary); font-size:11px; line-height:1.55; }
 .asset-form { display:grid; gap:13px; padding-top:15px; }.form-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }.form-field { display:grid; gap:6px; }.form-field>span,.source-picker>div>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.form-field>small { color:var(--lz-text-muted); font-size:9px; line-height:1.5; }.form-field input,.form-field select,.form-field textarea { width:100%; min-height:38px; padding:8px 10px; border:1px solid var(--lz-border); border-radius:8px; outline:0; color:var(--lz-text-strong); background:#fff; font:inherit; font-size:11px; }.form-field textarea { resize:vertical; }.form-field input:focus,.form-field select:focus,.form-field textarea:focus { border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }.source-picker { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px; border:1px dashed #cbd5e1; border-radius:9px; }.source-picker>div { display:grid; gap:3px; }.source-picker small { color:var(--lz-text-muted); font-size:9px; }.source-picker button { max-width:220px; display:flex; align-items:center; gap:6px; overflow:hidden; padding:7px 9px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; color:#4f46e5; font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .ppt-origin-picker { display:grid; gap:7px; }.ppt-origin-picker>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.ppt-origin-picker>div { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.ppt-origin-picker button { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr); gap:1px 7px; padding:9px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; }.ppt-origin-picker button svg { grid-row:1/3; align-self:center; color:#64748b; }.ppt-origin-picker button strong { font-size:11px; }.ppt-origin-picker button small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.ppt-origin-picker button.active { border-color:var(--lz-brand); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.ppt-origin-picker button.active svg { color:var(--lz-brand); }.ppt-origin-note { display:flex; align-items:flex-start; gap:7px; margin:0; padding:9px 10px; border:1px solid #e0e7ff; border-radius:8px; color:#4f46e5; background:#f8faff; font-size:10px; line-height:1.5; }.ppt-origin-note[data-mode="import"] { border-color:#e2e8f0; color:#475569; background:#f8fafc; }
 .dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }.dialog-actions button { min-height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; }.dialog-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }
 .preview-surface { min-height:420px; display:grid; place-items:center; }.preview-surface img { max-width:100%; max-height:75vh; }.preview-surface iframe { width:100%; min-height:72vh; border:0; }.office-note { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.office-note strong { color:var(--lz-text-strong); }.office-note button { padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }.spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1080px) { .file-layout { grid-template-columns:220px minmax(380px,1fr) 260px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1.6fr) 78px 88px 24px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
-@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:96px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px 54px; overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { height:42px; padding:0 12px; }.pane-heading small { display:none; }.folder-navigation { display:flex; align-items:center; gap:5px; overflow-x:auto; padding:6px 8px; scrollbar-width:none; }.folder-navigation::-webkit-scrollbar { display:none; }.folder-navigation>span,.file-tree-pane footer { display:none; }.folder-navigation button { width:auto; min-width:max-content; min-height:36px; display:flex; gap:6px; padding:5px 10px; border:1px solid transparent; background:#fff; }.folder-navigation button.active { border-color:var(--lz-brand-border); }.folder-navigation button i { margin-left:2px; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .file-meta,.relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:58px; padding:8px 12px; }.folder-title h2 { font-size:16px; }.course-assembly-note { margin:0 12px 8px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(170px,1fr) 78px 24px; }.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
+@media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:96px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px 54px; overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { height:42px; padding:0 12px; }.folder-navigation { display:flex; align-items:center; gap:5px; overflow-x:auto; padding:6px 8px; scrollbar-width:none; }.folder-navigation::-webkit-scrollbar { display:none; }.folder-navigation>span,.file-tree-pane footer { display:none; }.folder-navigation button { width:auto; min-width:max-content; min-height:36px; display:flex; gap:6px; padding:5px 10px; border:1px solid transparent; background:#fff; }.folder-navigation button.active { border-color:var(--lz-brand-border); }.folder-navigation button i { margin-left:2px; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .file-meta,.relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:58px; padding:8px 12px; }.folder-title h2 { font-size:16px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(170px,1fr) 78px 24px; }.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
 </style>

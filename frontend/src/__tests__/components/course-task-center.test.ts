@@ -19,8 +19,8 @@ const router = createRouter({
   ],
 })
 
-const mountCenter = () => mount(CourseTaskCenter, {
-  props: { modelValue: true, courseId: 'course-1' },
+const mountCenter = (courseId = 'course-1') => mount(CourseTaskCenter, {
+  props: { modelValue: true, courseId },
   global: { plugins: [router], stubs: { Teleport: true } },
 })
 
@@ -52,11 +52,11 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.get('.task-center__body').classes()).toContain('task-center__body--empty')
     expect(wrapper.find('.task-list').exists()).toBe(false)
     expect(wrapper.find('.task-detail').exists()).toBe(false)
-    expect(wrapper.get('.task-center-empty').text()).toContain('暂无课程任务')
+    expect(wrapper.get('.task-center-empty').text()).toContain('当前课程暂无任务')
 
     await setLocale('en')
     await flushPromises()
-    expect(wrapper.get('.task-center-empty').text()).toContain('No course tasks')
+    expect(wrapper.get('.task-center-empty').text()).toContain('No tasks for this course')
   })
 
   it('对运行任务提供暂停，并保留进入课程的直接入口', async () => {
@@ -115,7 +115,7 @@ describe('CourseTaskCenter', () => {
       progress: 100, current_phase: 'completed', message: '导入完成',
     }]
 
-    const wrapper = mountCenter()
+    const wrapper = mountCenter('')
     await flushPromises()
 
     expect(wrapper.text()).toContain('导入完成')
@@ -167,7 +167,7 @@ describe('CourseTaskCenter', () => {
       id: 'task-content', course_id: 'course-2', course_name: '微积分', status: 'running',
       progress: 55, current_phase: 'content_generation', message: '各节正文并行生成',
     }]
-    const wrapper = mountCenter()
+    const wrapper = mountCenter('')
     await flushPromises()
 
     expect(wrapper.text()).toContain('规划并汇编全课小节教案')

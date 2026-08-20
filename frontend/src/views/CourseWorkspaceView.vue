@@ -2,7 +2,6 @@
   <main class="course-workspace-page">
     <Teleport to="#app-header-route-actions">
       <div class="workspace-route-actions">
-        <span class="same-source-state"><GitBranch :size="14" />{{ t('courseFiles.sameSource') }}</span>
         <button class="agent-action" type="button" @click="agentOpen = true"><Sparkles :size="16" />{{ t('courseFiles.teacherAgent') }}</button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
         <button class="task-action" type="button" :title="t('courseFiles.taskCenter')" :aria-label="t('courseFiles.taskCenter')" @click="workbenchOpen = true"><ListTodo :size="16" /></button>
@@ -81,7 +80,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, GitBranch, ListTodo, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowLeft, Eye, ListTodo, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
@@ -179,7 +178,6 @@ onMounted(loadWorkspace)
 .workspace-route-actions .agent-action { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-route-actions .task-action { width:34px; padding:0; }
-.same-source-state { display:inline-flex; align-items:center; gap:5px; color:#047857; font-size:10px; font-weight:800; white-space:nowrap; }
 .workspace-state { padding:5px 8px; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:11px; font-weight:700; }
 .workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }
 .workspace-state[data-state="working"] { background:#eef2ff; color:#4f46e5; }
@@ -199,7 +197,7 @@ onMounted(loadWorkspace)
   .workspace-title small { display:none; }
   .workspace-route-actions { gap:5px; }
   .workspace-route-actions button { padding:0 7px; font-size:11px; }
-  .same-source-state,.workspace-route-actions .task-action { display:none; }
+  .workspace-route-actions .task-action { display:none; }
   .teacher-agent-host { position:static; width:0; height:0; }
 }
 </style>

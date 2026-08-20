@@ -658,9 +658,10 @@ onUnmounted(() => {
 })
 
 function handleResize() {
+  const wasNarrow = windowWidth.value < 1024
   windowWidth.value = window.innerWidth
   if (windowWidth.value >= 1024) navigatorOpen.value = true
-  if (windowWidth.value < 1024 && aiVisible.value) navigatorOpen.value = false
+  if (windowWidth.value < 1024 && (!wasNarrow || aiVisible.value)) navigatorOpen.value = false
 }
 
 function selectInitialNode() {

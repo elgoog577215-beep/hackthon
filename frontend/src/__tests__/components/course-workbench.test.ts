@@ -45,6 +45,7 @@ describe('CourseWorkbench', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.get('[data-testid="course-workbench"]').attributes('role')).toBe('dialog')
+    expect(wrapper.get('[data-testid="course-workbench"]').classes()).toContain('course-workbench--compact')
     expect(wrapper.get('[data-testid="course-workbench-tab-tasks"]').attributes('aria-selected')).toBe('true')
     const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
     expect(taskCenter.props()).toMatchObject({
@@ -56,6 +57,7 @@ describe('CourseWorkbench', () => {
     await wrapper.get('[data-testid="course-workbench-tab-question-bank"]').trigger('click')
 
     expect(wrapper.get('[data-testid="course-workbench-tab-question-bank"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('[data-testid="course-workbench"]').classes()).not.toContain('course-workbench--compact')
     const questionBank = wrapper.getComponent({ name: 'QuestionBankReviewCenter' })
     expect(questionBank.props()).toMatchObject({
       modelValue: true,

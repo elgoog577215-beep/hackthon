@@ -11,6 +11,7 @@ const workbenchSource = source('src/components/CourseWorkbench.vue')
 const taskCenterSource = source('src/components/CourseTaskCenter.vue')
 const reviewCenterSource = source('src/components/QuestionBankReviewCenter.vue')
 const reviewPanelSource = source('src/components/QuestionBankReviewPanel.vue')
+const learningSource = source('src/views/LearningView.vue')
 
 describe('mobile UI density contract', () => {
   it('keeps course pagination in content flow and brings courses into the first screen', () => {
@@ -32,9 +33,8 @@ describe('mobile UI density contract', () => {
   })
 
   it('uses a compact workbench header and a horizontal mobile task selector', () => {
-    expect(workbenchSource).toMatch(
-      /\.course-workbench__mark,\.course-workbench__identity p\s*\{\s*display:none/,
-    )
+    expect(workbenchSource).not.toContain('course-workbench__mark')
+    expect(workbenchSource).not.toContain('workbenchEyebrow')
     expect(taskCenterSource).toMatch(
       /\.task-center__body\s*\{[^}]*grid-template-rows:76px minmax\(0,1fr\)/,
     )
@@ -73,5 +73,12 @@ describe('mobile UI density contract', () => {
       'transform: `scaleX(${rebuildJob.progress / 100})`',
     )
     expect(reviewPanelSource).not.toContain('transition:width')
+  })
+
+  it('opens formal course content first when switching to a narrow viewport', () => {
+    expect(learningSource).toContain('const wasNarrow = windowWidth.value < 1024')
+    expect(learningSource).toContain(
+      'windowWidth.value < 1024 && (!wasNarrow || aiVisible.value)',
+    )
   })
 })
