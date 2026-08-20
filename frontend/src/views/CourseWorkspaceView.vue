@@ -12,7 +12,7 @@
       </div>
     </Teleport>
 
-    <header class="workspace-heading">
+    <header class="workspace-heading" :class="{ 'is-outline': activeStage === 'outline' }">
       <div class="workspace-identity">
         <RouterLink :to="{ name: 'course-library' }" :aria-label="t('unifiedCourseWorkspace.back', '返回课程库')">
           <ArrowLeft :size="17" />
@@ -21,7 +21,7 @@
           <strong>{{ courseTitle }}</strong>
         </div>
       </div>
-      <nav class="workspace-subtabs" :aria-label="sectionNavigationLabel">
+      <nav v-if="activeStage === 'course'" class="workspace-subtabs" :aria-label="sectionNavigationLabel">
         <button
           v-for="item in sections"
           :key="item.key"
@@ -35,7 +35,13 @@
           <span>{{ item.label }}</span>
         </button>
       </nav>
-      <CourseModeTabs class="workspace-mobile-modes" :active="activeMode" :course-id="courseId" />
+      <div v-else class="workspace-stage-summary">
+        <ListTree :size="17" />
+        <div>
+          <strong>{{ t('unifiedCourseWorkspace.outline.title', '课程大纲') }}</strong>
+          <span>{{ t('unifiedCourseWorkspace.outline.help', '先确定章节结构，再进入正文。') }}</span>
+        </div>
+      </div>
     </header>
 
     <main class="workspace-content" :class="`is-${activeSection}`">
@@ -52,7 +58,7 @@
       </div>
 
       <template v-else>
-        <section v-show="activePanel === 'setup:basic'" class="basic-panel">
+        <section v-show="activePanel === 'course:basic'" class="basic-panel">
           <section class="course-overview" :aria-label="t('unifiedCourseWorkspace.basic.overview', '课程概况')">
             <dl class="course-facts">
               <div>
@@ -86,8 +92,8 @@
         </section>
 
         <TeacherCourseSpaceView
-          v-if="visitedPanels.has('setup:files')"
-          v-show="activePanel === 'setup:files'"
+          v-if="visitedPanels.has('course:files')"
+          v-show="activePanel === 'course:files'"
           :key="`files:${courseId}`"
           embedded
           :course-id="courseId"
@@ -95,8 +101,8 @@
         />
 
         <div
-          v-if="visitedPanels.has('setup:design')"
-          v-show="activePanel === 'setup:design'"
+          v-if="visitedPanels.has('course:design')"
+          v-show="activePanel === 'course:design'"
           class="plan-panel"
         >
           <GenerationLessonPlan
@@ -105,23 +111,23 @@
             :active-node-id="courseStore.currentNode?.node_id"
             :course-id="courseId"
             embedded
-            visible-scope="overall"
+            visible-scope="both"
             @select="selectNode"
-            @open-outline-editor="openBuild('outline')"
+            @open-outline-editor="openOutline"
             @applied="reloadCurrentCourse"
           />
         </div>
 
         <TeacherCourseCalendarView
-          v-if="visitedPanels.has('setup:calendar')"
-          v-show="activePanel === 'setup:calendar'"
+          v-if="visitedPanels.has('course:calendar')"
+          v-show="activePanel === 'course:calendar'"
           :key="`calendar:${courseId}`"
           embedded
         />
 
         <div
-          v-if="visitedPanels.has('build:outline')"
-          v-show="activePanel === 'build:outline'"
+          v-if="visitedPanels.has('outline:outline')"
+          v-show="activePanel === 'outline:outline'"
           class="outline-panel"
         >
           <CourseOutlineReview
@@ -130,25 +136,6 @@
             :nodes="courseStore.nodes"
             :task="generationTask"
             @confirmed="reloadCurrentCourse"
-          />
-        </div>
-
-        <div
-          v-if="visitedPanels.has('build:lesson')"
-          v-show="activePanel === 'build:lesson'"
-          class="plan-panel"
-        >
-          <GenerationLessonPlan
-            :plan="courseStore.currentTeachingPlan"
-            :nodes="courseStore.nodes"
-            :active-node-id="courseStore.currentNode?.node_id"
-            :course-id="courseId"
-            embedded
-            prefer-section-view
-            visible-scope="sections"
-            @select="selectNode"
-            @open-outline-editor="openBuild('outline')"
-            @applied="reloadCurrentCourse"
           />
         </div>
 
@@ -161,10 +148,9 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, ArrowRight, BookOpenCheck, CalendarDays, ClipboardCheck, FileText,
-  FileCheck2, FolderOpen, Info, ListTree, LoaderCircle, Presentation, TriangleAlert,
+  ArrowLeft, ArrowRight, BookOpenCheck, CalendarDays,
+  FileCheck2, FolderOpen, Info, ListTree, LoaderCircle, TriangleAlert,
 } from 'lucide-vue-next'
-import CourseModeTabs, { type CourseMode } from '../components/CourseModeTabs.vue'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
@@ -174,8 +160,8 @@ import { useGenerationStore } from '../stores/generation'
 import type { Node } from '../stores/types'
 import { t } from '../shared/i18n'
 
-type SetupSection = 'basic' | 'files' | 'design' | 'calendar'
-type BuildSection = 'outline' | 'lesson' | 'practice' | 'ppt'
+type CourseSection = 'basic' | 'files' | 'design' | 'calendar'
+type WorkspaceStage = 'course' | 'outline'
 
 const route = useRoute()
 const router = useRouter()
@@ -192,29 +178,22 @@ const loadedCourseId = ref('')
 const visitedPanels = reactive(new Set<string>())
 
 const courseId = computed(() => String(route.params.courseId || ''))
-const activeMode = computed<CourseMode>(() => route.params.mode === 'build' ? 'build' : 'setup')
-const setupSections = computed(() => [
-  { key: 'basic' as const, label: t('unifiedCourseWorkspace.sections.basic', '基本信息'), icon: Info },
+const activeStage = computed<WorkspaceStage>(() => route.params.mode === 'build' ? 'outline' : 'course')
+const courseSections = computed(() => [
+  { key: 'basic' as const, label: t('unifiedCourseWorkspace.sections.basic', '概览'), icon: Info },
   { key: 'files' as const, label: t('unifiedCourseWorkspace.sections.files', '资料'), icon: FolderOpen },
-  { key: 'design' as const, label: t('unifiedCourseWorkspace.sections.design', '课程设计'), icon: BookOpenCheck },
-  { key: 'calendar' as const, label: t('unifiedCourseWorkspace.sections.calendar', '教学日历'), icon: CalendarDays },
+  { key: 'design' as const, label: t('unifiedCourseWorkspace.sections.design', '教学设计'), icon: BookOpenCheck },
+  { key: 'calendar' as const, label: t('unifiedCourseWorkspace.sections.calendar', '日历'), icon: CalendarDays },
 ])
-const buildSections = computed(() => [
-  { key: 'outline' as const, label: t('unifiedCourseWorkspace.sections.outline', '大纲'), icon: ListTree },
-  { key: 'lesson' as const, label: t('unifiedCourseWorkspace.sections.lesson', '讲次备课'), icon: FileText },
-  { key: 'practice' as const, label: t('unifiedCourseWorkspace.sections.practice', '练习'), icon: ClipboardCheck },
-  { key: 'ppt' as const, label: 'PPT', icon: Presentation },
-])
-const sections = computed(() => activeMode.value === 'setup' ? setupSections.value : buildSections.value)
-const activeSection = computed<SetupSection | BuildSection>(() => {
+const sections = computed(() => courseSections.value)
+const activeSection = computed<CourseSection | 'outline'>(() => {
+  if (activeStage.value === 'outline') return 'outline'
   const requested = String(route.query.section || '')
   const allowed = sections.value.map(item => item.key as string)
-  return (allowed.includes(requested) ? requested : allowed[0]) as SetupSection | BuildSection
+  return (allowed.includes(requested) ? requested : allowed[0]) as CourseSection
 })
-const activePanel = computed(() => `${activeMode.value}:${activeSection.value}`)
-const sectionNavigationLabel = computed(() => activeMode.value === 'setup'
-  ? t('unifiedCourseWorkspace.setupNavigation', '课程设置模块')
-  : t('unifiedCourseWorkspace.buildNavigation', '备课制作模块'))
+const activePanel = computed(() => `${activeStage.value}:${activeSection.value}`)
+const sectionNavigationLabel = computed(() => t('unifiedCourseWorkspace.courseNavigation', '课程信息模块'))
 const courseTitle = computed(() => (
   courseStore.currentCourse?.course_name
   || generationTask.value?.courseName
@@ -285,35 +264,23 @@ async function loadCourse(force = false) {
 function reloadCurrentCourse() { void loadCourse(true) }
 function selectNode(node: Node) { courseStore.selectNode(node) }
 function openPrimaryNextStep() {
-  if (nextStep.value.primary === 'outline') openBuild('outline')
+  if (nextStep.value.primary === 'outline') openOutline()
   else selectSection('design')
 }
 function openSecondaryNextStep() {
   if (nextStep.value.primary === 'outline') selectSection('design')
-  else openBuild('outline')
+  else openOutline()
 }
-function selectSection(section: SetupSection | BuildSection) {
-  if (activeMode.value === 'build' && section === 'practice') {
-    openFormal('practice')
-    return
-  }
-  if (activeMode.value === 'build' && section === 'ppt') {
-    openPpt()
-    return
-  }
+function selectSection(section: CourseSection) {
   void router.push({
     name: 'course-workspace',
-    params: { courseId: courseId.value, mode: activeMode.value },
+    params: { courseId: courseId.value, mode: 'setup' },
     query: { ...route.query, section },
   })
 }
-function openBuild(section: BuildSection) {
-  void router.push({ name: 'course-workspace', params: { courseId: courseId.value, mode: 'build' }, query: { section } })
+function openOutline() {
+  void router.push({ name: 'course-workspace', params: { courseId: courseId.value, mode: 'build' }, query: { section: 'outline' } })
 }
-function openFormal(workspace?: 'practice') {
-  void router.push({ name: 'learning', params: { courseId: courseId.value }, query: workspace ? { workspace } : undefined })
-}
-function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseId: courseId.value }, query: { returnTo: route.fullPath } }) }
 </script>
 
 <style scoped>
@@ -332,13 +299,14 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-heading {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(210px, .85fr) minmax(430px, 1.45fr) minmax(80px, .5fr);
+  grid-template-columns: minmax(210px, .72fr) minmax(430px, 1.6fr);
   align-items: center;
   gap: 18px;
   padding: 0 16px;
   border-bottom: 1px solid var(--lz-border);
   background: rgba(255, 255, 255, .96);
 }
+.workspace-heading.is-outline { grid-template-columns:minmax(210px,.72fr) minmax(0,1.6fr); }
 .workspace-identity { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .workspace-identity > a { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 9px; color: var(--lz-text-secondary); text-decoration: none; }
 .workspace-identity > a:hover { color: var(--lz-brand-strong); background: var(--lz-brand-soft); }
@@ -355,7 +323,11 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .workspace-subtabs button:hover { color: var(--lz-text-strong); background: var(--lz-fill); }
 .workspace-subtabs button:focus-visible { outline: 3px solid rgba(99, 102, 241, .24); outline-offset: -4px; }
 .workspace-subtabs button.is-active { color: var(--lz-brand-strong); border-bottom-color: var(--lz-brand); }
-.workspace-mobile-modes { display:none; }
+.workspace-stage-summary { min-width:0; display:flex; align-items:center; gap:10px; color:var(--lz-brand-strong); }
+.workspace-stage-summary > svg { flex:0 0 auto; }
+.workspace-stage-summary > div { min-width:0; display:flex; align-items:baseline; gap:9px; }
+.workspace-stage-summary strong { color:var(--lz-text-strong); font-size:12px; }
+.workspace-stage-summary span { overflow:hidden; color:var(--lz-text-muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .workspace-content { min-width: 0; min-height: 0; overflow: auto; background: var(--lz-canvas); }
 .workspace-content.is-files,
 .workspace-content.is-calendar { overflow: hidden; }
@@ -398,14 +370,14 @@ function openPpt() { void router.push({ name: 'ppt-workspace', params: { courseI
 .outline-panel > :deep(.outline-review) { min-height: calc(100% - 2px); }
 @keyframes workspace-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1100px) {
-  .workspace-heading { grid-template-columns: minmax(180px, .75fr) minmax(400px, 1.5fr) auto; gap:10px; }
+  .workspace-heading,.workspace-heading.is-outline { grid-template-columns: minmax(180px, .68fr) minmax(360px, 1.5fr); gap:10px; }
 }
 @media (max-width: 767px) {
   .course-workspace-view { height:100%; min-height:0; grid-template-rows:auto minmax(0,1fr); border:0; border-radius:0; }
-  .workspace-heading { grid-template-columns:minmax(0,1fr); gap:9px; padding:10px 10px 0; }
+  .workspace-heading,.workspace-heading.is-outline { grid-template-columns:minmax(0,1fr); gap:9px; padding:10px 10px 0; }
   .workspace-identity { order: 1; }
-  .workspace-mobile-modes { order:2; display:grid; }
-  .workspace-subtabs { order:3; width:calc(100% + 20px); margin-left:-10px; padding:0 6px; border-top:1px solid var(--lz-border); }
+  .workspace-subtabs { order:2; width:calc(100% + 20px); margin-left:-10px; padding:0 6px; border-top:1px solid var(--lz-border); }
+  .workspace-stage-summary { order:2; min-height:42px; border-top:1px solid var(--lz-border); }
   .workspace-top-status { min-height: 30px; padding: 0 8px; font-size: 10px; }
   .workspace-subtabs button { height: 43px; padding: 0 10px; }
   .workspace-subtabs button svg { display: none; }

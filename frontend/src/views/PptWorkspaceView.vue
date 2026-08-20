@@ -785,7 +785,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.ppt-workspace-view { position:fixed; inset:0; z-index:70; display:flex; min-width:0; min-height:0; overflow:hidden; background:#e9edf3; }
+.ppt-workspace-view { position:relative; width:100%; height:100%; display:flex; min-width:0; min-height:0; overflow:hidden; border-radius:var(--lz-radius-surface); background:#e9edf3; }
 .ppt-workspace-view__deck { min-width:0; flex:1 1 auto; }
 .ppt-workspace-view__ai { width:min(380px,34vw); flex:0 0 min(380px,34vw); border-left:1px solid #d5dce6; background:#fff; }
 .ppt-workspace-state {
@@ -823,5 +823,8 @@ onUnmounted(() => {
 .ppt-ai-enter-from,.ppt-ai-leave-to { opacity:0; transform:translateX(20px); }
 @media (max-width:860px) {
   .ppt-workspace-view__ai { position:absolute; inset:0 0 0 auto; z-index:20; width:min(420px,92vw); box-shadow:-18px 0 44px rgba(20,31,52,.18); }
+}
+@media (max-width:600px) {
+  .ppt-workspace-view { border-radius:0; }
 }
 </style>

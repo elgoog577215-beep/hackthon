@@ -163,7 +163,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('正式课程用顶栏切换课程、练习和 PPT，并从底栏直达知识库', async () => {
+  it('正文页移除重复产物导航，并从正文和底栏进入学习工具', async () => {
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -184,11 +184,10 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['课程', '练习', 'PPT'])
-    expect(wrapper.get('.learning-context-bar [data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]')).toHaveLength(0)
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
 
-    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
+    await wrapper.get('.open-practice').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
     await wrapper.get('.task-records').trigger('click')
@@ -207,20 +206,11 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.get('.learning-stats-stub').attributes('data-closable')).toBe('true')
     await wrapper.get('.close-stats').trigger('click')
     expect(wrapper.find('.stats-overlay').exists()).toBe(false)
-    await wrapper.get('.learning-context-bar [data-workspace-item="ppt"]').trigger('click')
-    await flushPromises()
-    expect((globalThis as any).__learningTestRouter.currentRoute.value.name).toBe('ppt-workspace')
-
     await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     const courseStore = useCourseStore()
     expect(courseStore.showKnowledgeLibrary).toBe(true)
 
     courseStore.showKnowledgeLibrary = false
-    await wrapper.get('[data-testid="course-mode-build"]').trigger('click')
-    await flushPromises()
-    expect((globalThis as any).__learningTestRouter.currentRoute.value.name).toBe('course-workspace')
-    expect((globalThis as any).__learningTestRouter.currentRoute.value.params.mode).toBe('build')
-
     await wrapper.get('[data-domain="assistant"]').trigger('click')
     expect(wrapper.find('.ai-panel-stub').exists()).toBe(true)
     wrapper.unmount()
@@ -318,7 +308,7 @@ describe('LearningView 正文任务覆盖层', () => {
     }
   })
 
-  it('旧课程没有可用题目时仍可从顶层当前练习进入重建界面', async () => {
+  it('旧课程没有可用题目时仍可从正文配套练习进入重建界面', async () => {
     const workspace = useCourseWorkspaceStore()
     workspace.assets = {
       course_id: 'c1',
@@ -356,7 +346,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
+    await wrapper.get('[data-testid="open-content-practice"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
@@ -398,12 +388,10 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    const practiceTab = wrapper.get(
-      '.learning-context-bar [data-workspace-item="practice"]',
-    )
+    const practiceAction = wrapper.get('[data-testid="open-content-practice"]')
     expect(workspace.checkPracticeAvailability).toHaveBeenCalledWith('c1', 'n1')
-    expect(practiceTab.attributes('disabled')).toBeUndefined()
-    await practiceTab.trigger('click')
+    expect(practiceAction.attributes('disabled')).toBeUndefined()
+    await practiceAction.trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -463,7 +451,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.learning-context-bar [data-workspace-item="practice"]').trigger('click')
+    await wrapper.get('[data-testid="open-content-practice"]').trigger('click')
     expect(wrapper.get('.task-overlay-stub').attributes('data-node-id')).toBe(parentNode.node_id)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(parentNode.node_name)
     wrapper.unmount()

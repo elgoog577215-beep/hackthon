@@ -21,12 +21,9 @@
         <span><Eye :size="15" /><strong>教师只读预览</strong>当前页面不会记录学习进度、笔记或 AI 对话。</span>
         <button type="button" @click="leaveTeacherPreview"><ArrowLeft :size="15" />返回教师工作台</button>
       </div>
-      <div v-if="!isTeacherPreview" class="learning-mode-tabs">
-        <CourseModeTabs active="formal" :course-id="String(route.params.courseId || courseStore.currentCourseId)" />
-      </div>
       <div
         class="learning-context-bar"
-        :class="{ 'is-generation': isGenerationPreview, 'has-workspace-tabs': showWorkspaceTabs }"
+        :class="{ 'is-generation': isGenerationPreview, 'has-workspace-tabs': isGenerationPreview && showWorkspaceTabs }"
         :inert="resourcesOpen"
         :aria-hidden="resourcesOpen ? 'true' : undefined"
       >
@@ -40,7 +37,7 @@
           </div>
         </div>
         <CourseWorkspaceTabs
-          v-if="showWorkspaceTabs && !isTeacherPreview"
+          v-if="isGenerationPreview && showWorkspaceTabs && !isTeacherPreview"
           :active-item="activeWorkspaceItem"
           :practice-available="Boolean(currentPracticeNode)"
           :practice-repair-available="questionBankRepairAvailable"
@@ -64,6 +61,18 @@
           </div>
           <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
             <LocateFixed :size="17" />
+          </button>
+          <button
+            v-if="!isGenerationPreview && !isTeacherPreview && (currentPracticeNode || questionBankRepairAvailable)"
+            type="button"
+            data-testid="open-content-practice"
+            :title="questionBankRepairAvailable
+              ? t('courseWorkspaceTabs.practiceRepairHint', '打开练习并重新生成旧版题目')
+              : t('courseWorkspaceTabs.practiceHint', '打开当前章节的正式练习')"
+            :aria-label="t('courseWorkspaceTabs.practice', '练习')"
+            @click="openTask(currentPracticeNode || courseStore.currentNode)"
+          >
+            <ClipboardCheck :size="17" />
           </button>
           <button v-if="!aiVisible && !isGenerationPreview && !isTeacherPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
             <MessageSquareText :size="17" />
@@ -274,7 +283,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, Eye, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, ClipboardCheck, Eye, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseGenerationGate from '../components/CourseGenerationGate.vue'
 import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
@@ -282,7 +291,6 @@ import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseProductionNotice from '../components/CourseProductionNotice.vue'
 import CourseProductionStage from '../components/CourseProductionStage.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
-import CourseModeTabs from '../components/CourseModeTabs.vue'
 import CourseWorkspaceTabs from '../components/CourseWorkspaceTabs.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import LearningDock from '../components/LearningDock.vue'
@@ -1192,9 +1200,9 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
-.learning-mode-tabs { display:none; }
 .teacher-preview-bar{min-height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;border-bottom:1px solid var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:10px}.teacher-preview-bar span,.teacher-preview-bar button{display:flex;align-items:center;gap:6px}.teacher-preview-bar button{height:28px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}
-.learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
+.learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto; align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
+.learning-context-bar.has-workspace-tabs { grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
 .has-ai-course-growth .learning-context-bar:not(.is-generation) { position:relative; border-bottom-color:rgba(191,219,254,.9); background:linear-gradient(90deg,rgba(248,250,255,.98),rgba(240,249,255,.96) 58%,rgba(248,250,252,.98)); }
 .has-ai-course-growth .learning-context-bar:not(.is-generation)::after { content:""; position:absolute; right:0; bottom:-1px; left:0; height:2px; background:linear-gradient(90deg,#4f46e5 0 24%,#0891b2 62%,rgba(14,165,233,0)); opacity:.72; }
@@ -1229,12 +1237,13 @@ function closeMobileSurfaces() {
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }
-.focus-mode :deep(.learning-context-bar),.focus-mode .learning-mode-tabs { display: none; }
+.focus-mode :deep(.learning-context-bar) { display: none; }
 .slide-left-enter-active, .slide-left-leave-active, .slide-right-enter-active, .slide-right-leave-active { transition: transform .2s ease, opacity .2s ease; }
 .slide-left-enter-from, .slide-left-leave-to { transform: translateX(-100%); opacity: 0; }
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
 @media (max-width:1279px) {
-  .learning-context-bar { grid-template-columns:minmax(120px,.8fr) auto minmax(40px,.8fr); }
+  .learning-context-bar { grid-template-columns:minmax(120px,1fr) auto; }
+  .learning-context-bar.has-workspace-tabs { grid-template-columns:minmax(120px,.8fr) auto minmax(40px,.8fr); }
   .ai-course-version small { display:none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { inset:0; padding:80px 12px 12px; }
 }
@@ -1246,16 +1255,16 @@ function closeMobileSurfaces() {
 @media (max-width: 767px) {
   .learning-view { padding-bottom:calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-view.has-mobile-resume { padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px)); }
-  .navigator-surface { left:0; top:56px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
+  .navigator-surface { left:0; top:96px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
-  .learning-mode-tabs { min-height:48px; flex:0 0 auto; display:flex; align-items:center; justify-content:center; padding:4px 7px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.96); }
-  .learning-context-bar { min-height:52px; grid-template-columns:auto minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
+  .learning-context-bar { min-height:52px; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
+  .learning-context-bar.has-workspace-tabs { grid-template-columns:auto minmax(0,1fr) auto; }
   .context-copy { display:none; }
   .learning-context-bar.is-generation .context-copy { display:flex; }
   .ai-course-version { padding:6px; }
   .ai-course-version > span { display:none; }
-  .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
-  .learning-tool-overlay { position:fixed; inset:56px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
+  .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:96px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
+  .learning-tool-overlay { position:fixed; inset:96px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .learning-tool-modal { padding:10px; }
   .learning-tool-modal__card,.learning-tool-modal__card.is-mistake-book { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); border-radius:18px; }
   .is-generation-preview { padding-bottom:0; }

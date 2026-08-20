@@ -13,35 +13,33 @@
     "label": "Course workspace",
     "back": "Back to course library",
     "untitled": "Untitled course",
-    "modeNavigation": "Course working modes",
-    "setupNavigation": "Course setup sections",
-    "buildNavigation": "Course preparation sections",
+    "stageNavigation": "Course production flow",
+    "courseNavigation": "Course information sections",
     "courseState": "Course status",
     "loading": "Loading course",
     "loadingHelp": "Only this section loads now. Other tools load when opened.",
     "loadFailed": "Could not load the course",
     "loadFailedHelp": "Check the service and try again.",
-    "modes": {
-      "setup": "Course setup",
-      "setupHelp": "Details, files, schedule",
-      "build": "Preparation",
-      "buildHelp": "Outline, lessons, slides",
-      "formal": "Live course",
-      "formalHelp": "Teach and learn"
+    "stages": {
+      "course": "Course",
+      "outline": "Outline",
+      "content": "Content",
+      "ppt": "PPT"
     },
     "sections": {
-      "basic": "Basic details",
+      "basic": "Overview",
       "files": "Files",
-      "design": "Course design",
-      "calendar": "Teaching calendar",
-      "outline": "Outline",
-      "lesson": "Lesson preparation",
-      "practice": "Practice"
+      "design": "Teaching design",
+      "calendar": "Calendar"
+    },
+    "outline": {
+      "title": "Course outline",
+      "help": "Confirm the chapter structure before moving to content."
     },
     "state": {
       "generating": "Generating",
       "attention": "Needs attention",
-      "ready": "Live course ready",
+      "ready": "Course content ready",
       "draft": "Course draft"
     },
     "basic": {
@@ -51,8 +49,8 @@
       "overview": "Course overview",
       "structure": "Course structure",
       "nodes": "teaching nodes",
-      "plan": "Course design",
-      "content": "Formal content",
+      "plan": "Teaching design",
+      "content": "Course content",
       "contentReady": "Formal version published",
       "notPublished": "Not published",
       "planMissing": "Not created",
@@ -88,7 +86,7 @@
   "teacherCourseLibrary": {
     "eyebrow": "My courses",
     "title": "Course workspace",
-    "subtitle": "Manage outlines, teaching calendars, lesson plans, PPTs, and student release versions.",
+    "subtitle": "Build each course in order: course, outline, content, and PPT.",
     "newBlankCourse": "Create a course",
     "newBlankCourseHelp": "Add course details, then choose an outline source",
     "emptyBody": "Create a course and start by organizing the teaching outline.",
@@ -240,7 +238,7 @@
     "title": "Teaching calendar",
     "total": "Master teaching calendar",
     "myCourses": "My courses",
-    "course": "Course",
+    "course": "Content",
     "courseCount": "Courses",
     "sessions": "Sessions",
     "scheduled": "Scheduled",

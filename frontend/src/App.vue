@@ -1,21 +1,20 @@
 <template>
-  <div class="app-shell" :class="{ 'is-ppt-workspace': isPptRoute, 'is-fullscreen-concept': isFullscreenConceptRoute }">
+  <div class="app-shell" :class="{ 'is-fullscreen-concept': isFullscreenConceptRoute }">
     <header
-      v-if="!isPptRoute && !isFullscreenConceptRoute"
+      v-if="!isFullscreenConceptRoute"
       class="app-header glass-panel-elevated"
-      :class="{ 'has-course-modes': Boolean(headerCourseMode) }"
+      :class="{ 'has-course-stages': Boolean(headerCourseStage) }"
     >
       <RouterLink class="brand-button" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
         <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
         <span class="brand-name">启智</span>
       </RouterLink>
 
-      <CourseModeTabs
-        v-if="headerCourseMode && headerCourseId"
-        class="app-course-modes"
-        :active="headerCourseMode"
+      <CourseStageTabs
+        v-if="headerCourseStage && headerCourseId"
+        class="app-course-stages"
+        :active="headerCourseStage"
         :course-id="headerCourseId"
-        topbar
       />
       <div v-else class="app-header-center" aria-hidden="true" />
 
@@ -107,7 +106,7 @@ import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
-import CourseModeTabs, { type CourseMode } from './components/CourseModeTabs.vue'
+import CourseStageTabs, { type CourseStage } from './components/CourseStageTabs.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
@@ -142,13 +141,13 @@ onBeforeUnmount(() => {
 })
 
 const isLearningRoute = computed(() => route.name === 'learning')
-const isPptRoute = computed(() => route.name === 'ppt-workspace')
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)
-const headerCourseMode = computed<CourseMode | null>(() => {
-  if (route.name === 'learning') return 'formal'
+const headerCourseStage = computed<CourseStage | null>(() => {
+  if (route.name === 'learning') return 'content'
+  if (route.name === 'ppt-workspace') return 'ppt'
   if (route.name !== 'course-workspace') return null
-  return route.params.mode === 'build' ? 'build' : 'setup'
+  return route.params.mode === 'build' ? 'outline' : 'course'
 })
 const headerCourseId = computed(() => String(route.params.courseId || courseStore.currentCourseId || ''))
 const searchQuery = computed({
@@ -188,8 +187,6 @@ function changeLocale(locale: 'zh' | 'en') {
   color: var(--lz-text);
   background: transparent;
 }
-.app-shell.is-ppt-workspace { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#e9edf3; }
-.app-shell.is-ppt-workspace .app-main { border-radius:0; }
 .app-shell.is-fullscreen-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:var(--lz-canvas); }
 .app-shell.is-fullscreen-concept .app-main { border-radius:0; }
 .app-shell.is-public-concept { grid-template-rows:minmax(0,1fr); gap:0; padding:0; background:#f5f6f9; }
@@ -247,7 +244,7 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .brand-name { color:#001081; font-size:20px; font-weight:850; letter-spacing:.08em; }
 
-.app-header-center,.app-course-modes { min-width:0; width:100%; justify-self:center; }
+.app-header-center,.app-course-stages { min-width:0; width:100%; justify-self:center; }
 .route-header-actions { min-width:0; grid-column:3; justify-self:end; }
 .course-context-copy {
   min-width: 0;
@@ -292,16 +289,18 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 
 @media (max-width: 1400px) {
-  .app-header.has-course-modes .header-search { display:none; }
+  .app-header.has-course-stages .header-search { display:none; }
 }
 
 @media (max-width: 600px) {
-  .app-shell { gap: 0; padding: 0; }
+  .app-shell { grid-template-rows:auto minmax(0,1fr); gap: 0; padding: 0; }
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
-  .app-header { grid-template-columns: auto minmax(0, 1fr); }
-  .app-course-modes,.app-header-center { display:none; }
-  .route-header-actions,.header-actions { grid-column:2; }
+  .app-header { grid-template-columns: auto minmax(0, 1fr); min-height:60px; }
+  .app-header.has-course-stages { grid-template-rows:50px auto; gap:0 8px; padding:0 10px 7px; }
+  .app-course-stages { grid-column:1 / -1; grid-row:2; display:block; }
+  .app-header-center { display:none; }
+  .route-header-actions,.header-actions { grid-column:2; grid-row:1; }
   .brand-mark { width:32px; height:32px; }
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),

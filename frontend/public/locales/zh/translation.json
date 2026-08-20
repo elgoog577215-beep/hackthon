@@ -13,35 +13,33 @@
     "label": "课程工作区",
     "back": "返回课程库",
     "untitled": "未命名课程",
-    "modeNavigation": "课程工作模式",
-    "setupNavigation": "课程设置模块",
-    "buildNavigation": "备课制作模块",
+    "stageNavigation": "课程制作流程",
+    "courseNavigation": "课程信息模块",
     "courseState": "课程状态",
     "loading": "正在读取课程",
     "loadingHelp": "先打开当前模块，其余工具会在需要时加载。",
     "loadFailed": "课程读取失败",
     "loadFailedHelp": "请检查服务后重试。",
-    "modes": {
-      "setup": "课程设置",
-      "setupHelp": "信息、资料与排课",
-      "build": "备课制作",
-      "buildHelp": "大纲、讲次与课件",
-      "formal": "正式课程",
-      "formalHelp": "上课与学习现场"
+    "stages": {
+      "course": "课程",
+      "outline": "大纲",
+      "content": "正文",
+      "ppt": "PPT"
     },
     "sections": {
-      "basic": "基本信息",
+      "basic": "概览",
       "files": "资料",
-      "design": "课程设计",
-      "calendar": "教学日历",
-      "outline": "大纲",
-      "lesson": "讲次备课",
-      "practice": "练习"
+      "design": "教学设计",
+      "calendar": "日历"
+    },
+    "outline": {
+      "title": "课程大纲",
+      "help": "先确定章节结构，再进入正文。"
     },
     "state": {
       "generating": "正在生成",
       "attention": "需要处理",
-      "ready": "正式课程可用",
+      "ready": "课程正文可用",
       "draft": "课程草稿"
     },
     "basic": {
@@ -51,8 +49,8 @@
       "overview": "课程概况",
       "structure": "课程结构",
       "nodes": "个教学节点",
-      "plan": "课程设计",
-      "content": "正式内容",
+      "plan": "教学设计",
+      "content": "课程正文",
       "contentReady": "已发布正式版本",
       "notPublished": "尚未发布",
       "planMissing": "尚未形成",
@@ -88,7 +86,7 @@
   "teacherCourseLibrary": {
     "eyebrow": "我的课程",
     "title": "课程工作台",
-    "subtitle": "管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。",
+    "subtitle": "按课程、大纲、正文、PPT 的顺序完成一门课。",
     "newBlankCourse": "进入新建课程",
     "newBlankCourseHelp": "先填课程信息，再选择大纲起点",
     "emptyBody": "新建课程后，从教学大纲开始组织教学。",
@@ -1301,7 +1299,7 @@
     "lessonPlanHint": "查看当前课程的教案",
     "lessonPlanPending": "课程目录确认后生成全课教案",
     "lessonPlanBuilding": "教案正在后台形成，可随时查看",
-    "course": "课程",
+    "course": "正文",
     "courseHint": "返回课程正文",
     "practice": "练习",
     "practiceHint": "打开当前章节的正式练习",
