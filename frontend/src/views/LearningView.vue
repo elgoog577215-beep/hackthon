@@ -18,7 +18,11 @@
 
     <main class="learning-main glass-panel-elevated">
       <div v-if="isTeacherPreview" class="teacher-preview-bar" role="status">
-        <span><Eye :size="15" /><strong>{{ t('learningShell.teacherPreviewTitle', '正式课程预览') }}</strong>{{ t('learningShell.teacherPreviewHelp', '正文块与练习已按当前版本组装；预览不记录学习数据。') }}</span>
+        <span class="teacher-preview-copy">
+          <Eye :size="15" />
+          <strong>{{ t('learningShell.teacherPreviewTitle', '学生视角预览') }}</strong>
+          <span class="teacher-preview-help">{{ t('learningShell.teacherPreviewHelp', '内容、练习、笔记与学生端一致；体验记录不写入学生数据。') }}</span>
+        </span>
         <button type="button" @click="leaveTeacherPreview"><ArrowLeft :size="15" />{{ t('learningShell.backToCourseFiles', '返回课程文件') }}</button>
       </div>
       <div
@@ -63,7 +67,7 @@
             <LocateFixed :size="17" />
           </button>
           <button
-            v-if="!isGenerationPreview && !isTeacherPreview && (currentPracticeNode || questionBankRepairAvailable)"
+            v-if="!isGenerationPreview && (currentPracticeNode || questionBankRepairAvailable)"
             type="button"
             data-testid="open-content-practice"
             :title="questionBankRepairAvailable
@@ -74,7 +78,7 @@
           >
             <ClipboardCheck :size="17" />
           </button>
-          <button v-if="!aiVisible && !isGenerationPreview && !isTeacherPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
+          <button v-if="!aiVisible && !isGenerationPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
             <MessageSquareText :size="17" />
           </button>
         </div>
@@ -129,7 +133,6 @@
         />
         <ContentArea
           ref="contentAreaRef"
-          :read-only="isTeacherPreview"
           :side-ai-panel-visible="aiVisible"
           :inert="resourcesOpen"
           :aria-hidden="resourcesOpen ? 'true' : undefined"
@@ -149,7 +152,7 @@
       />
 
       <LearningDock
-        v-if="!isGenerationPreview && !isTeacherPreview"
+        v-if="!isGenerationPreview"
         :inert="resourcesOpen"
         :aria-hidden="resourcesOpen ? 'true' : undefined"
         :location="dockLocation"
@@ -188,7 +191,7 @@
       <Teleport to="body">
         <Transition name="learning-modal">
           <section
-            v-if="notebookOpen"
+            v-if="notebookOpen && isNarrow"
             class="learning-tool-modal notebook-overlay"
             role="dialog"
             aria-modal="true"
@@ -253,6 +256,12 @@
         @ppt="openPptWorkspace"
       />
     </main>
+
+    <Transition name="slide-right">
+      <aside v-if="notebookOpen && !isNarrow" class="notebook-side-panel" :aria-label="t('notebook.title', '笔记本')">
+        <NotesPanel mode="sidebar" @locate="locateRecord" @view-detail="locateRecord" @close="closeNotebook" />
+      </aside>
+    </Transition>
 
     <Transition name="slide-right">
       <SideAIPanel
@@ -522,11 +531,9 @@ watch(() => route.params.courseId, async value => {
   workspaceStore.practiceNeedsReviewCount = 0
   await Promise.all([
     courseStore.fetchCourseList(),
-    isTeacherPreview.value
-      ? courseStore.loadCourse(courseId, { includeLearningRecords: false })
-      : courseStore.loadCourse(courseId),
+    courseStore.loadCourse(courseId),
   ])
-  if (!isTeacherPreview.value) generationStore.observeCourse(courseId)
+  generationStore.observeCourse(courseId)
   if (isGenerationPreview.value) {
     selectInitialNode()
     return
@@ -548,18 +555,12 @@ watch(() => courseStore.showKnowledgeLibrary, visible => {
 
 async function loadPublishedLearningContext(courseId: string) {
   if (courseStore.currentCourseProjection !== 'published' || loadedLearningCourseId.value === courseId) return
-  const sharedLoads: Promise<unknown>[] = [workspaceStore.loadAssets(courseId)]
-  if (isTeacherPreview.value) {
-    await Promise.all(sharedLoads)
-    loadedLearningCourseId.value = courseId
-    return
-  }
-  sharedLoads.push(
+  await Promise.all([
+    workspaceStore.loadAssets(courseId),
     noteStore.loadCourseRecords(courseId),
     learningProgressStore.load(courseId, String(route.params.nodeId || '') || undefined),
     aiTeacherStore.load(courseId, String(route.params.nodeId || '') || undefined),
-  )
-  await Promise.all(sharedLoads)
+  ])
   await Promise.all([
     workspaceStore.migrateLegacyPracticeData(courseId, courseStore.nodes.map(node => node.node_id)).catch(() => undefined),
     workspaceStore.loadMistakeBook(courseId).catch(() => undefined),
@@ -591,7 +592,7 @@ watch(() => route.params.nodeId, value => {
 })
 
 watch(() => courseStore.currentNode, async node => {
-  if (!node || !courseStore.currentCourseId || isGenerationPreview.value || isTeacherPreview.value) return
+  if (!node || !courseStore.currentCourseId || isGenerationPreview.value) return
   if (isStartableLearningObjective(node)) {
     await learningProgressStore.startNode(courseStore.currentCourseId, node.node_id)
       .catch(() => learningProgressStore.loadRuntime(courseStore.currentCourseId, node.node_id))
@@ -605,7 +606,6 @@ async function refreshCurrentPracticeAvailability() {
   practiceApiNodeId.value = ''
   if (
     isGenerationPreview.value
-    || isTeacherPreview.value
     || !courseStore.currentCourseId
     || !courseStore.currentNode
     || questionBankRepairAvailable.value
@@ -757,7 +757,6 @@ function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice' | 'ppt') {
 }
 
 function openPptWorkspace() {
-  if (isTeacherPreview.value) return
   const courseId = courseStore.currentCourseId
   if (!courseId || isGenerationPreview.value) return
   void router.push({ name: 'ppt-workspace', params: { courseId } })
@@ -793,7 +792,6 @@ async function handleTeachingPlanApplied() {
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
-  if (isTeacherPreview.value) return
   if (isGenerationPreview.value) return
   activeDomain.value = 'assistant'
   resourcesOpen.value = false
@@ -835,7 +833,6 @@ async function declineSuggestion(payload: { suggestion: AISuggestion; reason: 'n
 }
 
 function openBlockImprovement(target: CourseBlockEditTarget) {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'assistant'
   aiBlockTarget.value = target
   aiQuote.value = ''
@@ -892,7 +889,6 @@ function handleCourseGrowthApplied(presentation: CourseEvolutionApplicationPrese
 }
 
 function openAiForPractice(payload: { text: string; nodeId: string }) {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'assistant'
   aiBlockTarget.value = undefined
   aiQuote.value = payload.text
@@ -904,7 +900,6 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 }
 
 function openNotebook() {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'notebook'
   notebookOpen.value = true
   mistakeBookOpen.value = false
@@ -922,7 +917,6 @@ function closeNotebook() {
 }
 
 function openMistakeNotebook() {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'mistake-book'
   mistakeBookOpen.value = true
   notebookOpen.value = false
@@ -940,7 +934,6 @@ function closeMistakeNotebook() {
 }
 
 function openMistakeRetry(payload: { nodeId: string; taskRevisionId: string }) {
-  if (isTeacherPreview.value) return
   mistakeBookOpen.value = false
   const node = courseStore.nodes.find(item => item.node_id === payload.nodeId)
     || currentPracticeNode.value
@@ -949,7 +942,6 @@ function openMistakeRetry(payload: { nodeId: string; taskRevisionId: string }) {
 }
 
 function openKnowledgeLibrary() {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'knowledge-library'
   resourcesOpen.value = false
   notebookOpen.value = false
@@ -962,7 +954,6 @@ function openKnowledgeLibrary() {
 }
 
 function openKnowledgeFromLessonPlan(knowledgeId: string) {
-  if (isTeacherPreview.value) return
   if (!knowledgeId) return
   if (isGenerationPreview.value) {
     ElMessage.info(t(
@@ -992,7 +983,6 @@ function openOutlineEditorFromLessonPlan(target: { endpoint: string; revisionFie
 }
 
 function openTeachingResource(type: 'outline' | 'lesson_plan') {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'course'
   activeTeachingResource.value = type
   activeWorkspaceItem.value = 'lesson-plan'
@@ -1027,14 +1017,12 @@ async function openCourseWorkspace() {
 }
 
 async function openPracticeFromTeachingResource() {
-  if (isTeacherPreview.value) return
   resourcesOpen.value = false
   await nextTick()
   openCurrentPractice()
 }
 
 function openCurrentPractice() {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'course'
   resourcesOpen.value = false
   notebookOpen.value = false
@@ -1051,7 +1039,6 @@ function openCurrentPractice() {
 }
 
 function openStats() {
-  if (isTeacherPreview.value) return
   activeDomain.value = 'overview'
   statsOpen.value = true
   notebookOpen.value = false
@@ -1081,7 +1068,6 @@ function locateRecord(record: any) {
 }
 
 function openTask(node?: Node | null, taskRevisionId = '') {
-  if (isTeacherPreview.value) return
   const source = node || courseStore.currentNode
   if (!source) return
   activeDomain.value = 'course'
@@ -1133,7 +1119,6 @@ async function refreshRuntime() {
 }
 
 async function refreshAfterGrade() {
-  if (isTeacherPreview.value) return
   await refreshRuntime()
   if (courseStore.currentCourseId) {
     await workspaceStore.loadMistakeBook(courseStore.currentCourseId).catch(() => undefined)
@@ -1168,7 +1153,6 @@ async function handleContinuationAction(action: NextLearningAction) {
 }
 
 function runResumeAction() {
-  if (isTeacherPreview.value) return
   if (resumableAction.value) void handleContinuationAction(resumableAction.value)
 }
 
@@ -1202,7 +1186,7 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
-.teacher-preview-bar{min-height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;border-bottom:1px solid var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:10px}.teacher-preview-bar span,.teacher-preview-bar button{display:flex;align-items:center;gap:6px}.teacher-preview-bar button{height:28px;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer}
+.teacher-preview-bar{min-height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;border-bottom:1px solid var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:10px}.teacher-preview-copy,.teacher-preview-bar button{display:flex;align-items:center;gap:6px}.teacher-preview-copy{min-width:0}.teacher-preview-help{min-width:0}.teacher-preview-bar button{height:28px;flex:0 0 auto;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer;white-space:nowrap}
 .learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto; align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
 .learning-context-bar.has-workspace-tabs { grid-template-columns:minmax(180px,1fr) auto minmax(120px,1fr); }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
@@ -1226,6 +1210,8 @@ function closeMobileSurfaces() {
 .ai-course-version small { color:#64748b; font-size:8px; font-weight:700; white-space:nowrap; }
 .ai-course-version strong { color:#312e81; font-size:10px; font-weight:800; white-space:nowrap; }
 .learning-content { min-height: 0; flex: 1; }
+.notebook-side-panel { width:clamp(340px,28vw,410px); min-width:0; min-height:0; flex:0 0 clamp(340px,28vw,410px); overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:#fff; box-shadow:var(--lz-shadow-panel); }
+.notebook-side-panel :deep(.records-panel) { height:100%; min-height:0; }
 .learning-tool-overlay { position:absolute; inset:0; z-index:34; min-width:0; min-height:0; display:flex; flex-direction:column; background:#fff; box-shadow:var(--lz-shadow-overlay); }
 .learning-tool-modal { position:fixed; inset:0; z-index:1000; display:grid; place-items:center; padding:24px; }
 .learning-tool-modal__backdrop { position:absolute; inset:0; width:100%; height:100%; padding:0; border:0; border-radius:0; background:rgba(15,23,42,.42); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); cursor:default; }
@@ -1253,12 +1239,17 @@ function closeMobileSurfaces() {
   .learning-view { gap: 0; }
   .navigator-surface { position: fixed; left: 12px; top: 80px; bottom: 12px; z-index: 101; width: min(82vw, 300px); height: auto; box-shadow: var(--lz-shadow-overlay); }
   .surface-backdrop { position: fixed; inset: 0; z-index: 100; display: block; background: rgba(49, 46, 129, .18); backdrop-filter: blur(2px); }
+  .notebook-side-panel { display:none; }
 }
 @media (max-width: 767px) {
   .learning-view { padding-bottom:calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-view.has-mobile-resume { padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px)); }
   .navigator-surface { left:0; top:96px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
+  .teacher-preview-bar { align-items:flex-start; gap:8px; padding:7px 8px; }
+  .teacher-preview-copy { display:grid; grid-template-columns:15px minmax(0,1fr); align-items:center; gap:2px 5px; line-height:1.3; }
+  .teacher-preview-help { grid-column:2; }
+  .teacher-preview-bar button { height:26px; padding:0 7px; }
   .learning-context-bar { min-height:52px; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
   .learning-context-bar.has-workspace-tabs { grid-template-columns:auto minmax(0,1fr) auto; }
   .context-copy { display:none; }

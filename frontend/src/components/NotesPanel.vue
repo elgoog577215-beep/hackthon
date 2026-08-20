@@ -1,5 +1,5 @@
 <template>
-  <section class="records-panel" :class="{ 'is-empty': !filteredRecords.length }">
+  <section class="records-panel" :class="{ 'is-empty': !filteredRecords.length, 'is-sidebar': props.mode === 'sidebar' }">
     <header class="records-header">
       <div class="records-title">
         <span class="records-title__icon"><Notebook :size="20" /></span>
@@ -131,6 +131,7 @@ const emit = defineEmits<{
   (event: 'viewDetail', record: any): void
   (event: 'close'): void
 }>()
+const props = withDefaults(defineProps<{ mode?: 'dialog' | 'sidebar' }>(), { mode: 'dialog' })
 const noteStore = useNoteStore()
 const courseStore = useCourseStore()
 const activeTab = ref<RecordTab>('all')
@@ -299,6 +300,19 @@ defineExpose({ setTab })
 .record-type[data-type="bookmark"] { color:#047857; background:#ecfdf5; }
 .record-actions { display:flex; gap:6px; align-items:center; }
 .record-status { color:#64748b; font-size:10px; white-space:nowrap; }
+.records-panel.is-sidebar { height:100%; min-height:0; }
+.records-panel.is-sidebar .records-header { min-height:auto; flex-direction:column; align-items:stretch; gap:10px; padding:14px; }
+.records-panel.is-sidebar .records-title__icon { width:36px; height:36px; border-radius:10px; }
+.records-panel.is-sidebar .records-title h3 { font-size:16px; }
+.records-panel.is-sidebar .records-tools { display:grid; grid-template-columns:minmax(0,1fr) repeat(3,34px); }
+.records-panel.is-sidebar .records-tools input { width:100%; }
+.records-panel.is-sidebar .quick-note { padding:10px 14px 4px; }
+.records-panel.is-sidebar .quick-note-trigger>span,.records-panel.is-sidebar .quick-note-heading>div { align-items:flex-start; flex-direction:column; gap:1px; }
+.records-panel.is-sidebar .record-tabs { gap:4px; padding:10px 12px; }
+.records-panel.is-sidebar .record-tabs button { padding:6px 8px; font-size:10px; }
+.records-panel.is-sidebar .records-list { padding:12px 14px 18px; }
+.records-panel.is-sidebar .record-row { grid-template-columns:1fr; gap:9px; }
+.records-panel.is-sidebar .record-actions { justify-content:flex-end; flex-wrap:wrap; }
 @keyframes quick-note-spin { to { transform:rotate(360deg); } }
 @media (max-width:720px) {
   .records-panel { height:calc(100dvh - 20px); min-height:0; }

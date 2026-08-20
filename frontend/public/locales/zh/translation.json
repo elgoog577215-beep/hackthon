@@ -1230,8 +1230,8 @@
   "learningShell": {
     "openNavigator": "打开课程目录",
     "openAi": "打开 AI 老师",
-    "teacherPreviewTitle": "正式课程预览",
-    "teacherPreviewHelp": "正文块与练习已按当前版本组装；预览不记录学习数据。",
+    "teacherPreviewTitle": "学生视角预览",
+    "teacherPreviewHelp": "内容、练习、笔记与学生端一致；体验记录不写入学生数据。",
     "backToCourseFiles": "返回课程文件",
     "selectNode": "选择一个学习目标",
     "course": "当前课程",

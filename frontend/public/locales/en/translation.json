@@ -1230,8 +1230,8 @@
   "learningShell": {
     "openNavigator": "Open course outline",
     "openAi": "Open AI teacher",
-    "teacherPreviewTitle": "Formal course preview",
-    "teacherPreviewHelp": "Content blocks and practice are assembled from the current revision; preview does not record learning data.",
+    "teacherPreviewTitle": "Student-view preview",
+    "teacherPreviewHelp": "Content, practice, and notes match the student view; preview activity never enters student records.",
     "backToCourseFiles": "Back to course files",
     "selectNode": "Select a learning objective",
     "course": "Current course",
