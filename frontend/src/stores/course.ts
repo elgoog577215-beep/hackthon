@@ -52,6 +52,12 @@ const downloadBlob = (blob: Blob, filename: string) => {
 
 type CourseProjection = 'published' | 'generation_preview'
 
+export type TeacherCourseSpaceCreate = {
+    course_name: string
+    academic_year: string
+    term: string
+}
+
 type GenerationPreviewEnvelope = {
     schema_version: 'generation_preview_v1' | 'generation_preview_v2'
     projection: 'generation_workspace'
@@ -178,6 +184,18 @@ export const useCourseStore = defineStore('course', {
     get notes(): Note[] { return this._noteStore().notes },
 
     // ========== Course CRUD ==========
+    async createTeacherCourseSpace(payload: TeacherCourseSpaceCreate) {
+        const response = await http.post('/api/teacher/courses', payload)
+        return response.data as {
+            course_id: string
+            course_name: string
+            package_id: string
+            academic_year: string
+            term: string
+            status: 'draft'
+        }
+    },
+
     async createCourse(courseName: string) {
         await this._genStore().generateCourse(courseName)
         return this.currentCourseId

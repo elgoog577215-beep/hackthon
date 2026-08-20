@@ -147,11 +147,10 @@
       </aside>
     </div>
 
-    <CourseGenerationDialog
+    <CreateCourseSpaceDialog
       v-model="createDialogOpen"
       :busy="creating"
-      @generate="generateCourse"
-      @error="message => ElMessage.error(message)"
+      @create="createCourseSpace"
     />
     <CourseWorkbench v-model="workbenchOpen" initial-section="tasks" :course-id="workbenchCourseId" />
   </section>
@@ -166,11 +165,10 @@ import {
   Clock3, Columns3, ListTodo, LoaderCircle, MapPin, Plus, RefreshCw, Search,
   TriangleAlert, X,
 } from 'lucide-vue-next'
-import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
+import CreateCourseSpaceDialog from '../components/CreateCourseSpaceDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import { t } from '../shared/i18n'
-import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import {
@@ -257,15 +255,15 @@ function courseStatus(courseId: string) {
   if (!task) return ''
   return ({ running: t('teacherHome.courseGenerating'), pending: t('teacherHome.courseQueued'), paused: t('teacherHome.coursePaused'), waiting_for_review: t('teacherHome.courseReview'), error: t('teacherHome.courseError') } as Record<string, string>)[task.status] || ''
 }
-async function generateCourse(payload: { subject: string; options: CourseGenerationOptions }) {
+async function createCourseSpace(payload: { course_name: string; academic_year: string; term: string }) {
   if (creating.value) return
   creating.value = true
   try {
-    const result = await courseStore.generateCourse(payload.subject, payload.options)
-    if (!result?.courseId) throw new Error(t('teacherHome.createFailed'))
+    const result = await courseStore.createTeacherCourseSpace(payload)
+    if (!result?.course_id) throw new Error(t('teacherHome.createFailed'))
     createDialogOpen.value = false
     await courseStore.fetchCourseList({ surface: 'teacher' })
-    openCourse(result.courseId)
+    openCourse(result.course_id)
   } catch { ElMessage.error(t('teacherHome.createFailed')) } finally { creating.value = false }
 }
 function refreshAfterCalendarSave() { void loadCalendar() }

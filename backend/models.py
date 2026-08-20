@@ -266,6 +266,7 @@ class LearnerStartingProfile(BaseModel):
 
 class CourseGenerationRequest(BaseModel):
     request_id: Optional[str] = Field(default=None, min_length=8, max_length=200)
+    target_course_id: Optional[str] = Field(default=None, min_length=1, max_length=200)
     subject: str = Field(..., min_length=1, max_length=200)
     target_audience: Optional[str] = Field(default="大学生", max_length=500)
     teacher_course_brief: Optional[TeacherCourseBriefV1] = None

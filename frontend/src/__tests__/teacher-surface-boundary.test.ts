@@ -16,6 +16,8 @@ describe('calendar and course file-space boundary', () => {
     expect(home).toContain('class="course-rail"')
     expect(home).toContain('class="calendar-surface"')
     expect(home).toContain('class="day-inspector"')
+    expect(home).toContain('<CreateCourseSpaceDialog')
+    expect(home).not.toContain('<CourseGenerationDialog')
     expect(home).not.toContain('v-if="!visibleSessions.length" class="calendar-empty"')
     expect(workspace).toContain('<TeacherCourseSpaceView')
     expect(workspace).toContain('<CourseOutlineReview')
@@ -50,6 +52,8 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace.match(/<GenerationLessonPlan/g)).toHaveLength(1)
     expect(workspace).toContain(':plan="selectedLessonPlan"')
     expect(workspace).toContain('@open-outline="outlineOpen = true"')
+    expect(workspace).toContain('@create-outline="generationDialogOpen = true"')
+    expect(workspace).toContain("target_course_id: courseId.value")
     expect(workspace).toContain('@open-teaching-plan="openLessonPlan"')
     expect(lessonPlan).toContain("visibleScope?: 'both' | 'overall' | 'sections'")
     expect(lessonPlan).toContain('embedded?: boolean')
@@ -75,6 +79,8 @@ describe('calendar and course file-space boundary', () => {
     expect(fileSpace).toContain('async function exportManagedNode')
     expect(fileSpace).toContain("node.type === 'content'")
     expect(fileSpace).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
+    expect(fileSpace).toContain('const createOptions = computed')
+    expect(fileSpace).toContain("item.type === type && item.status !== 'missing'")
   })
 
   it('keeps the published formal workspace focused on course, practice, and PPT', () => {

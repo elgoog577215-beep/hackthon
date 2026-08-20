@@ -1304,7 +1304,22 @@ class TaskManager:
         existing_bindings = list(request_snapshot.get("material_bindings") or [])
         request_snapshot["material_bindings"] = existing_bindings + legacy_bindings
         request_snapshot["materials"] = metadata_only
-        course_id = str(uuid.uuid4())
+        target_course_id = str(request_snapshot.get("target_course_id") or "").strip()
+        course_id = target_course_id or str(uuid.uuid4())
+        draft_snapshot: dict[str, Any] | None = None
+        if target_course_id:
+            if not self.storage:
+                raise CourseDocumentConflict("Teacher draft storage is unavailable")
+            candidate = self.storage.load_course(target_course_id)
+            if not isinstance(candidate, dict) or not candidate:
+                raise CourseDocumentConflict("Teacher draft does not exist")
+            if (
+                candidate.get("course_status") != "draft"
+                or candidate.get("authoring_surface") != "teacher"
+                or candidate.get("generation_job_id")
+            ):
+                raise CourseDocumentConflict("Course is not an available teacher draft")
+            draft_snapshot = deepcopy(candidate)
         task_id = str(uuid.uuid4())
         task_type = (
             "teacher_outline_generation"
@@ -1345,12 +1360,20 @@ class TaskManager:
                 course_data=course_data,
             )
             workspace_created = True
-            shell = await self._course_document_repository.create_generation_shell(
-                course_id,
-                title=subject,
-                job_id=task_id,
-                metadata=course_data,
-            )
+            if draft_snapshot is not None:
+                shell = await self._course_document_repository.claim_teacher_draft_for_generation(
+                    course_id,
+                    title=subject,
+                    job_id=task_id,
+                    metadata=course_data,
+                )
+            else:
+                shell = await self._course_document_repository.create_generation_shell(
+                    course_id,
+                    title=subject,
+                    job_id=task_id,
+                    metadata=course_data,
+                )
             task_id = await self.create_task(
                 course_id,
                 task_type,
@@ -1362,14 +1385,19 @@ class TaskManager:
             )
         except BaseException:
             raw = self.storage.load_course(course_id) if self.storage else None
-            if isinstance(raw, dict) and raw.get("generation_job_id") == task_id:
+            if draft_snapshot is not None and self.storage:
+                await self.storage.save_course(course_id, draft_snapshot)
+            elif isinstance(raw, dict) and raw.get("generation_job_id") == task_id:
                 await self._delete_stored_course(course_id)
             if workspace_created:
                 self._generation_workspace_repository.delete(task_id)
             self._version_repository.delete_course(course_id)
             self._learning_asset_repository.delete_course(course_id)
             self._question_bank_repository.delete_course(course_id)
-            self._reset_course_service_runtime(course_id, preserve_course=False)
+            self._reset_course_service_runtime(
+                course_id,
+                preserve_course=draft_snapshot is not None,
+            )
             raise
         return {
             "job_id": task_id,

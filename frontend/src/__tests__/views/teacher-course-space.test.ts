@@ -62,7 +62,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-inspector').text()).not.toContain('结构化同源')
   })
 
-  it('为五类教学资产提供不同的新建表单', () => {
+  it('按当前目录提供单例教学资产和资料文件的新建入口', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
     const storeSource = readFileSync(resolve(process.cwd(), 'src/stores/teacherLessonAuthoring.ts'), 'utf8')
     expect(source).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
@@ -73,6 +73,10 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain('class="ppt-origin-picker"')
     expect(source).toContain('@command="handleCreateCommand"')
     expect(source).toContain('function handleCreateCommand(command: unknown)')
+    expect(source).toContain('const createOptions = computed')
+    expect(source).toContain("item.type === type && item.status !== 'missing'")
+    expect(source).toContain("if (type === 'folder' && !isMaterialArea.value) return")
+    expect(source).toContain("emit('createOutline')")
     expect(source).toContain("pptImportAction: 'derive_plan'")
     expect(storeSource).toContain('source_package_id: source?.packageId')
     expect(zhMessages.courseFiles.form.derivePlanFromPpt).toContain('生成教案草稿')

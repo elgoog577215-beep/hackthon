@@ -290,6 +290,7 @@ export interface TeacherCourseBriefV1 {
 export interface GenerateCourseParams {
   subject: string;
   request_id?: string;
+  target_course_id?: string;
   difficulty: DifficultyLevel;
   composition_style: CourseCompositionStyle;
   style?: TeachingStyle;

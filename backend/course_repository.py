@@ -162,6 +162,77 @@ class CourseDocumentRepository:
         await self._save_raw(course_id, raw)
         return self.document_envelope(course_id)
 
+    async def create_teacher_draft(
+        self,
+        course_id: str,
+        *,
+        title: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Create an empty canonical course owned by the teacher workspace."""
+        if self.storage.load_course(course_id):
+            raise CourseDocumentConflict("Course already exists")
+
+        document = refresh_document_revision(CourseDocument(
+            course_id=course_id,
+            title=title or "未命名课程",
+            sections=[],
+            blocks=[],
+        ))
+        raw = self._generated_metadata(metadata or {})
+        raw.update({
+            "course_id": course_id,
+            "course_name": title or "未命名课程",
+            "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+            "course_document": document.model_dump(mode="json"),
+            "course_document_revision": document.document_revision,
+            "course_revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
+            "course_document_authoritative": True,
+            "current_course_version_id": "",
+            "generation_job_id": "",
+            "generation_status": "draft",
+            "course_status": "draft",
+            "authoring_surface": "teacher",
+            "course_operation_log": [],
+        })
+        await self._save_raw(course_id, raw)
+        return self.document_envelope(course_id)
+
+    async def claim_teacher_draft_for_generation(
+        self,
+        course_id: str,
+        *,
+        title: str,
+        job_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Attach one generation job to an empty teacher draft without changing its ID."""
+        raw = self.load_raw(course_id)
+        if not self.is_canonical(raw):
+            raise CourseDocumentConflict("Teacher draft must be a canonical course")
+        if raw.get("course_status") != "draft" or raw.get("generation_job_id"):
+            raise CourseDocumentConflict("Course is not an available teacher draft")
+        document = CourseDocument.model_validate(raw["course_document"])
+        if document.sections or document.blocks:
+            raise CourseDocumentConflict("Course draft already has structured content")
+
+        if title and title != document.title:
+            document.title = title
+            document = refresh_document_revision(document)
+        raw.update(self._generated_metadata(metadata or {}))
+        raw.update({
+            "course_name": title or raw.get("course_name") or "未命名课程",
+            "course_document": document.model_dump(mode="json"),
+            "course_document_revision": document.document_revision,
+            "course_revision_vector": revision_vector_for_document(document).model_dump(mode="json"),
+            "generation_job_id": job_id,
+            "generation_status": "queued",
+            "course_status": "generating",
+            "authoring_surface": "teacher",
+        })
+        await self._save_raw(course_id, raw)
+        return self.document_envelope(course_id)
+
     async def update_generation_state(
         self,
         course_id: str,

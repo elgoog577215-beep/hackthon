@@ -46,16 +46,13 @@
           </nav>
           <div class="toolbar-actions">
             <label class="list-search"><Search :size="14" /><input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" /></label>
-            <el-dropdown trigger="click" @command="handleCreateCommand">
-              <button class="new-button" type="button"><Plus :size="15" />{{ t('courseFiles.new') }}<ChevronDown :size="14" /></button>
+            <el-dropdown trigger="click" :disabled="!createOptions.length" @command="handleCreateCommand">
+              <button class="new-button" type="button" :disabled="!createOptions.length"><Plus :size="15" />{{ t('courseFiles.new') }}<ChevronDown :size="14" /></button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="outline"><FileText :size="14" />{{ t('courseFiles.types.outline') }}</el-dropdown-item>
-                  <el-dropdown-item command="lesson_plan"><ClipboardList :size="14" />{{ t('courseFiles.types.lessonPlan') }}</el-dropdown-item>
-                  <el-dropdown-item command="material"><BookOpen :size="14" />{{ t('courseFiles.types.material') }}</el-dropdown-item>
-                  <el-dropdown-item command="ppt"><Presentation :size="14" />{{ t('courseFiles.types.ppt') }}</el-dropdown-item>
-                  <el-dropdown-item command="practice"><ListChecks :size="14" />{{ t('courseFiles.types.practice') }}</el-dropdown-item>
-                  <el-dropdown-item divided command="folder"><FolderPlus :size="14" />{{ t('courseFiles.types.folder') }}</el-dropdown-item>
+                  <el-dropdown-item v-for="option in createOptions" :key="option.type" :command="option.type" :divided="option.divided">
+                    <component :is="createOptionIcons[option.type]" :size="14" />{{ option.label }}
+                  </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -93,7 +90,7 @@
           </button>
           <div v-if="!filteredChildren.length" class="file-empty">
             <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong><span>{{ emptyFolderHelp }}</span>
-            <button type="button" @click="openCreateDialog(defaultCreateType)"><Plus :size="14" />{{ t('courseFiles.createHere') }}</button>
+            <button v-if="createOptions.length" type="button" @click="handleCreateCommand(defaultCreateType)"><Plus :size="14" />{{ t('courseFiles.createHere') }}</button>
           </div>
         </div>
         <p v-if="status" class="runtime-note" role="status">{{ status }}</p>
@@ -243,7 +240,7 @@ type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean;
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
 
 const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), { embedded: false, courseId: '', courseTitle: '' })
-const emit = defineEmits<{ (event: 'openOutline'): void; (event: 'openTeachingPlan', lessonId: string): void; (event: 'openTasks'): void }>()
+const emit = defineEmits<{ (event: 'openOutline'): void; (event: 'createOutline'): void; (event: 'openTeachingPlan', lessonId: string): void; (event: 'openTasks'): void }>()
 const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
@@ -431,7 +428,46 @@ const breadcrumbs = computed(() => {
   while (node?.parentId) { values.unshift(node); node = flatNodes.value.get(node.parentId) }
   return values
 })
-const defaultCreateType = computed<CreateType>(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? 'material' : currentFolder.value?.type === 'lesson' ? 'lesson_plan' : 'folder')
+const createOptionIcons = {
+  outline: markRaw(FileText), lesson_plan: markRaw(ClipboardList), material: markRaw(BookOpen),
+  ppt: markRaw(Presentation), practice: markRaw(ListChecks), folder: markRaw(FolderPlus),
+}
+const isMaterialArea = computed(() => {
+  let node = currentFolder.value
+  while (node) {
+    if (node.type === 'material' || node.type === 'reference') return true
+    node = node.parentId ? flatNodes.value.get(node.parentId) : undefined
+  }
+  return false
+})
+const createOptions = computed<Array<{ type: CreateType; label: string; divided?: boolean }>>(() => {
+  const folder = currentFolder.value
+  if (!folder) return []
+  if (folder.type === 'root') {
+    const outline = folder.children?.find(item => item.type === 'outline')
+    return outline?.status === 'missing'
+      ? [{ type: 'outline', label: t('courseFiles.types.outline') }]
+      : []
+  }
+  if (folder.type === 'lesson') {
+    const options: Array<{ type: CreateType; label: string; divided?: boolean }> = []
+    const singletonTypes: CreateType[] = ['lesson_plan', 'ppt', 'practice']
+    singletonTypes.forEach(type => {
+      const existing = folder.children?.find(item => item.type === type && item.status !== 'missing')
+      if (!existing) options.push({ type, label: typeLabel({ type } as WorkspaceNode) })
+    })
+    options.push({ type: 'material', label: t('courseFiles.types.material'), divided: Boolean(options.length) })
+    return options
+  }
+  if (isMaterialArea.value) {
+    return [
+      { type: 'material', label: t('courseFiles.types.material') },
+      { type: 'folder', label: t('courseFiles.types.folder'), divided: true },
+    ]
+  }
+  return []
+})
+const defaultCreateType = computed<CreateType>(() => createOptions.value[0]?.type || 'material')
 const emptyFolderTitle = computed(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
 const emptyFolderHelp = computed(() => currentFolder.value?.type === 'material'
   ? t('courseFiles.emptyLessonMaterialsHelp')
@@ -639,11 +675,36 @@ async function refresh() {
 async function reloadAll() { busy.value = true; try { await Promise.all([refresh(), props.courseId ? courseStore.loadCourse(props.courseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }) : Promise.resolve()]) } finally { busy.value = false } }
 async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`)).data }
 
-function handleCreateCommand(command: unknown) { openCreateDialog(String(command || '')) }
+function handleCreateCommand(command: unknown) {
+  const type = String(command || '') as CreateType
+  if (!createOptions.value.some(option => option.type === type)) return
+  if (type === 'outline') {
+    const outline = flatNodes.value.get('managed:outline')
+    if (outline?.status === 'missing') emit('createOutline')
+    else emit('openOutline')
+    return
+  }
+  openCreateDialog(type)
+}
 function openCreateDialog(command: CreateType | string, lessonId: unknown = '') {
+  const type = command as CreateType
+  if (type === 'outline') {
+    handleCreateCommand(type)
+    return
+  }
+  const targetLessonId = typeof lessonId === 'string' && lessonId ? lessonId : currentFolder.value?.lessonId || ''
+  if (['lesson_plan', 'ppt', 'practice'].includes(type) && targetLessonId) {
+    const existing = [...flatNodes.value.values()].find(node => node.type === type && node.lessonId === targetLessonId && node.status !== 'missing')
+    if (existing) {
+      selectedNode.value = existing
+      void primaryAction(existing)
+      return
+    }
+  }
+  if (type === 'folder' && !isMaterialArea.value) return
   resetCreateForm()
-  createType.value = command as CreateType
-  createForm.value.lessonId = typeof lessonId === 'string' && lessonId ? lessonId : currentFolder.value?.lessonId || ''
+  createType.value = type
+  createForm.value.lessonId = targetLessonId
   createOpen.value = true
   void nextTick(() => createDialog.value?.focus())
 }

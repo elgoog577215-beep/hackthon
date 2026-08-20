@@ -32,6 +32,7 @@
       :course-id="courseId"
       :course-title="courseTitle"
       @open-outline="outlineOpen = true"
+      @create-outline="generationDialogOpen = true"
       @open-teaching-plan="openLessonPlan"
       @open-tasks="workbenchOpen = true"
     />
@@ -61,6 +62,12 @@
     </el-drawer>
 
     <CourseWorkbench v-model="workbenchOpen" initial-section="tasks" :course-id="courseId" />
+    <CourseGenerationDialog
+      v-model="generationDialogOpen"
+      :busy="generationStarting"
+      :initial-subject="courseTitle"
+      @generate="startOutlineGeneration"
+    />
 
     <div v-if="agentOpen" class="teacher-agent-host">
       <SideAIPanel
@@ -82,11 +89,13 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, ListTodo, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
+import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
+import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
@@ -104,6 +113,8 @@ const lessonOpen = ref(false)
 const selectedLessonId = ref('')
 const workbenchOpen = ref(false)
 const agentOpen = ref(false)
+const generationDialogOpen = ref(false)
+const generationStarting = ref(false)
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -145,6 +156,24 @@ async function loadWorkspace() {
 function openLessonPlan(lessonId: string) {
   selectedLessonId.value = lessonId
   lessonOpen.value = true
+}
+
+async function startOutlineGeneration(payload: { subject: string; options: CourseGenerationOptions }) {
+  if (generationStarting.value) return
+  generationStarting.value = true
+  try {
+    const result = await courseStore.generateCourse(payload.subject || courseTitle.value, {
+      ...payload.options,
+      target_course_id: courseId.value,
+      teacher_authoring_mode: 'lesson_assets_v1',
+    })
+    if (!result?.courseId) return
+    generationDialogOpen.value = false
+    await loadWorkspace()
+    workbenchOpen.value = true
+  } finally {
+    generationStarting.value = false
+  }
 }
 
 function openCoursePreview() {

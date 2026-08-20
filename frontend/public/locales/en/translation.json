@@ -3708,6 +3708,18 @@
     "weekdays": { "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "7": "Sun" },
     "calendarPopover": { "course": "Course", "conflict": "This teacher has another class in the same time slot", "incomplete": "The date is set, but the time is incomplete, so this session is not formally scheduled", "time": "Time", "teacher": "Teacher", "linked": "Session linked", "unlinked": "Not linked", "openToCheck": "Open preparation to check", "viewSchedule": "View schedule", "prepare": "Prepare", "editSession": "Click the session to edit" }
   },
+  "courseSpaceCreate": {
+    "title": "Create course space",
+    "help": "Create an empty course space first, then add or import its outline from the file manager.",
+    "courseName": "Course name",
+    "courseNamePlaceholder": "e.g. Introduction to Artificial Intelligence",
+    "academicYear": "Academic year",
+    "term": "Term",
+    "spring": "Spring",
+    "autumn": "Autumn",
+    "rule": "Creating the space does not generate the whole course. Add the outline, lesson plans, and PPTs when you need them in the file space.",
+    "submit": "Create course space"
+  },
   "courseFiles": {
     "spaceLabel": "Course file space", "sameSource": "Structured same-source", "teacherAgent": "Teacher agent", "previewCourse": "Preview formal course", "folderNavigation": "Course folders", "expandFolder": "Expand folder", "collapseFolder": "Collapse folder", "courseLevel": "Course-wide", "lessonLevel": "By session", "otherLevel": "Other", "assembledCourseTitle": "The formal course is assembled from structured blocks", "assembledCourseHelp": "Content and practice stay separate in the file space and merge from the current revision at preview time.", "allCourseFiles": "Course files", "backToCalendar": "Back to calendar", "taskCenter": "Task center", "untitledCourse": "Untitled course", "loading": "Loading course files", "loadFailed": "Could not load course", "outlineEditor": "Edit course outline",
     "lessonDrawerTitle": "Edit lesson plan · {title}", "lessonPlan": "Lesson plan", "lessonPlanUnavailable": "No editable version is available yet.", "preparingSpace": "Preparing course file space", "spaceUnavailable": "Course file space is unavailable",

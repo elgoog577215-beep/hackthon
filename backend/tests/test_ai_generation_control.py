@@ -280,6 +280,56 @@ async def test_generation_creation_is_idempotent_for_same_request_id(
 
 
 @pytest.mark.asyncio
+async def test_teacher_outline_generation_claims_existing_draft_course(
+    tmp_path, monkeypatch
+):
+    manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
+    await manager._course_document_repository.create_teacher_draft(
+        "draft-course-1",
+        title="人工智能通识课",
+        metadata={"owner_id": "teacher-a"},
+    )
+
+    job = await manager.create_generation_job({
+        "subject": "人工智能通识课",
+        "target_course_id": "draft-course-1",
+        "teacher_authoring_mode": "lesson_assets_v1",
+    })
+
+    assert job["course_id"] == "draft-course-1"
+    claimed = storage.load_course("draft-course-1")
+    assert claimed["course_status"] == "generating"
+    assert claimed["generation_job_id"] == job["job_id"]
+    assert claimed["owner_id"] == "teacher-a"
+    assert workspaces.load(job["job_id"])["course_id"] == "draft-course-1"
+
+
+@pytest.mark.asyncio
+async def test_failed_teacher_draft_claim_restores_empty_course(
+    tmp_path, monkeypatch
+):
+    manager, storage, workspaces = _lifecycle_manager(tmp_path, monkeypatch)
+    await manager._course_document_repository.create_teacher_draft(
+        "draft-course-2",
+        title="数据结构",
+        metadata={"owner_id": "teacher-a"},
+    )
+    manager.create_task = AsyncMock(side_effect=OSError("tasks persistence failed"))
+
+    with pytest.raises(OSError, match="tasks persistence failed"):
+        await manager.create_generation_job({
+            "subject": "数据结构",
+            "target_course_id": "draft-course-2",
+            "teacher_authoring_mode": "lesson_assets_v1",
+        })
+
+    restored = storage.load_course("draft-course-2")
+    assert restored["course_status"] == "draft"
+    assert restored["generation_job_id"] == ""
+    assert list(workspaces.root_dir.glob("*.json")) == []
+
+
+@pytest.mark.asyncio
 async def test_failed_job_can_resume_same_course_after_provider_recovery(tmp_path, monkeypatch):
     manager = await _durable_generation_manager(tmp_path, monkeypatch, status="failed")
     manager.tasks["t1"]["error"] = "provider unavailable"

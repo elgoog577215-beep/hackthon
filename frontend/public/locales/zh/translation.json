@@ -3748,6 +3748,18 @@
     "weekdays": { "1": "周一", "2": "周二", "3": "周三", "4": "周四", "5": "周五", "6": "周六", "7": "周日" },
     "calendarPopover": { "course": "课程", "conflict": "同一教师在此时段还有其他课程", "incomplete": "日期已填写，但时间尚未完整，暂未进入正式排期", "time": "时间", "teacher": "教师", "linked": "已关联讲次", "unlinked": "待关联", "openToCheck": "进入备课查看", "viewSchedule": "查看排期", "prepare": "进入备课", "editSession": "点击课次进入编辑" }
   },
+  "courseSpaceCreate": {
+    "title": "新建课程空间",
+    "help": "先建立一个空的课程空间，再进入文件管理器新建或导入大纲。",
+    "courseName": "课程名称",
+    "courseNamePlaceholder": "例如：人工智能通识课",
+    "academicYear": "学年",
+    "term": "学期",
+    "spring": "春季",
+    "autumn": "秋季",
+    "rule": "创建后不会自动生成整门课程；大纲、教案和 PPT 由你在文件空间中按需创建。",
+    "submit": "创建课程空间"
+  },
   "courseFiles": {
     "spaceLabel": "课程文件空间",
     "sameSource": "结构化同源",

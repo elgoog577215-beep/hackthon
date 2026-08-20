@@ -5,10 +5,12 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 import sys
 import os
+import uuid
+from datetime import datetime, timezone
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -33,6 +35,7 @@ from web_material_curation import (
     load_course_exclusions,
     normalize_exclusions,
 )
+from teacher_course_space import teacher_course_space_repository
 
 router = APIRouter(tags=["courses"])
 
@@ -70,6 +73,12 @@ class NodeConfigUpdateRequest(BaseModel):
 class CourseDocumentMigrationRequest(BaseModel):
     source_checksum: str
     confirm: bool = False
+
+
+class TeacherCourseCreateRequest(BaseModel):
+    course_name: str = Field(min_length=1, max_length=200)
+    academic_year: str = Field(default="", max_length=30)
+    term: str = Field(default="", max_length=30)
 
 
 class WebMaterialCurationRequest(BaseModel):
@@ -157,6 +166,56 @@ async def list_teacher_courses(
     return await run_in_threadpool(_list_teacher_courses, known_task_ids)
 
 
+@router.post("/teacher/courses", status_code=201)
+async def create_teacher_course(
+    body: TeacherCourseCreateRequest,
+    request: Request,
+):
+    """Create one empty teacher course and its bound file space."""
+    course_name = body.course_name.strip()
+    if not course_name:
+        raise HTTPException(status_code=422, detail="请填写课程名称")
+    now = datetime.now(timezone.utc)
+    start_year = now.year if now.month >= 8 else now.year - 1
+    academic_year = body.academic_year.strip() or f"{start_year}-{start_year + 1}"
+    term = body.term.strip() or ("秋季" if now.month >= 8 else "春季")
+    owner_id = resolve_user_id(request.headers.get("X-User-Id"))
+    course_id = str(uuid.uuid4())
+    repository = get_course_document_repository()
+    await repository.create_teacher_draft(
+        course_id,
+        title=course_name,
+        metadata={
+            "owner_id": owner_id,
+            "academic_year": academic_year,
+            "term": term,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
+        },
+    )
+    try:
+        package = await run_in_threadpool(
+            teacher_course_space_repository.create_package,
+            owner_id,
+            course_name,
+            academic_year,
+            term,
+            "blank",
+            course_id,
+        )
+    except BaseException:
+        storage.delete_course(course_id)
+        raise
+    return {
+        "course_id": course_id,
+        "course_name": course_name,
+        "package_id": package["package_id"],
+        "academic_year": academic_year,
+        "term": term,
+        "status": "draft",
+    }
+
+
 @router.get("/courses/{course_id}")
 async def get_course(course_id: str):
     return project_learning_objective_bindings(await get_course_or_404(course_id))
@@ -213,10 +272,19 @@ async def create_course_generation_job(
                 "enabled_course_types": sorted(ENABLED_COURSE_TYPES),
             },
         )
+    actor_id = resolve_user_id(request.headers.get("X-User-Id"))
+    if req.target_course_id:
+        draft = storage.load_course(req.target_course_id)
+        if not draft or draft.get("owner_id") != actor_id:
+            raise HTTPException(status_code=404, detail="课程草稿不存在")
+        if (
+            draft.get("course_status") != "draft"
+            or draft.get("authoring_surface") != "teacher"
+            or draft.get("generation_job_id")
+        ):
+            raise HTTPException(status_code=409, detail="课程大纲已存在或正在生成")
     request_snapshot = req.model_dump(mode="json")
-    request_snapshot["_retrieval_actor_id"] = resolve_user_id(
-        request.headers.get("X-User-Id")
-    )
+    request_snapshot["_retrieval_actor_id"] = actor_id
     return await tm.create_generation_job(request_snapshot)
 
 
