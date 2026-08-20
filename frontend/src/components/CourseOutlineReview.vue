@@ -154,9 +154,6 @@
               <label for="outline-adjustment-instruction">
                 {{ t('courseGeneration.outlineReview.adjustmentTitle', '目录调整') }}
               </label>
-              <span class="outline-review__count">
-                {{ t('courseGeneration.outlineReview.sectionCount', '{count} 个目录节点').replace('{count}', String(blueprintNodes.length)) }}
-              </span>
             </div>
             <textarea
               id="outline-adjustment-instruction"
@@ -271,60 +268,69 @@
           </section>
           </div>
 
-          <nav
-            v-if="chapterJumps.length > 1"
-            class="outline-review__chapter-nav"
-            :aria-label="t('courseGeneration.outlineReview.chapterNavigation', '按章快速定位')"
-          >
-            <span>{{ t('courseGeneration.outlineReview.chapterNavigationShort', '快速定位') }}</span>
-            <div>
-              <button
-                v-for="chapter in chapterJumps"
-                :key="chapter.node.node_id || chapter.index"
-                type="button"
-                :title="chapter.node.node_name"
-                @click="jumpToChapter(chapter.index)"
-              >
-                {{ chapter.node.node_name }}
-              </button>
-            </div>
-          </nav>
-
-          <ol class="outline-review__nodes">
-            <li
-              v-for="(node, index) in blueprintNodes"
-              :key="node.node_id || index"
-              :id="outlineNodeId(index)"
-              :data-level="node.node_level || 2"
+          <div class="outline-review__chapters" data-testid="outline-chapter-list">
+            <section
+              v-for="group in outlineGroups"
+              :key="group.key"
+              class="outline-review__chapter"
+              :class="{ 'outline-review__chapter--ungrouped': !group.chapter }"
             >
-              <span class="outline-review__index">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="outline-review__branch" aria-hidden="true"></span>
-              <div>
-                <div v-if="node.learning_path_role" class="outline-review__node-meta">
-                  <span :data-role="normalizedPathRole(node.learning_path_role)">
-                    {{ pathRoleLabel(node.learning_path_role) }}
+              <header v-if="group.chapter" class="outline-review__chapter-heading">
+                <div v-if="group.chapter.node.learning_path_role" class="outline-review__node-meta">
+                  <span :data-role="normalizedPathRole(group.chapter.node.learning_path_role)">
+                    {{ pathRoleLabel(group.chapter.node.learning_path_role) }}
                   </span>
-                  <p v-if="node.path_reason">{{ node.path_reason }}</p>
+                  <p v-if="group.chapter.node.path_reason">{{ group.chapter.node.path_reason }}</p>
                 </div>
                 <input
-                  v-model="node.node_name"
+                  v-model="group.chapter.node.node_name"
                   type="text"
                   :disabled="adjustmentBusy"
                   :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                   @input="invalidateProposal"
                 />
                 <textarea
-                  v-if="Number(node.node_level || 2) >= 2 || 'learning_objective' in node"
-                  v-model="node.learning_objective"
+                  v-if="'learning_objective' in group.chapter.node"
+                  v-model="group.chapter.node.learning_objective"
                   rows="1"
                   :disabled="adjustmentBusy"
-                  :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '写清这一节结束后，学习者能够做到什么')"
+                  :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
                   :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
                   @input="invalidateProposal"
                 />
+              </header>
+
+              <div v-if="group.sections.length" class="outline-review__section-list">
+                <article
+                  v-for="item in group.sections"
+                  :key="item.node.node_id || item.index"
+                  class="outline-review__section"
+                >
+                  <div v-if="item.node.learning_path_role" class="outline-review__node-meta">
+                    <span :data-role="normalizedPathRole(item.node.learning_path_role)">
+                      {{ pathRoleLabel(item.node.learning_path_role) }}
+                    </span>
+                    <p v-if="item.node.path_reason">{{ item.node.path_reason }}</p>
+                  </div>
+                  <input
+                    v-model="item.node.node_name"
+                    type="text"
+                    :disabled="adjustmentBusy"
+                    :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
+                    @input="invalidateProposal"
+                  />
+                  <textarea
+                    v-model="item.node.learning_objective"
+                    rows="1"
+                    :disabled="adjustmentBusy"
+                    :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
+                    :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
+                    @input="invalidateProposal"
+                  />
+                </article>
               </div>
-            </li>
-          </ol>
+            </section>
+          </div>
 
           <p v-if="!blueprintNodes.length" class="outline-review__empty">
             {{ t('courseGeneration.outlineReview.empty', '目录尚未形成，请重新载入后再确认。') }}
@@ -472,9 +478,30 @@ const blueprintNodes = computed<any[]>(() => (
       ? blueprintDraft.value.course_blueprint.nodes
       : []
 ))
-const chapterJumps = computed(() => blueprintNodes.value
-  .map((node, index) => ({ node, index }))
-  .filter(item => Number(item.node.node_level || 2) === 1))
+const outlineGroups = computed(() => {
+  const chapters = blueprintNodes.value
+    .map((node, index) => ({ node, index }))
+    .filter(item => Number(item.node.node_level || 2) === 1)
+    .map(item => ({
+      key: String(item.node.node_id || `chapter-${item.index}`),
+      chapter: item,
+      sections: [] as Array<{ node: any; index: number }>,
+    }))
+  const chapterById = new Map(chapters.map(group => [String(group.chapter.node.node_id || ''), group]))
+  const ungrouped = {
+    key: 'ungrouped-sections',
+    chapter: null as null,
+    sections: [] as Array<{ node: any; index: number }>,
+  }
+
+  blueprintNodes.value.forEach((node, index) => {
+    if (Number(node.node_level || 2) === 1) return
+    const parent = chapterById.get(String(node.parent_node_id || ''))
+    ;(parent || ungrouped).sections.push({ node, index })
+  })
+
+  return ungrouped.sections.length ? [...chapters, ungrouped] : chapters
+})
 const courseType = computed(() => String(blueprintDraft.value?.course_type || props.task?.courseType || 'systematic'))
 const isProjectCourse = computed(() => courseType.value === 'project')
 const courseIntent = computed<Record<string, any>>(() => blueprintDraft.value?.course_intent || {})
@@ -510,17 +537,6 @@ function clone<T>(value: T): T {
 function listText(value: unknown) {
   if (!Array.isArray(value)) return ''
   return value.map(item => String(item || '').trim()).filter(Boolean).join('；')
-}
-
-function outlineNodeId(index: number) {
-  return `outline-review-node-${index}`
-}
-
-function jumpToChapter(index: number) {
-  const target = document.getElementById(outlineNodeId(index))
-  if (!target) return
-  const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-  target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
 }
 
 function normalizedPathRole(value: unknown) {
@@ -817,12 +833,6 @@ async function confirmOutline() {
   overflow:hidden;
   background:#fff;
 }
-.outline-review__count {
-  flex:0 0 auto;
-  color:#7b8494;
-  font-size:11px;
-  font-weight:750;
-}
 .outline-review__loading,
 .outline-review__load-error {
   grid-row:1;
@@ -960,7 +970,7 @@ async function confirmOutline() {
 .outline-retrieval--notice > small { grid-column:1/-1; color:#7c2d12; font-size:11px; }
 .outline-review__adjustment {
   display:grid;
-  grid-template-columns:minmax(180px,.8fr) minmax(280px,1.7fr) auto;
+  grid-template-columns:140px minmax(280px,1fr) auto;
   align-items:center;
   gap:14px;
   margin:0;
@@ -972,7 +982,7 @@ async function confirmOutline() {
   font-size:12px;
   font-weight:850;
 }
-.outline-review__adjustment-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.outline-review__adjustment-heading { display:flex; align-items:center; }
 .outline-review__adjustment textarea {
   min-height:56px;
   padding:9px 11px;
@@ -1083,94 +1093,66 @@ async function confirmOutline() {
   clip:rect(0,0,0,0);
   white-space:nowrap;
 }
-.outline-review__nodes {
+.outline-review__chapters {
   display:grid;
+  gap:22px;
   min-height:0;
   overflow:visible;
   margin:0;
-  padding:8px 0 20px;
-  list-style:none;
+  padding:24px 0 28px;
 }
-.outline-review__chapter-nav {
-  position:sticky;
-  z-index:2;
-  top:0;
-  min-height:40px;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:7px 0;
-  border-bottom:1px solid #e7e9ee;
-  background:rgba(255,255,255,.97);
+.outline-review__chapter {
+  min-width:0;
+  border-bottom:1px solid #e4e7ec;
 }
-.outline-review__chapter-nav > span {
-  flex:0 0 auto;
-  color:#7b8494;
-  font-size:11px;
+.outline-review__chapter-heading {
+  min-width:0;
+  padding:14px 18px;
+  border-radius:10px;
+  background:#f3f5f9;
+}
+.outline-review__chapter-heading input {
+  height:38px;
+  padding:0 8px;
+  color:#172033;
+  font-size:18px;
+  font-weight:800;
+}
+.outline-review__chapter-heading textarea {
+  min-height:36px;
+  margin-top:2px;
+  padding:7px 8px;
+  resize:vertical;
+  color:#687386;
+  font-size:12px;
+  line-height:1.5;
+}
+.outline-review__section-list {
+  margin-left:32px;
+}
+.outline-review__section {
+  min-width:0;
+  padding:14px 8px 14px 14px;
+  border-bottom:1px solid #edf0f4;
+}
+.outline-review__section:last-child { border-bottom:0; }
+.outline-review__chapter--ungrouped .outline-review__section-list { margin-left:0; }
+.outline-review__chapter--ungrouped .outline-review__section { padding-left:8px; }
+.outline-review__section input {
+  height:34px;
+  padding:0 8px;
+  color:#273144;
+  font-size:15px;
   font-weight:750;
 }
-.outline-review__chapter-nav > div {
-  min-width:0;
-  display:flex;
-  gap:4px;
-  overflow-x:auto;
-  scrollbar-width:none;
-}
-.outline-review__chapter-nav > div::-webkit-scrollbar { display:none; }
-.outline-review__chapter-nav button {
-  max-width:150px;
-  height:28px;
-  flex:0 0 auto;
-  overflow:hidden;
-  padding:0 9px;
-  border:1px solid transparent;
-  border-radius:6px;
-  color:#596579;
-  background:transparent;
-  cursor:pointer;
-  font-size:11px;
-  font-weight:700;
-  text-overflow:ellipsis;
-  white-space:nowrap;
-}
-.outline-review__chapter-nav button:hover,
-.outline-review__chapter-nav button:focus-visible {
-  border-color:#c9cdea;
-  color:#454ca8;
-  background:#f7f7ff;
-  outline:none;
-}
-.outline-review__nodes li {
-  position:relative;
-  display:grid;
-  grid-template-columns:34px 14px minmax(0,1fr);
-  gap:9px;
-  padding:10px 0;
-  border-bottom:1px solid #eef0f3;
-  scroll-margin-top:44px;
-}
-.outline-review__nodes li:last-child { border-bottom:0; }
-.outline-review__nodes li[data-level="1"] { margin-top:2px; }
-.outline-review__index {
-  padding-top:8px;
-  color:#969eac;
-  font:700 11px/1 ui-monospace,SFMono-Regular,monospace;
-}
-.outline-review__branch {
-  width:8px;
-  height:8px;
-  margin-top:7px;
-  border:1.5px solid #8f96a5;
-  border-radius:50%;
-  background:#fff;
-}
-.outline-review__nodes li[data-level="1"] .outline-review__branch {
-  width:10px;
-  height:10px;
-  margin-top:6px;
-  border:0;
-  border-radius:3px;
-  background:#4f5b70;
+.outline-review__section textarea {
+  min-height:36px;
+  margin-top:2px;
+  padding:7px 8px;
+  resize:vertical;
+  color:#687386;
+  font-size:12px;
+  line-height:1.5;
 }
 .outline-review__node-meta {
   min-width:0;
@@ -1218,26 +1200,6 @@ async function confirmOutline() {
   line-height:1.35;
   text-overflow:ellipsis;
   white-space:nowrap;
-}
-.outline-review__nodes input {
-  height:31px;
-  padding:0 8px;
-  font-size:14px;
-  font-weight:750;
-}
-.outline-review__nodes li[data-level="1"] input {
-  color:#182230;
-  font-size:15px;
-}
-.outline-review__nodes textarea {
-  height:38px;
-  min-height:38px;
-  margin-top:3px;
-  padding:7px 8px;
-  resize:vertical;
-  color:#687386;
-  font-size:13px;
-  line-height:1.55;
 }
 .outline-review__empty {
   margin:0;
@@ -1322,9 +1284,11 @@ async function confirmOutline() {
   .outline-review__diff-groups { grid-template-columns:1fr; }
   .outline-review__proposal-actions { display:grid; grid-template-columns:1fr 1.25fr; }
   .outline-review__proposal-actions button { width:100%; }
-  .outline-review__nodes { padding:4px 0 12px; }
-  .outline-review__chapter-nav { padding:6px 0; }
-  .outline-review__nodes li { grid-template-columns:26px 12px minmax(0,1fr); gap:6px; }
+  .outline-review__chapters { gap:16px; padding:16px 0 20px; }
+  .outline-review__chapter-heading { padding:11px 10px; border-radius:8px; }
+  .outline-review__chapter-heading input { font-size:16px; }
+  .outline-review__section-list { margin-left:14px; }
+  .outline-review__section { padding:11px 2px 11px 10px; }
   .outline-review__footer { align-items:stretch; flex-direction:column; gap:9px; padding:11px 0 13px; }
   .outline-review__actions { display:grid; grid-template-columns:.85fr 1.15fr; }
   .outline-review__actions button { padding:0 9px; }

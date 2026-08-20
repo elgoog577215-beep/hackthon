@@ -2009,8 +2009,6 @@
     },
     "outlineReview": {
       "ariaLabel": "Course outline confirmation",
-      "chapterNavigation": "Jump to chapter",
-      "chapterNavigationShort": "Jump to",
       "retrievalTitle": "Web-research outline proposal",
       "retrievalRevision": "Retrieval package revision {revision}",
       "retrievalPending": "Applies after outline confirmation",
@@ -2021,7 +2019,6 @@
       "retrievalRetryFailed": "Web verification failed again. The local outline is still available.",
       "retrievalOffline": "You can also confirm the current local outline and continue offline.",
       "retrievalStats": "Checked {total} candidate sources; {admitted} met the admission standard.",
-      "sectionCount": "Outline nodes · {count}",
       "loading": "Loading the editable outline",
       "loadErrorHelp": "Generated work remains saved. Reloading will not create a duplicate course.",
       "retry": "Retry",
@@ -2050,7 +2047,7 @@
         "verifyInProject": "Verify in project",
         "milestone": "Project milestone"
       },
-      "objectivePlaceholder": "Describe what the learner can do by the end of this section",
+      "objectivePlaceholder": "Learning objective (optional)",
       "empty": "The outline is not ready yet. Reload it before confirming.",
       "saving": "Saving",
       "save": "Save changes",

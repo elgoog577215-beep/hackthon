@@ -17,7 +17,7 @@ describe('course outline review layout', () => {
   it('keeps confirmation actions outside the scrollable body when retrieval content is tall', () => {
     const bodyStart = componentSource.indexOf('<div class="outline-review__body">')
     const setupStart = componentSource.indexOf('<div class="outline-review__setup">')
-    const nodesStart = componentSource.indexOf('<ol class="outline-review__nodes">')
+    const nodesStart = componentSource.indexOf('<div class="outline-review__chapters"')
     const footerStart = componentSource.indexOf('<footer class="outline-review__footer">')
 
     expect(bodyStart).toBeGreaterThan(-1)
@@ -33,8 +33,11 @@ describe('course outline review layout', () => {
     expect(cssDeclarations('.outline-review__body')).toContain('min-height:0')
     expect(cssDeclarations('.outline-review__body')).toContain('overflow:auto')
     expect(cssDeclarations('.outline-review__body')).toContain('scrollbar-gutter:stable')
-    expect(componentSource).toContain('class="outline-review__chapter-nav"')
-    expect(componentSource).toContain('@click="jumpToChapter(chapter.index)"')
+    expect(componentSource).toContain('class="outline-review__chapter-heading"')
+    expect(componentSource).toContain('class="outline-review__section-list"')
+    expect(componentSource).not.toContain('outline-review__chapter-nav')
+    expect(componentSource).not.toContain('outline-review__index')
+    expect(componentSource).not.toContain('outline-review__branch')
     expect(componentSource).not.toContain('class="outline-review__header"')
     expect(componentSource).not.toContain('class="outline-review__course-name"')
   })

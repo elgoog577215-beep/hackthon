@@ -2009,8 +2009,6 @@
     },
     "outlineReview": {
       "ariaLabel": "课程目录确认",
-      "chapterNavigation": "按章快速定位",
-      "chapterNavigationShort": "快速定位",
       "retrievalTitle": "联网研究调整提案",
       "retrievalRevision": "检索包修订 {revision}",
       "retrievalPending": "确认目录后生效",
@@ -2021,7 +2019,6 @@
       "retrievalRetryFailed": "联网核验重试失败，当前本地蓝图仍然保留。",
       "retrievalOffline": "也可以直接确认当前本地蓝图，离线继续。",
       "retrievalStats": "已检查 {total} 个候选来源，其中 {admitted} 个符合准入标准。",
-      "sectionCount": "{count} 个目录节点",
       "loading": "正在载入可编辑目录",
       "loadErrorHelp": "已生成结果仍然保留，重新载入不会重复创建课程。",
       "retry": "重试",
@@ -2050,7 +2047,7 @@
         "verifyInProject": "项目中验证",
         "milestone": "项目节点"
       },
-      "objectivePlaceholder": "写清这一节结束后，学习者能够做到什么",
+      "objectivePlaceholder": "学习目标（可选）",
       "empty": "目录尚未形成，请重新载入后再确认。",
       "saving": "保存中",
       "save": "保存修改",

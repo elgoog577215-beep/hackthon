@@ -104,7 +104,7 @@ describe('一句话调整课程目录', () => {
     })
     await flushPromises()
 
-    await wrapper.get('.outline-review__nodes textarea').setValue('准确选择生命周期入口')
+    await wrapper.get('.outline-review__section textarea').setValue('准确选择生命周期入口')
     await wrapper.get('.outline-review__adjustment textarea').setValue('新增一节组件组合，并把生命周期放在最前面')
     await wrapper.get('[data-testid="generate-outline-adjustment"]').trigger('click')
     await flushPromises()
@@ -133,7 +133,7 @@ describe('一句话调整课程目录', () => {
       ]),
     }))
     expect(wrapper.text()).toContain('方案已应用并保存')
-    expect(wrapper.findAll('.outline-review__nodes input').map(input => (input.element as HTMLInputElement).value))
+    expect(wrapper.findAll('.outline-review__chapters input').map(input => (input.element as HTMLInputElement).value))
       .toContain('组件组合')
     expect(course.nodes.map(node => node.node_name)).toContain('组件组合')
     expect(course.courseTree[0]?.children?.map(node => node.node_name)).toEqual([
@@ -163,7 +163,7 @@ describe('一句话调整课程目录', () => {
 
     await wrapper.get('[data-testid="generate-outline-adjustment"]').trigger('click')
     await flushPromises()
-    await wrapper.get('.outline-review__nodes input').setValue('手动修改后的基础章')
+    await wrapper.get('.outline-review__chapter-heading input').setValue('手动修改后的基础章')
     await flushPromises()
 
     expect(wrapper.find('[data-testid="apply-outline-adjustment"]').exists()).toBe(false)

@@ -69,12 +69,12 @@ describe('课程生产内联确认', () => {
     await flushPromises()
 
     expect(wrapper.find('.generation-outline-dialog').exists()).toBe(false)
-    expect(wrapper.text()).toContain('1 个目录节点')
+    expect(wrapper.text()).not.toContain('目录节点')
     expect(wrapper.find('.outline-review__header').exists()).toBe(false)
     expect(wrapper.find('.outline-review__course-name').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('线性代数')
 
-    await wrapper.get('.outline-review__nodes input').setValue('向量与空间')
+    await wrapper.get('.outline-review__section input').setValue('向量与空间')
     const buttons = wrapper.findAll('.outline-review__actions button')
     expect(buttons[0]!.attributes('disabled')).toBeUndefined()
     await buttons[0]!.trigger('click')
@@ -87,6 +87,39 @@ describe('课程生产内联确认', () => {
     await flushPromises()
     expect(confirm).toHaveBeenCalledWith('c1', 'outline')
     expect(wrapper.emitted('confirmed')).toHaveLength(1)
+  })
+
+  it('按父子关系展示章与小节，不受原始节点顺序影响', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-grouped',
+        course_name: '结构化课程',
+        nodes: [
+          { node_id: 'chapter-1', parent_node_id: 'root', node_level: 1, node_name: '第一章 基础' },
+          { node_id: 'chapter-2', parent_node_id: 'root', node_level: 1, node_name: '第二章 进阶' },
+          { node_id: 'section-1', parent_node_id: 'chapter-1', node_level: 2, node_name: '1.1 概念' },
+          { node_id: 'section-2', parent_node_id: 'chapter-2', node_level: 2, node_name: '2.1 实践' },
+        ],
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: { courseId: 'course-grouped', courseName: '结构化课程' },
+    })
+    await flushPromises()
+
+    const chapters = wrapper.findAll('.outline-review__chapter')
+    expect(chapters).toHaveLength(2)
+    expect(chapters[0]!.findAll('input').map(input => (input.element as HTMLInputElement).value)).toEqual([
+      '第一章 基础',
+      '1.1 概念',
+    ])
+    expect(chapters[1]!.findAll('input').map(input => (input.element as HTMLInputElement).value)).toEqual([
+      '第二章 进阶',
+      '2.1 实践',
+    ])
+    expect(wrapper.text()).not.toContain('快速定位')
   })
 
   it('shows source-backed outline changes and retrieval failure without hiding the local blueprint', async () => {
@@ -157,7 +190,7 @@ describe('课程生产内联确认', () => {
     )
     expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('20')
     expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('0')
-    expect(wrapper.findAll('.outline-review__nodes li')).toHaveLength(1)
+    expect(wrapper.findAll('.outline-review__section')).toHaveLength(1)
   })
 
   it('发布确认显示必要就绪信息并占据工作区底栏', async () => {
@@ -330,7 +363,7 @@ describe('课程生产内联确认', () => {
     expect(wrapper.text()).toContain('重点补充')
     expect(wrapper.text()).toContain('你熟悉造型，但对玻璃材料与隔热原理不确定。')
 
-    await wrapper.get('.outline-review__nodes input').setValue('比较并验证材料与隔热方案')
+    await wrapper.get('.outline-review__section input').setValue('比较并验证材料与隔热方案')
     await wrapper.findAll('.outline-review__actions button')[0]!.trigger('click')
     await flushPromises()
 
@@ -368,7 +401,7 @@ describe('课程生产内联确认', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('Outline nodes · 1')
+    expect(wrapper.text()).not.toContain('Outline nodes')
     expect(wrapper.find('.outline-review__header').exists()).toBe(false)
     expect(wrapper.find('.outline-review__course-name').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('确认这门课')
