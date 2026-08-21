@@ -29,10 +29,7 @@
             <fieldset class="choice-group">
               <legend class="choice-group__title">
                 <span class="field-icon field-icon--rose"><Route :size="14" /></span>
-                <span>
-                  {{ t('courseGeneration.courseTypes.label', '课程类型') }}
-                  <small>{{ t('courseGeneration.courseTypes.help', '课程类型决定学习过程如何组织；学科决定内容如何讲解。') }}</small>
-                </span>
+                <span>{{ t('courseGeneration.courseTypes.label', '课程类型') }}</span>
               </legend>
               <div class="course-type-options">
                 <button
@@ -53,7 +50,6 @@
                     <span class="course-type-option__heading">
                       <strong>{{ item.label }}</strong>
                     </span>
-                    <span>{{ item.detail }}</span>
                   </span>
                 </button>
               </div>
@@ -81,7 +77,6 @@
             <div class="project-intent__heading">
               <div>
                 <strong>{{ t('courseGeneration.project.title', '定义你的实战项目') }}</strong>
-                <span>{{ t('courseGeneration.project.help', '先明确要完成的成果，再结合你的起点生成项目里程碑和个人学习路径。') }}</span>
               </div>
               <Target :size="18" />
             </div>
@@ -137,22 +132,12 @@
                 />
               </label>
             </div>
-            <p class="starting-point-note">
-              <Info :size="15" />
-              <span>
-                <strong>{{ hasStartingPointInput ? t('courseGeneration.project.startingPointTitle', '暂定学习起点') : t('courseGeneration.project.insufficientTitle', '起点信息可暂时跳过') }}</strong>
-                {{ hasStartingPointInput
-                  ? t('courseGeneration.project.startingPointHelp', '系统会根据你的自述形成第一版个人路径，并在后续学习中继续验证和调整。')
-                  : t('courseGeneration.project.insufficientHelp', '不填写也可以生成；系统会标记起点信息不足，先给出暂定路径，再根据后续学习行为调整。') }}
-              </span>
-            </p>
           </section>
 
           <section v-else-if="form.courseType === 'inquiry'" class="form-section intent-section project-intent" data-testid="inquiry-intent-form">
             <div class="project-intent__heading">
               <div>
                 <strong>{{ t('courseGeneration.inquiry.title', '定义要探究的问题') }}</strong>
-                <span>{{ t('courseGeneration.inquiry.help', '先明确核心问题和结论形态，课程会沿子问题、证据与反例逐步推进。') }}</span>
               </div>
               <MessageCircleQuestion :size="18" />
             </div>
@@ -208,20 +193,12 @@
                 />
               </label>
             </div>
-            <p class="starting-point-note">
-              <Info :size="15" />
-              <span>
-                <strong>{{ t('courseGeneration.inquiry.noteTitle', '已有认识会作为待检验假设') }}</strong>
-                {{ t('courseGeneration.inquiry.noteHelp', '系统不会把你的初始观点当成事实；目录会保留证据搜集、反例检验和结论边界。') }}
-              </span>
-            </p>
           </section>
 
           <section v-else class="form-section intent-section project-intent" data-testid="exam-intent-form">
             <div class="project-intent__heading">
               <div>
                 <strong>{{ t('courseGeneration.exam.title', '定义你的冲刺目标') }}</strong>
-                <span>{{ t('courseGeneration.exam.help', '明确考试、日期和范围，课程会按剩余时间与薄弱点安排优先级。') }}</span>
               </div>
               <Timer :size="18" />
             </div>
@@ -276,13 +253,6 @@
                 />
               </label>
             </div>
-            <p class="starting-point-note">
-              <Info :size="15" />
-              <span>
-                <strong>{{ t('courseGeneration.exam.noteTitle', '先定优先级，再用练习校准') }}</strong>
-                {{ t('courseGeneration.exam.noteHelp', '自述薄弱点只决定首轮安排；诊断题和模拟任务会继续修正复习重点。') }}
-              </span>
-            </p>
           </section>
 
           <details class="form-section teaching-settings generation-advanced">
@@ -312,13 +282,11 @@
                   </span>
                 </button>
                 </div>
-                <p class="difficulty-summary" aria-live="polite">{{ selectedDifficultyOption?.detail }}</p>
               </fieldset>
 
               <div class="strategy-settings">
               <div class="strategy-settings__heading">
                 <strong>{{ t('courseGeneration.form.strategy', '课程策略') }}</strong>
-                <span>{{ t('courseGeneration.form.strategyHelp', '设置适合内容的学科讲法，以及资料在生成中的作用。') }}</span>
               </div>
               <div class="compact-grid">
               <label>
@@ -476,7 +444,6 @@ import {
   BookMarked,
   BookOpen,
   Hammer,
-  Info,
   LoaderCircle,
   MessageCircleQuestion,
   Network,
@@ -605,7 +572,6 @@ const courseTypeOptions = computed(() => ([
     available: true,
   },
 ]))
-const selectedDifficultyOption = computed(() => difficultyOptions.value.find(item => item.value === form.difficulty))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
 const secondaryPedagogyOptions = computed(() => [
   { value: '' as const, label: t('courseGeneration.pedagogy.secondaryNone', '无辅助学科') },
@@ -626,7 +592,6 @@ const typeIntentComplete = computed(() => ({
   inquiry: Boolean(form.coreQuestion.trim() && form.desiredOutput.trim()),
   exam: Boolean(form.examName.trim() && form.examDate.trim() && form.examScope.trim()),
 }[form.courseType]))
-const hasStartingPointInput = computed(() => Boolean(form.priorExperience.trim() || form.currentUncertainty.trim()))
 const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Boolean(form.targetAudience.trim())
   && Number.isInteger(form.totalClassHours) && form.totalClassHours >= 1 && form.totalClassHours <= 1000
   && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240

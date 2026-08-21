@@ -274,7 +274,6 @@
           <div>
             <span><WandSparkles :size="14" /></span>
             <div>
-              <small>{{ t('courseWorkspace.personalization.eyebrow', '调整课程') }}</small>
               <strong>{{ blockTargetTitle }}</strong>
             </div>
           </div>
@@ -318,7 +317,6 @@
               <LocateFixed :size="14" />
               <span>
                 <b>{{ t('courseWorkspace.personalization.scopeCurrent', '仅优化当前内容') }}</b>
-                <small>{{ t('courseWorkspace.personalization.scopeCurrentHint', '只生成当前正文块的修改候选') }}</small>
               </span>
             </button>
             <button
@@ -333,7 +331,6 @@
               <Layers3 :size="14" />
               <span>
                 <b>{{ t('courseWorkspace.personalization.scopeSection', '调整当前小节') }}</b>
-                <small>{{ t('courseWorkspace.personalization.scopeSectionHint', 'AI 在本节内寻找需要协同修改的位置') }}</small>
               </span>
             </button>
             <button
@@ -348,7 +345,6 @@
               <BookOpenText :size="14" />
               <span>
                 <b>{{ t('courseWorkspace.personalization.scopeWholeCourse', '应用到全课程同类内容') }}</b>
-                <small>{{ t('courseWorkspace.personalization.scopeWholeCourseHint', 'AI 按当前教学定位匹配各小节相关内容') }}</small>
               </span>
             </button>
           </div>
@@ -497,7 +493,6 @@
         <div v-else-if="!aiStore.messages.length" class="ai-teacher-empty">
           <span class="empty-mark"><MessageSquareText :size="22" /></span>
           <strong>{{ assistantEmptyTitle }}</strong>
-          <p>{{ assistantEmptyBody }}</p>
         </div>
 
         <article
@@ -764,9 +759,6 @@ const assistantCloseLabel = computed(() => isTeacherMode.value
 const assistantEmptyTitle = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.emptyTitle', '从教案与 PPT 开始协同备课')
   : t('courseWorkspace.aiTeacher.emptyTitle', '从当前学习现场开始提问'))
-const assistantEmptyBody = computed(() => isTeacherMode.value
-  ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前课程真源分析怎么教，正式改动会先说明影响。')
-  : t('courseWorkspace.aiTeacher.emptyBody', '从没弄懂的概念、题目或课程内容开始。'))
 const isOverlayMode = computed(() => windowWidth.value < 1280)
 const panelClasses = computed(() => isOverlayMode.value ? 'is-overlay' : 'is-docked')
 const currentNode = computed(() => (

@@ -7,7 +7,6 @@
         </span>
         <div>
           <label>{{ t('courseGeneration.materials.label', '参考资料') }}</label>
-          <p>{{ t('courseGeneration.materials.subtitle', '上传教材、讲义或题目，让生成内容有据可循') }}</p>
         </div>
       </div>
       <span v-if="modelValue.length" class="material-panel__count">
@@ -61,15 +60,7 @@
       </div>
     </div>
 
-    <div
-      v-if="modelValue.length === 0"
-      class="material-empty"
-    >
-      <FileText :size="18" />
-      <span>{{ t('courseGeneration.materials.emptyHelp', '资料会先上传并解析，再作为课程证据使用。') }}</span>
-    </div>
-
-    <div v-else class="material-list">
+    <div v-if="modelValue.length" class="material-list">
       <article
         v-for="material in modelValue"
         :key="material.local_id"

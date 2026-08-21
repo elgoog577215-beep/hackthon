@@ -214,9 +214,9 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
     expect(wrapper.find('.course-type-summary').exists()).toBe(false)
-    expect(wrapper.get('.difficulty-summary').text()).toContain('独立分析')
+    expect(wrapper.find('.difficulty-summary').exists()).toBe(false)
     expect(wrapper.get('[data-course-type="systematic"]').attributes('aria-label')).toContain('由基础逐步进阶')
-    expect(wrapper.text()).toContain('课程类型决定学习过程如何组织')
+    expect(wrapper.text()).not.toContain('课程类型决定学习过程如何组织')
     expect(wrapper.text()).not.toContain('即将开放')
   })
 
@@ -247,8 +247,8 @@ describe('CourseGenerationDialog', () => {
 
     await wrapper.get('[data-course-type="project"]').trigger('click')
     expect(wrapper.find('[data-testid="project-intent-form"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('系统会标记起点信息不足')
-    expect(wrapper.text()).toContain('个人学习路径')
+    expect(wrapper.text()).not.toContain('系统会标记起点信息不足')
+    expect(wrapper.text()).not.toContain('个人学习路径')
     expect(wrapper.text()).not.toContain('四步形成个人课程')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
@@ -257,7 +257,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeUndefined()
     await wrapper.get('#project-prior-experience').setValue('学过产品设计，熟悉造型和结构')
     await wrapper.get('#project-current-uncertainty').setValue('不了解玻璃材料、隔热原理和制造工艺')
-    expect(wrapper.text()).toContain('根据你的自述形成第一版个人路径')
+    expect(wrapper.text()).not.toContain('根据你的自述形成第一版个人路径')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
     await flushPromises()
 
@@ -288,7 +288,7 @@ describe('CourseGenerationDialog', () => {
 
     await wrapper.get('[data-course-type="inquiry"]').trigger('click')
     expect(wrapper.find('[data-testid="inquiry-intent-form"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('已有认识会作为待检验假设')
+    expect(wrapper.text()).not.toContain('已有认识会作为待检验假设')
     expect(wrapper.text()).not.toContain('提交需求后，四步完成课程')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
@@ -325,7 +325,7 @@ describe('CourseGenerationDialog', () => {
 
     await wrapper.get('[data-course-type="exam"]').trigger('click')
     expect(wrapper.find('[data-testid="exam-intent-form"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('先定优先级，再用练习校准')
+    expect(wrapper.text()).not.toContain('先定优先级，再用练习校准')
     expect(wrapper.text()).not.toContain('提交需求后，四步完成课程')
 
     await wrapper.get('#exam-name').setValue('大学英语六级考试')

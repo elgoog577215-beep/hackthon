@@ -27,7 +27,6 @@
           <div>
             <span><ShieldCheck :size="17" /></span>
             <div>
-              <p>{{ t('questionBank.centerEyebrow', '教师工作区') }}</p>
               <h2 :id="titleId">{{ t('questionBank.centerTitle', '课程题库质量管理') }}</h2>
             </div>
           </div>
@@ -113,7 +112,6 @@
             <div v-else class="review-center__empty">
               <ShieldCheck :size="30" />
               <strong>{{ t('questionBank.selectCourse', '请选择一门课程浏览题库') }}</strong>
-              <span>{{ t('questionBank.selectCourseHelp', '课程是否存在生成任务，不影响题库读取与重建。') }}</span>
             </div>
           </main>
         </div>

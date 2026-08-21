@@ -90,11 +90,11 @@
           </button>
           <div v-if="!filteredChildren.length" class="file-empty">
             <template v-if="query.trim()">
-              <SearchX :size="27" /><strong>{{ t('courseFiles.noSearchResults') }}</strong><span>{{ t('courseFiles.noSearchResultsHelp') }}</span>
+              <SearchX :size="27" /><strong>{{ t('courseFiles.noSearchResults') }}</strong>
               <button type="button" @click="query = ''"><X :size="14" />{{ t('courseFiles.clearSearch') }}</button>
             </template>
             <template v-else>
-              <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong><span>{{ emptyFolderHelp }}</span>
+              <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong>
             </template>
           </div>
         </div>
@@ -139,7 +139,6 @@
       <div v-if="createOpen" class="asset-create-overlay" role="presentation" @click.self="closeCreateDialog" @keydown.esc="closeCreateDialog">
         <section ref="createDialog" class="asset-create-dialog" role="dialog" aria-modal="true" :aria-labelledby="'asset-create-title'" tabindex="-1">
           <header class="asset-create-header"><strong id="asset-create-title">{{ dialogTitle }}</strong><button type="button" :aria-label="t('common.close')" @click="closeCreateDialog"><X :size="17" /></button></header>
-          <p class="asset-create-help">{{ dialogHelp }}</p>
           <div class="create-location"><FolderOpen :size="15" /><span>{{ t('courseFiles.form.saveTo') }}</span><strong>{{ createLocationLabel }}</strong></div>
           <form class="asset-form" @submit.prevent="submitCreate">
         <label v-if="needsLesson" class="form-field">
@@ -161,10 +160,10 @@
           <span>{{ t('courseFiles.form.pptOrigin') }}</span>
           <div>
             <button type="button" :class="{ active: createForm.mode === 'ai' }" @click="createForm.mode = 'ai'; createForm.file = null">
-              <Sparkles :size="15" /><strong>{{ t('courseFiles.form.pptGenerated') }}</strong><small>{{ t('courseFiles.form.pptGeneratedHelp') }}</small>
+              <Sparkles :size="15" /><strong>{{ t('courseFiles.form.pptGenerated') }}</strong>
             </button>
             <button type="button" :class="{ active: createForm.mode === 'import' }" @click="createForm.mode = 'import'; createForm.file = null">
-              <Upload :size="15" /><strong>{{ t('courseFiles.form.pptUploaded') }}</strong><small>{{ t('courseFiles.form.pptUploadedHelp') }}</small>
+              <Upload :size="15" /><strong>{{ t('courseFiles.form.pptUploaded') }}</strong>
             </button>
           </div>
         </section>
@@ -172,24 +171,20 @@
           <label class="form-field"><span>{{ t('courseFiles.form.slideCount') }}</span><input v-model.number="createForm.count" type="number" min="4" max="80" /></label>
           <label class="form-field"><span>{{ t('courseFiles.form.style') }}</span><select v-model="createForm.style"><option value="simple">{{ t('courseFiles.form.simpleTeaching') }}</option><option value="template">{{ t('courseFiles.form.followTemplate') }}</option></select></label>
         </div>
-        <p v-if="createType === 'ppt'" class="ppt-origin-note" :data-mode="createForm.mode">
-          <GitBranch :size="14" />{{ createForm.mode === 'ai' ? t('courseFiles.dialog.ppt.generatedPolicy') : t('courseFiles.dialog.ppt.uploadedPolicy') }}
-        </p>
         <label v-if="createType === 'ppt' && createForm.mode === 'import'" class="form-field">
           <span>{{ t('courseFiles.form.afterUpload') }}</span>
           <select v-model="createForm.pptImportAction">
             <option value="derive_plan">{{ t('courseFiles.form.derivePlanFromPpt') }}</option>
             <option value="store">{{ t('courseFiles.form.storePptOnly') }}</option>
           </select>
-          <small>{{ createForm.pptImportAction === 'derive_plan' ? t('courseFiles.form.derivePlanHelp') : t('courseFiles.form.storePptHelp') }}</small>
         </label>
         <section v-if="createType === 'practice'" class="practice-create-note">
           <ListChecks :size="16" />
-          <div><strong>{{ t('courseFiles.form.practiceScopeTitle') }}</strong><small>{{ t('courseFiles.form.practiceScopeHelp') }}</small></div>
+          <strong>{{ t('courseFiles.form.practiceScopeTitle') }}</strong>
         </section>
         <section v-if="pptAiBlocked" class="create-prerequisite" role="status">
           <TriangleAlert :size="16" />
-          <div><strong>{{ t('courseFiles.form.pptNeedsPlanTitle') }}</strong><small>{{ t('courseFiles.form.pptNeedsPlanHelp') }}</small></div>
+          <strong>{{ t('courseFiles.form.pptNeedsPlanTitle') }}</strong>
           <button type="button" @click="createLessonPlanFirst">{{ t('courseFiles.form.createPlanFirst') }}</button>
         </section>
         <label v-if="!['folder', 'outline', 'practice'].includes(createType)" class="form-field">
@@ -197,7 +192,7 @@
           <textarea v-model.trim="createForm.requirements" rows="3" :placeholder="requirementsPlaceholder" />
         </label>
         <section v-if="!['folder', 'practice'].includes(createType) && (createType !== 'ppt' || createForm.mode === 'import' || createForm.style === 'template')" class="source-picker">
-          <div><span>{{ sourceFileLabel }}</span><small>{{ sourceHint }}</small></div>
+          <span>{{ sourceFileLabel }}</span>
           <button type="button" @click="importInput?.click()"><Upload :size="14" />{{ createForm.file?.name || t('courseFiles.form.chooseFile') }}</button>
         </section>
             <footer class="dialog-actions">
@@ -213,7 +208,7 @@
       <div class="preview-surface">
         <img v-if="previewKind === 'image'" :src="previewUrl" :alt="previewAsset?.filename" />
         <iframe v-else-if="previewKind === 'browser'" :src="previewUrl" :title="previewAsset?.filename" />
-        <div v-else class="office-note"><FileText :size="28" /><strong>{{ t('courseFiles.officeSaved') }}</strong><span>{{ t('courseFiles.officeSavedHelp') }}</span><button type="button" @click="previewAsset && downloadAsset(previewAsset)">{{ t('courseFiles.downloadOriginal') }}</button></div>
+        <div v-else class="office-note"><FileText :size="28" /><strong>{{ t('courseFiles.officeSaved') }}</strong><button type="button" @click="previewAsset && downloadAsset(previewAsset)">{{ t('courseFiles.downloadOriginal') }}</button></div>
       </div>
     </el-dialog>
   </main>
@@ -226,7 +221,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, BookOpen, BookOpenText, ChevronRight, ClipboardList, Download, Eye,
   FileText, Folder, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
-  GitBranch, Pencil, Plus, Presentation, RefreshCw, Search, SearchX, Sparkles, Trash2, TriangleAlert, Upload, X,
+  Pencil, Plus, Presentation, RefreshCw, Search, SearchX, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore, type Node } from '../stores/course'
@@ -241,7 +236,7 @@ type NodeKind = 'folder' | 'managed' | 'asset'
 type NodeType = 'root' | 'reference' | 'outline' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'folder' | 'file'
 type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'empty'
 type WorkspaceNode = {
-  id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus; subtitle?: string;
+  id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
   lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
 }
 type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
@@ -422,8 +417,8 @@ const treeData = computed<WorkspaceNode[]>(() => {
         { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined },
         { id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `${base}/正文`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined },
         { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: practiceStatus(lesson) },
-        { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined, subtitle: ppt || activeJob?.type?.includes('ppt') ? t('courseFiles.ppt.generatedSubtitle') : t('courseFiles.ppt.chooseMethodSubtitle') },
-        ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const, subtitle: t('courseFiles.ppt.uploadedSubtitle') })),
+        { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined },
+        ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const })),
         { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: materialChildren.length ? 'ready' : 'empty', children: materialChildren },
       ]
     const requiredStates = children.filter(item => ['lesson_plan', 'content', 'practice'].includes(item.type)).map(item => item.status)
@@ -433,7 +428,6 @@ const treeData = computed<WorkspaceNode[]>(() => {
           : requiredStates.some(state => state === 'ready' || state === 'draft') ? 'draft' : 'missing'
     return {
       id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: base, status: lessonStatus, lessonId: lesson.lesson_unit_id, parentId: 'root',
-      subtitle: t('courseFiles.lessonHours').replace('{hours}', String(Math.max(1, Math.round(lesson.duration_minutes / 45)))),
       children,
     }
   })
@@ -490,11 +484,6 @@ const breadcrumbs = computed(() => {
 const createTargetFolder = computed(() => flatNodes.value.get(createTargetFolderId.value) || currentFolder.value)
 const canAddTeacherFiles = computed(() => Boolean(currentFolder.value && ['reference', 'material', 'folder'].includes(currentFolder.value.type)))
 const emptyFolderTitle = computed(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
-const emptyFolderHelp = computed(() => currentFolder.value?.type === 'material'
-  ? t('courseFiles.emptyLessonMaterialsHelp')
-  : currentFolder.value?.type === 'reference'
-    ? t('courseFiles.emptyReferenceHelp')
-    : t('courseFiles.emptyFolderHelp'))
 
 const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type}`)
 function assetRole(node: WorkspaceNode) {
@@ -853,7 +842,6 @@ function openCreateDialog(command: CreateType | string, lessonId: unknown = '', 
 }
 function closeCreateDialog() { createOpen.value = false; resetCreateForm() }
 const dialogTitle = computed(() => t(`courseFiles.dialog.${createType.value}.title`))
-const dialogHelp = computed(() => t(`courseFiles.dialog.${createType.value}.help`))
 const needsLesson = computed(() => ['lesson_plan', 'ppt', 'practice'].includes(createType.value) && !createForm.value.lessonId)
 const createLocationLabel = computed(() => {
   if (needsLesson.value && !createForm.value.lessonId) {
@@ -867,9 +855,6 @@ const requirementsPlaceholder = computed(() => t(`courseFiles.dialog.${createTyp
 const sourceFileLabel = computed(() => createType.value === 'ppt'
   ? createForm.value.mode === 'import' ? t('courseFiles.form.oldDeckFile') : t('courseFiles.form.templateFile')
   : t('courseFiles.form.sourceFile'))
-const sourceHint = computed(() => createType.value === 'ppt'
-  ? createForm.value.mode === 'import' ? t('courseFiles.dialog.ppt.uploadSourceHint') : t('courseFiles.dialog.ppt.generatedSourceHint')
-  : t(`courseFiles.dialog.${createType.value}.sourceHint`))
 const submitLabel = computed(() => {
   if (createType.value === 'ppt') return createForm.value.mode === 'import' ? t('courseFiles.form.importOldDeck') : t('courseFiles.form.generatePpt')
   if (createForm.value.file) return t('courseFiles.form.importAndCreate')
@@ -1028,6 +1013,7 @@ onMounted(refresh)
 .file-inspector{display:flex;flex-direction:column;border-left:1px solid var(--lz-border);background:#fbfcfe}.file-inspector>header{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:11px;padding:17px 16px 15px;border-bottom:1px solid var(--lz-border)}.inspector-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:11px;background:#eef2ff;color:#4f46e5}.file-inspector header div{min-width:0;display:grid;gap:3px}.file-inspector header small{color:var(--lz-text-muted);font-size:12px}.file-inspector header strong{overflow:hidden;font-size:16px;text-overflow:ellipsis;white-space:nowrap}.inspector-status{padding:13px 16px;border-bottom:1px solid #e8edf4}.inspector-status>span{display:flex;align-items:center;gap:7px;color:var(--lz-text-secondary);font-size:13px;font-weight:700}.inspector-status i{width:8px;height:8px;border-radius:50%;background:#94a3b8}.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i{background:#10b981}.inspector-status[data-state="working"] i{background:#6366f1}.inspector-status[data-state="stale"] i{background:#f97316}.inspector-status[data-state="empty"] i{background:#cbd5e1}.inspector-overview{min-height:0;overflow:auto;padding:18px 16px}.inspector-overview h3{margin:0 0 8px;color:var(--lz-text-secondary);font-size:14px}.inspector-overview dl{margin:0}.inspector-overview dl>div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid #e8edf4}.inspector-overview dt{color:var(--lz-text-muted);font-size:12px}.inspector-overview dd{margin:0;overflow-wrap:anywhere;color:var(--lz-text-secondary);font-size:13px;line-height:1.5}.inspector-actions{display:grid;gap:8px;margin-top:auto;padding:16px;border-top:1px solid var(--lz-border)}.inspector-actions button{min-height:40px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--lz-border);border-radius:9px;background:#fff;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}.inspector-actions button.primary{border-color:#4f46e5;background:#4f46e5;color:#fff}.inspector-actions button.danger{color:#b91c1c}.inspector-actions button:disabled{opacity:.45;cursor:not-allowed}
 .space-state{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center;font-size:13px}.space-state strong{color:var(--lz-text-secondary);font-size:15px}.space-state span{max-width:240px;font-size:13px;line-height:1.5}.space-state button{padding:8px 13px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;font-size:13px}
 .asset-create-overlay{position:fixed;inset:0;z-index:2600;display:grid;place-items:center;padding:14px;background:rgba(15,23,42,.38);backdrop-filter:blur(2px)}.asset-create-dialog{width:min(580px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;padding:0 20px 20px;border:1px solid rgba(255,255,255,.65);border-radius:14px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.22)}.asset-create-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;min-height:54px;margin:0 -20px 15px;padding:0 20px;border-bottom:1px solid #eef2f7;background:rgba(255,255,255,.96)}.asset-create-header strong{font-size:16px}.asset-create-header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.asset-create-header button:hover{background:#f1f5f9;color:var(--lz-text-strong)}.asset-create-help{margin:0 0 15px;color:var(--lz-text-secondary);font-size:13px;line-height:1.55}.create-location{min-height:40px;display:grid;grid-template-columns:18px auto minmax(0,1fr);align-items:center;gap:7px;padding:0 11px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;background:#f8fafc;font-size:12px}.create-location strong{overflow:hidden;color:#334155;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.asset-form{display:grid;gap:14px;padding-top:16px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form-field{display:grid;gap:7px}.form-field>span,.source-picker>div>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.form-field>small{color:var(--lz-text-muted);font-size:12px;line-height:1.5}.form-field input,.form-field select,.form-field textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid var(--lz-border);border-radius:8px;outline:0;color:var(--lz-text-strong);background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical}.form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1)}.source-picker{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px dashed #cbd5e1;border-radius:9px}.source-picker>div{display:grid;gap:4px}.source-picker small{color:var(--lz-text-muted);font-size:12px}.source-picker button{max-width:220px;display:flex;align-items:center;gap:6px;overflow:hidden;padding:8px 10px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;color:#4f46e5;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-origin-picker{display:grid;gap:8px}.ppt-origin-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}.ppt-origin-picker button{min-width:0;display:grid;grid-template-columns:20px minmax(0,1fr);gap:2px 8px;padding:11px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;text-align:left;cursor:pointer}.ppt-origin-picker button svg{grid-row:1/3;align-self:center;color:#64748b}.ppt-origin-picker button strong{font-size:13px}.ppt-origin-picker button small{overflow:hidden;color:var(--lz-text-muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-origin-picker button.active{border-color:var(--lz-brand);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.ppt-origin-picker button.active svg{color:var(--lz-brand)}.ppt-origin-note{display:flex;align-items:flex-start;gap:7px;margin:0;padding:10px 11px;border:1px solid #e0e7ff;border-radius:8px;color:#4f46e5;background:#f8faff;font-size:12px;line-height:1.5}.ppt-origin-note[data-mode="import"]{border-color:#e2e8f0;color:#475569;background:#f8fafc}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:5px}.dialog-actions button{min-height:38px;padding:0 14px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}.dialog-actions button.primary{border-color:#4f46e5;background:#4f46e5;color:#fff}.dialog-actions button:disabled{opacity:.45;cursor:not-allowed}.practice-create-note,.create-prerequisite{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:9px;padding:12px;border:1px solid #e2e8f0;border-radius:9px;color:#475569;background:#f8fafc}.practice-create-note>div,.create-prerequisite>div{display:grid;gap:4px}.practice-create-note strong,.create-prerequisite strong{font-size:13px}.practice-create-note small,.create-prerequisite small{color:var(--lz-text-muted);font-size:12px;line-height:1.5}.create-prerequisite{grid-template-columns:20px minmax(0,1fr) auto;border-color:#fed7aa;color:#9a3412;background:#fff7ed}.create-prerequisite button{align-self:center;padding:7px 9px;border:1px solid #fdba74;border-radius:7px;color:#9a3412;background:#fff;font-size:12px;font-weight:700;cursor:pointer}
+.source-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker button{align-items:center;gap:8px}.ppt-origin-picker button svg{grid-row:auto}.practice-create-note,.create-prerequisite{align-items:center}
 .preview-surface{min-height:420px;display:grid;place-items:center}.preview-surface img{max-width:100%;max-height:75vh}.preview-surface iframe{width:100%;min-height:72vh;border:0}.office-note{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--lz-text-muted);text-align:center;font-size:13px}.office-note strong{color:var(--lz-text-strong);font-size:15px}.office-note button{padding:8px 11px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;font-size:13px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:1080px){.file-layout{grid-template-columns:220px minmax(440px,1fr) 270px}.list-search{display:none}.file-table__head,.file-row{grid-template-columns:minmax(190px,1.5fr) 104px 78px 90px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}}
 @media (max-width:760px){.file-layout{grid-template-columns:1fr;grid-template-rows:170px minmax(0,1fr) auto}.file-tree-pane{display:grid;grid-template-rows:46px minmax(0,1fr);overflow:hidden;border-right:0;border-bottom:1px solid var(--lz-border)}.pane-heading{min-height:46px;padding:0 11px}.folder-navigation{overflow:auto;padding:6px 8px 11px}.file-tree-pane footer{display:none}.file-inspector{max-height:48vh;border-left:0;border-top:1px solid var(--lz-border)}.inspector-actions{grid-template-columns:1fr auto auto}.list-toolbar{min-height:50px;padding:0 11px}.list-toolbar nav button{max-width:110px}.folder-title{min-height:58px;padding:8px 12px}.folder-title h2{font-size:17px}.folder-title__actions>span{display:none}.add-material-button{padding:0 10px}.file-table{padding:0 7px 12px}.file-table__head,.file-row{grid-template-columns:minmax(180px,1fr) 94px}.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}.form-grid{grid-template-columns:1fr}}

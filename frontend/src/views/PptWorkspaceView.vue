@@ -2,7 +2,6 @@
   <section class="ppt-workspace-view">
     <div v-if="initializing || (!slideRepresentation && store.building && !store.liveSlides.length)" class="ppt-workspace-state">
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
       <h1>{{ courseTitle }}</h1>
       <p v-if="!store.building">{{ t('pptWorkspace.loading', '正在读取同源课件与页面结构') }}</p>
       <SlideDeckBuildProgress
@@ -25,7 +24,6 @@
     <div v-else-if="documentLoadError" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <small>{{ t('pptWorkspace.eyebrow', 'PPT 工作台') }}</small>
       <h1>{{ courseTitle }}</h1>
       <p>{{ documentLoadError }}</p>
     </div>
@@ -33,14 +31,13 @@
     <div v-else-if="documentEnvelope?.source_format !== 'legacy_projection' && !slideRepresentation && !store.liveSlides.length" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <small>{{ t('pptWorkspace.emptyEyebrow', '课堂课件尚未生成') }}</small>
       <h1>{{ courseTitle }}</h1>
       <small
         class="ppt-workspace-state__engine"
         data-testid="ppt-engine-status"
         :data-engine-status="slideEngineStatus"
       >{{ slideEngineStatusLabel }}</small>
-      <p>{{ buildErrorLabel || t('pptWorkspace.emptyDescription', '从课程目标、正文、知识点与理解检查编译一套可直接上课的 PPT。') }}</p>
+      <p v-if="buildErrorLabel">{{ buildErrorLabel }}</p>
       <p v-if="logicUpgradeError" class="ppt-workspace-state__logic-error">{{ logicUpgradeError }}</p>
       <button
         v-if="slideEngineStatus === 'blocked'"
@@ -59,7 +56,6 @@
     <div v-else-if="documentEnvelope?.source_format === 'legacy_projection'" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
-      <small>{{ t('pptWorkspace.legacyMigrationEyebrow', '课程源升级') }}</small>
       <h1>{{ t('pptWorkspace.legacyMigrationTitle', '旧课程需要先升级') }}</h1>
       <p>{{ t('pptWorkspace.legacyMigrationDescription', '升级后会使用统一课程源生成 PPT，不会直接基于旧投影视图构建。') }}</p>
       <p v-if="migrationMessage">{{ migrationMessage }}</p>

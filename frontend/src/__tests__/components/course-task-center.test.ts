@@ -332,7 +332,7 @@ describe('CourseTaskCenter', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('确认课程目录')
-    expect(wrapper.text()).toContain('确认后会冻结全课知识职责')
+    expect(wrapper.text()).not.toContain('确认后会冻结全课知识职责')
     expect(wrapper.text()).toContain('确认发布')
     expect(wrapper.text()).toContain('目录小节')
     await wrapper.find('.blueprint-nodes input').setValue('向量空间与线性映射')
@@ -397,7 +397,7 @@ describe('CourseTaskCenter', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(4)
-    expect(wrapper.text()).toContain('小节教案、知识库与关系图已由同一计划编译')
+    expect(wrapper.text()).not.toContain('小节教案、知识库与关系图已由同一计划编译')
     expect(wrapper.text()).toContain('题目合同与可判定性')
     expect(wrapper.text()).toContain('为什么出这道题')
     expect(wrapper.text()).toContain('它实际在考什么')

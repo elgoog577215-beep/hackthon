@@ -208,7 +208,7 @@
                     </span>
                     <span class="guided-workflow__copy">
                       <strong>{{ step.label }}</strong>
-                      <small>{{ canReopenWorkflowStep(step) ? t('courseTasks.workflow.clickToEdit', '可返回修改') : workflowStatusLabel(step.displayStatus) }}</small>
+                      <small>{{ workflowStatusLabel(step.displayStatus) }}</small>
                     </span>
                   </button>
                 </li>
@@ -221,7 +221,6 @@
                 <div>
                   <span class="generation-review__step">{{ currentReviewNumber }}</span>
                   <h4>{{ currentReviewTitle }}</h4>
-                  <p>{{ currentReviewHelp }}</p>
                 </div>
                 <LoaderCircle v-if="workspace.loading" class="spin" :size="18" />
               </header>
@@ -246,7 +245,6 @@
                   <BookOpenText :size="18" />
                   <div>
                     <strong>{{ t('courseTasks.review.contentReady', '完整课程已经生成') }}</strong>
-                    <p>{{ t('courseTasks.review.contentReadyHelp', '可以先进入课程逐节查看，再回到这里确认内容。') }}</p>
                   </div>
                 </div>
                 <div class="content-evidence">
@@ -270,7 +268,6 @@
                   <header>
                     <div>
                       <strong>{{ t('courseTasks.review.questionReview', '题目合同与可判定性') }}</strong>
-                      <p>{{ t('courseTasks.review.questionReviewHelp', '题目直接继承知识、能力、易错与答案合同，并通过确定性引用和可判定性检查。') }}</p>
                     </div>
                     <span :data-blocked="Boolean(reviewArtifact.question_review.blocked)">
                       {{ reviewArtifact.question_review.passed }} / {{ reviewArtifact.question_review.total }}
@@ -332,7 +329,6 @@
                   <TriangleAlert v-else :size="20" />
                   <div>
                     <strong>{{ canConfirmCurrentStep ? t('courseTasks.review.releaseReady', '检查通过，可以发布') : t('courseTasks.review.releaseBlocked', '还有问题，暂时不能发布') }}</strong>
-                    <p>{{ t('courseTasks.review.sourceChain', '目录、全课小节教案、知识库和课程内容已按同一版本链核对。') }}</p>
                   </div>
                 </div>
                 <section v-if="releaseIssues.length" class="quality-blockers" :aria-labelledby="qualityBlockersId">
@@ -650,13 +646,6 @@ const currentReviewTitle = computed(() => ({
   content: t('courseTasks.review.contentTitle', '审阅课程内容'),
   release: t('courseTasks.review.releaseTitle', '确认并发布'),
   requirements: t('courseTasks.review.requirementsTitle', '确认课程需求'),
-}[currentReviewStep.value]))
-const currentReviewHelp = computed(() => ({
-  outline: t('courseTasks.blueprint.help', '确认章节、顺序和学习目标；确认后会冻结全课知识职责，按预算生成详细教案与各节正文。'),
-  teaching: t('courseTasks.review.teachingHelp', '详细教案已按批次生成并汇编；确认后才会开始逐节生成课程正文。'),
-  content: t('courseTasks.review.contentHelp', '小节教案、知识库与关系图已由同一计划编译；进入学习现场检查正文后确认。'),
-  release: t('courseTasks.review.releaseHelp', '确认结构、引用和同源版本链完整后发布；这里不再调用 AI 评分或重写。'),
-  requirements: t('courseTasks.review.requirementsHelp', '确认本次课程生成需求。'),
 }[currentReviewStep.value]))
 const canConfirmCurrentStep = computed(() => {
   if (selectedTask.value?.status !== 'waiting_for_review') return false

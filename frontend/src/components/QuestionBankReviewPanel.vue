@@ -139,7 +139,6 @@
         <header>
           <div>
             <span>{{ t('questionBank.matrix', '目标—题型—来源—验证器覆盖矩阵') }}</span>
-            <small>{{ t('questionBank.matrixHelp', '按节点查看阻断原因并安全重建') }}</small>
           </div>
           <div class="assessment-matrix__summary">
             <strong>{{ coveredObjectiveRows.length }} / {{ objectiveRows.length }}</strong>
@@ -658,7 +657,6 @@
       <div v-if="!browseItems.length" class="question-bank-panel__empty">
         <CircleCheck :size="21" />
         <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
-        <span>{{ t('questionBank.noMatchingQuestionsHelp', '调整搜索内容或状态筛选后再试。') }}</span>
       </div>
     </template>
   </section>

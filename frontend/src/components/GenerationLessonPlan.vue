@@ -220,7 +220,6 @@
     <section v-if="reviewOpen && workbenchStore.review" class="generation-lesson-plan__review" aria-live="polite">
       <header>
         <div>
-          <span>{{ t('courseGeneration.lessonPlan.reviewEyebrow', '教案修订审阅') }}</span>
           <h3>{{ t('courseGeneration.lessonPlan.reviewTitle', '确认前先检查差异与影响') }}</h3>
         </div>
         <button
@@ -412,7 +411,6 @@
     <section v-if="historyOpen && activeWorkbench" class="generation-lesson-plan__history" aria-live="polite">
       <header>
         <div>
-          <span>{{ t('courseGeneration.lessonPlan.historyEyebrow', '正式教案修订') }}</span>
           <h3>{{ t('courseGeneration.lessonPlan.historyTitle', '回看差异，必要时恢复为新修订') }}</h3>
         </div>
         <button
@@ -467,7 +465,6 @@
     >
       <header class="generation-lesson-plan__overview-hero">
         <div>
-          <span v-if="!embedded">{{ t('courseGeneration.lessonPlan.overallEyebrow', '全课教学设计') }}</span>
           <h3 v-if="!embedded">{{ overallPlan.course_title || t('courseGeneration.lessonPlan.untitledCourse', '未命名课程') }}</h3>
           <textarea
             v-if="editing"
@@ -887,7 +884,6 @@
             <div class="generation-lesson-plan__block-heading">
               <div><Target :size="19" /></div>
               <span>
-                <small>{{ t('courseGeneration.lessonPlan.executionEyebrow', '课堂执行') }}</small>
                 <strong>{{ t('courseGeneration.lessonPlan.executionTitle', '这一节如何落到课堂') }}</strong>
               </span>
             </div>
@@ -914,10 +910,8 @@
             <div class="generation-lesson-plan__block-heading">
               <div><Route :size="19" /></div>
               <span>
-                <small>{{ t('courseGeneration.lessonPlan.flowEyebrow', '课堂路径') }}</small>
                 <strong>{{ t('courseGeneration.lessonPlan.flowTitle', '这一节怎样展开') }}</strong>
               </span>
-              <p>{{ preferProvidedPlan ? '每个环节都绑定具体教学职责和知识范围，本讲课件沿用同一课堂顺序。' : t('courseGeneration.lessonPlan.flowHelp', '每个环节都绑定具体教学职责和知识范围，正文与课件沿用同一顺序。') }}</p>
             </div>
 
             <ol v-if="selectedSection.plan.teaching_modules?.length">
@@ -1004,9 +998,6 @@
               v-if="editing && sectionModuleOptions.length"
               class="generation-lesson-plan__module-composer"
             >
-              <p class="generation-lesson-plan__module-composer-help">
-                {{ t('courseGeneration.lessonPlan.moduleComposerHelp', '勾选本节要用的教学环节；必需环节由学科模板规定，不能取消。') }}
-              </p>
               <ul>
                 <li v-for="option in sectionModuleOptions" :key="option.module_id">
                   <label>
@@ -1033,10 +1024,8 @@
             <div class="generation-lesson-plan__block-heading">
               <div><BrainCircuit :size="19" /></div>
               <span>
-                <small>{{ t('courseGeneration.lessonPlan.knowledgeEyebrow', '知识与评价') }}</small>
                 <strong>{{ t('courseGeneration.lessonPlan.knowledgeTitle', '教到什么，怎样知道学会') }}</strong>
               </span>
-              <p>{{ t('courseGeneration.lessonPlan.knowledgeHelp', '把知识边界、可观察能力、掌握标准和易错纠偏放在同一个备课单元里。') }}</p>
             </div>
 
             <div v-if="selectedKnowledgeTags.length" class="generation-lesson-plan__section-knowledge-tags">
@@ -1154,7 +1143,6 @@
             <div class="generation-lesson-plan__block-heading">
               <div><GitBranch :size="19" /></div>
               <span>
-                <small>{{ t('courseGeneration.lessonPlan.connectionEyebrow', '前后衔接') }}</small>
                 <strong>{{ t('courseGeneration.lessonPlan.connectionTitle', '这节课从哪里来、到哪里去') }}</strong>
               </span>
             </div>
@@ -1195,7 +1183,6 @@
     <div v-else class="generation-lesson-plan__empty">
       <LoaderCircle :size="22" />
       <strong>{{ t('courseGeneration.lessonPlan.outlinePending', '正在生成课程目录') }}</strong>
-      <p>{{ t('courseGeneration.lessonPlan.outlinePendingHelp', '目录出现后，这里会先显示每个小节的教案占位。') }}</p>
     </div>
   </section>
 </template>
