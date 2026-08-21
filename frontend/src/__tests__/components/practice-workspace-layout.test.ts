@@ -7,20 +7,24 @@ const componentSource = readFileSync(
   'utf8',
 )
 
-describe('PracticeWorkspace expanded desktop layout', () => {
-  it('uses a readable centered stage with a taller answer editor and compact bottom spacing', () => {
+describe('PracticeWorkspace question-book dialog layout', () => {
+  it('uses compact modal-native context controls and a bounded reading stage', () => {
     expect(componentSource).toContain(
-      '.question-stage,.history-list { width:min(980px,calc(100% - 64px));',
+      '.question-book-context {',
     )
-    expect(componentSource).toContain('padding:24px 0 36px;')
-    expect(componentSource).toContain('min-height:clamp(360px,54vh,680px);')
+    expect(componentSource).toContain('.question-book-views {')
+    expect(componentSource).toContain('width: min(820px, calc(100% - 48px));')
+    expect(componentSource).not.toContain('.practice-header')
+    expect(componentSource).not.toContain('.practice-tabs')
   })
 
-  it('keeps the compact mobile layout bounded', () => {
-    expect(componentSource).toContain(
-      '.question-stage,.history-list { width:calc(100% - 28px); padding-top:18px;',
-    )
-    expect(componentSource).toContain('.answer-editor { min-height:180px; }')
+  it('rebuilds the empty state as a clear generation setup instead of a full-page blank canvas', () => {
+    expect(componentSource).toContain('class="question-book-empty"')
+    expect(componentSource).toContain('class="question-bank-rebuild__heading"')
+    expect(componentSource).toContain('class="question-bank-rebuild__retrieval"')
+    expect(componentSource).toContain('.question-book-empty {')
+    expect(componentSource).toContain('grid-template-columns: minmax(0, .9fr) minmax(330px, 1.1fr);')
+    expect(componentSource).toContain('@media (max-width: 760px)')
   })
 
   it('renders structured solution steps, final answer, checks and representation', () => {

@@ -1,15 +1,9 @@
 import { mount } from '@vue/test-utils'
-import { defineComponent } from 'vue'
 import { describe, expect, it } from 'vitest'
 import LearningTaskOverlay from '@/components/LearningTaskOverlay.vue'
 
-const MorphingDialogStub = defineComponent({
-  emits: ['close'],
-  template: '<div class="morphing-dialog-stub"><slot /></div>',
-})
-
 describe('LearningTaskOverlay navigation', () => {
-  it('使用与学习记录一致的学习工具覆盖层，而不是居中的全局弹窗', () => {
+  it('题库本作为居中的模态弹窗打开，而不是占满学习页面', () => {
     const wrapper = mount(LearningTaskOverlay, {
       props: {
         courseId: 'course-1',
@@ -18,21 +12,21 @@ describe('LearningTaskOverlay navigation', () => {
       },
       global: {
         stubs: {
-          MorphingDialog: MorphingDialogStub,
           PracticeWorkspace: true,
         },
       },
     })
 
-    expect(wrapper.find('.morphing-dialog-stub').exists()).toBe(false)
-    const overlay = wrapper.get('.task-overlay')
-    expect(overlay.classes()).toContain('learning-tool-overlay')
-    expect(overlay.attributes('role')).toBe('dialog')
-    expect(overlay.attributes('aria-modal')).toBe('true')
-    expect(overlay.find('.task-overlay__close').exists()).toBe(true)
+    const dialog = wrapper.get('[data-testid="question-book-dialog"]')
+    expect(dialog.attributes('role')).toBe('dialog')
+    expect(dialog.attributes('aria-modal')).toBe('true')
+    expect(wrapper.find('.task-overlay').exists()).toBe(false)
+    expect(wrapper.find('.learning-tool-overlay').exists()).toBe(false)
+    expect(wrapper.find('.question-book-modal__backdrop').exists()).toBe(true)
+    expect(dialog.find('.question-book-dialog__close').exists()).toBe(true)
   })
 
-  it('题库本使用自己的简洁标题，不再复制课程顶栏', () => {
+  it('题库本保留当前范围，并可从遮罩或关闭按钮返回正文', async () => {
     const wrapper = mount(LearningTaskOverlay, {
       props: {
         courseId: 'course-1',
@@ -42,13 +36,17 @@ describe('LearningTaskOverlay navigation', () => {
       },
       global: {
         stubs: {
-          MorphingDialog: MorphingDialogStub,
           PracticeWorkspace: true,
         },
       },
     })
 
     expect(wrapper.find('.course-workspace-tabs').exists()).toBe(false)
-    expect(wrapper.get('.task-overlay__identity').text()).toContain('题库本')
+    expect(wrapper.get('.question-book-dialog__identity').text()).toContain('题库本')
+    expect(wrapper.getComponent({ name: 'PracticeWorkspace' }).props('nodeLabel')).toBe('哲学的本质与学科边界')
+    await wrapper.get('.question-book-modal__backdrop').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    await wrapper.get('.question-book-dialog__close').trigger('click')
+    expect(wrapper.emitted('close')).toHaveLength(2)
   })
 })

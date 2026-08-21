@@ -160,7 +160,7 @@
         :node-id="taskNode?.node_id"
         :node-label="taskNode?.node_name"
         :origin-rect="taskOriginRect"
-        :record-count="noteCount"
+        :record-count="questionCount"
         @close="closeTask"
         @ask-teacher="openAiForPractice"
         @graded="refreshAfterGrade"
