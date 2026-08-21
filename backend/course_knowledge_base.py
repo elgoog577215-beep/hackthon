@@ -9,6 +9,7 @@ from typing import Any
 from content_blocks import set_node_content_blocks
 from course_knowledge_map import normalize_knowledge_structure
 from course_versioning import stable_hash
+from evidence_package import evidence_for_keys, load_frozen_package
 
 COURSE_KNOWLEDGE_BASE_SCHEMA = "course_knowledge_base_v2"
 COURSE_KNOWLEDGE_VIEW_SCHEMA = "knowledge_library_view_v3"
@@ -105,6 +106,30 @@ def compile_course_knowledge_base(
     section_point_ids: dict[str, list[str]] = {}
     group_point_ids: dict[str, list[str]] = {}
 
+    # D1-2 知识点级来源绑定。小节级 `evidence_refs` 是"这一节允许引用哪些证据"，
+    # 粒度太粗：同一节里每个知识点拿到的是同一串 ID，读起来像"每个知识点都有依据"，
+    # 其实没有任何一条能说明"这个知识点的依据是哪一块"。这里按知识点自己的名字与
+    # 别名到冻结包里取匹配证据，取不到就如实为空（D2 的诚实标记，不许兜底）。
+    evidence_package = load_frozen_package(course_data)
+    # 逐点匹配会被反复调用（同名知识点跨小节复用），按名字缓存避免重复打分。
+    point_binding_cache: dict[str, list[dict[str, Any]]] = {}
+
+    def _point_source_bindings(name: str, aliases: list[str]) -> list[dict[str, Any]]:
+        if evidence_package is None or not name:
+            return []
+        cache_key = _normalize_name(name)
+        cached = point_binding_cache.get(cache_key)
+        if cached is not None:
+            return deepcopy(cached)
+        # 只用名字与别名做键：`statement` 是整句话，词面匹配会把几乎所有证据都
+        # 打成命中，绑定就失去了"这一块讲的正是这个知识点"的含义。
+        found = evidence_for_keys(
+            evidence_package,
+            keys=_unique([name, *aliases]),
+        )
+        point_binding_cache[cache_key] = found
+        return deepcopy(found)
+
     for section_order, section in enumerate(sections):
         section_id = str(section.get("node_id") or f"section-{section_order + 1}")
         section_name = _section_title(section)
@@ -194,6 +219,8 @@ def compile_course_knowledge_base(
                             "coerced_to": "definition",
                         })
                     knowledge_type = "definition"
+                point_aliases = _unique(raw_point.get("aliases") or [])
+                point_bindings = _point_source_bindings(name, point_aliases)
                 point = {
                     "knowledge_id": point_id,
                     "course_id": course_id,
@@ -204,9 +231,19 @@ def compile_course_knowledge_base(
                     "conditions": _unique(raw_point.get("conditions") or []),
                     "boundaries": _unique(raw_point.get("boundaries") or []),
                     "counterexamples": _unique(raw_point.get("counterexamples") or []),
-                    "aliases": _unique(raw_point.get("aliases") or []),
+                    "aliases": point_aliases,
                     "entry_reason": str(raw_point.get("entry_reason") or "").strip(),
-                    "source_refs": source_refs,
+                    # 小节级证据 + 本知识点自己命中的证据。两者合并而不是替换：
+                    # 小节级是教师给这一节指定的资料，知识点级是逐点匹配出来的，
+                    # 都是真实可追溯的来源，丢掉任何一边都会低报落地率。
+                    "source_refs": _unique([
+                        *source_refs,
+                        *[str(item.get("evidence_id") or "") for item in point_bindings],
+                    ]),
+                    # 逐点绑定单独留一份带 origin/url/credibility 的明细：
+                    # `source_refs` 只是 ID 串，教师界面要显示"依据是哪一份资料、
+                    # 是上传的还是联网的"必须有这层。前端图谱也用它给节点挂来源标签。
+                    "source_bindings": point_bindings,
                     "section_refs": [section_id],
                     "objective_refs": objective_refs,
                     "course_block_refs": [],
@@ -1191,7 +1228,10 @@ def build_course_knowledge_library_view(
     """Project course path + knowledge packages into the student read model."""
     course_data = course_data or {}
     # 一门课算一次：逐条记录去查绑定会把 O(记录数) 变成 O(记录数 × 绑定数)。
-    web_evidence_ids = _web_evidence_ids(course_data)
+    web_evidence_ids = _web_evidence_ids(
+        course_data,
+        knowledge_base.get("knowledge_points") or [],
+    )
     bindings_by_point: dict[str, dict[str, set[str]]] = {}
 
     def binding(point_id: str) -> dict[str, set[str]]:
@@ -1352,6 +1392,9 @@ def build_course_knowledge_library_view(
             "typical_problems": [],
             "source_status": _source_status(point, web_evidence_ids),
             "source_refs": deepcopy(point.get("source_refs") or []),
+            # 逐点来源明细带到读模型：`source_status` 只说"有没有依据"，
+            # 前端要在图谱节点上显示"依据是哪一份、上传还是联网"需要这一层。
+            "source_bindings": deepcopy(point.get("source_bindings") or []),
             "status": point.get("status", "active"),
             "revision_id": point.get("revision_id"),
             "identity_scope": "course_local",
@@ -2193,16 +2236,38 @@ def _view_path_node(
     }
 
 
-def _web_evidence_ids(course_data: dict[str, Any] | None) -> frozenset[str]:
+def _web_evidence_ids(
+    course_data: dict[str, Any] | None,
+    knowledge_points: list[Any] | None = None,
+) -> frozenset[str]:
     """课程里哪些 evidence_id 只能追到联网结果，而不是教师上传的资料。
 
-    判据取自绑定上的 `source_metadata.origin`（`web_material_search` 写入
-    `web_search`），再经 `evidence_catalog` 的 `asset_id` 反查到 evidence_id。
+    两条判据并集：
+
+    1. 绑定上的 `source_metadata.origin`（`web_material_search` 写入
+       `web_search`），再经 `evidence_catalog` 的 `asset_id` 反查到 evidence_id。
+    2. 知识点级绑定（D1-2）自带的 `origin`。逐点绑定直接来自冻结证据包的
+       `source_index`，不经过 `material_bindings`，所以第 1 条判据看不到它们；
+       只用第 1 条会把一条只能追到网页的知识点报成 `material_grounded`。
+
     教师上传的绑定没有这个标记，所以未知来源默认按上传资料处理——宁可少报一个
     联网，也不要把教师自己的材料说成是网上抄的。
     """
+    web_ids: set[str] = set()
+    for point in knowledge_points or []:
+        if not isinstance(point, dict):
+            continue
+        for item in point.get("source_bindings") or []:
+            if not isinstance(item, dict):
+                continue
+            origin = str(item.get("origin") or "").strip()
+            evidence_id = str(item.get("evidence_id") or "").strip()
+            # `evidence_for_keys` 对没有 source_index 记录的证据回落成
+            # `"material"`，所以只有显式非 material 才算联网。
+            if evidence_id and origin and origin != "material":
+                web_ids.add(evidence_id)
     if not isinstance(course_data, dict):
-        return frozenset()
+        return frozenset(web_ids)
     web_assets = {
         str(item.get("asset_id") or "")
         for item in course_data.get("material_bindings") or []
@@ -2211,12 +2276,14 @@ def _web_evidence_ids(course_data: dict[str, Any] | None) -> frozenset[str]:
     }
     web_assets.discard("")
     if not web_assets:
-        return frozenset()
-    return frozenset(
+        return frozenset(web_ids)
+    web_ids.update(
         str(item.get("evidence_id") or "")
         for item in course_data.get("evidence_catalog") or []
         if isinstance(item, dict) and str(item.get("asset_id") or "") in web_assets
-    ) - {""}
+    )
+    web_ids.discard("")
+    return frozenset(web_ids)
 
 
 def _source_status(
@@ -2279,6 +2346,17 @@ def _source_grounding(
     statuses = [_source_status(point, web_evidence_ids) for point in counted]
     grounded = sum(1 for status in statuses if status == SOURCE_STATUS_MATERIAL)
     web = sum(1 for status in statuses if status == SOURCE_STATUS_WEB)
+    # D1-2：`grounded_ratio` 的分子把"整节共享的证据"也算进去了，所以一节里
+    # 只要有一份资料，该节所有知识点都会被记成有依据——那是小节粒度的落地率，
+    # 不是知识点粒度的。这一列只数**这个知识点自己匹配到了证据**的情况，
+    # 分母同样是知识点总数，两个比率因此可以直接对读。
+    point_bound = sum(
+        1 for point in counted
+        if [
+            item for item in point.get("source_bindings") or []
+            if isinstance(item, dict) and str(item.get("evidence_id") or "").strip()
+        ]
+    )
     return {
         "knowledge_point_count": total,
         "material_grounded_count": grounded,
@@ -2288,6 +2366,9 @@ def _source_grounding(
         "course_generated_count": total - grounded - web,
         "grounded_ratio": round(grounded / total, 4) if total else 0.0,
         "has_material_grounding": grounded > 0,
+        # 分母 = knowledge_point_count（同一个分母，便于与 grounded_ratio 对读）。
+        "point_bound_count": point_bound,
+        "point_binding_ratio": round(point_bound / total, 4) if total else 0.0,
     }
 
 

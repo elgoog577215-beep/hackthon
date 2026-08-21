@@ -10,6 +10,7 @@ import pytest
 from ai_base import AIBase
 from course_generation_workflow import (
     _extract_course_shape_constraints,
+    build_course_generation_artifacts,
     _resolve_course_shape_constraints,
     build_course_knowledge_scope_contract,
     build_section_knowledge_scope_slice,
@@ -17,6 +18,7 @@ from course_generation_workflow import (
 from course_outline_planning import (
     CourseOutlinePlanningBudget,
     assemble_course_outline,
+    course_coverage_verdict,
     build_outline_batch_specs,
     compile_fallback_outline_batch,
     normalize_outline_skeleton,
@@ -572,3 +574,156 @@ def test_section_scope_payload_stays_linear_and_each_slice_is_bounded():
         "section_knowledge_scope_slice_v2"
     )
     assert len(middle["local_course_path"]) <= 3
+
+
+# --- D-1 课程规格判定 -------------------------------------------------------
+
+
+def _calculus_brief(total_class_hours: int) -> dict:
+    """Build the brief a 微积分 request with N class hours actually produces."""
+    return build_course_generation_artifacts(
+        course_id="course-calculus-test",
+        topic="微积分",
+        difficulty="intermediate",
+        style="standard",
+        target_audience="大一本科生",
+        teacher_course_brief={
+            "schema_version": "teacher_course_brief_v1",
+            "target_audience": "大一本科生",
+            "total_class_hours": total_class_hours,
+            "lesson_duration_minutes": 45,
+            "teaching_context": "classroom",
+        },
+    )["course_generation_brief"]
+
+
+def test_eight_class_hour_calculus_is_judged_before_generation():
+    """8 课时的微积分必须在生成前被判为微型课，且不得自称完整课程。"""
+    verdict = course_coverage_verdict(
+        subject="微积分",
+        brief=_calculus_brief(8),
+    )
+
+    assert verdict["scale"] == "micro"
+    assert verdict["may_claim_complete_subject"] is False
+    assert verdict["status"] == "partial"
+    # 必须给出两条出路，而不是静默降级。
+    advisories = " ".join(verdict["advisories"])
+    assert "压缩为核心课" in advisories
+    assert "增加课时" in advisories
+
+
+def test_eight_class_hour_calculus_names_every_uncovered_topic():
+    """任务书点名的缺失知识点，要么覆盖，要么被明确列为本次不覆盖。"""
+    typical_eight_section_plan = {
+        "course_title": "微积分核心概览课",
+        "positioning": "在 8 课时内掌握微积分的核心推理链条",
+        "learning_objectives": ["能够计算导数与定积分"],
+        "chapters": [
+            {"chapter_number": 1, "title": "函数与极限", "learning_focus": "理解极限与连续性", "section_count": 2},
+            {"chapter_number": 2, "title": "导数", "learning_focus": "掌握导数的定义与基本求导法则", "section_count": 3},
+            {"chapter_number": 3, "title": "积分", "learning_focus": "掌握不定积分与定积分及微积分基本定理", "section_count": 3},
+        ],
+    }
+    verdict = course_coverage_verdict(
+        subject="微积分",
+        brief=_calculus_brief(8),
+        skeleton=typical_eight_section_plan,
+    )
+
+    uncovered = set(verdict["uncovered_topics"])
+    covered = set(verdict["covered_topics"])
+
+    # 任务书点名的六项：每一项要么覆盖，要么明确列为不覆盖，不允许无声消失。
+    for topic in (
+        "隐函数求导与相关变化率",
+        "中值定理",
+        "洛必达法则与未定式",
+        "微分方程入门",
+        "积分技巧：换元与分部积分",
+        "反常积分",
+    ):
+        assert topic in uncovered, f"{topic} 既未覆盖也未被列为不覆盖"
+    # 计划里真的讲了的，必须判为已覆盖，否则提示会变成噪音。
+    assert "函数、极限与连续" in covered
+    assert "导数定义与求导法则" in covered
+    assert "定积分与微积分基本定理" in covered
+
+
+def test_short_course_may_not_call_itself_complete():
+    """自称完整课程的短课骨架必须被拦下。"""
+    brief = _calculus_brief(8)
+    shape = brief.get("course_shape_constraints") or {}
+    fingerprint = outline_request_fingerprint(
+        topic="微积分",
+        audience="大一本科生",
+        brief=brief,
+        difficulty_profile={"level": "intermediate"},
+    )
+    dishonest = normalize_outline_skeleton(
+        {
+            "course_title": "微积分完整课程",
+            "positioning": "完整覆盖微积分的全部核心内容",
+            "chapters": [
+                {"chapter_number": 1, "title": "极限", "section_count": 4},
+                {"chapter_number": 2, "title": "导数", "section_count": 4},
+            ],
+        },
+        topic="微积分",
+        request_fingerprint=fingerprint,
+    )
+    verdict = course_coverage_verdict(
+        subject="微积分",
+        brief=brief,
+        skeleton=dishonest,
+    )
+
+    report = validate_outline_skeleton(
+        dishonest,
+        shape_constraints=shape,
+        request_fingerprint=fingerprint,
+        coverage_verdict=verdict,
+    )
+
+    assert report["passed"] is False
+    assert "outline_skeleton:unsupported_completeness_claim" in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
+def test_full_term_course_may_still_claim_completeness():
+    """完整学期课不应被这道诚实性门误伤。"""
+    brief = _calculus_brief(64)
+    fingerprint = outline_request_fingerprint(
+        topic="微积分",
+        audience="大一本科生",
+        brief=brief,
+        difficulty_profile={"level": "intermediate"},
+    )
+    skeleton = normalize_outline_skeleton(
+        {
+            "course_title": "微积分完整课程",
+            "positioning": "完整覆盖微积分主干知识结构",
+            "chapters": [
+                {"chapter_number": index, "title": f"第 {index} 章", "section_count": 4}
+                for index in range(1, 9)
+            ],
+        },
+        topic="微积分",
+        request_fingerprint=fingerprint,
+    )
+    verdict = course_coverage_verdict(subject="微积分", brief=brief)
+
+    assert verdict["scale"] == "full_term"
+    assert verdict["may_claim_complete_subject"] is True
+
+    report = validate_outline_skeleton(
+        skeleton,
+        shape_constraints=brief.get("course_shape_constraints") or {},
+        request_fingerprint=fingerprint,
+        coverage_verdict=verdict,
+    )
+
+    assert "outline_skeleton:unsupported_completeness_claim" not in {
+        issue["code"] for issue in report["issues"]
+    }

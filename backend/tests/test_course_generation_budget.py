@@ -101,7 +101,7 @@ def test_environment_cannot_disable_per_request_safety_fuses(
 def test_content_budget_is_a_resumable_window_not_a_course_size_cap():
     budget = CourseGenerationBudget()
 
-    assert budget.content_concurrency == 4
+    assert budget.content_concurrency == 8
     assert budget.content_inactivity_timeout_seconds == 90
     assert not hasattr(budget, "content_node_timeout_seconds")
     assert not hasattr(budget, "content_stage_timeout_seconds")
@@ -581,3 +581,98 @@ def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
     assert full_tokens > minimal_tokens * 1.5
     # 旧的 7000 token 闸门会把这一节挤到 minimal。
     assert full_tokens > 7_000
+
+
+def test_content_concurrency_default_matches_measured_endpoint_capacity(
+    monkeypatch,
+):
+    """正文并发默认值 = 实测端点容量，且必须可被环境变量覆盖（B-4）。
+
+    走真实流式正文路径多轮实测（`backend/tools/content_parallel_bench.py`）：
+    并发 4 墙钟均值 82.0s / 并发 6 为 66.4s / 并发 8 为 65.5s。
+    **4 -> 8 降 20.1%**，但 6 与 8 分不出高下（均值差 1.0s，区间重叠）；
+    再往上单节耗时明显变长。取 8 是保守选择。
+
+    标定方法与判据见 `docs/验收/并发容量标定运行手册.md`——
+    **换端点或换模型必须重测**，最优并发是端点属性不是代码属性。
+    """
+    monkeypatch.delenv("COURSE_CONTENT_CONCURRENCY", raising=False)
+    assert CourseGenerationBudget.from_env().content_concurrency == 8
+
+    # 换端点/免费额度时必须能立刻降下来，且不用改代码
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "2")
+    assert CourseGenerationBudget.from_env().content_concurrency == 2
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "1")
+    assert CourseGenerationBudget.from_env().content_concurrency == 1
+
+    # 也能往上调
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "12")
+    assert CourseGenerationBudget.from_env().content_concurrency == 12
+
+    monkeypatch.setenv("COURSE_CONTENT_CONCURRENCY", "999")
+    assert CourseGenerationBudget.from_env().content_concurrency == 16
+
+
+@pytest.mark.asyncio
+async def test_node_runtime_counts_model_calls_cumulatively(monkeypatch):
+    """E-1 账单：真实服务必须逐次累加调用数，本地降级不计数。"""
+    service = CourseService()
+    node = {
+        "node_id": "L2-1-1",
+        "node_level": 2,
+        "node_name": "调用计数",
+        "learning_objective": "能解释调用计数",
+        "scope_boundary": "只覆盖当前小节",
+        "key_points": ["计数"],
+        "assessment": ["说明一次计数"],
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心讲解",
+            "required": True,
+            "output_contract": "解释计数",
+        }],
+        "difficulty_contract": {},
+        "grounding_contract": {},
+    }
+    course = {
+        "course_id": "course-call-ledger",
+        "course_name": "调用账单课程",
+        "course_generation_brief": {},
+        "nodes": [node],
+    }
+
+    async def fake_stream(**_kwargs):
+        yield "## 核心讲解\n\n稳定知识具有明确条件与边界，并可用于应用任务。"
+
+    async def on_chunk(_chunk):
+        return None
+
+    monkeypatch.setattr(service, "_stream_llm", fake_stream)
+    await service.generate_node_content_stream(
+        course_id=course["course_id"], node=node,
+        config=NodeGenerationConfig(), on_chunk=on_chunk, course_data=course,
+    )
+    assert node["generation_runtime"]["model_call_count"] == 1
+
+    # 第二次真实调用：累加，而不是被重置。
+    await service.generate_node_content_stream(
+        course_id=course["course_id"], node=node,
+        config=NodeGenerationConfig(), on_chunk=on_chunk, course_data=course,
+    )
+    assert node["generation_runtime"]["model_call_count"] == 2
+
+    # 本地降级没有打到提供方，不得计入账单。
+    async def failed_stream(**_kwargs):
+        if False:
+            yield ""
+        raise AIRequestBudgetExceeded("模拟提供方前置失败")
+
+    monkeypatch.setattr(service, "_stream_llm", failed_stream)
+    await service.generate_node_content_stream(
+        course_id=course["course_id"], node=node,
+        config=NodeGenerationConfig(), on_chunk=on_chunk, course_data=course,
+    )
+    assert node["generation_runtime"]["generation_source"] == (
+        "deterministic_local_fallback"
+    )
+    assert node["generation_runtime"]["model_call_count"] == 2

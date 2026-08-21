@@ -14,6 +14,14 @@
       </span>
     </div>
 
+    <!--
+      F-3：上传的资料同时进文件空间，这里告诉老师"去哪找"。
+      以前两条路径各存各的，老师传完在文件空间找不到。
+    -->
+    <p v-if="registeredInSpace" class="material-panel__space-hint">
+      {{ t('courseGeneration.materials.savedToSpace', '资料已存入课程文件空间，可在「课程文件」中查看与管理') }}
+    </p>
+
     <div
       class="material-dropzone"
       :class="{ 'material-dropzone--active': dragging, 'material-dropzone--disabled': disabled }"
@@ -185,7 +193,7 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
 import { FilePlus2, FileText, FolderUp, RefreshCw, Trash2, Upload } from 'lucide-vue-next'
-import http from '@/utils/http'
+import http, { getTeacherIdentity } from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { formatFileSize, materialUploadErrorMessage, validateMaterialFile } from '@/shared/material-upload'
 import type { CourseMaterialBindingInput, CourseMaterialDraft } from '@/shared/prompt-config'
@@ -202,6 +210,9 @@ const emit = defineEmits<{
 }>()
 
 const dragging = ref(false)
+// 上传成功后是否真的进了文件空间（后端 course_space.registered）。
+// 登记失败不阻断上传，所以这里如实反映，不假设一定成功。
+const registeredInSpace = ref(false)
 const updateDraft = (localId: string, patch: Partial<CourseMaterialDraft>) => {
   emit('update:modelValue', props.modelValue.map(item => (
     item.local_id === localId ? { ...item, ...patch } : item
@@ -287,7 +298,12 @@ const uploadDraft = async (localId: string) => {
   data.append('upload_batch_id', `course-draft-${Date.now()}`)
   try {
     const response = await http.post('/api/materials', data, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        // 显式带教师身份：通用拦截器发的是 learner id（开发期是浏览器随机 id），
+        // 而文件空间按教师身份分包。不指定就会把资料登记到错误的归属下。
+        'X-User-Id': getTeacherIdentity(),
+      },
     })
     updateDraft(localId, {
       asset_id: response.data.asset_id,
@@ -296,6 +312,9 @@ const uploadDraft = async (localId: string) => {
       upload_status: 'uploaded',
       upload_error: '',
     })
+    // 上传即入文件空间（F-3）。这里如实反映后端是否真的登记成功——
+    // 登记失败不阻断上传，但要让老师知道这次没进文件空间。
+    registeredInSpace.value = Boolean(response.data?.course_space?.registered)
   } catch (error: any) {
     updateDraft(localId, {
       upload_status: 'error',
@@ -386,6 +405,7 @@ defineExpose({ ensureUploaded })
 .material-panel__title label { display: block; color: #334155; font-size: 13px; font-weight: 750; }
 .material-panel__title p { margin: 2px 0 0; color: #94a3b8; font-size: 11px; line-height: 1.4; }
 .material-panel__count { flex: 0 0 auto; padding: 4px 8px; border-radius: 999px; color: #4f46e5; background: #eef2ff; font-size: 10px; font-weight: 700; }
+.material-panel__space-hint { margin: 0 0 10px; padding: 6px 10px; border-radius: 8px; color: #047857; background: #ecfdf5; font-size: 11px; line-height: 1.5; }
 .material-dropzone { justify-content: space-between; gap: 18px; min-height: 78px; padding: 14px 16px; border: 1px dashed #cbd5e1; border-radius: 13px; background: linear-gradient(135deg, rgba(248,250,252,.95), rgba(238,242,255,.6)); transition: .18s ease; }
 .material-dropzone:hover, .material-dropzone--active { border-color: #818cf8; background: #eef2ff; box-shadow: inset 0 0 0 1px rgba(99,102,241,.08); }
 .material-dropzone--disabled { opacity: .55; pointer-events: none; }

@@ -14,6 +14,13 @@ from typing import Any
 from material_storage import ALLOWED_EXTENSIONS, DEFAULT_MAX_FILE_BYTES, MaterialStorageError
 
 COURSE_SPACE_DIR = Path(__file__).resolve().parent / "data" / "teacher_course_spaces"
+# 生成侧资料在文件空间里的登记形态。引用条目**不在包内存字节**，
+# 只指向 material_storage 的 `mat-*`，下载/预览由 source_file 转发过去。
+MATERIAL_REFERENCE_KIND = "material_reference"
+MATERIAL_INBOX_NAME = "课程资料"
+MATERIAL_INBOX_YEAR = "通用"
+MATERIAL_INBOX_TERM = "全部"
+MATERIAL_INBOX_FOLDER = "生成资料"
 CATEGORIES = {
     "teaching_design": "教学设计",
     "lesson_materials": "讲次资料",
@@ -288,12 +295,16 @@ class TeacherCourseSpaceRepository:
         asset = next((item for item in package.get("assets", []) if item.get("asset_id") == asset_id), None)
         if not asset:
             raise FileNotFoundError(asset_id)
-        source = self._path(package["package_id"]) / "files" / str(asset["stored_name"])
-        materialized = self._content_path(package["package_id"], str(asset["relative_path"]))
-        if source.is_file():
-            source.unlink()
-        if materialized.is_file():
-            materialized.unlink()
+        # 引用条目只删引用，**绝不碰底层 mat-* 资产**：那份资料可能已经绑定课程、
+        # 带着解析产物在生成链路里用着。底层删除仍走 material_storage.delete_unbound
+        # 的绑定保护，不从这里绕过去。
+        if asset.get("source_kind") != MATERIAL_REFERENCE_KIND:
+            source = self._path(package["package_id"]) / "files" / str(asset["stored_name"])
+            materialized = self._content_path(package["package_id"], str(asset["relative_path"]))
+            if source.is_file():
+                source.unlink()
+            if materialized.is_file():
+                materialized.unlink()
         package["assets"] = [item for item in package.get("assets", []) if item.get("asset_id") != asset_id]
         self.save(package)
         return asset
@@ -308,6 +319,9 @@ class TeacherCourseSpaceRepository:
         if not destination.is_dir() and not affected_assets and not affected_entries:
             raise FileNotFoundError(normalized)
         for asset in affected_assets:
+            # 引用条目没有包内副本，跳过（同 delete_asset：不碰底层 mat-* 资产）。
+            if asset.get("source_kind") == MATERIAL_REFERENCE_KIND:
+                continue
             source = self._path(package["package_id"]) / "files" / str(asset["stored_name"])
             if source.is_file():
                 source.unlink()
@@ -322,8 +336,154 @@ class TeacherCourseSpaceRepository:
     def source_file(self, package: dict[str, Any], asset_id: str) -> tuple[dict[str, Any], Path]:
         asset = next((a for a in package.get("assets", []) if a.get("asset_id") == asset_id), None)
         if not asset: raise FileNotFoundError(asset_id)
+        # 引用条目不在包内存字节，转发到底层 material_storage 取原文件。
+        if asset.get("source_kind") == MATERIAL_REFERENCE_KIND:
+            from material_storage import material_repository
+            material = material_repository.get_asset(str(asset.get("material_asset_id") or ""))
+            if material is None:
+                raise FileNotFoundError(asset_id)
+            return asset, material_repository.source_path(material)
         path = self._path(package["package_id"]) / "files" / str(asset["stored_name"])
         if not path.is_file(): raise FileNotFoundError(asset_id)
         return asset, path
+
+    # --- 生成侧资料的引用登记 ---------------------------------------------
+    #
+    # 课程生成里的「添加资料」原本直接写 material_storage，与文件空间零交集，
+    # 于是老师传了资料却在文件空间里找不到（F-3 要解决的就是这个）。
+    #
+    # 这里**不搬存储**：解析产物（parsed_document / evidence）与生成链路都依赖
+    # `mat-*`，搬过来会切断那条链路。改为在教师自己的包下登记一条**引用条目**，
+    # 不复制字节，下载/预览转发到底层。教师因此在文件空间看得见、管得着。
+
+    def locate_material_reference(
+        self,
+        material_asset_id: str,
+        *,
+        owner_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """反查一份 `mat-*` 资料被登记在哪个包、哪个文件夹下。
+
+        引用是**双向可查**的：正向靠条目上的 `material_asset_id` 取解析产物，
+        反向靠这里从资料回到"教师在文件空间的哪个位置能看到它"。少了反向，
+        资料出问题时只能全量翻包才能定位。
+
+        返回列表而不是单个：全局去重会让同一份底层资料被多位教师各自引用
+        （见 `register_material_reference` 的说明），所以反查天然是一对多。
+        `owner_id` 给定时只看该教师的包——这也是接口层该用的调用方式，
+        避免把别人的位置暴露出去。
+        """
+        target = str(material_asset_id or "").strip()
+        if not target:
+            return []
+        found: list[dict[str, Any]] = []
+        for path in sorted(self.root.glob("tcs-*/manifest.json")):
+            try:
+                package = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if owner_id and package.get("owner_id") != owner_id:
+                continue
+            for asset in package.get("assets") or []:
+                if asset.get("source_kind") != MATERIAL_REFERENCE_KIND:
+                    continue
+                if str(asset.get("material_asset_id") or "") != target:
+                    continue
+                relative_path = str(asset.get("relative_path") or "")
+                folder = relative_path.rsplit("/", 1)[0] if "/" in relative_path else ""
+                found.append({
+                    "package_id": str(package.get("package_id") or ""),
+                    "course_name": str(package.get("course_name") or ""),
+                    "owner_id": str(package.get("owner_id") or ""),
+                    "asset_id": str(asset.get("asset_id") or ""),
+                    "relative_path": relative_path,
+                    "folder": folder,
+                    "filename": str(asset.get("filename") or ""),
+                })
+        return found
+
+    def default_material_package(self, owner_id: str) -> dict[str, Any]:
+        """取该教师承接生成侧资料的包，没有就建一个。
+
+        找不到时新建而不是报错：上传是教师的主动作，不该因为"还没建过课程包"
+        而失败。
+        """
+        for path in sorted(self.root.glob("tcs-*/manifest.json")):
+            try:
+                item = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if item.get("owner_id") == owner_id and item.get("is_material_inbox"):
+                return item
+        created = self.create_package(
+            owner_id, MATERIAL_INBOX_NAME, MATERIAL_INBOX_YEAR, MATERIAL_INBOX_TERM,
+        )
+        package = self.load_owned(created["package_id"], owner_id)
+        package["is_material_inbox"] = True
+        self.save(package)
+        return package
+
+    def register_material_reference(
+        self,
+        owner_id: str,
+        material: Any,
+        *,
+        package: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """把一份 `mat-*` 资料登记进该教师的文件空间。
+
+        幂等键是 `(owner_id, material_asset_id)`——同一份资料重复上传只有一条引用。
+
+        **跨教师不串包**：`material_storage` 按 sha256 全局去重，teacher A 传一个与
+        teacher B 相同的文件会拿到 B 的 `mat-*` id。今天无害（资料无归属也无列表），
+        但登记进按 owner 分包的文件空间后就会变成跨教师可见。所以引用记在**各自
+        owner 的包**下——同一个底层资产可以被多个 owner 各自引用，互不可见。
+        """
+        target = package if package is not None else self.default_material_package(owner_id)
+        material_asset_id = str(getattr(material, "asset_id", "") or "")
+        if not material_asset_id:
+            raise MaterialStorageError("资料标识缺失，无法登记到文件空间")
+        existing = next(
+            (
+                item for item in target.get("assets", [])
+                if item.get("source_kind") == MATERIAL_REFERENCE_KIND
+                and item.get("material_asset_id") == material_asset_id
+            ),
+            None,
+        )
+        if existing:
+            return {**existing, "package_id": target["package_id"], "outcome": "duplicate"}
+
+        filename = str(getattr(material, "filename", "") or material_asset_id)
+        relative_path = normalize_relative_path(
+            f"{MATERIAL_INBOX_FOLDER}/{Path(filename).name}"
+        )
+        # 同名不同资料时加后缀，避免树里两条同路径条目。
+        taken = {str(item.get("relative_path") or "") for item in target.get("assets", [])}
+        if relative_path in taken:
+            stem, suffix = Path(relative_path).stem, Path(relative_path).suffix
+            relative_path = f"{MATERIAL_INBOX_FOLDER}/{stem}-{material_asset_id[-6:]}{suffix}"
+        category, reason = classify_path(relative_path)
+        asset = {
+            "asset_id": f"tca-{uuid.uuid4().hex}",
+            "filename": Path(relative_path).name,
+            "relative_path": relative_path,
+            # 引用条目没有包内副本，这两个字段留空以示区别（source_file 会走转发）。
+            "stored_name": "",
+            "materialized_path": "",
+            "extension": str(getattr(material, "extension", "") or Path(filename).suffix.lower()),
+            "size_bytes": int(getattr(material, "size_bytes", 0) or 0),
+            "sha256": str(getattr(material, "sha256", "") or ""),
+            "suggested_category": category,
+            "category": category,
+            "category_reason": reason,
+            "import_batch_id": str(getattr(material, "upload_batch_id", "") or ""),
+            "uploaded_at": _now(),
+            "source_kind": MATERIAL_REFERENCE_KIND,
+            "material_asset_id": material_asset_id,
+        }
+        target.setdefault("assets", []).append(asset)
+        self.save(target)
+        return {**asset, "package_id": target["package_id"], "outcome": "registered"}
 
 teacher_course_space_repository = TeacherCourseSpaceRepository()

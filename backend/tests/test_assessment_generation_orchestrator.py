@@ -883,6 +883,13 @@ async def test_task_length_preflight_repairs_before_independent_solving():
 async def test_choice_generation_uses_fast_non_thinking_json_mode(
     monkeypatch,
 ):
+    # 断言的是代码里的默认上限（2048），所以必须屏蔽运行环境的 floor。
+    #
+    # 部署侧把 ASSESSMENT_MIN_OUTPUT_TOKENS 设进 .env 之后（qwen3.6-35b-a3b
+    # 的推理会吃光 3072/4096 的裸上限），这条用例会读到 8192 而失败——
+    # 失败的是用例读了运行环境，不是行为回归。同目录的
+    # test_assessment_output_token_floor.py:35 早就用 delenv 做了同样的隔离。
+    monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
     captured = {}
     model = UniversalAssessmentModel()
 
@@ -1024,7 +1031,167 @@ async def test_complete_profile_batches_failed_repairs():
     assert audit["failure_count"] == 0
 
 
-async def test_complete_batch_repair_recovers_when_a_slot_is_missing():
+@pytest.mark.xfail(
+    reason=(
+        "B-3 已结案回退：真机形状（每小节 1 道题）下兄弟题不会同时走到同一"
+        "阶段，四类合批每一轮真机的 batch_size 全是 1，合批买不到东西，"
+        "因此 f75f41fc 的「有兄弟才合批」实现连同 _InFlightSlots / "
+        "_REPAIR_BATCH_MAX_ITEMS 一起被回退（见 NOTES_TO_OWNER）。"
+        "这三条用例**刻意保留**：它们钉住的是重启合批时必须成立的不变量——"
+        "独苗不得进合批窗口、合批不得压低每题输出预算。"
+        "谁要再做合批，先让这三条转绿，并删掉这个 xfail 标记。"
+    ),
+    strict=False,
+)
+async def test_lone_question_never_waits_for_a_batch_window():
+    """只有一道题在飞时，不得进合批路径、不得等窗口。
+
+    这是 `1e8fb290` 被回退的直接原因：合批器无条件等 `max_wait_seconds`，
+    而真机形状是每小节 1 道题（40 节 × 1 题），窗口里永远只有一条——
+    实测 99%（74/75）的"合批"只装了一道题，白等延迟还把每题输出预算从
+    单条口径降到合批口径。
+
+    断言用挂钟时间：单题整轮必须远小于一个合批窗口（修复 0.1s + 语义 1s），
+    只数调用次数是抓不到"多等了一秒"的。
+    """
+
+    model = BatchRepairAwareModel()
+    started = asyncio.get_running_loop().time()
+    prepared = await AssessmentGenerationOrchestrator(
+        model=model
+    ).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    audit = prepared["_assessment_generation_audit"]
+    assert model.repair_batch_sizes == [], "单题不得走合批修复"
+    assert model.solve_batch_sizes == [], "单题不得走合批求解"
+    # 这一道题一次就过，没走到修复；被跳过的是求解合批。断言"至少有一处
+    # 合批因为独苗而被跳过"，而不是钉死在具体哪一处。
+    assert sum(
+        int(audit.get(key) or 0)
+        for key in (
+            "repair_batch_skipped_solo",
+            "solve_batch_skipped_solo",
+            "semantic_batch_skipped_solo",
+        )
+    ) >= 1
+    # 语义窗口默认 1 秒、修复窗口 0.1 秒；单题若还在等窗口这里必然超时。
+    assert elapsed < 0.5, (
+        f"单题整轮耗时 {elapsed:.3f}s，疑似仍在等合批窗口"
+    )
+
+
+@pytest.mark.xfail(
+    reason=(
+        "B-3 已结案回退：真机形状（每小节 1 道题）下兄弟题不会同时走到同一"
+        "阶段，四类合批每一轮真机的 batch_size 全是 1，合批买不到东西，"
+        "因此 f75f41fc 的「有兄弟才合批」实现连同 _InFlightSlots / "
+        "_REPAIR_BATCH_MAX_ITEMS 一起被回退（见 NOTES_TO_OWNER）。"
+        "这三条用例**刻意保留**：它们钉住的是重启合批时必须成立的不变量——"
+        "独苗不得进合批窗口、合批不得压低每题输出预算。"
+        "谁要再做合批，先让这三条转绿，并删掉这个 xfail 标记。"
+    ),
+    strict=False,
+)
+async def test_solo_gate_holds_even_if_batch_windows_are_widened(
+    monkeypatch,
+):
+    """把合批窗口调大 20 倍，单题该多快还多快。
+
+    钉住的是「保护独苗的是 gate，不是窗口取值」。只断言默认配置下跑得快，
+    等于默认窗口恰好很短时也能通过——以后有人把 `max_wait_seconds` 或
+    `ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS` 调大、同时把 gate 去掉，
+    那种断言是抓不住的。这里反过来：**先把窗口调到明显能被观测的量级**
+    （修复 2s、语义 3s），再要求单题整轮远小于它。gate 一旦失效，
+    这道用例会以秒级超时的形式炸掉，而不是悄悄退化。
+    """
+
+    import assessment_orchestrator as orchestrator_module
+
+    monkeypatch.setenv("ASSESSMENT_SEMANTIC_BATCH_WAIT_SECONDS", "3")
+    original_init = orchestrator_module._CandidateRepairBatcher.__init__
+
+    def widened_init(self, **kwargs):
+        kwargs["max_wait_seconds"] = 2.0
+        original_init(self, **kwargs)
+
+    monkeypatch.setattr(
+        orchestrator_module._CandidateRepairBatcher,
+        "__init__",
+        widened_init,
+    )
+    original_solve_init = (
+        orchestrator_module._IndependentSolutionBatcher.__init__
+    )
+
+    def widened_solve_init(self, **kwargs):
+        kwargs["max_wait_seconds"] = 2.0
+        original_solve_init(self, **kwargs)
+
+    monkeypatch.setattr(
+        orchestrator_module._IndependentSolutionBatcher,
+        "__init__",
+        widened_solve_init,
+    )
+
+    model = BatchRepairAwareModel()
+    started = asyncio.get_running_loop().time()
+    await AssessmentGenerationOrchestrator(model=model).prepare_course(
+        _course(),
+        node_ids=["thermo-1"],
+        practice_levels_by_node={"thermo-1": ["concept_check"]},
+        generation_profile="fast",
+        generation_scope="full_generation",
+    )
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert model.repair_batch_sizes == []
+    assert model.solve_batch_sizes == []
+    # 窗口已被调到 2-3 秒；gate 有效时单题根本不该碰到它们。
+    assert elapsed < 1.0, (
+        f"单题整轮 {elapsed:.3f}s——窗口被调大后跟着变慢，"
+        "说明保护独苗的不是 gate 而是窗口恰好很短"
+    )
+
+
+@pytest.mark.xfail(
+    reason=(
+        "B-3 已结案回退：真机形状（每小节 1 道题）下兄弟题不会同时走到同一"
+        "阶段，四类合批每一轮真机的 batch_size 全是 1，合批买不到东西，"
+        "因此 f75f41fc 的「有兄弟才合批」实现连同 _InFlightSlots / "
+        "_REPAIR_BATCH_MAX_ITEMS 一起被回退（见 NOTES_TO_OWNER）。"
+        "这三条用例**刻意保留**：它们钉住的是重启合批时必须成立的不变量——"
+        "独苗不得进合批窗口、合批不得压低每题输出预算。"
+        "谁要再做合批，先让这三条转绿，并删掉这个 xfail 标记。"
+    ),
+    strict=False,
+)
+async def test_batch_never_shrinks_per_item_output_budget():
+    """合批不得把每题的输出预算压到单条之下。
+
+    修复单条给 6144，合批给 min(12288, 4096*n)：n=3 时每题只剩 4096。
+    「少发一次请求」不能拿这个换——这正是不许放宽契约凑数字那条红线。
+    """
+
+    from assessment_orchestrator import _REPAIR_BATCH_MAX_ITEMS
+
+    single_budget = 6144
+    batch_ceiling = 12288
+    assert _REPAIR_BATCH_MAX_ITEMS >= 1
+    per_item = batch_ceiling // _REPAIR_BATCH_MAX_ITEMS
+    assert per_item >= single_budget, (
+        f"合批 {_REPAIR_BATCH_MAX_ITEMS} 条时每题只有 {per_item}，"
+        f"低于单条的 {single_budget}"
+    )
+
+
+async def test_fast_batch_repair_is_atomic_when_a_slot_is_missing():
     prepared = await AssessmentGenerationOrchestrator(
         model=PartialBatchRepairModel()
     ).prepare_course(

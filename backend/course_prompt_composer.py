@@ -52,6 +52,44 @@ def _course_type_planning_rules(brief: dict[str, Any]) -> str:
 10. 学习路径角色只使用 `focus|standard|compressed`，不得出现项目专属角色。"""
 
 
+def _course_coverage_rules(verdict: dict[str, Any] | None) -> str:
+    """State plainly what this course size may and may not claim to cover.
+
+    Numbered separately from the type rules (which own slots 9-11) so both can
+    grow without renumbering each other.
+    """
+    if not verdict:
+        return ""
+    if verdict.get("status") == "complete":
+        return (
+            "C1. 本课程规格可按完整课程组织；仍需在定位中说明确实不覆盖的进阶内容。"
+        )
+    subject = verdict.get("subject") or "本学科"
+    scale_label = verdict.get("scale_label") or "当前规格"
+    lines = [
+        f"C1. 【课程规格判定】本次为{scale_label}，"
+        f"{verdict.get('coverage_promise') or '不承担学科完整覆盖'}。",
+        f"C2. 课程名称与 `positioning` 不得出现“完整课程/完整覆盖/全面覆盖”等表述，"
+        f"也不得暗示已学完{subject}；建议定位为「"
+        f"{verdict.get('required_positioning') or subject + '核心概览课'}」。",
+    ]
+    uncovered = [str(item) for item in verdict.get("uncovered_topics") or []]
+    if uncovered:
+        lines.append(
+            f"C3. 以下{subject}核心主题在本次课时下无法覆盖，必须在 `positioning` 中"
+            f"原样列为“本次不覆盖”，不得假装已覆盖，也不得默认学习者已掌握："
+            f"{json.dumps(uncovered, ensure_ascii=False)}。"
+        )
+    elif verdict.get("core_topics"):
+        lines.append(
+            f"C3. 必须在 `positioning` 中明确列出本次不覆盖的{subject}主题；"
+            "凡是无法在本课时内讲透的内容，宁可列为不覆盖，也不得罗列标题充数。"
+        )
+    for item in verdict.get("honest_naming") or []:
+        lines.append(f"C{len(lines) + 1}. {item}")
+    return "\n".join(lines)
+
+
 class CoursePromptComposer:
     def build_outline_skeleton_v2_prompt(
         self,
@@ -65,6 +103,7 @@ class CoursePromptComposer:
         adaptation_decision: dict[str, Any],
         material_context: str,
         detail_level: str = "full",
+        coverage_verdict: dict[str, Any] | None = None,
     ) -> str:
         """Build the small global decision used before parallel chapter expansion."""
         planning_brief = brief
@@ -111,6 +150,7 @@ class CoursePromptComposer:
         shape = brief.get("course_shape_constraints") or {}
         course_type_contract = brief.get("course_type_contract") or {}
         planning_rules = _course_type_planning_rules(planning_brief)
+        coverage_rules = _course_coverage_rules(coverage_verdict)
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -155,6 +195,7 @@ class CoursePromptComposer:
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
 8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
+{coverage_rules}
 {planning_rules}
 
 ## JSON Schema
@@ -652,6 +693,10 @@ class CoursePromptComposer:
    `derives` target 可由 source 推出，必填 `derivation_steps`（有序关键步骤，不可为空）；
    `contrasts_with` 两者易混需辨析（对称），必填 `distinction`（凭什么区分两者）。
    本节教学上确实成立的前置之外关系都要给出，但不要为凑数编造。
+   **关系写在引入该知识的那一节，不要攒到批次最后一节再一起写。** 本批次包含
+   多个小节，每一节都要各自写出连接**本节新知识**的关系；一节新引入了知识却
+   一条关系都不给，等于把这些知识孤立地丢进知识网。逐节检查：本批次每个小节的
+   `knowledge_relations` 是否都非空。
    寻找关系时按下面的信号逐个自查，这三类最容易被漏掉：
    - 写了某个知识点的易错点 `confused_with` 字段时，该易错对象若也是本节知识，
      两者之间就应有一条 `contrasts_with`——学生会混淆，正是需要辨析的信号。
@@ -663,7 +708,8 @@ class CoursePromptComposer:
      而不是"两边有关系"。
    - 一个知识点是另一个的特例（参数取特定值、条件更强、只适用于更窄的范围），
      方向是一般 → 特例的 `generalizes`，不要写成 `prerequisite`。
-   自查后确实不成立就留空，宁缺毋滥；本节只有两三个知识点时没有这几类是正常的。
+   某一类自查后确实不成立就不写那一类，宁缺毋滥；本节只有两三个知识点时
+   缺少上面这几类是正常的。但"某一类没有"不等于"整节没有关系"——覆盖要求仍然要满足。
 8. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
    集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
 9. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和

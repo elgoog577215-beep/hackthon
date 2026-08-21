@@ -40,6 +40,11 @@ class ModelCapacityState:
     rate_limited: int = 0
     quota_exhausted: int = 0
     transient_failures: int = 0
+    queue_wait_seconds_total: float = 0.0
+    queue_wait_events: int = 0
+    # 慢启动：没见过失败之前，每成功一次就放宽一位；见到第一次失败即退出，
+    # 之后回到保守的 AIMD（每 successes_to_grow 次成功才 +1）。
+    slow_start: bool = True
 
 
 class ModelCapacityCoolingDown(RuntimeError):
@@ -63,10 +68,20 @@ class CapacityLease:
         self,
         controller: "ProviderCapacityController",
         model_id: str,
+        queue_wait_seconds: float = 0.0,
     ) -> None:
         self._controller = controller
         self.model_id = model_id
+        # A-1：排队等待时长由队列自己计量。调用方用秒表夹住 acquire() 只能
+        # 量到"等了多久"，量不到"为什么等"——是并发位满了，还是 cooldown /
+        # 发车间隔在压着。后者是 B-4 要对齐容量时真正要看的数。
+        self.queue_wait_seconds = queue_wait_seconds
+        self.queue_wait_reason = ""
         self._released = False
+
+    @property
+    def queue_wait_ms(self) -> float:
+        return self.queue_wait_seconds * 1000.0
 
     async def __aenter__(self) -> "CapacityLease":
         return self
@@ -112,6 +127,7 @@ class ProviderCapacityController:
         self._provider_limit = self.initial_limit
         self._provider_in_flight = 0
         self._provider_success_streak = 0
+        self._provider_slow_start = True
         self._next_provider_start = 0.0
 
     async def configure_last_resort(
@@ -144,14 +160,23 @@ class ProviderCapacityController:
                 max(0.0, float(post_request_interval_seconds)),
             )
             self.wait_during_cooldown = True
+            # 最后兜底的凭据通常是共享的、对突发敏感的池子：慢启动的"每成功
+            # 一次就放宽一位"在这里正好是不该做的事，明确关掉。
+            self._provider_slow_start = False
             for state in self._models.values():
                 state.limit = min(state.limit, resolved_limit)
+                state.slow_start = False
             self._condition.notify_all()
 
     def _state(self, model_id: str) -> ModelCapacityState:
+        # 新模型要继承控制器当前的慢启动开关：`configure_last_resort` 之后
+        # 才第一次出现的模型，不能又从慢启动开始。
         return self._models.setdefault(
             model_id,
-            ModelCapacityState(limit=self.initial_limit),
+            ModelCapacityState(
+                limit=self.initial_limit,
+                slow_start=self._provider_slow_start,
+            ),
         )
 
     async def acquire(
@@ -160,6 +185,10 @@ class ProviderCapacityController:
         *,
         on_wait_activity: Callable[[], None] | None = None,
     ) -> CapacityLease:
+        wait_started = time.monotonic()
+        # 只记第一次让出的原因：那是这次请求真正被什么挡住的原因，后续轮次
+        # 往往只是被唤醒后重新检查条件。
+        wait_reason = ""
         while True:
             async with self._condition:
                 state = self._state(model_id)
@@ -189,7 +218,25 @@ class ProviderCapacityController:
                     self._next_provider_start = (
                         now + self.start_interval_seconds
                     )
-                    return CapacityLease(self, model_id)
+                    waited = now - wait_started
+                    state.queue_wait_seconds_total += waited
+                    lease = CapacityLease(self, model_id, waited)
+                    lease.queue_wait_reason = wait_reason
+                    return lease
+
+                if not wait_reason:
+                    if state.in_flight >= state.limit:
+                        wait_reason = "model_concurrency"
+                    elif self._provider_in_flight >= self._provider_limit:
+                        wait_reason = "provider_concurrency"
+                    elif (
+                        self.wait_during_cooldown
+                        and state.cooldown_until > now
+                    ):
+                        wait_reason = "cooldown"
+                    else:
+                        wait_reason = "start_interval"
+                    state.queue_wait_events += 1
 
                 # A release will notify capacity waiters.  A cooldown/spacing
                 # window needs a bounded timer so it can wake without traffic.
@@ -230,13 +277,31 @@ class ProviderCapacityController:
             state.success_streak += 1
             self._provider_success_streak += 1
             state.cooldown_until = 0.0
-            if (
+            # 生成链路的并行阶段是**短脉冲**：一门 8 课时的课，正文阶段总共
+            # 也只有 8 次调用。原来的 AIMD 每 3 次成功才放宽一位，而这 3 次
+            # 成功要等调用结束才拿得到——脉冲跑完了限额还没涨起来，
+            # 于是"看着是并行，实际只跑出 2~3 路"。实测：8 个并发单元、
+            # 单元耗时 0.4 秒，墙钟 1.11 秒（有效并行度 2.87，理想是 8）。
+            #
+            # 慢启动照搬 TCP 的做法：没见过失败之前每成功一次就放宽一位，
+            # 撞到第一次失败立刻退出慢启动并按原来的 AIMD 收缩。
+            # 这样脉冲能在头几次成功后就把限额顶上去，而"一失败就退回保守"
+            # 的安全性没有变。
+            if state.slow_start:
+                if state.limit < self.max_limit:
+                    state.limit += 1
+                state.success_streak = 0
+            elif (
                 state.success_streak >= self.successes_to_grow
                 and state.limit < self.max_limit
             ):
                 state.limit += 1
                 state.success_streak = 0
-            if (
+            if self._provider_slow_start:
+                if self._provider_limit < self.max_limit:
+                    self._provider_limit += 1
+                self._provider_success_streak = 0
+            elif (
                 self._provider_success_streak
                 >= self.successes_to_grow
                 and self._provider_limit < self.max_limit
@@ -256,6 +321,11 @@ class ProviderCapacityController:
             state = self._state(model_id)
             state.success_streak = 0
             self._provider_success_streak = 0
+            # 见到第一次失败就退出慢启动：之后只按保守的 AIMD 增长。
+            # 这条对所有失败类型都生效，包括 transient——脉冲期间的偶发失败
+            # 也说明"再往上顶不安全"。
+            state.slow_start = False
+            self._provider_slow_start = False
             now = time.monotonic()
             if failure_kind == "quota_exhausted":
                 state.quota_exhausted += 1
@@ -306,6 +376,10 @@ class ProviderCapacityController:
                     "rate_limited": state.rate_limited,
                     "quota_exhausted": state.quota_exhausted,
                     "transient_failures": state.transient_failures,
+                    "queue_wait_seconds_total": round(
+                        state.queue_wait_seconds_total, 3
+                    ),
+                    "queue_wait_events": state.queue_wait_events,
                 }
                 for model_id, state in self._models.items()
             },

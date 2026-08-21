@@ -522,6 +522,22 @@ describe('Course knowledge library', () => {
     expect(wrapper.find('[data-knowledge-id="course-entry-without-edge"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('这条候选关系尚未通过当前版本审核')
 
+    // 图例只列图里真实出现的类型：候选的 contrasts_with 没进图，就不该进图例，
+    // 否则读者会以为图上有一条对比辨析的连线去找。
+    const legendItems = wrapper.findAll('[data-testid="knowledge-graph-legend"] li')
+    expect(legendItems).toHaveLength(1)
+    expect(legendItems[0]!.attributes('data-relation-type')).toBe('prerequisite')
+    expect(legendItems[0]!.text()).toContain('前置知识')
+    expect(legendItems[0]!.text()).toContain('1')
+
+    // 选中知识点后，侧栏要能回答「学会后能做到什么」「来源可不可信」，
+    // 而不是只列关系——只给关系的话，图看得见结构却看不见教学内容。
+    await wrapper.get('[data-knowledge-id="coefficient-domain-boundary"]').trigger('click')
+    expect(wrapper.get('[data-testid="knowledge-graph-actions"]').text())
+      .toContain('判断系数是否属于指定数域')
+    // 来源必须显示：模型凭通用知识写的和有教材依据的，教师要能一眼分开
+    expect(wrapper.get('[data-testid="knowledge-graph-source"]').text()).toBe('课程路径投影')
+
     const targetNode = wrapper.get('[data-knowledge-id="linear-combination-definition"]')
     await targetNode.trigger('click')
     expect(targetNode.attributes('aria-pressed')).toBe('true')

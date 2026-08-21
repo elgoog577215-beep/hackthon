@@ -8,6 +8,7 @@ function source(path: string) {
 
 const librarySource = source('src/views/CourseLibraryView.vue')
 const teacherSpaceSource = source('src/views/TeacherCourseSpaceView.vue')
+const teacherFilesSource = source('src/views/TeacherCourseFilesView.vue')
 const workbenchSource = source('src/components/CourseWorkbench.vue')
 const taskCenterSource = source('src/components/CourseTaskCenter.vue')
 const reviewCenterSource = source('src/components/QuestionBankReviewCenter.vue')

@@ -119,6 +119,15 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _reject_test_marker(text: str, label: str) -> None:
+    """挡住联调脚本留下的带流水号标记，别让它印到教师手里的教案上。"""
+    if _TEST_MARKER_PATTERN.search(text):
+        raise TeachingPlanWorkbenchError(
+            "teaching_plan_invalid_value",
+            f"{label}含有联调或测试残留标记，请删除后再保存",
+        )
+
+
 def _strings(value: Any, *, maximum: int = 16) -> list[str]:
     if not isinstance(value, list):
         raise TeachingPlanWorkbenchError(
@@ -354,6 +363,16 @@ _OVERALL_FIELDS = {
     "overall/course_assessment_plan",
 }
 _TEXT_LIMIT = 2000
+# 联调/端到端脚本留在教师可见字段里的标记。这类文本没有任何教学含义，一旦落进
+# learning_objective 就会直接印在教案上（真实发生过：某课小节 1 的目标末尾挂着
+# 「（Gap 端到端 1786451829）」，还把目标内容整个改偏了）。
+#
+# 只拦**带流水号**的形态：真实教案里不会出现「验证 1786451829」这种句子，而
+# 「端到端」「验证」单独出现是正常教学用语（例如「端到端验证模型效果」），不能拦。
+_TEST_MARKER_PATTERN = re.compile(
+    r"[（(]\s*(?:gap|e2e|smoke|debug|端到端|冒烟|联调|测试|验证)[^）)]*?\d{6,}\s*[）)]",
+    re.IGNORECASE,
+)
 _CLASSROOM_TEXT_FIELDS = {"academic_term", "class_profile"}
 _CLASSROOM_LIST_FIELDS = {"teaching_preparation", "course_assessment_plan"}
 _SECTION_CLASSROOM_LIST_FIELDS = {
@@ -706,6 +725,7 @@ def _write_path(snapshot: dict[str, Any], path: str, value: Any) -> Any:
         text = _text(value)
         if not text or len(text) > _TEXT_LIMIT:
             raise TeachingPlanWorkbenchError("teaching_plan_invalid_value", "小节目标不能为空且不能过长")
+        _reject_test_marker(text, "小节目标")
         _outline_section(snapshot, parts[1])["learning_objective"] = text
         return text
     if len(parts) == 3 and parts[0] == "sections" and parts[2] == "key_points":

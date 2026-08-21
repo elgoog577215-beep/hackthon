@@ -53,6 +53,8 @@ $$\text{函数契约} = \underbrace{\text{输入}}_{\text{参数}} + \underbrace
         enableCodeRun: false,
       },
     })
+    // 渲染对齐到动画帧（见文件顶部 flushFrames 的说明），
+    // 只等微任务会在帧还没到来时就检查 DOM，测出来的「没渲染」是假的。
     await flushFrames()
     await flushPromises()
 

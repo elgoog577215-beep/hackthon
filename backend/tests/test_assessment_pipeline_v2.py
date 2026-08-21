@@ -989,6 +989,81 @@ def test_debugging_trace_cannot_publish_with_only_a_code_placeholder():
     }
 
 
+def test_discarded_slot_is_blocked_even_when_failure_count_is_zero():
+    """F-6：分章发布路径把 failure_count 硬编码成 0，守卫仍必须拦住。
+
+    `routers/question_bank.py:1227-1228` 在逐章发布时把
+    `planned_item_count` 与 `failure_count` 写死成 3 / 0，只有 items 里
+    带着真实的 final_decision。若守卫依赖 failure_count，那条路径上
+    「练习层级被丢弃」就会被放行——老师会拿到一门缺题的课，而且没有任何
+    报错。这正是 F-6 要排除的「静默丢题」。
+
+    守卫实际是独立从 items 里数 discarded 的，所以拦得住；这条用例把这个
+    性质钉住，防止以后有人把判据改成只看 failure_count。
+
+    背景：qwen3.6-35b-a3b 的推理会吃光非 choice 槽位 3072/4096 的裸上限
+    （thinking_consumed_budget），实测一轮 20 道题里 9 道走到 discard，
+    其中大题 5/5 全丢。所以这不是假想场景。
+    """
+
+    course = {
+        "_assessment_generation_audit": {
+            "planned_item_count": 3,
+            # 硬编码的 0：守卫不得依赖它
+            "failure_count": 0,
+            "items": [
+                {
+                    "node_id": "n1",
+                    "practice_level": "concept_check",
+                    "final_decision": "publish",
+                },
+                {
+                    "node_id": "n1",
+                    "practice_level": "objective_practice",
+                    "final_decision": "discard",
+                    "error_code": "AIProviderRequestError",
+                    "error_message": "thinking_consumed_budget",
+                },
+                {
+                    "node_id": "n1",
+                    "practice_level": "mastery_check",
+                    "final_decision": "discard",
+                    "error_code": "AIProviderRequestError",
+                    "error_message": "thinking_consumed_budget",
+                },
+            ],
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="discarded=2"):
+        _require_complete_generation(course)
+
+
+def test_missing_slot_is_blocked_even_without_discard_marker():
+    """整槽位没跑出来（items 条数不足）同样必须拦住。
+
+    耗尽发生在生成阶段最早期时，那道题可能连一条 audit item 都没留下，
+    此时 discarded 计数是 0、failure_count 也可能是 0，只有条数对不上。
+    """
+
+    course = {
+        "_assessment_generation_audit": {
+            "planned_item_count": 3,
+            "failure_count": 0,
+            "items": [
+                {
+                    "node_id": "n1",
+                    "practice_level": "concept_check",
+                    "final_decision": "publish",
+                },
+            ],
+        },
+    }
+
+    with pytest.raises(RuntimeError, match="completed=1"):
+        _require_complete_generation(course)
+
+
 def test_incomplete_generation_is_blocked_before_persistence():
     course = {
         "_assessment_generation_audit": {

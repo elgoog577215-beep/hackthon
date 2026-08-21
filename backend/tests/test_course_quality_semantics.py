@@ -209,15 +209,12 @@ def test_structured_feedback_with_latex_passes_presentation_checks():
 def test_unwrapped_display_environment_blocks_release_even_with_even_fence_count():
     """An even `$$` count is not proof the math is well-formed.
 
-    Here the `cases` environment sits entirely between two balanced pairs of
-    `$$`, so the old parity check passed it through and the learner saw raw
-    LaTeX source.
+    The environment here is mismatched (`cases` opened, `aligned` closed), so no
+    normalization can rescue it. Confirmed against the real renderer: it
+    degrades to `math-fallback` and the learner reads `\\begin{cases}` as
+    literal text.
     """
-    content = _content(
-        "\n\n$$\nf(x)=\n$$\n"
-        "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
-        "$$\ny=1\n$$"
-    )
+    content = _content("\n\n\\begin{cases}x,&x<0\\end{aligned}\n")
 
     assert content.count("$$") % 2 == 0
     report = evaluate_node_content(content, _node())
@@ -227,6 +224,35 @@ def test_unwrapped_display_environment_blocks_release_even_with_even_fence_count
         for item in report["issues"]
     )
     assert report["passed"] is False
+
+
+def test_a_renderer_repairable_environment_warns_instead_of_blocking():
+    """The `cases/aligned` shape this gate was built for no longer blocks.
+
+    The source is still malformed — a `f(x)=` prefix in one `$$` block and the
+    environment in the next — and that is worth reporting. But
+    `normalizeLegacyDisplayShells` in frontend/src/utils/markdown.ts repairs it
+    before KaTeX runs, so the learner sees correct math. Verified by rendering
+    this exact string through the real pipeline: 2 KaTeX nodes, no error node,
+    no `math-fallback`, no leaked `\\begin{cases}`.
+
+    Measured on 8 real courses (792 nodes), treating this shape as critical was
+    the gate's single largest false-positive source — 13 of 37 firings sat on
+    nodes that render perfectly, and every one would have blocked a release.
+    """
+    content = _content(
+        "\n\n$$\nf(x)=\n$$\n"
+        "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
+        "$$\ny=1\n$$"
+    )
+
+    report = evaluate_node_content(content, _node())
+    codes = {item["code"] for item in report["issues"]}
+
+    assert "repairable_display_environment" in codes
+    assert "unwrapped_display_environment" not in codes
+    # A warning must never be the reason a course cannot ship.
+    assert report["passed"] is True
 
 
 def test_display_environment_inside_delimiters_is_accepted():
@@ -404,16 +430,25 @@ def test_a_render_only_defect_is_attributed_to_the_render_dimension():
 
 
 def test_a_critical_render_defect_fails_render_but_not_content():
-    """An unwrapped display environment is critical: render fails, content does not."""
+    """A display environment the renderer cannot repair is critical.
+
+    Uses a mismatched `\\begin{cases}` / `\\end{aligned}` pair rather than the
+    merely-misdelimited shape this test used to carry. Verified against the real
+    pipeline: this one degrades to `math-fallback` and the learner sees
+    `\\begin{cases}` as literal text, whereas the old content now renders as
+    correct KaTeX and blocking on it was a false positive.
+    """
     report = evaluate_node_content(
         _content(
-            "\n\n$$\nf(x)=\n$$\n"
-            "\\begin{cases}x,&x<0\\\\2x,&x\\ge0\\end{cases}\n"
-            "$$\ny=1\n$$"
+            "\n\n\\begin{cases}x,&x<0\\end{aligned}\n"
         ),
         _node(),
     )
 
+    assert any(
+        item["code"] == "unwrapped_display_environment"
+        for item in report["issues"]
+    )
     assert report["render_quality"]["passed"] is False
     assert report["content_quality"]["passed"] is True
 
@@ -454,6 +489,7 @@ def test_unclassified_codes_default_to_content_and_are_never_dropped():
 
 def test_every_emitted_code_belongs_to_exactly_one_dimension():
     import re
+    from pathlib import Path
 
     from course_quality import (
         HYGIENE_ISSUE_CODES,
@@ -461,7 +497,13 @@ def test_every_emitted_code_belongs_to_exactly_one_dimension():
         _issue_dimension,
     )
 
-    source = open("backend/course_quality.py", encoding="utf-8").read()
+    # Anchored to this file, not to the CWD: read via a relative path and the
+    # test fails with FileNotFoundError whenever pytest is invoked from
+    # anywhere but the repo root, which looks like a real assertion failure and
+    # sends whoever sees it hunting for a defect in the gate.
+    source = (
+        Path(__file__).resolve().parents[1] / "course_quality.py"
+    ).read_text(encoding="utf-8")
     codes = set(re.findall(r"_issue\(\s*[\"']([a-z_0-9]+)[\"']", source))
     assert codes, "未能从源码中提取到任何 issue code"
     for code in codes:
@@ -491,3 +533,77 @@ def test_a_genuine_same_level_restart_is_still_reported():
     """The fix must not disarm the rule it was narrowing."""
     codes = _codes(_content("\n\n1. 第一\n2. 第二\n1. 又从头开始\n2. 继续"))
     assert "list_numbering_restart" in codes
+
+
+def test_dirac_notation_is_not_mistaken_for_a_broken_table():
+    """Pipe-delimited physics is a formula, not a malformed table.
+
+    `table_missing_delimiter` was the least precise rule in the gate when
+    measured on real courses: 5 of its 6 firings were false positives, every one
+    a quantum-mechanics formula. Dirac kets open with `|` and carry several
+    more, which the old row test read as a table header with no delimiter row.
+    """
+    for formula in (
+        "|\\psi\\rangle = \\alpha |0\\rangle + \\beta |1\\rangle",
+        "|\\Phi^+\\rangle = \\frac{1}{\\sqrt{2}}(|00\\rangle + |11\\rangle)",
+        "|N|^2 = \\frac{1}{\\int |\\phi(x)|^2 dx}",
+    ):
+        codes = _codes(_content(f"\n\n$$\n{formula}\n$$\n"))
+        assert "table_missing_delimiter" not in codes, formula
+
+
+def test_a_genuinely_malformed_table_is_still_reported():
+    """Narrowing the row test must not disarm it for real tables."""
+    codes = _codes(_content("\n\n| 概念 | 说明 |\n| 向量 | 有方向的量 |\n"))
+    assert "table_missing_delimiter" in codes
+
+
+def test_a_well_formed_table_stays_clean():
+    codes = _codes(
+        _content("\n\n| 概念 | 说明 |\n|------|------|\n| 向量 | 有方向的量 |\n")
+    )
+    assert "table_missing_delimiter" not in codes
+    assert "table_delimiter_mismatch" not in codes
+
+
+def test_renderer_repairable_fence_variants_do_not_block_release():
+    """判据必须认得确定性修复能救回的**全部**围栏变体，不只是自己正则写过的那两种。
+
+    来源是 lz-course-gen 端到端跑出的微积分课：7 条发布阻断里有 4 条
+    （L2-1-1 / L2-2-1 / L2-4-1 / L2-4-3）实测渲染完全正常，却被判 critical。
+    原因是那门课带了两个本模块正则不认识的变体——`$$\\n$$` 分两行、
+    `$$ $$` 同一行——都把块级环境夹在中间。
+
+    修法不是再加正则，而是让 `_normalize_like_renderer` 复用
+    `repair_display_math_shape`，保证「什么形状算可修复」只有一份实现。
+    """
+    body = "本节讲解分段函数与极限，请完成练习并检查答案是否与参考一致。" * 8
+    variants = {
+        "分两行的空围栏": (
+            f"{body}\n\n$$\n$$\n\\begin{{cases}}\n1, & x>0 \\\\\n-1, & x<0\n"
+            "\\end{cases}\n$$\n"
+        ),
+        "同一行的空围栏": (
+            f"{body}\n\n$$ $$\n\\begin{{aligned}}\nf'(x) &= 3x^2\n"
+            "\\end{aligned}\n$$ $$\n"
+        ),
+        "前缀块与环境块分离": (
+            f"{body}\n\n$$\nV(x) =\n$$\n\\begin{{cases}}\n0, & x<1\n"
+            "\\end{cases}\n$$\n\n$$\n"
+        ),
+    }
+    for label, content in variants.items():
+        codes = _codes(content)
+        assert "unwrapped_display_environment" not in codes, label
+
+
+def test_a_genuinely_unrepairable_environment_still_blocks():
+    """收紧不能把判据变成摆设：修不回来的形态仍须阻断。
+
+    环境名不匹配（`cases` 开、`aligned` 闭）——确认过真实渲染下它会退化成
+    `math-fallback`，学习者读到的是字面 LaTeX。
+    """
+    body = "本节讲解分段函数与极限，请完成练习并检查答案是否与参考一致。" * 8
+    codes = _codes(f"{body}\n\n\\begin{{cases}}x,&x<0\\end{{aligned}}\n")
+
+    assert "unwrapped_display_environment" in codes

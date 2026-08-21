@@ -45,6 +45,8 @@ from ai_provider_route import (
     record_fallback_switch,
     record_primary_recovered,
 )
+from generation_telemetry import record_call as _record_generation_call
+from generation_telemetry import telemetry_enabled as _generation_telemetry_on
 
 # 添加项目根目录到系统路径以导入共享配置
 project_root = Path(__file__).parent.parent
@@ -136,6 +138,7 @@ class AIBase:
     _model_failure_cache: dict[tuple[str, str], float] = {}
     # (hostname, model_id) pairs that rejected response_format with a 400.
     _json_mode_unsupported: set[tuple[str, str]] = set()
+    _stream_usage_unsupported: set[tuple[str, str]] = set()
     # Consecutive transient failures per (provider, model); reset on success.
     _model_transient_failures: dict[tuple[str, str], int] = {}
 
@@ -371,6 +374,44 @@ class AIBase:
         """Cache one provider's 400 on ``response_format`` for later calls."""
         hostname = (urlparse(api_base or "").hostname or "").casefold()
         cls._json_mode_unsupported.add((hostname, str(model_id or "")))
+
+    @staticmethod
+    def _chunk_usage(chunk: Any) -> tuple[int, int] | None:
+        """Return ``(input_tokens, output_tokens)`` from a stream chunk.
+
+        Providers that honour ``stream_options.include_usage`` emit a final
+        chunk carrying real token counts.  Real counts are worth reaching for:
+        the local estimator is deliberately conservative, so a duplicate-context
+        bill computed from estimates would be systematically off.
+        """
+        usage = getattr(chunk, "usage", None)
+        if usage is None:
+            return None
+        prompt_tokens = getattr(usage, "prompt_tokens", None)
+        completion_tokens = getattr(usage, "completion_tokens", None)
+        if prompt_tokens is None and completion_tokens is None:
+            return None
+        return (int(prompt_tokens or 0), int(completion_tokens or 0))
+
+    def _supports_stream_usage(self, model_id: str | None = None) -> bool:
+        return (
+            (urlparse(self.api_base).hostname or "").casefold(),
+            str(model_id or ""),
+        ) not in AIBase._stream_usage_unsupported
+
+    @classmethod
+    def _remember_stream_usage_unsupported(
+        cls,
+        api_base: str | None,
+        model_id: str | None,
+    ) -> None:
+        """Cache one provider's rejection of ``stream_options``.
+
+        Without the memo a provider that 400s on the option would pay a wasted
+        round trip on every instrumented call.
+        """
+        hostname = (urlparse(api_base or "").hostname or "").casefold()
+        cls._stream_usage_unsupported.add((hostname, str(model_id or "")))
 
     @staticmethod
     def _uses_model_scoped_quota(api_base: str) -> bool:
@@ -1244,6 +1285,7 @@ class AIBase:
                 attempt += 1
                 attempt_started = time.perf_counter()
                 queue_wait_ms = 0
+                queue_wait_reason = ""
                 physical_request_count = 0
                 estimated_input_tokens = self.estimate_request_tokens(
                     prompt,
@@ -1311,9 +1353,16 @@ class AIBase:
                         model_id,
                         on_wait_activity=on_stream_activity,
                     )
+                    # 优先用队列自己量的等待时长；取不到再退回本地秒表。
+                    lease_wait_ms = getattr(lease, "queue_wait_ms", None)
                     queue_wait_ms = int(round(
-                        (time.perf_counter() - queue_started) * 1000
+                        lease_wait_ms
+                        if lease_wait_ms is not None
+                        else (time.perf_counter() - queue_started) * 1000
                     ))
+                    queue_wait_reason = getattr(
+                        lease, "queue_wait_reason", ""
+                    )
                     try:
                         try:
                             await self._wait_for_request_slot()
@@ -1711,11 +1760,58 @@ class AIBase:
                 attempts += 1
                 attempt_started = time.perf_counter()
                 queue_wait_ms = 0
+                queue_wait_reason = ""
                 physical_request_count = 0
+                real_usage: tuple[int, int] | None = None
+                first_token_at: float | None = None
                 estimated_input_tokens = self.estimate_request_tokens(
                     prompt,
                     system_prompt,
                 )
+
+                def emit_generation_record(
+                    *,
+                    status: str,
+                    output: str = "",
+                    error: Exception | None = None,
+                ) -> None:
+                    """A-1 全链路账单：请求统一出口的唯一打点。"""
+                    if not _generation_telemetry_on():
+                        return
+                    _record_generation_call(
+                        model_id=model_id,
+                        model_role=model_role or "",
+                        status=status,
+                        stream=False,
+                        attempt=attempts,
+                        queue_wait_ms=queue_wait_ms,
+                        duration_ms=(
+                            (time.perf_counter() - attempt_started) * 1000
+                        ),
+                        ttfb_ms=(
+                            None
+                            if first_token_at is None
+                            else (first_token_at - attempt_started) * 1000
+                        ),
+                        prompt=prompt,
+                        system_prompt=system_prompt,
+                        output_text=output,
+                        input_tokens=(
+                            real_usage[0] if real_usage else None
+                        ),
+                        output_tokens=(
+                            real_usage[1] if real_usage else None
+                        ),
+                        tokens_source="provider" if real_usage else "estimate",
+                        retry_reason=(
+                            type(error).__name__ if error else ""
+                        ),
+                        error_code=str(error)[:200] if error else "",
+                        physical_request_count=physical_request_count,
+                        provider_scope=self._primary_provider_scope(),
+                        service=type(self).__name__,
+                        extra={"queue_wait_reason": queue_wait_reason},
+                    )
 
                 def emit_telemetry(
                     *,
@@ -1723,6 +1819,12 @@ class AIBase:
                     output: str = "",
                     error: Exception | None = None,
                 ) -> None:
+                    # 账单打点与既有 sink 走同一批出口，避免漏记某条分支。
+                    emit_generation_record(
+                        status=status,
+                        output=output,
+                        error=error,
+                    )
                     if telemetry_sink is None:
                         return
                     try:
@@ -1778,14 +1880,30 @@ class AIBase:
                         request_options["response_format"] = {
                             "type": "json_object"
                         }
+                    # 真实 token 数只有 provider 给得出；估算值会系统性偏差，
+                    # 直接影响"重复上下文占多少 token"这一验收项。
+                    if (
+                        _generation_telemetry_on()
+                        and self._supports_stream_usage(model_id)
+                    ):
+                        request_options["stream_options"] = {
+                            "include_usage": True
+                        }
                     queue_started = time.perf_counter()
                     lease = await capacity.acquire(
                         model_id,
                         on_wait_activity=on_stream_activity,
                     )
+                    # 优先用队列自己量的等待时长；取不到再退回本地秒表。
+                    lease_wait_ms = getattr(lease, "queue_wait_ms", None)
                     queue_wait_ms = int(round(
-                        (time.perf_counter() - queue_started) * 1000
+                        lease_wait_ms
+                        if lease_wait_ms is not None
+                        else (time.perf_counter() - queue_started) * 1000
                     ))
+                    queue_wait_reason = getattr(
+                        lease, "queue_wait_reason", ""
+                    )
                     try:
                         try:
                             await self._wait_for_request_slot()
@@ -1794,29 +1912,55 @@ class AIBase:
                                 **request_options
                             )
                         except Exception as format_error:
-                            if not (
-                                json_mode
-                                and self._error_status_code(format_error) == 400
+                            status_400 = (
+                                self._error_status_code(format_error) == 400
+                            )
+                            # 埋点绝不能把一次本来能成功的请求变成失败：
+                            # provider 拒绝 stream_options 时退掉该选项重试，
+                            # 并记住，后续调用不再白跑一次 400。
+                            if (
+                                status_400
+                                and "stream_options" in request_options
                             ):
+                                self._remember_stream_usage_unsupported(
+                                    self.api_base,
+                                    model_id,
+                                )
+                                request_options.pop("stream_options", None)
+                                await self._wait_for_request_slot()
+                                physical_request_count += 1
+                                response = (
+                                    await self.client.chat.completions.create(
+                                        **request_options
+                                    )
+                                )
+                            elif not (json_mode and status_400):
                                 raise
-                            # Remember the rejection: without this every later
-                            # call pays the same wasted 400 round trip.
-                            self._remember_json_mode_unsupported(
-                                self.api_base,
-                                model_id,
-                            )
-                            request_options.pop("response_format", None)
-                            await self._wait_for_request_slot()
-                            physical_request_count += 1
-                            response = await self.client.chat.completions.create(
-                                **request_options
-                            )
+                            else:
+                                # Remember the rejection: without this every
+                                # later call pays the same wasted 400 round
+                                # trip.
+                                self._remember_json_mode_unsupported(
+                                    self.api_base,
+                                    model_id,
+                                )
+                                request_options.pop("response_format", None)
+                                await self._wait_for_request_slot()
+                                physical_request_count += 1
+                                response = (
+                                    await self.client.chat.completions.create(
+                                        **request_options
+                                    )
+                                )
 
                         # 聚合流式响应；内容和推理分片都表示调用仍活跃。
                         full_content = ""
                         reasoning_chars = 0
                         truncated = False
                         async for chunk in response:
+                            usage_pair = self._chunk_usage(chunk)
+                            if usage_pair is not None:
+                                real_usage = usage_pair
                             if chunk.choices:
                                 reasoning = self._delta_reasoning(
                                     chunk.choices[0].delta
@@ -1828,6 +1972,8 @@ class AIBase:
 
                                 delta = chunk.choices[0].delta
                                 if delta.content:
+                                    if first_token_at is None:
+                                        first_token_at = time.perf_counter()
                                     full_content += delta.content
                                     if on_stream_activity:
                                         on_stream_activity()
@@ -2074,31 +2220,128 @@ class AIBase:
             # （thinking 吃光输出预算）。
             stream_max_tokens = max_tokens or self.max_tokens
             truncation_ceiling = max(self.max_tokens, stream_max_tokens * 2)
+            # A-1：流式路径此前完全没有埋点，而正文生成正走这条路。少了它
+            # 账单会漏掉最耗时的阶段。
+            stream_started = time.perf_counter()
+            stream_queue_wait_ms = 0.0
+            stream_wait_reason = ""
+            stream_first_token_at: float | None = None
+            stream_output_chars = 0
+            stream_usage: tuple[int, int] | None = None
+            stream_requests = 0
+
+            def emit_stream_record(
+                *,
+                status: str,
+                error: Exception | None = None,
+            ) -> None:
+                if not _generation_telemetry_on():
+                    return
+                _record_generation_call(
+                    model_id=model_id,
+                    model_role="",
+                    status=status,
+                    stream=True,
+                    attempt=attempts,
+                    queue_wait_ms=stream_queue_wait_ms,
+                    duration_ms=(
+                        (time.perf_counter() - stream_started) * 1000
+                    ),
+                    ttfb_ms=(
+                        None
+                        if stream_first_token_at is None
+                        else (stream_first_token_at - stream_started) * 1000
+                    ),
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    input_tokens=stream_usage[0] if stream_usage else None,
+                    output_tokens=stream_usage[1] if stream_usage else None,
+                    tokens_source="provider" if stream_usage else "estimate",
+                    retry_reason=type(error).__name__ if error else "",
+                    error_code=str(error)[:200] if error else "",
+                    physical_request_count=stream_requests,
+                    provider_scope=self._primary_provider_scope(),
+                    service=type(self).__name__,
+                    extra={
+                        "output_chars": stream_output_chars,
+                        "queue_wait_reason": stream_wait_reason,
+                    },
+                )
+
             try:
                 while True:
                     extra_body = self._thinking_extra_body(enable_thinking)
                     capacity = get_provider_capacity_controller(
                         self._primary_provider_scope()
                     )
+                    queue_started = time.perf_counter()
                     lease = await capacity.acquire(
                         model_id,
                         on_wait_activity=on_stream_activity,
                     )
+                    lease_wait_ms = getattr(lease, "queue_wait_ms", None)
+                    stream_queue_wait_ms += (
+                        lease_wait_ms
+                        if lease_wait_ms is not None
+                        else (time.perf_counter() - queue_started) * 1000
+                    )
+                    stream_wait_reason = getattr(
+                        lease, "queue_wait_reason", ""
+                    ) or stream_wait_reason
                     try:
                         await self._wait_for_request_slot()
-                        response = await self.client.chat.completions.create(
-                            model=model_id,
-                            messages=[
+                        request_options = {
+                            "model": model_id,
+                            "messages": [
                                 {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt}
+                                {"role": "user", "content": prompt},
                             ],
-                            stream=True,
-                            max_tokens=stream_max_tokens,
-                            extra_body=extra_body
-                        )
+                            "stream": True,
+                            "max_tokens": stream_max_tokens,
+                            "extra_body": extra_body,
+                        }
+                        if (
+                            _generation_telemetry_on()
+                            and self._supports_stream_usage(model_id)
+                        ):
+                            request_options["stream_options"] = {
+                                "include_usage": True
+                            }
+                        stream_requests += 1
+                        try:
+                            response = (
+                                await self.client.chat.completions.create(
+                                    **request_options
+                                )
+                            )
+                        except Exception as stream_option_error:
+                            # 同 _call_llm：埋点选项被拒时退掉重试，不能因为
+                            # 打点把正文生成打挂。
+                            if not (
+                                "stream_options" in request_options
+                                and self._error_status_code(
+                                    stream_option_error
+                                ) == 400
+                            ):
+                                raise
+                            self._remember_stream_usage_unsupported(
+                                self.api_base,
+                                model_id,
+                            )
+                            request_options.pop("stream_options", None)
+                            await self._wait_for_request_slot()
+                            stream_requests += 1
+                            response = (
+                                await self.client.chat.completions.create(
+                                    **request_options
+                                )
+                            )
 
                         truncated = False
                         async for chunk in response:
+                            usage_pair = self._chunk_usage(chunk)
+                            if usage_pair is not None:
+                                stream_usage = usage_pair
                             if chunk.choices:
                                 reasoning = self._delta_reasoning(
                                     chunk.choices[0].delta
@@ -2108,6 +2351,11 @@ class AIBase:
 
                                 delta = chunk.choices[0].delta
                                 if delta.content:
+                                    if stream_first_token_at is None:
+                                        stream_first_token_at = (
+                                            time.perf_counter()
+                                        )
+                                    stream_output_chars += len(delta.content)
                                     yielded = True
                                     if on_stream_activity:
                                         on_stream_activity()
@@ -2135,6 +2383,7 @@ class AIBase:
                         continue
                     break
                 if truncated:
+                    emit_stream_record(status="truncated")
                     raise AIResponseTruncated(
                         "模型流式输出达到硬上限："
                         f"max_tokens={stream_max_tokens}"
@@ -2143,9 +2392,12 @@ class AIBase:
                     self._remember_model(use_fast_model, model_id)
                     await capacity.report_success(model_id)
                     record_primary_recovered()
+                    emit_stream_record(status="completed")
                     return
+                emit_stream_record(status="empty_response")
                 last_error = AIProviderRequestError(f"Model {model_id} returned an empty stream")
             except Exception as e:
+                emit_stream_record(status="failed", error=e)
                 logger.error(f"Stream Error (Model: {model_id}): {e}")
                 if isinstance(e, ModelCapacityCoolingDown):
                     last_error = e

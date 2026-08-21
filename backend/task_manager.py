@@ -95,6 +95,12 @@ from course_type_contracts import (
     ensure_course_type_enabled,
     resolve_course_type,
 )
+from course_space_publication import (
+    MISSING_TEACHER_IDENTITY,
+    PUBLISH_SCHEMA_VERSION,
+    SKIP_MESSAGES,
+    publish_course_artifacts,
+)
 from course_versioning import (
     analyze_blueprint_impact,
     blueprint_draft_revision_id,
@@ -237,7 +243,11 @@ DEFAULT_TASKS_FILE = Path(DATA_DIR) / "generation_jobs.json"
 TASKS_FILE = DEFAULT_TASKS_FILE
 LEGACY_TASKS_FILE = Path(__file__).with_name("tasks.json")
 
-DEFAULT_MAX_CONCURRENCY = 4
+# 正文并行阶段的默认并发。真正的取值来自
+# `CourseGenerationBudget.content_concurrency`（可用 COURSE_CONTENT_CONCURRENCY
+# 覆盖）；这个常量只是没有传入预算时的兜底，两者必须保持一致。
+# 8 是按端点实测容量定的，依据见 course_generation_budget.py 的注释。
+DEFAULT_MAX_CONCURRENCY = 8
 DEFAULT_MAX_COURSE_CONCURRENCY = 2
 QUALITY_REPAIR_POLICY_VERSION = "quality_repair_v2.2"
 
@@ -904,7 +914,7 @@ class TaskManager:
         )
         resolved_max_concurrency = max(
             1,
-            min(6, int(resolved_max_concurrency)),
+            min(16, int(resolved_max_concurrency)),
         )
         self._content_max_retries = (
             self._generation_budget.content_max_retries
@@ -2634,6 +2644,85 @@ class TaskManager:
             "nodes": nodes,
         }
 
+    @staticmethod
+    def project_course_coverage(course_data: dict[str, Any]) -> dict[str, Any]:
+        """Project the outline-stage coverage verdict for the confirmation page.
+
+        Read-only: the verdict is decided during outline planning (D-1) and only
+        reshaped here. A course generated before D-1 has no verdict; it is
+        reported as ``unknown`` rather than being presented as complete, because
+        silence is what made a short course read as a full one in the first place.
+        """
+        verdict = (
+            (course_data.get("generation_stage_artifacts") or {})
+            .get("outline") or {}
+        ).get("course_coverage_verdict")
+        if not isinstance(verdict, dict) or not verdict:
+            return {"status": "unknown", "available": False}
+        uncovered = [
+            str(item) for item in verdict.get("uncovered_topics") or []
+        ]
+        return {
+            "available": True,
+            "status": str(verdict.get("status") or "unknown"),
+            "scale": str(verdict.get("scale") or ""),
+            "scale_label": str(verdict.get("scale_label") or ""),
+            "class_hours": verdict.get("class_hours"),
+            "may_claim_complete_subject": bool(
+                verdict.get("may_claim_complete_subject")
+            ),
+            "coverage_promise": str(verdict.get("coverage_promise") or ""),
+            "required_positioning": str(
+                verdict.get("required_positioning") or ""
+            ),
+            "covered_topics": [
+                str(item) for item in verdict.get("covered_topics") or []
+            ],
+            "uncovered_topics": uncovered,
+            "uncovered_count": len(uncovered),
+            "advisories": [
+                str(item) for item in verdict.get("advisories") or []
+            ],
+        }
+
+    @staticmethod
+    def _outline_review_message(
+        coverage: dict[str, Any],
+        *,
+        is_teacher_outline: bool = False,
+    ) -> str:
+        """Compose the outline gate message from two independent dimensions.
+
+        They are orthogonal and must not overwrite each other:
+
+        * **视角** (``is_teacher_outline``) decides what happens next -- a teacher
+          outline goes on to per-lesson teaching plans, a learner course goes on
+          to full-course sections and body text.
+        * **覆盖度** (``coverage``) is the honesty verdict from the outline stage:
+          whether the requested class hours can actually cover the subject. This
+          is the whole point of the D-1 gate -- telling the user *before*
+          generation that a course cannot be complete, instead of shipping
+          something that calls itself 完整课程 while missing half the subject.
+
+        So the verdict is prepended to whichever next-step sentence applies,
+        rather than replacing it.
+        """
+        next_step = (
+            "课程大纲等待确认；确认后可按讲生成教案"
+            if is_teacher_outline
+            else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+        )
+        if not coverage.get("available") or coverage.get("may_claim_complete_subject"):
+            return next_step
+        label = coverage.get("scale_label") or "当前规格"
+        uncovered = int(coverage.get("uncovered_count") or 0)
+        verdict = (
+            f"本次为{label}，有 {uncovered} 个核心主题不覆盖"
+            if uncovered
+            else f"本次为{label}，不承担学科完整覆盖"
+        )
+        return f"{verdict}；{next_step}"
+
     def get_generation_review(self, course_id: str) -> dict[str, Any] | None:
         """Return the safe, product-facing artifact for the current review step."""
         candidates = [
@@ -2670,6 +2759,10 @@ class TaskManager:
                 "learner_starting_profile": deepcopy(
                     course_data.get("learner_starting_profile") or {}
                 ),
+                # D-1：用户在确认目录时就必须看到覆盖度判断，而不是等课程生成完
+                # 才发现这门"完整课程"其实没覆盖半个学科。判定在大纲阶段已算好
+                # 并落在 outline stage 里，这里只做投影，不重新判定。
+                "course_coverage": self.project_course_coverage(course_data),
                 "course_positioning": str(
                     plan.get("course_positioning")
                     or plan.get("positioning")
@@ -6520,6 +6613,12 @@ class TaskManager:
                 ).get("actual") or {}
                 course_data["generation_status"] = "outline_ready"
                 await self._save_task_course(task_id, course_data)
+                # D-1：确认门上的提示要带覆盖度结论，否则用户只看到"N 节已就绪"，
+                # 仍然以为这是一门完整课程。
+                coverage = self.project_course_coverage(course_data)
+                coverage_detail = (
+                    {"course_coverage": coverage} if coverage.get("available") else {}
+                )
                 if guided:
                     await self._pause_for_guided_review(
                         task_id,
@@ -6527,10 +6626,9 @@ class TaskManager:
                         "outline",
                         phase="outline_ready",
                         progress=35,
-                        message=(
-                            "课程大纲等待确认；确认后可按讲生成教案"
-                            if is_teacher_outline
-                            else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+                        message=self._outline_review_message(
+                            coverage,
+                            is_teacher_outline=is_teacher_outline,
                         ),
                         revision=guided_artifact_revision(
                             "outline",
@@ -6540,6 +6638,7 @@ class TaskManager:
                         phase_detail={
                             "completed_items": int(outline_actual.get("section_count") or 0),
                             "total_items": int(outline_actual.get("section_count") or 0),
+                            **coverage_detail,
                         },
                     )
                     return
@@ -6554,15 +6653,15 @@ class TaskManager:
                         "blueprint_revision_id": impact.get("draft_blueprint_revision_id"),
                         "completed_items": int(outline_actual.get("section_count") or 0),
                         "total_items": int(outline_actual.get("section_count") or 0),
+                        **coverage_detail,
                     },
                 )
                 await self._update_task_status(
                     task_id,
                     "waiting_for_review",
-                    message=(
-                        "课程大纲等待确认；确认后可按讲生成教案"
-                        if is_teacher_outline
-                        else "课程目录等待确认；确认后将规划全课小节教案并生成正文"
+                    message=self._outline_review_message(
+                        coverage,
+                        is_teacher_outline=is_teacher_outline,
                     ),
                     completed_nodes=0,
                     total_nodes=int(outline_actual.get("section_count") or 0),
@@ -6782,6 +6881,13 @@ class TaskManager:
                 ),
                 "completed_section_count": completed_section_count,
                 "failed_section_count": failed_section_count,
+                # E-1 验收口径：本轮（含恢复）为正文实际发出的模型调用总数。
+                # 恢复后已完成小节不再进入生成，其计数不增长，因此这个总数
+                # 与"重跑了多少节"一致，可以直接核对，不用肉眼判断。
+                "model_call_count": sum(
+                    int(item.get("model_call_count") or 0)
+                    for item in runtimes
+                ),
                 "resume_available": (
                     completed_section_count < len(generated_nodes)
                 ),
@@ -8756,6 +8862,53 @@ class TaskManager:
             publication_allowed,
         )
 
+    async def _publish_course_artifacts_to_space(
+        self, task_id: str, course_data: dict
+    ) -> dict[str, Any]:
+        """Write finished artifacts into the teacher's course space (F-2).
+
+        Runs at completion, after artifacts are final. Failure is recorded on the
+        task and surfaced to the caller, but never changes the generation outcome:
+        the course generated fine, filing it is a downstream action.
+        """
+        task = self.tasks.get(task_id) or {}
+        owner_id = str(
+            (task.get("request_snapshot") or {}).get("_retrieval_actor_id")
+            or (course_data.get("generation_request") or {}).get("_retrieval_actor_id")
+            or ""
+        ).strip()
+        if not owner_id:
+            # 缺教师身份时不建包、不写文件，并如实说明原因——否则老师只会看到
+            # "没入库"，分不清是系统坏了还是身份没带上。
+            report = {
+                "schema_version": PUBLISH_SCHEMA_VERSION,
+                "status": "skipped",
+                "reason": MISSING_TEACHER_IDENTITY,
+                "message": SKIP_MESSAGES[MISSING_TEACHER_IDENTITY],
+                "package_id": "",
+                "written": [],
+                "unchanged": [],
+                "conflicts": [],
+                "failures": [],
+            }
+        else:
+            report = await asyncio.to_thread(
+                publish_course_artifacts,
+                course_data,
+                owner_id=owner_id,
+            )
+        async with self._lock:
+            fresh = self.tasks.get(task_id)
+            if fresh is not None:
+                fresh["course_space_publication"] = deepcopy(report)
+                self.save_tasks()
+        if report.get("status") == "failed":
+            logger.warning(
+                "课程产物入教师文件空间部分失败（课程仍然有效）：%s",
+                report.get("failures"),
+            )
+        return report
+
     async def _complete_task(
         self, task_id: str, course_data: dict
     ) -> None:
@@ -8993,6 +9146,14 @@ class TaskManager:
                     "课程已发布，但基础教学表达编译将在后续对账中重试：%s",
                     exc,
                 )
+
+        # F-2：产物已经定稿，落进教师文件空间。这是下游动作——写入失败如实记在
+        # 任务上，但绝不改变课程的生成结果（`publish_course_artifacts` 本身
+        # 不抛异常，这里再加一层保险）。
+        try:
+            await self._publish_course_artifacts_to_space(task_id, course_data)
+        except Exception as exc:  # noqa: BLE001 - 入库失败不得回滚课程
+            logger.warning("课程产物入教师文件空间失败：%s", exc)
 
         if promotion_conflict:
             await self._update_task_status(

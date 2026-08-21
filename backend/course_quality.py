@@ -25,9 +25,14 @@ RENDER_ISSUE_CODES = frozenset({
     # Real-render failures reported by the frontend (L3a).
     "math_render_failed",
     "block_render_failed",
+    # Verdict from the real renderer run by scripts/render_gate.mjs (F-1b/B).
+    "render_gate:failed",
     # Math delimiter and environment structure.
     "unclosed_math_fence",
     "unwrapped_display_environment",
+    # Untidy source that the renderer normalizes away: reported so it can be
+    # cleaned up, never blocking, because the learner already sees it correctly.
+    "repairable_display_environment",
     "legacy_math_delimiter",
     # Block structure that changes what the learner sees.
     "unclosed_code_fence",
@@ -55,6 +60,88 @@ def _issue_dimension(code: str) -> str:
     if code in HYGIENE_ISSUE_CODES:
         return "hygiene"
     return "content"
+
+
+# Mirrors `DISPLAY_MATH_ENVIRONMENTS` in frontend/src/utils/markdown.ts:258.
+# Keep the two in sync: this list decides which environments the gate believes
+# the renderer will repair.
+_DISPLAY_MATH_ENVIRONMENTS = (
+    "bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|aligned|split|cases"
+    "|equation|gather"
+)
+
+
+def _normalize_like_renderer(text: str) -> str:
+    """Apply the repairs the real renderer applies, before judging the text.
+
+    This is the fix for the gate's largest false-positive source. Measured on 8
+    real courses, `unwrapped_display_environment` fired on 37 nodes and 13 of
+    them rendered perfectly (precision 0.65). The reason is not that the source
+    was fine — it was genuinely malformed, in exactly the `cases/aligned` shape
+    F-1 exists to catch. It is that `frontend/src/utils/markdown.ts` repairs
+    that shape at render time (`normalizeLegacyDisplayShells`,
+    `normalizeBalancedDisplayEnvironments`) before KaTeX ever sees it, so the
+    learner gets correct output and the gate blocked the release anyway.
+
+    A publication gate must judge what the learner will see, not what the model
+    happened to emit. So the backend now performs the same normalization the
+    frontend does and runs its structural math checks on the result: a defect is
+    reported only when it survives the repair.
+
+    Deliberately a subset of the frontend pipeline — only the transforms that
+    change whether math is *structurally* wrapped. The naked-math heuristics
+    (`detectAndWrapNakedMathLines` and friends) decide typography, not
+    structure, and porting them would double the drift surface for no gain.
+
+    On top of the ported transforms it also runs the repository's own
+    deterministic shape repair (`repair_display_math_shape`). Measured on the
+    18-section calculus course from lz-course-gen's end-to-end run, that course
+    carried two variants this function's regexes alone do not recognise —
+    `$$\\n$$` on separate lines and `$$ $$` on a single line, both wrapping the
+    environment. All four of its false-positive nodes still blocked until the
+    repair ran first. Reusing the repair instead of adding more regexes here
+    keeps one implementation of "what shape counts as fixable".
+    """
+    normalized = text
+
+    # `normalizeLegacyDisplayShells`, prefixed form: a display prefix such as
+    # `A =` sitting in its own `$$` block, immediately followed by a second
+    # block holding the environment. Together they are one formula.
+    normalized = re.sub(
+        rf"\$\$[\t ]*\n([^\n$]*(?:\n[^\n$]*){{0,2}})\n[\t ]*\$\$[\t ]*\n"
+        rf"(\\begin\{{(?:{_DISPLAY_MATH_ENVIRONMENTS})\}}[\s\S]*?"
+        rf"\\end\{{(?:{_DISPLAY_MATH_ENVIRONMENTS})\}})[\t ]*\n[\t ]*\$\$",
+        lambda m: f"$$\n{m.group(1).strip()}\n{m.group(2).strip()}\n$$",
+        normalized,
+    )
+
+    # `normalizeBalancedDisplayEnvironments`: any balanced environment that is
+    # not already inside display math gets wrapped in its own `$$` block. This
+    # is why a bare `\begin{cases}…\end{cases}` still reaches the learner
+    # correctly.
+    def _wrap(match: re.Match[str]) -> str:
+        prefix = normalized[: match.start()]
+        # An odd count means this environment is already inside a `$$` span.
+        if len(re.findall(r"\$\$", prefix)) % 2:
+            return match.group(0)
+        return f"\n$$\n{match.group(1).strip()}\n$$\n"
+
+    normalized = re.sub(
+        rf"\$*\s*(\\begin\{{({_DISPLAY_MATH_ENVIRONMENTS})\}}[\s\S]*?\\end\{{\2\}})\s*\$*",
+        _wrap,
+        normalized,
+    )
+
+    # Finally hand the text to the deterministic shape repair. Imported lazily:
+    # `canonical_content_repair` imports the course command/repository stack,
+    # and importing that at module scope would drag persistence into every
+    # caller of the quality gate — including the offline probes that only want
+    # to score text.
+    try:
+        from canonical_content_repair import repair_display_math_shape
+    except ImportError:  # pragma: no cover - repair is optional for scoring
+        return normalized
+    return repair_display_math_shape(normalized)
 
 
 def _dimension_report(issues: list[dict[str, Any]], dimension: str) -> dict[str, Any]:
@@ -230,35 +317,57 @@ def evaluate_node_content(
     # An even `$$` count is not proof the math is well-formed: a display
     # environment can sit entirely outside the delimiters and still leave the
     # count balanced, which renders as raw LaTeX source to the learner.
+    #
+    # Severity is decided by whether the defect survives the renderer's own
+    # repair, because that is what separates "the learner sees broken math" from
+    # "the stored source is untidy". Measured on 8 real courses, judging the raw
+    # text alone made this the gate's largest false-positive source: 13 of 37
+    # firings were on nodes that render perfectly, and each one would have
+    # blocked a release. Verified against the real pipeline — the `cases`
+    # shape this rule was written for now renders as correct KaTeX, because
+    # `normalizeLegacyDisplayShells` repairs it before KaTeX sees it.
     display_envs = (
         r"aligned|matrix|pmatrix|bmatrix|vmatrix|Vmatrix|array|align|align\*|"
         r"equation|equation\*|cases|gather|gather\*|alignat|alignat\*|eqnarray|split"
     )
-    in_code_fence = False
-    in_display_math = False
-    unwrapped_display_env = False
-    for line in text.splitlines():
-        if re.match(r"^\s*```", line):
-            in_code_fence = not in_code_fence
-            continue
-        if in_code_fence:
-            continue
-        for token in re.finditer(rf"(?<!\\)\$\$|\\begin\{{(?:{display_envs})\}}", line):
-            if token.group(0) == "$$":
-                in_display_math = not in_display_math
-            elif not in_display_math:
-                unwrapped_display_env = True
-                break
-        if unwrapped_display_env:
-            break
-    if unwrapped_display_env:
-        issues.append(_issue(
-            "unwrapped_display_environment",
-            "critical",
-            "cases、aligned 或矩阵等块级公式环境位于 $$ 分隔符之外",
-            "把公式前缀与块级环境合并到同一组 $$...$$ 中",
-            node_id,
-        ))
+
+    def _has_unwrapped_environment(candidate: str) -> bool:
+        in_code_fence = False
+        in_display_math = False
+        for line in candidate.splitlines():
+            if re.match(r"^\s*```", line):
+                in_code_fence = not in_code_fence
+                continue
+            if in_code_fence:
+                continue
+            for token in re.finditer(
+                rf"(?<!\\)\$\$|\\begin\{{(?:{display_envs})\}}", line
+            ):
+                if token.group(0) == "$$":
+                    in_display_math = not in_display_math
+                elif not in_display_math:
+                    return True
+        return False
+
+    if _has_unwrapped_environment(text):
+        if _has_unwrapped_environment(_normalize_like_renderer(text)):
+            # Survives the repair: the learner really does see raw LaTeX.
+            issues.append(_issue(
+                "unwrapped_display_environment",
+                "critical",
+                "cases、aligned 或矩阵等块级公式环境位于 $$ 分隔符之外，且渲染器的归一化无法修复",
+                "把公式前缀与块级环境合并到同一组 $$...$$ 中",
+                node_id,
+            ))
+        else:
+            # Repairable: worth cleaning up, never worth blocking a release.
+            issues.append(_issue(
+                "repairable_display_environment",
+                "warning",
+                "块级公式环境位于 $$ 之外，但渲染器会自动归一化，学习者看到的结果正确",
+                "建议清理源码中的多余分隔符，使存储内容与渲染结果一致",
+                node_id,
+            ))
     if "生成中..." in text or "[待补充" in text:
         issues.append(_issue("placeholder_content", "critical", "正文包含兜底或待补充占位符", "生成完整正文", node_id))
     if re.search(
@@ -780,8 +889,150 @@ def build_difficulty_alignment_report(course_data: dict[str, Any]) -> dict[str, 
     }
 
 
+def build_visual_quality_report(
+    course_data: dict[str, Any],
+    render_gate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The visual-correctness report, readable on its own.
+
+    F-1 asks for content correctness and visual correctness to be reported
+    separately, because they have different owners and different fixes: a course
+    can be pedagogically sound and render as garbled LaTeX, or render beautifully
+    while missing half its key points. Until now both landed in one `issues` list
+    behind one score, so a reader could not tell which had failed.
+
+    "Independently readable" is taken literally — this dict names its own
+    subject, states where its verdict came from, and never requires the caller
+    to consult the content report to interpret it.
+
+    ``render_gate`` is the output of ``scripts/render_gate.mjs``, which runs the
+    learner's real renderer. When supplied it is authoritative, because it
+    observed what the browser actually produced. Without it the report falls
+    back to the backend's own pattern tier and says so in `basis` — measured on
+    8 real courses, that tier alone misses 72% of nodes that fail to render, and
+    a reader deserves to know which of the two they are looking at.
+    """
+    nodes = [
+        node for node in course_data.get("nodes") or []
+        if node.get("node_level", 1) == 2
+    ]
+    node_reports = [_current_node_quality(node) for node in nodes]
+    pattern_view = _aggregate_render_quality(node_reports)
+
+    if not isinstance(render_gate, dict) or not render_gate.get("checked_nodes"):
+        return {
+            "contract_version": QUALITY_CONTRACT_VERSION,
+            "dimension": "visual",
+            "question": "学习者看到的排版和公式是否正确？",
+            "basis": "backend_pattern_only",
+            "basis_note": (
+                "未提供真实渲染结果，本报告仅来自后端文本模式检查。"
+                "在 8 门真实课程上实测，该层会漏掉 72% 真正渲染失败的节点。"
+                "发布前请运行 scripts/render_gate.mjs 取得权威结论。"
+            ),
+            "authoritative": False,
+            "passed": pattern_view.get("passed", True),
+            "score": pattern_view.get("score", 1.0),
+            "checked_nodes": len(node_reports),
+            "failing_node_ids": pattern_view.get("failing_node_ids", []),
+            "issues": pattern_view.get("issues", []),
+        }
+
+    gate_nodes = [item for item in render_gate.get("nodes") or [] if isinstance(item, dict)]
+    failing = [item for item in gate_nodes if not item.get("passed", True)]
+    return {
+        "contract_version": QUALITY_CONTRACT_VERSION,
+        "dimension": "visual",
+        "question": "学习者看到的排版和公式是否正确？",
+        "basis": "real_render",
+        "basis_note": (
+            f"由真实渲染器判定：{render_gate.get('renderer') or 'frontend markdown pipeline'}。"
+            "这与学习者浏览器里跑的是同一条链路。"
+        ),
+        "authoritative": True,
+        "passed": not failing,
+        "checked_nodes": len(gate_nodes),
+        "failing_node_count": len(failing),
+        "failing_node_ids": [str(item.get("node_id") or "") for item in failing],
+        "failures": [
+            {
+                "node_id": str(item.get("node_id") or ""),
+                "node_name": str(item.get("node_name") or ""),
+                "math_failure_count": int(
+                    (item.get("render_diagnostics") or {}).get("math_failure_count") or 0
+                ),
+                "block_failure_count": int(
+                    (item.get("render_diagnostics") or {}).get("block_failure_count") or 0
+                ),
+                "leaked_source": bool(item.get("leaked_source")),
+                "samples": item.get("samples") or [],
+                "reading": "学习者会在这一节看到 LaTeX 源码或错位排版",
+            }
+            for item in failing
+        ],
+        # Kept so a reader can see where the cheap tier and the real renderer
+        # disagree, without having to open the content report to find out.
+        "backend_pattern_view": {
+            "passed": pattern_view.get("passed", True),
+            "failing_node_ids": pattern_view.get("failing_node_ids", []),
+        },
+    }
+
+
+def build_content_quality_report(course_data: dict[str, Any]) -> dict[str, Any]:
+    """The content-correctness report, readable on its own.
+
+    Deliberately excludes every render code: whether a formula displays is the
+    other report's question. What remains is whether the course teaches what it
+    promised — objectives covered, difficulty honoured, evidence used, no model
+    process leaking into the body.
+    """
+    nodes = [
+        node for node in course_data.get("nodes") or []
+        if node.get("node_level", 1) == 2
+    ]
+    node_reports = [_current_node_quality(node) for node in nodes]
+
+    content_issues: list[dict[str, Any]] = []
+    hygiene_issues: list[dict[str, Any]] = []
+    failing: list[str] = []
+    for report in node_reports:
+        scoped = [
+            item for item in report.get("issues") or []
+            if _issue_dimension(str(item.get("code") or "")) != "render"
+        ]
+        for item in scoped:
+            if _issue_dimension(str(item.get("code") or "")) == "hygiene":
+                hygiene_issues.append(item)
+            else:
+                content_issues.append(item)
+        if _has_critical(scoped):
+            node_id = str(report.get("node_id") or "")
+            if node_id:
+                failing.append(node_id)
+
+    combined = content_issues + hygiene_issues
+    return {
+        "contract_version": QUALITY_CONTRACT_VERSION,
+        "dimension": "content",
+        "question": "这门课教的内容是否正确、完整、符合契约？",
+        "basis": "backend_deterministic_checks",
+        "basis_note": (
+            "只统计教学内容与生成卫生问题，公式与排版是否显示正常由视觉报告负责。"
+        ),
+        "passed": not failing,
+        "score": _score_from_issues(combined),
+        "checked_nodes": len(node_reports),
+        "failing_node_ids": failing,
+        "content_issue_count": len(content_issues),
+        "hygiene_issue_count": len(hygiene_issues),
+        "issues": combined[:50],
+    }
+
+
 def build_final_course_quality_report(
-    course_data: dict[str, Any], *, job_id: str
+    course_data: dict[str, Any], *, job_id: str,
+    render_gate: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     nodes = [node for node in course_data.get("nodes", []) if node.get("node_level", 1) == 2]
     node_reports = []
@@ -891,6 +1142,21 @@ def build_final_course_quality_report(
             "按全课总编契约定点修复目标小节，保持其他章节不变",
             str(issue.get("node_id") or ""),
         ))
+    # F-1b/B: a real-render failure is never cosmetic — the learner reads LaTeX
+    # source. Measured on 8 real courses, the backend pattern tier alone misses
+    # 72% of these, so when the render gate has run its verdict blocks release.
+    if isinstance(render_gate, dict) and render_gate.get("checked_nodes"):
+        for item in render_gate.get("nodes") or []:
+            if not isinstance(item, dict) or item.get("passed", True):
+                continue
+            blocking_issues.append(_issue(
+                "render_gate:failed",
+                "critical",
+                f"{item.get('node_name') or item.get('node_id')} 在真实渲染器下显示异常，"
+                "学习者会看到 LaTeX 源码或错位排版",
+                "修正该节公式或 Markdown 结构后重新运行 scripts/render_gate.mjs",
+                str(item.get("node_id") or ""),
+            ))
     asset_quality = course_data.get("asset_quality_report") or {}
     for issue in asset_quality.get("blocking_issues") or []:
         blocking_issues.append(_issue(
@@ -948,6 +1214,11 @@ def build_final_course_quality_report(
         # the render verdict across nodes, so the report can state plainly that
         # a course is pedagogically sound but visually broken.
         "render_quality": _aggregate_render_quality(node_reports),
+        # F-1c: the same verdicts as two reports that each stand alone. Neither
+        # requires the other to be understood, which is the point — "内容对不对"
+        # and "看起来对不对" have different owners and different fixes.
+        "visual_quality_report": build_visual_quality_report(course_data, render_gate),
+        "content_quality_report": build_content_quality_report(course_data),
         "weak_nodes": weak_nodes,
         "manual_review_required_nodes": manual_review_nodes,
         "publication_allowed": not blocking_issues,
@@ -1249,8 +1520,36 @@ def _structural_markdown_issues(text: str, node_id: str) -> list[dict[str, Any]]
 
 
 def _looks_like_table_row(line: str) -> bool:
+    """Decide whether a pipe-bearing line is really a table row.
+
+    Measured on 8 real courses, this was the least precise rule in the gate:
+    5 of its 6 firings were false positives (precision 0.17), every one of them
+    a quantum-mechanics formula. Dirac notation is pipe-delimited by nature —
+    `|\\psi\\rangle = \\alpha|0\\rangle + \\beta|1\\rangle` opens with `|` and
+    carries several more, so the old "starts with | and has >= 2 of them" test
+    read it as a malformed table and blocked the release.
+
+    Math is therefore excluded first. A genuine GFM row separates *cells*, so
+    the discriminator is what sits between the pipes: LaTeX control sequences
+    and an unclosed `$` span mean the line is a formula, not data.
+    """
     stripped = line.strip()
-    return stripped.startswith("|") and stripped.count("|") >= 2
+    if not (stripped.startswith("|") and stripped.count("|") >= 2):
+        return False
+    # A row wrapped in `$...$`/`$$...$$` is display math, whatever else it holds.
+    if re.fullmatch(r"\$\$?.*\$\$?", stripped, flags=re.DOTALL):
+        return False
+    # An odd number of `$` means the line is part of a math span that opened or
+    # closes elsewhere, so its pipes belong to the formula.
+    if stripped.count("$") % 2:
+        return False
+    cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+    # `\rangle`, `\frac`, `\alpha` … a real table cell is prose or a number, and
+    # cells that are mostly LaTeX commands mean the pipes are Dirac bars.
+    latex_cells = sum(1 for cell in cells if re.search(r"\\[A-Za-z]{2,}", cell))
+    if latex_cells and latex_cells >= len(cells) / 2:
+        return False
+    return True
 
 
 def _is_table_delimiter(line: str) -> bool:
@@ -1368,5 +1667,7 @@ __all__ = [
     "evaluate_difficulty_alignment",
     "build_difficulty_alignment_report",
     "build_final_course_quality_report",
+    "build_visual_quality_report",
+    "build_content_quality_report",
     "dedupe_quality_issues",
 ]

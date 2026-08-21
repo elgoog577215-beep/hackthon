@@ -58,6 +58,7 @@
             v-if="activeSection === 'tasks'"
             :model-value="true"
             :course-id="courseId"
+            :surface="surface"
             embedded
             @update:model-value="close"
           />
@@ -88,9 +89,12 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   initialSection?: WorkbenchSection
   courseId?: string
+  /** 透传给任务中心：教师端与学生端的状态说法不同。 */
+  surface?: 'learner' | 'teacher'
 }>(), {
   initialSection: 'tasks',
   courseId: '',
+  surface: 'learner',
 })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const generationStore = useGenerationStore()

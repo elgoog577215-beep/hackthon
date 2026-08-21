@@ -82,6 +82,48 @@ def test_constraints_state_the_two_required_fields() -> None:
     assert "丢弃" in constraints, "必须让模型知道缺字段会导致整条关系被丢弃"
 
 
+def test_constraints_require_per_section_relation_attribution() -> None:
+    """关系必须逐节写，不能攒到批次最后一节（G-1 真机实测出来的失败形态）。
+
+    2026-08-17 两次真机（claude-opus-5，同一门课）都是这个分布：
+
+        L2-1-1 0   L2-1-2 0   L2-1-3 5
+        L2-2-1 0   L2-2-2 0   L2-2-3 7/6
+
+    有产出的恰好是**每章最后一节**，两次都是——不是随机波动。批次按章切
+    （`build_teaching_plan_batches` 优先在章边界断开），所以"每章最后一节"
+    就是"每批次最后一节"。
+
+    注意这**不是**校验层漏判：`teaching_batch:unrelated_relation` 已经要求
+    每条关系至少连接本节新知识，所以写在最后一节的那些关系是合法的。
+    问题在前面几节**一条都不写**——模型把关系攒到批次末尾统一处理了。
+
+    也不是代码缺陷：3.12 那次（DeepSeek）6 节全部有产出，同一套代码同一门课。
+
+    所以锁的是"prompt 里存在一条按小节分摊关系的要求"。
+    """
+    prompt = _batch_prompt()
+    constraints = prompt[prompt.index("## 约束"): prompt.index("## JSON Schema")]
+
+    assert "每一节都要各自写出" in constraints or "逐节" in constraints, (
+        "约束里没有要求逐节写关系，模型会把整批关系攒到最后一节"
+    )
+    assert "最后一节" in constraints, "必须点名'攒到最后一节'这个具体失败形态"
+
+
+def test_constraints_do_not_license_an_empty_relation_set() -> None:
+    """"某一类没有"不能被读成"整节没有关系"。
+
+    原文"本节只有两三个知识点时没有这几类是正常的"紧跟在"留空、宁缺毋滥"之后，
+    连起来读就是一句"小节点少可以不写关系"的许可。三节零关系的实测结果与这句
+    话的走向一致。这条断言确保覆盖要求不会被同段落里的宽免语句抵消。
+    """
+    prompt = _batch_prompt()
+    constraints = prompt[prompt.index("## 约束"): prompt.index("## JSON Schema")]
+
+    assert "不等于" in constraints, "缺少把'某类缺席'与'整节零关系'区分开的说明"
+
+
 def test_example_covers_all_six_relation_types() -> None:
     """JSON 样例必须覆盖全部六类——这是实验结论，不是设计偏好。
 

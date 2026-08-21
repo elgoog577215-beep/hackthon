@@ -327,6 +327,7 @@
       v-model="workbenchOpen"
       :initial-section="workbenchSection"
       :course-id="selectedWorkbenchCourseId"
+      surface="teacher"
     />
   </section>
 </template>
