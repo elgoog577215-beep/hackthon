@@ -129,7 +129,7 @@ function emitDay(date: string) { emit('day', date) }
 </script>
 
 <style scoped>
-.month-grid { min-width:600px; height:100%; min-height:560px; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-template-rows:30px repeat(6,minmax(82px,1fr)); border-top:1px solid var(--lz-border); border-left:1px solid var(--lz-border); background:var(--lz-surface); }
+.month-grid { min-width:0; height:100%; min-height:560px; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-template-rows:30px repeat(6,minmax(82px,1fr)); border-top:1px solid var(--lz-border); border-left:1px solid var(--lz-border); background:var(--lz-surface); }
 .weekday { height:30px; display:grid; place-items:center; border-right:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; font-weight:700; }
 .day-cell { min-width:0; min-height:82px; display:grid; grid-template-rows:22px minmax(0,1fr); gap:2px; padding:5px; border:0; border-right:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-primary); background:var(--lz-surface); text-align:left; cursor:pointer; }
 .day-cell:hover { background:var(--lz-fill); }.day-cell.muted { color:var(--lz-text-muted); background:color-mix(in srgb,var(--lz-fill) 48%,var(--lz-surface)); }.day-cell.today .day-number { color:#fff; background:var(--lz-brand); }

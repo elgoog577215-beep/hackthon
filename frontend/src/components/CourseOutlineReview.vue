@@ -269,6 +269,12 @@
           </div>
 
           <div class="outline-review__chapters" data-testid="outline-chapter-list">
+            <div class="outline-review__list-toolbar">
+              <strong>{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
+              <button type="button" :disabled="adjustmentBusy" @click="addChapter">
+                <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
+              </button>
+            </div>
             <section
               v-for="group in outlineGroups"
               :key="group.key"
@@ -282,22 +288,30 @@
                   </span>
                   <p v-if="group.chapter.node.path_reason">{{ group.chapter.node.path_reason }}</p>
                 </div>
-                <input
-                  v-model="group.chapter.node.node_name"
-                  type="text"
-                  :disabled="adjustmentBusy"
-                  :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
-                  @input="invalidateProposal"
-                />
-                <textarea
-                  v-if="'learning_objective' in group.chapter.node"
-                  v-model="group.chapter.node.learning_objective"
-                  rows="1"
-                  :disabled="adjustmentBusy"
-                  :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
-                  :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
-                  @input="invalidateProposal"
-                />
+                <div class="outline-review__node-fields">
+                  <input
+                    v-model="group.chapter.node.node_name"
+                    type="text"
+                    :disabled="adjustmentBusy"
+                    :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
+                    @input="invalidateProposal"
+                  />
+                  <textarea
+                    v-if="'learning_objective' in group.chapter.node"
+                    v-model="group.chapter.node.learning_objective"
+                    rows="1"
+                    :disabled="adjustmentBusy"
+                    :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
+                    :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
+                    @input="invalidateProposal"
+                  />
+                </div>
+                <div class="outline-review__node-actions">
+                  <button type="button" :title="t('courseGeneration.outlineReview.addSection', '新增小节')" :disabled="adjustmentBusy" @click="addSection(group.chapter.node)"><Plus :size="14" /></button>
+                  <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, -1)" @click="moveOutlineNode(group.chapter.node, -1)"><ArrowUp :size="14" /></button>
+                  <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, 1)" @click="moveOutlineNode(group.chapter.node, 1)"><ArrowDown :size="14" /></button>
+                  <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeChapter', '删除本章')" :disabled="adjustmentBusy" @click="removeOutlineNode(group.chapter.node)"><Trash2 :size="14" /></button>
+                </div>
               </header>
 
               <div v-if="group.sections.length" class="outline-review__section-list">
@@ -312,21 +326,28 @@
                     </span>
                     <p v-if="item.node.path_reason">{{ item.node.path_reason }}</p>
                   </div>
-                  <input
-                    v-model="item.node.node_name"
-                    type="text"
-                    :disabled="adjustmentBusy"
-                    :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
-                    @input="invalidateProposal"
-                  />
-                  <textarea
-                    v-model="item.node.learning_objective"
-                    rows="1"
-                    :disabled="adjustmentBusy"
-                    :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
-                    :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
-                    @input="invalidateProposal"
-                  />
+                  <div class="outline-review__node-fields">
+                    <input
+                      v-model="item.node.node_name"
+                      type="text"
+                      :disabled="adjustmentBusy"
+                      :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
+                      @input="invalidateProposal"
+                    />
+                    <textarea
+                      v-model="item.node.learning_objective"
+                      rows="1"
+                      :disabled="adjustmentBusy"
+                      :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
+                      :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
+                      @input="invalidateProposal"
+                    />
+                  </div>
+                  <div class="outline-review__node-actions">
+                    <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(item.node, -1)" @click="moveOutlineNode(item.node, -1)"><ArrowUp :size="14" /></button>
+                    <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(item.node, 1)" @click="moveOutlineNode(item.node, 1)"><ArrowDown :size="14" /></button>
+                    <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeSection', '删除小节')" :disabled="adjustmentBusy" @click="removeOutlineNode(item.node)"><Trash2 :size="14" /></button>
+                  </div>
                 </article>
               </div>
             </section>
@@ -381,7 +402,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowRight, CircleCheck, LoaderCircle, Save, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowDown, ArrowRight, ArrowUp, CircleCheck, LoaderCircle, Plus, Save, Sparkles, Trash2, TriangleAlert } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
@@ -517,6 +538,7 @@ const draftSignature = computed(() => JSON.stringify({
   course_name: blueprintDraft.value?.course_name || '',
   nodes: blueprintNodes.value.map(node => ({
     node_id: node.node_id,
+    parent_node_id: node.parent_node_id,
     node_name: node.node_name,
     node_level: node.node_level,
     learning_objective: node.learning_objective || '',
@@ -683,6 +705,107 @@ function changedFieldSummary(changes: Record<string, any> | undefined) {
     prerequisite_node_ids: t('courseGeneration.outlineReview.changedDependencies', '前置依赖'),
   }
   return Object.keys(changes || {}).map(field => labels[field] || field).join('、')
+}
+
+function outlineNodeId(prefix: string) {
+  const suffix = typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  return `${prefix}-${suffix}`
+}
+
+function markManualChange(message: string) {
+  invalidateProposal()
+  proposalNotice.value = message
+  liveStatus.value = message
+}
+
+function addChapter() {
+  const chapterCount = blueprintNodes.value.filter(node => Number(node.node_level || 2) === 1).length
+  blueprintNodes.value.push({
+    node_id: outlineNodeId('chapter'),
+    parent_node_id: 'root',
+    node_name: t('courseGeneration.outlineReview.newChapterName', '新章节 {number}').replace('{number}', String(chapterCount + 1)),
+    node_level: 1,
+    learning_objective: '',
+    prerequisite_node_ids: [],
+  })
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
+}
+
+function addSection(chapter: any) {
+  const parentId = String(chapter?.node_id || '')
+  if (!parentId) return
+  const siblings = blueprintNodes.value.filter(node => String(node.parent_node_id || '') === parentId)
+  const chapterIndex = blueprintNodes.value.indexOf(chapter)
+  let insertAt = chapterIndex + 1
+  while (insertAt < blueprintNodes.value.length && Number(blueprintNodes.value[insertAt]?.node_level || 2) !== 1) insertAt += 1
+  blueprintNodes.value.splice(insertAt, 0, {
+    node_id: outlineNodeId('section'),
+    parent_node_id: parentId,
+    node_name: t('courseGeneration.outlineReview.newSectionName', '新小节 {number}').replace('{number}', String(siblings.length + 1)),
+    node_level: 2,
+    learning_objective: '',
+    prerequisite_node_ids: [],
+  })
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
+}
+
+function siblingNodes(node: any) {
+  const level = Number(node?.node_level || 2)
+  return blueprintNodes.value.filter(candidate => level === 1
+    ? Number(candidate.node_level || 2) === 1
+    : Number(candidate.node_level || 2) !== 1 && String(candidate.parent_node_id || '') === String(node.parent_node_id || ''))
+}
+
+function canMoveNode(node: any, direction: -1 | 1) {
+  const siblings = siblingNodes(node)
+  const index = siblings.indexOf(node)
+  return direction < 0 ? index > 0 : index >= 0 && index < siblings.length - 1
+}
+
+function moveOutlineNode(node: any, direction: -1 | 1) {
+  if (!canMoveNode(node, direction)) return
+  if (Number(node.node_level || 2) !== 1) {
+    const siblings = siblingNodes(node)
+    const target = siblings[siblings.indexOf(node) + direction]
+    const sourceIndex = blueprintNodes.value.indexOf(node)
+    const targetIndex = blueprintNodes.value.indexOf(target)
+    blueprintNodes.value.splice(sourceIndex, 1)
+    blueprintNodes.value.splice(targetIndex, 0, node)
+  } else {
+    const chapters = siblingNodes(node)
+    const target = chapters[chapters.indexOf(node) + direction]
+    const blockFor = (chapter: any) => blueprintNodes.value.filter(candidate => candidate === chapter || String(candidate.parent_node_id || '') === String(chapter.node_id || ''))
+    const blocks = chapters.map(blockFor)
+    const sourceBlockIndex = chapters.indexOf(node)
+    const targetBlockIndex = chapters.indexOf(target)
+    const sourceBlock = blocks[sourceBlockIndex]!
+    const targetBlock = blocks[targetBlockIndex]!
+    blocks[sourceBlockIndex] = targetBlock
+    blocks[targetBlockIndex] = sourceBlock
+    const chapterIds = new Set(chapters.flatMap(chapter => blockFor(chapter).map(item => item.node_id)))
+    const untouched = blueprintNodes.value.filter(candidate => !chapterIds.has(candidate.node_id))
+    blueprintNodes.value.splice(0, blueprintNodes.value.length, ...blocks.flat(), ...untouched)
+  }
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
+}
+
+function removeOutlineNode(node: any) {
+  const removedIds = new Set<string>([String(node.node_id || '')])
+  if (Number(node.node_level || 2) === 1) {
+    blueprintNodes.value.forEach(candidate => {
+      if (String(candidate.parent_node_id || '') === String(node.node_id || '')) removedIds.add(String(candidate.node_id || ''))
+    })
+  }
+  const kept = blueprintNodes.value.filter(candidate => !removedIds.has(String(candidate.node_id || '')))
+  kept.forEach(candidate => {
+    if (Array.isArray(candidate.prerequisite_node_ids)) {
+      candidate.prerequisite_node_ids = candidate.prerequisite_node_ids.filter((id: string) => !removedIds.has(String(id)))
+    }
+  })
+  blueprintNodes.value.splice(0, blueprintNodes.value.length, ...kept)
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
 }
 
 function invalidateProposal() {
@@ -1101,12 +1224,17 @@ async function confirmOutline() {
   margin:0;
   padding:24px 0 28px;
 }
+.outline-review__list-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:2px; }.outline-review__list-toolbar strong { color:#273144; font-size:13px; }.outline-review__list-toolbar button { min-height:32px; display:inline-flex; align-items:center; gap:5px; padding:0 10px; border:1px solid #d9dee7; border-radius:8px; color:#454ca8; background:#fff; font-size:11px; font-weight:700; cursor:pointer; }
 .outline-review__chapter {
   min-width:0;
   border-bottom:1px solid #e4e7ec;
 }
 .outline-review__chapter-heading {
   min-width:0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:start;
+  gap:6px 10px;
   padding:14px 18px;
   border-radius:10px;
   background:#f3f5f9;
@@ -1132,6 +1260,10 @@ async function confirmOutline() {
 }
 .outline-review__section {
   min-width:0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:start;
+  gap:6px 10px;
   padding:14px 8px 14px 14px;
   border-bottom:1px solid #edf0f4;
 }
@@ -1154,6 +1286,7 @@ async function confirmOutline() {
   font-size:12px;
   line-height:1.5;
 }
+.outline-review__node-fields { min-width:0; display:grid; gap:2px; }.outline-review__node-actions { display:flex; align-items:center; gap:3px; padding-top:4px; }.outline-review__node-actions button { width:28px; height:28px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:7px; color:#687386; background:transparent; cursor:pointer; }.outline-review__node-actions button:hover:not(:disabled),.outline-review__node-actions button:focus-visible { border-color:#d9dee7; color:#454ca8; background:#fff; outline:0; }.outline-review__node-actions button.danger:hover:not(:disabled) { color:#b42318; background:#fff5f5; }.outline-review__node-actions button:disabled { opacity:.3; cursor:not-allowed; }.outline-review__node-meta { grid-column:1/-1; }
 .outline-review__node-meta {
   min-width:0;
   display:flex;
@@ -1289,6 +1422,8 @@ async function confirmOutline() {
   .outline-review__chapter-heading input { font-size:16px; }
   .outline-review__section-list { margin-left:14px; }
   .outline-review__section { padding:11px 2px 11px 10px; }
+  .outline-review__chapter-heading,.outline-review__section { grid-template-columns:minmax(0,1fr); }
+  .outline-review__node-actions { justify-content:flex-end; padding-top:0; }
   .outline-review__footer { align-items:stretch; flex-direction:column; gap:9px; padding:11px 0 13px; }
   .outline-review__actions { display:grid; grid-template-columns:.85fr 1.15fr; }
   .outline-review__actions button { padding:0 9px; }

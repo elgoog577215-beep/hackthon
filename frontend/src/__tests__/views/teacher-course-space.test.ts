@@ -6,7 +6,9 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }))
+const rebuildMock = vi.hoisted(() => vi.fn(async () => ({ status: 'completed' })))
 vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/question-bank-rebuild', () => ({ runQuestionBankRebuild: rebuildMock }))
 
 import TeacherCourseSpaceView from '@/views/TeacherCourseSpaceView.vue'
 import { setLocale } from '@/shared/i18n'
@@ -23,6 +25,7 @@ const router = createRouter({
     { path: '/courses', name: 'course-library', component: { template: '<div />' } },
     { path: '/course/:courseId/learn/:nodeId?', name: 'learning', component: { template: '<div />' } },
     { path: '/course/:courseId/ppt', name: 'ppt-workspace', component: { template: '<div />' } },
+    { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
   ],
 })
 
@@ -32,6 +35,7 @@ describe('TeacherCourseSpaceView', () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     httpMock.get.mockReset().mockImplementation((url: string) => Promise.resolve({ data: url === '/api/teacher-course-spaces' ? [coursePackage] : coursePackage }))
+    rebuildMock.mockClear()
     await router.push('/courses')
     await router.isReady()
     await setLocale('zh')
@@ -58,6 +62,8 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-inspector').text()).toContain('全课文件')
     expect(wrapper.find('.course-assembly-note').exists()).toBe(false)
     await wrapper.findAll('.file-row')[0]!.trigger('click')
+    expect(wrapper.emitted('createOutline')).toBeFalsy()
+    await wrapper.get('.inspector-actions .primary').trigger('click')
     expect(wrapper.emitted('createOutline')).toBeTruthy()
 
     await wrapper.get('.list-search input').setValue('__missing_file__')
@@ -82,7 +88,8 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain("t('courseFiles.addMaterial')")
     expect(source).toContain(':data-role="assetRole(node)"')
     expect(source).toContain('function handleNodeClick(node: WorkspaceNode)')
-    expect(source).toContain("['outline', 'lesson_plan', 'content', 'ppt', 'practice'].includes(node.type)")
+    expect(source).toContain('function selectNode(node: WorkspaceNode)')
+    expect(source).toContain("@dblclick=\"node.kind !== 'folder' && primaryAction(node)\"")
     expect(source).toContain("node.status === 'missing' ? t('courseFiles.createContent')")
     expect(source).toContain("? emit('openTasks')")
     expect(source).toContain("id: `ppt:${lesson.lesson_unit_id}`")
@@ -103,6 +110,7 @@ describe('TeacherCourseSpaceView', () => {
   it('把结构化正文投影为可打开和导出的课程资产', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
+    await router.push('/course/course-1/workspace/setup')
     const courseStore = useCourseStore()
     courseStore.currentDocumentRevision = 'revision-1'
     courseStore.nodes = [{
@@ -125,11 +133,49 @@ describe('TeacherCourseSpaceView', () => {
     expect(contentRow?.text()).toContain('正文')
     expect(contentRow?.text()).toContain('已就绪')
     await contentRow!.trigger('click')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
+    await wrapper.get('.inspector-actions .primary').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('learning')
     expect(router.currentRoute.value.params.nodeId).toBe('lesson-1')
+    expect(router.currentRoute.value.query.teacherPreview).toBe('1')
+    expect(String(router.currentRoute.value.query.returnTo)).toContain('/workspace/setup')
     const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
     expect(source).toContain('async function exportManagedNode')
     expect(zhMessages.courseFiles.relationship.content).toContain('不要求先生成实体文件')
+  })
+
+  it('从课次练习文件生成真实题库任务并进入审阅', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    await router.push('/course/course-1/workspace/setup')
+    const courseStore = useCourseStore()
+    courseStore.currentDocumentRevision = 'revision-1'
+    courseStore.nodes = [
+      { node_id: 'lesson-1', parent_node_id: 'root', node_name: '第一讲 内存管理', node_level: 1, node_content: '', node_type: 'original' },
+      { node_id: 'section-1', parent_node_id: 'lesson-1', node_name: '1.1 引用计数', node_level: 2, node_content: '正文', node_type: 'original' },
+    ] as any
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
+    })
+    await flushPromises()
+
+    await wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('练习'))!.trigger('click')
+    await wrapper.get('.inspector-actions .primary').trigger('click')
+    await flushPromises()
+    const form = document.body.querySelector<HTMLFormElement>('.asset-form')
+    expect(form).toBeTruthy()
+    form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flushPromises()
+
+    expect(rebuildMock).toHaveBeenCalledWith(
+      'course-1',
+      expect.objectContaining({ scope: 'nodes', node_ids: ['section-1'], mode: 'incremental' }),
+      expect.objectContaining({ maxPolls: 450 }),
+    )
+    expect(wrapper.emitted('openPractice')?.[0]).toEqual(['lesson-1'])
+    wrapper.unmount()
   })
 })

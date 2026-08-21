@@ -51,6 +51,23 @@ export const getTeacherIdentity = (
   return getLearnerIdentity();
 };
 
+export const isTeacherSurfaceLocation = (
+  pathname = typeof window === 'undefined' ? '' : window.location.pathname,
+  search = typeof window === 'undefined' ? '' : window.location.search,
+): boolean => {
+  const normalizedPath = String(pathname || '').replace(/\/+$/, '') || '/';
+  if (normalizedPath === '/courses') return true;
+  if (/^\/course\/[^/]+\/workspace(?:\/|$)/.test(normalizedPath)) return true;
+  return new URLSearchParams(String(search || '')).get('teacherPreview') === '1';
+};
+
+export const getSurfaceIdentity = (
+  pathname?: string,
+  search?: string,
+): string => isTeacherSurfaceLocation(pathname, search)
+  ? getTeacherIdentity()
+  : getLearnerIdentity();
+
 export const API_BASE = stripTrailingSlash(
   import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL || ''
 );
@@ -228,7 +245,7 @@ http.interceptors.request.use(
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
       config.headers.delete('Content-Type');
     }
-    return applyLearnerIdentity(config);
+    return applyLearnerIdentity(config, getSurfaceIdentity());
   },
   (error: AxiosError) => {
     handleHttpError(error, { showMessage: error.config?.silentError !== true });

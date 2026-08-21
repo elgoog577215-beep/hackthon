@@ -4,7 +4,9 @@ import type { InternalAxiosRequestConfig } from 'axios'
 import {
   applyLearnerIdentity,
   getLearnerIdentity,
+  getSurfaceIdentity,
   getTeacherIdentity,
+  isTeacherSurfaceLocation,
   learnerIdentityHeaders,
   LEARNER_ID_STORAGE_KEY,
   LOCAL_TEACHER_USER_ID,
@@ -56,5 +58,17 @@ describe('learner identity request header', () => {
     expect(getTeacherIdentity('', true)).toBe(LOCAL_TEACHER_USER_ID)
     expect(getTeacherIdentity(' configured-teacher ', true)).toBe('configured-teacher')
     expect(teacherIdentityHeaders({}, 'teacher-header-user').get('X-User-Id')).toBe('teacher-header-user')
+  })
+
+  it('教师首页、课程文件空间和学生视角预览使用教师身份', () => {
+    expect(isTeacherSurfaceLocation('/courses', '')).toBe(true)
+    expect(isTeacherSurfaceLocation('/course/course-1/workspace/setup', '?lesson=lesson-1')).toBe(true)
+    expect(isTeacherSurfaceLocation('/course/course-1/learn/lesson-1', '?teacherPreview=1')).toBe(true)
+    expect(getSurfaceIdentity('/course/course-1/workspace/setup', '')).toBe(LOCAL_TEACHER_USER_ID)
+  })
+
+  it('普通学生学习界面继续使用独立学习者身份', () => {
+    expect(isTeacherSurfaceLocation('/course/course-1/learn/lesson-1', '')).toBe(false)
+    expect(getSurfaceIdentity('/course/course-1/learn/lesson-1', '')).toMatch(/^learner_/)
   })
 })

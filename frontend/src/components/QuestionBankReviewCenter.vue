@@ -52,8 +52,8 @@
           </div>
         </header>
 
-        <div class="review-center__body">
-          <aside class="review-course-list" :aria-label="t('questionBank.courseList', '课程列表')">
+        <div class="review-center__body" :class="{ 'review-center__body--single': embedded && courseId }">
+          <aside v-if="!embedded || !courseId" class="review-course-list" :aria-label="t('questionBank.courseList', '课程列表')">
             <label class="review-course-search">
               <Search :size="15" />
               <input
@@ -216,7 +216,7 @@ function selectInitialCourse() {
 async function refresh() {
   refreshing.value = true
   try {
-    await courseStore.fetchCourseList()
+    await courseStore.fetchCourseList({ surface: 'teacher' })
   } finally {
     refreshing.value = false
   }
@@ -238,6 +238,7 @@ async function refresh() {
 .icon-button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .icon-button:hover,.icon-button:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
 .review-center__body { min-height:0; display:grid; grid-template-columns:280px minmax(0,1fr); }
+.review-center__body--single { grid-template-columns:minmax(0,1fr); }
 .review-course-list { min-height:0; display:flex; flex-direction:column; padding:12px 10px; border-right:1px solid var(--lz-border); background:var(--lz-surface-muted); }
 .review-course-search { display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-muted); background:#fff; }
 .review-course-search input { min-width:0; flex:1; height:36px; border:0; outline:0; color:var(--lz-text); background:transparent; }
@@ -277,6 +278,7 @@ async function refresh() {
   .review-center { width:100%; height:calc(100vh - 40px); border-radius:14px 14px 0 0; }
   .review-center--embedded { height:100%; border-radius:0; }
   .review-center__body { grid-template-columns:1fr; grid-template-rows:112px minmax(0,1fr); }
+  .review-center__body--single { grid-template-rows:minmax(0,1fr); }
   .review-course-list { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:36px minmax(0,1fr); gap:6px 8px; padding:8px 10px; border-right:0; border-bottom:1px solid var(--lz-border); }
   .review-course-count { align-self:center; padding:0; }
   .review-course-rows { grid-column:1 / -1; display:flex; gap:6px; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x proximity; }

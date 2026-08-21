@@ -227,7 +227,12 @@ const upcomingSessions = computed(() => [...visibleSessions.value]
   .filter(item => String(item.date || '') >= todayIso)
   .sort((left, right) => `${left.date || ''}${left.start_time || ''}`.localeCompare(`${right.date || ''}${right.start_time || ''}`))
   .slice(0, 6))
-const actionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)).length)
+const actionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => (
+  ['paused', 'waiting_for_review', 'conflict', 'error'].includes(task.status)
+  || (task.status === 'completed_with_warnings'
+    && task.publicationAllowed !== true
+    && task.recovery?.state !== 'completed')
+)).length)
 
 function loadRange() {
   if (view.value === 'week') return { from: iso(weekStart.value), to: iso(weekEnd.value) }
@@ -247,7 +252,7 @@ function enterSession(session: ClassSession) {
   void router.push({
     name: 'learning',
     params: { courseId: session.course_id, ...(session.lesson_unit_id ? { nodeId: session.lesson_unit_id } : {}) },
-    query: { teacherPreview: '1' },
+    query: { teacherPreview: '1', returnTo: route.fullPath },
   })
 }
 function openTaskCenter(courseId = '') { workbenchCourseId.value = courseId; workbenchOpen.value = true }
@@ -306,7 +311,7 @@ onBeforeUnmount(() => {
 .course-icon{width:31px;height:31px;display:grid;place-items:center;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 .course-icon[data-color="1"]{color:var(--lz-success);background:var(--lz-success-soft)}.course-icon[data-color="2"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.course-icon[data-color="3"]{color:var(--lz-danger);background:var(--lz-danger-soft)}
 .course-search{height:36px;padding:0 8px 0 11px;border-color:transparent;border-radius:9px;background:#eef2f7;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}.course-search:focus-within{background:var(--lz-surface)}.course-search input::-webkit-search-cancel-button{display:none}.course-search>button{width:24px;height:24px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.course-search>button:hover{color:var(--lz-text-strong);background:#e2e8f0}.course-search-empty{min-height:180px;display:grid;place-content:center;justify-items:center;gap:7px;padding:20px;color:var(--lz-text-muted);text-align:center}.course-search-empty strong{color:var(--lz-text-secondary);font-size:11px}.course-search-empty span{font-size:9px;line-height:1.55}.course-search-empty button{padding:5px 8px;border:0;border-radius:6px;color:var(--lz-brand-strong);background:transparent;font-size:10px;font-weight:700;cursor:pointer}.course-search-empty button:hover{background:var(--lz-brand-soft)}
-@media(max-width:1100px){.home-layout{grid-template-columns:250px minmax(520px,1fr) 270px}.calendar-title span{display:none}}
+@media(max-width:1100px){.home-layout{grid-template-columns:230px minmax(0,1fr) 230px}.calendar-title span{display:none}.day-inspector{min-width:0}.session-focus,.preparation-summary{padding-left:12px;padding-right:12px}}
 @media(max-width:820px){.teacher-home{overflow:auto}.home-layout{height:auto;min-height:100%;grid-template-columns:160px minmax(560px,1fr)}.day-inspector{grid-column:1/-1;min-height:300px;border-top:1px solid var(--lz-border);border-left:0}.course-rail{min-height:650px}.calendar-surface{min-height:650px}}
 @media(max-width:620px){.home-header-actions .header-quiet span{display:none}.home-layout{display:block}.course-rail{min-height:0;grid-template-rows:52px 40px auto}.course-list{max-height:210px}.calendar-surface{min-height:680px;grid-template-rows:auto auto minmax(0,1fr)}.calendar-toolbar{min-height:94px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:6px;padding:8px 10px}.calendar-title{grid-column:1}.view-switch{grid-column:2}.toolbar-spacer{display:none}.period-actions{grid-column:1/-1;justify-self:end;margin:0}.month-canvas{padding:6px}.day-inspector{min-height:330px}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}

@@ -503,9 +503,13 @@ const tasks = computed<TaskView[]>(() => {
   for (const local of generationStore.tasks.values()) {
     if (!byTaskId.has(local.id)) byTaskId.set(local.id, { ...local })
   }
+  // Global history can legitimately reference an imported or later-removed
+  // course. Hide only orphan records without a course identity; a stale course
+  // list must not erase an otherwise actionable task from the task center.
+  const visibleTasks = [...byTaskId.values()].filter(task => Boolean(task.courseId))
   const scopedTasks = props.courseId
-    ? [...byTaskId.values()].filter(task => task.courseId === props.courseId)
-    : [...byTaskId.values()]
+    ? visibleTasks.filter(task => task.courseId === props.courseId)
+    : visibleTasks
   return scopedTasks.sort((a, b) => {
     const priority = (task: TaskView) => taskNeedsAttention(task) ? 0 : 1
     return priority(a) - priority(b) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
@@ -765,7 +769,7 @@ function preferredTaskId(courseId?: string) {
 function selectTask(taskId: string) { selectedTaskId.value = taskId }
 async function refresh() {
   refreshing.value = true
-  try { await Promise.all([generationStore.fetchGlobalTasks(), courseStore.fetchCourseList()]) }
+  try { await Promise.all([generationStore.fetchGlobalTasks(), courseStore.fetchCourseList({ surface: 'teacher' })]) }
   finally { refreshing.value = false }
 }
 async function loadSelectedReview() {

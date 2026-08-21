@@ -4,7 +4,7 @@
       <div class="workspace-route-actions">
         <button class="agent-action" type="button" @click="agentOpen = true"><Sparkles :size="16" />{{ t('courseFiles.teacherAgent') }}</button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
-        <button class="task-action" type="button" :title="t('courseFiles.taskCenter')" :aria-label="t('courseFiles.taskCenter')" @click="workbenchOpen = true"><ListTodo :size="16" /></button>
+        <button class="task-action" type="button" :title="t('courseFiles.taskCenter')" :aria-label="t('courseFiles.taskCenter')" @click="openTasks"><ListTodo :size="16" /></button>
       </div>
     </Teleport>
 
@@ -34,7 +34,10 @@
       @open-outline="outlineOpen = true"
       @create-outline="generationDialogOpen = true"
       @open-teaching-plan="openLessonPlan"
-      @open-tasks="workbenchOpen = true"
+      @open-tasks="openTasks"
+      @open-practice="openPractice"
+      @context-change="selectedContext = $event"
+      @readiness-change="readiness = $event"
     />
 
     <el-drawer v-model="outlineOpen" size="min(1040px, 92vw)" :title="t('courseFiles.outlineEditor')" destroy-on-close>
@@ -61,7 +64,7 @@
       <div v-else class="drawer-empty">{{ t('courseFiles.lessonPlanUnavailable') }}</div>
     </el-drawer>
 
-    <CourseWorkbench v-model="workbenchOpen" initial-section="tasks" :course-id="courseId" />
+    <CourseWorkbench v-model="workbenchOpen" :initial-section="workbenchSection" :course-id="courseId" />
     <CourseGenerationDialog
       v-model="generationDialogOpen"
       :busy="generationStarting"
@@ -73,9 +76,9 @@
       <SideAIPanel
         :visible="agentOpen"
         mode="teacher"
-        quote-text=""
-        quote-node-id=""
-        entrypoint="global"
+        :quote-text="agentContextText"
+        :quote-node-id="selectedContext.lessonId"
+        :entrypoint="selectedContext.nodeId ? 'selection' : 'global'"
         @close="agentOpen = false"
         @block-applied="loadWorkspace"
         @course-applied="loadWorkspace"
@@ -112,9 +115,12 @@ const outlineOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
 const workbenchOpen = ref(false)
+const workbenchSection = ref<'tasks' | 'question-bank'>('tasks')
 const agentOpen = ref(false)
 const generationDialogOpen = ref(false)
 const generationStarting = ref(false)
+const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
+const readiness = ref({ required: 0, ready: 0, pending: 0 })
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -123,6 +129,7 @@ const courseState = computed(() => {
   const status = String(generationTask.value?.status || courseStore.currentCourse?.generation_status || '')
   if (['running', 'pending', 'paused', 'waiting_for_review'].includes(status)) return 'working'
   if (['failed', 'error', 'conflict'].includes(status)) return 'attention'
+  if (readiness.value.required && readiness.value.pending) return 'draft'
   return courseStore.currentDocumentRevision ? 'ready' : 'draft'
 })
 const courseStateLabel = computed(() => t(`courseFiles.states.${courseState.value}`))
@@ -131,6 +138,11 @@ const selectedLessonPlan = computed(() => selectedLesson.value?.plan?.revisions.
 const selectedLessonTitle = computed(() => selectedLesson.value
   ? t('courseFiles.lessonDrawerTitle').replace('{title}', selectedLesson.value.title)
   : t('courseFiles.lessonPlan'))
+const agentContextText = computed(() => selectedContext.value.nodeId
+  ? t('courseFiles.agentContext')
+    .replace('{label}', selectedContext.value.label)
+    .replace('{path}', selectedContext.value.path || t('courseFiles.rootName'))
+  : '')
 
 async function loadWorkspace() {
   if (!courseId.value) return
@@ -158,6 +170,16 @@ function openLessonPlan(lessonId: string) {
   lessonOpen.value = true
 }
 
+function openPractice(_lessonId: string) {
+  workbenchSection.value = 'question-bank'
+  workbenchOpen.value = true
+}
+
+function openTasks() {
+  workbenchSection.value = 'tasks'
+  workbenchOpen.value = true
+}
+
 async function startOutlineGeneration(payload: { subject: string; options: CourseGenerationOptions }) {
   if (generationStarting.value) return
   generationStarting.value = true
@@ -170,7 +192,7 @@ async function startOutlineGeneration(payload: { subject: string; options: Cours
     if (!result?.courseId) return
     generationDialogOpen.value = false
     await loadWorkspace()
-    workbenchOpen.value = true
+    openTasks()
   } finally {
     generationStarting.value = false
   }
@@ -179,8 +201,8 @@ async function startOutlineGeneration(payload: { subject: string; options: Cours
 function openCoursePreview() {
   void router.push({
     name: 'learning',
-    params: { courseId: courseId.value },
-    query: { teacherPreview: '1' },
+    params: { courseId: courseId.value, ...(selectedContext.value.lessonId ? { nodeId: selectedContext.value.lessonId } : {}) },
+    query: { teacherPreview: '1', returnTo: route.fullPath },
   })
 }
 

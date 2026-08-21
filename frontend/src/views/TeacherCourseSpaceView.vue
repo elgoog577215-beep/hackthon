@@ -79,7 +79,7 @@
             :data-role="assetRole(node)"
             role="row"
             @click="handleNodeClick(node)"
-            @dblclick="node.asset && primaryAction(node)"
+            @dblclick="node.kind !== 'folder' && primaryAction(node)"
           >
             <span class="file-name" role="cell"><span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="17" /></span><span><strong>{{ node.label }}</strong><small>{{ displaySubtitle(node) }}</small></span></span>
             <span role="cell">{{ displayUpdated(node) }}</span>
@@ -185,15 +185,20 @@
           </select>
           <small>{{ createForm.pptImportAction === 'derive_plan' ? t('courseFiles.form.derivePlanHelp') : t('courseFiles.form.storePptHelp') }}</small>
         </label>
-        <div v-if="createType === 'practice'" class="form-grid">
-          <label class="form-field"><span>{{ t('courseFiles.form.exerciseCount') }}</span><input v-model.number="createForm.count" type="number" min="1" max="100" /></label>
-          <label class="form-field"><span>{{ t('courseFiles.form.difficulty') }}</span><select v-model="createForm.difficulty"><option value="basic">{{ t('courseFiles.form.basic') }}</option><option value="mixed">{{ t('courseFiles.form.mixed') }}</option><option value="challenge">{{ t('courseFiles.form.challenge') }}</option></select></label>
-        </div>
-        <label v-if="!['folder', 'outline'].includes(createType)" class="form-field">
+        <section v-if="createType === 'practice'" class="practice-create-note">
+          <ListChecks :size="16" />
+          <div><strong>{{ t('courseFiles.form.practiceScopeTitle') }}</strong><small>{{ t('courseFiles.form.practiceScopeHelp') }}</small></div>
+        </section>
+        <section v-if="pptAiBlocked" class="create-prerequisite" role="status">
+          <TriangleAlert :size="16" />
+          <div><strong>{{ t('courseFiles.form.pptNeedsPlanTitle') }}</strong><small>{{ t('courseFiles.form.pptNeedsPlanHelp') }}</small></div>
+          <button type="button" @click="createLessonPlanFirst">{{ t('courseFiles.form.createPlanFirst') }}</button>
+        </section>
+        <label v-if="!['folder', 'outline', 'practice'].includes(createType)" class="form-field">
           <span>{{ t('courseFiles.form.requirements') }}</span>
           <textarea v-model.trim="createForm.requirements" rows="3" :placeholder="requirementsPlaceholder" />
         </label>
-        <section v-if="createType !== 'folder' && (createType !== 'ppt' || createForm.mode === 'import' || createForm.style === 'template')" class="source-picker">
+        <section v-if="!['folder', 'practice'].includes(createType) && (createType !== 'ppt' || createForm.mode === 'import' || createForm.style === 'template')" class="source-picker">
           <div><span>{{ sourceFileLabel }}</span><small>{{ sourceHint }}</small></div>
           <button type="button" @click="importInput?.click()"><Upload :size="14" />{{ createForm.file?.name || t('courseFiles.form.chooseFile') }}</button>
         </section>
@@ -217,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onMounted, ref } from 'vue'
+import { computed, markRaw, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -229,13 +234,14 @@ import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import http from '../utils/http'
+import { runQuestionBankRebuild } from '../utils/question-bank-rebuild'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; uploaded_at?: string; updated_at?: string }
 type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
 type NodeType = 'root' | 'reference' | 'outline' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'folder' | 'file'
-type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded'
+type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus; subtitle?: string;
   lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
@@ -244,7 +250,15 @@ type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean;
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
 
 const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), { embedded: false, courseId: '', courseTitle: '' })
-const emit = defineEmits<{ (event: 'openOutline'): void; (event: 'createOutline'): void; (event: 'openTeachingPlan', lessonId: string): void; (event: 'openTasks'): void }>()
+const emit = defineEmits<{
+  (event: 'openOutline'): void
+  (event: 'createOutline'): void
+  (event: 'openTeachingPlan', lessonId: string): void
+  (event: 'openTasks'): void
+  (event: 'openPractice', lessonId: string): void
+  (event: 'contextChange', context: { lessonId: string; nodeId: string; label: string; type: NodeType; path: string }): void
+  (event: 'readinessChange', summary: { required: number; ready: number; pending: number }): void
+}>()
 const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
@@ -269,6 +283,8 @@ const createForm = ref({ lessonId: '', title: '', hours: '2', mode: 'ai', count:
 const previewOpen = ref(false)
 const previewAsset = ref<Asset | null>(null)
 const previewUrl = ref('')
+const questionBankItems = ref<Array<{ node_id?: string; lifecycle_status?: string }>>([])
+const practiceWorkingLessonIds = ref<string[]>([])
 
 const lessons = computed<TeacherLessonProjection[]>(() => {
   if (lessonStore.lessons.length) return lessonStore.lessons
@@ -369,6 +385,18 @@ function uploadedPptAssets(base: string) {
   const prefix = `${base}/PPT/`
   return (selected.value?.assets || []).filter(asset => asset.relative_path.startsWith(prefix) && ['ppt', 'pptx'].includes(asset.extension.toLowerCase().replace(/^\./, '')))
 }
+function practiceNodeIds(lesson: TeacherLessonProjection) {
+  return lessonContentNodes(lesson)
+    .filter(node => Number(node.node_level || 0) === 2)
+    .map(node => node.node_id)
+}
+function practiceStatus(lesson: TeacherLessonProjection): NodeStatus {
+  if (practiceWorkingLessonIds.value.includes(lesson.lesson_unit_id)) return 'working'
+  const nodeIds = new Set(practiceNodeIds(lesson))
+  return questionBankItems.value.some(item => item.lifecycle_status !== 'retired' && item.node_id && nodeIds.has(item.node_id))
+    ? 'ready'
+    : 'missing'
+}
 const otherRootChildren = computed(() => physicalChildren('', 'folder:other').filter(node => ![...managedPaths.value].some(path => node.path === path || path.startsWith(`${node.path}/`) || node.path.startsWith(`${path}/`))))
 
 const treeData = computed<WorkspaceNode[]>(() => {
@@ -377,7 +405,8 @@ const treeData = computed<WorkspaceNode[]>(() => {
     status: courseStore.currentDocumentRevision ? 'ready' : courseStore.nodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision || '', parentId: 'root',
     sizeBytes: courseStore.nodes.length ? textSize(outlineMarkdown()) : undefined,
   }
-  const reference: WorkspaceNode = { id: 'folder:reference', label: t('courseFiles.names.reference'), kind: 'folder', type: 'reference', path: '参考资料', status: 'ready', parentId: 'root', children: physicalChildren('参考资料', 'folder:reference') }
+  const referenceChildren = physicalChildren('参考资料', 'folder:reference')
+  const reference: WorkspaceNode = { id: 'folder:reference', label: t('courseFiles.names.reference'), kind: 'folder', type: 'reference', path: '参考资料', status: referenceChildren.length ? 'ready' : 'empty', parentId: 'root', children: referenceChildren }
   const lessonNodes: WorkspaceNode[] = lessons.value.map(lesson => {
     const working = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
     const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
@@ -386,22 +415,29 @@ const treeData = computed<WorkspaceNode[]>(() => {
     const uploadedPpts = uploadedPptAssets(base)
     const contentNodes = lessonContentNodes(lesson)
     const contentReady = contentNodes.some(hasUsableContent)
-    return {
-      id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: base, status: 'ready', lessonId: lesson.lesson_unit_id, parentId: 'root',
-      subtitle: t('courseFiles.lessonHours').replace('{hours}', String(Math.max(1, Math.round(lesson.duration_minutes / 45)))),
-      children: [
+    const materialChildren = physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`)
+    const children: WorkspaceNode[] = [
         { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined },
-        { id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `${base}/正文`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision, updatedAt: selected.value?.updated_at, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined },
-        { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'missing' },
+        { id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `${base}/正文`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined },
+        { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: practiceStatus(lesson) },
         { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined, subtitle: ppt || activeJob?.type?.includes('ppt') ? t('courseFiles.ppt.generatedSubtitle') : t('courseFiles.ppt.chooseMethodSubtitle') },
         ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const, subtitle: t('courseFiles.ppt.uploadedSubtitle') })),
-        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'ready', children: physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`) },
-      ],
+        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: materialChildren.length ? 'ready' : 'empty', children: materialChildren },
+      ]
+    const requiredStates = children.filter(item => ['lesson_plan', 'content', 'practice'].includes(item.type)).map(item => item.status)
+    const lessonStatus: NodeStatus = requiredStates.includes('working') ? 'working'
+      : requiredStates.includes('stale') ? 'stale'
+        : requiredStates.every(state => state === 'ready') ? 'ready'
+          : requiredStates.some(state => state === 'ready' || state === 'draft') ? 'draft' : 'missing'
+    return {
+      id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: base, status: lessonStatus, lessonId: lesson.lesson_unit_id, parentId: 'root',
+      subtitle: t('courseFiles.lessonHours').replace('{hours}', String(Math.max(1, Math.round(lesson.duration_minutes / 45)))),
+      children,
     }
   })
   const other: WorkspaceNode | null = otherRootChildren.value.length ? { id: 'folder:other', label: t('courseFiles.names.other'), kind: 'folder', type: 'folder', path: '', status: 'ready', parentId: 'root', children: otherRootChildren.value } : null
   const courseRoot: WorkspaceNode = {
-    id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: 'ready',
+    id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: outline.status === 'ready' && lessonNodes.every(item => item.status === 'ready') ? 'ready' : 'draft',
     children: [outline, reference, ...lessonNodes, ...(other ? [other] : [])],
   }
   return [courseRoot]
@@ -426,6 +462,11 @@ const inspectedNode = computed(() => selectedNode.value || currentFolder.value |
 const filteredChildren = computed(() => {
   const value = query.value.trim().toLocaleLowerCase()
   return (currentFolder.value?.children || []).filter(item => !value || item.label.toLocaleLowerCase().includes(value))
+})
+const readinessSummary = computed(() => {
+  const required = [...flatNodes.value.values()].filter(node => node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'practice'].includes(node.type))
+  const ready = required.filter(node => node.status === 'ready').length
+  return { required: required.length, ready, pending: required.length - ready }
 })
 const breadcrumbs = computed(() => {
   const values: WorkspaceNode[] = []
@@ -466,7 +507,7 @@ const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'ppt' ? Presenta
 const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
 const dateLabel = (value?: string) => value ? new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value)) : t('courseFiles.notUpdated')
 const size = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
-const displayUpdated = (node: WorkspaceNode) => dateLabel(node.updatedAt || selected.value?.updated_at)
+const displayUpdated = (node: WorkspaceNode) => dateLabel(node.updatedAt)
 const displaySize = (node: WorkspaceNode) => node.asset ? size(node.asset.size_bytes) : node.sizeBytes ? size(node.sizeBytes) : t('courseFiles.unknownSize')
 
 function relationship(node: WorkspaceNode) {
@@ -497,14 +538,19 @@ function openFolder(id: string) {
   selectedNode.value = null
   query.value = ''
   expandedFolderIds.value = [...new Set([...expandedFolderIds.value, ...folderPath(id)])]
+  const lessonId = node.lessonId || ''
+  const nextQuery = { ...route.query }
+  if (lessonId) nextQuery.lesson = lessonId
+  else delete nextQuery.lesson
+  void router.replace({ query: nextQuery })
+  emit('contextChange', { lessonId, nodeId: node.id, label: node.label, type: node.type, path: node.path })
 }
-function selectNode(node: WorkspaceNode) { selectedNode.value = node }
+function selectNode(node: WorkspaceNode) {
+  selectedNode.value = node
+  emit('contextChange', { lessonId: node.lessonId || '', nodeId: node.id, label: node.label, type: node.type, path: node.path })
+}
 function handleNodeClick(node: WorkspaceNode) {
   if (node.kind === 'folder') { openFolder(node.id); return }
-  if (node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'ppt', 'practice'].includes(node.type)) {
-    void primaryAction(node)
-    return
-  }
   selectNode(node)
 }
 
@@ -522,7 +568,7 @@ function primaryDisabled(_node: WorkspaceNode) { return false }
 function lessonPlanRevision(lessonId: string) { return lessons.value.find(item => item.lesson_unit_id === lessonId)?.plan.working_revision_id || '' }
 
 async function primaryAction(node: WorkspaceNode) {
-  selectedNode.value = node
+  selectNode(node)
   if (node.kind === 'folder') { openFolder(node.id); return }
   if (node.asset) { await previewFile(node.asset); return }
   if (node.type === 'outline') { node.status === 'missing' ? openCreateDialog('outline') : emit('openOutline'); return }
@@ -530,11 +576,23 @@ async function primaryAction(node: WorkspaceNode) {
   if (node.type === 'content') {
     node.status === 'missing'
       ? emit('openTasks')
-      : router.push({ name: 'learning', params: { courseId: props.courseId, nodeId: node.lessonId } })
+      : router.push({
+        name: 'learning',
+        params: { courseId: props.courseId, nodeId: node.lessonId },
+        query: { teacherPreview: '1', returnTo: workspaceReturnTo(node.lessonId || '') },
+      })
     return
   }
   if (node.type === 'ppt') { node.status === 'missing' ? openCreateDialog('ppt', node.lessonId) : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } }); return }
-  if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : openPractice(node.lessonId || ''); return }
+  if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : emit('openPractice', node.lessonId || ''); return }
+}
+
+function workspaceReturnTo(lessonId = '') {
+  return router.resolve({
+    name: 'course-workspace',
+    params: { courseId: props.courseId, mode: 'setup' },
+    query: { ...route.query, ...(lessonId ? { lesson: lessonId } : {}) },
+  }).fullPath
 }
 
 const canExportManaged = (node: WorkspaceNode) => node.kind === 'managed'
@@ -658,7 +716,10 @@ async function refresh() {
       match = (await http.post('/api/teacher-course-spaces', { course_name: props.courseTitle, academic_year: `${startYear}-${startYear + 1}`, term: now.getMonth() >= 7 ? '秋季' : '春季', template: 'blank', course_id: props.courseId })).data
     }
     if (match) selected.value = (await http.get(`/api/teacher-course-spaces/${match.package_id}`)).data
-    if (props.courseId) await lessonStore.load(props.courseId).catch(() => undefined)
+    if (props.courseId) {
+      await lessonStore.load(props.courseId).catch(() => undefined)
+      await loadQuestionBankSummary()
+    }
     const requestedLessonId = String(route.query.lesson || '')
     currentFolderId.value = requestedLessonId && flatNodes.value.has(`lesson:${requestedLessonId}`)
       ? `lesson:${requestedLessonId}`
@@ -669,8 +730,24 @@ async function refresh() {
     status.value = localizedError(error, t('courseFiles.spaceUnavailable'))
   } finally { initializing.value = false }
 }
-async function reloadAll() { busy.value = true; try { await Promise.all([refresh(), props.courseId ? courseStore.loadCourse(props.courseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }) : Promise.resolve()]) } finally { busy.value = false } }
+async function reloadAll() {
+  busy.value = true
+  try {
+    if (props.courseId) await courseStore.loadCourse(props.courseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
+    await refresh()
+  } finally { busy.value = false }
+}
 async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`)).data }
+
+async function loadQuestionBankSummary() {
+  if (!props.courseId) return
+  try {
+    const response = await http.get(`/api/courses/${props.courseId}/question-bank`, { silentError: true })
+    questionBankItems.value = Array.isArray(response.data?.items) ? response.data.items : []
+  } catch (error: any) {
+    if (Number(error?.response?.status || 0) === 404) questionBankItems.value = []
+  }
+}
 
 function openCreateDialog(command: CreateType | string, lessonId: unknown = '', targetFolderId = '') {
   const type = command as CreateType
@@ -724,11 +801,23 @@ const submitLabel = computed(() => {
   if (createType.value === 'material') return t('courseFiles.createFile')
   return t('courseFiles.form.startCreate')
 })
-const submitDisabled = computed(() => busy.value || needsLesson.value && !createForm.value.lessonId || createType.value === 'ppt' && createForm.value.mode === 'import' && !createForm.value.file)
+const pptAiBlocked = computed(() => createType.value === 'ppt'
+  && createForm.value.mode === 'ai'
+  && Boolean(createForm.value.lessonId)
+  && !lessonPlanRevision(createForm.value.lessonId))
+const submitDisabled = computed(() => busy.value
+  || needsLesson.value && !createForm.value.lessonId
+  || createType.value === 'ppt' && createForm.value.mode === 'import' && !createForm.value.file
+  || pptAiBlocked.value)
 function captureImportFile(event: Event) { const input = event.target as HTMLInputElement; createForm.value.file = input.files?.[0] || null; input.value = '' }
 function resetCreateForm() {
   createTargetFolderId.value = ''
   createForm.value = { lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null }
+}
+function createLessonPlanFirst() {
+  const lessonId = createForm.value.lessonId
+  closeCreateDialog()
+  openCreateDialog('lesson_plan', lessonId)
 }
 
 function targetPath(type: CreateType, lessonId: string) {
@@ -786,7 +875,7 @@ async function submitCreate() {
     } else if (createType.value === 'lesson_plan') {
       await lessonStore.generateLesson(props.courseId, createForm.value.lessonId)
     } else if (createType.value === 'practice') {
-      openPractice(createForm.value.lessonId)
+      await createPractice(createForm.value.lessonId)
     } else if (createType.value === 'material') {
       const name = `${safePart(createForm.value.title || t('courseFiles.names.newMaterial'))}.md`
       await uploadFile(new File([`# ${createForm.value.title}\n\n${createForm.value.requirements}\n`], name, { type: 'text/markdown' }), targetPath('material', createForm.value.lessonId))
@@ -797,7 +886,30 @@ async function submitCreate() {
     ElMessage.success(t('courseFiles.created'))
   } catch (error: any) { ElMessage.error(localizedError(error, String(error?.message || t('courseFiles.errors.createFailed')))) } finally { busy.value = false }
 }
-function openPractice(lessonId: string) { createOpen.value = false; router.push({ name: 'learning', params: { courseId: props.courseId, nodeId: lessonId }, query: { workspace: 'practice' } }) }
+async function createPractice(lessonId: string) {
+  const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
+  if (!lesson) throw new Error(t('courseFiles.errors.selectLesson'))
+  const nodeIds = practiceNodeIds(lesson)
+  if (!nodeIds.length) throw new Error(t('courseFiles.errors.practiceNeedsSections'))
+  practiceWorkingLessonIds.value = [...new Set([...practiceWorkingLessonIds.value, lessonId])]
+  try {
+    await runQuestionBankRebuild(
+      props.courseId,
+      {
+        request_id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `practice-${Date.now()}`,
+        scope: 'nodes',
+        node_ids: nodeIds,
+        mode: 'incremental',
+        retrieval_enabled: false,
+      },
+      { maxPolls: 450 },
+    )
+    await loadQuestionBankSummary()
+    emit('openPractice', lessonId)
+  } finally {
+    practiceWorkingLessonIds.value = practiceWorkingLessonIds.value.filter(id => id !== lessonId)
+  }
+}
 
 async function previewFile(asset: Asset) {
   if (!selected.value) return
@@ -826,6 +938,7 @@ async function deleteAsset(asset: Asset) {
   } catch (error: any) { if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseFiles.errors.deleteFailed')) }
 }
 
+watch(readinessSummary, summary => emit('readinessChange', summary), { immediate: true })
 onMounted(refresh)
 </script>
 
@@ -862,6 +975,8 @@ onMounted(refresh)
 .ppt-origin-picker { display:grid; gap:7px; }.ppt-origin-picker>span { color:var(--lz-text-secondary); font-size:10px; font-weight:700; }.ppt-origin-picker>div { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.ppt-origin-picker button { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr); gap:1px 7px; padding:9px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; }.ppt-origin-picker button svg { grid-row:1/3; align-self:center; color:#64748b; }.ppt-origin-picker button strong { font-size:11px; }.ppt-origin-picker button small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; text-overflow:ellipsis; white-space:nowrap; }.ppt-origin-picker button.active { border-color:var(--lz-brand); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.ppt-origin-picker button.active svg { color:var(--lz-brand); }.ppt-origin-note { display:flex; align-items:flex-start; gap:7px; margin:0; padding:9px 10px; border:1px solid #e0e7ff; border-radius:8px; color:#4f46e5; background:#f8faff; font-size:10px; line-height:1.5; }.ppt-origin-note[data-mode="import"] { border-color:#e2e8f0; color:#475569; background:#f8fafc; }
 .dialog-actions { display:flex; justify-content:flex-end; gap:8px; padding-top:4px; }.dialog-actions button { min-height:34px; padding:0 13px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; color:var(--lz-text-secondary); font-size:11px; font-weight:700; cursor:pointer; }.dialog-actions button.primary { border-color:#4f46e5; background:#4f46e5; color:#fff; }.dialog-actions button:disabled { opacity:.45; cursor:not-allowed; }
 .preview-surface { min-height:420px; display:grid; place-items:center; }.preview-surface img { max-width:100%; max-height:75vh; }.preview-surface iframe { width:100%; min-height:72vh; border:0; }.office-note { display:flex; flex-direction:column; align-items:center; gap:8px; color:var(--lz-text-muted); text-align:center; }.office-note strong { color:var(--lz-text-strong); }.office-note button { padding:7px 10px; border:1px solid var(--lz-border); border-radius:7px; background:#fff; }
+.status-dot[data-state="empty"],.inspector-status[data-state="empty"] i { background:#cbd5e1; }
+.practice-create-note,.create-prerequisite { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:start; gap:8px; padding:11px; border:1px solid #e2e8f0; border-radius:9px; color:#475569; background:#f8fafc; }.practice-create-note>div,.create-prerequisite>div { display:grid; gap:3px; }.practice-create-note strong,.create-prerequisite strong { font-size:11px; }.practice-create-note small,.create-prerequisite small { color:var(--lz-text-muted); font-size:9px; line-height:1.5; }.create-prerequisite { grid-template-columns:20px minmax(0,1fr) auto; border-color:#fed7aa; color:#9a3412; background:#fff7ed; }.create-prerequisite button { align-self:center; padding:6px 8px; border:1px solid #fdba74; border-radius:7px; color:#9a3412; background:#fff; font-size:9px; font-weight:700; cursor:pointer; }
 .sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); }.spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1080px) { .file-layout { grid-template-columns:220px minmax(420px,1fr) 250px; }.list-search { display:none; }.file-table__head,.file-row { grid-template-columns:minmax(190px,1.5fr) 98px 72px 78px; }.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; } }
 @media (max-width:760px) { .file-layout { grid-template-columns:1fr; grid-template-rows:160px minmax(0,1fr) auto; }.file-tree-pane { display:grid; grid-template-rows:42px minmax(0,1fr); overflow:hidden; border-right:0; border-bottom:1px solid var(--lz-border); }.pane-heading { min-height:42px; padding:0 10px; }.folder-navigation { overflow:auto; padding:5px 7px 10px; }.file-tree-pane footer { display:none; }.file-inspector { max-height:42vh; border-left:0; border-top:1px solid var(--lz-border); }.file-inspector .relationship-card { display:none; }.inspector-actions { grid-template-columns:1fr auto auto; }.list-toolbar { min-height:46px; padding:0 10px; }.list-toolbar nav button { max-width:100px; }.folder-title { min-height:52px; padding:7px 11px; }.folder-title h2 { font-size:15px; }.folder-title__actions>span { display:none; }.add-material-button { padding:0 9px; }.file-table { padding:0 6px 12px; }.file-table__head,.file-row { grid-template-columns:minmax(180px,1fr) 82px; }.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4) { display:none; }.form-grid { grid-template-columns:1fr; } }
