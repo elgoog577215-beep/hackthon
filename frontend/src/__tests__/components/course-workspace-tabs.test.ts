@@ -5,66 +5,25 @@ import { describe, expect, it } from 'vitest'
 import CourseWorkspaceTabs from '@/components/CourseWorkspaceTabs.vue'
 
 describe('CourseWorkspaceTabs', () => {
-  it('按教案、课程、练习、PPT 的顺序展示一级工作区', async () => {
+  it('顶栏只保留教案、课程与 PPT，练习归入底栏题库本', async () => {
     const wrapper = mount(CourseWorkspaceTabs, {
       props: {
         activeItem: 'course',
-        practiceAvailable: true,
       },
     })
 
     const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['教案', '课程', '练习', 'PPT'])
+    expect(tabs.map(tab => tab.text())).toEqual(['教案', '课程', 'PPT'])
     expect(tabs[1]!.attributes('aria-selected')).toBe('true')
 
     await tabs[0]!.trigger('click')
     await tabs[1]!.trigger('click')
     await tabs[2]!.trigger('click')
-    await tabs[3]!.trigger('click')
+    expect(wrapper.find('[data-workspace-item="practice"]').exists()).toBe(false)
 
     expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
     expect(wrapper.emitted('course')).toHaveLength(1)
-    expect(wrapper.emitted('practice')).toHaveLength(1)
     expect(wrapper.emitted('ppt')).toHaveLength(1)
-  })
-
-  it('当前范围没有练习且不可重建时禁用练习入口', () => {
-    const wrapper = mount(CourseWorkspaceTabs, {
-      props: {
-        activeItem: 'course',
-        practiceAvailable: false,
-        practiceRepairAvailable: false,
-      },
-    })
-
-    expect(wrapper.get('[data-workspace-item="practice"]').attributes('disabled')).toBeDefined()
-  })
-
-  it('旧课程题库可重建时仍允许进入练习', async () => {
-    const wrapper = mount(CourseWorkspaceTabs, {
-      props: {
-        activeItem: 'course',
-        practiceRepairAvailable: true,
-      },
-    })
-
-    const practice = wrapper.get('[data-workspace-item="practice"]')
-    expect(practice.attributes('disabled')).toBeUndefined()
-    await practice.trigger('click')
-    expect(wrapper.emitted('practice')).toHaveLength(1)
-  })
-
-  it('课程生成期间保留练习入口但明确禁用到发布后', () => {
-    const wrapper = mount(CourseWorkspaceTabs, {
-      props: {
-        activeItem: 'lesson-plan',
-        practicePending: true,
-      },
-    })
-
-    const practice = wrapper.get('[data-workspace-item="practice"]')
-    expect(practice.attributes('disabled')).toBeDefined()
-    expect(practice.attributes('title')).toContain('发布后')
   })
 
   it('课程生成期间保留 PPT 位置但禁用到发布后', () => {
@@ -85,7 +44,6 @@ describe('CourseWorkspaceTabs', () => {
       props: {
         activeItem: 'course',
         lessonPlanPending: true,
-        practicePending: true,
       },
     })
 
@@ -101,7 +59,6 @@ describe('CourseWorkspaceTabs', () => {
       props: {
         activeItem: 'course',
         lessonPlanBuilding: true,
-        practicePending: true,
       },
     })
 
@@ -115,13 +72,13 @@ describe('CourseWorkspaceTabs', () => {
     expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
   })
 
-  it('移动端将四个一级视图等宽收纳，英文标签不会把 PPT 挤出屏幕', () => {
+  it('移动端将三个一级视图等宽收纳，英文标签不会把 PPT 挤出屏幕', () => {
     const component = readFileSync(
       resolve(process.cwd(), 'src/components/CourseWorkspaceTabs.vue'),
       'utf8',
     )
 
-    expect(component).toContain('grid-template-columns:repeat(4,minmax(0,1fr))')
+    expect(component).toContain('grid-template-columns:repeat(3,minmax(0,1fr))')
     expect(component).toContain('.course-workspace-tabs button svg { display:none; }')
     expect(component).toContain('.course-workspace-tabs button span { overflow:hidden; text-overflow:ellipsis; }')
   })

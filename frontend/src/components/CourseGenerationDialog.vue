@@ -373,6 +373,20 @@
           <details class="form-section supplemental-settings">
             <summary>{{ activeLocale === 'en' ? 'Research and additional requirements' : '联网与补充要求' }}</summary>
             <div class="supplemental-settings__body">
+              <section class="web-enrichment-setting">
+                <label class="web-enrichment-setting__control">
+                  <input
+                    v-model="form.generateQuestions"
+                    data-testid="generate-course-questions"
+                    type="checkbox"
+                    :disabled="busy"
+                  />
+                  <span>
+                    <strong>{{ t('courseGeneration.questions.generateWithCourse', '同时生成题目') }}</strong>
+                    <small>{{ t('courseGeneration.questions.generateWithCourseHelp', '默认关闭。课程发布后仍可随时从学生端“题库本”按小节或全课程生成。') }}</small>
+                  </span>
+                </label>
+              </section>
           <section class="web-enrichment-setting">
             <label class="web-enrichment-setting__control">
               <input
@@ -524,6 +538,7 @@ const form = reactive({
   secondaryMode: '' as '' | PedagogyMode,
   groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   retrievalEnabled: false,
+  generateQuestions: false,
   webMaterialIngest: true,
   requirements: '',
   targetAudience: lastDefaultAudience,
@@ -689,6 +704,10 @@ async function submit() {
                 desired_outcome: form.requirements.trim(),
               },
       grounding_strategy: form.groundingStrategy,
+      asset_preferences: {
+        questions: form.generateQuestions,
+        final_assessment: form.generateQuestions,
+      },
       requirements: form.requirements.trim(),
       material_bindings: materialBindings || [],
       ...(form.retrievalEnabled && !form.webMaterialIngest

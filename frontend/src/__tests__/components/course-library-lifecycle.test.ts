@@ -138,7 +138,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.generation-progress').exists()).toBe(false)
   })
 
-  it('把题库管理收进每门课程的更多操作菜单', async () => {
+  it('课程更多操作不再暴露独立题库管理页', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-review', course_name: '热力学', node_count: 12 }]
@@ -167,16 +167,8 @@ describe('CourseLibraryView generation lifecycle', () => {
     await menuTrigger.trigger('click')
 
     expect(menuTrigger.attributes('aria-expanded')).toBe('true')
-    const reviewButton = wrapper.get('[data-testid="open-question-bank-review-course-review"]')
-    expect(reviewButton.text()).toContain('题库管理')
-    await reviewButton.trigger('click')
-    await flushPromises()
-
-    const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
-    expect(workbench.props('modelValue')).toBe(true)
-    expect(workbench.props('initialSection')).toBe('question-bank')
-    expect(workbench.props('courseId')).toBe('course-review')
-    expect(wrapper.find('[data-testid="course-menu-course-review"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="open-question-bank-review-course-review"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="course-menu-course-review"]').text()).not.toContain('题库管理')
   })
 
   it('把删除课程放在更多操作菜单的危险操作区', async () => {
@@ -435,7 +427,6 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(router.currentRoute.value.name).toBe('course-library')
     const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
     expect(workbench.props('modelValue')).toBe(true)
-    expect(workbench.props('initialSection')).toBe('tasks')
     expect(workbench.props('courseId')).toBe('course-import-1')
   })
 
@@ -487,7 +478,6 @@ describe('CourseLibraryView generation lifecycle', () => {
     await wrapper.get('.library-global-actions .task-center-button').trigger('click')
     const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
     expect(workbench.props('modelValue')).toBe(true)
-    expect(workbench.props('initialSection')).toBe('tasks')
   })
 
   it('移除全局教师文件空间并保留统一任务入口', async () => {

@@ -1293,8 +1293,8 @@
     "assistantHint": "打开全屏 AI 助手",
     "notebook": "笔记本",
     "notebookHint": "查看本课程的笔记与学习标记",
-    "mistakeBook": "错题本",
-    "mistakeBookHint": "查看未通过或需要继续巩固的正式练习",
+    "questionBook": "题库本",
+    "questionBookHint": "查看、生成并完成本课程题目",
     "learningTabs": "学习功能",
     "resourceTabs": "资源功能",
     "records": "学习记录",
@@ -1321,6 +1321,21 @@
     "resourcesHint": "查看由当前课程同步生成的大纲、教案、讲义、练习册和演示文稿",
     "ai": "AI 助手",
     "aiHint": "打开全屏 AI 助手"
+  },
+  "questionBook": {
+    "title": "题库本",
+    "subtitle": "按课程目标生成、练习与巩固",
+    "emptyTitle": "题库本还是空的",
+    "emptyBody": "课程默认不生成题目。需要时，可按当前小节或全课程目标生成。",
+    "generationScope": "出题范围",
+    "currentSection": "当前小节",
+    "entireCourse": "全课程",
+    "useRetrieval": "联网补充可靠题目来源",
+    "generating": "正在生成题目",
+    "generate": "生成题目",
+    "generateHelp": "难度和题型会根据课程目标自动匹配；已有作答记录会保留。",
+    "generateReview": "候选题已经生成，完成质量验证后会出现在题库本中。",
+    "generateSuccess": "题目已生成并进入题库本，可以开始练习。"
   },
   "courseWorkspaceTabs": {
     "navigation": "课程工作区",
@@ -1812,6 +1827,10 @@
       "chapterCount": "预计章节数",
       "sectionCount": "预计小节数",
       "advancedSettings": "更多课堂设置"
+    },
+    "questions": {
+      "generateWithCourse": "同时生成题目",
+      "generateWithCourseHelp": "默认关闭。课程发布后仍可随时从学生端“题库本”按小节或全课程生成。"
     },
     "retrieval": {
       "label": "联网研究",
@@ -3453,7 +3472,10 @@
       "quickAnalyze": "分析教学结构",
       "quickAnalyzePrompt": "请从教学设计角度分析当前课程结构、重点与风险。",
       "quickTeach": "给出教学建议",
-      "quickTeachPrompt": "请围绕当前课程说明怎么教，并给出可执行的课堂组织建议。"
+      "quickTeachPrompt": "请围绕当前课程说明怎么教，并给出可执行的课堂组织建议。",
+      "fileScope": "文件范围",
+      "allFiles": "全部文件",
+      "selectedFiles": "已选 {count} 个文件"
     },
     "sources": {
       "title": "本节来源",

@@ -194,20 +194,21 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.findAll('.learning-context-bar [data-workspace-item]')).toHaveLength(0)
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
 
     await wrapper.get('.open-practice').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
 
-    await wrapper.get('.task-records').trigger('click')
+    await wrapper.get('.close-task').trigger('click')
+    await wrapper.get('[data-domain="notebook"]').trigger('click')
     expect(wrapper.find('.notebook-side-panel').exists()).toBe(true)
     expect(wrapper.find('.notebook-overlay').exists()).toBe(false)
     expect(wrapper.get('.notes-panel-stub').attributes('data-mode')).toBe('sidebar')
 
-    await wrapper.get('[data-domain="mistake-book"]').trigger('click')
-    expect(wrapper.find('.mistake-book-overlay').exists()).toBe(true)
-    expect(wrapper.find('.mistake-book-overlay .learning-tool-modal__card.is-mistake-book').exists()).toBe(true)
-    expect(wrapper.find('.mistake-notebook-stub').exists()).toBe(true)
+    await wrapper.get('.close-notes').trigger('click')
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
+    expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
+    await wrapper.get('.close-task').trigger('click')
 
     await wrapper.get('[data-domain="overview"]').trigger('click')
     expect(wrapper.find('.stats-overlay').exists()).toBe(true)
@@ -255,9 +256,9 @@ describe('LearningView 正文任务覆盖层', () => {
 
     expect(wrapper.get('.teacher-preview-bar').text()).toContain('学生视角预览')
     expect(wrapper.get('#content-scroll-container').attributes('data-read-only')).toBe('false')
-    expect(wrapper.find('[data-testid="open-content-practice"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="open-content-practice"]').exists()).toBe(false)
     expect(wrapper.find('[title="打开 AI 老师"]').exists()).toBe(true)
-    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '错题本', '学习概况', '知识库', '智能助教'])
+    expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
     expect(course.loadCourse).toHaveBeenCalledWith('c1')
     expect(notes.loadCourseRecords).toHaveBeenCalledWith('c1')
     expect(progress.load).toHaveBeenCalledWith('c1', 'n1')
@@ -269,7 +270,7 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.get('.notes-panel-stub').attributes('data-mode')).toBe('sidebar')
     await wrapper.get('.close-notes').trigger('click')
 
-    await wrapper.get('[data-testid="open-content-practice"]').trigger('click')
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -436,7 +437,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[data-testid="open-content-practice"]').trigger('click')
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.find('.task-overlay-stub').exists()).toBe(true)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(node.node_name)
@@ -467,7 +468,6 @@ describe('LearningView 正文任务覆盖层', () => {
           ContentArea: ContentAreaStub,
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
-          LearningDock: true,
           LearningStats: true,
           NotesPanel: true,
           SideAIPanel: true,
@@ -478,7 +478,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    const practiceAction = wrapper.get('[data-testid="open-content-practice"]')
+    const practiceAction = wrapper.get('[data-domain="question-book"]')
     expect(workspace.checkPracticeAvailability).toHaveBeenCalledWith('c1', 'n1')
     expect(practiceAction.attributes('disabled')).toBeUndefined()
     await practiceAction.trigger('click')
@@ -541,7 +541,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    await wrapper.get('[data-testid="open-content-practice"]').trigger('click')
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
     expect(wrapper.get('.task-overlay-stub').attributes('data-node-id')).toBe(parentNode.node_id)
     expect(wrapper.get('.task-overlay-stub').text()).toContain(parentNode.node_name)
     wrapper.unmount()
@@ -586,11 +586,11 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', '练习', 'PPT'])
+    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', 'PPT'])
     expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('[data-workspace-item="lesson-plan"]').classes()).toContain('is-building')
     expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('title')).toContain('后台')
-    expect(wrapper.get('[data-workspace-item="practice"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-workspace-item="practice"]').exists()).toBe(false)
     expect(wrapper.get('[data-workspace-item="ppt"]').attributes('disabled')).toBeDefined()
     expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(true)

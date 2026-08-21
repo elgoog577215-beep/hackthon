@@ -156,7 +156,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(zhMessages.courseFiles.relationship.content).toContain('不要求先生成实体文件')
   })
 
-  it('从课次练习文件进入可见的教师出题工作台', async () => {
+  it('课次练习文件只把范围交给学生预览题库本，不在教师文件区直接出题', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     await router.push('/course/course-1/workspace/setup')

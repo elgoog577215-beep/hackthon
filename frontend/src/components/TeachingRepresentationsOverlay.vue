@@ -21,11 +21,8 @@
 
         <CourseWorkspaceTabs
           active-item="lesson-plan"
-          :practice-available="practiceAvailable"
-          :practice-repair-available="practiceRepairAvailable"
           @lesson-plan="emit('lesson-plan')"
           @course="emit('course')"
-          @practice="emit('practice')"
           @ppt="emit('ppt')"
         />
 
@@ -279,17 +276,13 @@ const props = withDefaults(defineProps<{
   courseId: string
   activeType?: 'outline' | 'lesson_plan'
   overviewMode?: boolean
-  practiceAvailable?: boolean
-  practiceRepairAvailable?: boolean
 }>(), {
   activeType: 'outline',
   overviewMode: false,
-  practiceAvailable: false,
-  practiceRepairAvailable: false,
 })
 
 const emit = defineEmits<{
-  (event: 'close' | 'outline' | 'lesson-plan' | 'course' | 'practice' | 'ppt'): void
+  (event: 'close' | 'outline' | 'lesson-plan' | 'course' | 'ppt'): void
 }>()
 
 const store = useTeachingRepresentationsStore()
@@ -615,7 +608,7 @@ onMounted(ensureLoaded)
 .material-suite__grid strong { margin-top:7px; color:#1f2937; font-size:12px; line-height:1.2; }
 .material-suite__grid small { margin-top:5px; overflow:hidden; color:#8490a2; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
 .representations-empty button { min-height:36px; display:inline-flex; align-items:center; gap:7px; padding:0 12px; border:1px solid #c7d2fe; border-radius:8px; color:var(--lz-brand-strong); background:#fff; cursor:pointer; }
-.stale-notice { display:flex; align-items:center; gap:8px; margin:0 0 18px; padding:10px 12px; border-left:3px solid #f59e0b; color:#92400e; background:#fffbeb; font-size:11px; }
+.stale-notice { display:flex; align-items:center; gap:8px; margin:0 0 18px; padding:10px 12px; border:1px solid #f4cf73; border-radius:7px; color:#92400e; background:#fffbeb; font-size:11px; }
 .outline-preview article,.units-preview article { position:relative; display:grid; grid-template-columns:34px minmax(0,1fr) auto; align-items:center; gap:12px; padding:17px 0; border-bottom:1px solid #edf0f5; }
 .outline-preview article > span { color:#a5b4fc; font:700 11px ui-monospace,monospace; }
 .outline-preview strong,.units-preview strong { font-size:13px; }

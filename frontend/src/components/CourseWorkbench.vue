@@ -10,7 +10,7 @@
       <section
         ref="panelRef"
         class="course-workbench"
-        :class="{ 'course-workbench--compact': activeSection === 'tasks' && !hasVisibleTasks }"
+        :class="{ 'course-workbench--compact': !hasVisibleTasks }"
         data-testid="course-workbench"
         role="dialog"
         aria-modal="true"
@@ -22,31 +22,11 @@
             <h2 :id="titleId">{{ workbenchTitle }}</h2>
           </div>
 
-          <nav class="course-workbench__tabs" role="tablist" :aria-label="workbenchTitle">
-            <button
-              type="button"
-              role="tab"
-              data-testid="course-workbench-tab-tasks"
-              :aria-selected="activeSection === 'tasks'"
-              :class="{ active: activeSection === 'tasks' }"
-              @click="selectSection('tasks')"
-            >
-              <ListChecks :size="16" />
-              <span>{{ taskTabLabel }}</span>
-              <small v-if="actionRequiredCount">{{ actionRequiredCount }}</small>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              data-testid="course-workbench-tab-question-bank"
-              :aria-selected="activeSection === 'question-bank'"
-              :class="{ active: activeSection === 'question-bank' }"
-              @click="selectSection('question-bank')"
-            >
-              <ShieldCheck :size="16" />
-              <span>{{ questionBankTabLabel }}</span>
-            </button>
-          </nav>
+          <div class="course-workbench__summary">
+            <ListChecks :size="16" />
+            <span>{{ taskTabLabel }}</span>
+            <small v-if="actionRequiredCount">{{ actionRequiredCount }}</small>
+          </div>
 
           <button type="button" class="course-workbench__close" :title="t('common.cancel', '关闭')" @click="close">
             <X :size="19" />
@@ -55,19 +35,9 @@
 
         <div class="course-workbench__body">
           <CourseTaskCenter
-            v-if="activeSection === 'tasks'"
             :model-value="true"
             :course-id="courseId"
             :surface="surface"
-            embedded
-            @update:model-value="close"
-          />
-          <QuestionBankReviewCenter
-            v-else
-            :model-value="true"
-            :course-id="courseId"
-            :initial-question-node-ids="initialQuestionNodeIds"
-            :initial-question-scope-label="initialQuestionScopeLabel"
             embedded
             @update:model-value="close"
           />
@@ -79,42 +49,29 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { ListChecks, ShieldCheck, X } from 'lucide-vue-next'
+import { ListChecks, X } from 'lucide-vue-next'
 import CourseTaskCenter from '@/components/CourseTaskCenter.vue'
-import QuestionBankReviewCenter from '@/components/QuestionBankReviewCenter.vue'
 import { useGenerationStore } from '@/stores/generation'
 import { activeLocale, t } from '@/shared/i18n'
 
-type WorkbenchSection = 'tasks' | 'question-bank'
-
 const props = withDefaults(defineProps<{
   modelValue: boolean
-  initialSection?: WorkbenchSection
   courseId?: string
   /** 透传给任务中心：教师端与学生端的状态说法不同。 */
   surface?: 'learner' | 'teacher'
-  initialQuestionNodeIds?: string[]
-  initialQuestionScopeLabel?: string
 }>(), {
-  initialSection: 'tasks',
   courseId: '',
   surface: 'learner',
-  initialQuestionNodeIds: () => [],
-  initialQuestionScopeLabel: '',
 })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const generationStore = useGenerationStore()
 const titleId = `course-workbench-${Math.random().toString(36).slice(2)}`
 const panelRef = ref<HTMLElement | null>(null)
-const activeSection = ref<WorkbenchSection>(props.initialSection)
 const previousFocus = ref<HTMLElement | null>(null)
 
 const isEnglish = computed(() => activeLocale.value === 'en')
-const workbenchTitle = computed(() => activeSection.value === 'question-bank'
-  ? (isEnglish.value ? 'Create practice' : '教师出题')
-  : (isEnglish.value ? 'Course workbench' : '课程工作台'))
+const workbenchTitle = computed(() => isEnglish.value ? 'Course tasks' : '课程任务')
 const taskTabLabel = computed(() => isEnglish.value ? 'Generation tasks' : '生成任务')
-const questionBankTabLabel = computed(() => isEnglish.value ? 'Create practice' : '教师出题')
 const actionRequiredCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => (
   (!props.courseId || task.courseId === props.courseId)
   && (
@@ -135,18 +92,9 @@ const hasVisibleTasks = computed(() => {
 watch(() => props.modelValue, async open => {
   if (!open) return
   previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null
-  activeSection.value = props.initialSection
   await nextTick()
   panelRef.value?.focus()
 }, { immediate: true })
-
-watch(() => props.initialSection, section => {
-  if (props.modelValue) activeSection.value = section
-})
-
-function selectSection(section: WorkbenchSection) {
-  activeSection.value = section
-}
 
 function close() {
   emit('update:modelValue', false)
@@ -188,11 +136,8 @@ function handleDialogKeydown(event: KeyboardEvent) {
 .course-workbench__header { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(44px,1fr); align-items:center; gap:16px; padding:0 12px 0 20px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .course-workbench__identity { min-width:0; display:flex; align-items:center; }
 .course-workbench__identity h2 { margin:0; color:var(--lz-text-strong); font-size:18px; }
-.course-workbench__tabs { align-self:stretch; display:flex; align-items:stretch; gap:22px; }
-.course-workbench__tabs button { min-height:40px; display:inline-flex; align-items:center; gap:7px; padding:0 2px; border:0; border-bottom:2px solid transparent; color:var(--lz-text-secondary); background:transparent; font-size:13px; font-weight:700; cursor:pointer; }
-.course-workbench__tabs button:hover,.course-workbench__tabs button:focus-visible { color:var(--lz-text-strong); outline:none; }
-.course-workbench__tabs button.active { border-bottom-color:var(--lz-brand); color:var(--lz-brand-strong); }
-.course-workbench__tabs small { min-width:20px; height:20px; display:grid; place-items:center; padding:0 6px; border-radius:10px; color:#fff; background:var(--lz-warning); font-size:12px; }
+.course-workbench__summary { display:inline-flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:12px; font-weight:700; }
+.course-workbench__summary small { min-width:20px; height:20px; display:grid; place-items:center; padding:0 6px; border-radius:10px; color:#fff; background:var(--lz-warning); font-size:12px; }
 .course-workbench__close { width:38px; height:38px; display:grid; justify-self:end; place-items:center; border:0; border-radius:9px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .course-workbench__close:hover,.course-workbench__close:focus-visible { color:var(--lz-text-strong); background:var(--lz-surface-muted); outline:none; }
 .course-workbench__body { min-height:0; overflow:hidden; }
@@ -202,8 +147,7 @@ function handleDialogKeydown(event: KeyboardEvent) {
   .course-workbench--compact { height:min(390px,calc(100vh - 40px)); }
   .course-workbench__header { grid-template-columns:minmax(0,1fr) auto; gap:7px 10px; padding:8px 10px 8px 14px; }
   .course-workbench__identity h2 { font-size:16px; }
-  .course-workbench__tabs { grid-column:1 / -1; grid-row:2; width:100%; gap:12px; }
-  .course-workbench__tabs button { min-height:38px; flex:1; justify-content:center; }
+  .course-workbench__summary { grid-column:1 / -1; grid-row:2; min-height:32px; }
   .course-workbench__close { width:34px; height:34px; }
 }
 </style>

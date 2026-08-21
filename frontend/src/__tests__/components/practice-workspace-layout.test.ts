@@ -8,9 +8,9 @@ const componentSource = readFileSync(
 )
 
 describe('PracticeWorkspace expanded desktop layout', () => {
-  it('uses a wider stage with a taller answer editor and compact bottom spacing', () => {
+  it('uses a readable centered stage with a taller answer editor and compact bottom spacing', () => {
     expect(componentSource).toContain(
-      '.question-stage,.history-list { width:min(1280px,calc(100% - 64px));',
+      '.question-stage,.history-list { width:min(980px,calc(100% - 64px));',
     )
     expect(componentSource).toContain('padding:24px 0 36px;')
     expect(componentSource).toContain('min-height:clamp(360px,54vh,680px);')

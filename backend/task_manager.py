@@ -8622,7 +8622,7 @@ class TaskManager:
             task_id,
             "learning_assets",
             87,
-            "正在编译课程练习、掌握标准和课程知识映射",
+            "正在编译课程学习资产与知识映射",
             phase_progress=20,
         )
         asset_course = deepcopy(fresh_course)
@@ -8630,6 +8630,9 @@ class TaskManager:
             asset_course["evidence_catalog"] = self.course_service.load_course_evidence_catalog(
                 fresh_course
             )
+        questions_enabled = "questions" in (
+            compile_learning_asset_plan(asset_course).get("enabled_asset_types") or []
+        )
         assessment_profile = compile_course_assessment_profile(
             asset_course
         )
@@ -8649,9 +8652,12 @@ class TaskManager:
             retrieval_artifact.get("reference_package") or {}
         )
         if (
-            not reference_package
-            or reference_package.get("blueprint_revision_id")
-            != assessment_blueprint.get("blueprint_revision_id")
+            questions_enabled
+            and (
+                not reference_package
+                or reference_package.get("blueprint_revision_id")
+                != assessment_blueprint.get("blueprint_revision_id")
+            )
         ):
             reference_package = compile_local_reference_package(
                 asset_course,
@@ -8689,7 +8695,7 @@ class TaskManager:
         asset_course["_question_reference_package"] = deepcopy(
             reference_package
         )
-        if reference_package.get("retrieval_mode") != "off":
+        if questions_enabled and reference_package.get("retrieval_mode") != "off":
             asset_course = await self._assessment_orchestrator.prepare_course(
                 asset_course,
                 reference_package=reference_package,
@@ -8707,7 +8713,11 @@ class TaskManager:
             task_id,
             "question_bank",
             92,
-            "正在整理课程题库、覆盖矩阵与风险审核队列",
+            (
+                "正在整理课程题库、覆盖矩阵与风险审核队列"
+                if questions_enabled
+                else "已按设置暂缓生成题目"
+            ),
             phase_progress=55,
         )
         previous_question_bank = self._question_bank_repository.load_bundle(
@@ -8745,7 +8755,7 @@ class TaskManager:
         # Persist that exact node projection before evaluating or publishing so
         # the course and its generated assets share one source of truth.
         fresh_course["nodes"] = deepcopy(asset_course.get("nodes") or [])
-        fresh_course["question_analysis_required"] = True
+        fresh_course["question_analysis_required"] = questions_enabled
         analyzed_questions = [
             item
             for _, item in assessment_assets(asset_bundle["assets"])
@@ -8756,7 +8766,9 @@ class TaskManager:
             asset_bundle["assets"],
         )
         fresh_course["question_analysis_status"] = (
-            "passed"
+            "not_required"
+            if not questions_enabled
+            else "passed"
             if all(
                 (item.get("question_analysis") or {}).get("status")
                 == "passed"
@@ -8766,7 +8778,9 @@ class TaskManager:
         )
         fresh_course["question_analysis_summary"] = {
             "source": (
-                "targeted_ai_repair"
+                "deferred_by_user"
+                if not questions_enabled
+                else "targeted_ai_repair"
                 if practice_repair_summary.get("target_node_count")
                 else "compiled_contract"
             ),

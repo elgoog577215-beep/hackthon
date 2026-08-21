@@ -71,6 +71,7 @@ describe('course library density contract', () => {
     expect(librarySource).toMatch(/\.course-primary-action\s*\{[^}]*white-space:\s*nowrap/s)
     expect(librarySource).toMatch(/\.course-menu\s*\{[^}]*width:\s*160px[^}]*padding:\s*4px[^}]*border-radius:\s*10px/s)
     expect(librarySource).toMatch(/\.course-menu__item\s*\{[^}]*min-height:\s*36px[^}]*gap:\s*8px[^}]*padding:\s*0\s+9px/s)
-    expect(librarySource.match(/<(?:ShieldCheck|Trash2)\s+:size="15"/g)).toHaveLength(2)
+    expect(librarySource).not.toContain('<ShieldCheck')
+    expect(librarySource.match(/<Trash2\s+:size="15"/g)).toHaveLength(1)
   })
 })

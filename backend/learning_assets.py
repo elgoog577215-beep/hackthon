@@ -26,6 +26,7 @@ from practice_analysis import (
 )
 from practice_contracts import enrich_question_contract
 from question_bank import (
+    QUESTION_BANK_SCHEMA,
     approved_formal_tasks,
     build_question_bank,
     is_generic_generated_prompt,
@@ -73,6 +74,40 @@ QUESTION_TYPES = {
     "business_career": "scenario_deliverable",
     "general": "short_answer",
 }
+
+
+def _empty_question_bank_bundle(course_id: str) -> dict[str, Any]:
+    """Represent an intentionally deferred bank without fabricating questions."""
+    return {
+        "schema_version": QUESTION_BANK_SCHEMA,
+        "course_id": course_id,
+        "course_scope": {"course_id": course_id, "cross_course_access": False},
+        "source_priority": [],
+        "assessment_profile": {},
+        "assessment_objectives": [],
+        "solution_envelopes": {},
+        "items": [],
+        "coverage": {
+            "status": "not_generated",
+            "reason_code": "questions_deferred_by_user",
+        },
+        "assessment_blueprint": {},
+        "reference_package": {},
+        "generation_audit": {
+            "status": "skipped",
+            "reason_code": "questions_deferred_by_user",
+        },
+        "review_policy": {},
+        "review_queue": {"count": 0, "items": []},
+        "web_enrichment": {
+            "enabled": False,
+            "mode": "off",
+            "status": "not_started",
+            "query_count": 0,
+            "source_count": 0,
+            "error_codes": [],
+        },
+    }
 
 
 def compile_learning_asset_plan(course_data: dict[str, Any]) -> dict[str, Any]:
@@ -166,9 +201,13 @@ def compile_learning_assets(
     }
     question_bank_provided = question_bank_bundle is not None
     if question_bank_bundle is None:
-        question_bank_bundle = build_question_bank(
-            question_bank_course,
-            legacy_tasks=legacy_tasks or (),
+        question_bank_bundle = (
+            build_question_bank(
+                question_bank_course,
+                legacy_tasks=legacy_tasks or (),
+            )
+            if "questions" in enabled
+            else _empty_question_bank_bundle(course_id)
         )
     else:
         question_bank_bundle = deepcopy(question_bank_bundle)

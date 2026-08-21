@@ -1,7 +1,7 @@
 <template>
   <nav
     class="course-workspace-tabs"
-    :class="{ 'is-three': !showLessonPlan }"
+    :class="{ 'is-two': !showLessonPlan }"
     role="tablist"
     :aria-label="t('courseWorkspaceTabs.navigation', '课程工作区')"
   >
@@ -39,25 +39,6 @@
     <button
       type="button"
       role="tab"
-      data-workspace-item="practice"
-      :class="{ 'is-active': activeItem === 'practice' }"
-      :aria-selected="activeItem === 'practice'"
-      :disabled="!practiceEntryAvailable"
-      :title="practiceRepairAvailable
-        ? t('courseWorkspaceTabs.practiceRepairHint', '打开练习并重新生成旧版题目')
-        : practiceAvailable
-          ? t('courseWorkspaceTabs.practiceHint', '打开当前章节的正式练习')
-          : practicePending
-            ? t('courseWorkspaceTabs.practicePending', '课程发布后开放正式练习')
-            : t('courseWorkspaceTabs.practiceUnavailable', '当前章节暂时没有正式练习')"
-      @click="emit('practice')"
-    >
-      <ClipboardCheck :size="16" />
-      <span>{{ t('courseWorkspaceTabs.practice', '练习') }}</span>
-    </button>
-    <button
-      type="button"
-      role="tab"
       data-workspace-item="ppt"
       :class="{ 'is-active': activeItem === 'ppt' }"
       :aria-selected="activeItem === 'ppt'"
@@ -74,37 +55,26 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { BookOpenText, ClipboardCheck, ClipboardList, LoaderCircle, Presentation } from 'lucide-vue-next'
+import { BookOpenText, ClipboardList, LoaderCircle, Presentation } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 
-export type CourseWorkspaceItem = 'lesson-plan' | 'course' | 'practice' | 'ppt'
+export type CourseWorkspaceItem = 'lesson-plan' | 'course' | 'ppt'
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   activeItem: CourseWorkspaceItem
-  practiceAvailable?: boolean
-  practiceRepairAvailable?: boolean
-  practicePending?: boolean
   lessonPlanPending?: boolean
   lessonPlanBuilding?: boolean
   pptAvailable?: boolean
   showLessonPlan?: boolean
 }>(), {
-  practiceAvailable: false,
-  practiceRepairAvailable: false,
-  practicePending: false,
   lessonPlanPending: false,
   lessonPlanBuilding: false,
   pptAvailable: true,
   showLessonPlan: true,
 })
 
-const practiceEntryAvailable = computed(() => (
-  props.practiceAvailable || props.practiceRepairAvailable
-))
-
 const emit = defineEmits<{
-  (event: 'lesson-plan' | 'course' | 'practice' | 'ppt'): void
+  (event: 'lesson-plan' | 'course' | 'ppt'): void
 }>()
 </script>
 
@@ -168,12 +138,12 @@ const emit = defineEmits<{
     width:100%;
     min-height:40px;
     display:grid;
-    grid-template-columns:repeat(4,minmax(0,1fr));
+    grid-template-columns:repeat(3,minmax(0,1fr));
     gap:2px;
     padding:3px;
     border-radius:10px;
   }
-  .course-workspace-tabs.is-three { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .course-workspace-tabs.is-two { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .course-workspace-tabs button {
     width:100%;
     min-width:0;

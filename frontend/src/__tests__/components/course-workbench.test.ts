@@ -14,39 +14,28 @@ const CourseTaskCenterStub = defineComponent({
   template: '<div data-testid="embedded-task-center">{{ courseId }}</div>',
 })
 
-const QuestionBankReviewCenterStub = defineComponent({
-  name: 'QuestionBankReviewCenter',
-  props: {
-    modelValue: Boolean,
-    courseId: String,
-    embedded: Boolean,
-  },
-  template: '<div data-testid="embedded-question-bank">{{ courseId }}</div>',
-})
-
-const mountWorkbench = (initialSection: 'tasks' | 'question-bank' = 'tasks') => mount(CourseWorkbench, {
+const mountWorkbench = () => mount(CourseWorkbench, {
   props: {
     modelValue: true,
-    initialSection,
     courseId: 'course-1',
+    surface: 'teacher',
   },
   global: {
     plugins: [createPinia()],
     stubs: {
       Teleport: true,
       CourseTaskCenter: CourseTaskCenterStub,
-      QuestionBankReviewCenter: QuestionBankReviewCenterStub,
     },
   },
 })
 
 describe('CourseWorkbench', () => {
-  it('在同一个工作台内切换生成任务和题库管理', async () => {
+  it('课程工作台只承载生成任务，不再包含教师出题页', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.get('[data-testid="course-workbench"]').attributes('role')).toBe('dialog')
     expect(wrapper.get('[data-testid="course-workbench"]').classes()).toContain('course-workbench--compact')
-    expect(wrapper.get('[data-testid="course-workbench-tab-tasks"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.text()).toContain('生成任务')
     const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
     expect(taskCenter.props()).toMatchObject({
       modelValue: true,
@@ -54,23 +43,12 @@ describe('CourseWorkbench', () => {
       embedded: true,
     })
 
-    await wrapper.get('[data-testid="course-workbench-tab-question-bank"]').trigger('click')
-
-    expect(wrapper.get('[data-testid="course-workbench-tab-question-bank"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.get('[data-testid="course-workbench"]').classes()).not.toContain('course-workbench--compact')
-    const questionBank = wrapper.getComponent({ name: 'QuestionBankReviewCenter' })
-    expect(questionBank.props()).toMatchObject({
-      modelValue: true,
-      courseId: 'course-1',
-      embedded: true,
-    })
+    expect(wrapper.find('[data-testid="course-workbench-tab-question-bank"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="embedded-question-bank"]').exists()).toBe(false)
   })
 
-  it('支持从课程卡片直接打开题库模块，并通过 Escape 关闭', async () => {
-    const wrapper = mountWorkbench('question-bank')
-
-    expect(wrapper.get('[data-testid="course-workbench-tab-question-bank"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.get('[data-testid="embedded-question-bank"]').text()).toBe('course-1')
+  it('通过 Escape 关闭任务工作台', async () => {
+    const wrapper = mountWorkbench()
 
     await wrapper.get('[data-testid="course-workbench"]').trigger('keydown', { key: 'Escape' })
 

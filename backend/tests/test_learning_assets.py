@@ -335,6 +335,23 @@ def test_material_organization_explicitly_declares_reading_only():
     assert bundle["assets"]["chapter_progression_contracts"][0]["mastery_required"] is False
 
 
+def test_explicit_question_preference_defers_question_bank_generation():
+    course = _course()
+    course["generation_request"] = {
+        "asset_preferences": {"questions": False, "final_assessment": False},
+    }
+
+    bundle = compile_learning_assets(course)
+
+    assert bundle["plan"]["reading_only_degraded"] is True
+    assert bundle["assets"]["questions"] == []
+    assert bundle["assets"]["final_assessment"] == []
+    assert bundle["question_bank_bundle"]["items"] == []
+    assert bundle["question_bank_bundle"]["coverage"]["reason_code"] == (
+        "questions_deferred_by_user"
+    )
+
+
 def test_questions_compile_formal_practice_contracts():
     assets = compile_learning_assets(_course())["assets"]
     questions = assets["questions"]

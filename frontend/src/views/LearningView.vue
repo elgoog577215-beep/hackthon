@@ -43,16 +43,12 @@
         <CourseWorkspaceTabs
           v-if="isGenerationPreview && showWorkspaceTabs && !isTeacherPreview"
           :active-item="activeWorkspaceItem"
-          :practice-available="Boolean(currentPracticeNode)"
-          :practice-repair-available="questionBankRepairAvailable"
-          :practice-pending="isGenerationPreview"
           :lesson-plan-pending="isGenerationPreview && !canOpenGenerationLessonPlan"
           :lesson-plan-building="generationLessonPlanBuilding"
           :show-lesson-plan="isGenerationPreview"
           :ppt-available="!isGenerationPreview"
           @lesson-plan="selectWorkspace('lesson-plan')"
           @course="selectWorkspace('course')"
-          @practice="selectWorkspace('practice')"
           @ppt="openPptWorkspace"
         />
         <div class="context-actions">
@@ -65,18 +61,6 @@
           </div>
           <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
             <LocateFixed :size="17" />
-          </button>
-          <button
-            v-if="!isGenerationPreview && (currentPracticeNode || questionBankRepairAvailable)"
-            type="button"
-            data-testid="open-content-practice"
-            :title="questionBankRepairAvailable
-              ? t('courseWorkspaceTabs.practiceRepairHint', '打开练习并重新生成旧版题目')
-              : t('courseWorkspaceTabs.practiceHint', '打开当前章节的正式练习')"
-            :aria-label="t('courseWorkspaceTabs.practice', '练习')"
-            @click="openTask(currentPracticeNode || courseStore.currentNode)"
-          >
-            <ClipboardCheck :size="17" />
           </button>
           <button v-if="!aiVisible && !isGenerationPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
             <MessageSquareText :size="17" />
@@ -157,13 +141,13 @@
         :aria-hidden="resourcesOpen ? 'true' : undefined"
         :location="dockLocation"
         :note-count="noteCount"
-        :mistake-count="mistakeCount"
+        :question-count="questionCount"
         :resume-action-label="resumeActionLabel"
         :resume-action-available="resumableAction?.availability === 'available'"
         :resume-action-busy="continuityBusy"
         :active-domain="activeDomain"
         @notebook="openNotebook"
-        @mistake-book="openMistakeNotebook"
+        @question-book="openQuestionBook"
         @stats="openStats"
         @knowledge-library="openKnowledgeLibrary"
         @ai="openAi()"
@@ -178,14 +162,8 @@
         :origin-rect="taskOriginRect"
         :record-count="noteCount"
         @close="closeTask"
-        @outline="openTeachingResourceFromTask('outline')"
-        @lesson-plan="openTeachingResourceFromTask('lesson_plan')"
-        @course="closeTask"
-        @ppt="openPptWorkspace"
         @ask-teacher="openAiForPractice"
         @graded="refreshAfterGrade"
-        @records="openNotebook"
-        @stats="openStats"
       />
 
       <Teleport to="body">
@@ -211,33 +189,6 @@
         </Transition>
       </Teleport>
 
-      <Teleport to="body">
-        <Transition name="learning-modal">
-          <section
-            v-if="mistakeBookOpen"
-            class="learning-tool-modal mistake-book-overlay"
-            role="dialog"
-            aria-modal="true"
-            :aria-label="t('mistakeNotebook.title', '错题本')"
-            @keydown.esc="closeMistakeNotebook"
-          >
-            <button
-              type="button"
-              class="learning-tool-modal__backdrop"
-              :aria-label="t('mistakeNotebook.close', '关闭错题本')"
-              @click="closeMistakeNotebook"
-            ></button>
-            <div class="learning-tool-modal__card is-mistake-book">
-              <MistakeNotebookPanel
-                :course-id="courseStore.currentCourseId"
-                @close="closeMistakeNotebook"
-                @retry="openMistakeRetry"
-              />
-            </div>
-          </section>
-        </Transition>
-      </Teleport>
-
       <section v-if="statsOpen" class="learning-tool-overlay stats-overlay" role="dialog" aria-modal="true" :aria-label="t('learningDock.stats', '学习概况')">
         <LearningStats class="stats-tool" closable @close="closeStats" />
       </section>
@@ -246,13 +197,10 @@
         :visible="resourcesOpen"
         :course-id="courseStore.currentCourseId"
         :active-type="activeTeachingResource"
-        :practice-available="Boolean(currentPracticeNode)"
-        :practice-repair-available="questionBankRepairAvailable"
         @close="openCourseWorkspace"
         @outline="openTeachingResource('outline')"
         @lesson-plan="openTeachingResource('lesson_plan')"
         @course="openCourseWorkspace"
-        @practice="openPracticeFromTeachingResource"
         @ppt="openPptWorkspace"
       />
     </main>
@@ -293,7 +241,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, ClipboardCheck, Eye, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, Eye, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseGenerationGate from '../components/CourseGenerationGate.vue'
 import CourseGenerationLifecycle from '../components/CourseGenerationLifecycle.vue'
@@ -306,7 +254,6 @@ import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
 import LearningTaskOverlay from '../components/LearningTaskOverlay.vue'
-import MistakeNotebookPanel from '../components/MistakeNotebookPanel.vue'
 import NotesPanel from '../components/NotesPanel.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
 import AITeacherSuggestion from '../components/AITeacherSuggestion.vue'
@@ -324,7 +271,6 @@ import {
 } from '../stores/courseEvolution'
 import type { CourseBlockEditTarget, CourseBlockNavigationTarget, Node } from '../stores/types'
 import { isWorkspaceTaskAction, learningActionLabel } from '../utils/learning-action'
-import { isQuestionBankRepairReason } from '../utils/course-availability'
 import { isStartableLearningObjective } from '../utils/learning-scope'
 import { isResumableLearningAction } from '../utils/learning-resume'
 import { canResumeCourseProduction, courseProductionStageIndex, hasVisibleCourseDraft } from '../utils/course-production'
@@ -346,7 +292,6 @@ const windowWidth = ref(window.innerWidth)
 const navigatorOpen = ref(window.innerWidth >= 1024)
 const aiVisible = ref(false)
 const notebookOpen = ref(false)
-const mistakeBookOpen = ref(false)
 const statsOpen = ref(false)
 const resourcesOpen = computed({
   get: () => courseStore.showTeachingResources,
@@ -365,12 +310,12 @@ const aiPrefill = ref('')
 const aiEntrypoint = ref<'global' | 'selection' | 'practice' | 'continuity' | 'record'>('global')
 const aiBlockTarget = ref<CourseBlockEditTarget | undefined>(undefined)
 const autoFollowGeneration = ref(true)
-const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'practice' | 'ppt'>('course')
+const activeWorkspaceItem = ref<'lesson-plan' | 'course' | 'ppt'>('course')
 const generationActionBusy = ref(false)
 const practiceApiNodeId = ref('')
 let practiceAvailabilityRequest = 0
 const loadedLearningCourseId = ref('')
-const activeDomain = ref<'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
+const activeDomain = ref<'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'>('course')
 const activeTeachingResource = ref<'outline' | 'lesson_plan'>('lesson_plan')
 const activeCourseBlockId = ref('')
 let courseGrowthLocationTimer: ReturnType<typeof setTimeout> | undefined
@@ -446,7 +391,7 @@ const hasAppliedCourseGrowth = computed(() => (
 ))
 const overlayVisible = computed(() => isNarrow.value && navigatorVisible.value && !taskOpen.value)
 const noteCount = computed(() => noteStore.notes.filter(item => item.sourceType !== 'format' && item.sourceType !== 'wrong').length)
-const mistakeCount = computed(() => workspaceStore.practiceNeedsReviewCount)
+const questionCount = computed(() => workspaceStore.assets?.assets?.questions?.length || 0)
 const currentParentLabel = computed(() => {
   const current = courseStore.currentNode
   if (!current) return t('learningShell.course', '当前课程')
@@ -478,13 +423,6 @@ const currentPracticeNode = computed(() => {
   }
   return null
 })
-const questionBankRepairAvailable = computed(() => {
-  if (isGenerationPreview.value || !courseStore.currentNode) return false
-  const availability = workspaceStore.assets?.course_availability
-  return isQuestionBankRepairReason(
-    availability?.capabilities?.practice?.reason_code || availability?.reason_code,
-  )
-})
 const continuationAction = computed(() => learningProgressStore.continuation?.primary_action || null)
 const resumableAction = computed(() => isResumableLearningAction(continuationAction.value) ? continuationAction.value : null)
 const resumeActionLabel = computed(() => resumableAction.value ? learningActionLabel(resumableAction.value.action_type) : '')
@@ -492,7 +430,6 @@ const showMobileResumePrompt = computed(() => Boolean(
   resumableAction.value
   && !navigatorOpen.value
   && !notebookOpen.value
-  && !mistakeBookOpen.value
   && !statsOpen.value
   && !resourcesOpen.value
   && !taskOpen.value
@@ -523,7 +460,6 @@ watch(() => route.params.courseId, async value => {
   activeDomain.value = 'course'
   activeTeachingResource.value = 'lesson_plan'
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   resourcesOpen.value = false
   taskOpen.value = false
@@ -540,7 +476,10 @@ watch(() => route.params.courseId, async value => {
   }
   await loadPublishedLearningContext(courseId)
   selectInitialNode()
-  if (route.query.workspace === 'practice') selectWorkspace('practice')
+  if (['practice', 'question-book'].includes(String(route.query.workspace || ''))) {
+    await nextTick()
+    openQuestionBook()
+  }
 }, { immediate: true })
 
 watch(() => courseStore.showTeachingResources, visible => {
@@ -608,7 +547,6 @@ async function refreshCurrentPracticeAvailability() {
     isGenerationPreview.value
     || !courseStore.currentCourseId
     || !courseStore.currentNode
-    || questionBankRepairAvailable.value
   ) return
 
   const questionNodeIds = new Set(
@@ -723,9 +661,9 @@ function resumeGenerationFollow() {
   if (node) selectNode(node, false, false)
 }
 
-function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice' | 'ppt') {
+function selectWorkspace(item: 'lesson-plan' | 'course' | 'ppt') {
   if (isGenerationPreview.value) {
-    if (item === 'practice' || item === 'ppt') return
+    if (item === 'ppt') return
     if (item === 'lesson-plan' && !canOpenGenerationLessonPlan.value) return
     autoFollowGeneration.value = false
     activeWorkspaceItem.value = item
@@ -735,17 +673,11 @@ function selectWorkspace(item: 'lesson-plan' | 'course' | 'practice' | 'ppt') {
     activeWorkspaceItem.value = 'lesson-plan'
     resourcesOpen.value = false
     notebookOpen.value = false
-    mistakeBookOpen.value = false
     statsOpen.value = false
     taskOpen.value = false
     aiVisible.value = false
     courseStore.showKnowledgeLibrary = false
     activeDomain.value = 'course'
-    return
-  }
-  if (item === 'practice') {
-    activeWorkspaceItem.value = 'practice'
-    openCurrentPractice()
     return
   }
   if (item === 'ppt') {
@@ -796,7 +728,6 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   activeDomain.value = 'assistant'
   resourcesOpen.value = false
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   courseStore.showKnowledgeLibrary = false
   aiBlockTarget.value = undefined
@@ -902,7 +833,6 @@ function openAiForPractice(payload: { text: string; nodeId: string }) {
 function openNotebook() {
   activeDomain.value = 'notebook'
   notebookOpen.value = true
-  mistakeBookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
   resourcesOpen.value = false
@@ -916,36 +846,23 @@ function closeNotebook() {
   activeDomain.value = 'course'
 }
 
-function openMistakeNotebook() {
-  activeDomain.value = 'mistake-book'
-  mistakeBookOpen.value = true
+function openQuestionBook() {
+  const source = currentPracticeNode.value || courseStore.currentNode
+  if (!source) return
+  activeDomain.value = 'question-book'
   notebookOpen.value = false
   statsOpen.value = false
-  taskOpen.value = false
   resourcesOpen.value = false
   aiVisible.value = false
   courseStore.showKnowledgeLibrary = false
+  openTask(source)
   if (isNarrow.value) navigatorOpen.value = false
-}
-
-function closeMistakeNotebook() {
-  mistakeBookOpen.value = false
-  activeDomain.value = 'course'
-}
-
-function openMistakeRetry(payload: { nodeId: string; taskRevisionId: string }) {
-  mistakeBookOpen.value = false
-  const node = courseStore.nodes.find(item => item.node_id === payload.nodeId)
-    || currentPracticeNode.value
-    || courseStore.currentNode
-  if (node) openTask(node, payload.taskRevisionId)
 }
 
 function openKnowledgeLibrary() {
   activeDomain.value = 'knowledge-library'
   resourcesOpen.value = false
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
   aiVisible.value = false
@@ -988,7 +905,6 @@ function openTeachingResource(type: 'outline' | 'lesson_plan') {
   activeWorkspaceItem.value = 'lesson-plan'
   resourcesOpen.value = true
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   taskOpen.value = false
   aiVisible.value = false
@@ -996,53 +912,20 @@ function openTeachingResource(type: 'outline' | 'lesson_plan') {
   if (isNarrow.value) navigatorOpen.value = false
 }
 
-async function openTeachingResourceFromTask(type: 'outline' | 'lesson_plan') {
-  await closeTask()
-  if (type === 'lesson_plan') {
-    selectWorkspace('lesson-plan')
-    return
-  }
-  openTeachingResource(type)
-}
-
 async function openCourseWorkspace() {
   activeWorkspaceItem.value = 'course'
   resourcesOpen.value = false
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   courseStore.showKnowledgeLibrary = false
   activeDomain.value = 'course'
   if (taskOpen.value) await closeTask()
 }
 
-async function openPracticeFromTeachingResource() {
-  resourcesOpen.value = false
-  await nextTick()
-  openCurrentPractice()
-}
-
-function openCurrentPractice() {
-  activeDomain.value = 'course'
-  resourcesOpen.value = false
-  notebookOpen.value = false
-  mistakeBookOpen.value = false
-  statsOpen.value = false
-  const targetNode = currentPracticeNode.value
-    || (questionBankRepairAvailable.value ? courseStore.currentNode : null)
-  if (targetNode) {
-    activeWorkspaceItem.value = 'practice'
-    openTask(targetNode)
-  } else {
-    activeWorkspaceItem.value = 'course'
-  }
-}
-
 function openStats() {
   activeDomain.value = 'overview'
   statsOpen.value = true
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   taskOpen.value = false
   resourcesOpen.value = false
   aiVisible.value = false
@@ -1070,10 +953,9 @@ function locateRecord(record: any) {
 function openTask(node?: Node | null, taskRevisionId = '') {
   const source = node || courseStore.currentNode
   if (!source) return
-  activeDomain.value = 'course'
+  activeDomain.value = 'question-book'
   resourcesOpen.value = false
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   if (taskRevisionId && courseStore.currentCourseId) {
     workspaceStore.preparePracticeTask(courseStore.currentCourseId, source.node_id, taskRevisionId)
@@ -1176,7 +1058,6 @@ function leaveTeacherPreview() {
 function closeMobileSurfaces() {
   if (isNarrow.value) { navigatorOpen.value = false; aiVisible.value = false }
   notebookOpen.value = false
-  mistakeBookOpen.value = false
   statsOpen.value = false
   resourcesOpen.value = false
 }

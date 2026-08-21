@@ -246,6 +246,41 @@ def test_teacher_perspective_prioritizes_teaching_and_same_source_change_control
     assert "不得声称已自动修改" in prompt
 
 
+def test_teacher_file_scope_limits_course_sources(monkeypatch):
+    monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
+    monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
+    course = _course()
+    course["nodes"].append({
+        "node_id": "node-2",
+        "node_name": "循环",
+        "node_level": 2,
+        "node_content": "## 循环条件\n循环按条件重复执行，直到条件不再成立。",
+        "learning_objective": "能够解释循环条件",
+        "key_points": ["循环条件"],
+    })
+
+    package = build_ai_teacher_context(
+        course,
+        user_id="teacher-1",
+        question="这个文件应该怎么教？",
+        node_id="node-1",
+        perspective="teacher",
+        context_ref={
+            "content_anchor": {
+                "file_scope": {
+                    "mode": "selected",
+                    "node_ids": ["node-2"],
+                    "labels": ["循环"],
+                },
+            },
+        },
+    )
+
+    assert package["sources"]
+    assert {item["node_id"] for item in package["sources"]} == {"node-2"}
+    assert "文件范围：循环" in format_ai_teacher_context_prompt(package)
+
+
 def test_ai_teacher_does_not_treat_degraded_course_index_as_runtime_truth(monkeypatch):
     monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
     monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])

@@ -66,10 +66,8 @@
 
     <CourseWorkbench
       v-model="workbenchOpen"
-      :initial-section="workbenchSection"
       :course-id="courseId"
-      :initial-question-node-ids="practiceNodeIds"
-      :initial-question-scope-label="practiceScopeLabel"
+      surface="teacher"
     />
     <CourseGenerationDialog
       v-model="generationDialogOpen"
@@ -85,6 +83,7 @@
         :quote-text="agentContextText"
         :quote-node-id="selectedContext.lessonId"
         :entrypoint="selectedContext.nodeId ? 'selection' : 'global'"
+        :scope-files="teacherAssistantFiles"
         @close="agentOpen = false"
         @block-applied="loadWorkspace"
         @course-applied="loadWorkspace"
@@ -120,9 +119,7 @@ const loadError = ref('')
 const outlineOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
-const selectedPracticeLessonId = ref('')
 const workbenchOpen = ref(false)
-const workbenchSection = ref<'tasks' | 'question-bank'>('tasks')
 const agentOpen = ref(false)
 const generationDialogOpen = ref(false)
 const generationStarting = ref(false)
@@ -145,50 +142,22 @@ const selectedLessonPlan = computed(() => selectedLesson.value?.plan?.revisions.
 const selectedLessonTitle = computed(() => selectedLesson.value
   ? t('courseFiles.lessonDrawerTitle').replace('{title}', selectedLesson.value.title)
   : t('courseFiles.lessonPlan'))
-const selectedPracticeLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedPracticeLessonId.value))
-const practiceNodeIds = computed(() => {
-  const lesson = selectedPracticeLesson.value
-  const lessonId = lesson?.lesson_unit_id || selectedPracticeLessonId.value
-  if (!lessonId) return []
-  const includedIds = new Set([
-    lessonId,
-    ...(lesson?.sections || []).map(section => section.section_node_id),
-  ])
-  // 旧课程可能还没有独立的教师课次投影，但课程树仍是正式内容真相。
-  // 通过课次标题找到对应一级节点，保证从旧课程文件夹进入出题时也能
-  // 把当前课次的二级小节作为既有重建接口的 node_ids 传下去。
-  if (lesson) {
-    const normalizedTitle = lesson.title.replace(/^第\s*\d+\s*[讲章节]\s*/, '').trim()
-    const matchingNode = courseStore.nodes.find(node => (
-      Number(node.node_level || 0) === 1
-      && node.node_name.replace(/^第\s*\d+\s*[讲章节]\s*/, '').trim() === normalizedTitle
-    ))
-    if (matchingNode) includedIds.add(matchingNode.node_id)
-  }
-  let expanded = true
-  while (expanded) {
-    expanded = false
-    courseStore.nodes.forEach(node => {
-      if (!includedIds.has(node.node_id) && includedIds.has(node.parent_node_id)) {
-        includedIds.add(node.node_id)
-        expanded = true
-      }
-    })
-  }
-  return courseStore.nodes
-    .filter(node => includedIds.has(node.node_id) && Number(node.node_level || 0) === 2)
-    .map(node => node.node_id)
-})
-const practiceScopeLabel = computed(() => {
-  const lesson = selectedPracticeLesson.value
-  if (lesson) return `${lesson.number}. ${lesson.title}`
-  return courseStore.nodes.find(node => node.node_id === selectedPracticeLessonId.value)?.node_name || ''
-})
 const agentContextText = computed(() => selectedContext.value.nodeId
   ? t('courseFiles.agentContext')
     .replace('{label}', selectedContext.value.label)
     .replace('{path}', selectedContext.value.path || t('courseFiles.rootName'))
   : '')
+const teacherAssistantFiles = computed(() => courseStore.nodes
+  .filter(node => Number(node.node_level || 0) === 2 && Boolean(node.node_content || node.content_blocks?.length))
+  .map(node => {
+    const parent = courseStore.nodes.find(candidate => candidate.node_id === node.parent_node_id)
+    return {
+      id: node.node_id,
+      nodeId: node.node_id,
+      label: node.node_name,
+      path: parent ? `${parent.node_name} / ${node.node_name}` : node.node_name,
+    }
+  }))
 
 async function loadWorkspace() {
   if (!courseId.value) return
@@ -217,13 +186,25 @@ function openLessonPlan(lessonId: string) {
 }
 
 function openPractice(lessonId: string) {
-  selectedPracticeLessonId.value = lessonId
-  workbenchSection.value = 'question-bank'
-  workbenchOpen.value = true
+  const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+  const normalizedTitle = lesson?.title.replace(/^第\s*\d+\s*[讲章节]\s*/, '').trim() || ''
+  const matchingNode = courseStore.nodes.find(node => node.node_id === lessonId)
+    || courseStore.nodes.find(node => (
+      Number(node.node_level || 0) === 1
+      && normalizedTitle
+      && node.node_name.replace(/^第\s*\d+\s*[讲章节]\s*/, '').trim() === normalizedTitle
+    ))
+  const targetNode = courseStore.nodes.find(node => node.parent_node_id === matchingNode?.node_id)
+    || matchingNode
+    || courseStore.nodes.find(node => Number(node.node_level || 0) === 2)
+  void router.push({
+    name: 'learning',
+    params: { courseId: courseId.value, ...(targetNode ? { nodeId: targetNode.node_id } : {}) },
+    query: { teacherPreview: '1', returnTo: route.fullPath, workspace: 'question-book' },
+  })
 }
 
 function openTasks() {
-  workbenchSection.value = 'tasks'
   workbenchOpen.value = true
 }
 

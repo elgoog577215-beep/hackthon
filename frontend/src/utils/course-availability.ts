@@ -49,12 +49,14 @@ const DEFAULT_PRACTICE_COPY = {
 }
 
 const QUESTION_BANK_REPAIR_REASONS = new Set([
+  'declared_reading_only',
   'legacy_reading_compatible',
   'required_practice_missing',
   'question_validation_failed',
   'question_source_insufficient',
   'node_assessment_not_enabled',
   'question_generation_failed',
+  'no_questions_in_scope',
 ])
 
 export function isQuestionBankRepairReason(reasonCode: string | null | undefined): boolean {

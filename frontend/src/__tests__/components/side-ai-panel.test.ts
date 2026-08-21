@@ -30,6 +30,7 @@ function mountPanel(
   blockTarget?: CourseBlockEditTarget,
   configureCourseStore?: (store: ReturnType<typeof useCourseStore>) => void,
   mode: 'learner' | 'teacher' = 'learner',
+  scopeFiles: Array<{ id: string; label: string; nodeId?: string }> = [],
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -68,6 +69,7 @@ function mountPanel(
       quoteAnchor: quoteText ? { block_id: 'block-1' } : undefined,
       blockTarget,
       prefill: blockTarget ? '把定义讲得更清楚' : undefined,
+      scopeFiles,
     },
     global: {
       plugins: [pinia],
@@ -134,6 +136,37 @@ describe('SideAIPanel', () => {
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       perspective: 'teacher',
       question: expect.stringContaining('教学设计'),
+    }))
+  })
+
+  it('教师问答默认使用全部文件，并可缩小到选定范围', async () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher', [
+      { id: 'node-1', nodeId: 'node-1', label: '向量空间' },
+      { id: 'node-2', nodeId: 'node-2', label: '线性映射' },
+    ])
+    const aiStore = useAITeacherStore()
+    vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(null)
+    const sendMessage = vi.spyOn(aiStore, 'sendMessage').mockResolvedValue(undefined)
+
+    expect(wrapper.get('[data-testid="teacher-ai-file-scope"]').text()).toContain('全部文件')
+    await wrapper.get('[data-testid="teacher-ai-file-scope"]').trigger('click')
+    await wrapper.findAll('.file-scope-picker__menu label input')[1]!.setValue(false)
+    expect(wrapper.get('[data-testid="teacher-ai-file-scope"]').text()).toContain('已选 1 个文件')
+
+    await wrapper.findAll('.quick-actions button')[0]!.trigger('click')
+    await flushPromises()
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      perspective: 'teacher',
+      contextRef: expect.objectContaining({
+        content_anchor: expect.objectContaining({
+          file_scope: {
+            mode: 'selected',
+            file_ids: ['node-1'],
+            node_ids: ['node-1'],
+            labels: ['向量空间'],
+          },
+        }),
+      }),
     }))
   })
 

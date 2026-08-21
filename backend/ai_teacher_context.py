@@ -49,6 +49,7 @@ def build_ai_teacher_context(
         node_id=effective_node_id,
         question=question,
         selection=selection,
+        perspective=perspective,
         context_ref=context_ref or {},
     )
     effective_task_ref = deepcopy(task_ref or runtime.get("active_task") or {})
@@ -163,11 +164,18 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
     ] or ["- 新会话。"]
 
     if request.get("perspective") == "teacher":
+        file_scope = ((scene.get("content_anchor") or {}).get("file_scope") or {})
+        file_scope_label = (
+            "全部文件"
+            if file_scope.get("mode") == "all"
+            else "、".join(file_scope.get("labels") or []) or "未选择文件"
+        )
         return f"""你是灵知教师端的教师智能体。你帮教师分析“怎么教”，优先服务教案与 PPT 备课，不代替教师做正式发布决定。
 
 ## 当前教师请求
 - 问题：{request.get('question')}
 - 当前课节：{scene.get('node_name') or '全课程'}
+- 文件范围：{file_scope_label}
 - 意图：{request.get('intent')}
 
 ## 课程结构与版本现场
@@ -387,44 +395,62 @@ def _select_sources(
     node_id: str,
     question: str,
     selection: str,
+    perspective: str,
     context_ref: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    node = _find_node(course.get("nodes") or [], node_id)
-    if not node:
+    nodes = course.get("nodes") or []
+    anchor = context_ref.get("content_anchor") or {}
+    file_scope = anchor.get("file_scope") if isinstance(anchor, dict) else {}
+    if perspective == "teacher" and isinstance(file_scope, dict):
+        mode = str(file_scope.get("mode") or "all")
+        selected_node_ids = {
+            str(item) for item in file_scope.get("node_ids") or [] if item
+        }
+        candidate_nodes = [
+            node for node in nodes
+            if (mode == "all" or str(node.get("node_id") or "") in selected_node_ids)
+            and (node.get("content_blocks") or [])
+        ]
+    else:
+        node = _find_node(nodes, node_id)
+        candidate_nodes = [node] if node else []
+    if not candidate_nodes:
         return []
-    blocks = node.get("content_blocks") or []
-    requested_revision = str((context_ref.get("content_anchor") or {}).get("block_revision_id") or "")
+    requested_revision = str(anchor.get("block_revision_id") or "")
     terms = _terms(f"{question} {selection}")
-    ranked: list[tuple[int, int, dict[str, Any]]] = []
-    for index, block in enumerate(blocks):
-        content = str(block.get("content") or "")
-        title = str(block.get("title") or "")
-        score = 0
-        if requested_revision and block.get("block_revision_id") == requested_revision:
-            score += 100
-        if selection and _normalize(selection) in _normalize(content):
-            score += 80
-        normalized = _normalize(f"{title} {content}")
-        score += sum(5 for term in terms if term in normalized)
-        if index == 0:
-            score += 1
-        ranked.append((score, -index, block))
+    ranked: list[tuple[int, int, dict[str, Any], dict[str, Any]]] = []
+    sequence = 0
+    for node in candidate_nodes:
+        for index, block in enumerate(node.get("content_blocks") or []):
+            content = str(block.get("content") or "")
+            title = str(block.get("title") or "")
+            score = 0
+            if requested_revision and block.get("block_revision_id") == requested_revision:
+                score += 100
+            if selection and _normalize(selection) in _normalize(content):
+                score += 80
+            normalized = _normalize(f"{node.get('node_name') or ''} {title} {content}")
+            score += sum(5 for term in terms if term in normalized)
+            if index == 0:
+                score += 1
+            ranked.append((score, -sequence, node, block))
+            sequence += 1
     ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    selected = [item[2] for item in ranked[:MAX_SOURCES] if item[0] > 0]
-    if not selected and blocks:
-        selected = list(blocks[:2])
+    selected = [(item[2], item[3]) for item in ranked[:MAX_SOURCES] if item[0] > 0]
+    if not selected:
+        selected = [(item[2], item[3]) for item in ranked[:2]]
     return [
         {
-            "source_id": str(block.get("block_revision_id") or block.get("block_id") or f"node:{node_id}"),
+            "source_id": str(block.get("block_revision_id") or block.get("block_id") or f"node:{node.get('node_id') or ''}"),
             "type": "course_block",
             "course_version_id": str(course.get("current_course_version_id") or ""),
-            "node_id": node_id,
+            "node_id": str(node.get("node_id") or ""),
             "block_id": str(block.get("block_id") or ""),
             "block_revision_id": str(block.get("block_revision_id") or ""),
             "title": str(block.get("title") or node.get("node_name") or ""),
             "content": _clip(str(block.get("content") or ""), 3500),
         }
-        for block in selected
+        for node, block in selected
     ]
 
 

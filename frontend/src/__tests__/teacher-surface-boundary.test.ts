@@ -95,11 +95,14 @@ describe('calendar and course file-space boundary', () => {
     expect(fileSpace).not.toContain('ppt || !uploadedPpts.length')
   })
 
-  it('keeps the published formal workspace focused on course, practice, and PPT', () => {
+  it('keeps practice out of the top workspace and routes it through the student question book', () => {
     const learning = source('views/LearningView.vue')
+    const dock = source('components/LearningDock.vue')
 
     expect(learning).toContain(':show-lesson-plan="isGenerationPreview"')
-    expect(learning).toContain("workspace === 'practice'")
+    expect(learning).toContain('@question-book="openQuestionBook"')
+    expect(learning).not.toContain("workspace === 'practice'")
+    expect(dock).toContain('data-domain="question-book"')
   })
 
   it('does not repeat controls with explanatory copy on the active teacher path', () => {

@@ -60,6 +60,10 @@ describe('CourseGenerationDialog', () => {
         },
         requirements: '保留完整推导，并提供独立练习',
         material_bindings: [],
+        asset_preferences: {
+          questions: false,
+          final_assessment: false,
+        },
         retrieval: { enabled: true },
         teacher_course_brief: expect.objectContaining({
           schema_version: 'teacher_course_brief_v1',
@@ -70,6 +74,25 @@ describe('CourseGenerationDialog', () => {
           additional_requirements: '保留完整推导，并提供独立练习',
         }),
       }),
+    })
+  })
+
+  it('课程默认不生成题目，但允许教师显式开启', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: { modelValue: true },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    const questionToggle = wrapper.get('[data-testid="generate-course-questions"]')
+    expect((questionToggle.element as HTMLInputElement).checked).toBe(false)
+    await questionToggle.setValue(true)
+    await wrapper.get('#course-subject').setValue('概率论')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.asset_preferences).toEqual({
+      questions: true,
+      final_assessment: true,
     })
   })
 

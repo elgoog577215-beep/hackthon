@@ -32,7 +32,7 @@ describe('LearningTaskOverlay navigation', () => {
     expect(overlay.find('.task-overlay__close').exists()).toBe(true)
   })
 
-  it('进入练习后仍在同一顶栏切换教案、课程、练习和 PPT', async () => {
+  it('题库本使用自己的简洁标题，不再复制课程顶栏', () => {
     const wrapper = mount(LearningTaskOverlay, {
       props: {
         courseId: 'course-1',
@@ -48,16 +48,7 @@ describe('LearningTaskOverlay navigation', () => {
       },
     })
 
-    const tabs = wrapper.findAll('.task-overlay > .course-workspace-tabs [role="tab"]')
-    expect(tabs.map(tab => tab.text())).toEqual(['教案', '课程', '练习', 'PPT'])
-    expect(tabs[2]!.attributes('aria-selected')).toBe('true')
-
-    await tabs[0]!.trigger('click')
-    await tabs[1]!.trigger('click')
-    await tabs[3]!.trigger('click')
-
-    expect(wrapper.emitted('lesson-plan')).toHaveLength(1)
-    expect(wrapper.emitted('course')).toHaveLength(1)
-    expect(wrapper.emitted('ppt')).toHaveLength(1)
+    expect(wrapper.find('.course-workspace-tabs').exists()).toBe(false)
+    expect(wrapper.get('.task-overlay__identity').text()).toContain('题库本')
   })
 })

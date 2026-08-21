@@ -136,12 +136,12 @@ describe('PracticeWorkspace legacy question-bank repair', () => {
         scope: 'nodes',
         node_ids: ['node-1'],
         mode: 'incremental',
-        retrieval_enabled: true,
+        retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
     expect(wrapper.text()).toContain(rebuiltQuestion.prompt)
     expect(wrapper.find('[data-testid="rebuild-question-bank"]').exists()).toBe(false)
-    expect(window.confirm).toHaveBeenCalledTimes(1)
+    expect(window.confirm).not.toHaveBeenCalled()
   })
 })

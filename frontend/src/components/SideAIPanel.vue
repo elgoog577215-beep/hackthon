@@ -17,11 +17,12 @@
           <button
             v-if="!props.blockTarget"
             type="button"
-            class="icon-button"
+            class="new-conversation-button"
             :title="t('courseWorkspace.aiTeacher.newConversation', '新建对话')"
             @click="createConversation"
           >
             <Plus :size="17" />
+            <span>{{ t('courseWorkspace.aiTeacher.newConversation', '新建对话') }}</span>
           </button>
           <button
             type="button"
@@ -88,6 +89,34 @@
             class="context-evidence"
             :title="t('courseWorkspace.aiTeacher.evidenceReady', '已加载学习证据')"
           >{{ modelEvidenceLabel }}</small>
+        </div>
+        <div v-if="isTeacherMode && props.scopeFiles.length" class="file-scope-picker">
+          <button
+            type="button"
+            class="file-scope-picker__toggle"
+            :aria-expanded="fileScopeOpen"
+            data-testid="teacher-ai-file-scope"
+            @click="fileScopeOpen = !fileScopeOpen"
+          >
+            <Files :size="14" />
+            <span>{{ t('courseWorkspace.teacherAgent.fileScope', '文件范围') }}</span>
+            <strong>{{ fileScopeLabel }}</strong>
+            <ChevronDown :size="14" />
+          </button>
+          <div v-if="fileScopeOpen" class="file-scope-picker__menu">
+            <button type="button" :class="{ active: allScopeFilesSelected }" @click="selectAllScopeFiles">
+              <Check v-if="allScopeFilesSelected" :size="13" />
+              <span>{{ t('courseWorkspace.teacherAgent.allFiles', '全部文件') }}</span>
+            </button>
+            <label v-for="file in props.scopeFiles" :key="file.id">
+              <input
+                type="checkbox"
+                :checked="selectedScopeFileIds.has(file.id)"
+                @change="toggleScopeFile(file.id)"
+              />
+              <span>{{ file.label }}</span>
+            </label>
+          </div>
         </div>
         <label v-if="!props.blockTarget && !isTeacherMode" class="retrieval-setting">
           <span>
@@ -652,6 +681,7 @@ import {
   CheckCircle2,
   ChevronDown,
   FileDiff,
+  Files,
   History,
   Layers3,
   Lightbulb,
@@ -710,8 +740,10 @@ const props = withDefaults(defineProps<{
   prefill?: string
   entrypoint?: 'global' | 'selection' | 'practice' | 'continuity' | 'record'
   blockTarget?: CourseBlockEditTarget
+  scopeFiles?: Array<{ id: string; label: string; nodeId?: string; path?: string }>
 }>(), {
   mode: 'learner',
+  scopeFiles: () => [],
 })
 
 const emit = defineEmits<{
@@ -729,6 +761,8 @@ const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
 const quoteVisible = ref(Boolean(props.quoteText))
 const conversationOpen = ref(false)
+const fileScopeOpen = ref(false)
+const selectedScopeFileIds = reactive(new Set<string>())
 const isOnline = ref(navigator.onLine)
 const messageList = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
@@ -746,6 +780,14 @@ let personalizationApplyToken = 0
 const focusedEvolutionPlanId = ref('')
 
 const isTeacherMode = computed(() => props.mode === 'teacher')
+const allScopeFilesSelected = computed(() => (
+  props.scopeFiles.length > 0
+  && props.scopeFiles.every(file => selectedScopeFileIds.has(file.id))
+))
+const fileScopeLabel = computed(() => allScopeFilesSelected.value
+  ? t('courseWorkspace.teacherAgent.allFiles', '全部文件')
+  : t('courseWorkspace.teacherAgent.selectedFiles', '已选 {count} 个文件')
+      .replace('{count}', String(selectedScopeFileIds.size)))
 const assistantTitle = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.title', '教师智能体')
   : t('courseWorkspace.aiTeacher.title', 'AI 老师'))
@@ -919,6 +961,7 @@ const quickPrompts = computed(() => isTeacherMode.value
 
 function contextRef() {
   const runtimeContext = progressStore.runtime?.context || {}
+  const selectedFiles = props.scopeFiles.filter(file => selectedScopeFileIds.has(file.id))
   return {
     course_id: courseStore.currentCourseId,
     course_version_id: courseStore.currentCourseVersionId,
@@ -926,8 +969,30 @@ function contextRef() {
     node_name: currentNode.value?.node_name || '',
     objective_id: runtimeContext.objective_id || '',
     objective_revision_id: runtimeContext.objective_revision_id || '',
-    content_anchor: props.quoteAnchor,
+    content_anchor: {
+      ...(props.quoteAnchor || {}),
+      ...(isTeacherMode.value
+        ? {
+            file_scope: {
+              mode: allScopeFilesSelected.value ? 'all' : 'selected',
+              file_ids: selectedFiles.map(file => file.id),
+              node_ids: selectedFiles.map(file => file.nodeId).filter(Boolean),
+              labels: selectedFiles.map(file => file.label),
+            },
+          }
+        : {}),
+    },
   }
+}
+
+function selectAllScopeFiles() {
+  selectedScopeFileIds.clear()
+  props.scopeFiles.forEach(file => selectedScopeFileIds.add(file.id))
+}
+
+function toggleScopeFile(fileId: string) {
+  if (selectedScopeFileIds.has(fileId)) selectedScopeFileIds.delete(fileId)
+  else selectedScopeFileIds.add(fileId)
 }
 
 async function initialize() {
@@ -1562,6 +1627,9 @@ function handleOnline() { isOnline.value = true }
 function handleOffline() { isOnline.value = false }
 
 watch(() => props.quoteText, value => { quoteVisible.value = Boolean(value) })
+watch(() => props.scopeFiles.map(file => file.id).join('|'), () => {
+  selectAllScopeFiles()
+}, { immediate: true })
 watch(() => props.prefill, value => {
   if (props.blockTarget) {
     if (!personalizationPlan.value) {
@@ -1608,6 +1676,8 @@ onUnmounted(() => {
 .ai-teacher-heading-copy { min-width: 0; display: flex; flex-direction: column; }
 .ai-teacher-heading-copy strong { color: #312e81; font-size: 14px; line-height: 1.2; }
 .ai-teacher-header-actions,.proposal-actions { display: flex; align-items: center; gap: 5px; }
+.new-conversation-button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:1px solid var(--lz-brand-border); border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:11px; font-weight:700; cursor:pointer; }
+.new-conversation-button:hover { border-color:var(--lz-brand); background:#eef2ff; }
 .icon-button { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid transparent; border-radius: 9px; color: var(--lz-text-muted); background: transparent; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .icon-button:hover:not(:disabled) { transform: translateY(-1px); border-color: #e0e7ff; color: var(--lz-brand-strong); background: #f5f3ff; }
 .icon-button.danger:hover:not(:disabled) { border-color: #fecaca; color: var(--lz-danger); background: var(--lz-danger-soft); }
@@ -1640,6 +1710,14 @@ onUnmounted(() => {
 .context-line span { color: var(--lz-text-muted); font-size: 9px; }
 .context-line strong { min-width: 0; overflow: hidden; color: var(--lz-text-secondary); font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .context-evidence { padding: 2px 5px; border-radius: 5px; color: #6d28d9; background: rgba(255,255,255,.76); font-size: 8px; font-weight: 700; white-space: nowrap; }
+.file-scope-picker { position:relative; margin-top:8px; padding-top:8px; border-top:1px solid rgba(129,140,248,.2); }
+.file-scope-picker__toggle { width:100%; min-height:32px; display:grid; grid-template-columns:15px auto minmax(0,1fr) 14px; align-items:center; gap:7px; padding:0; border:0; color:var(--lz-brand); background:transparent; text-align:left; cursor:pointer; }
+.file-scope-picker__toggle span { color:var(--lz-text-muted); font-size:9px; }
+.file-scope-picker__toggle strong { overflow:hidden; color:var(--lz-text-secondary); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
+.file-scope-picker__menu { max-height:220px; display:grid; gap:3px; overflow:auto; margin-top:6px; padding:6px; border:1px solid var(--lz-border); border-radius:9px; background:#fff; box-shadow:0 10px 24px rgba(15,23,42,.08); }
+.file-scope-picker__menu button,.file-scope-picker__menu label { min-height:32px; display:flex; align-items:center; gap:8px; padding:0 8px; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; font-size:10px; text-align:left; cursor:pointer; }
+.file-scope-picker__menu button.active,.file-scope-picker__menu label:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.file-scope-picker__menu input { accent-color:var(--lz-brand); }
 .context-quote { min-width: 0; display: grid; grid-template-columns: 14px minmax(0,1fr) 25px; align-items: start; gap: 7px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(199,210,254,.72); color: var(--lz-brand); }
 .context-quote p { max-height: 64px; margin: 0; overflow: auto; color: var(--lz-text-secondary); font-size: 10px; line-height: 1.55; }
 .context-quote button { width: 25px; height: 25px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--lz-text-muted); background: transparent; cursor: pointer; }

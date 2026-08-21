@@ -40,15 +40,15 @@
       <button
         type="button"
         class="learning-dock__domain"
-        data-domain="mistake-book"
-        :class="{ 'is-active': activeDomain === 'mistake-book' }"
-        :aria-current="activeDomain === 'mistake-book' ? 'page' : undefined"
-        :title="t('learningDock.mistakeBookHint', '查看未通过或需要继续巩固的正式练习')"
-        @click="emit('mistake-book')"
+        data-domain="question-book"
+        :class="{ 'is-active': activeDomain === 'question-book' }"
+        :aria-current="activeDomain === 'question-book' ? 'page' : undefined"
+        :title="t('learningDock.questionBookHint', '查看、生成并完成本课程题目')"
+        @click="emit('question-book')"
       >
-        <BookX :size="16" />
-        <span>{{ t('learningDock.mistakeBook', '错题本') }}</span>
-        <b v-if="mistakeCount" class="learning-dock__count is-error">{{ mistakeCount }}</b>
+        <BookOpenCheck :size="16" />
+        <span>{{ t('learningDock.questionBook', '题库本') }}</span>
+        <b v-if="questionCount" class="learning-dock__count">{{ questionCount }}</b>
       </button>
       <button
         type="button"
@@ -94,7 +94,7 @@
 <script setup lang="ts">
 import {
   ArrowRight,
-  BookX,
+  BookOpenCheck,
   ChartNoAxesCombined,
   Library,
   LoaderCircle,
@@ -106,23 +106,23 @@ import { t } from '../shared/i18n'
 
 withDefaults(defineProps<{
   location: string
-  activeDomain?: 'course' | 'notebook' | 'mistake-book' | 'overview' | 'knowledge-library' | 'assistant'
+  activeDomain?: 'course' | 'notebook' | 'question-book' | 'overview' | 'knowledge-library' | 'assistant'
   noteCount?: number
-  mistakeCount?: number
+  questionCount?: number
   resumeActionLabel?: string
   resumeActionAvailable?: boolean
   resumeActionBusy?: boolean
 }>(), {
   activeDomain: 'course',
   noteCount: 0,
-  mistakeCount: 0,
+  questionCount: 0,
   resumeActionLabel: '',
   resumeActionAvailable: true,
   resumeActionBusy: false,
 })
 
 const emit = defineEmits<{
-  (event: 'notebook' | 'mistake-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume'): void
+  (event: 'notebook' | 'question-book' | 'stats' | 'knowledge-library' | 'ai' | 'resume'): void
 }>()
 </script>
 

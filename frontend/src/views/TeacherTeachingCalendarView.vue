@@ -158,7 +158,7 @@
       :busy="creating"
       @create="createCourseSpace"
     />
-    <CourseWorkbench v-model="workbenchOpen" initial-section="tasks" :course-id="workbenchCourseId" />
+    <CourseWorkbench v-model="workbenchOpen" :course-id="workbenchCourseId" surface="teacher" />
   </section>
 </template>
 

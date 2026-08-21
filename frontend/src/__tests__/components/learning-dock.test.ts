@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest'
 import LearningDock from '@/components/LearningDock.vue'
 
 describe('LearningDock', () => {
-  it('按三月份结构恢复笔记本与错题本，并保留概况、知识库和助教独立入口', () => {
+  it('底栏以题库本统一承载出题、练习与巩固，并保留其他独立入口', () => {
     const wrapper = mount(LearningDock, {
       props: {
         location: '第一章 · 当前目标',
         activeDomain: 'course',
         noteCount: 3,
-        mistakeCount: 2,
+        questionCount: 2,
       },
     })
 
@@ -18,7 +18,7 @@ describe('LearningDock', () => {
     expect(domainButtons).toHaveLength(5)
     expect(domainButtons.map(button => button.text())).toEqual([
       '笔记本3',
-      '错题本2',
+      '题库本2',
       '学习概况',
       '知识库',
       '智能助教',
@@ -33,13 +33,13 @@ describe('LearningDock', () => {
     })
 
     await wrapper.get('[data-domain="notebook"]').trigger('click')
-    await wrapper.get('[data-domain="mistake-book"]').trigger('click')
+    await wrapper.get('[data-domain="question-book"]').trigger('click')
     await wrapper.get('[data-domain="overview"]').trigger('click')
     await wrapper.get('[data-domain="knowledge-library"]').trigger('click')
     await wrapper.get('[data-domain="assistant"]').trigger('click')
 
     expect(wrapper.emitted('notebook')).toHaveLength(1)
-    expect(wrapper.emitted('mistake-book')).toHaveLength(1)
+    expect(wrapper.emitted('question-book')).toHaveLength(1)
     expect(wrapper.emitted('stats')).toHaveLength(1)
     expect(wrapper.emitted('knowledge-library')).toHaveLength(1)
     expect(wrapper.emitted('ai')).toHaveLength(1)
@@ -49,12 +49,12 @@ describe('LearningDock', () => {
     const wrapper = mount(LearningDock, {
       props: {
         location: '第一章 · 当前目标',
-        activeDomain: 'mistake-book',
+        activeDomain: 'question-book',
       },
     })
 
-    expect(wrapper.get('[data-domain="mistake-book"]').classes()).toContain('is-active')
-    expect(wrapper.get('[data-domain="mistake-book"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-domain="question-book"]').classes()).toContain('is-active')
+    expect(wrapper.get('[data-domain="question-book"]').attributes('aria-current')).toBe('page')
     expect(wrapper.get('[data-domain="notebook"]').classes()).not.toContain('is-active')
   })
 

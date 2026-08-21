@@ -221,16 +221,6 @@
             >
               <button
                 type="button"
-                class="course-menu__item"
-                role="menuitem"
-                :data-testid="`open-question-bank-review-${course.course_id}`"
-                @click="openQuestionBankReview(course.course_id)"
-              >
-                <ShieldCheck :size="15" />
-                <span>{{ t('questionBank.reviewEntry', '题库管理') }}</span>
-              </button>
-              <button
-                type="button"
                 class="course-menu__item course-menu__item--danger"
                 role="menuitem"
                 :data-testid="`delete-course-${course.course_id}`"
@@ -321,7 +311,6 @@
     />
     <CourseWorkbench
       v-model="workbenchOpen"
-      :initial-section="workbenchSection"
       :course-id="selectedWorkbenchCourseId"
     />
   </section>
@@ -331,7 +320,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, History, LayoutDashboard, LoaderCircle, Plus, Search, ShieldCheck, Trash2, Upload } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, History, LayoutDashboard, LoaderCircle, Plus, Search, Trash2, Upload } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
@@ -360,7 +349,6 @@ const createMenuOpen = ref(false)
 const openCourseMenuId = ref('')
 const createDialogOpen = ref(false)
 const workbenchOpen = ref(false)
-const workbenchSection = ref<'tasks' | 'question-bank'>('tasks')
 const selectedWorkbenchCourseId = ref('')
 const creating = ref(false)
 
@@ -557,14 +545,6 @@ function openGeneratingCourse(courseId: string) {
 function openTaskCenter(courseId = '') {
   closeCourseMenu()
   selectedWorkbenchCourseId.value = courseId
-  workbenchSection.value = 'tasks'
-  workbenchOpen.value = true
-}
-
-function openQuestionBankReview(courseId: string) {
-  closeCourseMenu()
-  selectedWorkbenchCourseId.value = courseId
-  workbenchSection.value = 'question-bank'
   workbenchOpen.value = true
 }
 
