@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import CourseWorkspaceTabs from '@/components/CourseWorkspaceTabs.vue'
 
 describe('CourseWorkspaceTabs', () => {
-  it('顶栏只保留教案、课程与 PPT，练习归入底栏题库本', async () => {
+  it('教师资源工作区保留教案、课程与 PPT，练习归入学生题库本', async () => {
     const wrapper = mount(CourseWorkspaceTabs, {
       props: {
         activeItem: 'course',

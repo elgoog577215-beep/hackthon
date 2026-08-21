@@ -95,11 +95,16 @@ describe('calendar and course file-space boundary', () => {
     expect(fileSpace).not.toContain('ppt || !uploadedPpts.length')
   })
 
-  it('keeps practice out of the top workspace and routes it through the student question book', () => {
+  it('keeps teacher authoring assets out of the student page and routes practice through the question book', () => {
     const learning = source('views/LearningView.vue')
     const dock = source('components/LearningDock.vue')
 
-    expect(learning).toContain(':show-lesson-plan="isGenerationPreview"')
+    expect(learning).not.toContain('<CourseWorkspaceTabs')
+    expect(learning).not.toContain('<CourseOutlineReview')
+    expect(learning).not.toContain('<GenerationLessonPlan')
+    expect(learning).not.toContain('<TeachingRepresentationsOverlay')
+    expect(learning).not.toContain('<CourseProductionStage')
+    expect(learning).not.toContain('<CourseGenerationGate')
     expect(learning).toContain('@question-book="openQuestionBook"')
     expect(learning).not.toContain("workspace === 'practice'")
     expect(dock).toContain('data-domain="question-book"')

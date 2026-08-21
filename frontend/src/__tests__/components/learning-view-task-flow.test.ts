@@ -547,7 +547,7 @@ describe('LearningView 正文任务覆盖层', () => {
     wrapper.unmount()
   })
 
-  it('生成现场稳定保持用户选定工作区，后台阶段不会抢走当前视图', async () => {
+  it('生成预览仍只展示课程正文，不挂载教师备课资产', async () => {
     const course = useCourseStore()
     course.currentCourseProjection = 'generation_preview'
     course.currentTeachingPlan = {
@@ -578,7 +578,6 @@ describe('LearningView 正文任务覆盖层', () => {
           LearningStats: true,
           NotesPanel: true,
           SideAIPanel: true,
-          TeachingRepresentationsOverlay: true,
           Teleport: true,
           Transition: false,
         },
@@ -586,33 +585,18 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]').map(button => button.text())).toEqual(['教案', '课程', 'PPT'])
-    expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.get('[data-workspace-item="lesson-plan"]').classes()).toContain('is-building')
-    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('title')).toContain('后台')
-    expect(wrapper.find('[data-workspace-item="practice"]').exists()).toBe(false)
-    expect(wrapper.get('[data-workspace-item="ppt"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-workspace-item]').exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(false)
-    expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(true)
-
-    generation.tasks.get('c1')!.currentPhase = 'content_generation'
-    await flushPromises()
-    expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
-
-    await wrapper.get('[data-workspace-item="lesson-plan"]').trigger('click')
-    expect(wrapper.findComponent({ name: 'GenerationLessonPlan' }).exists()).toBe(true)
-    generation.tasks.get('c1')!.currentPhase = 'course_teaching_plan'
-    await flushPromises()
-    generation.tasks.get('c1')!.currentPhase = 'content_generation'
-    await flushPromises()
-    expect(wrapper.get('[data-workspace-item="lesson-plan"]').attributes('aria-selected')).toBe('true')
-
-    await wrapper.get('.context-actions button').trigger('click')
-    expect(wrapper.get('[data-workspace-item="course"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.findComponent({ name: 'CourseOutlineReview' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'CourseProductionStage' }).exists()).toBe(false)
+    expect(wrapper.find('#content-scroll-container').exists()).toBe(true)
+    expect(wrapper.get('.context-copy').text()).toContain('向量空间')
+    expect(wrapper.get('.context-copy').text()).not.toContain('课程生产')
     wrapper.unmount()
   })
 
-  it('生成中断时在当前课程现场解释恢复边界并直接继续原任务', async () => {
+  it('生成中断也不会把教师恢复工作台暴露到学生页', async () => {
     const course = useCourseStore()
     course.currentCourseProjection = 'generation_preview'
     course.nodes = []
@@ -645,10 +629,6 @@ describe('LearningView 正文任务覆盖层', () => {
         draft_node_ids: [], failed_node_ids: [], interrupted_node_ids: [], requirements_ready: true,
       },
     }
-    const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
-    vi.spyOn(course, 'refreshCourseData').mockResolvedValue(undefined)
-
     const wrapper = mount(LearningView, {
       attachTo: document.body,
       global: {
@@ -661,7 +641,6 @@ describe('LearningView 正文任务覆盖层', () => {
           LearningStats: true,
           NotesPanel: true,
           SideAIPanel: true,
-          TeachingRepresentationsOverlay: true,
           Teleport: true,
           Transition: false,
         },
@@ -669,13 +648,12 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('课程生产暂时中断')
     expect(wrapper.find('course-navigator-stub').exists()).toBe(false)
     expect(wrapper.find('.context-leading button').exists()).toBe(false)
     expect(wrapper.find('[data-workspace-item]').exists()).toBe(false)
-    await wrapper.get('.formation-recovery > button').trigger('click')
-    await flushPromises()
-    expect(resume).toHaveBeenCalledWith('c1', 'job-interrupted')
+    expect(wrapper.find('.formation-recovery').exists()).toBe(false)
+    expect(wrapper.find('.generation-gate').exists()).toBe(false)
+    expect(wrapper.find('#content-scroll-container').exists()).toBe(true)
     wrapper.unmount()
   })
 
