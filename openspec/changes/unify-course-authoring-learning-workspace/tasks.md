@@ -34,3 +34,4 @@
 - [x] 5.2 Run relevant backend tests, frontend tests/build, `openspec validate --all` and the frontend design detector.
 - [x] 5.3 Verify zh/en and desktop/mobile real pages for calendar, file navigation, teacher agent and formal preview.
 - [x] 5.4 Update canonical product/status docs, commit only task files and push the branch.
+- [x] 5.5 Remove repeated helper copy and decorative hierarchy from the teacher home, course header, course-creation dialog, outline-generation dialog and task workbench; keep supporting text at 12px or above.

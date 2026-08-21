@@ -1757,6 +1757,7 @@
       "title": "AI 智能课程生成",
       "subtitle": "基于 AI 构建个性化课程结构",
       "eyebrow": "创建学习课程",
+      "createOutline": "生成课程大纲",
       "topicHelp": "写清楚学习对象；难度、结构和资料边界在下方单独控制。"
     },
     "teacherBrief": {
@@ -3770,7 +3771,7 @@
     "term": "学期",
     "spring": "春季",
     "autumn": "秋季",
-    "rule": "创建后不会自动生成整门课程；大纲、教案和 PPT 由你在文件空间中按需创建。",
+    "rule": "只创建课程空间，内容进入后按需生成。",
     "submit": "创建课程空间"
   },
   "courseFiles": {

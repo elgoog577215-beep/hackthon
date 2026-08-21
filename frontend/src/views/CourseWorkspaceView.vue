@@ -218,18 +218,18 @@ onMounted(loadWorkspace)
 </script>
 
 <style scoped>
-.course-workspace-page { height:100%; min-height:0; display:grid; grid-template-rows:50px minmax(0,1fr); overflow:hidden; color:var(--lz-text-strong); }
-.workspace-local-header { display:flex; align-items:center; gap:14px; padding:0 14px; border-bottom:1px solid var(--lz-border); background:#fff; }
-.back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:12px; font-weight:700; cursor:pointer; }
+.course-workspace-page { height:100%; min-height:0; display:grid; grid-template-rows:58px minmax(0,1fr); overflow:hidden; color:var(--lz-text-strong); }
+.workspace-local-header { display:flex; align-items:center; gap:16px; padding:0 16px; border-bottom:1px solid var(--lz-border); background:#fff; }
+.back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:13px; font-weight:700; cursor:pointer; }
 .workspace-title { min-width:0; display:flex; align-items:center; gap:8px; }
 .workspace-title>svg { flex:none; color:#64748b; }
-.workspace-title strong { overflow:hidden; color:var(--lz-text-strong); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.workspace-title strong { overflow:hidden; color:var(--lz-text-strong); font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
 .workspace-route-actions { display:flex; align-items:center; gap:8px; }
-.workspace-route-actions button { min-height:34px; padding:0 9px; border:1px solid var(--lz-border); border-radius:9px; background:#fff; white-space:nowrap; }
+.workspace-route-actions button { min-height:38px; padding:0 11px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; white-space:nowrap; }
 .workspace-route-actions .agent-action { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
-.workspace-route-actions .task-action { width:34px; padding:0; }
-.workspace-state { padding:5px 8px; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:11px; font-weight:700; }
+.workspace-route-actions .task-action { width:38px; padding:0; }
+.workspace-state { padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; }
 .workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }
 .workspace-state[data-state="working"] { background:#eef2ff; color:#4f46e5; }
 .workspace-state[data-state="attention"] { background:#fff7ed; color:#c2410c; }
@@ -242,12 +242,12 @@ onMounted(loadWorkspace)
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:720px) {
-  .course-workspace-page { grid-template-rows:46px minmax(0,1fr); }
+  .course-workspace-page { grid-template-rows:52px minmax(0,1fr); }
   .workspace-local-header { padding:0 10px; gap:10px; }
   .back-button span { display:none; }
   .workspace-title small { display:none; }
   .workspace-route-actions { gap:5px; }
-  .workspace-route-actions button { padding:0 7px; font-size:11px; }
+  .workspace-route-actions button { padding:0 8px; font-size:12px; }
   .workspace-route-actions .task-action { display:none; }
   .teacher-agent-host { position:static; width:0; height:0; }
 }

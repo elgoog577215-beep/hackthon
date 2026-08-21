@@ -1757,6 +1757,7 @@
       "title": "AI course generation",
       "subtitle": "Build a personalized course structure with AI",
       "eyebrow": "Create a learning course",
+      "createOutline": "Generate course outline",
       "topicHelp": "Describe the learning topic here; control difficulty, structure, and source boundaries below."
     },
     "teacherBrief": {
@@ -3727,7 +3728,7 @@
     "term": "Term",
     "spring": "Spring",
     "autumn": "Autumn",
-    "rule": "Creating the space does not generate the whole course. Add the outline, lesson plans, and PPTs when you need them in the file space.",
+    "rule": "Creates the course space only. Generate content when needed.",
     "submit": "Create course space"
   },
   "courseFiles": {
