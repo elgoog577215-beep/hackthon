@@ -3853,6 +3853,7 @@
     "officeSavedHelp": "Office 文件请下载后用本机应用打开；PDF、图片和文本支持页内预览。",
     "states": { "ready": "课程已就绪", "working": "生成进行中", "attention": "需要处理", "draft": "准备中" },
     "columns": { "name": "名称", "type": "类型", "status": "状态", "updated": "修改时间", "size": "大小" },
+    "sortBy": "按{name}排序",
     "types": {
       "root": "课程文件", "reference": "参考资料", "outline": "大纲", "lesson": "课次", "lessonPlan": "教案",
       "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "folder": "文件夹", "file": "文件"
@@ -3872,6 +3873,11 @@
       "uploadedOrigin": "老师上传的旧课件"
     },
     "meta": { "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
+    "inspector": {
+      "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "pendingCount": "{count} 项待处理",
+      "sources": { "courseStructure": "课程结构", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程正文 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
+      "uses": { "outline": "教案、正文、PPT、练习", "lessonPlan": "正文、PPT、练习", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
+    },
     "relationship": {
       "outline": "大纲是课程结构来源；调整后会提示教案、资料、PPT 和练习检查更新。",
       "lessonPlan": "教案依据大纲与参考资料形成，并作为本讲资料、PPT 和练习的主要来源。",
