@@ -4,6 +4,7 @@
 # =============================================================================
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
 import sys
 import os
 
@@ -144,6 +145,20 @@ async def clear_failed_tasks(
 ):
     removed_count = await tm.clear_failed_tasks()
     return {"status": "success", "removed": removed_count}
+
+
+@router.delete("/tasks")
+async def clear_task_records(
+    scope: Literal["invalid", "completed"],
+    course_id: str | None = None,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    task_ids = await tm.clear_task_records(scope, course_id=course_id)
+    return {
+        "status": "success",
+        "removed": len(task_ids),
+        "task_ids": task_ids,
+    }
 
 
 @router.delete("/tasks/{task_id}")

@@ -835,6 +835,26 @@ export const useGenerationStore = defineStore('generation', {
       }
     },
 
+    async clearTaskRecords(scope: 'invalid' | 'completed', courseId = '') {
+      const params: Record<string, string> = { scope }
+      if (courseId) params.course_id = courseId
+      const response = await http.delete('/api/tasks', { params })
+      const taskIds = new Set<string>(
+        Array.isArray(response.data?.task_ids)
+          ? response.data.task_ids.map((taskId: unknown) => String(taskId || '')).filter(Boolean)
+          : [],
+      )
+      if (taskIds.size) {
+        this.globalTasks = this.globalTasks.filter(task => !taskIds.has(String(task?.id || '')))
+        for (const [localCourseId, task] of Array.from(this.tasks.entries())) {
+          if (taskIds.has(task.id)) this.dropLocalTaskState(localCourseId, task.id)
+        }
+        this.persistGenerationState()
+      }
+      await this._courseStore().fetchCourseList({ surface: 'teacher' })
+      return Number(response.data?.removed || taskIds.size)
+    },
+
     persistGenerationState() {
       try {
         const tasks = Array.from(this.tasks.values()).map(task => ({

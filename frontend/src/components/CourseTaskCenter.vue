@@ -8,6 +8,7 @@
         :class="{
           'task-center--embedded': embedded,
           'task-center--empty': !tasks.length,
+          'task-center--has-toolbar': tasks.length,
         }"
         :role="embedded ? 'region' : 'dialog'"
         :aria-modal="embedded ? undefined : true"
@@ -18,12 +19,35 @@
         <header v-if="!embedded" class="task-center__header">
           <h2 :id="titleId">{{ t('courseTasks.title', '课程任务中心') }}</h2>
           <div class="task-center__header-actions">
-            <button type="button" class="icon-button" :title="t('courseTasks.refresh', '刷新任务')" :disabled="refreshing" @click="refresh">
-              <RefreshCw :size="17" :class="{ spin: refreshing }" />
-            </button>
             <button type="button" class="icon-button" :title="t('common.cancel', '取消')" @click="close"><X :size="18" /></button>
           </div>
         </header>
+
+        <div v-if="tasks.length" class="task-center-toolbar">
+          <nav class="task-filters" :aria-label="t('courseTasks.listLabel', '课程任务列表')">
+            <button
+              v-for="filter in taskFilters"
+              :key="filter.value"
+              type="button"
+              :class="{ active: taskFilter === filter.value }"
+              :aria-pressed="taskFilter === filter.value"
+              @click="taskFilter = filter.value"
+            >
+              {{ filter.label }} <span>{{ filter.count }}</span>
+            </button>
+          </nav>
+          <div class="task-center-toolbar__actions">
+            <button v-if="invalidTaskCount" type="button" class="toolbar-action toolbar-action--danger" :disabled="acting" @click="clearTaskRecords('invalid')">
+              <CircleX :size="15" />{{ t('courseTasks.clearInvalid', '删除失效') }}
+            </button>
+            <button v-if="completedTaskCount" type="button" class="toolbar-action" :disabled="acting" @click="clearTaskRecords('completed')">
+              <Trash2 :size="15" />{{ t('courseTasks.clearCompleted', '清空记录') }}
+            </button>
+            <button type="button" class="icon-button" :title="t('courseTasks.refresh', '刷新任务')" :disabled="refreshing || acting" @click="refresh">
+              <RefreshCw :size="17" :class="{ spin: refreshing }" />
+            </button>
+          </div>
+        </div>
 
         <div class="task-center__body" :class="{ 'task-center__body--empty': !tasks.length }">
           <main v-if="!tasks.length" class="task-center-empty">
@@ -32,24 +56,39 @@
 
           <template v-else>
           <aside class="task-list" :aria-label="t('courseTasks.listLabel', '课程任务列表')">
-            <button
-              v-for="task in tasks"
+            <div
+              v-for="task in filteredTasks"
               :key="task.id"
-              type="button"
-              class="task-row"
+              class="task-row-wrap"
               :class="{ active: selectedTaskId === task.id }"
-              @click="selectTask(task.id)"
             >
-              <span class="task-row__state" :data-status="task.status"><component :is="statusIcon(task.status)" :size="15" /></span>
-              <span class="task-row__copy">
-                <strong>{{ task.courseName }}</strong>
-                <small>
-                  {{ statusLabel(task.status, task.recovery, task.taskType) }} · {{ taskDisplayProgress(task) }}%
-                  <template v-if="task.updatedAt"> · {{ formatTaskTime(task.updatedAt) }}</template>
-                </small>
-              </span>
-              <ChevronRight :size="15" />
-            </button>
+              <button
+                type="button"
+                class="task-row"
+                :class="{ active: selectedTaskId === task.id }"
+                @click="selectTask(task.id)"
+              >
+                <span class="task-row__state" :data-status="task.status"><component :is="statusIcon(task.status)" :size="15" /></span>
+                <span class="task-row__copy">
+                  <strong>{{ task.courseName }}</strong>
+                  <small>
+                    {{ statusLabel(task.status, task.recovery, task.taskType) }} · {{ taskDisplayProgress(task) }}%
+                    <template v-if="task.updatedAt"> · {{ formatTaskTime(task.updatedAt) }}</template>
+                  </small>
+                </span>
+              </button>
+              <button
+                type="button"
+                class="task-row__delete"
+                :title="taskDeleteLabel(task)"
+                :aria-label="`${taskDeleteLabel(task)}：${task.courseName}`"
+                :disabled="acting"
+                @click.stop="deleteTask(task)"
+              >
+                <Trash2 :size="15" />
+              </button>
+            </div>
+            <div v-if="!filteredTasks.length" class="task-list-empty">{{ t('courseTasks.noFilteredTasks', '当前分类暂无任务') }}</div>
           </aside>
 
           <main v-if="selectedTask" class="task-detail">
@@ -392,8 +431,7 @@
           </main>
 
           <main v-else class="task-detail task-detail--empty">
-            <ListChecks :size="28" />
-            <p>{{ t('courseTasks.select', '选择一个任务查看处理详情。') }}</p>
+            <strong>{{ t('courseTasks.noFilteredTasks', '当前分类暂无任务') }}</strong>
           </main>
           </template>
         </div>
@@ -407,8 +445,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  BookOpenText, ChevronRight, CircleCheck, CircleDashed, CirclePause, CircleX,
-  Clock3, ListChecks, LoaderCircle, Pause, RefreshCw, RotateCw,
+  BookOpenText, CircleCheck, CircleDashed, CirclePause, CircleX,
+  Clock3, LoaderCircle, Pause, RefreshCw, RotateCw,
   Trash2, TriangleAlert, X,
 } from 'lucide-vue-next'
 import { useCourseStore } from '@/stores/course'
@@ -435,6 +473,7 @@ import {
 } from '@/utils/task-observability'
 
 type TaskView = Task
+type TaskFilter = 'all' | 'active' | 'invalid' | 'completed'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -456,6 +495,7 @@ const titleId = `course-task-center-${Math.random().toString(36).slice(2)}`
 const qualityBlockersId = `${titleId}-quality-blockers`
 const panelRef = ref<HTMLElement | null>(null)
 const selectedTaskId = ref('')
+const taskFilter = ref<TaskFilter>('all')
 const refreshing = ref(false)
 const acting = ref(false)
 const blueprintDraft = ref<any>(null)
@@ -508,7 +548,19 @@ const tasks = computed<TaskView[]>(() => {
     return priority(a) - priority(b) || String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''))
   })
 })
-const selectedTask = computed(() => tasks.value.find(task => task.id === selectedTaskId.value) || null)
+const activeTaskCount = computed(() => tasks.value.filter(task => taskCategory(task) === 'active').length)
+const invalidTaskCount = computed(() => tasks.value.filter(task => taskCategory(task) === 'invalid').length)
+const completedTaskCount = computed(() => tasks.value.filter(task => taskCategory(task) === 'completed').length)
+const taskFilters = computed(() => [
+  { value: 'all' as const, label: t('courseTasks.filterAll', '全部'), count: tasks.value.length },
+  { value: 'active' as const, label: t('courseTasks.filterActive', '进行中'), count: activeTaskCount.value },
+  { value: 'invalid' as const, label: t('courseTasks.filterInvalid', '失效'), count: invalidTaskCount.value },
+  { value: 'completed' as const, label: t('courseTasks.filterCompleted', '已完成'), count: completedTaskCount.value },
+])
+const filteredTasks = computed(() => taskFilter.value === 'all'
+  ? tasks.value
+  : tasks.value.filter(task => taskCategory(task) === taskFilter.value))
+const selectedTask = computed(() => filteredTasks.value.find(task => task.id === selectedTaskId.value) || null)
 const selectedDisplayProgress = computed(() => selectedTask.value ? taskDisplayProgress(selectedTask.value) : 0)
 const selectedObservableStages = computed(() => selectedTask.value ? observableTaskStages(selectedTask.value) : [])
 const selectedHeartbeat = computed(() => selectedTask.value
@@ -701,6 +753,11 @@ watch(() => props.modelValue, async open => {
 watch(() => props.courseId, value => {
   if (value) selectedTaskId.value = preferredTaskId(value)
 })
+watch(filteredTasks, visibleTasks => {
+  if (!visibleTasks.some(task => task.id === selectedTaskId.value)) {
+    selectedTaskId.value = visibleTasks[0]?.id || ''
+  }
+})
 watch(selectedTaskId, () => { void loadSelectedReview() })
 watch(
   () => [
@@ -715,7 +772,7 @@ watch(
 onMounted(() => generationStore.startGlobalMonitor())
 
 function normalizeStatus(status: string): Task['status'] {
-  if (status === 'failed') return 'error'
+  if (status === 'failed' || status === 'cancelled') return 'error'
   if (['idle', 'running', 'paused', 'completed', 'error', 'pending', 'waiting_for_review', 'completed_with_warnings', 'conflict'].includes(status)) return status as Task['status']
   return 'pending'
 }
@@ -750,7 +807,7 @@ function handleDialogKeydown(event: KeyboardEvent) {
   }
 }
 function preferredTaskId(courseId?: string) {
-  return tasks.value.find(task => task.courseId === courseId)?.id || tasks.value[0]?.id || ''
+  return filteredTasks.value.find(task => task.courseId === courseId)?.id || filteredTasks.value[0]?.id || ''
 }
 function selectTask(taskId: string) { selectedTaskId.value = taskId }
 async function refresh() {
@@ -847,7 +904,9 @@ async function reopenWorkflowStep(step: any) {
 }
 async function deleteSelected() {
   if (!selectedTask.value) return
-  const task = selectedTask.value
+  await deleteTask(selectedTask.value)
+}
+async function deleteTask(task: TaskView) {
   const preservesCourse = deletePreservesCourse(task)
   const active = ['pending', 'running', 'paused', 'waiting_for_review'].includes(task.status)
   const title = taskDeleteLabel(task)
@@ -862,16 +921,61 @@ async function deleteSelected() {
       title,
       { type: 'warning', confirmButtonText: title, cancelButtonText: t('common.cancel', '取消') },
     )
-    await runAction(() => generationStore.deleteTask(task.courseId, task.id))
-    selectedTaskId.value = tasks.value[0]?.id || ''
+    const deleted = await runAction(() => generationStore.deleteTask(task.courseId, task.id))
+    if (deleted) {
+      selectedTaskId.value = filteredTasks.value[0]?.id || ''
+      ElMessage.success(t('courseTasks.deleteDone', '任务已删除'))
+    }
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
   }
 }
+async function clearTaskRecords(scope: 'invalid' | 'completed') {
+  const count = scope === 'invalid' ? invalidTaskCount.value : completedTaskCount.value
+  if (!count) return
+  const title = scope === 'invalid'
+    ? t('courseTasks.clearInvalid', '删除失效')
+    : t('courseTasks.clearCompleted', '清空记录')
+  const message = (scope === 'invalid'
+    ? t('courseTasks.clearInvalidConfirm', '删除 {count} 个失效任务？')
+    : t('courseTasks.clearCompletedConfirm', '清空 {count} 条已完成任务记录？'))
+    .replace('{count}', String(count))
+  try {
+    await ElMessageBox.confirm(
+      message,
+      title,
+      { type: 'warning', confirmButtonText: title, cancelButtonText: t('common.cancel', '取消') },
+    )
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
+    return
+  }
+
+  acting.value = true
+  try {
+    const removed = await generationStore.clearTaskRecords(scope, props.courseId)
+    await refresh()
+    selectedTaskId.value = filteredTasks.value[0]?.id || ''
+    const done = scope === 'invalid'
+      ? t('courseTasks.clearInvalidDone', '已删除 {count} 个失效任务')
+      : t('courseTasks.clearCompletedDone', '已清空 {count} 条任务记录')
+    ElMessage.success(done.replace('{count}', String(removed)))
+  } catch {
+    ElMessage.error(t('courseTasks.clearFailed', '批量清理失败'))
+  } finally {
+    acting.value = false
+  }
+}
 async function runAction(action: () => Promise<unknown>) {
   acting.value = true
-  try { await action(); await refresh() }
-  catch { ElMessage.error(t('courseTasks.actionFailed', '任务操作失败')) }
+  try {
+    await action()
+    await refresh()
+    return true
+  } catch {
+    ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
+    return false
+  }
   finally { acting.value = false }
 }
 function openCourse(courseId: string) { close(); void router.push({ name: 'learning', params: { courseId } }) }
@@ -899,6 +1003,14 @@ function canResume(task: TaskView) {
 }
 function deletePreservesCourse(task: TaskView) {
   return courseExists(task.courseId) && (task.status === 'completed' || isPublishedWarning(task))
+}
+function taskCategory(task: TaskView): Exclude<TaskFilter, 'all'> {
+  if (task.status === 'completed' || isPublishedWarning(task)) return 'completed'
+  if (
+    ['error', 'conflict'].includes(task.status)
+    || (task.status === 'completed_with_warnings' && !isPublishedWarning(task))
+  ) return 'invalid'
+  return 'active'
 }
 function taskDeleteLabel(task: TaskView) {
   if (deletePreservesCourse(task)) return t('courseTasks.clearRecord', '清除任务记录')
@@ -1202,24 +1314,34 @@ function formatDuration(seconds: number) {
 .task-center-layer--embedded { position:relative; inset:auto; z-index:auto; width:100%; height:100%; display:block; padding:0; }
 .task-center-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30,41,59,.34); cursor: default; }
 .task-center { position: relative; width: min(980px,100%); height: min(720px,calc(100vh - 40px)); display: grid; grid-template-rows: 64px minmax(0,1fr); overflow: hidden; border: 1px solid var(--lz-border); border-radius: 12px; color: var(--lz-text); background: #fff; box-shadow: var(--lz-shadow-overlay); outline: none; }
+.task-center--has-toolbar { grid-template-rows:64px auto minmax(0,1fr); }
 .task-center--embedded { width:100%; height:100%; grid-template-rows:minmax(0,1fr); border:0; border-radius:0; box-shadow:none; }
+.task-center--embedded.task-center--has-toolbar { grid-template-rows:auto minmax(0,1fr); }
 .task-center__header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 14px 0 20px; border-bottom:1px solid var(--lz-border); }
 .task-center__header h2 { margin:0; color:var(--lz-text-strong); font-size:18px; }
 .task-center__header-actions { display:flex; gap:4px; }
 .icon-button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .icon-button:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }
+.task-center-toolbar { min-width:0; min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:#fff; }
+.task-filters { min-width:0; display:flex; align-items:center; gap:3px; overflow-x:auto; scrollbar-width:none; }.task-filters::-webkit-scrollbar { display:none; }
+.task-filters button { flex:0 0 auto; min-height:32px; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; }
+.task-filters button span { color:var(--lz-text-muted); font-variant-numeric:tabular-nums; }.task-filters button:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }.task-filters button.active { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.task-filters button.active span { color:inherit; }
+.task-center-toolbar__actions { flex:0 0 auto; display:flex; align-items:center; gap:5px; }
+.toolbar-action { min-height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:12px; font-weight:700; cursor:pointer; }.toolbar-action:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }.toolbar-action--danger { color:var(--lz-danger); }.toolbar-action:disabled { cursor:not-allowed; opacity:.5; }
 .task-center__body { min-height:0; display:grid; grid-template-columns:260px minmax(0,1fr); }
 .task-center__body--empty { display:block; }
 .task-list { min-height:0; overflow:auto; padding:7px; border-right:1px solid var(--lz-border); background:rgba(248,250,252,.76); }
 .task-center-empty { min-height:208px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:28px; color:var(--lz-text-muted); text-align:center; }
 .task-center-empty strong { color:var(--lz-text-strong); font-size:15px; }
 .task-detail--empty { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; color:var(--lz-text-muted); text-align:center; }
-.task-row { width:100%; min-height:56px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:7px; padding:7px 8px; border:1px solid transparent; border-radius:8px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
+.task-row-wrap { position:relative; min-width:0; }.task-row { width:100%; min-height:56px; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:center; gap:7px; padding:7px 40px 7px 8px; border:1px solid transparent; border-radius:8px; color:var(--lz-text); background:transparent; text-align:left; cursor:pointer; }
 .task-row:hover { background:#fff; }.task-row.active { border-color:rgba(99,102,241,.24); background:var(--lz-brand-soft); }
+.task-row__delete { position:absolute; top:50%; right:7px; width:29px; height:29px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-muted); background:transparent; opacity:0; transform:translateY(-50%); cursor:pointer; }.task-row-wrap:hover .task-row__delete,.task-row-wrap:focus-within .task-row__delete,.task-row-wrap.active .task-row__delete { opacity:1; }.task-row__delete:hover { color:var(--lz-danger); background:var(--lz-danger-soft); }.task-row__delete:disabled { cursor:not-allowed; opacity:.35; }
 .task-row__state { width:26px; height:26px; display:grid; place-items:center; border-radius:7px; color:var(--lz-text-muted); background:#fff; }
 .task-row__state[data-status="running"],.task-row__state[data-status="waiting_for_review"] { color:var(--lz-brand-strong); }
 .task-row__state[data-status="completed"] { color:var(--lz-success); }.task-row__state[data-status="error"],.task-row__state[data-status="conflict"],.task-row__state[data-status="completed_with_warnings"] { color:var(--lz-warning); }
 .task-row__copy { min-width:0; display:block; }.task-row__copy strong,.task-row__copy small { overflow:hidden; display:block; text-overflow:ellipsis; white-space:nowrap; }.task-row__copy strong { color:var(--lz-text-strong); font-size:13px; }.task-row__copy small { margin-top:4px; color:var(--lz-text-muted); font-size:12px; }
+.task-list-empty { min-height:96px; display:grid; place-items:center; padding:16px; color:var(--lz-text-muted); font-size:12px; text-align:center; }
 .task-detail { min-height:0; display:grid; grid-template-rows:minmax(0,1fr) auto; overflow:hidden; }
 .task-detail__scroll { min-height:0; overflow:auto; padding:20px clamp(20px,3vw,34px) 16px; }
 .task-summary { padding-bottom:18px; border-bottom:1px solid var(--lz-border); }
@@ -1308,6 +1430,6 @@ function formatDuration(seconds: number) {
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--embedded { height:100%; border-radius:0; }.task-center--empty { height:auto; min-height:280px; }.task-center__body { grid-template-columns:1fr; grid-template-rows:76px minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { display:flex; gap:6px; max-height:none; overflow-x:auto; overflow-y:hidden; padding:7px 10px; border-right:0; border-bottom:1px solid var(--lz-border); scroll-snap-type:x proximity; }.task-row { width:auto; flex:0 0 min(270px,calc(100vw - 52px)); min-height:60px; scroll-snap-align:start; }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:16px 14px 12px; }.task-summary { padding-bottom:18px; }.task-summary__top { gap:12px; }.task-summary__top > strong { font-size:22px; }.task-summary h3 { margin:8px 0 4px; font-size:18px; }.task-progress { margin:14px 0 13px; }.task-summary dl { grid-template-columns:1fr 1fr; gap:9px; }.task-actions { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }.task-actions__open { margin-left:0; }.task-observability { padding:18px 0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:16px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--embedded { height:100%; border-radius:0; }.task-center--empty { height:auto; min-height:280px; }.task-center-toolbar { align-items:flex-start; flex-wrap:wrap; gap:4px 8px; padding:7px 10px; }.task-filters { width:100%; }.task-center-toolbar__actions { width:100%; }.task-center-toolbar__actions .icon-button { margin-left:auto; }.task-center__body { grid-template-columns:1fr; grid-template-rows:76px minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { display:flex; gap:6px; max-height:none; overflow-x:auto; overflow-y:hidden; padding:7px 10px; border-right:0; border-bottom:1px solid var(--lz-border); scroll-snap-type:x proximity; }.task-row-wrap { flex:0 0 min(270px,calc(100vw - 52px)); scroll-snap-align:start; }.task-row { min-height:60px; }.task-row__delete { opacity:1; }.task-list-empty { flex:0 0 100%; min-height:60px; }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:16px 14px 12px; }.task-summary { padding-bottom:18px; }.task-summary__top { gap:12px; }.task-summary__top > strong { font-size:22px; }.task-summary h3 { margin:8px 0 4px; font-size:18px; }.task-progress { margin:14px 0 13px; }.task-summary dl { grid-template-columns:1fr 1fr; gap:9px; }.task-actions { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }.task-actions__open { margin-left:0; }.task-observability { padding:18px 0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:16px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { .task-center { animation:none; }.spin { animation:none; } }
 </style>

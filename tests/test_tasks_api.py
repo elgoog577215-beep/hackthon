@@ -17,6 +17,7 @@ def task_manager(monkeypatch):
     manager.resume_task = AsyncMock()
     manager.delete_task = AsyncMock()
     manager.clear_failed_tasks = AsyncMock(return_value=0)
+    manager.clear_task_records = AsyncMock(return_value=[])
     monkeypatch.setattr(dependencies, "_task_manager", manager)
     return manager
 
@@ -71,3 +72,24 @@ async def test_clear_failed_tasks_awaits_cleanup(client, task_manager):
     assert response.status_code == 200
     assert response.json() == {"status": "success", "removed": 2}
     task_manager.clear_failed_tasks.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_clear_invalid_task_records_can_be_scoped_to_course(client, task_manager):
+    task_manager.clear_task_records.return_value = ["task-failed", "task-conflict"]
+
+    response = await client.delete(
+        "/api/tasks",
+        params={"scope": "invalid", "course_id": "course-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "success",
+        "removed": 2,
+        "task_ids": ["task-failed", "task-conflict"],
+    }
+    task_manager.clear_task_records.assert_awaited_once_with(
+        "invalid",
+        course_id="course-1",
+    )

@@ -4840,6 +4840,49 @@ class TaskManager:
                 continue
         return removed
 
+    async def clear_task_records(
+        self,
+        scope: str,
+        *,
+        course_id: str | None = None,
+    ) -> list[str]:
+        """Delete terminal task records without touching active jobs."""
+        if scope not in {"invalid", "completed"}:
+            raise ValueError(scope)
+
+        def matches(task: dict[str, Any]) -> bool:
+            if course_id and str(task.get("course_id") or "") != course_id:
+                return False
+            status = str(task.get("status") or "")
+            recovery_state = str((task.get("recovery") or {}).get("state") or "")
+            published_warning = (
+                status == "completed_with_warnings"
+                and (
+                    task.get("publication_allowed") is True
+                    or recovery_state == "completed"
+                )
+            )
+            if scope == "completed":
+                return status == "completed" or published_warning
+            return (
+                status in {"failed", "error", "conflict", "cancelled"}
+                or (status == "completed_with_warnings" and not published_warning)
+            )
+
+        task_ids = [
+            task_id
+            for task_id, task in self.tasks.items()
+            if matches(task)
+        ]
+        removed_ids: list[str] = []
+        for task_id in task_ids:
+            try:
+                await self.delete_task(task_id)
+                removed_ids.append(task_id)
+            except KeyError:
+                continue
+        return removed_ids
+
     async def delete_tasks_for_course(self, course_id: str) -> int:
         task_ids = [
             task_id for task_id, task in self.tasks.items()

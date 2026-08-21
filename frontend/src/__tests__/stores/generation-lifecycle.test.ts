@@ -454,6 +454,32 @@ describe('course generation lifecycle reconciliation', () => {
     expect(refreshList).toHaveBeenCalledTimes(1)
   })
 
+  it('批量清理后按后端返回 ID 立即移除任务', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    generation.createTask('job-failed', 'course-1', '线性代数').status = 'error'
+    generation.createTask('job-running', 'course-2', '微积分').status = 'running'
+    generation.globalTasks = [
+      { id: 'job-failed', course_id: 'course-1', status: 'failed', progress: 30 },
+      { id: 'job-running', course_id: 'course-2', status: 'running', progress: 40 },
+    ]
+    vi.spyOn(http, 'delete').mockResolvedValue({
+      data: { status: 'success', removed: 1, task_ids: ['job-failed'] },
+    })
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const removed = await generation.clearTaskRecords('invalid', 'course-1')
+
+    expect(http.delete).toHaveBeenCalledWith('/api/tasks', {
+      params: { scope: 'invalid', course_id: 'course-1' },
+    })
+    expect(removed).toBe(1)
+    expect(generation.globalTasks.map(task => task.id)).toEqual(['job-running'])
+    expect(generation.getTask('course-1')).toBeUndefined()
+    expect(generation.getTask('course-2')?.id).toBe('job-running')
+    expect(refreshList).toHaveBeenCalledWith({ surface: 'teacher' })
+  })
+
   it('发现其他标签页创建的新任务时自动补读课程列表', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
