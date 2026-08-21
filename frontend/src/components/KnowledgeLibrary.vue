@@ -11,16 +11,16 @@
           class="knowledge-tree-dialog resource-workspace-shell"
           role="dialog"
           aria-modal="true"
-          :aria-label="t('knowledgeLibrary.title', '知识库')"
+          :aria-label="t('knowledgeLibrary.title', '知识图谱')"
           tabindex="-1"
         >
           <header class="knowledge-tree-header resource-workspace-header">
             <div class="knowledge-tree-heading">
               <span class="knowledge-tree-brand" aria-hidden="true">
-                <Library :size="19" />
+                <Network :size="19" />
               </span>
               <div>
-                <h1>{{ t('knowledgeLibrary.title', '知识库') }}</h1>
+                <h1>{{ t('knowledgeLibrary.title', '知识图谱') }}</h1>
                 <p v-if="libraryView && libraryReady">
                   {{ t('knowledgeLibrary.courseCoverage', '本课覆盖') }} {{ coveredPointCount }} / {{ pointCount }}
                   <span aria-hidden="true">·</span>
@@ -59,8 +59,8 @@
             <button
               type="button"
               class="knowledge-tree-close"
-              :title="t('knowledgeLibrary.close', '关闭知识库')"
-              :aria-label="t('knowledgeLibrary.close', '关闭知识库')"
+              :title="t('knowledgeLibrary.close', '关闭知识图谱')"
+              :aria-label="t('knowledgeLibrary.close', '关闭知识图谱')"
               @click="handleClose"
             >
               <X :size="18" />
@@ -79,19 +79,9 @@
           <nav
             v-if="libraryView?.nodes.length"
             class="knowledge-library-viewbar"
-            :aria-label="t('knowledgeLibrary.viewMode', '知识库视图')"
+            :aria-label="t('knowledgeLibrary.viewMode', '知识图谱视图')"
           >
             <div data-testid="knowledge-view-mode" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                :aria-selected="viewMode === 'tree'"
-                :class="{ active: viewMode === 'tree' }"
-                @click="viewMode = 'tree'"
-              >
-                <ListTree :size="14" aria-hidden="true" />
-                {{ t('knowledgeLibrary.treeView', '知识树') }}
-              </button>
               <button
                 type="button"
                 role="tab"
@@ -100,7 +90,17 @@
                 @click="viewMode = 'graph'"
               >
                 <Network :size="14" aria-hidden="true" />
-                {{ t('knowledgeLibrary.graphView', '关系图') }}
+                {{ t('knowledgeLibrary.graphView', '知识图谱') }}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="viewMode === 'tree'"
+                :class="{ active: viewMode === 'tree' }"
+                @click="viewMode = 'tree'"
+              >
+                <ListTree :size="14" aria-hidden="true" />
+                {{ t('knowledgeLibrary.treeView', '知识路径') }}
               </button>
             </div>
             <span>{{ viewMode === 'tree'
@@ -466,7 +466,7 @@ const loading = ref(false)
 const loadError = ref('')
 const searchQuery = ref('')
 const coverageMode = ref<'course' | 'all'>('course')
-const viewMode = ref<'tree' | 'graph'>('tree')
+const viewMode = ref<'tree' | 'graph'>('graph')
 const libraryView = ref<KnowledgeLibraryView | null>(null)
 const selectedNode = ref<KnowledgeNode | null>(null)
 const expandedIds = ref<Set<string>>(new Set())
@@ -800,7 +800,7 @@ async function loadLibrary(options: { quiet?: boolean } = {}): Promise<void> {
       || null
     mobileDetailOpen.value = false
     focusRequestedKnowledge()
-    viewMode.value = 'tree'
+    viewMode.value = 'graph'
   } catch (error: any) {
     logger.error(error)
     loadError.value = errorMessage(error, t('knowledgeLibrary.loadFailed', '知识库暂时无法读取'))
@@ -921,7 +921,7 @@ watch(() => courseStore.showKnowledgeLibrary, async show => {
     document.removeEventListener('keydown', handleKeydown)
     searchQuery.value = ''
     mobileDetailOpen.value = false
-    viewMode.value = 'tree'
+    viewMode.value = 'graph'
   }
 })
 

@@ -1,10 +1,87 @@
 <template>
   <section class="question-bank-panel" aria-labelledby="question-bank-title">
-    <header class="question-bank-panel__header">
-      <div>
-        <h3 id="question-bank-title">{{ t('questionBank.title', '课程题库质量管理') }}</h3>
+    <section class="question-generation-studio" data-testid="question-generation-studio">
+      <header>
+        <div class="question-generation-studio__title">
+          <span><WandSparkles :size="18" /></span>
+          <div>
+            <small>{{ t('questionBank.studio.eyebrow', 'TEACHER PRACTICE STUDIO') }}</small>
+            <h3 id="question-bank-title">{{ t('questionBank.studio.title', 'AI 智能出题') }}</h3>
+            <p>{{ t('questionBank.studio.description', '从课程目标与正式题库生成可直接进入学生练习的题目。') }}</p>
+          </div>
+        </div>
+        <div v-if="publishedCount" class="question-generation-studio__published">
+          <CircleCheck :size="15" />
+          <span>{{ t('questionBank.studio.published', '已发布 {count} 道').replace('{count}', String(publishedCount)) }}</span>
+        </div>
+      </header>
+
+      <div class="question-generation-flow">
+        <fieldset class="question-generation-step">
+          <legend><b>1</b>{{ t('questionBank.studio.scope', '选择出题范围') }}</legend>
+          <label v-if="props.initialNodeIds.length" :class="{ active: generationScope === 'lesson' }">
+            <input v-model="generationScope" type="radio" value="lesson" />
+            <span>
+              <strong>{{ props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前课次') }}</strong>
+              <small>{{ t('questionBank.studio.sectionCount', '覆盖 {count} 个小节').replace('{count}', String(props.initialNodeIds.length)) }}</small>
+            </span>
+          </label>
+          <label :class="{ active: generationScope === 'course' }">
+            <input v-model="generationScope" type="radio" value="course" />
+            <span>
+              <strong>{{ t('questionBank.studio.wholeCourse', '整门课程') }}</strong>
+              <small>{{ t('questionBank.studio.wholeCourseHint', '覆盖全部正式测评目标') }}</small>
+            </span>
+          </label>
+        </fieldset>
+
+        <section class="question-generation-step" aria-labelledby="question-intelligence-title">
+          <h4 id="question-intelligence-title"><b>2</b>{{ t('questionBank.studio.intelligence', '智能编排') }}</h4>
+          <div class="question-intelligence-grid">
+            <article>
+              <SlidersHorizontal :size="16" />
+              <span>
+                <strong>{{ t('questionBank.studio.difficulty', '智能难度') }}</strong>
+                <small>{{ t('questionBank.studio.difficultyHint', '依据学习目标自动形成梯度') }}</small>
+              </span>
+              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
+            </article>
+            <article>
+              <Shapes :size="16" />
+              <span>
+                <strong>{{ t('questionBank.studio.questionTypes', '题型组合') }}</strong>
+                <small>{{ profileCapabilities }}</small>
+              </span>
+              <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
+            </article>
+          </div>
+        </section>
+
+        <section class="question-generation-step question-generation-options" aria-labelledby="question-source-title">
+          <h4 id="question-source-title"><b>3</b>{{ t('questionBank.studio.sources', '生成设置') }}</h4>
+          <label class="question-generation-toggle">
+            <span>
+              <strong>{{ t('questionBank.studio.retrieval', '联网补充资料') }}</strong>
+              <small>{{ t('questionBank.studio.retrievalHint', '资料不足时引用公开来源并保留证据') }}</small>
+            </span>
+            <input v-model="retrievalEnabled" type="checkbox" />
+          </label>
+          <label class="question-generation-toggle">
+            <span>
+              <strong>{{ t('questionBank.studio.keepPublished', '保留已发布题目') }}</strong>
+              <small>{{ t('questionBank.studio.keepPublishedHint', '增量补齐缺口；关闭后重新生成所选范围') }}</small>
+            </span>
+            <input v-model="keepPublished" type="checkbox" />
+          </label>
+        </section>
       </div>
-      <div class="question-bank-panel__header-action">
+
+      <footer>
+        <div class="question-generation-studio__policy">
+          <Sparkles :size="14" />
+          <span>{{ t('questionBank.studio.studentPolicy', '学生端按现有练习策略，从已发布题目中自动编排每轮题组。') }}</span>
+        </div>
+        <div class="question-bank-panel__header-action">
         <div class="question-bank-panel__header-copy">
           <small>{{ generationActionHelp }}</small>
           <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
@@ -13,7 +90,7 @@
         </div>
         <div class="question-bank-panel__header-buttons">
           <button
-            v-if="canContinueGeneration"
+            v-if="canContinueGeneration && generationScope === 'course'"
             type="button"
             data-testid="continue-course-question-bank"
             :disabled="loading || rebuilding"
@@ -25,20 +102,22 @@
               : `继续生成剩余 ${remainingChapters} 章` }}
           </button>
           <button
-            v-if="!errorMessage"
             type="button"
-            data-testid="rebuild-course-question-bank"
+            data-testid="generate-question-bank"
+            class="question-generation-primary"
             :disabled="loading || rebuilding"
-            @click="rebuild(undefined, false)"
+            @click="startGeneration"
           >
-            <RefreshCw :size="14" :class="{ spin: rebuilding }" />
+            <LoaderCircle v-if="rebuilding" :size="15" class="spin" />
+            <WandSparkles v-else :size="15" />
             {{ rebuilding
-              ? t('questionBank.regeneratingCourse', '正在重新生成课程题目')
-              : t('questionBank.regenerateCourse', '重新生成整门课程题目') }}
+              ? t('questionBank.studio.generating', '正在智能出题')
+              : t('questionBank.studio.generate', '开始智能出题') }}
           </button>
         </div>
       </div>
-    </header>
+      </footer>
+    </section>
 
     <section
       v-if="rebuildJob"
@@ -75,20 +154,20 @@
     <div v-else-if="errorMessage" class="question-bank-panel__state question-bank-panel__state--error">
       <TriangleAlert :size="18" />
       <span>{{ errorMessage }}</span>
-      <button
-        type="button"
-        data-testid="rebuild-missing-question-bank"
-        :disabled="rebuilding"
-        @click="rebuild(undefined, false)"
-      >
-        <RefreshCw :size="14" :class="{ spin: rebuilding }" />
-        {{ rebuilding
-          ? t('questionBank.regeneratingCourse', '正在重新生成课程题目')
-          : t('questionBank.rebuildMissing', '重新整理题库') }}
-      </button>
     </div>
 
     <template v-else>
+      <details class="question-quality-details">
+        <summary>
+          <span>
+            <ShieldCheck :size="15" />
+            <strong>{{ t('questionBank.studio.qualityReview', '质量与覆盖检查') }}</strong>
+          </span>
+          <small>{{ issueObjectiveRows.length
+            ? t('questionBank.studio.issues', '{count} 项待处理').replace('{count}', String(issueObjectiveRows.length))
+            : t('questionBank.objective.allCovered', '全部已覆盖') }}</small>
+        </summary>
+        <div class="question-quality-details__body">
       <div class="question-bank-summary">
         <article>
           <span>{{ t('questionBank.coverage', '必需目标覆盖') }}</span>
@@ -321,6 +400,8 @@
           {{ t('questionBank.objective.empty', '暂无测评目标') }}
         </div>
       </section>
+        </div>
+      </details>
 
       <section class="question-browser">
         <header>
@@ -681,7 +762,12 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
+  Shapes,
+  ShieldCheck,
+  SlidersHorizontal,
+  Sparkles,
   TriangleAlert,
+  WandSparkles,
   X,
 } from 'lucide-vue-next'
 import http from '@/utils/http'
@@ -756,7 +842,14 @@ interface AssessmentObjective {
   risk_level?: string
 }
 
-const props = defineProps<{ courseId: string }>()
+const props = withDefaults(defineProps<{
+  courseId: string
+  initialNodeIds?: string[]
+  initialScopeLabel?: string
+}>(), {
+  initialNodeIds: () => [],
+  initialScopeLabel: '',
+})
 const emit = defineEmits<{ updated: [bundleRevisionId: string] }>()
 const loading = ref(false)
 const rebuilding = ref(false)
@@ -784,6 +877,9 @@ const questionPageInput = ref('1')
 const coveredObjectivesExpanded = ref(false)
 const coveredObjectivePage = ref(1)
 const coveredObjectivePageInput = ref('1')
+const generationScope = ref<'lesson' | 'course'>(props.initialNodeIds.length ? 'lesson' : 'course')
+const retrievalEnabled = ref(false)
+const keepPublished = ref(true)
 let rebuildAbortController: AbortController | null = null
 const QUESTION_PAGE_SIZE = 10
 const COVERED_OBJECTIVE_PAGE_SIZE = 10
@@ -966,8 +1062,12 @@ const profileCapabilities = computed(() => {
   const archetypes = assessmentProfile.value.allowed_archetype_ids || []
   const validators = assessmentProfile.value.validator_ids || assessmentProfile.value.validation_modes || []
   return [
-    archetypes.length ? `${archetypes.length} 种题型原型` : '',
-    validators.length ? `${validators.length} 类验证器` : '',
+    archetypes.length
+      ? t('questionBank.profileArchetypes', '{count} question archetypes').replace('{count}', String(archetypes.length))
+      : '',
+    validators.length
+      ? t('questionBank.profileValidators', '{count} validation modes').replace('{count}', String(validators.length))
+      : '',
   ].filter(Boolean).join(' · ') || t(
     'questionBank.profileCompiling',
     '画像已编译，详细能力随课程资料持续补全。',
@@ -1055,6 +1155,9 @@ watch(() => props.courseId, () => {
   void load()
   void recoverActiveRebuild()
 })
+watch(() => props.initialNodeIds, value => {
+  generationScope.value = value.length ? 'lesson' : 'course'
+}, { deep: true })
 watch(coveredObjectivePageCount, pageCount => {
   if (coveredObjectivePage.value > pageCount) {
     setCoveredObjectivePage(pageCount)
@@ -1197,19 +1300,22 @@ async function load() {
     items.value = Array.isArray(data.items) ? data.items : []
   } catch (error: any) {
     errorMessage.value = error?.response?.status === 404
-      ? t('questionBank.notBuilt', '该课程尚未整理题库，请点击“重新整理”。')
+      ? t('questionBank.notBuilt', '该课程尚未整理题库，可从上方选择范围并开始智能出题。')
       : t('questionBank.loadFailed', '题库读取失败，请稍后重试。')
   } finally {
     loading.value = false
   }
 }
 
-async function rebuild(nodeId?: string, resumeExisting = true) {
+function startGeneration() {
+  const nodeIds = generationScope.value === 'lesson'
+    ? props.initialNodeIds
+    : undefined
+  return rebuild(nodeIds, errorMessage.value ? false : keepPublished.value)
+}
+
+async function rebuild(nodeId?: string | string[], resumeExisting = true) {
   if (!props.courseId || rebuilding.value) return
-  const retrievalEnabled = window.confirm(t(
-    'courseAvailability.rebuildRetrievalConfirm',
-    '本次重建是否启用联网研究？选择“取消”将继续离线重建。',
-  ))
   rebuildAbortController?.abort()
   const controller = new AbortController()
   rebuildAbortController = controller
@@ -1218,19 +1324,21 @@ async function rebuild(nodeId?: string, resumeExisting = true) {
   rebuildErrorMessage.value = ''
   rebuildJob.value = null
   try {
-    const scopedNodeId = String(nodeId || '')
+    const scopedNodeIds = (Array.isArray(nodeId) ? nodeId : [nodeId])
+      .map(value => String(value || ''))
+      .filter(Boolean)
     await runQuestionBankRebuild(
       props.courseId,
       {
         request_id: crypto.randomUUID(),
-        scope: scopedNodeId ? 'nodes' : 'course',
-        node_ids: scopedNodeId ? [scopedNodeId] : [],
-        mode: scopedNodeId ? 'incremental' : 'full',
-        retrieval_enabled: retrievalEnabled,
-        ...(!scopedNodeId ? { resume_existing: resumeExisting } : {}),
+        scope: scopedNodeIds.length ? 'nodes' : 'course',
+        node_ids: scopedNodeIds,
+        mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
+        retrieval_enabled: retrievalEnabled.value,
+        ...(!scopedNodeIds.length ? { resume_existing: resumeExisting } : {}),
       },
       {
-        maxPolls: scopedNodeId ? 450 : 3600,
+        maxPolls: scopedNodeIds.length ? 450 : 3600,
         signal: controller.signal,
         onUpdate: job => {
           rebuildJob.value = job
@@ -1302,10 +1410,6 @@ async function approve(item: QuestionBankItem) {
 
 async function rework(item: QuestionBankItem) {
   if (!props.courseId || actingRevision.value) return
-  const retrievalEnabled = window.confirm(t(
-    'courseAvailability.rebuildRetrievalConfirm',
-    '本次重做是否启用联网研究？选择“取消”将继续离线生成。',
-  ))
   actingRevision.value = item.revision_id
   rebuilding.value = true
   errorMessage.value = ''
@@ -1321,7 +1425,7 @@ async function rework(item: QuestionBankItem) {
         node_ids: [],
         revision_ids: [item.revision_id],
         mode: 'incremental',
-        retrieval_enabled: retrievalEnabled,
+        retrieval_enabled: retrievalEnabled.value,
       },
       {
         onUpdate: job => {
@@ -1473,6 +1577,45 @@ function formatValue(value: unknown) {
 
 <style scoped>
 .question-bank-panel { display:grid; gap:13px; padding:14px 16px 16px; border-top:1px solid var(--lz-border); background:transparent; }
+.question-generation-studio { display:grid; gap:18px; padding:20px; border:1px solid #dbe3f2; border-radius:12px; background:linear-gradient(145deg,#fff 0%,#fafaff 58%,#f5f3ff 100%); box-shadow:0 10px 30px rgba(79,70,229,.06); }
+.question-generation-studio>header,.question-generation-studio>footer { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+.question-generation-studio__title { min-width:0; display:flex; align-items:flex-start; gap:12px; }
+.question-generation-studio__title>span { width:38px; height:38px; flex:0 0 auto; display:grid; place-items:center; border-radius:10px; color:#fff; background:linear-gradient(135deg,#4f46e5,#7c3aed); box-shadow:0 8px 18px rgba(79,70,229,.2); }
+.question-generation-studio__title>div { min-width:0; display:grid; gap:4px; }
+.question-generation-studio__title small { color:#6366f1; font-size:9px; font-weight:800; letter-spacing:.09em; }
+.question-generation-studio__title h3 { margin:0; color:#25235d; font-size:20px; line-height:1.3; }
+.question-generation-studio__title p { margin:0; color:var(--lz-text-muted); font-size:11px; line-height:1.55; }
+.question-generation-studio__published { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border-radius:999px; color:#047857; background:#ecfdf5; font-size:10px; font-weight:700; }
+.question-generation-flow { display:grid; grid-template-columns:minmax(0,.85fr) minmax(0,1.25fr) minmax(0,1fr); gap:10px; }
+.question-generation-step { min-width:0; margin:0; padding:13px; border:1px solid var(--lz-border); border-radius:10px; background:rgba(255,255,255,.86); }
+.question-generation-step legend,.question-generation-step h4 { display:flex; align-items:center; gap:7px; margin:0 0 10px; padding:0; color:var(--lz-text-strong); font-size:11px; font-weight:750; }
+.question-generation-step legend b,.question-generation-step h4 b { width:20px; height:20px; display:grid; place-items:center; border-radius:6px; color:#4f46e5; background:#eef2ff; font-size:9px; }
+.question-generation-step>label:not(.question-generation-toggle) { min-width:0; display:flex; align-items:center; gap:8px; padding:9px; border:1px solid transparent; border-radius:8px; cursor:pointer; }
+.question-generation-step>label:not(.question-generation-toggle)+label { margin-top:4px; }
+.question-generation-step>label:not(.question-generation-toggle):hover { background:#f8fafc; }
+.question-generation-step>label:not(.question-generation-toggle).active { border-color:#c7d2fe; background:#eef2ff; }
+.question-generation-step>label:not(.question-generation-toggle) input { width:15px; height:15px; accent-color:#4f46e5; }
+.question-generation-step label>span,.question-intelligence-grid article>span { min-width:0; display:grid; gap:2px; }
+.question-generation-step label strong,.question-intelligence-grid strong { color:var(--lz-text-strong); font-size:10px; }
+.question-generation-step label small,.question-intelligence-grid small { overflow:hidden; color:var(--lz-text-muted); font-size:9px; line-height:1.45; text-overflow:ellipsis; }
+.question-intelligence-grid { display:grid; gap:7px; }
+.question-intelligence-grid article { min-width:0; display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:8px; padding:9px; border-radius:8px; color:#6366f1; background:#f8fafc; }
+.question-intelligence-grid em { padding:3px 6px; border-radius:5px; color:#4f46e5; background:#eef2ff; font-size:8px; font-style:normal; font-weight:750; }
+.question-generation-options { display:grid; align-content:start; gap:8px; }
+.question-generation-toggle { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:7px 2px; cursor:pointer; }
+.question-generation-toggle+.question-generation-toggle { border-top:1px solid var(--lz-border); }
+.question-generation-toggle input { width:17px; height:17px; accent-color:#4f46e5; }
+.question-generation-studio>footer { align-items:center; padding-top:2px; }
+.question-generation-studio__policy { min-width:0; display:flex; align-items:center; gap:6px; color:#6366f1; font-size:10px; line-height:1.5; }
+.question-generation-primary { border-color:#4f46e5!important; color:#fff!important; background:#4f46e5!important; }
+.question-quality-details { overflow:hidden; border:1px solid var(--lz-border); border-radius:10px; background:#fff; }
+.question-quality-details>summary { min-height:46px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 13px; color:var(--lz-text-secondary); cursor:pointer; list-style:none; }
+.question-quality-details>summary::-webkit-details-marker { display:none; }
+.question-quality-details>summary:hover { background:#fafbff; }
+.question-quality-details>summary>span { display:flex; align-items:center; gap:7px; color:#4338ca; }
+.question-quality-details>summary strong { color:var(--lz-text-strong); font-size:11px; }
+.question-quality-details>summary small { color:var(--lz-text-muted); font-size:10px; }
+.question-quality-details__body { display:grid; gap:12px; padding:0 12px 12px; border-top:1px solid var(--lz-border); }
 .question-bank-panel__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .question-bank-panel__header h3 { margin:0; color:var(--lz-text-secondary); font-size:13px; }
 .question-bank-panel__header-action { display:flex; align-items:flex-end; gap:10px; }
@@ -1602,6 +1745,7 @@ function formatValue(value: unknown) {
 .question-generation-audit>p { margin:0; color:#b45309; font:9px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
 .spin { animation: question-bank-spin .9s linear infinite; }
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
+@media (max-width: 1040px) { .question-generation-flow { grid-template-columns:1fr 1fr; }.question-generation-flow>.question-generation-step:last-child { grid-column:1/-1; } }
 @media (max-width: 900px) { .question-review-item__summary-main { grid-template-columns:auto minmax(0,1fr); }.question-review-item__meta { grid-column:1/-1; max-width:none; } }
-@media (max-width: 720px) { .question-bank-panel { gap:12px; padding:14px; }.question-bank-panel__header { align-items:flex-start; flex-direction:column; }.question-bank-panel__header>div:first-child { display:none; }.question-bank-panel__header-action { width:100%; align-items:flex-start; flex-direction:column; gap:7px; }.question-bank-panel__header-copy { max-width:none; text-align:left; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
+@media (max-width: 720px) { .question-bank-panel { gap:12px; padding:12px; }.question-generation-studio { padding:14px; }.question-generation-studio>header,.question-generation-studio>footer { align-items:flex-start; flex-direction:column; }.question-generation-flow { grid-template-columns:1fr; }.question-generation-flow>.question-generation-step:last-child { grid-column:auto; }.question-generation-studio__published { align-self:flex-start; }.question-generation-studio__policy { align-items:flex-start; }.question-bank-panel__header { align-items:flex-start; flex-direction:column; }.question-bank-panel__header>div:first-child { display:none; }.question-bank-panel__header-action { width:100%; align-items:flex-start; flex-direction:column; gap:7px; }.question-bank-panel__header-copy { max-width:none; text-align:left; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; justify-content:center; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 </style>

@@ -6,6 +6,10 @@
         <h2>{{ currentQuestion?.learning_objective || currentNodeLabel }}</h2>
       </div>
       <div class="practice-header-state">
+        <span v-if="questions.length" class="practice-selection-policy">
+          <Sparkles :size="13" />
+          {{ t('courseWorkspace.practice.smartComposition', '题库智能编排') }}
+        </span>
         <span v-if="practiceView === 'current' && questions.length" class="practice-progress">
           {{ workspace.currentQuestionIndex + 1 }}/{{ questions.length }}
         </span>
@@ -539,7 +543,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowRight, BookOpenCheck, CheckCircle2, ChevronDown, Circle, CircleAlert, ClipboardCheck, Clock3, History,
-  Lightbulb, LoaderCircle, MessageCircleQuestion, RefreshCw, RotateCcw, Send,
+  Lightbulb, LoaderCircle, MessageCircleQuestion, RefreshCw, RotateCcw, Send, Sparkles,
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import PracticeAnswerRenderer from './PracticeAnswerRenderer.vue'
@@ -1118,6 +1122,7 @@ function formatSolutionValue(value: unknown) {
 .practice-header { position:sticky; top:0; z-index:4; display:flex; justify-content:space-between; gap:20px; align-items:center; padding:18px clamp(18px,4vw,48px); border-bottom:1px solid #dbe3ed; background:rgba(255,255,255,.96); }
 .practice-heading { min-width:0; }.practice-heading p { margin:0 0 3px; font-size:11px; color:#0f766e; font-weight:700; }.practice-heading h2 { margin:0; font-size:17px; line-height:1.35; letter-spacing:0; overflow-wrap:anywhere; }
 .practice-header-state { display:flex; align-items:center; gap:10px; white-space:nowrap; font-size:12px; color:#526174; }.practice-progress { font:700 13px ui-monospace,monospace; color:#0f766e; }
+.practice-selection-policy { display:inline-flex; align-items:center; gap:5px; padding:4px 7px; border-radius:6px; color:#4f46e5; background:#eef2ff; font-size:10px; font-weight:700; }
 .practice-tabs { display:flex; max-width:1280px; margin:18px auto 0; padding:0 20px; border-bottom:1px solid #dbe3ed; }.practice-tabs button { padding:10px 14px; border:0; border-bottom:2px solid transparent; background:transparent; color:#64748b; font-size:13px; }.practice-tabs button.active { color:#0f766e; border-color:#0f766e; font-weight:700; }
 .workflow-band { width:min(1280px,calc(100% - 64px)); margin:18px auto 0; padding:14px 0; border-top:2px solid #0f766e; border-bottom:1px solid #cbd5e1; display:flex; justify-content:space-between; gap:24px; align-items:flex-start; }.workflow-band>div { display:grid; gap:4px; }.workflow-band span { color:#0f766e; font-size:11px; font-weight:800; }.workflow-band strong { font-size:14px; }.workflow-band p { max-width:48%; margin:0; color:#526174; font-size:13px; line-height:1.55; }.workflow-band[data-phase="needs_support"] { border-top-color:#b45309; }.workflow-band[data-phase="resolved"] { border-top-color:#047857; }
 .question-stage,.history-list { width:min(1280px,calc(100% - 64px)); margin:0 auto; padding:24px 0 36px; }.question-content { padding:0; }.question-meta { display:flex; justify-content:space-between; align-items:center; gap:16px; color:#64748b; font-size:12px; }.question-meta>div { display:flex; gap:16px; }.refresh-question-command { display:inline-flex; align-items:center; gap:6px; min-height:30px; padding:0 9px; border:1px solid #cbd5e1; border-radius:6px; color:#475569; background:#fff; font-size:12px; }.refresh-question-command:hover:not(:disabled) { border-color:#0f766e; color:#0f766e; }.refresh-question-command:disabled { opacity:.45; cursor:not-allowed; }

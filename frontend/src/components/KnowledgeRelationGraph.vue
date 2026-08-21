@@ -15,8 +15,14 @@
       </div>
       <span class="knowledge-relation-graph__readonly">
         <LockKeyhole :size="12" aria-hidden="true" />
-        {{ t('knowledgeLibrary.graphReadonly', '只读 · 来自当前知识库版本') }}
+        {{ t('knowledgeLibrary.graphReadonly', '只读 · 来自当前知识图谱版本') }}
       </span>
+      <div class="knowledge-relation-graph__controls" :aria-label="t('knowledgeLibrary.graphControls', '图谱缩放控制')">
+        <button type="button" :title="t('knowledgeLibrary.zoomOut', '缩小')" @click="changeZoom(-0.15)"><Minus :size="14" /></button>
+        <span>{{ Math.round(zoom * 100) }}%</span>
+        <button type="button" :title="t('knowledgeLibrary.zoomIn', '放大')" @click="changeZoom(0.15)"><Plus :size="14" /></button>
+        <button type="button" :title="t('knowledgeLibrary.resetView', '重置视图')" @click="resetViewport"><Maximize2 :size="14" /></button>
+      </div>
     </header>
 
     <ul
@@ -38,10 +44,19 @@
     </ul>
 
     <div v-if="graphNodes.length" class="knowledge-relation-graph__body">
-      <div class="knowledge-relation-graph__canvas">
+      <div
+        ref="canvasRef"
+        class="knowledge-relation-graph__canvas"
+        :class="{ 'is-dragging': dragging }"
+        @wheel.prevent="handleWheel"
+        @pointerdown="startDrag"
+        @pointermove="moveDrag"
+        @pointerup="endDrag"
+        @pointercancel="endDrag"
+      >
         <div class="knowledge-relation-graph__viewport">
           <svg
-            :viewBox="`0 0 ${CANVAS_WIDTH} ${canvasHeight}`"
+            :viewBox="viewportViewBox"
             role="img"
             :aria-label="t('knowledgeLibrary.graphAriaLabel', '当前课程知识点之间的已启用关系')"
           >
@@ -63,7 +78,10 @@
               v-for="edge in positionedRelations"
               :key="edge.relation.relation_id"
               class="knowledge-relation-graph__edge"
-              :class="`is-${edge.relation.relation_type}`"
+              :class="[
+                `is-${edge.relation.relation_type}`,
+                { 'is-muted': selectedGraphNode && !edgeTouchesSelected(edge.relation) },
+              ]"
               data-testid="knowledge-graph-edge"
               :data-relation-id="edge.relation.relation_id"
             >
@@ -81,6 +99,7 @@
               :class="{
                 'is-selected': selectedId === item.node.knowledge_id,
                 'is-covered': item.node.covered_by_course,
+                'is-muted': selectedGraphNode && !connectedNodeIds.has(item.node.knowledge_id),
               }"
               :transform="`translate(${item.x} ${item.y})`"
               role="button"
@@ -172,8 +191,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { LockKeyhole, MousePointerClick, Network } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { LockKeyhole, Maximize2, Minus, MousePointerClick, Network, Plus } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { knowledgeSourceLabel } from '../utils/knowledge-source'
 import type {
@@ -197,6 +216,11 @@ const NODE_WIDTH = 188
 const NODE_HEIGHT = 66
 const ROW_GAP = 128
 const TOP_PADDING = 64
+const canvasRef = ref<HTMLElement | null>(null)
+const zoom = ref(1)
+const pan = ref({ x: 0, y: 0 })
+const dragging = ref(false)
+const dragOrigin = ref({ x: 0, y: 0, panX: 0, panY: 0 })
 
 const nodeById = computed(() => new Map(
   props.nodes.map(node => [node.knowledge_id, node]),
@@ -211,7 +235,7 @@ const validRelations = computed(() => props.relations.filter(relation => (
 // 图例只列当前图里真实出现的关系类型，不把六类硬编码摆出来——
 // 没有产出的类型摆在图例上会让人以为图里有，反而误导。
 const presentRelationTypes = computed(() => {
-  const counts = new Map<string, number>()
+  const counts = new Map<KnowledgeRelation['relation_type'], number>()
   for (const relation of validRelations.value) {
     const type = relation.relation_type
     counts.set(type, (counts.get(type) || 0) + 1)
@@ -304,6 +328,62 @@ const selectedConnections = computed(() => {
   })
 })
 
+const connectedNodeIds = computed(() => {
+  const result = new Set<string>()
+  if (!selectedGraphNode.value) return result
+  result.add(selectedGraphNode.value.knowledge_id)
+  selectedConnections.value.forEach(entry => result.add(entry.otherNode.knowledge_id))
+  return result
+})
+
+const viewportViewBox = computed(() => [
+  pan.value.x,
+  pan.value.y,
+  CANVAS_WIDTH / zoom.value,
+  canvasHeight.value / zoom.value,
+].join(' '))
+
+function edgeTouchesSelected(relation: KnowledgeRelation) {
+  const selected = selectedGraphNode.value?.knowledge_id
+  return !selected
+    || relation.source_knowledge_id === selected
+    || relation.target_knowledge_id === selected
+}
+
+function changeZoom(delta: number) {
+  zoom.value = Math.min(1.8, Math.max(0.65, Number((zoom.value + delta).toFixed(2))))
+}
+
+function resetViewport() {
+  zoom.value = 1
+  pan.value = { x: 0, y: 0 }
+}
+
+function handleWheel(event: WheelEvent) {
+  changeZoom(event.deltaY > 0 ? -0.1 : 0.1)
+}
+
+function startDrag(event: PointerEvent) {
+  if ((event.target as Element)?.closest('.knowledge-relation-graph__node')) return
+  dragging.value = true
+  dragOrigin.value = { x: event.clientX, y: event.clientY, panX: pan.value.x, panY: pan.value.y }
+  canvasRef.value?.setPointerCapture(event.pointerId)
+}
+
+function moveDrag(event: PointerEvent) {
+  if (!dragging.value) return
+  pan.value = {
+    x: dragOrigin.value.panX - (event.clientX - dragOrigin.value.x) / zoom.value,
+    y: dragOrigin.value.panY - (event.clientY - dragOrigin.value.y) / zoom.value,
+  }
+}
+
+function endDrag(event: PointerEvent) {
+  if (!dragging.value) return
+  dragging.value = false
+  if (canvasRef.value?.hasPointerCapture(event.pointerId)) canvasRef.value.releasePointerCapture(event.pointerId)
+}
+
 function compactName(name: string): string {
   const limit = /[\u3400-\u9fff]/.test(name) ? 12 : 22
   return name.length > limit ? `${name.slice(0, limit)}…` : name
@@ -338,17 +418,24 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 
 <style scoped>
 .knowledge-relation-graph { min-width:0; min-height:0; flex:1; display:flex; flex-direction:column; overflow:hidden; color:#41475e; background:#fff; }
-.knowledge-relation-graph__header { min-height:48px; flex:0 0 auto; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:0 18px; border-bottom:1px solid #e8eaf2; background:#fbfbfe; }
+.knowledge-relation-graph__header { min-height:54px; flex:0 0 auto; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:12px; padding:0 16px 0 18px; border-bottom:1px solid #e8eaf2; background:#fff; }
 .knowledge-relation-graph__header > div { min-width:0; display:flex; align-items:center; gap:7px; }
 .knowledge-relation-graph__header svg { color:#6b50e8; }
 .knowledge-relation-graph__header strong { color:#343a52; font-size:12px; }
 .knowledge-relation-graph__header span { color:#8a90a4; font-size:10px; }
 .knowledge-relation-graph__readonly { flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border:1px solid #e2e4ed; border-radius:8px; color:#777e94 !important; background:#fff; font-weight:650; }
 .knowledge-relation-graph__readonly svg { color:#8f95a8; }
+.knowledge-relation-graph__controls { display:flex; align-items:center; gap:2px; padding:3px; border:1px solid #e2e4ed; border-radius:8px; background:#f7f8fb; }
+.knowledge-relation-graph__controls button { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:6px; color:#666d84; background:transparent; cursor:pointer; }
+.knowledge-relation-graph__controls button:hover { color:#5942d2; background:#fff; }
+.knowledge-relation-graph__controls span { min-width:42px; color:#777e94; font-size:9px; font-weight:700; text-align:center; }
 .knowledge-relation-graph__body { min-height:0; flex:1; display:grid; grid-template-columns:minmax(0,1fr) 286px; overflow:hidden; }
-.knowledge-relation-graph__canvas { min-width:0; min-height:0; overflow:auto; padding:18px; background-color:#fafbfe; background-image:radial-gradient(#dfe2ee 1px, transparent 1px); background-size:18px 18px; }
+.knowledge-relation-graph__canvas { min-width:0; min-height:0; overflow:hidden; padding:18px; touch-action:none; cursor:grab; background-color:#fafbfe; background-image:radial-gradient(#dfe2ee 1px, transparent 1px); background-size:18px 18px; user-select:none; }
+.knowledge-relation-graph__canvas.is-dragging { cursor:grabbing; }
 .knowledge-relation-graph__viewport { min-width:720px; min-height:100%; display:flex; align-items:center; }
 .knowledge-relation-graph__viewport svg { width:100%; height:auto; min-height:360px; overflow:visible; }
+.knowledge-relation-graph__edge { transition:opacity .16s ease; }
+.knowledge-relation-graph__edge.is-muted { opacity:.14; }
 .knowledge-relation-graph__edge path { fill:none; stroke:#9b90d8; stroke-width:2; }
 .knowledge-relation-graph__edge text { fill:#7c729f; paint-order:stroke; stroke:#fafbfe; stroke-width:7px; stroke-linejoin:round; font-size:12px; font-weight:700; text-anchor:middle; }
 .knowledge-relation-graph__arrow { fill:#8c80ce; stroke:none; }
@@ -378,7 +465,8 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 .knowledge-relation-graph__legend .is-contrasts_with svg path { stroke:#d48b72; stroke-dasharray:6 4; }
 .knowledge-relation-graph__legend .is-applies_to svg path { stroke:#4d7db7; stroke-dasharray:12 3 2 3; }
 .knowledge-relation-graph__legend .is-generalizes svg path { stroke:#b0873c; stroke-dasharray:1 4; stroke-linecap:round; }
-.knowledge-relation-graph__node { outline:none; cursor:pointer; }
+.knowledge-relation-graph__node { outline:none; cursor:pointer; transition:opacity .16s ease; }
+.knowledge-relation-graph__node.is-muted { opacity:.22; }
 .knowledge-relation-graph__node rect { fill:#fff; stroke:#dfe2ec; stroke-width:1.5; filter:drop-shadow(0 5px 10px rgba(54,59,91,.08)); transition:fill .15s ease, stroke .15s ease, stroke-width .15s ease; }
 .knowledge-relation-graph__node circle { fill:#a8aebe; }
 .knowledge-relation-graph__node-type { fill:#858ba0; font-size:10px; font-weight:650; }
@@ -411,7 +499,9 @@ function relationTypeLabel(type: KnowledgeRelation['relation_type']): string {
 }
 
 @media (max-width:700px) {
-  .knowledge-relation-graph__header { align-items:flex-start; flex-direction:column; justify-content:center; gap:5px; padding-block:8px; }
+  .knowledge-relation-graph__header { grid-template-columns:minmax(0,1fr) auto; gap:7px; padding-block:8px; }
+  .knowledge-relation-graph__readonly { display:none; }
+  .knowledge-relation-graph__controls { justify-self:end; }
   .knowledge-relation-graph__body { display:block; overflow:auto; }
   .knowledge-relation-graph__canvas { min-height:430px; overflow:auto; }
   .knowledge-relation-graph__inspector { min-height:220px; border-top:1px solid #e7e9f2; border-left:0; }

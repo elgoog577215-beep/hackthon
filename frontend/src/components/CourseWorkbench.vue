@@ -66,6 +66,8 @@
             v-else
             :model-value="true"
             :course-id="courseId"
+            :initial-question-node-ids="initialQuestionNodeIds"
+            :initial-question-scope-label="initialQuestionScopeLabel"
             embedded
             @update:model-value="close"
           />
@@ -91,10 +93,14 @@ const props = withDefaults(defineProps<{
   courseId?: string
   /** 透传给任务中心：教师端与学生端的状态说法不同。 */
   surface?: 'learner' | 'teacher'
+  initialQuestionNodeIds?: string[]
+  initialQuestionScopeLabel?: string
 }>(), {
   initialSection: 'tasks',
   courseId: '',
   surface: 'learner',
+  initialQuestionNodeIds: () => [],
+  initialQuestionScopeLabel: '',
 })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 const generationStore = useGenerationStore()
@@ -104,9 +110,11 @@ const activeSection = ref<WorkbenchSection>(props.initialSection)
 const previousFocus = ref<HTMLElement | null>(null)
 
 const isEnglish = computed(() => activeLocale.value === 'en')
-const workbenchTitle = computed(() => isEnglish.value ? 'Course workbench' : '课程工作台')
+const workbenchTitle = computed(() => activeSection.value === 'question-bank'
+  ? (isEnglish.value ? 'Create practice' : '教师出题')
+  : (isEnglish.value ? 'Course workbench' : '课程工作台'))
 const taskTabLabel = computed(() => isEnglish.value ? 'Generation tasks' : '生成任务')
-const questionBankTabLabel = computed(() => isEnglish.value ? 'Question bank' : '题库管理')
+const questionBankTabLabel = computed(() => isEnglish.value ? 'Create practice' : '教师出题')
 const actionRequiredCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => (
   (!props.courseId || task.courseId === props.courseId)
   && (

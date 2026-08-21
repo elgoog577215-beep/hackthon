@@ -227,7 +227,6 @@ import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import http from '../utils/http'
-import { runQuestionBankRebuild } from '../utils/question-bank-rebuild'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; uploaded_at?: string; updated_at?: string }
@@ -936,7 +935,13 @@ async function submitCreate() {
     } else if (createType.value === 'lesson_plan') {
       await lessonStore.generateLesson(props.courseId, createForm.value.lessonId)
     } else if (createType.value === 'practice') {
-      await createPractice(createForm.value.lessonId)
+      const lessonId = createForm.value.lessonId
+      const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
+      if (!lesson) throw new Error(t('courseFiles.errors.selectLesson'))
+      if (!practiceNodeIds(lesson).length) throw new Error(t('courseFiles.errors.practiceNeedsSections'))
+      closeCreateDialog()
+      emit('openPractice', lessonId)
+      return
     } else if (createType.value === 'material') {
       const name = `${safePart(createForm.value.title || t('courseFiles.names.newMaterial'))}.md`
       await uploadFile(new File([`# ${createForm.value.title}\n\n${createForm.value.requirements}\n`], name, { type: 'text/markdown' }), targetPath('material', createForm.value.lessonId))
@@ -947,31 +952,6 @@ async function submitCreate() {
     ElMessage.success(t('courseFiles.created'))
   } catch (error: any) { ElMessage.error(localizedError(error, String(error?.message || t('courseFiles.errors.createFailed')))) } finally { busy.value = false }
 }
-async function createPractice(lessonId: string) {
-  const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
-  if (!lesson) throw new Error(t('courseFiles.errors.selectLesson'))
-  const nodeIds = practiceNodeIds(lesson)
-  if (!nodeIds.length) throw new Error(t('courseFiles.errors.practiceNeedsSections'))
-  practiceWorkingLessonIds.value = [...new Set([...practiceWorkingLessonIds.value, lessonId])]
-  try {
-    await runQuestionBankRebuild(
-      props.courseId,
-      {
-        request_id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `practice-${Date.now()}`,
-        scope: 'nodes',
-        node_ids: nodeIds,
-        mode: 'incremental',
-        retrieval_enabled: false,
-      },
-      { maxPolls: 450 },
-    )
-    await loadQuestionBankSummary()
-    emit('openPractice', lessonId)
-  } finally {
-    practiceWorkingLessonIds.value = practiceWorkingLessonIds.value.filter(id => id !== lessonId)
-  }
-}
-
 async function previewFile(asset: Asset) {
   if (!selected.value) return
   try {

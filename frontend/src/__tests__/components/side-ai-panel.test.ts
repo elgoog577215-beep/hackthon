@@ -123,8 +123,8 @@ describe('SideAIPanel', () => {
     vi.spyOn(useLearningProgressStore(), 'loadRuntime').mockResolvedValue(null)
     const sendMessage = vi.spyOn(aiStore, 'sendMessage').mockResolvedValue(undefined)
 
-    expect(wrapper.get('.ai-teacher-heading').text()).toContain('教师智能体')
-    expect(wrapper.get('.ai-teacher-empty').text()).toContain('教案与 PPT')
+    expect(wrapper.get('.ai-teacher-heading').text()).toContain('AI 助手')
+    expect(wrapper.get('.ai-teacher-empty').text()).toContain('备课问答')
     expect(wrapper.find('.retrieval-setting').exists()).toBe(false)
     expect(wrapper.find('.context-evidence').exists()).toBe(false)
     expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
@@ -297,12 +297,12 @@ describe('SideAIPanel', () => {
     expect(refreshRuntime).toHaveBeenCalledTimes(1)
   })
 
-  it('在移动视口使用同一 AI 工作区的覆盖形态', () => {
+  it('在移动视口继续使用统一的全屏 AI 工作区', () => {
     Object.defineProperty(window, 'innerWidth', { value: 390, configurable: true })
     const wrapper = mountPanel()
 
-    expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-overlay')
-    expect(wrapper.find('.ai-teacher-backdrop').exists()).toBe(true)
+    expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-fullscreen')
+    expect(wrapper.find('.ai-teacher-backdrop').exists()).toBe(false)
     expect(wrapper.find('.ai-teacher-surface').exists()).toBe(true)
     expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
   })
@@ -506,7 +506,7 @@ describe('SideAIPanel', () => {
   })
 
   it('kg_node 变更提案条目展示接受按钮，并提示接受后仅记录复核备注', () => {
-    const wrapper = mountPanel()
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher')
     const changeProposalsStore = useChangeProposalsStore()
     changeProposalsStore.courseId = 'course-1'
     const kgNodeProposal: ChangeProposal = {
@@ -541,7 +541,7 @@ describe('SideAIPanel', () => {
   })
 
   it('after 为空（待重新生成）的条目不渲染空白 diff，且禁用接受按钮', () => {
-    const wrapper = mountPanel()
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher')
     const changeProposalsStore = useChangeProposalsStore()
     changeProposalsStore.courseId = 'course-1'
     const awaitingProposal: ChangeProposal = {
@@ -577,7 +577,7 @@ describe('SideAIPanel', () => {
   })
 
   it('点击拒绝/重新生成按钮后展开对应条目的输入面板', () => {
-    const wrapper = mountPanel()
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher')
     const changeProposalsStore = useChangeProposalsStore()
     changeProposalsStore.courseId = 'course-1'
     const proposal: ChangeProposal = {
@@ -613,7 +613,7 @@ describe('SideAIPanel', () => {
   })
 
   it('renders structured proposal payloads as readable markdown', async () => {
-    const wrapper = mountPanel()
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher')
     const changeProposalsStore = useChangeProposalsStore()
     changeProposalsStore.courseId = 'course-1'
     changeProposalsStore.proposals = [{
@@ -667,7 +667,7 @@ describe('SideAIPanel', () => {
 
     try {
       const wrapper = mountPanel([], '', personalizationTarget())
-      expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-overlay')
+      expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-fullscreen')
       expect(wrapper.get('[data-scope="current_block"]').text()).toContain(
         'Current content only',
       )

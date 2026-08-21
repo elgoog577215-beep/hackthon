@@ -1,14 +1,11 @@
 <template>
   <div :class="panelClasses" class="ai-teacher-panel glass-panel-elevated">
-    <button
-      v-if="isOverlayMode"
-      type="button"
-      class="ai-teacher-backdrop"
-      :aria-label="assistantCloseLabel"
-      @click="emit('close')"
-    />
-
-    <section class="ai-teacher-surface" :aria-label="assistantTitle">
+    <section
+      class="ai-teacher-surface"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="assistantTitle"
+    >
       <header class="ai-teacher-header">
         <div class="ai-teacher-heading">
           <span class="ai-teacher-icon"><Sparkles :size="16" /></span>
@@ -63,7 +60,7 @@
                   :key="conversation.conversation_id"
                   :value="conversation.conversation_id"
                 >
-                  {{ conversation.title }}
+                  {{ localizedConversationTitle(conversation.title) }}
                 </option>
               </select>
               <ChevronDown :size="14" />
@@ -126,7 +123,7 @@
       </div>
 
       <CourseEvolutionPanel
-        v-if="!props.blockTarget && courseStore.currentCourseId"
+        v-if="isTeacherMode && !props.blockTarget && courseStore.currentCourseId"
         :course-id="courseStore.currentCourseId"
         :section-id="currentNode?.node_id"
         :focus-plan-id="focusedEvolutionPlanId"
@@ -134,7 +131,7 @@
       />
 
       <section
-        v-if="!props.blockTarget && changeProposalsStore.pendingProposals.length"
+        v-if="isTeacherMode && !props.blockTarget && changeProposalsStore.pendingProposals.length"
         class="change-proposals-panel"
         aria-live="polite"
       >
@@ -252,7 +249,7 @@
       </section>
 
       <section
-        v-if="!props.blockTarget && changeProposalsStore.lastRepresentationSync"
+        v-if="isTeacherMode && !props.blockTarget && changeProposalsStore.lastRepresentationSync"
         class="representation-sync-receipt"
         :data-status="changeProposalsStore.lastRepresentationSync.status"
         aria-live="polite"
@@ -732,7 +729,6 @@ const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
 const quoteVisible = ref(Boolean(props.quoteText))
 const conversationOpen = ref(false)
-const windowWidth = ref(window.innerWidth)
 const isOnline = ref(navigator.onLine)
 const messageList = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
@@ -759,8 +755,7 @@ const assistantCloseLabel = computed(() => isTeacherMode.value
 const assistantEmptyTitle = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.emptyTitle', '从教案与 PPT 开始协同备课')
   : t('courseWorkspace.aiTeacher.emptyTitle', '从当前学习现场开始提问'))
-const isOverlayMode = computed(() => windowWidth.value < 1280)
-const panelClasses = computed(() => isOverlayMode.value ? 'is-overlay' : 'is-docked')
+const panelClasses = computed(() => 'is-fullscreen')
 const currentNode = computed(() => (
   courseStore.nodes.find(node => node.node_id === (props.quoteNodeId || courseStore.currentNode?.node_id))
   || courseStore.currentNode
@@ -785,9 +780,15 @@ const modelEvidenceLabel = computed(() => {
     } as Record<string, string>)[modelEvidenceLevel.value] || '证据状态未知',
   )
 })
-const currentConversationTitle = computed(() => (
-  aiStore.currentConversation?.title
-  || t('courseWorkspace.aiTeacher.newConversation', '新建对话')
+function localizedConversationTitle(title: string | undefined) {
+  const normalized = String(title || '').trim()
+  if (!normalized || normalized === '新对话' || normalized === 'New conversation') {
+    return t('courseWorkspace.aiTeacher.newConversation', '新建对话')
+  }
+  return normalized
+}
+const currentConversationTitle = computed(() => localizedConversationTitle(
+  aiStore.currentConversation?.title,
 ))
 const blockTargetTitle = computed(() => String(props.blockTarget?.block.payload.title || props.blockTarget?.nodeName || ''))
 const blockOriginalContent = computed(() => String(props.blockTarget?.block.payload.markdown || props.blockTarget?.block.payload.text || ''))
@@ -1557,7 +1558,6 @@ function scrollToBottom() {
   })
 }
 
-function handleResize() { windowWidth.value = window.innerWidth }
 function handleOnline() { isOnline.value = true }
 function handleOffline() { isOnline.value = false }
 
@@ -1586,28 +1586,23 @@ watch(() => courseStore.currentCourseId, () => {
 })
 
 onMounted(() => {
-  window.addEventListener('resize', handleResize)
   window.addEventListener('online', handleOnline)
   window.addEventListener('offline', handleOffline)
   void initialize()
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
   window.removeEventListener('online', handleOnline)
   window.removeEventListener('offline', handleOffline)
 })
 </script>
 
 <style scoped>
-.ai-teacher-panel { height: 100%; min-width: 0; }
-.ai-teacher-panel.is-docked { width: clamp(360px, 28vw, 420px); flex: 0 0 clamp(360px, 28vw, 420px); overflow: hidden; border: 1px solid rgba(255,255,255,.88); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: 0 10px 30px rgba(79,70,229,.08), 0 2px 8px rgba(15,23,42,.04); backdrop-filter: none; -webkit-backdrop-filter: none; }
-.ai-teacher-panel.is-overlay { position: fixed; inset: 0; z-index: 90; height: auto; display: flex; justify-content: flex-end; padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); backdrop-filter: none; -webkit-backdrop-filter: none; }
-.ai-teacher-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30,41,59,.32); cursor: default; }
-.ai-teacher-surface { position: relative; z-index: 1; width: 100%; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #fff; }
-.is-overlay .ai-teacher-surface { width: min(100%, 520px); margin-left: auto; border: 1px solid rgba(255,255,255,.9); border-radius: var(--lz-radius-surface); box-shadow: var(--lz-shadow-overlay); }
+.ai-teacher-panel { min-width: 0; }
+.ai-teacher-panel.is-fullscreen { position: fixed; inset: 0; z-index: 620; width: 100vw; height: 100dvh; overflow: hidden; color: var(--lz-text); background: #fff; }
+.ai-teacher-surface { position: relative; width: 100%; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: linear-gradient(180deg,#fff 0%,#fbfcff 100%); }
 
-.ai-teacher-header { min-height: 62px; flex: 0 0 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 13px 0 15px; }
+.ai-teacher-header { min-height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 max(18px,calc((100vw - 1120px)/2)); border-bottom:1px solid var(--lz-border); background:#fff; }
 .ai-teacher-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .ai-teacher-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.4); border-radius: 11px; color: #fff; background: linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow: 0 7px 16px rgba(99,102,241,.23), inset 0 1px 0 rgba(255,255,255,.25); }
 .ai-teacher-heading-copy { min-width: 0; display: flex; flex-direction: column; }
@@ -1618,7 +1613,7 @@ onUnmounted(() => {
 .icon-button.danger:hover:not(:disabled) { border-color: #fecaca; color: var(--lz-danger); background: var(--lz-danger-soft); }
 .icon-button:disabled { opacity: .4; cursor: not-allowed; }
 
-.conversation-shell { flex: 0 0 auto; margin: 0 12px 9px; border-radius: 11px; background: rgba(248,250,252,.7); transition: background .16s ease, box-shadow .16s ease; }
+.conversation-shell { width:min(960px,calc(100% - 32px)); flex: 0 0 auto; margin: 12px auto 8px; border-radius: 11px; background: rgba(248,250,252,.7); transition: background .16s ease, box-shadow .16s ease; }
 .conversation-shell.open { background: #f8fafc; box-shadow: inset 0 0 0 1px rgba(226,232,240,.8); }
 .conversation-toggle { width: 100%; min-height: 42px; display: grid; grid-template-columns: 17px minmax(0,1fr) 16px; align-items: center; gap: 9px; padding: 6px 10px; border: 0; border-radius: 11px; color: var(--lz-text-muted); background: transparent; text-align: left; cursor: pointer; }
 .conversation-toggle:hover { color: var(--lz-brand-strong); background: rgba(238,242,255,.66); }
@@ -1635,7 +1630,7 @@ onUnmounted(() => {
 .conversation-reveal-enter-active,.conversation-reveal-leave-active { transition: opacity .16s ease, transform .16s ease; }
 .conversation-reveal-enter-from,.conversation-reveal-leave-to { opacity: 0; transform: translateY(-4px); }
 
-.context-panel { flex: 0 0 auto; margin: 0 12px 10px; padding: 10px 11px; border: 1px solid rgba(165,180,252,.58); border-radius: 10px; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
+.context-panel { width:min(960px,calc(100% - 32px)); flex: 0 0 auto; margin: 0 auto 10px; padding: 10px 11px; border: 1px solid rgba(165,180,252,.58); border-radius: 10px; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
 .retrieval-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(129,140,248,.2); cursor:pointer; }
 .retrieval-setting > span { min-width:0; display:flex; flex-direction:column; gap:1px; }
 .retrieval-setting strong { color:#3730a3; font-size:11px; }
@@ -1653,8 +1648,8 @@ onUnmounted(() => {
 .block-target-line span { color:var(--lz-text-muted); font-size:9px; }
 .block-target-line strong { min-width:0; overflow:hidden; color:var(--lz-text-secondary); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 
-.change-proposals-panel { min-height:0; max-height:44%; overflow-y:auto; margin:0 12px 10px; padding:10px 11px; border:1px solid rgba(199,210,254,.7); border-radius:10px; background:linear-gradient(100deg,rgba(238,242,255,.5),rgba(250,250,255,.4)); }
-.representation-sync-receipt { display:grid; grid-template-columns:20px minmax(0,1fr); align-items:center; gap:7px; margin:0 12px 10px; padding:9px 10px; border:1px solid #a7f3d0; border-radius:8px; color:#047857; background:#f0fdf4; }
+.change-proposals-panel { width:min(960px,calc(100% - 32px)); min-height:0; max-height:44%; overflow-y:auto; margin:0 auto 10px; padding:10px 11px; border:1px solid rgba(199,210,254,.7); border-radius:10px; background:linear-gradient(100deg,rgba(238,242,255,.5),rgba(250,250,255,.4)); }
+.representation-sync-receipt { width:min(960px,calc(100% - 32px)); display:grid; grid-template-columns:20px minmax(0,1fr); align-items:center; gap:7px; margin:0 auto 10px; padding:9px 10px; border:1px solid #a7f3d0; border-radius:8px; color:#047857; background:#f0fdf4; }
 .representation-sync-receipt[data-status="failed_using_last_available"] { border-color:#fde68a; color:#92400e; background:#fffbeb; }
 .representation-sync-receipt > div { min-width:0; display:flex; flex-direction:column; gap:2px; }
 .representation-sync-receipt strong { font-size:10px; }
@@ -1688,7 +1683,7 @@ onUnmounted(() => {
 .change-item-prompt textarea { width:100%; border:1px solid rgba(203,213,225,.9); border-radius:8px; padding:7px 8px; color:var(--lz-text); background:#fff; font:inherit; font-size:11px; resize:vertical; }
 .change-item-prompt-actions { display:flex; gap:6px; margin-top:6px; }
 
-.personalization-workspace { min-height:0; flex:1; overflow-y:auto; padding:8px 14px 20px; background:linear-gradient(180deg,#fff 0%,#fbfcff 100%); }
+.personalization-workspace { width:min(960px,100%); min-height:0; flex:1; align-self:center; overflow-y:auto; padding:8px 14px 20px; background:linear-gradient(180deg,#fff 0%,#fbfcff 100%); }
 .personalization-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; }
 .personalization-heading > div { min-width:0; display:flex; align-items:center; gap:9px; }
 .personalization-heading > div > span { width:30px; height:30px; flex:0 0 auto; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand); background:var(--lz-brand-soft); }
@@ -1747,12 +1742,12 @@ onUnmounted(() => {
 .personalization-apply-receipt span { color:#47705b; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
 
 .ai-teacher-messages { min-height: 0; flex: 1; overflow-y: auto; padding: 20px 18px 30px; background: linear-gradient(180deg,#fff 0%,#fbfcff 46%,#fff 100%); scroll-behavior: smooth; }
-.panel-state { height: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--lz-text-muted); font-size: 11px; }
-.ai-teacher-empty { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 30px 15px; color: var(--lz-text-muted); text-align: center; }
+.panel-state { width:min(900px,100%); height: 100%; margin:0 auto; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--lz-text-muted); font-size: 11px; }
+.ai-teacher-empty { width:min(900px,100%); min-height: 100%; margin:0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 30px 15px; color: var(--lz-text-muted); text-align: center; }
 .empty-mark { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #e0e7ff; border-radius: 14px; color: var(--lz-brand); background: linear-gradient(145deg,#fff,#eef2ff); box-shadow: 0 8px 22px rgba(99,102,241,.1); }
 .ai-teacher-empty strong { color: var(--lz-text-strong); font-size: 14px; }
 .ai-teacher-empty p { max-width: 280px; margin: 0; color: var(--lz-text-muted); font-size: 11px; line-height: 1.6; }
-.ai-message { margin-bottom: 24px; }
+.ai-message { width:min(900px,100%); margin:0 auto 24px; }
 .ai-message.is-user { display: flex; justify-content: flex-end; }
 .ai-message:not(.is-user) { display: grid; grid-template-columns: 28px minmax(0,1fr); align-items: start; gap: 11px; }
 .user-message-bubble { max-width: 82%; padding: 10px 13px; border: 1px solid rgba(67,56,202,.12); border-radius: 16px 16px 5px 16px; color: #fff; background: #5547dd; box-shadow: 0 7px 18px rgba(67,56,202,.14), inset 0 1px 0 rgba(255,255,255,.14); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -1826,13 +1821,13 @@ onUnmounted(() => {
 .action-receipt button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; border: 0; color: inherit; background: transparent; font-size: 9px; font-weight: 700; cursor: pointer; }
 
 .ai-teacher-composer { flex: 0 0 auto; padding: 8px 12px calc(11px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(180deg,rgba(255,255,255,.88),#fff 24%); box-shadow: 0 -10px 24px rgba(79,70,229,.035); }
-.quick-actions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; margin-bottom: 8px; }
+.quick-actions { width:min(900px,100%); display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; margin:0 auto 8px; }
 .quick-actions button { min-width: 0; min-height: 37px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 6px; border: 1px solid #e0e7ff; border-radius: 9px; color: var(--lz-text-secondary); background: rgba(255,255,255,.92); font-size: 9px; line-height: 1.25; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .quick-actions button:hover { transform: translateY(-1px); border-color: #c4b5fd; color: var(--lz-brand-strong); background: #f5f3ff; }
-.composer-status,.offline-notice { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; font-size: 9px; }
+.composer-status,.offline-notice { width:min(900px,100%); display: flex; align-items: center; gap: 6px; margin:0 auto 7px; font-size: 9px; }
 .composer-status { color: var(--lz-brand); }
 .offline-notice { color: var(--lz-warning); }
-.composer-box { min-height: 54px; display: grid; grid-template-columns: minmax(0,1fr) 38px; align-items: end; gap: 7px; padding: 6px 6px 6px 11px; border: 1px solid rgba(203,213,225,.9); border-radius: 13px; background: #fff; box-shadow: 0 5px 18px rgba(15,23,42,.06), inset 0 1px 0 rgba(255,255,255,.9); transition: border-color .16s ease, box-shadow .16s ease; }
+.composer-box { width:min(900px,100%); min-height: 54px; margin:0 auto; display: grid; grid-template-columns: minmax(0,1fr) 38px; align-items: end; gap: 7px; padding: 6px 6px 6px 11px; border: 1px solid rgba(203,213,225,.9); border-radius: 13px; background: #fff; box-shadow: 0 5px 18px rgba(15,23,42,.06), inset 0 1px 0 rgba(255,255,255,.9); transition: border-color .16s ease, box-shadow .16s ease; }
 .composer-box:focus-within { border-color: #a5b4fc; box-shadow: 0 7px 22px rgba(99,102,241,.1), 0 0 0 3px rgba(99,102,241,.08); }
 .composer-box textarea { width: 100%; min-height: 40px; max-height: 144px; resize: none; overflow-y: auto; border: 0; padding: 6px 0 4px; color: var(--lz-text); background: transparent; font: inherit; font-size: 12px; line-height: 1.5; outline: none; }
 .composer-box textarea::placeholder { color: var(--lz-text-muted); }
@@ -1847,14 +1842,9 @@ onUnmounted(() => {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes thinking-pulse { 0%,80%,100% { transform: translateY(0); opacity: .38; } 40% { transform: translateY(-4px); opacity: 1; } }
 
-@media (max-width: 1023px) {
-  .ai-teacher-panel.is-overlay { padding-bottom: calc(58px + env(safe-area-inset-bottom, 0px)); }
-  .is-overlay .ai-teacher-surface { width: 100%; max-width: none; }
-}
-
 @media (max-width: 520px) {
-  .ai-teacher-header { min-height: 58px; flex-basis: 58px; }
-  .conversation-shell,.context-panel { margin-left: 10px; margin-right: 10px; }
+  .ai-teacher-header { min-height: 58px; flex-basis: 58px; padding-inline:12px; }
+  .conversation-shell,.context-panel,.change-proposals-panel,.representation-sync-receipt { width:calc(100% - 20px); }
   .ai-teacher-messages { padding: 16px 12px 24px; }
   .ai-teacher-composer { padding-left: 10px; padding-right: 10px; }
   .quick-actions { gap: 5px; }

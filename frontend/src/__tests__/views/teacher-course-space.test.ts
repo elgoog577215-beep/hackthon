@@ -156,7 +156,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(zhMessages.courseFiles.relationship.content).toContain('不要求先生成实体文件')
   })
 
-  it('从课次练习文件生成真实题库任务并进入审阅', async () => {
+  it('从课次练习文件进入可见的教师出题工作台', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     await router.push('/course/course-1/workspace/setup')
@@ -181,11 +181,7 @@ describe('TeacherCourseSpaceView', () => {
     form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await flushPromises()
 
-    expect(rebuildMock).toHaveBeenCalledWith(
-      'course-1',
-      expect.objectContaining({ scope: 'nodes', node_ids: ['section-1'], mode: 'incremental' }),
-      expect.objectContaining({ maxPolls: 450 }),
-    )
+    expect(rebuildMock).not.toHaveBeenCalled()
     expect(wrapper.emitted('openPractice')?.[0]).toEqual(['lesson-1'])
     wrapper.unmount()
   })

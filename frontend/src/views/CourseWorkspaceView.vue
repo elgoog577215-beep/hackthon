@@ -64,7 +64,13 @@
       <div v-else class="drawer-empty">{{ t('courseFiles.lessonPlanUnavailable') }}</div>
     </el-drawer>
 
-    <CourseWorkbench v-model="workbenchOpen" :initial-section="workbenchSection" :course-id="courseId" />
+    <CourseWorkbench
+      v-model="workbenchOpen"
+      :initial-section="workbenchSection"
+      :course-id="courseId"
+      :initial-question-node-ids="practiceNodeIds"
+      :initial-question-scope-label="practiceScopeLabel"
+    />
     <CourseGenerationDialog
       v-model="generationDialogOpen"
       :busy="generationStarting"
@@ -114,6 +120,7 @@ const loadError = ref('')
 const outlineOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
+const selectedPracticeLessonId = ref('')
 const workbenchOpen = ref(false)
 const workbenchSection = ref<'tasks' | 'question-bank'>('tasks')
 const agentOpen = ref(false)
@@ -138,6 +145,45 @@ const selectedLessonPlan = computed(() => selectedLesson.value?.plan?.revisions.
 const selectedLessonTitle = computed(() => selectedLesson.value
   ? t('courseFiles.lessonDrawerTitle').replace('{title}', selectedLesson.value.title)
   : t('courseFiles.lessonPlan'))
+const selectedPracticeLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedPracticeLessonId.value))
+const practiceNodeIds = computed(() => {
+  const lesson = selectedPracticeLesson.value
+  const lessonId = lesson?.lesson_unit_id || selectedPracticeLessonId.value
+  if (!lessonId) return []
+  const includedIds = new Set([
+    lessonId,
+    ...(lesson?.sections || []).map(section => section.section_node_id),
+  ])
+  // 旧课程可能还没有独立的教师课次投影，但课程树仍是正式内容真相。
+  // 通过课次标题找到对应一级节点，保证从旧课程文件夹进入出题时也能
+  // 把当前课次的二级小节作为既有重建接口的 node_ids 传下去。
+  if (lesson) {
+    const normalizedTitle = lesson.title.replace(/^第\s*\d+\s*[讲章节]\s*/, '').trim()
+    const matchingNode = courseStore.nodes.find(node => (
+      Number(node.node_level || 0) === 1
+      && node.node_name.replace(/^第\s*\d+\s*[讲章节]\s*/, '').trim() === normalizedTitle
+    ))
+    if (matchingNode) includedIds.add(matchingNode.node_id)
+  }
+  let expanded = true
+  while (expanded) {
+    expanded = false
+    courseStore.nodes.forEach(node => {
+      if (!includedIds.has(node.node_id) && includedIds.has(node.parent_node_id)) {
+        includedIds.add(node.node_id)
+        expanded = true
+      }
+    })
+  }
+  return courseStore.nodes
+    .filter(node => includedIds.has(node.node_id) && Number(node.node_level || 0) === 2)
+    .map(node => node.node_id)
+})
+const practiceScopeLabel = computed(() => {
+  const lesson = selectedPracticeLesson.value
+  if (lesson) return `${lesson.number}. ${lesson.title}`
+  return courseStore.nodes.find(node => node.node_id === selectedPracticeLessonId.value)?.node_name || ''
+})
 const agentContextText = computed(() => selectedContext.value.nodeId
   ? t('courseFiles.agentContext')
     .replace('{label}', selectedContext.value.label)
@@ -170,7 +216,8 @@ function openLessonPlan(lessonId: string) {
   lessonOpen.value = true
 }
 
-function openPractice(_lessonId: string) {
+function openPractice(lessonId: string) {
+  selectedPracticeLessonId.value = lessonId
   workbenchSection.value = 'question-bank'
   workbenchOpen.value = true
 }
@@ -237,8 +284,8 @@ onMounted(loadWorkspace)
 .workspace-loading.is-error { flex-direction:column; color:#b91c1c; }
 .workspace-loading button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
-.teacher-agent-host { position:fixed; z-index:520; top:80px; right:10px; bottom:10px; width:clamp(360px,28vw,420px); }
-.teacher-agent-host :deep(.ai-teacher-panel) { height:100%; }
+.teacher-agent-host { position:fixed; z-index:610; inset:0; width:100vw; height:100dvh; }
+.teacher-agent-host :deep(.ai-teacher-panel) { width:100%; height:100%; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:720px) {
@@ -249,6 +296,6 @@ onMounted(loadWorkspace)
   .workspace-route-actions { gap:5px; }
   .workspace-route-actions button { padding:0 8px; font-size:12px; }
   .workspace-route-actions .task-action { display:none; }
-  .teacher-agent-host { position:static; width:0; height:0; }
+  .teacher-agent-host { position:fixed; inset:0; width:100vw; height:100dvh; }
 }
 </style>

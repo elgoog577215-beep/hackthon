@@ -561,16 +561,44 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('100%')
   })
 
-  it('提供整门课程题目重新生成按钮和真实进度条', async () => {
+  it('从课次入口按当前小节范围生成并保留同一正式题库', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1',
+        initialNodeIds: ['section-1', 'section-2'],
+        initialScopeLabel: '1. 内存管理',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="question-generation-studio"]').text())
+      .toContain('1. 内存管理')
+    await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
+    await flushPromises()
+
+    expect(runQuestionBankRebuild).toHaveBeenCalledWith(
+      'course-1',
+      {
+        request_id: expect.any(String),
+        scope: 'nodes',
+        node_ids: ['section-1', 'section-2'],
+        mode: 'incremental',
+        retrieval_enabled: false,
+      },
+      expect.objectContaining({ onUpdate: expect.any(Function) }),
+    )
+  })
+
+  it('通过智能出题工作台生成整门课程题目并展示真实进度', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: { courseId: 'course-1' },
     })
     await flushPromises()
 
     const button = wrapper.get(
-      '[data-testid="rebuild-course-question-bank"]',
+      '[data-testid="generate-question-bank"]',
     )
-    expect(button.text()).toContain('重新生成整门课程题目')
+    expect(button.text()).toContain('开始智能出题')
     await button.trigger('click')
     await flushPromises()
 
@@ -581,7 +609,7 @@ describe('QuestionBankReviewPanel', () => {
         scope: 'course',
         node_ids: [],
         mode: 'full',
-        resume_existing: false,
+        resume_existing: true,
         retrieval_enabled: false,
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
@@ -602,11 +630,8 @@ describe('QuestionBankReviewPanel', () => {
     await flushPromises()
 
     const button = wrapper.get(
-      '[data-testid="rebuild-missing-question-bank"]',
+      '[data-testid="generate-question-bank"]',
     )
-    expect(
-      wrapper.find('[data-testid="rebuild-course-question-bank"]').exists(),
-    ).toBe(false)
     await button.trigger('click')
     await flushPromises()
 
@@ -721,7 +746,7 @@ describe('QuestionBankReviewPanel', () => {
       '章节发布 15/63 · 当前 4.5 装饰器（2/3）',
     )
     expect(
-      wrapper.get('[data-testid="rebuild-course-question-bank"]')
+      wrapper.get('[data-testid="generate-question-bank"]')
         .attributes('disabled'),
     ).toBeDefined()
     wrapper.unmount()
@@ -748,7 +773,7 @@ describe('QuestionBankReviewPanel', () => {
     await flushPromises()
 
     await wrapper
-      .get('[data-testid="rebuild-course-question-bank"]')
+      .get('[data-testid="generate-question-bank"]')
       .trigger('click')
     await flushPromises()
 

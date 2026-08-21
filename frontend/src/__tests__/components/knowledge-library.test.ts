@@ -191,6 +191,12 @@ async function mountLibrary(focusKnowledgeId = '') {
   return { wrapper, courseStore }
 }
 
+async function openKnowledgePath(wrapper: Awaited<ReturnType<typeof mountLibrary>>['wrapper']) {
+  const tabs = wrapper.findAll('[data-testid="knowledge-view-mode"] [role="tab"]')
+  const pathTab = tabs.find(tab => tab.text().includes('知识路径') || tab.text().includes('Knowledge path'))
+  await pathTab?.trigger('click')
+}
+
 describe('Course knowledge library', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
@@ -205,6 +211,7 @@ describe('Course knowledge library', () => {
 
   it('只展示当前课程的路径结构与原子知识点', async () => {
     const { wrapper } = await mountLibrary()
+    await openKnowledgePath(wrapper)
 
     expect(httpMock.get).toHaveBeenCalledWith('/api/courses/course-1/learning-assets')
     expect(wrapper.text()).toContain('本课覆盖 2 / 2')
@@ -221,6 +228,7 @@ describe('Course knowledge library', () => {
 
   it('知识详情汇合能力、练习、易错、掌握标准、关系理由和正文位置', async () => {
     const { wrapper, courseStore } = await mountLibrary()
+    await openKnowledgePath(wrapper)
     const scrollSpy = vi.spyOn(courseStore, 'scrollToNode')
     await wrapper.get('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node').trigger('click')
 
@@ -256,6 +264,7 @@ describe('Course knowledge library', () => {
       data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
     })
     const { wrapper } = await mountLibrary()
+    await openKnowledgePath(wrapper)
     const points = wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')
 
     await points[0]!.trigger('click')
@@ -285,6 +294,7 @@ describe('Course knowledge library', () => {
         data: { ...response().data, assets: { ...response().data.assets, knowledge_library: [patched] } },
       })
       const { wrapper } = await mountLibrary()
+      await openKnowledgePath(wrapper)
       await wrapper.findAll('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node')[0]!.trigger('click')
       labels.push(wrapper.get('.knowledge-tree-detail-footer').text())
     }
@@ -343,6 +353,7 @@ describe('Course knowledge library', () => {
     const { wrapper, courseStore } = await mountLibrary(
       'linear-combination-definition',
     )
+    await openKnowledgePath(wrapper)
 
     expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe(
       '线性组合的形式定义',
@@ -355,6 +366,7 @@ describe('Course knowledge library', () => {
 
   it('搜索原子知识时保留课程、章节、小节和概念组祖先路径', async () => {
     const { wrapper } = await mountLibrary()
+    await openKnowledgePath(wrapper)
     const input = wrapper.get('.knowledge-tree-search input')
     await input.setValue('系数数域')
     await input.trigger('keydown', { key: 'Enter' })
@@ -368,9 +380,10 @@ describe('Course knowledge library', () => {
   it('英文模式呈现课程知识结构且不泄露翻译键', async () => {
     await setLocale('en')
     const { wrapper } = await mountLibrary()
+    await openKnowledgePath(wrapper)
     await wrapper.get('.knowledge-tree-row.is-knowledge_point .knowledge-tree-node').trigger('click')
 
-    expect(wrapper.text()).toContain('Knowledge library')
+    expect(wrapper.text()).toContain('Knowledge graph')
     expect(wrapper.text()).toContain('Skills and misconceptions')
     expect(wrapper.text()).toContain('Mistake points')
     expect(wrapper.text()).toContain('Mastery criteria')
@@ -417,7 +430,7 @@ describe('Course knowledge library', () => {
     expect(wrapper.find('[data-testid="knowledge-rebuild"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="knowledge-quality-issues"]').exists()).toBe(false)
     expect(wrapper.findAll('.knowledge-tree-row')).toHaveLength(0)
-    expect(wrapper.text()).toContain('这门课的知识库需要升级')
+    expect(wrapper.text()).toContain('这门课的知识图谱需要升级')
     expect(wrapper.text()).toContain('22 个小节')
     expect(wrapper.text()).toContain('81 个知识点')
     expect(wrapper.text()).not.toContain('结构仍与章节一一对应')
@@ -456,10 +469,10 @@ describe('Course knowledge library', () => {
     expect(wrapper.find('[data-testid="knowledge-quality-issues"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain(rawSectionId)
     expect(wrapper.text()).not.toContain('知识库未覆盖小节')
-    expect(wrapper.text()).toContain('这门课的知识库需要升级')
+    expect(wrapper.text()).toContain('这门课的知识图谱需要升级')
   })
 
-  it('知识库作为独立底栏工具打开时不再混入教学资源切换', async () => {
+  it('知识图谱作为独立底栏工具打开时不再混入教学资源切换', async () => {
     const { wrapper, courseStore } = await mountLibrary()
 
     expect(wrapper.find('.knowledge-tree-header [role="tablist"]').exists()).toBe(false)
@@ -468,7 +481,7 @@ describe('Course knowledge library', () => {
     expect(courseStore.showTeachingResources).toBe(false)
   })
 
-  it('在知识库页面上部切换知识树和只读关系图，并仅展示已启用关系', async () => {
+  it('默认展示知识图谱，可切换知识路径，并仅展示已启用关系', async () => {
     const courseEntryWithoutEdge = node({
       knowledge_id: 'course-entry-without-edge',
       parent_id: 'group-linear-combination',
@@ -510,10 +523,8 @@ describe('Course knowledge library', () => {
     const { wrapper } = await mountLibrary()
 
     const viewTabs = wrapper.findAll('[data-testid="knowledge-view-mode"] [role="tab"]')
-    expect(viewTabs.map(tab => tab.text())).toEqual(['知识树', '关系图'])
+    expect(viewTabs.map(tab => tab.text())).toEqual(['知识图谱', '知识路径'])
     expect(viewTabs[0]!.attributes('aria-selected')).toBe('true')
-
-    await viewTabs[1]!.trigger('click')
 
     expect(wrapper.find('[data-testid="knowledge-relation-graph"]').exists()).toBe(true)
     const edges = wrapper.findAll('[data-testid="knowledge-graph-edge"]')
@@ -542,7 +553,7 @@ describe('Course knowledge library', () => {
     await targetNode.trigger('click')
     expect(targetNode.attributes('aria-pressed')).toBe('true')
 
-    await viewTabs[0]!.trigger('click')
+    await viewTabs[1]!.trigger('click')
     expect(wrapper.get('.knowledge-tree-detail h2').text()).toBe('线性组合的形式定义')
   })
 

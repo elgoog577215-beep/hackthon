@@ -107,6 +107,8 @@
               <QuestionBankReviewPanel
                 :key="selectedCourse.course_id"
                 :course-id="selectedCourse.course_id"
+                :initial-node-ids="initialQuestionNodeIds"
+                :initial-scope-label="initialQuestionScopeLabel"
               />
             </div>
             <div v-else class="review-center__empty">
@@ -140,9 +142,13 @@ const props = withDefaults(defineProps<{
   modelValue: boolean
   courseId?: string
   embedded?: boolean
+  initialQuestionNodeIds?: string[]
+  initialQuestionScopeLabel?: string
 }>(), {
   courseId: '',
   embedded: false,
+  initialQuestionNodeIds: () => [],
+  initialQuestionScopeLabel: '',
 })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]

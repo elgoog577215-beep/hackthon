@@ -59,9 +59,9 @@ describe('mobile UI density contract', () => {
     )
   })
 
-  it('uses one recovery action, a compact status band, and transform-based progress', () => {
+  it('uses one visible generation action, a compact status band, and transform-based progress', () => {
     expect(reviewPanelSource).toMatch(
-      /v-if="!errorMessage"[\s\S]*?data-testid="rebuild-course-question-bank"/,
+      /data-testid="question-generation-studio"[\s\S]*?data-testid="generate-question-bank"/,
     )
     expect(reviewPanelSource).toMatch(
       /\.question-bank-summary\s*\{[^}]*border-block:1px solid/,
