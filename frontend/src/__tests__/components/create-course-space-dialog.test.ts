@@ -16,7 +16,10 @@ describe('CreateCourseSpaceDialog', () => {
       global: { stubs: { Teleport: true } },
     })
 
-    expect(wrapper.text()).toContain('先建立一个空的课程空间')
+    // 原来这里断言 courseSpaceCreate.rule 那句提示文案，8d78a384
+    // 「remove redundant teacher ui copy」已把它从模板删掉，属有意精简。
+    // 用例真正要钉的是「只收集必需信息」，改断必需字段确实渲染。
+    expect(wrapper.text()).toContain('课程名称')
     expect(wrapper.text()).not.toContain('课程类型')
     expect(wrapper.text()).not.toContain('生成模式')
     await wrapper.get('.course-name-field input').setValue('人工智能通识课')

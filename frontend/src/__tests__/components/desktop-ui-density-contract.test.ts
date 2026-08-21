@@ -24,7 +24,9 @@ describe('desktop UI density contract', () => {
 
   it('uses the desktop workbench width for content instead of modal margins', () => {
     expect(workbenchSource).toMatch(/width:min\(1320px,calc\(100vw - 40px\)\)/)
-    expect(workbenchSource).toMatch(/grid-template-rows:62px minmax\(0,1fr\)/)
+    // 表头高度跟随组件：5150a085「simplify teacher workspace ui」把 .course-workbench
+    // 改成 64px，本断言原停在 8f4322de（2026-08-12）的 62px，是过期值不是回归。
+    expect(workbenchSource).toMatch(/grid-template-rows:64px minmax\(0,1fr\)/)
     expect(taskCenterSource).toMatch(/grid-template-columns:260px minmax\(0,1fr\)/)
   })
 

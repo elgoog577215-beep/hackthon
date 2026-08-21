@@ -70,7 +70,12 @@ async def test_call_llm_falls_back_to_next_available_model(monkeypatch):
 
     assert await ai._call_llm("只回复 OK", retry_count=1) == "OK"
     assert fake.chat.completions.models == ["bad-model", "good-model"]
-    assert fake.chat.completions.extra_bodies[-1] == {"enable_thinking": False}
+    # extra_body 现在同时发扁平 enable_thinking 与 chat_template_kwargs 两种写法：
+    # vLLM 只认后者，扁平写法会被静默忽略（见 backend/tests/test_vllm_qwen_compat.py
+    # 的 test_thinking_switch_is_sent_in_both_shapes）。这里改钉契约而不是精确相等，
+    # 否则每多一个 provider 兼容字段就要回来改一次。
+    assert fake.chat.completions.extra_bodies[-1]["enable_thinking"] is False
+    assert fake.chat.completions.extra_bodies[-1]["chat_template_kwargs"] == {"enable_thinking": False}
     assert ai._models_for(use_fast_model=False)[0] == "good-model"
 
 
@@ -88,7 +93,12 @@ async def test_call_llm_can_enable_thinking_for_high_value_steps(monkeypatch):
     ai.client = fake
 
     assert await ai._call_llm("设计课程大纲", retry_count=1, enable_thinking=True) == "OK"
-    assert fake.chat.completions.extra_bodies[-1] == {"enable_thinking": True}
+    # extra_body 现在同时发扁平 enable_thinking 与 chat_template_kwargs 两种写法：
+    # vLLM 只认后者，扁平写法会被静默忽略（见 backend/tests/test_vllm_qwen_compat.py
+    # 的 test_thinking_switch_is_sent_in_both_shapes）。这里改钉契约而不是精确相等，
+    # 否则每多一个 provider 兼容字段就要回来改一次。
+    assert fake.chat.completions.extra_bodies[-1]["enable_thinking"] is True
+    assert fake.chat.completions.extra_bodies[-1]["chat_template_kwargs"] == {"enable_thinking": True}
 
 
 @pytest.mark.asyncio
