@@ -104,6 +104,11 @@ def revision_vector_for_course(
         revision = str(artifact.get("revision_id") or "")
         if revision:
             revisions[source_key] = revision
+    generation_request_revision = str(
+        course_data.get("generation_request_revision") or ""
+    )
+    if generation_request_revision:
+        revisions["generation_request"] = generation_request_revision
     return CourseRevisionVector(
         course_id=vector.course_id,
         revisions=revisions,

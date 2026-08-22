@@ -66,6 +66,8 @@
         @open-tasks="openTasks"
         @open-practice="openPractice"
         @open-assistant="agentOpen = true"
+        @edit-baseline="openBaselineEditor"
+        @discuss-baseline="openBaselineAssistant"
         @context-change="selectedContext = $event"
         @readiness-change="readiness = $event"
       />
@@ -78,9 +80,13 @@
           :quote-node-id="selectedContext.lessonId"
           :entrypoint="selectedContext.nodeId ? 'selection' : 'global'"
           :scope-files="teacherAssistantFiles"
+          :prefill="agentPrefill"
+          course-baseline-draft-enabled
+          :course-baseline-draft-busy="baselineDraftBusy"
           @close="agentOpen = false"
           @block-applied="loadWorkspace"
           @course-applied="loadWorkspace"
+          @course-baseline-draft="createBaselineDraft"
         />
       </aside>
     </section>
@@ -118,14 +124,26 @@
       :course-id="courseId"
       surface="teacher"
     />
+
+    <CourseBaselineDialog
+      v-model="baselineEditorOpen"
+      :busy="baselineSaveBusy"
+      :initial-options="baselineEditorOptions"
+      :context-key="baselineEditorContextKey"
+      :ai-draft="baselineEditorSource === 'ai_draft'"
+      @save="saveCourseBaseline"
+      @discuss-ai="openBaselineAssistant"
+    />
   </main>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
+import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
@@ -158,6 +176,15 @@ const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
+const courseGenerationRevision = ref(0)
+const baselineEditorOpen = ref(false)
+const baselineEditorOptions = ref<CourseGenerationOptions & { subject?: string }>({})
+const baselineEditorRevision = ref(0)
+const baselineEditorSource = ref<'manual' | 'ai_draft'>('manual')
+const baselineDraftId = ref('')
+const baselineSaveBusy = ref(false)
+const baselineDraftBusy = ref(false)
+const agentPrefill = ref('')
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -191,6 +218,7 @@ const teacherAssistantFiles = computed(() => courseStore.nodes
       path: parent ? `${parent.node_name} / ${node.node_name}` : node.node_name,
     }
   }))
+const baselineEditorContextKey = computed(() => `${baselineEditorRevision.value}:${baselineDraftId.value}:${baselineEditorSource.value}`)
 
 function backToSource() {
   const returnTo = String(route.query.returnTo || '')
@@ -214,6 +242,7 @@ async function loadWorkspace() {
     await lessonStore.load(courseId.value).catch(() => undefined)
     const courseResponse = await http.get(`/api/courses/${courseId.value}`, { silentError: true }).catch(() => ({ data: {} }))
     courseGenerationOptions.value = courseResponse.data?.generation_request || {}
+    courseGenerationRevision.value = Number(courseResponse.data?.generation_request_revision || 0)
     await nextTick()
     const requestedSection = String(route.query.section || '')
     if (requestedSection === 'outline') outlineOpen.value = true
@@ -222,6 +251,75 @@ async function loadWorkspace() {
     loadError.value = String(error?.response?.data?.detail || error?.message || t('courseFiles.loadFailed'))
   } finally {
     loading.value = false
+  }
+}
+
+function openBaselineEditor() {
+  baselineEditorOptions.value = { ...courseGenerationOptions.value }
+  baselineEditorRevision.value = courseGenerationRevision.value
+  baselineEditorSource.value = 'manual'
+  baselineDraftId.value = ''
+  baselineEditorOpen.value = true
+}
+
+async function openBaselineAssistant() {
+  baselineEditorOpen.value = false
+  agentOpen.value = true
+  agentPrefill.value = ''
+  await nextTick()
+  agentPrefill.value = t('courseFiles.workbench.aiDiscussionPrefill')
+}
+
+async function createBaselineDraft(payload: { conversationId: string; messageId: string }) {
+  if (baselineDraftBusy.value) return
+  baselineDraftBusy.value = true
+  try {
+    const response = await http.post(`/api/courses/${courseId.value}/generation-request/draft`, {
+      conversation_id: payload.conversationId,
+      through_message_id: payload.messageId,
+    }, { silentError: true })
+    baselineEditorOptions.value = response.data?.generation_request || { ...courseGenerationOptions.value }
+    baselineEditorRevision.value = Number(response.data?.based_on_revision ?? courseGenerationRevision.value)
+    baselineEditorSource.value = 'ai_draft'
+    baselineDraftId.value = String(response.data?.draft_id || '')
+    baselineEditorOpen.value = true
+  } catch (error: any) {
+    const code = String(error?.response?.data?.detail?.code || '')
+    ElMessage.error(t(code === 'course_baseline_draft_invalid'
+      ? 'courseFiles.workbench.aiDraftInvalid'
+      : 'courseFiles.workbench.aiDraftFailed'))
+  } finally {
+    baselineDraftBusy.value = false
+  }
+}
+
+async function saveCourseBaseline(payload: { subject: string; options: CourseGenerationOptions }) {
+  if (baselineSaveBusy.value || !courseStore.currentDocumentRevision) return
+  baselineSaveBusy.value = true
+  try {
+    const response = await http.put(`/api/courses/${courseId.value}/generation-request`, {
+      generation_request: { subject: payload.subject, ...payload.options },
+      expected_revision: baselineEditorRevision.value,
+      expected_document_revision: courseStore.currentDocumentRevision,
+      idempotency_key: `course-baseline:${crypto.randomUUID()}`,
+      source: baselineEditorSource.value,
+      draft_id: baselineDraftId.value,
+    }, { silentError: true })
+    courseGenerationOptions.value = response.data?.generation_request || { subject: payload.subject, ...payload.options }
+    courseGenerationRevision.value = Number(response.data?.revision || baselineEditorRevision.value + 1)
+    baselineEditorOpen.value = false
+    ElMessage.success(t('courseFiles.workbench.baselineSaved'))
+  } catch (error: any) {
+    const detail = error?.response?.data?.detail
+    if (detail?.code === 'course_baseline_revision_changed') {
+      courseGenerationOptions.value = detail.generation_request || courseGenerationOptions.value
+      courseGenerationRevision.value = Number(detail.current_revision || courseGenerationRevision.value)
+      ElMessage.warning(t('courseFiles.workbench.baselineConflict'))
+    } else {
+      ElMessage.error(t('courseFiles.workbench.baselineSaveFailed'))
+    }
+  } finally {
+    baselineSaveBusy.value = false
   }
 }
 

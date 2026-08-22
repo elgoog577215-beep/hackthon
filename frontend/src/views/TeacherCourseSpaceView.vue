@@ -236,12 +236,15 @@
               <span><SlidersHorizontal :size="16" /></span>
               <div><strong>{{ t('courseFiles.workbench.settingsTitle') }}</strong></div>
             </div>
-            <dl>
-              <div v-for="item in productionContextItems" :key="item.label" :title="item.title || item.value">
-                <dt>{{ item.label }}</dt><dd :data-empty="item.empty || undefined">{{ item.value }}</dd>
-              </div>
-            </dl>
-            <button type="button" class="workbench-settings-button" @click="emit('openAssistant')"><Sparkles :size="14" />{{ t('courseFiles.workbench.discussWithAi') }}</button>
+            <div class="workbench-brief-items">
+              <button v-for="item in productionContextItems" :key="item.label" type="button" :title="item.title || item.value" @click="emit('editBaseline')">
+                <span>{{ item.label }}</span><strong :data-empty="item.empty || undefined">{{ item.value }}</strong>
+              </button>
+            </div>
+            <div class="workbench-brief-actions">
+              <button type="button" class="workbench-edit-baseline" @click="emit('editBaseline')"><Pencil :size="14" />{{ t('courseFiles.workbench.adjustSettings') }}</button>
+              <button type="button" class="workbench-settings-button" @click="emit('openAssistant'); emit('discussBaseline')"><Sparkles :size="14" />{{ t('courseFiles.workbench.discussWithAi') }}</button>
+            </div>
           </section>
 
           <div v-if="categoryDetailNode && categoryDetailMarkdown" class="category-document-scroll">
@@ -413,6 +416,8 @@ const emit = defineEmits<{
   (event: 'openTasks'): void
   (event: 'openPractice', lessonId: string): void
   (event: 'openAssistant'): void
+  (event: 'editBaseline'): void
+  (event: 'discussBaseline'): void
   (event: 'contextChange', context: { lessonId: string; nodeId: string; label: string; type: NodeType; path: string }): void
   (event: 'readinessChange', summary: { required: number; ready: number; pending: number }): void
   (event: 'update:workspaceView', value: WorkspaceView): void
@@ -1424,7 +1429,8 @@ onMounted(refresh)
 .category-detail-header{min-height:92px;padding:16px 26px;border-bottom-color:#edf0f5}.category-detail-header h2{font-size:21px;letter-spacing:-.016em}.category-detail-actions button{min-height:40px;padding:0 15px;border-radius:12px}
 .workbench-brief-bar{min-height:104px;display:grid;grid-template-columns:minmax(145px,.58fr) minmax(420px,2fr) auto;align-items:center;gap:18px;padding:14px 24px;border-bottom:1px solid #edf0f5;background:#fbfcff}
 .workbench-brief-bar__title{min-width:0;display:flex;align-items:center;gap:11px}.workbench-brief-bar__title>span{width:38px;height:38px;display:grid;place-items:center;flex:none;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.workbench-brief-bar__title>div{min-width:0;display:grid}.workbench-brief-bar__title strong{font-size:14px}
-.workbench-brief-bar dl{min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0}.workbench-brief-bar dl>div{min-width:0;display:grid;gap:3px;padding:8px 10px;border:1px solid #e8ebf2;border-radius:12px;background:#fff}.workbench-brief-bar dt{color:var(--lz-text-muted);font-size:11px}.workbench-brief-bar dd{margin:0;overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.workbench-brief-bar dd[data-empty="true"]{color:#a1a9b6;font-weight:600}
+.workbench-brief-items{min-width:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.workbench-brief-items button{min-width:0;display:grid;gap:3px;padding:8px 10px;border:1px solid #e8ebf2;border-radius:12px;color:inherit;background:#fff;text-align:left;cursor:pointer}.workbench-brief-items button:hover{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.workbench-brief-items button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.workbench-brief-items span{color:var(--lz-text-muted);font-size:12px}.workbench-brief-items strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}.workbench-brief-items strong[data-empty="true"]{color:#a1a9b6;font-weight:600}
+.workbench-brief-actions{display:flex;align-items:center;gap:7px}.workbench-edit-baseline{display:none}
 .workbench-settings-button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid var(--lz-brand-border);border-radius:12px;color:var(--lz-brand-strong);background:#fff;font-size:12px;font-weight:750;white-space:nowrap;cursor:pointer}.workbench-settings-button:hover{background:var(--lz-brand-soft)}.workbench-settings-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .category-document-scroll{padding:24px 28px 42px;background:#f8f9fc}.category-document{width:min(980px,100%);padding:38px 46px 56px;border-color:#e6eaf1;border-radius:22px;box-shadow:0 14px 34px rgba(15,23,42,.045)}
 .category-console{min-height:0;overflow:auto;display:grid;place-items:center;padding:32px;background:#f8f9fc}
@@ -1435,12 +1441,12 @@ onMounted(refresh)
 .category-group__step,
 .category-group__copy small,
 .workbench-brief-bar__title small,
-.workbench-brief-bar dt,
+.workbench-brief-items span,
 .category-console__step,
 .category-prerequisite small { font-size:12px; }
 .category-console__actions{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:28px}.category-console__actions button{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid var(--lz-border);border-radius:13px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:750;cursor:pointer}.category-console__actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand);box-shadow:0 9px 20px rgba(99,102,241,.17)}.category-console__actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-console__actions button:disabled{opacity:.45;cursor:not-allowed}.category-console__actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
-@media (max-width:1180px){.category-layout{grid-template-columns:280px minmax(0,1fr)}.workbench-brief-bar{grid-template-columns:minmax(160px,.7fr) minmax(300px,1.5fr) auto;gap:12px;padding-inline:16px}.workbench-brief-bar dl>div:nth-child(n+5){display:none}.workbench-brief-bar dl{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media (max-width:760px){.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(210px,37vh) minmax(0,1fr)}.category-navigation{padding:10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-progress{margin:0 2px 8px;padding:8px 10px}.category-group__button{min-height:54px;grid-template-columns:24px 16px minmax(0,1fr) auto;padding:7px 8px}.category-group__step{width:24px;height:24px}.category-group__copy small{display:none}.category-children{margin-bottom:5px}.category-detail-header{min-height:66px}.workbench-brief-bar{min-height:60px;grid-template-columns:minmax(0,1fr) auto;padding:8px 12px}.workbench-brief-bar__title small,.workbench-brief-bar dl{display:none}.category-console{padding:14px 10px 26px}.category-console__card{padding:22px 18px 24px;border-radius:12px}.category-console__card h3{margin-top:18px;font-size:19px}.category-console__actions{width:100%;display:grid;grid-template-columns:1fr;margin-top:20px}.category-console__actions button{width:100%}}
+@media (max-width:1180px){.category-layout{grid-template-columns:280px minmax(0,1fr)}.workbench-brief-bar{grid-template-columns:minmax(130px,.55fr) minmax(300px,1.7fr) auto;gap:12px;padding-inline:16px}.workbench-brief-items{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(210px,37vh) minmax(0,1fr)}.category-navigation{padding:10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-progress{margin:0 2px 8px;padding:8px 10px}.category-group__button{min-height:54px;grid-template-columns:24px 16px minmax(0,1fr) auto;padding:7px 8px}.category-group__step{width:24px;height:24px}.category-group__copy small{display:none}.category-children{margin-bottom:5px}.category-detail-header{min-height:66px}.workbench-brief-bar{min-height:60px;grid-template-columns:minmax(0,1fr) auto;padding:8px 12px}.workbench-brief-bar__title small,.workbench-brief-items{display:none}.workbench-edit-baseline{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;border:1px solid var(--lz-border);border-radius:11px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:750;white-space:nowrap;cursor:pointer}.category-console{padding:14px 10px 26px}.category-console__card{padding:22px 18px 24px;border-radius:12px}.category-console__card h3{margin-top:18px;font-size:19px}.category-console__actions{width:100%;display:grid;grid-template-columns:1fr;margin-top:20px}.category-console__actions button{width:100%}}
 @media (max-width:760px){.category-layout{grid-template-rows:minmax(210px,34vh) minmax(0,1fr)}.category-navigation{margin:8px 8px 0;padding:9px;border:1px solid #e6eaf1;border-radius:18px}.category-detail-pane{margin:8px;border-radius:18px}.category-detail-header{padding:11px 14px}.category-document-scroll{padding:10px 8px 24px}.category-document{padding:22px 18px 34px;border-radius:16px}.category-console{padding:12px 8px 22px}.category-console__card{padding:26px 20px 28px;border-radius:18px}.category-console__icon{width:48px;height:48px;border-radius:15px}.workbench-settings-button{min-height:38px;border-radius:11px}}
 @media (max-width:760px){.file-layout{grid-template-rows:170px minmax(280px,45vh) auto;align-content:start;overflow-y:auto}.file-inspector{max-height:none;display:block;overflow:visible}.inspector-overview{min-height:auto;overflow:visible}.inspector-actions{margin-top:0}}
 </style>

@@ -53,3 +53,6 @@
 - [x] 6.3 Preserve file scoping, reviewable proposals, impact preview and explicit confirmation in the embedded assistant; keep fullscreen behavior for other surfaces.
 - [x] 6.4 Add zh/en copy and focused tests for the three-column workbench and fixed-audience creation boundary.
 - [x] 6.5 Run focused tests, build, strict OpenSpec validation, the design detector and desktop/mobile real-page verification; update canonical docs and release evidence.
+- [x] 6.6 Make every course-framing item open a prefilled baseline editor and persist explicit teacher-confirmed changes without starting generation.
+- [x] 6.7 Let the existing teacher conversation produce a bounded, reviewable course-framing draft that opens in the same editor without silently saving.
+- [x] 6.8 Verify baseline persistence, AI draft boundaries, zh/en copy and desktop/mobile editing flows.

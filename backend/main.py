@@ -49,7 +49,7 @@ except ImportError:
 
 # 导入路由模块
 from routers import (
-    courses, nodes, assistant, ai_teacher,
+    courses, course_baseline, nodes, assistant, ai_teacher,
     review,
     code_execution, diagrams, tasks,
     markdown_import, materials, course_versions, learning_assets,
@@ -162,6 +162,7 @@ def read_root():
 # ============================================================================
 
 app.include_router(courses.router, prefix="/api")
+app.include_router(course_baseline.router, prefix="/api")
 app.include_router(nodes.router, prefix="/api")
 app.include_router(assistant.router, prefix="/api")
 app.include_router(ai_teacher.router)

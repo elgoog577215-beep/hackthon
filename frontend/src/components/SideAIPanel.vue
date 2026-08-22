@@ -642,6 +642,18 @@
                   {{ t('courseWorkspace.aiTeacher.saveAsNote', '保存为笔记') }}
                 </button>
               </div>
+
+              <div
+                v-if="isTeacherMode && props.courseBaselineDraftEnabled && message.status === 'complete' && message.message_id === latestCompletedAssistantMessageId"
+                class="baseline-draft-command"
+              >
+                <button type="button" :disabled="props.courseBaselineDraftBusy" @click="requestCourseBaselineDraft(message)">
+                  <LoaderCircle v-if="props.courseBaselineDraftBusy" class="spin" :size="14" />
+                  <SlidersHorizontal v-else :size="14" />
+                  {{ props.courseBaselineDraftBusy ? t('courseFiles.workbench.aiDraftPreparing') : t('courseFiles.workbench.aiDraftAction') }}
+                </button>
+                <small>{{ t('courseFiles.workbench.aiDraftActionHelp') }}</small>
+              </div>
             </div>
           </template>
         </article>
@@ -708,6 +720,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  SlidersHorizontal,
   Sparkles,
   Square,
   Trash2,
@@ -758,10 +771,14 @@ const props = withDefaults(defineProps<{
   blockTarget?: CourseBlockEditTarget
   scopeFiles?: Array<{ id: string; label: string; nodeId?: string; path?: string }>
   embedded?: boolean
+  courseBaselineDraftEnabled?: boolean
+  courseBaselineDraftBusy?: boolean
 }>(), {
   mode: 'learner',
   scopeFiles: () => [],
   embedded: false,
+  courseBaselineDraftEnabled: false,
+  courseBaselineDraftBusy: false,
 })
 
 const emit = defineEmits<{
@@ -769,6 +786,7 @@ const emit = defineEmits<{
   (event: 'clearBlockTarget'): void
   (event: 'blockApplied', target: CourseBlockEditTarget): void
   (event: 'courseApplied', presentation: CourseEvolutionApplicationPresentation): void
+  (event: 'courseBaselineDraft', payload: { conversationId: string; messageId: string }): void
 }>()
 const aiStore = useAITeacherStore()
 const courseStore = useCourseStore()
@@ -798,6 +816,9 @@ let personalizationApplyToken = 0
 const focusedEvolutionPlanId = ref('')
 
 const isTeacherMode = computed(() => props.mode === 'teacher')
+const latestCompletedAssistantMessageId = computed(() => (
+  [...aiStore.messages].reverse().find(message => message.role === 'assistant' && message.status === 'complete')?.message_id || ''
+))
 const allScopeFilesSelected = computed(() => (
   props.scopeFiles.length > 0
   && props.scopeFiles.every(file => selectedScopeFileIds.has(file.id))
@@ -1043,6 +1064,13 @@ async function initialize() {
 async function sendPrompt(prompt: string) {
   input.value = prompt
   await send()
+}
+
+function requestCourseBaselineDraft(message: AIMessage) {
+  emit('courseBaselineDraft', {
+    conversationId: aiStore.currentConversationId,
+    messageId: message.message_id,
+  })
 }
 
 async function send() {
@@ -1949,6 +1977,7 @@ onUnmounted(() => {
 .model-failure small { color:#a75757; font-size:9px; line-height:1.45; overflow-wrap:anywhere; }
 .message-commands button { min-height: 27px; display: inline-flex; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid #e0e7ff; border-radius: 7px; color: var(--lz-brand-strong); background: #fff; font-size: 9px; cursor: pointer; }
 .message-commands button:hover { background: #f5f3ff; }
+.baseline-draft-command{display:grid;justify-items:start;gap:5px;padding-top:2px}.baseline-draft-command button{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border:1px solid var(--lz-brand-border);border-radius:9px;color:var(--lz-brand-strong);background:#fff;font-size:12px;font-weight:750;cursor:pointer}.baseline-draft-command button:hover:not(:disabled){background:var(--lz-brand-soft)}.baseline-draft-command button:disabled{cursor:not-allowed;opacity:.6}.baseline-draft-command small{color:var(--lz-text-muted);font-size:12px;line-height:1.45}
 
 .action-proposal { min-width: 0; display: grid; grid-template-columns: 27px minmax(0,1fr); gap: 9px; padding: 10px; border: 1px solid #c7d2fe; border-radius: 9px; background: linear-gradient(135deg,#eef2ff,#faf5ff); }
 .action-proposal__icon { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; color: var(--lz-brand); background: #fff; }
