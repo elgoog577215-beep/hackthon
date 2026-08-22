@@ -909,7 +909,7 @@ async function submit() {
 
 <style scoped>
 .generation-dialog-layer { position: fixed; inset: 0; z-index: 520; display: grid; place-items: center; padding: 20px; }
-.generation-dialog-layer:has(.generation-dialog--course-space) { padding:14px; }
+.generation-dialog-layer:has(.generation-dialog--course-space) { padding:24px; }
 .generation-dialog-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30, 41, 59, .34); cursor: default; }
 .generation-dialog { position: relative; width: min(920px, 100%); max-height: min(860px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--lz-border); border-radius: 12px; color: var(--lz-text); background: #fff; box-shadow: var(--lz-shadow-overlay); outline: none; }
 .generation-dialog__header { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--lz-border); }
@@ -1043,55 +1043,24 @@ async function submit() {
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.generation-dialog--course-space { width:min(1320px,100%); height:calc(100vh - 28px); max-height:calc(100vh - 28px); border:1px solid rgba(255,255,255,.78); border-radius:30px; box-shadow:0 32px 90px rgba(15,23,42,.24); }
-.generation-dialog--course-space .generation-dialog__header { min-height:96px; justify-content:flex-start; padding:18px 28px 18px 34px; border-bottom-color:#edf0f5; }
+.generation-dialog--course-space { width:min(920px,100%); height:auto; max-height:min(760px,calc(100vh - 48px)); border:1px solid var(--lz-border); border-radius:16px; box-shadow:0 20px 60px rgba(15,23,42,.2); }
+.generation-dialog--course-space .generation-dialog__header { min-height:64px; justify-content:flex-start; padding:0 16px 0 20px; border-bottom-color:#edf0f5; }
+.generation-dialog--course-space .generation-dialog__brand { width:38px; height:38px; border-radius:12px; box-shadow:0 8px 18px rgba(109,93,252,.2); }
 .generation-dialog--course-space .generation-dialog__heading { flex:1; }
-.generation-dialog--course-space .generation-dialog__heading h2 { color:#29256f; font-size:26px; font-weight:850; letter-spacing:-.025em; }
-.generation-dialog--course-space .icon-button { width:42px; height:42px; border-radius:13px; color:#8b97aa; }
-.generation-dialog--course-space .generation-dialog__body { padding:10px 42px 34px; }
-.generation-dialog--course-space .form-section { padding:26px 0; border-bottom-color:#edf0f5; }
-.generation-dialog--course-space .form-section--lead { padding-top:28px; }
-.generation-dialog--course-space .choice-group__title,
-.generation-dialog--course-space .field-label,
-.generation-dialog--course-space .teacher-brief-section__heading strong,
-.generation-dialog--course-space .strategy-settings__heading strong { margin-bottom:14px; color:#344054; font-size:14px; font-weight:800; }
-.generation-dialog--course-space .field-icon { width:30px; height:30px; border-radius:10px; }
-.generation-dialog--course-space .course-type-options { grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:0; border:0; background:transparent; }
-.generation-dialog--course-space .course-type-option { min-height:82px; justify-content:center; gap:10px; padding:14px 12px; border:2px solid #edf0f5; border-radius:18px; color:#667085; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.025); }
-.generation-dialog--course-space .course-type-option:hover:not(:disabled) { border-color:#c9c2ff; color:#5547db; background:#fff; }
-.generation-dialog--course-space .course-type-option.active { border-color:#7665ef; color:#4438ca; background:#fff; box-shadow:0 10px 24px rgba(99,102,241,.12),inset 0 0 0 1px rgba(118,101,239,.12); }
-.generation-dialog--course-space .course-type-option__icon { width:38px; height:38px; border-radius:12px; }
-.generation-dialog--course-space .course-type-option__heading strong { font-size:14px; }
-.generation-dialog--course-space .intent-section { padding-top:22px; }
-.generation-dialog--course-space .text-input,
-.generation-dialog--course-space .select-input,
-.generation-dialog--course-space .textarea-input { border-color:#dfe4ec; border-radius:14px; background:#fff; }
-.generation-dialog--course-space .text-input { height:48px; padding-inline:15px; font-size:14px; }
-.generation-dialog--course-space .text-input--large { height:52px; font-size:15px; }
-.generation-dialog--course-space .select-input { height:48px; padding-inline:13px; font-size:14px; }
-.generation-dialog--course-space .textarea-input { min-height:88px; padding:13px 15px; font-size:14px; }
-.generation-dialog--course-space .generation-advanced>summary { margin-bottom:22px; color:#344054; font-size:14px; font-weight:800; list-style:none; pointer-events:none; }
+.generation-dialog--course-space .generation-dialog__heading h2 { color:#29256f; font-size:20px; font-weight:820; letter-spacing:-.02em; }
+.generation-dialog--course-space .icon-button { color:#8b97aa; }
+.generation-dialog--course-space .generation-dialog__body { padding:4px 28px 24px; }
+.generation-dialog--course-space .form-section { padding:18px 0; border-bottom-color:#edf0f5; }
+.generation-dialog--course-space .form-section--lead { padding-top:20px; }
+.generation-dialog--course-space .generation-advanced>summary { margin-bottom:18px; color:#344054; font-size:12px; font-weight:800; list-style:none; pointer-events:none; }
 .generation-dialog--course-space .generation-advanced>summary::-webkit-details-marker { display:none; }
 .generation-dialog--course-space .teaching-settings { gap:0; }
-.generation-dialog--course-space .teaching-settings__core { gap:34px; }
-.generation-dialog--course-space .difficulty-options { gap:10px; padding:0; border:0; background:transparent; }
-.generation-dialog--course-space .difficulty-option { min-height:66px; border:2px solid #edf0f5; border-radius:16px; color:#667085; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.025); }
-.generation-dialog--course-space .difficulty-option:hover:not(:disabled) { border-color:#c9c2ff; color:#5547db; background:#fff; }
-.generation-dialog--course-space .difficulty-option.active { border-color:#7665ef; color:#4438ca; background:#fff; box-shadow:0 10px 22px rgba(99,102,241,.1),inset 0 0 0 1px rgba(118,101,239,.1); }
-.generation-dialog--course-space .difficulty-option__copy strong { font-size:14px; }
+.generation-dialog--course-space .teaching-settings__core { gap:24px; }
 .generation-dialog--course-space .strategy-settings { padding-top:0; border-top:0; }
-.generation-dialog--course-space .production-mode-options { gap:12px; }
-.generation-dialog--course-space .production-mode-options button { min-height:64px; place-items:center; padding:12px 16px; border:2px solid #edf0f5; border-radius:16px; background:#fff; text-align:center; }
-.generation-dialog--course-space .production-mode-options button.active { border-color:#7665ef; color:#4438ca; background:#fff; box-shadow:0 10px 22px rgba(99,102,241,.1),inset 0 0 0 1px rgba(118,101,239,.1); }
-.generation-dialog--course-space .production-mode-options strong { font-size:14px; }
-.generation-dialog--course-space .teacher-brief-section { gap:16px; }
-.generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
-.generation-dialog--course-space .generation-dialog__footer { min-height:82px; padding:14px 32px; border-top-color:#edf0f5; background:#fbfcff; }
-.generation-dialog--course-space .footer-actions { gap:12px; }
-.generation-dialog--course-space .primary-button,
-.generation-dialog--course-space .secondary-button { min-height:48px; padding:0 24px; border-radius:15px; font-size:14px; }
-.generation-dialog--course-space .primary-button { min-width:180px; border-color:#6757ef; background:#6757ef; box-shadow:0 10px 22px rgba(103,87,239,.2); }
-.generation-dialog--course-space .secondary-button { min-width:92px; }
+.generation-dialog--course-space .production-mode-options button { min-height:44px; place-items:center; text-align:center; }
+.generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.generation-dialog--course-space .generation-dialog__footer { min-height:60px; padding:10px 18px; border-top-color:#edf0f5; background:#fbfcff; }
+.generation-dialog--course-space .primary-button { min-width:156px; border-color:#6757ef; background:#6757ef; box-shadow:0 8px 18px rgba(103,87,239,.18); }
 @media (max-width: 760px) {
   .generation-dialog-layer,.generation-dialog-layer:has(.generation-dialog--course-space) { align-items: end; padding: 0; }
   .generation-dialog { width: 100%; max-height: calc(100vh - 56px); border-radius: 14px 14px 0 0; }
@@ -1103,15 +1072,15 @@ async function submit() {
   .generation-dialog__footer { align-items: stretch; flex-direction: column; padding: 10px 16px 14px; }
   .footer-actions,.footer-actions button { width: 100%; }
   .footer-actions button { flex: 1; }
-  .generation-dialog--course-space { height:calc(100vh - 18px); max-height:calc(100vh - 18px); border-radius:24px 24px 0 0; }
-  .generation-dialog--course-space .generation-dialog__header { min-height:78px; padding:14px 18px; }
-  .generation-dialog--course-space .generation-dialog__brand { width:46px; height:46px; border-radius:15px; }
-  .generation-dialog--course-space .generation-dialog__heading h2 { font-size:21px; }
-  .generation-dialog--course-space .generation-dialog__body { padding:4px 18px 26px; }
+  .generation-dialog--course-space { height:auto; max-height:calc(100dvh - 24px); border-radius:20px 20px 0 0; }
+  .generation-dialog--course-space .generation-dialog__header { min-height:64px; padding:0 14px; }
+  .generation-dialog--course-space .generation-dialog__brand { width:36px; height:36px; border-radius:11px; }
+  .generation-dialog--course-space .generation-dialog__heading h2 { font-size:18px; }
+  .generation-dialog--course-space .generation-dialog__body { padding:2px 16px 18px; }
   .generation-dialog--course-space .course-type-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .generation-dialog--course-space .teaching-settings__core { gap:24px; }
   .generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:1fr; }
-  .generation-dialog--course-space .generation-dialog__footer { padding:12px 18px 18px; }
+  .generation-dialog--course-space .generation-dialog__footer { padding:10px 16px 14px; }
 }
 @media (max-width: 520px) {
   .guided-intro__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
