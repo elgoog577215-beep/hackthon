@@ -10,7 +10,7 @@ from typing import Optional
 import sys
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
@@ -42,6 +42,7 @@ from web_material_curation import (
 )
 from teacher_course_space import teacher_course_space_repository
 from material_storage import material_repository
+from teaching_calendar import teaching_calendar_repository
 
 router = APIRouter(tags=["courses"])
 
@@ -139,13 +140,48 @@ def _list_courses_with_resume(
     return courses
 
 
-def _list_teacher_courses(known_task_ids: set[str]) -> list[dict]:
-    return [
+def _list_teacher_courses(
+    known_task_ids: set[str],
+    next_sessions_by_course_id: dict[str, dict] | None = None,
+) -> list[dict]:
+    courses = [
         course for course in storage.list_courses()
         if course.get("is_published")
         or not course.get("generation_job_id")
         or str(course.get("generation_job_id")) in known_task_ids
     ]
+    upcoming = next_sessions_by_course_id or {}
+    for course in courses:
+        next_session = upcoming.get(str(course.get("course_id") or ""))
+        if not next_session:
+            continue
+        course["next_session"] = next_session
+        course["academic_year"] = str(course.get("academic_year") or next_session.get("academic_year") or "")
+        course["term"] = str(course.get("term") or next_session.get("term") or "")
+    return courses
+
+
+def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) -> list[dict]:
+    sessions = teaching_calendar_repository.list_sessions(owner_id, date_from=date.today())
+    next_sessions_by_course_id: dict[str, dict] = {}
+    for session in sessions:
+        course_id = str(session.get("course_id") or "")
+        if not course_id or course_id in next_sessions_by_course_id:
+            continue
+        next_sessions_by_course_id[course_id] = {
+            "session_id": str(session.get("session_id") or ""),
+            "sequence": int(session.get("sequence") or 0),
+            "date": str(session.get("date") or ""),
+            "start_time": str(session.get("start_time") or ""),
+            "end_time": str(session.get("end_time") or ""),
+            "content_summary": str(session.get("content_summary") or ""),
+            "location": str(session.get("location") or ""),
+            "lesson_plan_status": str(session.get("lesson_plan_status") or ""),
+            "ppt_status": str(session.get("ppt_status") or ""),
+            "academic_year": str(session.get("academic_year") or ""),
+            "term": str(session.get("term") or ""),
+        }
+    return _list_teacher_courses(known_task_ids, next_sessions_by_course_id)
 
 
 @router.get("/courses")
@@ -170,10 +206,12 @@ async def list_courses(
 
 @router.get("/teacher/courses")
 async def list_teacher_courses(
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
 ):
     known_task_ids = {str(task_id) for task_id in tm.tasks}
-    return await run_in_threadpool(_list_teacher_courses, known_task_ids)
+    owner_id = resolve_user_id(request.headers.get("X-User-Id"))
+    return await run_in_threadpool(_teacher_course_library_projection, owner_id, known_task_ids)
 
 
 @router.post("/teacher/courses", status_code=201)

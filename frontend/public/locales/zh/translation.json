@@ -100,17 +100,28 @@
     "searchResults": "搜索结果",
     "collectionTitle": "全部课程",
     "collectionSummary": "{count} 门课程",
+    "actions": {
+      "start": "开始备课",
+      "viewProgress": "查看进度",
+      "resolve": "处理问题",
+      "reviewSuggestions": "查看建议",
+      "prepareNext": "准备下次课",
+      "continue": "继续备课"
+    },
     "teacherSummary": {
-      "generating": "大纲与教案正在生成，进入课程查看确认点",
-      "empty": "空课程空间 · 从大纲开始新建或生成",
-      "published": "大纲已确认 · {count} 个教学单元 · 可继续维护 PPT",
-      "draft": "{count} 个教学单元 · 等待继续组织教学"
+      "generating": "生成进度 {progress}% · 进入任务中心查看",
+      "empty": "尚无教学大纲 · 下一步建立课程大纲",
+      "scheduled": "{count} 个教学单元 · 下次 {date} {time} · 第 {sequence} 讲",
+      "published": "{count} 个教学单元 · 暂无近期排课",
+      "draft": "{count} 个教学单元 · 大纲待确认"
     },
     "status": {
-      "waitingReview": "等待教师确认",
-      "draft": "待开始备课",
-      "readyWithSuggestions": "已发布，有优化建议",
-      "ready": "课程可维护"
+      "waitingReview": "待确认",
+      "draft": "尚未开始",
+      "preparing": "备课中",
+      "needsAction": "需处理",
+      "readyWithSuggestions": "有优化建议",
+      "ready": "可继续备课"
     }
   },
   "teacherWorkbench": {

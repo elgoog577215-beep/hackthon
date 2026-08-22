@@ -200,6 +200,8 @@ class TeachingCalendarRepository:
                 item.update({
                     "course_id": course_id,
                     "course_title": course_title,
+                    "academic_year": str(value.get("academic_year") or ""),
+                    "term": str(value.get("term") or ""),
                     "calendar_revision": int(value.get("revision") or 0),
                     # Use the complete stable identifier. The former short SHA prefix
                     # made several real courses collapse onto the same visible color.

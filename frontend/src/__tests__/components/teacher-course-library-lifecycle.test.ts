@@ -2,11 +2,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { ElMessageBox } from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import CourseLibraryView from '@/views/TeacherCourseLibraryView.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
+import { setLocale } from '@/shared/i18n'
+import zhMessages from '../../../public/locales/zh/translation.json'
 
 const router = createRouter({
   history: createMemoryHistory(),
@@ -29,8 +31,18 @@ const GenerationDialogStub = defineComponent({
 })
 
 describe('CourseLibraryView generation lifecycle', () => {
+  beforeAll(async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => zhMessages }))
+    await setLocale('zh')
+  })
+
+  afterAll(() => {
+    vi.unstubAllGlobals()
+  })
+
   beforeEach(async () => {
     setActivePinia(createPinia())
+    localStorage.removeItem('teacher_course_library_view')
     await router.push('/teacher/courses')
     await router.isReady()
   })
@@ -107,7 +119,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
   })
 
-  it('把新建空课程显示为待开始备课而不是已发布', async () => {
+  it('把新建空课程显示为尚未开始，并给出建立大纲的下一步', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -129,9 +141,50 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.course-status').text()).toContain('待开始备课')
-    expect(wrapper.get('.teacher-asset-summary').text()).toContain('空课程空间')
+    expect(wrapper.get('.course-status').text()).toContain('尚未开始')
+    expect(wrapper.get('.teacher-asset-summary').text()).toContain('尚无教学大纲')
+    expect(wrapper.get('.teacher-asset-summary').text()).toContain('下一步建立课程大纲')
+    expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
     expect(wrapper.findAll('.library-toolbar__summary strong')[2]!.text()).toBe('0')
+  })
+
+  it('保持原课程卡片结构，并展示真实教学单元、近期课次和推荐动作', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{
+      course_id: 'course-scheduled',
+      course_name: '矩阵与线性变换',
+      node_count: 12,
+      academic_year: '2026-2027',
+      term: '秋季',
+      course_code: 'MATH-221',
+      is_published: true,
+      next_session: {
+        session_id: 'session-7',
+        sequence: 7,
+        date: '2026-08-25',
+        start_time: '14:00:00',
+        end_time: '15:35:00',
+        content_summary: '特征向量：变换中不转向的方向',
+        location: '理科楼 A108',
+      },
+    }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: { plugins: [router], stubs: { CourseGenerationDialog: true, CourseWorkbench: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.course-grid').attributes('data-view')).toBe('grid')
+    expect(wrapper.find('.course-list-columns').exists()).toBe(false)
+    expect(wrapper.find('.course-identity__meta').exists()).toBe(false)
+    expect(wrapper.get('.teacher-asset-summary').text()).toContain('12 个教学单元')
+    expect(wrapper.get('.teacher-asset-summary').text()).toContain('8月25日 14:00 · 第 7 讲')
+    expect(wrapper.get('.course-primary-action').text()).toContain('准备下次课')
   })
 
   it('已发布的质量建议不占用待处理任务角标', async () => {
@@ -165,7 +218,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已发布，有优化建议')
+    expect(wrapper.text()).toContain('有优化建议')
     expect(wrapper.text()).not.toContain('20 个学习节点')
     expect(wrapper.find('.action-count').exists()).toBe(false)
     expect(wrapper.find('.generation-progress').exists()).toBe(false)

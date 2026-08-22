@@ -139,7 +139,7 @@
       </header>
       <div ref="courseGridRef" class="course-grid" :data-view="displayMode" data-layout="responsive-three-column">
         <article
-        v-for="{ course, status } in courseCards"
+        v-for="{ course, status, action } in courseCards"
         :key="course.course_id"
         class="course-item glass-panel"
         :class="{ 'course-item--menu-open': openCourseMenuId === course.course_id }"
@@ -170,7 +170,7 @@
             >
               <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
             </span>
-            <span class="teacher-asset-summary">{{ teacherAssetSummary(course, status.active) }}</span>
+            <span class="teacher-asset-summary">{{ teacherAssetSummary(course, status) }}</span>
           </span>
         </button>
 
@@ -180,21 +180,12 @@
           @keydown.esc.stop.prevent="closeCourseMenu"
         >
           <button
-            v-if="!status.active"
             type="button"
             class="course-primary-action"
-            @click="openCourse(course.course_id)"
+            @click="handleRecommendedAction(course, status)"
           >
-            {{ t('courseLibrary.openHint', '进入课程') }}
+            {{ action.label }}
             <ArrowRight :size="17" />
-          </button>
-          <button
-            v-else-if="status.retryable"
-            type="button"
-            class="course-primary-action"
-            @click="openTaskCenter(course.course_id)"
-          >
-            {{ t('courseLibrary.retry', '重试') }}
           </button>
 
           <button
@@ -381,10 +372,14 @@ const paginatedCourses = computed(() => {
   const start = (currentPage.value - 1) * COURSES_PER_PAGE
   return filteredCourses.value.slice(start, start + COURSES_PER_PAGE)
 })
-const courseCards = computed(() => paginatedCourses.value.map(course => ({
-  course,
-  status: courseStatus(course),
-})))
+const courseCards = computed(() => paginatedCourses.value.map(course => {
+  const status = courseStatus(course)
+  return {
+    course,
+    status,
+    action: recommendedAction(course, status),
+  }
+}))
 const attentionCourseCount = computed(() => filteredCourses.value.filter(course => courseStatus(course).active).length)
 const publishedCourseCount = computed(() => filteredCourses.value.filter(course => course.is_published).length)
 const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
@@ -490,14 +485,14 @@ function courseStatus(course: Course) {
   const publishedWarning = Boolean(task && isPublishedWarning(task))
   const active = Boolean(task && taskNeedsAttention(task))
   const labels: Record<string, string> = {
-    pending: t('courseLibrary.status.pending', '等待生成'),
-    running: t('courseLibrary.status.running', '正在生成'),
-    paused: t('courseLibrary.status.paused', '已暂停'),
-    waiting_for_review: t('teacherCourseLibrary.status.waitingReview', '等待教师确认'),
-    conflict: t('courseLibrary.status.conflict', '需要确认'),
-    error: t('courseLibrary.status.error', '生成失败'),
-    completed_with_warnings: t('courseLibrary.status.warnings', '生成完成但有警告'),
-    completed: t('teacherCourseLibrary.status.ready', '课程可维护'),
+    pending: t('teacherCourseLibrary.status.preparing'),
+    running: t('teacherCourseLibrary.status.preparing'),
+    paused: t('teacherCourseLibrary.status.needsAction'),
+    waiting_for_review: t('teacherCourseLibrary.status.waitingReview'),
+    conflict: t('teacherCourseLibrary.status.needsAction'),
+    error: t('teacherCourseLibrary.status.needsAction'),
+    completed_with_warnings: t('teacherCourseLibrary.status.needsAction'),
+    completed: t('teacherCourseLibrary.status.ready'),
   }
   return {
     active,
@@ -512,10 +507,10 @@ function courseStatus(course: Course) {
           ? 'warning'
           : 'ready',
     label: emptyDraft
-      ? t('teacherCourseLibrary.status.draft', '待开始备课')
+      ? t('teacherCourseLibrary.status.draft')
       : publishedWarning
-      ? t('teacherCourseLibrary.status.readyWithSuggestions', '已发布，有优化建议')
-      : labels[task?.status || 'completed'] || t('teacherCourseLibrary.status.ready', '课程可维护'),
+      ? t('teacherCourseLibrary.status.readyWithSuggestions')
+      : labels[task?.status || 'completed'] || t('teacherCourseLibrary.status.ready'),
     detail: courseProductionTaskDetail(task)
       || (task?.currentPhase ? t(`courseGeneration.phases.${task.currentPhase}`, task.currentPhase) : '')
       || t('courseLibrary.status.preparing', '正在准备课程'),
@@ -538,17 +533,55 @@ function taskRequiresAction(task: { status: string; publicationAllowed?: boolean
   return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
-function teacherAssetSummary(course: Course, active: boolean) {
-  if (active) return t('teacherCourseLibrary.teacherSummary.generating', '大纲与教案正在生成，进入课程查看确认点')
+function teacherAssetSummary(course: Course, status: ReturnType<typeof courseStatus>) {
+  if (status.active) {
+    return t('teacherCourseLibrary.teacherSummary.generating')
+      .replace('{progress}', String(Math.round(status.progress)))
+  }
   if (course.course_status === 'draft' && !course.is_published) {
-    return t('teacherCourseLibrary.teacherSummary.empty', '空课程空间 · 从大纲开始新建或生成')
+    return t('teacherCourseLibrary.teacherSummary.empty')
   }
-  if (course.is_published) {
-    return t('teacherCourseLibrary.teacherSummary.published', '大纲已确认 · {count} 个教学单元 · 可继续维护 PPT')
+  if (course.next_session?.date) {
+    const dateValue = new Date(`${course.next_session.date}T00:00:00`)
+    const dateLabel = Number.isNaN(dateValue.getTime())
+      ? course.next_session.date
+      : new Intl.DateTimeFormat(activeLocale.value === 'en' ? 'en-US' : 'zh-CN', {
+          month: 'short',
+          day: 'numeric',
+        }).format(dateValue)
+    return t('teacherCourseLibrary.teacherSummary.scheduled')
       .replace('{count}', String(course.node_count || 0))
+      .replace('{date}', dateLabel)
+      .replace('{time}', String(course.next_session.start_time || '').slice(0, 5))
+      .replace('{sequence}', String(course.next_session.sequence || 0))
   }
-  return t('teacherCourseLibrary.teacherSummary.draft', '{count} 个教学单元 · 等待继续组织教学')
+  return t(course.is_published
+    ? 'teacherCourseLibrary.teacherSummary.published'
+    : 'teacherCourseLibrary.teacherSummary.draft')
     .replace('{count}', String(course.node_count || 0))
+}
+
+function recommendedAction(course: Course, status: ReturnType<typeof courseStatus>) {
+  if (status.active && ['danger', 'warning'].includes(status.tone)) {
+    return { label: t('teacherCourseLibrary.actions.resolve') }
+  }
+  if (status.active) return { label: t('teacherCourseLibrary.actions.viewProgress') }
+  if (course.course_status === 'draft' && !course.is_published) {
+    return { label: t('teacherCourseLibrary.actions.start') }
+  }
+  if (status.tone === 'warning') {
+    return { label: t('teacherCourseLibrary.actions.reviewSuggestions') }
+  }
+  if (course.next_session) return { label: t('teacherCourseLibrary.actions.prepareNext') }
+  return { label: t('teacherCourseLibrary.actions.continue') }
+}
+
+function handleRecommendedAction(course: Course, status: ReturnType<typeof courseStatus>) {
+  if (status.active) {
+    openTaskCenter(course.course_id)
+    return
+  }
+  openCourse(course.course_id)
 }
 
 function openCourse(courseId: string) {

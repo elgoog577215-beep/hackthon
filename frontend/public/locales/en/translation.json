@@ -100,17 +100,28 @@
     "searchResults": "Search results",
     "collectionTitle": "All courses",
     "collectionSummary": "{count} courses",
+    "actions": {
+      "start": "Start planning",
+      "viewProgress": "View progress",
+      "resolve": "Resolve issue",
+      "reviewSuggestions": "Review suggestions",
+      "prepareNext": "Prepare next class",
+      "continue": "Continue planning"
+    },
     "teacherSummary": {
-      "generating": "Outline and lesson plans are generating; open the course to review confirmation gates",
-      "empty": "Empty course space · Create or generate the outline to begin",
-      "published": "Outline confirmed · {count} teaching units · PPT can be maintained",
-      "draft": "{count} teaching units · Continue organizing teaching"
+      "generating": "Generation {progress}% · Open the task center",
+      "empty": "No teaching outline · Build the outline next",
+      "scheduled": "{count} teaching units · Next {date} {time} · Session {sequence}",
+      "published": "{count} teaching units · No upcoming class",
+      "draft": "{count} teaching units · Outline awaiting confirmation"
     },
     "status": {
-      "waitingReview": "Awaiting teacher confirmation",
-      "draft": "Ready to start planning",
-      "readyWithSuggestions": "Published, with suggestions",
-      "ready": "Ready to maintain"
+      "waitingReview": "Awaiting review",
+      "draft": "Not started",
+      "preparing": "In preparation",
+      "needsAction": "Needs attention",
+      "readyWithSuggestions": "Suggestions available",
+      "ready": "Ready to continue"
     }
   },
   "teacherWorkbench": {

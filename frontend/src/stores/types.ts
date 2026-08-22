@@ -550,7 +550,21 @@ export interface Course {
     is_published?: boolean
     course_status?: string | null
     authoring_surface?: string | null
+    academic_year?: string
+    term?: string
+    course_code?: string
     updated_at?: string
+    next_session?: {
+        session_id: string
+        sequence: number
+        date: string
+        start_time: string
+        end_time: string
+        content_summary: string
+        location: string
+        lesson_plan_status?: string
+        ppt_status?: string
+    }
     resume?: {
         kind: string
         status: string

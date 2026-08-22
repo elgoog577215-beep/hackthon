@@ -291,6 +291,7 @@ class Storage:
         courses = []
         for course_id, data in self.courses_cache.items():
             document = data.get("course_document") if isinstance(data.get("course_document"), dict) else {}
+            course_profile = data.get("course_profile") if isinstance(data.get("course_profile"), dict) else {}
             items = (document.get("sections") or []) if document else (data.get("nodes") or [])
             level_key = "level" if document else "node_level"
             if any(level_key in item for item in items if isinstance(item, dict)):
@@ -322,6 +323,9 @@ class Storage:
                 "is_published": is_published,
                 "course_status": course_status or None,
                 "authoring_surface": authoring_surface or None,
+                "academic_year": str(data.get("academic_year") or ""),
+                "term": str(data.get("term") or ""),
+                "course_code": str(course_profile.get("course_code") or ""),
                 "updated_at": str(data.get("updated_at") or ""),
             })
         return courses

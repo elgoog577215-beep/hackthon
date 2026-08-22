@@ -272,6 +272,74 @@
             />
           </section>
 
+          <section class="form-section teacher-brief-section" data-testid="teacher-course-brief-form">
+            <div class="teacher-brief-section__heading">
+              <strong>{{ props.courseSpaceMode ? t('teacherCourseCreate.courseScale', '课程规模') : (activeLocale === 'en' ? 'Teaching setup' : '授课信息') }}</strong>
+            </div>
+            <div class="teacher-brief-section__core">
+              <label v-if="!props.courseSpaceMode && !props.fixedAudience" for="teacher-target-audience">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
+                <input id="teacher-target-audience" v-model="form.targetAudience" class="text-input" type="text" maxlength="500" :disabled="busy" />
+              </label>
+              <div v-else-if="!props.courseSpaceMode" class="fixed-audience-field">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
+                <strong>{{ props.fixedAudience }}</strong>
+              </div>
+              <label v-if="props.courseSpaceMode" for="teacher-academic-term">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
+                <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '2026-2027 第一学期')" :disabled="busy" />
+              </label>
+              <label for="teacher-total-hours">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
+                <input id="teacher-total-hours" v-model.number="form.totalClassHours" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
+              </label>
+              <label v-if="props.courseSpaceMode" for="teacher-section-count">
+                <span class="field-label">{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span>
+                <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+              </label>
+            </div>
+            <details v-if="!props.courseSpaceMode" class="teacher-brief-section__advanced">
+              <summary>{{ t('courseGeneration.teacherBrief.advancedSettings', '更多课堂设置') }}</summary>
+              <div class="teacher-brief-section__advanced-body">
+                <div class="teacher-brief-section__advanced-grid">
+                  <label for="teacher-lesson-minutes">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
+                    <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
+                  </label>
+                  <label for="teacher-context">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.context', '授课场景') }}</span>
+                    <select id="teacher-context" v-model="form.teachingContext" class="select-input" :disabled="busy">
+                      <option value="classroom">{{ t('courseGeneration.teacherBrief.contextClassroom', '线下课堂') }}</option>
+                      <option value="online">{{ t('courseGeneration.teacherBrief.contextOnline', '在线授课') }}</option>
+                      <option value="blended">{{ t('courseGeneration.teacherBrief.contextBlended', '混合式授课') }}</option>
+                      <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
+                    </select>
+                  </label>
+                  <label for="teacher-academic-term">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
+                    <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
+                  </label>
+                  <label for="teacher-class-size">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span>
+                    <input id="teacher-class-size" v-model.number="form.classSize" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
+                  </label>
+                  <label for="teacher-chapter-count">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span>
+                    <input id="teacher-chapter-count" v-model.number="form.chapterCount" class="text-input" type="number" min="1" max="100" step="1" :disabled="busy" />
+                  </label>
+                  <label for="teacher-section-count">
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.sectionCount', '预计小节数') }}</span>
+                    <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+                  </label>
+                </div>
+                <label class="teacher-brief-section__profile" for="teacher-class-profile">
+                  <span class="field-label">{{ t('courseGeneration.teacherBrief.classProfile', '班级与学情特点') }}</span>
+                  <textarea id="teacher-class-profile" v-model="form.classProfile" class="textarea-input textarea-input--compact" maxlength="2000" :placeholder="t('courseGeneration.teacherBrief.classProfilePlaceholder', '例如：多数学生已完成先修课，但概念迁移和小组讨论经验有限')" :disabled="busy" />
+                </label>
+              </div>
+            </details>
+          </section>
+
           <details class="form-section teaching-settings generation-advanced" :open="props.courseSpaceMode">
             <summary>{{ props.courseSpaceMode ? t('teacherCourseCreate.depthAndStructure', '内容深度与知识组织') : (activeLocale === 'en' ? 'More generation settings' : '更多生成设置') }}</summary>
             <div class="teaching-settings__core teaching-settings__core--common">
@@ -340,80 +408,14 @@
               <div class="production-mode-options">
                 <button type="button" :class="{ active: form.productionMode === 'manual' }" :aria-pressed="form.productionMode === 'manual'" :disabled="busy" @click="form.productionMode = 'manual'">
                   <strong>{{ t('teacherCourseCreate.productionModeManual', '分步确认') }}</strong>
+                  <small>{{ t('teacherCourseCreate.productionModeManualHelp') }}</small>
                 </button>
                 <button type="button" :class="{ active: form.productionMode === 'automatic' }" :aria-pressed="form.productionMode === 'automatic'" :disabled="busy" @click="form.productionMode = 'automatic'">
                   <strong>{{ t('teacherCourseCreate.productionModeAutomatic', '自动衔接') }}</strong>
+                  <small>{{ t('teacherCourseCreate.productionModeAutomaticHelp') }}</small>
                 </button>
               </div>
             </fieldset>
-          </section>
-
-          <section class="form-section teacher-brief-section" data-testid="teacher-course-brief-form">
-            <div class="teacher-brief-section__heading">
-              <strong>{{ props.courseSpaceMode ? t('teacherCourseCreate.courseScale', '课程规模') : (activeLocale === 'en' ? 'Teaching setup' : '授课信息') }}</strong>
-            </div>
-            <div class="teacher-brief-section__core">
-              <label v-if="!props.courseSpaceMode && !props.fixedAudience" for="teacher-target-audience">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
-                <input id="teacher-target-audience" v-model="form.targetAudience" class="text-input" type="text" maxlength="500" :disabled="busy" />
-              </label>
-              <div v-else-if="!props.courseSpaceMode" class="fixed-audience-field">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
-                <strong>{{ props.fixedAudience }}</strong>
-              </div>
-              <label v-if="props.courseSpaceMode" for="teacher-academic-term">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
-                <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '2026-2027 第一学期')" :disabled="busy" />
-              </label>
-              <label for="teacher-total-hours">
-                <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
-                <input id="teacher-total-hours" v-model.number="form.totalClassHours" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
-              </label>
-              <label v-if="props.courseSpaceMode" for="teacher-section-count">
-                <span class="field-label">{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span>
-                <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
-              </label>
-            </div>
-            <details v-if="!props.courseSpaceMode" class="teacher-brief-section__advanced">
-              <summary>{{ t('courseGeneration.teacherBrief.advancedSettings', '更多课堂设置') }}</summary>
-              <div class="teacher-brief-section__advanced-body">
-                <div class="teacher-brief-section__advanced-grid">
-                  <label for="teacher-lesson-minutes">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
-                    <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
-                  </label>
-                  <label for="teacher-context">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.context', '授课场景') }}</span>
-                    <select id="teacher-context" v-model="form.teachingContext" class="select-input" :disabled="busy">
-                      <option value="classroom">{{ t('courseGeneration.teacherBrief.contextClassroom', '线下课堂') }}</option>
-                      <option value="online">{{ t('courseGeneration.teacherBrief.contextOnline', '在线授课') }}</option>
-                      <option value="blended">{{ t('courseGeneration.teacherBrief.contextBlended', '混合式授课') }}</option>
-                      <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
-                    </select>
-                  </label>
-                  <label for="teacher-academic-term">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
-                    <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
-                  </label>
-                  <label for="teacher-class-size">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span>
-                    <input id="teacher-class-size" v-model.number="form.classSize" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
-                  </label>
-                  <label for="teacher-chapter-count">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span>
-                    <input id="teacher-chapter-count" v-model.number="form.chapterCount" class="text-input" type="number" min="1" max="100" step="1" :disabled="busy" />
-                  </label>
-                  <label for="teacher-section-count">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.sectionCount', '预计小节数') }}</span>
-                    <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
-                  </label>
-                </div>
-                <label class="teacher-brief-section__profile" for="teacher-class-profile">
-                  <span class="field-label">{{ t('courseGeneration.teacherBrief.classProfile', '班级与学情特点') }}</span>
-                  <textarea id="teacher-class-profile" v-model="form.classProfile" class="textarea-input textarea-input--compact" maxlength="2000" :placeholder="t('courseGeneration.teacherBrief.classProfilePlaceholder', '例如：多数学生已完成先修课，但概念迁移和小组讨论经验有限')" :disabled="busy" />
-                </label>
-              </div>
-            </details>
           </section>
 
           <details v-if="!props.courseSpaceMode" class="form-section supplemental-settings">
@@ -1052,12 +1054,14 @@ async function submit() {
 .generation-dialog--course-space .generation-dialog__body { padding:4px 28px 24px; }
 .generation-dialog--course-space .form-section { padding:18px 0; border-bottom-color:#edf0f5; }
 .generation-dialog--course-space .form-section--lead { padding-top:20px; }
+.generation-dialog--course-space .intent-section { padding-bottom:10px; border-bottom:0; }
+.generation-dialog--course-space .course-goal-section { padding-top:2px; }
 .generation-dialog--course-space .generation-advanced>summary { margin-bottom:18px; color:#344054; font-size:12px; font-weight:800; list-style:none; pointer-events:none; }
 .generation-dialog--course-space .generation-advanced>summary::-webkit-details-marker { display:none; }
 .generation-dialog--course-space .teaching-settings { gap:0; }
 .generation-dialog--course-space .teaching-settings__core { gap:24px; }
 .generation-dialog--course-space .strategy-settings { padding-top:0; border-top:0; }
-.generation-dialog--course-space .production-mode-options button { min-height:44px; place-items:center; text-align:center; }
+.generation-dialog--course-space .production-mode-options button { min-height:58px; align-content:center; justify-items:start; padding-inline:14px; text-align:left; }
 .generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .generation-dialog--course-space .generation-dialog__footer { min-height:60px; padding:10px 18px; border-top-color:#edf0f5; background:#fbfcff; }
 .generation-dialog--course-space .primary-button { min-width:156px; border-color:#6757ef; background:#6757ef; box-shadow:0 8px 18px rgba(103,87,239,.18); }

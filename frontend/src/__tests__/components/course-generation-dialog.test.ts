@@ -503,7 +503,17 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('.supplemental-settings').exists()).toBe(false)
     expect(wrapper.find('.material-section').exists()).toBe(false)
     expect(wrapper.findAll('.production-mode-options button')).toHaveLength(2)
-    expect(wrapper.text()).not.toContain('每一阶段由老师主动开始')
+    expect(wrapper.text()).toContain('每一阶段由老师主动开始')
+    expect(wrapper.text()).toContain('确认当前候选后继续下一阶段')
+
+    const formSections = wrapper.findAll('.generation-dialog__body > .form-section')
+    const sectionOrder = formSections.map(section => section.classes())
+    expect(sectionOrder.findIndex(classes => classes.includes('course-goal-section')))
+      .toBeLessThan(sectionOrder.findIndex(classes => classes.includes('teacher-brief-section')))
+    expect(sectionOrder.findIndex(classes => classes.includes('teacher-brief-section')))
+      .toBeLessThan(sectionOrder.findIndex(classes => classes.includes('teaching-settings')))
+    expect(sectionOrder.findIndex(classes => classes.includes('teaching-settings')))
+      .toBeLessThan(sectionOrder.findIndex(classes => classes.includes('production-mode-section')))
 
     await wrapper.findAll('.production-mode-options button')[1]!.trigger('click')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')

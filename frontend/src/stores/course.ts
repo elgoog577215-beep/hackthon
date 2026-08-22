@@ -1,6 +1,6 @@
 import { taskProgressStep } from '@/utils/course-progress'
 import { defineStore } from 'pinia'
-import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
+import http, { isTeacherSurfaceLocation, learnerIdentityHeaders, withApiBase } from '../utils/http'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import { type CourseGenerationOptions } from '@/shared/prompt-config'
@@ -222,7 +222,8 @@ export const useCourseStore = defineStore('course', {
     async fetchCourseList(options: { surface?: 'student' | 'teacher' } = {}) {
         this.loading = true
         try {
-            const endpoint = options.surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
+            const surface = options.surface || (isTeacherSurfaceLocation() ? 'teacher' : 'student')
+            const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
             const res = await http.get(endpoint)
             this.courseList = res.data
         } catch (error) {
