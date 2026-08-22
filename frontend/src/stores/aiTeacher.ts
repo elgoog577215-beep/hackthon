@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
+import http, { surfaceIdentityHeaders, withApiBase } from '../utils/http'
 import { useLearningProgressStore } from './learningProgress'
 import logger from '../utils/logger'
 
@@ -357,7 +357,11 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     try {
       const response = await fetch(withApiBase('/api/ask_events'), {
         method: 'POST',
-        headers: learnerIdentityHeaders({ 'Content-Type': 'application/json' }),
+        // Keep the streaming write in the same user namespace as the Axios
+        // conversation reads that follow it. Otherwise a teacher turn is
+        // written as a learner and the final refresh replaces it with the
+        // teacher's still-empty conversation.
+        headers: surfaceIdentityHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           request_id: localUserId,
           course_id: payload.courseId,

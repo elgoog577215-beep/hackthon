@@ -114,6 +114,19 @@ export const learnerIdentityHeaders = (
   return headers;
 };
 
+/**
+ * 原生 fetch 请求必须和 Axios 拦截器使用同一页面身份。教师工作台与
+ * teacherPreview 会切到教师身份，普通学习界面则继续使用独立学习者身份。
+ */
+export const surfaceIdentityHeaders = (
+  initial: HeadersInit = {},
+  pathname?: string,
+  search?: string,
+): Headers => learnerIdentityHeaders(
+  initial,
+  getSurfaceIdentity(pathname, search),
+);
+
 // ============================================================================
 // Error Handling Utilities
 // ============================================================================

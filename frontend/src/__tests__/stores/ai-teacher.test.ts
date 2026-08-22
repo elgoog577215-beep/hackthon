@@ -12,7 +12,11 @@ const httpMock = vi.hoisted(() => ({
 vi.mock('@/utils/http', () => ({
   default: httpMock,
   withApiBase: (path: string) => path,
-  learnerIdentityHeaders: (initial: HeadersInit = {}) => new Headers(initial),
+  surfaceIdentityHeaders: (initial: HeadersInit = {}) => {
+    const headers = new Headers(initial)
+    headers.set('X-User-Id', 'surface-test-user')
+    return headers
+  },
 }))
 
 import { useAITeacherStore, type AIMessage } from '@/stores/aiTeacher'
@@ -108,6 +112,7 @@ describe('AI teacher store', () => {
     expect(requestBody).not.toHaveProperty('node_content')
     expect(requestBody).not.toHaveProperty('history')
     expect(requestBody).not.toHaveProperty('user_notes')
+    expect((fetchMock.mock.calls[0]?.[1]?.headers as Headers).get('X-User-Id')).toBe('surface-test-user')
     expect(isReactive(observedAssistantMessage)).toBe(true)
     expect(onQuestionRecorded).toHaveBeenCalledTimes(1)
     expect(contentWhenQuestionRecorded).toBe('')

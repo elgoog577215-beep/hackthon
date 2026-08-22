@@ -10,6 +10,7 @@ import {
   learnerIdentityHeaders,
   LEARNER_ID_STORAGE_KEY,
   LOCAL_TEACHER_USER_ID,
+  surfaceIdentityHeaders,
   teacherIdentityHeaders,
 } from '@/utils/http'
 
@@ -65,10 +66,20 @@ describe('learner identity request header', () => {
     expect(isTeacherSurfaceLocation('/course/course-1/workspace/setup', '?lesson=lesson-1')).toBe(true)
     expect(isTeacherSurfaceLocation('/course/course-1/learn/lesson-1', '?teacherPreview=1')).toBe(true)
     expect(getSurfaceIdentity('/course/course-1/workspace/setup', '')).toBe(LOCAL_TEACHER_USER_ID)
+    expect(surfaceIdentityHeaders(
+      { 'Content-Type': 'application/json' },
+      '/course/course-1/workspace/setup',
+      '',
+    ).get('X-User-Id')).toBe(LOCAL_TEACHER_USER_ID)
   })
 
   it('普通学生学习界面继续使用独立学习者身份', () => {
     expect(isTeacherSurfaceLocation('/course/course-1/learn/lesson-1', '')).toBe(false)
     expect(getSurfaceIdentity('/course/course-1/learn/lesson-1', '')).toMatch(/^learner_/)
+    expect(surfaceIdentityHeaders(
+      {},
+      '/course/course-1/learn/lesson-1',
+      '',
+    ).get('X-User-Id')).toMatch(/^learner_/)
   })
 })
