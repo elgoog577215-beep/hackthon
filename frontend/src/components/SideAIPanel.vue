@@ -165,14 +165,6 @@
         </div>
       </div>
 
-      <CourseEvolutionPanel
-        v-if="isTeacherMode && !props.blockTarget && courseStore.currentCourseId"
-        :course-id="courseStore.currentCourseId"
-        :section-id="currentNode?.node_id"
-        :focus-plan-id="focusedEvolutionPlanId"
-        @course-applied="emit('courseApplied', $event)"
-      />
-
       <section
         v-if="isTeacherMode && !props.blockTarget && changeProposalsStore.pendingProposals.length"
         class="change-proposals-panel"
@@ -729,14 +721,12 @@ import {
   X,
 } from 'lucide-vue-next'
 import MarkdownRenderer from './MarkdownRenderer.vue'
-import CourseEvolutionPanel from './CourseEvolutionPanel.vue'
 import CourseImpactPreview from './CourseImpactPreview.vue'
 import { useAITeacherStore, type AIActionReceipt, type AIMessage } from '../stores/aiTeacher'
 import { useCourseStore } from '../stores/course'
 import { useLearningProgressStore } from '../stores/learningProgress'
 import {
   useCourseEvolutionStore,
-  type CourseEvolutionApplicationPresentation,
   type CourseAdjustmentScope,
   type CourseEvolutionAnchorRole,
   type CourseEvolutionPlan,
@@ -785,7 +775,7 @@ const emit = defineEmits<{
   (event: 'close'): void
   (event: 'clearBlockTarget'): void
   (event: 'blockApplied', target: CourseBlockEditTarget): void
-  (event: 'courseApplied', presentation: CourseEvolutionApplicationPresentation): void
+  (event: 'openCourseAdjustment', payload: { planId: string; sectionId: string }): void
   (event: 'courseBaselineDraft', payload: { conversationId: string; messageId: string }): void
 }>()
 const aiStore = useAITeacherStore()
@@ -813,7 +803,6 @@ const personalizationGenerationLoading = ref(false)
 const personalizationApplying = ref(false)
 let personalizationGenerationToken = 0
 let personalizationApplyToken = 0
-const focusedEvolutionPlanId = ref('')
 
 const isTeacherMode = computed(() => props.mode === 'teacher')
 const latestCompletedAssistantMessageId = computed(() => (
@@ -1122,7 +1111,10 @@ async function refreshCourseGrowthAfterQuestion(
       || plan.request_text === question
     ))
     if (triggeredPlan) {
-      focusedEvolutionPlanId.value = triggeredPlan.change_set_id
+      emit('openCourseAdjustment', {
+        planId: triggeredPlan.change_set_id,
+        sectionId: triggeredPlan.target_section_id || currentNode.value?.node_id || '',
+      })
     }
   } catch (error) {
     logger.warn('Course evolution refresh deferred after AI question', error)
@@ -1314,7 +1306,10 @@ async function generatePersonalizationProposal() {
       ))
     }
     if (coursePlanNeedsWorkbench(createdPlan)) {
-      focusedEvolutionPlanId.value = createdPlan.change_set_id
+      emit('openCourseAdjustment', {
+        planId: createdPlan.change_set_id,
+        sectionId: createdPlan.target_section_id || target.nodeId,
+      })
       emit('clearBlockTarget')
       return
     }
@@ -1368,7 +1363,10 @@ async function restorePersonalizationPlan() {
   })
   if (!plan) return
   if (coursePlanNeedsWorkbench(plan)) {
-    focusedEvolutionPlanId.value = plan.change_set_id
+    emit('openCourseAdjustment', {
+      planId: plan.change_set_id,
+      sectionId: plan.target_section_id || target.nodeId,
+    })
     emit('clearBlockTarget')
     return
   }
@@ -1710,7 +1708,6 @@ watch(() => props.prefill, value => {
   }
 })
 watch(() => `${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.block.internal_revision || ''}`, () => {
-  if (props.blockTarget) focusedEvolutionPlanId.value = ''
   resetPersonalization()
   void restorePersonalizationPlan()
 }, { immediate: true })

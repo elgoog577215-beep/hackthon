@@ -39,6 +39,14 @@
             <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
           </label>
         </el-popover>
+        <button
+          class="adjustment-action"
+          type="button"
+          :title="t('courseEvolution.workspace.openHint', '在独立工作区生成并审阅课程更新')"
+          @click="openCourseAdjustment()"
+        >
+          <GitBranchPlus :size="16" />{{ t('courseEvolution.workspace.open', '调整课程') }}
+        </button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
         <button class="agent-action" :class="{ active: agentOpen }" type="button" :aria-pressed="agentOpen" @click="agentOpen = !agentOpen"><Sparkles :size="16" />{{ agentOpen ? t('courseFiles.hideTeacherAgent') : t('courseFiles.teacherAgent') }}</button>
       </div>
@@ -85,7 +93,7 @@
           :course-baseline-draft-busy="baselineDraftBusy"
           @close="agentOpen = false"
           @block-applied="loadWorkspace"
-          @course-applied="loadWorkspace"
+          @open-course-adjustment="openCourseAdjustment"
           @course-baseline-draft="createBaselineDraft"
         />
       </aside>
@@ -125,6 +133,16 @@
       surface="teacher"
     />
 
+    <CourseEvolutionWorkspace
+      v-model="courseAdjustmentOpen"
+      :course-id="courseId"
+      :course-title="courseTitle"
+      :section-id="courseAdjustmentSectionId"
+      :section-title="courseAdjustmentSectionTitle"
+      :focus-plan-id="courseAdjustmentFocusPlanId"
+      @course-applied="handleCourseAdjustmentApplied"
+    />
+
     <CourseBaselineDialog
       v-model="baselineEditorOpen"
       :busy="baselineSaveBusy"
@@ -141,9 +159,10 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
+import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
@@ -169,6 +188,9 @@ const calendarOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
 const workbenchOpen = ref(false)
+const courseAdjustmentOpen = ref(false)
+const courseAdjustmentFocusPlanId = ref('')
+const courseAdjustmentSectionId = ref('')
 const agentOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1280)
 const generationStarting = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
@@ -202,6 +224,9 @@ const selectedLessonPlan = computed(() => selectedLesson.value?.plan?.revisions.
 const selectedLessonTitle = computed(() => selectedLesson.value
   ? t('courseFiles.lessonDrawerTitle').replace('{title}', selectedLesson.value.title)
   : t('courseFiles.lessonPlan'))
+const courseAdjustmentSectionTitle = computed(() => (
+  courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
+))
 const agentContextText = computed(() => selectedContext.value.nodeId
   ? t('courseFiles.agentContext')
     .replace('{label}', selectedContext.value.label)
@@ -351,6 +376,33 @@ function openTasks() {
   workbenchOpen.value = true
 }
 
+function resolveAdjustmentSectionId(preferred = '') {
+  for (const candidateId of [preferred, selectedContext.value.lessonId, selectedContext.value.nodeId]) {
+    if (!candidateId) continue
+    const candidate = courseStore.nodes.find(node => node.node_id === candidateId)
+    if (candidate && Number(candidate.node_level || 0) >= 2) return candidate.node_id
+    const child = courseStore.nodes.find(node => (
+      node.parent_node_id === candidateId
+      && Number(node.node_level || 0) >= 2
+    ))
+    if (child) return child.node_id
+  }
+  return courseStore.nodes.find(node => (
+    Number(node.node_level || 0) >= 2
+    && Boolean(node.node_content || node.course_blocks?.length || node.content_blocks?.length)
+  ))?.node_id || courseStore.nodes.find(node => Number(node.node_level || 0) >= 2)?.node_id || ''
+}
+
+function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
+  courseAdjustmentFocusPlanId.value = payload?.planId || ''
+  courseAdjustmentSectionId.value = resolveAdjustmentSectionId(payload?.sectionId)
+  courseAdjustmentOpen.value = true
+}
+
+async function handleCourseAdjustmentApplied() {
+  await loadWorkspace()
+}
+
 async function startOutlineGeneration(payload: { subject: string; options: CourseGenerationOptions }) {
   if (generationStarting.value) return
   generationStarting.value = true
@@ -423,6 +475,8 @@ onMounted(loadWorkspace)
 .workspace-route-actions .search-action { display:none; width:38px; padding:0; }
 .workspace-route-actions .agent-action { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:#fff; }
 .workspace-route-actions .agent-action.active { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
+.workspace-route-actions .adjustment-action { border-color:#d7d9ff; color:#5148dc; background:#f8f8ff; }
+.workspace-route-actions .adjustment-action:hover { border-color:#8580f5; background:#f0f0ff; }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }

@@ -1,10 +1,67 @@
 <template>
-  <section v-if="sectionId || visiblePlans.length" class="evolution-panel" aria-live="polite">
-    <header>
+  <section
+    v-if="sectionId || visiblePlans.length"
+    :class="['evolution-panel', `evolution-panel--${props.surface}`]"
+    :data-surface="props.surface"
+    aria-live="polite"
+  >
+    <header v-if="props.showHeading">
       <span><GitBranchPlus :size="14" /></span>
       <div><small>{{ t('courseEvolution.eyebrow', '统一课程调整') }}</small><strong>{{ t('courseEvolution.title', '调整课程') }}</strong></div>
       <button type="button" :title="t('courseEvolution.refresh', '重新分析学习证据')" :aria-label="t('courseEvolution.refresh', '重新分析学习证据')" :disabled="store.loading" @click="store.evaluate(courseId)"><RefreshCw :size="14" :class="{ spinning: store.loading }" /></button>
     </header>
+
+    <div v-if="sectionId" class="section-growth-request">
+      <ol class="growth-steps" :aria-label="t('courseEvolution.sectionGrowth.stepsLabel', '课程生长六步')">
+        <li v-for="step in growthSteps" :key="step.index" :class="{ active: step.index === currentGrowthStep, done: step.index < currentGrowthStep }">
+          <b>{{ step.index }}</b><span>{{ step.label }}</span>
+        </li>
+      </ol>
+      <label>
+        <span>{{ t('courseEvolution.sectionGrowth.prompt', '你希望课程怎样变化？') }}</span>
+        <input
+          v-model="sectionInstruction"
+          type="text"
+          :placeholder="t('courseEvolution.sectionGrowth.placeholder', '例如：以后所有例子都讲得更详细一点')"
+        >
+      </label>
+      <div class="request-scope-control" role="radiogroup" :aria-label="t('courseEvolution.scope.label', '选择这句话可以影响的课程范围')">
+        <button
+          type="button"
+          data-scope="current_section"
+          role="radio"
+          :aria-checked="requestScope === 'current_section'"
+          :class="{ active: requestScope === 'current_section' }"
+          @click="requestScope = 'current_section'"
+        >
+          <LocateFixed :size="12" />
+          <span><b>{{ t('courseEvolution.scope.currentSection', '只影响当前小节') }}</b><small>{{ t('courseEvolution.scope.currentSectionHint', 'AI 只能在这一节内找目标') }}</small></span>
+        </button>
+        <button
+          type="button"
+          data-scope="current_chapter"
+          role="radio"
+          :aria-checked="requestScope === 'current_chapter'"
+          :class="{ active: requestScope === 'current_chapter' }"
+          @click="requestScope = 'current_chapter'"
+        >
+          <BookOpenText :size="12" />
+          <span><b>{{ t('courseEvolution.scope.currentChapter', '影响本章相关内容') }}</b><small>{{ t('courseEvolution.scope.currentChapterHint', 'AI 在本章范围内匹配相关节点；确认前不会修改课程') }}</small></span>
+        </button>
+      </div>
+      <button type="button" class="generate-plan" :disabled="store.generating || !sectionInstruction.trim()" @click="createSectionPlan">
+        <LoaderCircle v-if="store.generating" :size="13" class="spinning" />
+        <Sparkles v-else :size="13" />
+        {{
+          store.generating
+            ? t('courseEvolution.sectionGrowth.generating', '正在生成候选')
+            : requestScope === 'current_chapter'
+              ? t('courseEvolution.sectionGrowth.generateChapter', '解析并生成本章影响预览')
+              : t('courseEvolution.sectionGrowth.generate', '生成本节调整方案')
+        }}
+      </button>
+      <p v-if="store.generationError" class="generation-error"><TriangleAlert :size="12" />{{ store.generationError }}</p>
+    </div>
 
     <div class="growth-insight-switcher">
       <button type="button" :class="{ active: mapOpen }" @click="mapOpen = !mapOpen; evidenceOpen = false">
@@ -67,58 +124,6 @@
       </ol>
       <p v-else class="evidence-empty">{{ t('courseEvolution.evidenceTimeline.empty', '继续提问、记笔记或完成练习后，证据会出现在这里。') }}</p>
     </section>
-
-    <div v-if="sectionId" class="section-growth-request">
-      <ol class="growth-steps" :aria-label="t('courseEvolution.sectionGrowth.stepsLabel', '课程生长六步')">
-        <li v-for="step in growthSteps" :key="step.index" :class="{ active: step.index === currentGrowthStep, done: step.index < currentGrowthStep }">
-          <b>{{ step.index }}</b><span>{{ step.label }}</span>
-        </li>
-      </ol>
-      <label>
-        <span>{{ t('courseEvolution.sectionGrowth.prompt', '你希望课程怎样变化？') }}</span>
-        <input
-          v-model="sectionInstruction"
-          type="text"
-          :placeholder="t('courseEvolution.sectionGrowth.placeholder', '例如：以后所有例子都讲得更详细一点')"
-        >
-      </label>
-      <div class="request-scope-control" role="radiogroup" :aria-label="t('courseEvolution.scope.label', '选择这句话可以影响的课程范围')">
-        <button
-          type="button"
-          data-scope="current_section"
-          role="radio"
-          :aria-checked="requestScope === 'current_section'"
-          :class="{ active: requestScope === 'current_section' }"
-          @click="requestScope = 'current_section'"
-        >
-          <LocateFixed :size="12" />
-          <span><b>{{ t('courseEvolution.scope.currentSection', '只影响当前小节') }}</b><small>{{ t('courseEvolution.scope.currentSectionHint', 'AI 只能在这一节内找目标') }}</small></span>
-        </button>
-        <button
-          type="button"
-          data-scope="current_chapter"
-          role="radio"
-          :aria-checked="requestScope === 'current_chapter'"
-          :class="{ active: requestScope === 'current_chapter' }"
-          @click="requestScope = 'current_chapter'"
-        >
-          <BookOpenText :size="12" />
-          <span><b>{{ t('courseEvolution.scope.currentChapter', '影响本章相关内容') }}</b><small>{{ t('courseEvolution.scope.currentChapterHint', 'AI 在本章范围内匹配相关节点；确认前不会修改课程') }}</small></span>
-        </button>
-      </div>
-      <button type="button" class="generate-plan" :disabled="store.generating || !sectionInstruction.trim()" @click="createSectionPlan">
-        <LoaderCircle v-if="store.generating" :size="13" class="spinning" />
-        <Sparkles v-else :size="13" />
-        {{
-          store.generating
-            ? t('courseEvolution.sectionGrowth.generating', '正在生成候选')
-            : requestScope === 'current_chapter'
-              ? t('courseEvolution.sectionGrowth.generateChapter', '解析并生成本章影响预览')
-              : t('courseEvolution.sectionGrowth.generate', '生成本节调整方案')
-        }}
-      </button>
-      <p v-if="store.generationError" class="generation-error"><TriangleAlert :size="12" />{{ store.generationError }}</p>
-    </div>
 
     <button
       v-for="plan in workbenchPlans"
@@ -428,7 +433,18 @@ import { useLearningProgressStore } from '../stores/learningProgress'
 import CourseImpactPreview from './CourseImpactPreview.vue'
 import { t } from '../shared/i18n'
 
-const props = defineProps<{ courseId: string; sectionId?: string; focusPlanId?: string }>()
+const props = withDefaults(defineProps<{
+  courseId: string
+  sectionId?: string
+  focusPlanId?: string
+  surface?: 'panel' | 'workspace'
+  showHeading?: boolean
+}>(), {
+  sectionId: '',
+  focusPlanId: '',
+  surface: 'panel',
+  showHeading: true,
+})
 const emit = defineEmits<{
   courseApplied: [presentation: CourseEvolutionApplicationPresentation]
 }>()
@@ -1416,4 +1432,118 @@ article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"
 .reverification-window[data-window="expired"] svg { color:#ca8a04; }
 .spinning { animation:evolution-spin .8s linear infinite; }
 @keyframes evolution-spin { to { transform:rotate(360deg); } }
+
+/* The dedicated workspace turns the former sidebar controls into a readable
+   course-editing flow without changing the underlying CourseEvolutionPlan. */
+.evolution-panel--workspace { min-height:100%; max-height:none; display:flex; flex-direction:column; gap:16px; overflow:auto; margin:0; padding:26px clamp(20px,3vw,38px) 40px; border:0; border-radius:0; background:#f7f8fc; container-type:inline-size; }
+.evolution-panel--workspace>.section-growth-request { order:1; }
+.evolution-panel--workspace>.growth-insight-switcher { order:2; }
+.evolution-panel--workspace>.personal-learning-map,.evolution-panel--workspace>.evidence-timeline { order:3; }
+.evolution-panel--workspace>.whole-course-scan-summary,.evolution-panel--workspace>article { order:4; }
+.evolution-panel--workspace .section-growth-request { gap:18px; margin:0; padding:24px; border:1px solid #dfe3ec; border-radius:14px; background:#fff; box-shadow:0 10px 30px rgba(15,23,42,.055); }
+.evolution-panel--workspace .growth-steps { position:relative; gap:8px; padding-bottom:2px; }
+.evolution-panel--workspace .growth-steps::before { position:absolute; top:16px; right:7%; left:7%; height:1px; background:#d9deea; content:""; }
+.evolution-panel--workspace .growth-steps li { position:relative; z-index:1; gap:7px; color:#8792a5; font-size:11px; }
+.evolution-panel--workspace .growth-steps li b { width:32px; height:32px; border-color:#cfd6e3; background:#fff; font-size:12px; }
+.evolution-panel--workspace .growth-steps li.done b { border-color:#5b54e8; background:#5b54e8; }
+.evolution-panel--workspace .growth-steps li.active b { border:2px solid #5b54e8; box-shadow:0 0 0 4px #ecebff; }
+.evolution-panel--workspace .section-growth-request label { gap:9px; font-size:14px; }
+.evolution-panel--workspace .section-growth-request input { min-height:66px; padding:15px 16px; border-color:#cfd6e3; border-radius:11px; font-size:14px; }
+.evolution-panel--workspace .request-scope-control { gap:10px; }
+.evolution-panel--workspace .request-scope-control>button { min-height:82px; grid-template-columns:22px minmax(0,1fr); gap:10px; padding:14px; border-radius:11px; }
+.evolution-panel--workspace .request-scope-control>button.active { border-color:#8580f5; background:#f1f2ff; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
+.evolution-panel--workspace .request-scope-control b { font-size:13px; }
+.evolution-panel--workspace .request-scope-control small { margin-top:3px; color:#758198; font-size:11px; line-height:1.5; }
+.evolution-panel--workspace .generate-plan,.evolution-panel--workspace .challenge-suggestion button { min-height:46px; border-color:#5148dc; border-radius:10px; background:#5148dc; font-size:13px; }
+.evolution-panel--workspace .generate-plan:hover:not(:disabled),.evolution-panel--workspace .challenge-suggestion button:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
+.evolution-panel--workspace .generate-plan:focus-visible,.evolution-panel--workspace button:focus-visible,.evolution-panel--workspace input:focus-visible { outline:3px solid rgba(99,102,241,.22); outline-offset:2px; }
+.evolution-panel--workspace .generation-error { font-size:12px; }
+.evolution-panel--workspace .growth-insight-switcher { gap:10px; margin:0; }
+.evolution-panel--workspace .growth-insight-switcher button { grid-template-columns:18px minmax(0,1fr) auto; gap:9px; min-height:48px; padding:9px 12px; border-radius:10px; font-size:12px; }
+.evolution-panel--workspace .growth-insight-switcher button b { min-width:24px; padding:4px 7px; font-size:10px; }
+.evolution-panel--workspace .personal-learning-map,.evolution-panel--workspace .evidence-timeline { gap:14px; margin:0; padding:18px; border-color:#dfe3ec; border-radius:14px; background:#fff; }
+.evolution-panel--workspace .personal-learning-map>header,.evolution-panel--workspace .evidence-timeline>header { grid-template-columns:36px minmax(0,1fr); gap:10px; }
+.evolution-panel--workspace .personal-learning-map>header>span,.evolution-panel--workspace .evidence-timeline>header>span { width:36px; height:36px; border-radius:10px; background:#5b54e8; }
+.evolution-panel--workspace .personal-learning-map>header small,.evolution-panel--workspace .evidence-timeline>header small { font-size:10px; }
+.evolution-panel--workspace .personal-learning-map>header strong,.evolution-panel--workspace .evidence-timeline>header strong { font-size:14px; }
+.evolution-panel--workspace .personal-map-stats { gap:8px; }
+.evolution-panel--workspace .personal-map-stats div { gap:4px; padding:10px 6px; border-radius:9px; }
+.evolution-panel--workspace .personal-map-stats dt { font-size:10px; }
+.evolution-panel--workspace .personal-map-stats dd { font-size:16px; }
+.evolution-panel--workspace .personal-map-path,.evolution-panel--workspace .evidence-timeline ol { gap:7px; }
+.evolution-panel--workspace .personal-map-path li { grid-template-columns:32px minmax(0,1fr) 26px; gap:9px; padding:10px 11px; border-left-width:1px; border-radius:9px; }
+.evolution-panel--workspace .personal-map-path li>span,.evolution-panel--workspace .personal-map-path strong,.evolution-panel--workspace .evidence-timeline li b { font-size:11px; }
+.evolution-panel--workspace .personal-map-path small,.evolution-panel--workspace .evidence-timeline li small { font-size:10px; }
+.evolution-panel--workspace .personal-map-path li>b { width:26px; height:26px; font-size:10px; }
+.evolution-panel--workspace .personal-learning-map>p,.evolution-panel--workspace .evidence-empty { font-size:11px; }
+.evolution-panel--workspace .evidence-timeline li { grid-template-columns:32px minmax(0,1fr) 32px; gap:9px; padding:11px; border-radius:9px; }
+.evolution-panel--workspace .evidence-timeline li>span,.evolution-panel--workspace .evidence-timeline li>button { width:32px; height:32px; border-radius:8px; }
+.evolution-panel--workspace .evidence-timeline li p { margin:4px 0; font-size:11px; }
+.evolution-panel--workspace .whole-course-scan-summary { grid-template-columns:40px minmax(0,1fr) 20px; gap:12px; margin:0; padding:14px 16px; border-radius:12px; }
+.evolution-panel--workspace .whole-course-scan-summary>span { width:40px; height:40px; border-radius:10px; }
+.evolution-panel--workspace .whole-course-scan-summary small { font-size:10px; }
+.evolution-panel--workspace .whole-course-scan-summary strong { font-size:13px; }
+.evolution-panel--workspace .whole-course-scan-summary em { margin-top:2px; font-size:11px; }
+.evolution-panel--workspace article { padding:18px; border:1px solid #dfe3ec; border-left:1px solid #dfe3ec; border-radius:14px; box-shadow:0 8px 24px rgba(15,23,42,.045); }
+.evolution-panel--workspace article+article { margin-top:0; }
+.evolution-panel--workspace .strong-evidence-trigger { gap:10px; margin:12px 0; padding:16px; border-radius:12px; }
+.evolution-panel--workspace .strong-evidence-trigger>span,.evolution-panel--workspace .strong-growth-heading>span { font-size:11px; }
+.evolution-panel--workspace .strong-evidence-trigger>strong { font-size:14px; }
+.evolution-panel--workspace .strong-evidence-trigger>small { font-size:11px; }
+.evolution-panel--workspace .strong-evidence-trigger>div b,.evolution-panel--workspace .strong-growth-group>span,.evolution-panel--workspace .plan-source span,.evolution-panel--workspace .plan-source b { font-size:10px; }
+.evolution-panel--workspace .strong-evidence-dimensions em { font-size:11px; }
+.evolution-panel--workspace .strong-growth-plan { gap:9px; margin-bottom:12px; padding:14px; border-radius:11px; }
+.evolution-panel--workspace .strong-growth-heading>small { font-size:10px; }
+.evolution-panel--workspace .strong-growth-group { grid-template-columns:72px minmax(0,1fr); gap:9px; padding:10px; border-radius:8px; }
+.evolution-panel--workspace .strong-growth-group b { padding:4px 7px; font-size:10px; }
+.evolution-panel--workspace .challenge-suggestion { gap:9px; }
+.evolution-panel--workspace .challenge-suggestion>span { font-size:11px; }
+.evolution-panel--workspace .challenge-suggestion strong { font-size:14px; }
+.evolution-panel--workspace .challenge-suggestion p { font-size:12px; }
+.evolution-panel--workspace .semantic-scope-summary { gap:6px; margin-bottom:11px; padding:12px; border-radius:10px; }
+.evolution-panel--workspace .semantic-scope-summary>span { font-size:10px; }
+.evolution-panel--workspace .semantic-scope-summary>strong { font-size:13px; }
+.evolution-panel--workspace .semantic-scope-summary>small { font-size:11px; }
+.evolution-panel--workspace .evolution-evidence { gap:6px; }
+.evolution-panel--workspace .evolution-evidence span,.evolution-panel--workspace .evidence-maturity span { padding:5px 8px; font-size:10px; }
+.evolution-panel--workspace .evolution-diagnosis { gap:6px; margin-top:12px; padding:13px 14px; border-radius:10px; }
+.evolution-panel--workspace .evolution-diagnosis span { font-size:10px; }
+.evolution-panel--workspace .evolution-diagnosis strong { font-size:14px; }
+.evolution-panel--workspace .evolution-diagnosis small { font-size:11px; }
+.evolution-panel--workspace .source-requirement,.evolution-panel--workspace .evolution-effect,.evolution-panel--workspace .evolution-impact small { font-size:11px; }
+.evolution-panel--workspace .evolution-impact span { padding:5px 8px; border-radius:7px; font-size:10px; }
+.evolution-panel--workspace .evolution-details-toggle { min-height:36px; font-size:11px; }
+.evolution-panel--workspace .evolution-details { margin:7px 0 13px; padding:12px 0; }
+.evolution-panel--workspace .evolution-details>p { grid-template-columns:86px minmax(0,1fr) 32px; gap:9px; font-size:11px; }
+.evolution-panel--workspace .evolution-details>p>button { width:32px; height:32px; }
+.evolution-panel--workspace .evolution-details li { font-size:11px; }
+.evolution-panel--workspace .operation-list li { grid-template-columns:60px minmax(0,1fr); gap:10px; padding:11px; border-radius:9px; }
+.evolution-panel--workspace .operation-list li b { font-size:12px; }
+.evolution-panel--workspace .candidate-before,.evolution-panel--workspace .candidate-after { padding:10px; border-radius:8px; }
+.evolution-panel--workspace .candidate-before small,.evolution-panel--workspace .candidate-after small { font-size:10px; }
+.evolution-panel--workspace .whole-course-review-trigger { grid-template-columns:28px minmax(0,1fr) 18px; padding:12px; border-radius:10px; }
+.evolution-panel--workspace .whole-course-review-trigger b { font-size:12px; }
+.evolution-panel--workspace .whole-course-review-trigger small { font-size:10px; }
+.evolution-panel--workspace .scope-control { gap:6px; margin:11px 0; padding:4px; border-radius:9px; }
+.evolution-panel--workspace .scope-control button { min-height:38px; border-radius:7px; font-size:11px; }
+.evolution-panel--workspace .evolution-actions { gap:8px; margin-top:12px; }
+.evolution-panel--workspace .evolution-actions button,.evolution-panel--workspace .applied-growth button { min-height:40px; padding:0 13px; border-radius:9px; font-size:11px; }
+.evolution-panel--workspace .applied-growth { grid-template-columns:24px minmax(0,1fr) auto; gap:10px; }
+.evolution-panel--workspace .applied-growth strong { font-size:13px; }
+.evolution-panel--workspace .applied-growth small,.evolution-panel--workspace .applied-diagnosis { font-size:11px; }
+.evolution-panel--workspace .verification-flow { gap:8px; margin-top:12px; padding:11px; border-radius:9px; }
+.evolution-panel--workspace .verification-flow small { font-size:10px; }
+.evolution-panel--workspace .verification-flow strong { font-size:11px; }
+.evolution-panel--workspace .verification-interpretation,.evolution-panel--workspace .reverification-window,.evolution-panel--workspace .knowledge-drift small,.evolution-panel--workspace .knowledge-drift-changed { font-size:11px; }
+@container (max-width:720px) {
+  .evolution-panel--workspace { gap:12px; padding:16px 14px 28px; }
+  .evolution-panel--workspace .section-growth-request { gap:14px; padding:16px; }
+  .evolution-panel--workspace .growth-steps { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:14px; }
+  .evolution-panel--workspace .growth-steps::before { display:none; }
+  .evolution-panel--workspace .request-scope-control,.evolution-panel--workspace .growth-insight-switcher { grid-template-columns:minmax(0,1fr); }
+  .evolution-panel--workspace .personal-map-stats { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .evolution-panel--workspace .strong-growth-group { grid-template-columns:minmax(0,1fr); }
+  .evolution-panel--workspace .evolution-actions { flex-direction:column; }
+  .evolution-panel--workspace .evolution-actions button { width:100%; }
+}
 </style>

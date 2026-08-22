@@ -56,3 +56,4 @@
 - [x] 6.6 Make every course-framing item open a prefilled baseline editor and persist explicit teacher-confirmed changes without starting generation.
 - [x] 6.7 Let the existing teacher conversation produce a bounded, reviewable course-framing draft that opens in the same editor without silently saving.
 - [x] 6.8 Verify baseline persistence, AI draft boundaries, zh/en copy and desktop/mobile editing flows.
+- [x] 6.9 Move full course adjustment out of the teacher chat rail into one dedicated responsive workspace while preserving AI and inline launch paths to the same `CourseEvolutionPlan`.

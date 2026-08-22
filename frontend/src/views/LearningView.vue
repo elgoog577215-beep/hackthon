@@ -149,8 +149,19 @@
         @clear-block-target="clearBlockImprovement"
         @block-applied="handleBlockApplied"
         @course-applied="handleCourseGrowthApplied"
+        @open-course-adjustment="openCourseAdjustment"
       />
     </Transition>
+
+    <CourseEvolutionWorkspace
+      v-model="courseAdjustmentOpen"
+      :course-id="courseStore.currentCourseId"
+      :course-title="courseStore.currentCourse?.course_name || ''"
+      :section-id="courseAdjustmentSectionId"
+      :section-title="courseAdjustmentSectionTitle"
+      :focus-plan-id="courseAdjustmentFocusPlanId"
+      @course-applied="handleCourseGrowthApplied"
+    />
 
     <button v-if="showMobileResumePrompt && resumableAction && !isGenerationPreview" type="button" class="mobile-resume-prompt" :disabled="continuityBusy || resumableAction.availability !== 'available'" @click="runResumeAction">
       <LoaderCircle v-if="continuityBusy" :size="15" class="mobile-resume-prompt__spin" />
@@ -166,6 +177,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
+import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
 import LearningDock from '../components/LearningDock.vue'
 import LearningStats from '../components/LearningStats.vue'
@@ -208,6 +220,9 @@ const aiVisible = ref(false)
 const notebookOpen = ref(false)
 const statsOpen = ref(false)
 const taskOpen = ref(false)
+const courseAdjustmentOpen = ref(false)
+const courseAdjustmentFocusPlanId = ref('')
+const courseAdjustmentSectionId = ref('')
 const taskNode = ref<Node | null>(null)
 const taskReturnScroll = ref(0)
 const taskOriginRect = ref<{ top: number; left: number; width: number; height: number } | null>(null)
@@ -237,6 +252,9 @@ const navigatorVisible = computed(() => (
   !courseStore.isFocusMode
   && navigatorOpen.value
   && (!isGenerationPreview.value || courseStore.courseTree.length > 0)
+))
+const courseAdjustmentSectionTitle = computed(() => (
+  courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
 const canOpenNavigator = computed(() => (
   !isGenerationPreview.value || courseStore.courseTree.length > 0
@@ -311,6 +329,9 @@ watch(() => route.params.courseId, async value => {
   autoFollowGeneration.value = true
   activeCourseBlockId.value = ''
   aiVisible.value = false
+  courseAdjustmentOpen.value = false
+  courseAdjustmentFocusPlanId.value = ''
+  courseAdjustmentSectionId.value = ''
   activeDomain.value = 'course'
   notebookOpen.value = false
   statsOpen.value = false
@@ -520,6 +541,14 @@ function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string
   aiEntrypoint.value = payload?.text ? 'selection' : 'global'
   aiVisible.value = true
   if (isNarrow.value) navigatorOpen.value = false
+}
+
+function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
+  courseAdjustmentFocusPlanId.value = payload?.planId || ''
+  courseAdjustmentSectionId.value = payload?.sectionId || courseStore.currentNode?.node_id || ''
+  aiVisible.value = false
+  activeDomain.value = 'course'
+  courseAdjustmentOpen.value = true
 }
 
 /** Accepting only opens the AI panel to explain the action — it executes nothing. */
