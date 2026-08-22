@@ -1,6 +1,11 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { defineStore } from 'pinia'
-import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
+import http, {
+  identityRequestConfig,
+  learnerIdentityHeaders,
+  withApiBase,
+  type RequestIdentityScope,
+} from '../utils/http'
 import { ElMessage } from 'element-plus'
 import { useCourseStore } from './course'
 import { useTaskWebSocket, type ConnectionState } from '../composables/useTaskWebSocket'
@@ -1084,7 +1089,11 @@ export const useGenerationStore = defineStore('generation', {
       this.persistGenerationState()
     },
 
-    async startSmartGeneration(subject: string, options: CourseGenerationOptions = {}) {
+    async startSmartGeneration(
+      subject: string,
+      options: CourseGenerationOptions = {},
+      identityScope: RequestIdentityScope = 'learner',
+    ) {
       // Block generation in outline edit mode (Req 6.2)
       if (this.isOutlineEditMode) {
         ElMessage.warning('请先确认大纲后再启动生成任务')
@@ -1096,9 +1105,14 @@ export const useGenerationStore = defineStore('generation', {
       this.generationStatus = 'generating'
       this.generationProgress = 0
       this.generationLogs = []
+      this.failureReport = null
       this.addLog(`已提交课程生成: ${subject}`)
       try {
-        const res = await http.post(`/api/course-generation/generate`, { subject, ...options })
+        const res = await http.post(
+          `/api/course-generation/generate`,
+          { subject, ...options },
+          identityRequestConfig(identityScope, { silentError: true }),
+        )
         if (res.data?.job_id && res.data?.course_id) {
           const jobId = res.data.job_id
           const courseId = res.data.course_id
@@ -1111,7 +1125,7 @@ export const useGenerationStore = defineStore('generation', {
           cs.currentGenerationQualityReport = null
           cs.nodes = []
           cs.courseTree = []
-          await cs.fetchCourseList()
+          await cs.fetchCourseList({ surface: identityScope === 'teacher' ? 'teacher' : 'student' })
           this.taskProgress[courseId] = {
             percentage: 0,
             currentNodeName: '',
@@ -1129,18 +1143,38 @@ export const useGenerationStore = defineStore('generation', {
           return { jobId, courseId, courseName }
         }
         return null
-      } catch (error) {
+      } catch (error: any) {
         this.addLog(`❌ 生成失败: ${error}`)
-        ElMessage.error('生成失败')
         this.isGenerating = false
         this.generationStatus = 'error'
+        const detail = error?.response?.data?.detail
+        const errorMessage = typeof detail === 'string'
+          ? detail
+          : String(detail?.message || error?.message || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。'))
+        this.failureReport = {
+          task_id: '',
+          course_id: String(options.target_course_id || ''),
+          failed_nodes: [{
+            node_id: '',
+            node_name: '',
+            error: errorMessage,
+            error_code: typeof detail === 'object' ? String(detail?.code || '') : undefined,
+            retryable: Number(error?.response?.status || 0) >= 500,
+            retry_count: 0,
+          }],
+          total_failed: 1,
+        }
         this.persistGenerationState()
         return null
       } finally { cs.loading = false }
     },
 
-    async generateCourse(subject: string, options: CourseGenerationOptions = {}) {
-      return this.startSmartGeneration(subject, options)
+    async generateCourse(
+      subject: string,
+      options: CourseGenerationOptions = {},
+      identityScope: RequestIdentityScope = 'learner',
+    ) {
+      return this.startSmartGeneration(subject, options, identityScope)
     },
 
     async generateNodeContent(nodeId: string) {

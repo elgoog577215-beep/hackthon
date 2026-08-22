@@ -507,6 +507,14 @@ SLIDE_BUILD_REQUEST_CONTRACT_FIELDS = (
 )
 
 
+def _persisted_task_owner_id(task: dict[str, Any]) -> str:
+    return str(
+        task.get("owner_id")
+        or (task.get("request_snapshot") or {}).get("_retrieval_actor_id")
+        or ""
+    )
+
+
 def _slide_build_request_contract(
     request_snapshot: dict[str, Any] | None,
 ) -> dict[str, Any]:
@@ -1084,6 +1092,9 @@ class TaskManager:
         task: dict[str, Any] = {
             "id": task_id,
             "course_id": course_id,
+            "owner_id": str(
+                normalized_request_snapshot.get("_retrieval_actor_id") or ""
+            ),
             "type": task_type,
             "course_name": course_name,
             "course_type": str(
@@ -1198,6 +1209,7 @@ class TaskManager:
         filename: str,
         content: bytes,
         content_type: str,
+        actor_id: str = "",
         enqueue: bool = True,
     ) -> dict[str, str]:
         """Create a durable Markdown import job without exposing source bytes."""
@@ -1220,6 +1232,7 @@ class TaskManager:
                 "operation": "import",
                 "filename": safe_filename,
                 "content_type": content_type,
+                "_retrieval_actor_id": str(actor_id or ""),
             },
             task_id=task_id,
             enqueue=False,
@@ -2413,6 +2426,12 @@ class TaskManager:
             "blueprint_revision_id": frozen["blueprint_revision_id"],
             "affected_node_ids": sorted(affected),
             "reason": reason,
+            "_retrieval_actor_id": str(
+                (course_data.get("generation_request") or {}).get(
+                    "_retrieval_actor_id"
+                )
+                or ""
+            ),
         }
         task_id: str | None = None
         try:
@@ -3918,7 +3937,8 @@ class TaskManager:
         view = {
             key: deepcopy(value)
             for key, value in task.items()
-            if key not in PUBLIC_TASK_OMITTED_FIELDS and key != "logs"
+            if key not in PUBLIC_TASK_OMITTED_FIELDS
+            and key not in {"logs", "owner_id"}
         }
         last_event = task.get("last_event") or {}
         blocked_quality = (
@@ -4825,11 +4845,16 @@ class TaskManager:
             self._running_job_tasks.pop(task_id, None)
             self.save_tasks(strict=True)
 
-    async def clear_failed_tasks(self) -> int:
+    async def clear_failed_tasks(self, *, owner_id: str | None = None) -> int:
         """清理失败任务，返回清理数量。"""
         failed_ids = [
             task_id for task_id, task in self.tasks.items()
             if task.get("status") == "failed"
+            and (
+                owner_id is None
+                or not _persisted_task_owner_id(task)
+                or _persisted_task_owner_id(task) == owner_id
+            )
         ]
         removed = 0
         for task_id in failed_ids:
@@ -4845,6 +4870,7 @@ class TaskManager:
         scope: str,
         *,
         course_id: str | None = None,
+        owner_id: str | None = None,
     ) -> list[str]:
         """Delete terminal task records without touching active jobs."""
         if scope not in {"invalid", "completed"}:
@@ -4852,6 +4878,9 @@ class TaskManager:
 
         def matches(task: dict[str, Any]) -> bool:
             if course_id and str(task.get("course_id") or "") != course_id:
+                return False
+            task_owner_id = _persisted_task_owner_id(task)
+            if owner_id is not None and task_owner_id and task_owner_id != owner_id:
                 return False
             status = str(task.get("status") or "")
             recovery_state = str((task.get("recovery") or {}).get("state") or "")

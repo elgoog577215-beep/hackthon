@@ -104,7 +104,7 @@ async def test_empty_teacher_course_stays_draft_in_teacher_list_and_hidden_from_
     )
 
     teacher_course = next(
-        item for item in courses._list_teacher_courses(set())
+        item for item in courses._list_teacher_courses(set(), owner_id="teacher-a")
         if item["course_id"] == result["course_id"]
     )
     assert teacher_course["course_status"] == "draft"

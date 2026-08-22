@@ -917,7 +917,7 @@ async def build_teaching_representations(course_id: str, request: Request) -> di
 @router.post("/build/stream")
 async def stream_teaching_representation_build(course_id: str, request: Request) -> StreamingResponse:
     """Stream page-level progress while preserving atomic final publication."""
-    require_user_id(request.headers.get("X-User-Id"))
+    actor_id = require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
 
     task_manager = get_task_manager_optional()
@@ -925,7 +925,10 @@ async def stream_teaching_representation_build(course_id: str, request: Request)
         task_id = await task_manager.create_task(
             course_id,
             "teaching_representation_build",
-            request_snapshot={"operation": "build_teaching_representations"},
+            request_snapshot={
+                "operation": "build_teaching_representations",
+                "_retrieval_actor_id": actor_id,
+            },
         )
 
         async def durable_event_stream():
@@ -1260,6 +1263,7 @@ async def stream_slide_deck_variant_build(
             "slide_deck_variant_build",
             request_snapshot={
                 "operation": "build_slide_deck_variant",
+                "_retrieval_actor_id": owner_id,
                 "mode": body.mode,
                 "theme": theme,
                 "variant_key": variant_key,
@@ -1494,7 +1498,7 @@ async def repair_degraded_slide_visuals(
 ) -> dict[str, Any]:
     """Queue a durable V6 task that retries only degraded visual decisions."""
 
-    require_user_id(request.headers.get("X-User-Id"))
+    actor_id = require_user_id(request.headers.get("X-User-Id"))
     await get_course_or_404(course_id)
     task_manager = get_task_manager_optional()
     if task_manager is None:
@@ -1575,6 +1579,7 @@ async def repair_degraded_slide_visuals(
         "slide_deck_variant_build",
         request_snapshot={
             "operation": "repair_slide_visuals_v6",
+            "_retrieval_actor_id": actor_id,
             "mode": mode,
             "theme": theme,
             "variant_key": str(

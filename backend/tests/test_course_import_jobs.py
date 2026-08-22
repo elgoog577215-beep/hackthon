@@ -47,6 +47,7 @@ def test_markdown_import_job_route_returns_accepted_task(tmp_path, monkeypatch):
 
     response = client.post(
         '/api/import_markdown/jobs',
+        headers={'X-User-Id': 'teacher-a'},
         files={
             'file': (
                 'linear-algebra.md',
@@ -63,6 +64,7 @@ def test_markdown_import_job_route_returns_accepted_task(tmp_path, monkeypatch):
     summary = manager.get_task_summary(payload['job_id'])
     assert summary['type'] == 'course_import'
     assert summary['current_phase'] == 'material_receiving'
+    assert manager.tasks[payload['job_id']]['owner_id'] == 'teacher-a'
 
 
 @pytest.mark.asyncio

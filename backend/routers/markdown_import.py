@@ -3,7 +3,7 @@
 # 上传 Markdown 文件解析为课程节点树
 # =============================================================================
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, status
 from pathlib import Path
 from datetime import datetime
 import uuid
@@ -14,22 +14,26 @@ from dependencies import get_course_document_repository, require_task_manager
 from models import ImportMarkdownResponse
 from markdown_parser import parse_markdown_to_nodes
 from task_manager import TaskManager
+from learner_context import require_actor_id
 
 router = APIRouter(prefix="/api", tags=["import"])
 
 
 @router.post("/import_markdown/jobs", status_code=status.HTTP_202_ACCEPTED)
 async def create_markdown_import_job(
+    request: Request,
     file: UploadFile = File(...),
     tm: TaskManager = Depends(require_task_manager),
 ):
     """Queue one durable import so progress and recovery remain observable."""
     content = await file.read()
+    actor_id = require_actor_id(request.headers.get("X-User-Id"))
     try:
         return await tm.create_markdown_import_job(
             filename=file.filename or "import.md",
             content=content,
             content_type=file.content_type or "application/octet-stream",
+            actor_id=actor_id,
         )
     except ValueError as exc:
         message = str(exc)

@@ -3,14 +3,17 @@ import { describe, expect, it } from 'vitest'
 import type { InternalAxiosRequestConfig } from 'axios'
 import {
   applyLearnerIdentity,
+  activeIdentityHeaders,
+  getActiveRequestIdentity,
+  getActiveRequestIdentityScope,
+  getIdentityForScope,
   getLearnerIdentity,
-  getSurfaceIdentity,
   getTeacherIdentity,
-  isTeacherSurfaceLocation,
+  identityScopeHeaders,
   learnerIdentityHeaders,
   LEARNER_ID_STORAGE_KEY,
   LOCAL_TEACHER_USER_ID,
-  surfaceIdentityHeaders,
+  setActiveRequestIdentityScope,
   teacherIdentityHeaders,
 } from '@/utils/http'
 
@@ -61,25 +64,22 @@ describe('learner identity request header', () => {
     expect(teacherIdentityHeaders({}, 'teacher-header-user').get('X-User-Id')).toBe('teacher-header-user')
   })
 
-  it('教师首页、课程文件空间和学生视角预览使用教师身份', () => {
-    expect(isTeacherSurfaceLocation('/courses', '')).toBe(true)
-    expect(isTeacherSurfaceLocation('/course/course-1/workspace/setup', '?lesson=lesson-1')).toBe(true)
-    expect(isTeacherSurfaceLocation('/course/course-1/learn/lesson-1', '?teacherPreview=1')).toBe(true)
-    expect(getSurfaceIdentity('/course/course-1/workspace/setup', '')).toBe(LOCAL_TEACHER_USER_ID)
-    expect(surfaceIdentityHeaders(
-      { 'Content-Type': 'application/json' },
-      '/course/course-1/workspace/setup',
-      '',
-    ).get('X-User-Id')).toBe(LOCAL_TEACHER_USER_ID)
+  it('业务域显式选择教师身份，不再从 URL 猜测', () => {
+    expect(getIdentityForScope('teacher')).toBe(LOCAL_TEACHER_USER_ID)
+    expect(identityScopeHeaders('teacher', {
+      'Content-Type': 'application/json',
+    }).get('X-User-Id')).toBe(LOCAL_TEACHER_USER_ID)
   })
 
-  it('普通学生学习界面继续使用独立学习者身份', () => {
-    expect(isTeacherSurfaceLocation('/course/course-1/learn/lesson-1', '')).toBe(false)
-    expect(getSurfaceIdentity('/course/course-1/learn/lesson-1', '')).toMatch(/^learner_/)
-    expect(surfaceIdentityHeaders(
-      {},
-      '/course/course-1/learn/lesson-1',
-      '',
-    ).get('X-User-Id')).toMatch(/^learner_/)
+  it('路由可以切换当前请求身份域，普通学习仍使用独立学习者身份', () => {
+    setActiveRequestIdentityScope('learner')
+    expect(getActiveRequestIdentityScope()).toBe('learner')
+    expect(getActiveRequestIdentity()).toMatch(/^learner_/)
+    expect(activeIdentityHeaders().get('X-User-Id')).toMatch(/^learner_/)
+
+    setActiveRequestIdentityScope('teacher')
+    expect(getActiveRequestIdentityScope()).toBe('teacher')
+    expect(getActiveRequestIdentity()).toBe(LOCAL_TEACHER_USER_ID)
+    expect(activeIdentityHeaders().get('X-User-Id')).toBe(LOCAL_TEACHER_USER_ID)
   })
 })

@@ -37,6 +37,46 @@ describe('course generation lifecycle reconciliation', () => {
     expect(restoredGeneration.getTask('course-project')?.courseType).toBe('project')
   })
 
+  it('目标草稿所有者不一致时退出生成态并保留唯一真实原因', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    const backendError = {
+      response: {
+        status: 404,
+        data: {
+          detail: {
+            code: 'teacher_course_draft_unavailable',
+            message: '课程草稿不存在或不属于当前教师',
+          },
+        },
+      },
+    }
+    const post = vi.spyOn(http, 'post').mockRejectedValue(backendError)
+    const genericToast = vi.spyOn(ElMessage, 'error')
+
+    const result = await generation.startSmartGeneration(
+      '理论力学',
+      { target_course_id: 'course-1' },
+      'teacher',
+    )
+
+    expect(result).toBeNull()
+    expect(post).toHaveBeenCalledWith(
+      '/api/course-generation/generate',
+      expect.objectContaining({ subject: '理论力学', target_course_id: 'course-1' }),
+      { identityScope: 'teacher', silentError: true },
+    )
+    expect(generation.isGenerating).toBe(false)
+    expect(generation.generationStatus).toBe('error')
+    expect(generation.failureReport?.failed_nodes[0]).toMatchObject({
+      error: '课程草稿不存在或不属于当前教师',
+      error_code: 'teacher_course_draft_unavailable',
+      retryable: false,
+    })
+    expect(courses.loading).toBe(false)
+    expect(genericToast).not.toHaveBeenCalled()
+  })
+
   it('发布完成后同步正式正文、课程库摘要和当前生成状态', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

@@ -65,7 +65,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { Check, Database, FileText, Plus, RefreshCw, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
-import http from '../utils/http'
+import http, { teacherRequestConfig } from '../utils/http'
 
 export type CourseReferenceItem = {
   package_id: string
@@ -101,7 +101,7 @@ function fileSize(value: number) { return value >= 1024 * 1024 ? `${(value / 102
 async function loadMaterials() {
   loading.value = true; error.value = ''
   try {
-    const response = await http.get('/api/materials', { params: { course_id: props.courseId }, silentError: true })
+    const response = await http.get('/api/materials', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
     materials.value = (response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, role: 'reference' }))
   } catch (reason: any) { error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.loadFailed', '课程资料读取失败')) }
   finally { loading.value = false }
@@ -114,7 +114,7 @@ async function uploadFiles(files: File[], role: 'primary' | 'reference') {
     const uploaded: CourseReferenceItem[] = []
     for (const file of role === 'primary' ? files.slice(0, 1) : files) {
       const data = new FormData(); data.append('file', file); data.append('course_id', props.courseId)
-      const response = await http.post('/api/materials', data, { headers: { 'Content-Type': 'multipart/form-data' }, silentError: true })
+      const response = await http.post('/api/materials', data, teacherRequestConfig({ headers: { 'Content-Type': 'multipart/form-data' }, silentError: true }))
       const payload = response.data
       if (!payload?.course_space?.course_asset_id) throw new Error(t('courseWorkbench.references.registerFailed', '资料已上传，但未能加入当前课程'))
       uploaded.push({ package_id: payload.course_space.package_id, asset_id: payload.course_space.course_asset_id, material_asset_id: payload.asset_id, filename: payload.filename, relative_path: payload.course_space.relative_path, size_bytes: payload.size_bytes || file.size, uploaded_at: payload.uploaded_at, role })

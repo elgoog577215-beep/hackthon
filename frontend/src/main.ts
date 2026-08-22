@@ -12,8 +12,7 @@ import router from './router'
 import logger from './utils/logger'
 import { initializeI18n } from './shared/i18n'
 import {
-  getSurfaceIdentity,
-  isTeacherSurfaceLocation,
+  getActiveRequestIdentity,
   withApiBase,
 } from './utils/http'
 import {
@@ -23,19 +22,16 @@ import {
   type UsageSurface,
 } from './utils/usage-tracker'
 
-const routeSearch = (fullPath: string) => {
-  const index = fullPath.indexOf('?')
-  return index >= 0 ? fullPath.slice(index) : ''
-}
-
-const usageSurface = (path: string, fullPath: string): UsageSurface => (
-  isTeacherSurfaceLocation(path, routeSearch(fullPath)) ? 'teacher' : 'learner'
+const usageSurface = (route: typeof router.currentRoute.value): UsageSurface => (
+  route.meta.identityScope === 'teacher' || route.query.teacherPreview === '1'
+    ? 'teacher'
+    : 'learner'
 )
 
 const currentUsageContext = () => {
   const route = router.currentRoute.value
   return {
-    surface: usageSurface(route.path, route.fullPath),
+    surface: usageSurface(route),
     routeName: typeof route.name === 'string' ? route.name : undefined,
     courseId: typeof route.params.courseId === 'string' ? route.params.courseId : undefined,
   }
@@ -50,14 +46,14 @@ const bootstrap = async () => {
 
     initializeUsageTracking({
       endpoint: withApiBase('/api/usage-events/batch'),
-      identityProvider: () => getSurfaceIdentity(),
+      identityProvider: getActiveRequestIdentity,
       contextProvider: currentUsageContext,
     })
     let initialNavigation = true
     router.afterEach((to) => {
       const context = {
-        userId: getSurfaceIdentity(to.path, routeSearch(to.fullPath)),
-        surface: usageSurface(to.path, to.fullPath),
+        userId: getActiveRequestIdentity(),
+        surface: usageSurface(to),
         routeName: typeof to.name === 'string' ? to.name : undefined,
         courseId: typeof to.params.courseId === 'string' ? to.params.courseId : undefined,
       }

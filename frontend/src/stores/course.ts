@@ -1,6 +1,12 @@
 import { taskProgressStep } from '@/utils/course-progress'
 import { defineStore } from 'pinia'
-import http, { isTeacherSurfaceLocation, learnerIdentityHeaders, withApiBase } from '../utils/http'
+import http, {
+    identityRequestConfig,
+    learnerIdentityHeaders,
+    teacherRequestConfig,
+    withApiBase,
+    type RequestIdentityScope,
+} from '../utils/http'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import { type CourseGenerationOptions } from '@/shared/prompt-config'
@@ -197,7 +203,7 @@ export const useCourseStore = defineStore('course', {
 
     // ========== Course CRUD ==========
     async createTeacherCourseSpace(payload: TeacherCourseSpaceCreate) {
-        const response = await http.post('/api/teacher/courses', payload)
+        const response = await http.post('/api/teacher/courses', payload, teacherRequestConfig())
         return response.data as {
             course_id: string
             course_name: string
@@ -230,9 +236,11 @@ export const useCourseStore = defineStore('course', {
     async fetchCourseList(options: { surface?: 'student' | 'teacher' } = {}) {
         this.loading = true
         try {
-            const surface = options.surface || (isTeacherSurfaceLocation() ? 'teacher' : 'student')
+            const surface = options.surface || 'student'
             const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
-            const res = await http.get(endpoint)
+            const res = await http.get(endpoint, identityRequestConfig(
+                surface === 'teacher' ? 'teacher' : 'learner',
+            ))
             this.courseList = res.data
         } catch (error) {
             logger.error(error)
@@ -901,8 +909,12 @@ export const useCourseStore = defineStore('course', {
     pauseTask(courseId: string) { return this._genStore().pauseTask(courseId) },
     startTask(courseId: string) { return this._genStore().startTask(courseId) },
     cancelTask(courseId: string) { return this._genStore().cancelTask(courseId) },
-    generateCourse(subject: string, options: CourseGenerationOptions = {}) {
-        return this._genStore().generateCourse(subject, options)
+    generateCourse(
+        subject: string,
+        options: CourseGenerationOptions = {},
+        identityScope: RequestIdentityScope = 'learner',
+    ) {
+        return this._genStore().generateCourse(subject, options, identityScope)
     },
 
     // ========== Course Export ==========

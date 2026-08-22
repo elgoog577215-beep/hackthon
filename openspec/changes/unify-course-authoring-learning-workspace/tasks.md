@@ -74,3 +74,12 @@
 - [x] 8.3 Add course-owned formal exam papers composed from approved immutable question revisions inside the question-bank studio.
 - [x] 8.4 Show question banks and exam papers as managed formal assets in the file view without duplicating question truth.
 - [x] 8.5 Add zh/en copy, focused backend/frontend tests, canonical documentation and Chinese desktop real-page verification.
+
+## 9. Explicit identity and ownership boundary
+
+- [x] 9.1 Replace URL-derived identity inference with explicit router/domain `teacher` and `learner` request scopes.
+- [x] 9.2 Keep course creation, generation, file space, calendar, task control and teacher preview on the same stable teacher actor.
+- [x] 9.3 Filter the teacher library by owner and guard every unpublished teacher-course subresource plus owned generation tasks.
+- [x] 9.4 Return one structured draft-owner error and leave the workbench in an explicit interrupted state without a duplicate generic toast.
+- [x] 9.5 Add a dry-run-first, externally backed-up reconciliation tool and repair only proven empty local drafts created under transient learner identities.
+- [x] 9.6 Run focused frontend/backend tests, production build, strict OpenSpec validation and update canonical architecture documentation.

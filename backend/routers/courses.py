@@ -33,7 +33,7 @@ from dependencies import (
 from course_repository import CourseMigrationConflict
 from storage_utils import save_course_compat
 from task_manager import TaskManager
-from learner_context import DEFAULT_USER_ID, resolve_user_id
+from learner_context import DEFAULT_USER_ID, require_actor_id, resolve_user_id
 from learning_snapshots import learning_snapshot_repository
 from web_material_curation import (
     CURATION_METADATA_KEY,
@@ -141,6 +141,7 @@ def _list_courses_with_resume(
         )
     ]
     for course in courses:
+        course.pop("owner_id", None)
         course_id = str(course.get("course_id") or "")
         summary = _resume_summary(learning_snapshot_repository.load(user_id, course_id))
         if summary:
@@ -151,15 +152,23 @@ def _list_courses_with_resume(
 def _list_teacher_courses(
     known_task_ids: set[str],
     next_sessions_by_course_id: dict[str, dict] | None = None,
+    owner_id: str | None = None,
 ) -> list[dict]:
     courses = [
         course for course in storage.list_courses()
-        if course.get("is_published")
-        or not course.get("generation_job_id")
-        or str(course.get("generation_job_id")) in known_task_ids
+        if (
+            owner_id is None
+            or str(course.get("owner_id") or "") == owner_id
+        )
+        and (
+            course.get("is_published")
+            or not course.get("generation_job_id")
+            or str(course.get("generation_job_id")) in known_task_ids
+        )
     ]
     upcoming = next_sessions_by_course_id or {}
     for course in courses:
+        course.pop("owner_id", None)
         next_session = upcoming.get(str(course.get("course_id") or ""))
         if not next_session:
             continue
@@ -189,7 +198,49 @@ def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) 
             "academic_year": str(session.get("academic_year") or ""),
             "term": str(session.get("term") or ""),
         }
-    return _list_teacher_courses(known_task_ids, next_sessions_by_course_id)
+    return _list_teacher_courses(
+        known_task_ids,
+        next_sessions_by_course_id,
+        owner_id,
+    )
+
+
+def _require_unpublished_teacher_course_access(course: dict, request: Request) -> None:
+    """Hide an unpublished teacher course from every actor except its owner."""
+    if course.get("authoring_surface") != "teacher" or (
+        course.get("is_published") or course.get("course_document_publication")
+    ):
+        return
+    owner_id = str(course.get("owner_id") or "").strip()
+    if not owner_id:
+        return
+    actor_id = require_actor_id(request.headers.get("X-User-Id"))
+    if actor_id != owner_id:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "teacher_course_unavailable",
+                "message": "课程不存在或不属于当前教师",
+            },
+        )
+
+
+def _require_teacher_course_write_access(course: dict, request: Request) -> None:
+    """Require the owner for every mutation, including published courses."""
+    if course.get("authoring_surface") != "teacher":
+        return
+    owner_id = str(course.get("owner_id") or "").strip()
+    if not owner_id:
+        return
+    actor_id = require_actor_id(request.headers.get("X-User-Id"))
+    if actor_id != owner_id:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "teacher_course_unavailable",
+                "message": "课程不存在或不属于当前教师",
+            },
+        )
 
 
 @router.get("/courses")
@@ -218,7 +269,7 @@ async def list_teacher_courses(
     tm: TaskManager = Depends(require_task_manager),
 ):
     known_task_ids = {str(task_id) for task_id in tm.tasks}
-    owner_id = resolve_user_id(request.headers.get("X-User-Id"))
+    owner_id = require_actor_id(request.headers.get("X-User-Id"))
     return await run_in_threadpool(_teacher_course_library_projection, owner_id, known_task_ids)
 
 
@@ -235,7 +286,7 @@ async def create_teacher_course(
     start_year = now.year if now.month >= 8 else now.year - 1
     academic_year = body.academic_year.strip() or f"{start_year}-{start_year + 1}"
     term = body.term.strip() or ("秋季" if now.month >= 8 else "春季")
-    owner_id = resolve_user_id(request.headers.get("X-User-Id"))
+    owner_id = require_actor_id(request.headers.get("X-User-Id"))
     course_id = str(uuid.uuid4())
     generation_request = (
         body.generation_request.model_dump(
@@ -313,13 +364,16 @@ async def create_teacher_course(
 
 
 @router.get("/courses/{course_id}")
-async def get_course(course_id: str):
-    return project_learning_objective_bindings(await get_course_or_404(course_id))
+async def get_course(course_id: str, request: Request):
+    course = await get_course_or_404(course_id)
+    _require_unpublished_teacher_course_access(course, request)
+    return project_learning_objective_bindings(course)
 
 
 @router.get("/courses/{course_id}/document")
-async def get_course_document(course_id: str):
+async def get_course_document(course_id: str, request: Request):
     course = project_learning_objective_bindings(await get_course_or_404(course_id))
+    _require_unpublished_teacher_course_access(course, request)
     repository = get_course_document_repository()
     return await run_in_threadpool(
         lambda: repository.document_envelope(
@@ -346,8 +400,11 @@ async def migrate_course_document(course_id: str, body: CourseDocumentMigrationR
 @router.delete("/courses/{course_id}")
 async def delete_course(
     course_id: str,
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
 ):
+    course = await get_course_or_404(course_id)
+    _require_teacher_course_write_access(course, request)
     removed_tasks = await tm.delete_course(course_id)
     return {"status": "success", "removed_tasks": removed_tasks}
 
@@ -368,11 +425,21 @@ async def create_course_generation_job(
                 "enabled_course_types": sorted(ENABLED_COURSE_TYPES),
             },
         )
-    actor_id = resolve_user_id(request.headers.get("X-User-Id"))
+    actor_id = (
+        require_actor_id(request.headers.get("X-User-Id"))
+        if req.target_course_id
+        else resolve_user_id(request.headers.get("X-User-Id"))
+    )
     if req.target_course_id:
         draft = storage.load_course(req.target_course_id)
         if not draft or draft.get("owner_id") != actor_id:
-            raise HTTPException(status_code=404, detail="课程草稿不存在")
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "teacher_course_draft_unavailable",
+                    "message": "课程草稿不存在或不属于当前教师",
+                },
+            )
         if (
             draft.get("course_status") != "draft"
             or draft.get("authoring_surface") != "teacher"

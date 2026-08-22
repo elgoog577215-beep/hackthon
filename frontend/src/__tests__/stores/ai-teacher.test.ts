@@ -12,9 +12,11 @@ const httpMock = vi.hoisted(() => ({
 vi.mock('@/utils/http', () => ({
   default: httpMock,
   withApiBase: (path: string) => path,
-  surfaceIdentityHeaders: (initial: HeadersInit = {}) => {
+  getActiveRequestIdentityScope: () => 'learner',
+  identityRequestConfig: (scope: string, config: Record<string, unknown> = {}) => ({ ...config, identityScope: scope }),
+  identityScopeHeaders: (_scope: string, initial: HeadersInit = {}) => {
     const headers = new Headers(initial)
-    headers.set('X-User-Id', 'surface-test-user')
+    headers.set('X-User-Id', 'learner-test-user')
     return headers
   },
 }))
@@ -45,6 +47,24 @@ beforeEach(() => {
 })
 
 describe('AI teacher store', () => {
+  it('教师预览会把会话请求固定在教师身份域', async () => {
+    httpMock.get.mockResolvedValue({ data: { conversations: [] } })
+    httpMock.post.mockResolvedValue({ data: { ...emptyConversation } })
+    const store = useAITeacherStore()
+
+    await store.load('course-1', 'node-1', 'teacher')
+
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/ai-teacher/conversations',
+      { params: { course_id: 'course-1' }, identityScope: 'teacher' },
+    )
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/ai-teacher/conversations',
+      expect.objectContaining({ course_id: 'course-1' }),
+      { identityScope: 'teacher' },
+    )
+  })
+
   it('只发送引用和当前问题，并消费结构化 SSE', async () => {
     const serverConversation = {
       ...emptyConversation,
@@ -112,7 +132,7 @@ describe('AI teacher store', () => {
     expect(requestBody).not.toHaveProperty('node_content')
     expect(requestBody).not.toHaveProperty('history')
     expect(requestBody).not.toHaveProperty('user_notes')
-    expect((fetchMock.mock.calls[0]?.[1]?.headers as Headers).get('X-User-Id')).toBe('surface-test-user')
+    expect((fetchMock.mock.calls[0]?.[1]?.headers as Headers).get('X-User-Id')).toBe('learner-test-user')
     expect(isReactive(observedAssistantMessage)).toBe(true)
     expect(onQuestionRecorded).toHaveBeenCalledTimes(1)
     expect(contentWhenQuestionRecorded).toBe('')
@@ -140,6 +160,7 @@ describe('AI teacher store', () => {
         retrieval_enabled: true,
         expected_revision: 1,
       },
+      { identityScope: 'learner' },
     )
     expect(store.currentConversation?.retrieval_enabled).toBe(true)
     expect(store.currentConversation?.revision).toBe(2)
@@ -158,7 +179,7 @@ describe('AI teacher store', () => {
 
     expect(httpMock.get).toHaveBeenCalledWith(
       '/api/ai-teacher/conversations/aic-1',
-      { params: { course_id: 'course-1' } },
+      { params: { course_id: 'course-1' }, identityScope: 'learner' },
     )
     expect(store.currentConversation?.retrieval_enabled).toBe(false)
     expect(store.currentConversation?.revision).toBe(2)
@@ -192,6 +213,7 @@ describe('AI teacher store', () => {
         action: 'explain',
         content_anchor: { block_id: 'block-1', block_revision_id: 'rev-1' },
       },
+      { identityScope: 'learner' },
     )
   })
 
@@ -409,6 +431,7 @@ describe('AI teacher store', () => {
           moment: 'section_completed',
           session_id: expect.any(String),
         }),
+        { identityScope: 'learner' },
       )
     })
 

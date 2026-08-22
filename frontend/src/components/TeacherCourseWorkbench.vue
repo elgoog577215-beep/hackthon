@@ -18,8 +18,8 @@
 
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
-          <div><LoaderCircle :size="18" class="spin" /><span><strong>{{ t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small>{{ currentGenerationLabel }}</small></span></div>
-          <button type="button" @click="stopGeneration"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
+          <div><TriangleAlert v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.generationInterrupted', '生成已中断') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small>{{ generationFailed ? generationError : currentGenerationLabel }}</small></span></div>
+          <button v-if="generationRunning" type="button" @click="stopGeneration"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
         </header>
         <div class="generation-progress"><i :style="{ transform: `scaleX(${generationProgress / 100})` }" /></div>
         <article class="stream-content">
@@ -28,7 +28,8 @@
             <MarkdownRenderer :content="nodeContent(node)" />
             <span v-if="node.node_id === generationStore.currentGeneratingNodeId" class="stream-caret" />
           </section>
-          <div v-if="!visibleStreamNodes.length" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
+          <div v-if="!visibleStreamNodes.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
+          <div v-else-if="!visibleStreamNodes.length" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
         <p v-if="generationError" class="generation-error" role="alert">{{ generationError }} <button type="button" @click="submitFoundation">{{ t('common.retry', '重试') }}</button></p>
       </section>
@@ -86,7 +87,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ClipboardList, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles } from 'lucide-vue-next'
+import { BookOpenText, Check, ClipboardList, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
@@ -95,7 +96,7 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
-import http from '../utils/http'
+import http, { teacherRequestConfig } from '../utils/http'
 
 type StageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId }>(), { initialStage: 'foundation' })
@@ -126,13 +127,15 @@ const workingLessonRevision = computed(() => selectedLesson.value?.plan.revision
 const pptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(item => item.role === 'primary') || selectedLesson.value?.plan.ppt_assets[0])
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskActive = computed(() => ['pending', 'running', 'paused', 'waiting_for_review'].includes(String(generationTask.value?.status || '')))
+const generationFailed = computed(() => generationStore.generationStatus === 'error')
+const generationRunning = computed(() => taskActive.value || generationStore.generationStatus === 'generating')
 const showStreaming = computed(() => activeStage.value === 'foundation' && (generationRequested.value || taskActive.value))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
 const outlinePreviewNodes = computed(() => courseStore.nodes.filter(node => Number(node.node_level || 0) <= 2).slice(0, 24))
 const visibleStreamNodes = computed(() => courseStore.nodes.filter(node => node.node_content || generationStore.streamingContent[node.node_id]).slice(0, 20))
 const generationProgress = computed(() => Math.max(2, Number(generationTask.value?.progress || generationStore.generationProgress || 0)))
 const currentGenerationLabel = computed(() => generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
-const generationError = computed(() => generationStore.generationStatus === 'error' ? String(generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
+const generationError = computed(() => generationFailed.value ? String(generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
 const lessonJob = computed(() => selectedLessonId.value ? lessonStore.latestJobByLesson(selectedLessonId.value) : undefined)
 const lessonJobLabel = computed(() => ['pending', 'running'].includes(String(lessonJob.value?.status || '')) ? `${t('courseWorkbench.generatingShort', '生成中')} ${Math.round(Number(lessonJob.value?.progress || 0))}%` : t('courseWorkbench.formalSaved', '已进入课程正式文件'))
 const lessonPlanMarkdown = computed(() => { const plan = workingLessonRevision.value?.plan || {}; return [`# ${selectedLesson.value?.title || ''}`, plan.objectives ? `## 教学目标\n${String(plan.objectives)}` : '', plan.key_points ? `## 教学重点\n${String(plan.key_points)}` : '', plan.teaching_process ? `## 教学过程\n${String(plan.teaching_process)}` : ''].filter(Boolean).join('\n\n') })
@@ -145,11 +148,11 @@ function stageReady(stage: StageId) { if (stage === 'foundation') return hasOutl
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => ({ asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : 'prefer' as const, reuse_policy: 'reference_only' as const, rights_basis: 'teacher_asserted' as const, source_metadata: {}, source_label: item.filename })) }
-async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', { params: { course_id: props.courseId }, silentError: true })).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, { silentError: true }) }
-function submitFoundation() { generationRequested.value = true; void saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')).then(() => emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { schema_version: 'teacher_course_brief_v1', target_audience: props.generationOptions.teacher_course_brief?.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: props.generationOptions.teacher_course_brief?.lesson_duration_minutes || 45, teaching_context: props.generationOptions.teacher_course_brief?.teaching_context || 'classroom', section_count: foundation.sessionCount }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value })) }
+async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
+async function submitFoundation() { generationRequested.value = true; try { await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')); emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { schema_version: 'teacher_course_brief_v1', target_audience: props.generationOptions.teacher_course_brief?.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: props.generationOptions.teacher_course_brief?.lesson_duration_minutes || 45, teaching_context: props.generationOptions.teacher_course_brief?.teaching_context || 'classroom', section_count: foundation.sessionCount }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value }) } catch { generationRequested.value = false } }
 async function generateLessonPlan() { if (!selectedLesson.value) return; lessonBusy.value = true; try { await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', selectedLesson.value.title); const primary = activeReferences.value.find(item => item.role === 'primary'); await lessonStore.generateLesson(props.courseId, selectedLessonId.value, primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined, lessonRequirements.value) } finally { lessonBusy.value = false } }
 async function generatePpt() { if (!selectedLesson.value) return; if (pptAsset.value) { window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`); return } const revision = workingLessonRevision.value?.revision_id; if (!revision) return; pptBusy.value = true; try { await saveRelationships(`ppt:${selectedLessonId.value}`, 'ppt', `${selectedLesson.value.title} PPT`); await lessonStore.generatePpt(props.courseId, selectedLessonId.value, revision) } finally { pptBusy.value = false } }
-async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, { silentError: true }); questionBankReady.value = Number(response.data?.total || 0) > 0 } catch { questionBankReady.value = false } }
+async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0 } catch { questionBankReady.value = false } }
 
 watch(() => props.generationOptions, options => { const intent = options.course_intent as any; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(options.teacher_course_brief?.total_class_hours || 32); foundation.sessionCount = Number(options.teacher_course_brief?.section_count || 16); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
 watch(() => props.initialStage, stage => { activeStage.value = stage })
@@ -164,4 +167,5 @@ watch(taskActive, active => { if (!active) generationRequested.value = false })
 @media(max-width:1050px){.teacher-workbench{grid-template-columns:190px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr)}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
 @media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.stage-rail nav small{display:none}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
 .outline-list{margin:0;padding:0!important;list-style:none}.outline-list li{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 10px;border-bottom:1px solid #edf1f6;color:#334155}.outline-list li[data-level="2"]{padding-left:28px;color:#64748b}.outline-list small{color:#94a3b8;font-size:11px}
+.stream-failed{color:#b91c1c;background:#fffafa}
 </style>

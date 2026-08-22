@@ -323,6 +323,7 @@ class Storage:
                 "is_published": is_published,
                 "course_status": course_status or None,
                 "authoring_surface": authoring_surface or None,
+                "owner_id": str(data.get("owner_id") or ""),
                 "academic_year": str(data.get("academic_year") or ""),
                 "term": str(data.get("term") or ""),
                 "course_code": str(course_profile.get("course_code") or ""),

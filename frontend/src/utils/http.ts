@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
+import type { AxiosInstance, AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { ElMessage } from 'element-plus';
 import { trackApiAction } from './usage-tracker';
 
@@ -8,7 +8,9 @@ const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID |
 const CONFIGURED_TEACHER_USER_ID = String(import.meta.env.VITE_TEACHER_USER_ID || '').trim();
 export const LEARNER_ID_STORAGE_KEY = 'lingzhi_learner_id_v1';
 export const LOCAL_TEACHER_USER_ID = 'teacher-local-workbench-v1';
+export type RequestIdentityScope = 'learner' | 'teacher';
 let inMemoryLearnerId = '';
+let activeIdentityScope: RequestIdentityScope = 'learner';
 
 const createLearnerId = () => {
   const randomId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -52,22 +54,22 @@ export const getTeacherIdentity = (
   return getLearnerIdentity();
 };
 
-export const isTeacherSurfaceLocation = (
-  pathname = typeof window === 'undefined' ? '' : window.location.pathname,
-  search = typeof window === 'undefined' ? '' : window.location.search,
-): boolean => {
-  const normalizedPath = String(pathname || '').replace(/\/+$/, '') || '/';
-  if (normalizedPath === '/courses') return true;
-  if (/^\/course\/[^/]+\/workspace(?:\/|$)/.test(normalizedPath)) return true;
-  return new URLSearchParams(String(search || '')).get('teacherPreview') === '1';
+/**
+ * The router or a domain call owns the active request scope. HTTP must never
+ * guess an actor from `window.location`: that made course creation and course
+ * generation use different owners when a route was missing from the matcher.
+ */
+export const setActiveRequestIdentityScope = (scope: RequestIdentityScope): void => {
+  activeIdentityScope = scope;
 };
 
-export const getSurfaceIdentity = (
-  pathname?: string,
-  search?: string,
-): string => isTeacherSurfaceLocation(pathname, search)
-  ? getTeacherIdentity()
-  : getLearnerIdentity();
+export const getActiveRequestIdentityScope = (): RequestIdentityScope => activeIdentityScope;
+
+export const getIdentityForScope = (scope: RequestIdentityScope): string => (
+  scope === 'teacher' ? getTeacherIdentity() : getLearnerIdentity()
+);
+
+export const getActiveRequestIdentity = (): string => getIdentityForScope(activeIdentityScope);
 
 export const API_BASE = stripTrailingSlash(
   import.meta.env.VITE_API_BASE_URL || import.meta.env.BASE_URL || ''
@@ -95,6 +97,19 @@ export const applyLearnerIdentity = (
   return config;
 };
 
+export const identityRequestConfig = (
+  scope: RequestIdentityScope,
+  config: AxiosRequestConfig = {},
+): AxiosRequestConfig => ({ ...config, identityScope: scope });
+
+export const teacherRequestConfig = (
+  config: AxiosRequestConfig = {},
+): AxiosRequestConfig => identityRequestConfig('teacher', config);
+
+export const learnerRequestConfig = (
+  config: AxiosRequestConfig = {},
+): AxiosRequestConfig => identityRequestConfig('learner', config);
+
 export const teacherIdentityHeaders = (
   initial: HeadersInit = {},
   userId = getTeacherIdentity(),
@@ -119,21 +134,23 @@ export const learnerIdentityHeaders = (
  * 原生 fetch 请求必须和 Axios 拦截器使用同一页面身份。教师工作台与
  * teacherPreview 会切到教师身份，普通学习界面则继续使用独立学习者身份。
  */
-export const surfaceIdentityHeaders = (
+export const identityScopeHeaders = (
+  scope: RequestIdentityScope,
   initial: HeadersInit = {},
-  pathname?: string,
-  search?: string,
-): Headers => learnerIdentityHeaders(
-  initial,
-  getSurfaceIdentity(pathname, search),
-);
+): Headers => scope === 'teacher'
+  ? teacherIdentityHeaders(initial)
+  : learnerIdentityHeaders(initial);
+
+export const activeIdentityHeaders = (
+  initial: HeadersInit = {},
+): Headers => identityScopeHeaders(activeIdentityScope, initial);
 
 // ============================================================================
 // Error Handling Utilities
 // ============================================================================
 
 interface ErrorResponse {
-  detail?: string;
+  detail?: string | { message?: string; code?: string };
   message?: string;
   error?: string;
 }
@@ -147,11 +164,13 @@ declare module 'axios' {
   export interface AxiosRequestConfig {
     silentError?: boolean;
     usageStartedAt?: number;
+    identityScope?: RequestIdentityScope;
   }
 
   export interface InternalAxiosRequestConfig {
     silentError?: boolean;
     usageStartedAt?: number;
+    identityScope?: RequestIdentityScope;
   }
 }
 
@@ -190,7 +209,11 @@ const getErrorMessageByStatus = (status: number): string => {
 const extractErrorDetail = (error: AxiosError): string => {
   if (error.response?.data) {
     const data = error.response.data as ErrorResponse;
-    return data.detail || data.message || data.error || '';
+    if (typeof data.detail === 'string') return data.detail;
+    if (data.detail && typeof data.detail === 'object') {
+      return String(data.detail.message || data.detail.code || '');
+    }
+    return data.message || data.error || '';
   }
   return '';
 };
@@ -262,7 +285,10 @@ http.interceptors.request.use(
       config.headers.delete('Content-Type');
     }
     config.usageStartedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
-    return applyLearnerIdentity(config, getSurfaceIdentity());
+    return applyLearnerIdentity(
+      config,
+      getIdentityForScope(config.identityScope || activeIdentityScope),
+    );
   },
   (error: AxiosError) => {
     handleHttpError(error, { showMessage: error.config?.silentError !== true });

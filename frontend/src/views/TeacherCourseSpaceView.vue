@@ -375,7 +375,7 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import { useTeachingCalendarStore } from '../stores/teachingCalendar'
-import http from '../utils/http'
+import http, { teacherRequestConfig } from '../utils/http'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
@@ -1184,10 +1184,10 @@ async function exportManagedNode(node: WorkspaceNode) {
     } else if (node.type === 'teaching_calendar') {
       const calendar = calendarStore.calendar?.course_id === props.courseId ? calendarStore.calendar : null
       if (!calendar?.sessions.length) throw new Error(t('courseFiles.errors.exportUnavailable'))
-      const response = await http.get(`/api/courses/${props.courseId}/teaching-calendar/export`, {
+      const response = await http.get(`/api/courses/${props.courseId}/teaching-calendar/export`, teacherRequestConfig({
         params: { format: 'docx', revision: calendar.revision },
         responseType: 'blob',
-      })
+      }))
       downloadBlob(response.data, `${safePart(selected.value?.course_name || courseTitle.value || t('courseFiles.names.teachingCalendar'))}-${t('courseFiles.names.teachingCalendar')}-r${calendar.revision}.docx`)
     } else if (node.type === 'content' && lesson) {
       downloadBlob(new Blob([lessonContentMarkdown(lesson)], { type: 'text/markdown;charset=utf-8' }), `${safePart(lesson.title)}-${t('courseFiles.names.content')}.md`)
@@ -1201,10 +1201,10 @@ async function exportManagedNode(node: WorkspaceNode) {
         useV6
           ? `/api/teacher/courses/${props.courseId}/lessons/${lesson.lesson_unit_id}/ppt-v6/${ppt.working_representation_id}/export.pptx`
           : `/api/teacher/courses/${props.courseId}/lessons/${lesson.lesson_unit_id}/ppt/export.pptx`,
-        {
+        teacherRequestConfig({
           ...(useV6 ? {} : { params: { asset_id: ppt.asset_id, revision_id: ppt.working_revision_id } }),
           responseType: 'blob',
-        },
+        }),
       )
       downloadBlob(response.data, `${safePart(lesson.title)}-${t('courseFiles.names.ppt')}.pptx`)
     } else {
@@ -1222,21 +1222,21 @@ async function refresh() {
   initializing.value = true
   status.value = ''
   try {
-    let packages = (await http.get<Package[]>('/api/teacher-course-spaces', { params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined })).data
+    let packages = (await http.get<Package[]>('/api/teacher-course-spaces', teacherRequestConfig({ params: embedded.value && props.courseId ? { course_id: props.courseId } : undefined }))).data
     let match = embedded.value ? packages.find(item => String(item.course_id || '') === props.courseId) : packages[0]
     if (embedded.value && !match && props.courseTitle) {
-      const allPackages = (await http.get<Package[]>('/api/teacher-course-spaces')).data
+      const allPackages = (await http.get<Package[]>('/api/teacher-course-spaces', teacherRequestConfig())).data
       const legacyMatches = allPackages.filter((item: any) => !item.course_id && String(item.course_name).trim() === props.courseTitle.trim())
       if (legacyMatches.length === 1 && props.courseId) {
-        match = (await http.patch(`/api/teacher-course-spaces/${legacyMatches[0]!.package_id}`, { course_id: props.courseId })).data
+        match = (await http.patch(`/api/teacher-course-spaces/${legacyMatches[0]!.package_id}`, { course_id: props.courseId }, teacherRequestConfig())).data
       }
     }
     if (embedded.value && !match && props.courseTitle) {
       const now = new Date()
       const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1
-      match = (await http.post('/api/teacher-course-spaces', { course_name: props.courseTitle, academic_year: `${startYear}-${startYear + 1}`, term: now.getMonth() >= 7 ? '秋季' : '春季', template: 'blank', course_id: props.courseId })).data
+      match = (await http.post('/api/teacher-course-spaces', { course_name: props.courseTitle, academic_year: `${startYear}-${startYear + 1}`, term: now.getMonth() >= 7 ? '秋季' : '春季', template: 'blank', course_id: props.courseId }, teacherRequestConfig())).data
     }
-    if (match) selected.value = (await http.get(`/api/teacher-course-spaces/${match.package_id}`)).data
+    if (match) selected.value = (await http.get(`/api/teacher-course-spaces/${match.package_id}`, teacherRequestConfig())).data
     if (props.courseId) {
       await lessonStore.load(props.courseId).catch(() => undefined)
       await calendarStore.loadCourse(props.courseId).catch(() => undefined)
@@ -1260,12 +1260,12 @@ async function reloadAll() {
     await refresh()
   } finally { busy.value = false }
 }
-async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`)).data }
+async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`, teacherRequestConfig())).data }
 
 async function loadQuestionBankSummary() {
   if (!props.courseId) return
   try {
-    const response = await http.get(`/api/courses/${props.courseId}/question-bank`, { silentError: true })
+    const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true }))
     questionBankItems.value = Array.isArray(response.data?.items) ? response.data.items : []
     questionBankRevisionId.value = String(response.data?.bundle_revision_id || '')
   } catch (error: any) {
@@ -1281,7 +1281,7 @@ async function loadExamPapers() {
   try {
     const response = await http.get(
       `/api/courses/${props.courseId}/question-bank/exam-papers`,
-      { silentError: true },
+      teacherRequestConfig({ silentError: true }),
     )
     examPapers.value = Array.isArray(response.data?.papers)
       ? response.data.papers
@@ -1374,7 +1374,7 @@ function targetPath(type: CreateType, lessonId: string) {
 async function uploadFile(file: File, path: string): Promise<Asset | null> {
   if (!selected.value) return null
   const data = new FormData(); data.append('files', file); data.append('relative_paths', path ? `${path}/${file.name}` : file.name)
-  const result = (await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/imports`, data)).data
+  const result = (await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/imports`, data, teacherRequestConfig())).data
   selected.value = result.package
   const relativePath = path ? `${path}/${file.name}` : file.name
   const outcome = result.outcomes?.find((item: Asset & { outcome?: string; error?: string }) => item.relative_path === relativePath)
@@ -1387,7 +1387,7 @@ async function submitCreate() {
   try {
     if (createType.value === 'folder') {
       const path = targetPath('folder', '')
-      await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/folders`, { name: path ? `${path}/${createForm.value.title}` : createForm.value.title })
+      await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/folders`, { name: path ? `${path}/${createForm.value.title}` : createForm.value.title }, teacherRequestConfig())
     } else if (createType.value === 'ppt') {
       if (createForm.value.mode === 'import') {
         if (!createForm.value.file) throw new Error(t('courseFiles.errors.selectOldDeck'))
@@ -1433,7 +1433,7 @@ async function submitCreate() {
 async function previewFile(asset: Asset) {
   if (!selected.value) return
   try {
-    const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/preview`, { responseType: 'blob' })
+    const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/preview`, teacherRequestConfig({ responseType: 'blob' }))
     previewUrl.value = URL.createObjectURL(response.data); previewAsset.value = asset; previewOpen.value = true
   } catch { ElMessage.error(t('courseFiles.errors.previewFailed')) }
 }
@@ -1445,14 +1445,14 @@ const previewKind = computed(() => {
 })
 const previewDialogWidth = computed(() => `${Math.min(typeof window === 'undefined' ? 920 : window.innerWidth - 40, 1100)}px`)
 function closePreview() { if (previewUrl.value) URL.revokeObjectURL(previewUrl.value); previewUrl.value = ''; previewAsset.value = null }
-async function downloadAsset(asset: Asset) { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/download`, { responseType: 'blob' }); downloadBlob(response.data, asset.filename) }
-async function downloadPackage() { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/export`, { responseType: 'blob' }); downloadBlob(response.data, `${selected.value.course_name}-${t('courseFiles.archiveName')}.zip`) }
+async function downloadAsset(asset: Asset) { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/download`, teacherRequestConfig({ responseType: 'blob' })); downloadBlob(response.data, asset.filename) }
+async function downloadPackage() { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/export`, teacherRequestConfig({ responseType: 'blob' })); downloadBlob(response.data, `${selected.value.course_name}-${t('courseFiles.archiveName')}.zip`) }
 function downloadBlob(blob: Blob, name: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 100) }
 async function deleteAsset(asset: Asset) {
   if (!selected.value) return
   try {
     await ElMessageBox.confirm(t('courseFiles.deleteConfirm').replace('{name}', asset.filename), t('courseFiles.delete'), { type: 'warning', confirmButtonText: t('courseFiles.delete'), cancelButtonText: t('common.cancel') })
-    await http.delete(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}`)
+    await http.delete(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}`, teacherRequestConfig())
     selectedNode.value = null; await reloadPackage(); ElMessage.success(t('courseFiles.deleted'))
   } catch (error: any) { if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseFiles.errors.deleteFailed')) }
 }

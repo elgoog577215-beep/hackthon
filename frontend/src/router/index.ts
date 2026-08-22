@@ -2,6 +2,13 @@ import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import logger from '../utils/logger'
 import { trackClientError } from '../utils/usage-tracker'
+import { setActiveRequestIdentityScope, type RequestIdentityScope } from '../utils/http'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    identityScope?: RequestIdentityScope
+  }
+}
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -11,7 +18,8 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/courses',
     name: 'course-library',
-    component: () => import('../views/TeacherTeachingCalendarView.vue')
+    component: () => import('../views/TeacherTeachingCalendarView.vue'),
+    meta: { identityScope: 'teacher' },
   },
   {
     path: '/teacher/courses',
@@ -32,19 +40,19 @@ const routes: Array<RouteRecordRaw> = [
     path: '/workspace-concept',
     name: 'workspace-concept',
     component: () => import('../views/WorkspacePortalConceptView.vue'),
-    meta: { publicConcept: true }
+    meta: { publicConcept: true, identityScope: 'learner' }
   },
   {
     path: '/workspace-concept/modes',
     name: 'workspace-mode-lab',
     component: () => import('../views/WorkspaceModeLabView.vue'),
-    meta: { publicConcept: true }
+    meta: { publicConcept: true, identityScope: 'learner' }
   },
   {
     path: '/workspace-concept/teacher-course-v1',
     name: 'teacher-course-production-concept',
     component: () => import('../views/TeacherCourseProductionConceptView.vue'),
-    meta: { publicConcept: true, fullscreenConcept: true }
+    meta: { publicConcept: true, fullscreenConcept: true, identityScope: 'teacher' }
   },
   {
     path: '/course/:courseId',
@@ -55,6 +63,7 @@ const routes: Array<RouteRecordRaw> = [
     name: 'course-workspace',
     component: () => import('../views/CourseWorkspaceView.vue'),
     props: true,
+    meta: { identityScope: 'teacher' },
   },
   {
     path: '/teacher/course/:courseId/overview',
@@ -74,7 +83,11 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/course/:courseId/release',
     name: 'teacher-course-release',
-    redirect: to => ({ name: 'learning', params: { courseId: to.params.courseId } })
+    redirect: to => ({
+      name: 'learning',
+      params: { courseId: to.params.courseId },
+      query: { teacherPreview: '1' },
+    })
   },
   {
     path: '/teacher/course/:courseId/files',
@@ -99,12 +112,14 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/course/:courseId/learn/:nodeId?',
     name: 'learning',
-    component: () => import('../views/LearningView.vue')
+    component: () => import('../views/LearningView.vue'),
+    meta: { identityScope: 'learner' },
   },
   {
     path: '/course/:courseId/ppt',
     name: 'ppt-workspace',
-    component: () => import('../views/PptWorkspaceView.vue')
+    component: () => import('../views/PptWorkspaceView.vue'),
+    meta: { identityScope: 'teacher' },
   },
   {
     path: '/teacher',
@@ -123,6 +138,13 @@ const routes: Array<RouteRecordRaw> = [
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes
+})
+
+router.beforeEach((to) => {
+  const scope = to.name === 'learning' && to.query.teacherPreview === '1'
+    ? 'teacher'
+    : to.meta.identityScope || 'learner'
+  setActiveRequestIdentityScope(scope)
 })
 
 router.onError((error) => {

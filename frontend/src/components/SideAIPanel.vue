@@ -749,10 +749,12 @@ import type {
 import logger from '../utils/logger'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 import { modelFailureHint, modelFailureLabel } from '../utils/ai-teacher-failures'
+import { getActiveRequestIdentityScope, type RequestIdentityScope } from '../utils/http'
 
 const props = withDefaults(defineProps<{
   visible: boolean
   mode?: 'learner' | 'teacher'
+  identityScope?: RequestIdentityScope
   quoteText: string
   quoteNodeId: string
   quoteAnchor?: Record<string, unknown>
@@ -1042,7 +1044,11 @@ function toggleScopeFile(fileId: string) {
 async function initialize() {
   if (!courseStore.currentCourseId) return
   if (props.blockTarget) return
-  await aiStore.load(courseStore.currentCourseId, currentNode.value?.node_id)
+  await aiStore.load(
+    courseStore.currentCourseId,
+    currentNode.value?.node_id,
+    props.identityScope || getActiveRequestIdentityScope(),
+  )
   if (props.prefill) input.value = props.prefill
   await nextTick()
   resizeComposer()
@@ -1088,6 +1094,7 @@ async function send() {
     question,
     selection: quoteVisible.value ? props.quoteText : '',
     perspective: props.mode,
+    identityScope: props.identityScope || getActiveRequestIdentityScope(),
     entrypoint: props.entrypoint || (quoteVisible.value ? 'selection' : 'global'),
     contextRef: contextRef(),
     taskRef: progressStore.runtime?.active_task || {},

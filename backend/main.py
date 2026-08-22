@@ -110,8 +110,10 @@ except NameError:
 # ============================================================================
 
 from rate_limiter import RateLimitMiddleware
+from course_access import CourseOwnershipMiddleware
 
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(CourseOwnershipMiddleware, course_storage=storage)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(

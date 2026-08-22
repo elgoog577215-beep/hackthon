@@ -153,7 +153,7 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
-import http from '../utils/http'
+import http, { teacherRequestConfig } from '../utils/http'
 
 const props = defineProps<{ courseId: string; mode?: string }>()
 const route = useRoute()
@@ -220,7 +220,10 @@ async function loadWorkspace() {
     ])
     await courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
     await lessonStore.load(courseId.value).catch(() => undefined)
-    const courseResponse = await http.get(`/api/courses/${courseId.value}`, { silentError: true }).catch(() => ({ data: {} }))
+    const courseResponse = await http.get(
+      `/api/courses/${courseId.value}`,
+      teacherRequestConfig({ silentError: true }),
+    ).catch(() => ({ data: {} }))
     courseGenerationOptions.value = courseResponse.data?.generation_request || {}
     await nextTick()
     const requestedSection = String(route.query.section || '')
@@ -314,11 +317,15 @@ async function startOutlineGeneration(payload: { subject: string; options: Cours
   if (generationStarting.value) return
   generationStarting.value = true
   try {
-    const result = await courseStore.generateCourse(payload.subject || courseTitle.value, {
-      ...payload.options,
-      target_course_id: courseId.value,
-      teacher_authoring_mode: 'lesson_assets_v1',
-    })
+    const result = await courseStore.generateCourse(
+      payload.subject || courseTitle.value,
+      {
+        ...payload.options,
+        target_course_id: courseId.value,
+        teacher_authoring_mode: 'lesson_assets_v1',
+      },
+      'teacher',
+    )
     if (!result?.courseId) return
     generationStore.observeCourse(courseId.value)
   } finally {

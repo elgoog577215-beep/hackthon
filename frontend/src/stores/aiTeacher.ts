@@ -1,6 +1,12 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import http, { surfaceIdentityHeaders, withApiBase } from '../utils/http'
+import http, {
+  getActiveRequestIdentityScope,
+  identityRequestConfig,
+  identityScopeHeaders,
+  withApiBase,
+  type RequestIdentityScope,
+} from '../utils/http'
 import { useLearningProgressStore } from './learningProgress'
 import logger from '../utils/logger'
 
@@ -105,6 +111,7 @@ export interface AIConversation {
 export interface SendAIMessagePayload {
   courseId: string
   perspective?: 'learner' | 'teacher'
+  identityScope?: RequestIdentityScope
   courseVersionId?: string
   nodeId?: string
   nodeName?: string
@@ -147,7 +154,7 @@ export interface SubmitAIAnswerFeedbackPayload {
   contentAnchor?: Record<string, unknown>
 }
 
-const cacheKey = (courseId: string) => `ai_teacher_cache_v1:${courseId}`
+const cacheKey = (courseId: string, identityScope: RequestIdentityScope) => `ai_teacher_cache_v2:${identityScope}:${courseId}`
 
 /**
  * The learning session the interruption budget is counted against. Shared with
@@ -170,6 +177,7 @@ function learningSessionId() {
 
 export const useAITeacherStore = defineStore('aiTeacher', () => {
   const courseId = ref('')
+  const identityScope = ref<RequestIdentityScope>('learner')
   const conversations = ref<AIConversation[]>([])
   const currentConversationId = ref('')
   const loading = ref(false)
@@ -200,7 +208,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   function persistCache() {
     if (!courseId.value) return
     try {
-      localStorage.setItem(cacheKey(courseId.value), JSON.stringify({
+      localStorage.setItem(cacheKey(courseId.value, identityScope.value), JSON.stringify({
         conversations: conversations.value,
         currentConversationId: currentConversationId.value,
       }))
@@ -209,9 +217,9 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     }
   }
 
-  function loadCache(targetCourseId: string) {
+  function loadCache(targetCourseId: string, targetIdentityScope: RequestIdentityScope) {
     try {
-      const cached = JSON.parse(localStorage.getItem(cacheKey(targetCourseId)) || 'null')
+      const cached = JSON.parse(localStorage.getItem(cacheKey(targetCourseId, targetIdentityScope)) || 'null')
       if (!cached) return
       conversations.value = Array.isArray(cached.conversations)
         ? cached.conversations.map((conversation: AIConversation) => ({
@@ -225,14 +233,19 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     }
   }
 
-  async function load(targetCourseId: string, _nodeId?: string) {
+  async function load(
+    targetCourseId: string,
+    _nodeId?: string,
+    targetIdentityScope: RequestIdentityScope = getActiveRequestIdentityScope(),
+  ) {
     if (!targetCourseId) return
     const sequence = ++requestSequence
     courseId.value = targetCourseId
-    loadCache(targetCourseId)
+    identityScope.value = targetIdentityScope
+    loadCache(targetCourseId, targetIdentityScope)
     loadingConversations.value = true
     try {
-      const response = await http.get('/api/ai-teacher/conversations', { params: { course_id: targetCourseId } })
+      const response = await http.get('/api/ai-teacher/conversations', identityRequestConfig(targetIdentityScope, { params: { course_id: targetCourseId } }))
       if (sequence !== requestSequence) return
       conversations.value = (response.data?.conversations || []).map((conversation: AIConversation) => ({
         ...conversation,
@@ -257,7 +270,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       course_id: courseId.value,
       title,
       retrieval_enabled: retrievalEnabled,
-    })
+    }, identityRequestConfig(identityScope.value))
     const conversation = response.data as AIConversation
     replaceConversation(conversation)
     currentConversationId.value = conversation.conversation_id
@@ -268,16 +281,16 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   async function selectConversation(conversationId: string) {
     currentConversationId.value = conversationId
     persistCache()
-    const response = await http.get(`/api/ai-teacher/conversations/${conversationId}`, {
+    const response = await http.get(`/api/ai-teacher/conversations/${conversationId}`, identityRequestConfig(identityScope.value, {
       params: { course_id: courseId.value },
-    })
+    }))
     replaceConversation(response.data)
   }
 
   async function deleteConversation(conversationId: string) {
-    await http.delete(`/api/ai-teacher/conversations/${conversationId}`, {
+    await http.delete(`/api/ai-teacher/conversations/${conversationId}`, identityRequestConfig(identityScope.value, {
       params: { course_id: courseId.value },
-    })
+    }))
     conversations.value = conversations.value.filter(item => item.conversation_id !== conversationId)
     if (currentConversationId.value === conversationId) {
       currentConversationId.value = conversations.value[0]?.conversation_id || ''
@@ -304,6 +317,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
           retrieval_enabled: enabled,
           expected_revision: conversation.revision,
         },
+        identityRequestConfig(identityScope.value),
       )
       replaceConversation(response.data as AIConversation)
     } catch (updateError: any) {
@@ -321,7 +335,10 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
 
   async function sendMessage(payload: SendAIMessagePayload) {
     if (!payload.question.trim() || loading.value) return
-    if (courseId.value !== payload.courseId) await load(payload.courseId, payload.nodeId)
+    const requestIdentityScope = payload.identityScope || getActiveRequestIdentityScope()
+    if (courseId.value !== payload.courseId || identityScope.value !== requestIdentityScope) {
+      await load(payload.courseId, payload.nodeId, requestIdentityScope)
+    }
     const conversation = await ensureConversation()
     if (!conversation) return
     const localUserId = `local-user-${crypto.randomUUID()}`
@@ -361,7 +378,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
         // conversation reads that follow it. Otherwise a teacher turn is
         // written as a learner and the final refresh replaces it with the
         // teacher's still-empty conversation.
-        headers: surfaceIdentityHeaders({ 'Content-Type': 'application/json' }),
+        headers: identityScopeHeaders(requestIdentityScope, { 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           request_id: localUserId,
           course_id: payload.courseId,
@@ -501,9 +518,9 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   }
 
   async function refreshConversation(conversationId: string) {
-    const response = await http.get(`/api/ai-teacher/conversations/${conversationId}`, {
+    const response = await http.get(`/api/ai-teacher/conversations/${conversationId}`, identityRequestConfig(identityScope.value, {
       params: { course_id: courseId.value },
-    })
+    }))
     replaceConversation(response.data)
   }
 
@@ -527,7 +544,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       reason: actionType === 'create_note' ? '用户明确选择保存当前回答。' : '用户明确选择创建学习记录。',
       confirmation_mode: 'user_command',
       origin: 'user_click',
-    })
+    }, identityRequestConfig(identityScope.value))
     message.proposal = response.data
     message.proposal_id = response.data.proposal_id
     return response.data as AIActionProposal
@@ -539,7 +556,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     const response = await http.post(`/api/ai-teacher/proposals/${target.proposal_id}/confirm`, {
       course_id: courseId.value,
       idempotency_key: `web:${target.proposal_id}`,
-    })
+    }, identityRequestConfig(identityScope.value))
     const receipt = response.data as AIActionReceipt
     message.receipt = receipt
     message.receipt_id = receipt.receipt_id
@@ -569,6 +586,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
         action: payload.action,
         content_anchor: payload.contentAnchor || {},
       },
+      identityRequestConfig(identityScope.value),
     )
     return response.data as { status: 'recorded'; event_id: string; feedback: AIAnswerFeedback }
   }
@@ -578,7 +596,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     await http.post(`/api/ai-teacher/proposals/${message.proposal.proposal_id}/reject`, {
       course_id: courseId.value,
       reason,
-    })
+    }, identityRequestConfig(identityScope.value))
     message.proposal.status = 'rejected'
     persistCache()
   }
@@ -588,7 +606,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     const response = await http.post(`/api/ai-teacher/receipts/${message.receipt.receipt_id}/undo`, {
       course_id: courseId.value,
       idempotency_key: `web:undo:${message.receipt.receipt_id}`,
-    })
+    }, identityRequestConfig(identityScope.value))
     const receipt = response.data as AIActionReceipt
     message.receipt = receipt
     message.receipt_id = receipt.receipt_id
@@ -615,14 +633,14 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
   async function checkSuggestion(moment: SuggestionMoment, nodeId?: string) {
     if (!courseId.value) return null
     try {
-      const response = await http.get('/api/ai-teacher/trigger', {
+      const response = await http.get('/api/ai-teacher/trigger', identityRequestConfig(identityScope.value, {
         params: {
           course_id: courseId.value,
           node_id: nodeId || '',
           moment,
           session_id: learningSessionId(),
         },
-      })
+      }))
       const candidate = (response.data?.candidate || null) as AISuggestion | null
       suggestion.value = candidate
       return candidate
@@ -644,7 +662,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
         node_id: candidate.node_id || '',
         session_id: learningSessionId(),
         moment: candidate.moment || '',
-      })
+      }, identityRequestConfig(identityScope.value))
     } catch (shownError) {
       logger.warn('Failed to record AI teacher suggestion delivery', shownError)
     }
@@ -670,7 +688,7 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
         dedupe_key: candidate.dedupe_key,
         runtime_revision_id: candidate.runtime_revision_id || '',
         reason,
-      })
+      }, identityRequestConfig(identityScope.value))
     } catch (suppressError) {
       logger.warn('Failed to record AI teacher suggestion refusal', suppressError)
     }

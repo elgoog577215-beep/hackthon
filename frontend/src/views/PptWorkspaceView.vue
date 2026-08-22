@@ -131,6 +131,8 @@
           :quote-anchor="aiAnchor"
           :prefill="aiPrefill"
           entrypoint="global"
+          mode="teacher"
+          identity-scope="teacher"
           @close="aiVisible = false"
         />
       </Transition>
