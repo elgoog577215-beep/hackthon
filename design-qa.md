@@ -142,3 +142,58 @@ final result: passed
 - [x] Verify Chinese/English locale JSON, focused tests, production build, OpenSpec, and browser runtime.
 
 final result: passed
+
+---
+
+# Course file inspector design QA
+
+- Source visual truth: `/var/folders/5z/ysrw5tcd3fngb509jyxr533c0000gn/T/codex-clipboard-0c8088df-9c05-4bc8-81e4-219f5eb5d90e.png`
+- Desktop implementation: `/tmp/lingzhi-inspector-audit.9dDkl0/desktop-inspector-ready.png`
+- Mobile implementation: `/tmp/lingzhi-inspector-audit.9dDkl0/mobile-final-top.png` and `/tmp/lingzhi-inspector-audit.9dDkl0/mobile-final-actions.png`
+- Focused comparison: `/tmp/lingzhi-inspector-audit.9dDkl0/reference-vs-implementation.png`
+- Mobile comparison: `/tmp/lingzhi-inspector-audit.9dDkl0/mobile-before-after.png`
+- Desktop viewport: 1440 × 1000 CSS px, device scale factor 1, screenshot 1440 × 1000 px.
+- Mobile viewport: 390 × 844 CSS px, device scale factor 1, screenshot 390 × 844 px.
+- Source pixels: 1382 × 1608 px. The focused source inspector was cropped to 623 × 1566 px, normalized to 312 px wide, and compared with the 312 × 920 px implementation inspector crop.
+- State: file view with the AI assistant closed. Desktop covers a selected missing managed asset, a ready managed asset, and a materials folder. Mobile covers the session folder and its action area. The reference uses a missing practice asset while the implementation uses the equivalent missing lesson-plan state, so copy differs intentionally while hierarchy and action treatment are comparable.
+
+## Full-view comparison
+
+- The desktop implementation preserves the reference hierarchy: object header, status, file information, a large quiet details region, and a persistent bottom action area.
+- The live product uses the existing blue-purple tokens, Lucide icon set, table density, borders, and typography rather than introducing a parallel visual system.
+- The ready asset state exposes `Open` as the primary action and `Export` as a subordinate action. Fixed course assets never expose delete.
+- The materials-folder state exposes `Add material` as primary and `New folder` as secondary.
+
+## Focused comparison
+
+- Typography: title, section title, metadata labels, values, and action copy retain the same relative optical hierarchy as the reference. The product font remains the current application font.
+- Spacing and layout: the inspector remains 312 px wide on desktop; metadata rows and the bottom action dock align with the reference rhythm without adding nested cards.
+- Colors and tokens: status dots, blue-purple icon surfaces, borders, muted metadata, and the solid primary action use the current product tokens and preserve reference semantics.
+- Image and icon quality: there are no raster product assets in this component. Existing library icons remain sharp and consistent; no custom SVG or CSS-drawn icon was introduced.
+- Copy: Chinese and English both render through the existing i18n dictionaries. The action hint explains version/export/delete boundaries without replacing action labels.
+
+## Comparison history
+
+1. Initial mobile finding — P1: the stacked inspector consumed the remaining height and made the file list effectively disappear.
+   - Fix: the mobile layout now provides a 170 px folder region, at least a 280 px / 45 vh file-list region, then the inspector in the same scroll flow.
+   - Post-fix evidence: `mobile-final-top.png` shows the folder tree, file list, selected session, and the start of inspector information in one coherent sequence.
+2. Second mobile finding — P2: allowing inspector metadata to overflow while retaining the desktop flex layout placed the action dock before trailing metadata rows.
+   - Fix: the mobile inspector now uses normal block flow, automatic metadata height, and a non-sticky action section.
+   - Post-fix evidence: `mobile-final-actions.png` shows all metadata rows before `Available actions`, with no overlap or reordering.
+
+## Interaction and runtime checks
+
+- Tested workbench/file-view switching, AI assistant collapse, folder navigation, managed-asset selection, ready/missing states, and opening/closing the New folder dialog without submitting data.
+- Uploaded-file Preview / Download / Delete coverage is automated because the current local course package has no uploaded assets; the focused component test verifies that action matrix and that managed assets omit Delete.
+- Browser console: no errors in the verified desktop state.
+- Responsive: desktop Chinese and mobile English states were inspected. English `Not generated` wraps in the narrow status column but remains readable and does not overlap controls; classified as P3 polish.
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+## Follow-up polish
+
+- P3: a future density pass may shorten the English mobile status label or slightly widen the status track to avoid two-line wrapping at 390 px.
+
+final result: passed

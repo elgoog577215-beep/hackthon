@@ -82,12 +82,16 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.findAll('[role="columnheader"]')[0]!.attributes('aria-sort')).toBe('descending')
     expect(wrapper.find('.file-name small').exists()).toBe(false)
     expect(wrapper.get('.file-inspector').text()).toContain('全课文件')
+    expect(wrapper.get('.inspector-overview').text()).toContain('修改时间')
+    expect(wrapper.get('.inspector-actions').text()).toContain('导出整课文件')
     expect(wrapper.find('.course-assembly-note').exists()).toBe(false)
     await wrapper.findAll('.file-row').find(row => row.text().includes('课程大纲'))!.trigger('click')
     expect(wrapper.get('.inspector-overview').text()).toContain('来源')
     expect(wrapper.get('.inspector-overview').text()).toContain('用于')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('文件大小')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('修改时间')
+    expect(wrapper.get('.inspector-actions').text()).toContain('可执行操作')
+    expect(wrapper.get('.inspector-actions').text()).not.toContain('删除')
     expect(wrapper.emitted('createOutline')).toBeFalsy()
     await wrapper.get('.inspector-actions .primary').trigger('click')
     expect(wrapper.emitted('createOutline')).toBeTruthy()
@@ -125,6 +129,45 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.category-navigation').text()).not.toContain('0/0')
     await wrapper.get('.workbench-settings-button').trigger('click')
     expect(wrapper.emitted('openAssistant')).toBeTruthy()
+  })
+
+  it('按对象类型提供文件夹、固定资产和上传文件的安全操作', async () => {
+    const pinia = createPinia()
+    const packageWithAsset = {
+      ...coursePackage,
+      updated_at: '2026-08-22T08:00:00Z',
+      asset_count: 1,
+      assets: [{
+        asset_id: 'asset-1', filename: '课堂案例.pdf', relative_path: '参考资料/课堂案例.pdf', extension: '.pdf', size_bytes: 2048,
+        category: 'reference', uploaded_at: '2026-08-22T08:00:00Z', updated_at: '2026-08-22T08:00:00Z',
+      }],
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [packageWithAsset] })
+      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: packageWithAsset })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: '', lessons: [], jobs: [] } })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: {} })
+    })
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
+    })
+    mountedWrappers.push(wrapper)
+    await flushPromises()
+
+    await wrapper.findAll('.file-row').find(row => row.text().includes('参考资料'))!.trigger('click')
+    expect(wrapper.get('.inspector-actions').text()).toContain('添加资料')
+    expect(wrapper.get('.inspector-actions').text()).toContain('新建文件夹')
+
+    await wrapper.findAll('.file-row').find(row => row.text().includes('课堂案例.pdf'))!.trigger('click')
+    const actions = wrapper.get('.inspector-actions').text()
+    expect(actions).toContain('预览')
+    expect(actions).toContain('下载')
+    expect(actions).toContain('删除')
+    expect(wrapper.get('.inspector-overview').text()).not.toContain('文件大小')
+    expect(wrapper.get('.inspector-overview').text()).not.toContain('修改时间')
   })
 
   it('分类视图在左侧展开课次，并在右侧直接显示所选内容', async () => {

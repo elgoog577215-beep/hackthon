@@ -4076,7 +4076,7 @@
     "exported": "已导出当前课程资产。",
     "downloadOriginal": "下载原件",
     "delete": "删除",
-    "deleteConfirm": "确定删除“{name}”吗？该文件会从本地服务器移除。",
+    "deleteConfirm": "确定删除“{name}”吗？只会移除这个老师上传的文件，不会删除固定课程资产。",
     "deleted": "文件已删除。",
     "created": "已创建，状态会在文件空间中持续更新。",
     "createFolder": "创建文件夹",
@@ -4186,7 +4186,8 @@
     },
     "meta": { "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
     "inspector": {
-      "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "pendingCount": "{count} 项待处理",
+      "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作",
+      "actionHints": { "managed": "打开对应工作流；导出只生成当前版本的派生文件。", "uploaded": "可预览或下载原件；删除只移除这个上传文件。", "folder": "新增内容将保存到当前资料目录。", "course": "导出当前课程文件包，不会改变正式课程。" },
       "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程正文 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
       "uses": { "outline": "教学日历、教案、正文、PPT、练习", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "正文、PPT、练习", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
     },
