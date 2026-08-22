@@ -2,7 +2,7 @@
   <main class="course-workspace-page">
     <Teleport to="#app-header-route-context">
       <div class="workspace-route-context">
-        <button class="back-button" type="button" :aria-label="t('courseFiles.backToCalendar')" @click="router.push({ name: 'course-library' })">
+        <button class="back-button" type="button" :aria-label="t('courseFiles.backToCourses')" @click="backToSource">
           <ArrowLeft :size="17" />
         </button>
         <FolderOpen :size="18" />
@@ -62,6 +62,7 @@
       v-model:query="searchQuery"
       @open-outline="outlineOpen = true"
       @create-outline="generationDialogOpen = true"
+      @open-teaching-calendar="calendarOpen = true"
       @open-teaching-plan="openLessonPlan"
       @open-tasks="openTasks"
       @open-practice="openPractice"
@@ -78,6 +79,10 @@
         :task="generationTask"
         @confirmed="handleOutlineConfirmed"
       />
+    </el-drawer>
+
+    <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
+      <TeacherCourseCalendarView embedded />
     </el-drawer>
 
     <el-drawer v-model="lessonOpen" size="min(1120px, 94vw)" :title="selectedLessonTitle" destroy-on-close>
@@ -134,6 +139,7 @@ import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
@@ -151,6 +157,7 @@ const lessonStore = useTeacherLessonAuthoringStore()
 const loading = ref(true)
 const loadError = ref('')
 const outlineOpen = ref(false)
+const calendarOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
 const workbenchOpen = ref(false)
@@ -196,6 +203,15 @@ const teacherAssistantFiles = computed(() => courseStore.nodes
     }
   }))
 
+function backToSource() {
+  const returnTo = String(route.query.returnTo || '')
+  if (returnTo.startsWith('/courses')) {
+    void router.push(returnTo)
+    return
+  }
+  void router.push({ name: 'course-library', query: { view: 'courses' } })
+}
+
 async function loadWorkspace() {
   if (!courseId.value) return
   loading.value = true
@@ -212,6 +228,7 @@ async function loadWorkspace() {
     await nextTick()
     const requestedSection = String(route.query.section || '')
     if (requestedSection === 'outline') outlineOpen.value = true
+    if (requestedSection === 'calendar') calendarOpen.value = true
   } catch (error: any) {
     loadError.value = String(error?.response?.data?.detail || error?.message || t('courseFiles.loadFailed'))
   } finally {
@@ -318,6 +335,7 @@ onMounted(loadWorkspace)
 .workspace-loading.is-error { flex-direction:column; color:#b91c1c; }
 .workspace-loading button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
+:global(.teaching-calendar-drawer .el-drawer__body) { min-height:0; overflow:hidden; padding:0; }
 .teacher-agent-host { position:fixed; z-index:610; inset:0; width:100vw; height:100dvh; }
 .teacher-agent-host :deep(.ai-teacher-panel) { width:100%; height:100%; }
 .spin { animation:spin 1s linear infinite; }

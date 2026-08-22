@@ -20,7 +20,8 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/courses/new',
     name: 'teacher-course-create',
-    redirect: { name: 'course-library', query: { create: '1' } }
+    component: () => import('../views/TeacherCourseCreateView.vue'),
+    meta: { fullscreenConcept: true }
   },
   {
     path: '/teacher-course-space',
@@ -83,7 +84,7 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/course/:courseId/teaching-calendar',
     name: 'teacher-course-calendar',
-    redirect: to => ({ name: 'course-library', query: { course: to.params.courseId, ...(to.query.session ? { session: to.query.session } : {}) } })
+    redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' }, query: { section: 'calendar', ...(to.query.session ? { session: to.query.session } : {}) } })
   },
   {
     path: '/teacher/course/:courseId/ppt',

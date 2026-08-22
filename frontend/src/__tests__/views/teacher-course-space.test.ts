@@ -1,13 +1,13 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() }))
+const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() }))
 const rebuildMock = vi.hoisted(() => vi.fn(async () => ({ status: 'completed' })))
-vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/http', () => ({ default: httpMock, getTeacherIdentity: () => 'teacher-test' }))
 vi.mock('@/utils/question-bank-rebuild', () => ({ runQuestionBankRebuild: rebuildMock }))
 
 import TeacherCourseSpaceView from '@/views/TeacherCourseSpaceView.vue'
@@ -20,6 +20,10 @@ const coursePackage = {
   package_id: 'package-1', course_id: 'course-1', course_name: '数据结构', academic_year: '2026-2027', term: '秋季', asset_count: 0,
   assets: [], entries: [],
 }
+const emptyTeachingCalendar = {
+  schema_version: 'teaching_calendar_v1', course_id: 'course-1', course_title: '数据结构', academic_year: '2026-2027', term: '秋季', timezone: 'Asia/Shanghai',
+  status: 'draft', source_outline_revision: '', revision: 0, sessions: [], created_at: '', updated_at: '',
+}
 const router = createRouter({
   history: createMemoryHistory(),
   routes: [
@@ -29,13 +33,24 @@ const router = createRouter({
     { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
   ],
 })
+const mountedWrappers: Array<ReturnType<typeof mount>> = []
 
 describe('TeacherCourseSpaceView', () => {
+  afterEach(() => {
+    mountedWrappers.splice(0).forEach(wrapper => wrapper.unmount())
+  })
+
   beforeEach(async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
     const pinia = createPinia()
     setActivePinia(pinia)
-    httpMock.get.mockReset().mockImplementation((url: string) => Promise.resolve({ data: url === '/api/teacher-course-spaces' ? [coursePackage] : coursePackage }))
+    httpMock.get.mockReset().mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [coursePackage] })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: '', lessons: [], jobs: [] } })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: coursePackage })
+    })
     rebuildMock.mockClear()
     await router.push('/courses')
     await router.isReady()
@@ -50,6 +65,7 @@ describe('TeacherCourseSpaceView', () => {
         stubs: { ElDialog: true },
       },
     })
+    mountedWrappers.push(wrapper)
     await flushPromises()
 
     expect(wrapper.get('.file-layout')).toBeTruthy()
@@ -76,6 +92,13 @@ describe('TeacherCourseSpaceView', () => {
     await wrapper.get('.inspector-actions .primary').trigger('click')
     expect(wrapper.emitted('createOutline')).toBeTruthy()
 
+    const calendarRow = wrapper.findAll('.file-row').find(row => row.text().includes('教学日历'))!
+    expect(calendarRow.text()).toContain('未生成')
+    await calendarRow.trigger('click')
+    expect(wrapper.get('.file-inspector').text()).toContain('学校排课、课次同步与正式文件导出')
+    await wrapper.get('.inspector-actions .primary').trigger('click')
+    expect(wrapper.emitted('openTeachingCalendar')).toBeTruthy()
+
     await wrapper.get('.list-search input').setValue('__missing_file__')
     expect(wrapper.get('.file-empty').text()).toContain('没有找到匹配文件')
     expect(wrapper.get('.file-empty').text()).not.toContain('这个文件夹还是空的')
@@ -88,6 +111,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.category-layout')).toBeTruthy()
     expect(wrapper.findAll('.category-navigation nav button')).toHaveLength(4)
     expect(wrapper.get('.category-navigation').text()).toContain('课程大纲')
+    expect(wrapper.get('.category-navigation').text()).not.toContain('教学日历')
     expect(wrapper.get('.category-navigation').text()).toContain('教案')
     expect(wrapper.get('.category-navigation').text()).toContain('正文')
     expect(wrapper.get('.category-navigation').text()).toContain('PPT')
@@ -134,6 +158,7 @@ describe('TeacherCourseSpaceView', () => {
       if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [coursePackage] })
       if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: coursePackage })
       if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: 'outline-1', lessons, jobs: [] } })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
       if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
       return Promise.resolve({ data: {} })
     })
@@ -148,6 +173,7 @@ describe('TeacherCourseSpaceView', () => {
         },
       },
     })
+    mountedWrappers.push(wrapper)
     await flushPromises()
 
     const lessonPlanCategory = wrapper.findAll('.category-group__button').find(button => button.text().includes('教案'))
@@ -175,6 +201,7 @@ describe('TeacherCourseSpaceView', () => {
       props: { courseTitle: '物理', workspaceView: 'categories' },
       global: { plugins: [pinia, router], stubs: { ElDialog: true } },
     })
+    mountedWrappers.push(wrapper)
     await flushPromises()
 
     const outline = wrapper.findAll('.category-group__button').find(button => button.text().includes('课程大纲'))!
@@ -207,6 +234,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain("node.status === 'missing' ? t('courseFiles.createContent')")
     expect(source).toContain("? emit('openTasks')")
     expect(source).toContain("id: `ppt:${lesson.lesson_unit_id}`")
+    expect(source).toContain("id: 'managed:teaching-calendar'")
     expect(source).not.toContain('ppt || !uploadedPpts.length')
     expect(source).toContain("if (type === 'folder' && targetFolder?.kind !== 'folder') return")
     expect(source).toContain('@click="handleNodeClick(node)"')
@@ -239,6 +267,7 @@ describe('TeacherCourseSpaceView', () => {
         stubs: { ElDialog: true },
       },
     })
+    mountedWrappers.push(wrapper)
     await flushPromises()
 
     const lessonRow = wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))
@@ -273,6 +302,7 @@ describe('TeacherCourseSpaceView', () => {
       props: { courseId: 'course-1', courseTitle: '数据结构' },
       global: { plugins: [pinia, router], stubs: { ElDialog: true } },
     })
+    mountedWrappers.push(wrapper)
     await flushPromises()
 
     await wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))!.trigger('click')
@@ -286,6 +316,5 @@ describe('TeacherCourseSpaceView', () => {
 
     expect(rebuildMock).not.toHaveBeenCalled()
     expect(wrapper.emitted('openPractice')?.[0]).toEqual(['lesson-1'])
-    wrapper.unmount()
   })
 })

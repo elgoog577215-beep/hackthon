@@ -548,6 +548,9 @@ export interface Course {
     generation_job_id?: string | null
     generation_status?: string | null
     is_published?: boolean
+    course_status?: string | null
+    authoring_surface?: string | null
+    updated_at?: string
     resume?: {
         kind: string
         status: string

@@ -17,6 +17,7 @@ const router = createRouter({
     { path: '/teacher/courses/new', name: 'teacher-course-create', component: { template: '<div />' } },
     { path: '/teacher/course/:courseId/overview', name: 'teacher-course-overview', component: { template: '<div />' } },
     { path: '/teacher/course/:courseId/production', name: 'teacher-course-production', component: { template: '<div />' } },
+    { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
 })
@@ -101,8 +102,36 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     await wrapper.get('.course-main').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('teacher-course-overview')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-resume')
+    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
+  })
+
+  it('把新建空课程显示为待开始备课而不是已发布', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [{
+      course_id: 'course-draft',
+      course_name: '空白课程',
+      node_count: 0,
+      course_status: 'draft',
+      authoring_surface: 'teacher',
+      is_published: false,
+      updated_at: '2026-08-22T10:00:00Z',
+    }]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: { plugins: [router], stubs: { CourseGenerationDialog: true, CourseWorkbench: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.course-status').text()).toContain('待开始备课')
+    expect(wrapper.get('.teacher-asset-summary').text()).toContain('空课程空间')
+    expect(wrapper.findAll('.library-toolbar__summary strong')[2]!.text()).toBe('0')
   })
 
   it('已发布的质量建议不占用待处理任务角标', async () => {
@@ -200,8 +229,9 @@ describe('CourseLibraryView generation lifecycle', () => {
     await wrapper.get('[data-testid="open-course-production-course-authoring"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('teacher-course-production')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-authoring')
+    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
   })
 
   it('把删除课程放在更多操作菜单的危险操作区', async () => {
@@ -526,7 +556,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(router.currentRoute.value.name).toBe('teacher-teaching-calendar')
   })
 
-  it('opens a published course in the teacher course overview', async () => {
+  it('opens a published course in the unified course workbench', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-ready', course_name: '矩阵与线性变换', node_count: 12 }]
@@ -553,8 +583,9 @@ describe('CourseLibraryView generation lifecycle', () => {
     await wrapper.get('.course-main').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('teacher-course-overview')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-ready')
+    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
     wrapper.unmount()
   })
 })

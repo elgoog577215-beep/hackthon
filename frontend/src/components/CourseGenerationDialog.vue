@@ -17,8 +17,8 @@
       >
         <header class="generation-dialog__header">
           <div class="generation-dialog__heading">
-            <h2 :id="titleId">{{ props.workbenchMode ? t('courseFiles.workbench.settingsDialogTitle') : props.initialSubject ? t('courseGeneration.dialog.createOutline', '生成课程大纲') : t('teacherHome.newCourse', '新建课程') }}</h2>
-            <p v-if="props.workbenchMode">{{ t('courseFiles.workbench.settingsDialogHelp') }}</p>
+            <h2 :id="titleId">{{ props.title || (props.workbenchMode ? t('courseFiles.workbench.settingsDialogTitle') : props.initialSubject ? t('courseGeneration.dialog.createOutline', '生成课程大纲') : t('teacherHome.newCourse', '新建课程')) }}</h2>
+            <p v-if="props.helpText || props.workbenchMode">{{ props.helpText || t('courseFiles.workbench.settingsDialogHelp') }}</p>
           </div>
           <button type="button" class="icon-button" :title="t('common.cancel', '取消')" @click="close">
             <X :size="18" />
@@ -26,7 +26,7 @@
         </header>
 
         <form class="generation-dialog__body" @submit.prevent="submit">
-          <section v-if="!props.initialSubject" class="form-section form-section--lead course-type-section">
+          <section v-if="!props.initialSubject || props.showCourseType" class="form-section form-section--lead course-type-section">
             <fieldset class="choice-group">
               <legend class="choice-group__title">
                 <span class="field-icon field-icon--rose"><Route :size="14" /></span>
@@ -444,7 +444,7 @@
             <button type="button" class="primary-button" :disabled="!canSubmit" @click="submit">
               <LoaderCircle v-if="busy" class="spin" :size="16" />
               <Sparkles v-else :size="16" />
-              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : props.workbenchMode ? t('courseFiles.workbench.applySettings') : t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录') }}
+              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : props.submitLabel || (props.workbenchMode ? t('courseFiles.workbench.applySettings') : t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录')) }}
             </button>
           </div>
         </footer>
@@ -494,6 +494,10 @@ const props = withDefaults(defineProps<{
   initialOptions?: CourseGenerationOptions
   initialContextKey?: string
   workbenchMode?: boolean
+  showCourseType?: boolean
+  title?: string
+  helpText?: string
+  submitLabel?: string
 }>(), {
   busy: false,
   initialSubject: '',
@@ -503,6 +507,10 @@ const props = withDefaults(defineProps<{
   initialLessonDurationMinutes: undefined,
   initialChapterCount: undefined,
   workbenchMode: false,
+  showCourseType: false,
+  title: '',
+  helpText: '',
+  submitLabel: '',
 })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -872,7 +880,6 @@ async function submit() {
 .course-type-option__icon { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:7px; color:var(--lz-brand); background:var(--lz-brand-soft); }
 .course-type-option:disabled .course-type-option__icon { color: var(--lz-text-muted); background: #fff; }
 .course-type-option__copy { min-width:0; display:block; }
-.course-type-option__copy > span:last-child { display:none; }
 .course-type-option__heading { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .course-type-option__heading strong { color:inherit; font-size:12px; line-height:1.3; }
 .course-type-option__heading small { padding: 2px 5px; border-radius: 4px; color: var(--lz-text-muted); background: #fff; font-size:12px; font-weight: 650; }

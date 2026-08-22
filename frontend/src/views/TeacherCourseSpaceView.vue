@@ -350,7 +350,7 @@ import { computed, markRaw, nextTick, onMounted, ref, watch, type Component } fr
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, BookOpen, BookOpenText, ChevronRight, ClipboardList, Download, Eye,
+  ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, BookOpen, BookOpenText, CalendarDays, ChevronRight, ClipboardList, Download, Eye,
   FileText, Folder, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
   LayoutGrid, Pencil, Plus, Presentation, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
@@ -358,6 +358,7 @@ import { activeLocale, t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
+import { useTeachingCalendarStore } from '../stores/teachingCalendar'
 import http from '../utils/http'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
@@ -365,7 +366,7 @@ import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; uploaded_at?: string; updated_at?: string }
 type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
-type NodeType = 'root' | 'reference' | 'outline' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'folder' | 'file'
+type NodeType = 'root' | 'reference' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'folder' | 'file'
 type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
@@ -400,6 +401,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'openOutline'): void
   (event: 'createOutline'): void
+  (event: 'openTeachingCalendar'): void
   (event: 'openTeachingPlan', lessonId: string): void
   (event: 'openTasks'): void
   (event: 'openPractice', lessonId: string): void
@@ -413,6 +415,7 @@ const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
 const lessonStore = useTeacherLessonAuthoringStore()
+const calendarStore = useTeachingCalendarStore()
 const embedded = computed(() => props.embedded)
 const courseTitle = computed(() => props.courseTitle)
 const selected = ref<Package | null>(null)
@@ -476,8 +479,8 @@ const textSize = (value: string) => new TextEncoder().encode(value).byteLength |
 const displayPath = (value: string) => {
   if (!value) return t('courseFiles.rootName')
   const labels = activeLocale.value === 'en'
-    ? { 课次: 'Sessions', 教案: 'Lesson plan', 正文: 'Lesson body', 资料: 'Materials', 练习: 'Practice', 参考资料: 'References' }
-    : { 课次: '课次', 教案: '教案', 正文: '正文', 资料: '资料', 练习: '练习', 参考资料: '参考资料' }
+    ? { 教学日历: 'Teaching calendar', 课次: 'Sessions', 教案: 'Lesson plan', 正文: 'Lesson body', 资料: 'Materials', 练习: 'Practice', 参考资料: 'References' }
+    : { 教学日历: '教学日历', 课次: '课次', 教案: '教案', 正文: '正文', 资料: '资料', 练习: '练习', 参考资料: '参考资料' }
   return value.split('/').filter(Boolean).map(part => (labels as Record<string, string>)[part] || part.replace(/^(\d+)_/, '$1 ')).join(' / ')
 }
 
@@ -540,6 +543,7 @@ function physicalChildren(basePath: string, parentId: string): WorkspaceNode[] {
 }
 
 const managedPaths = computed(() => new Set([
+  '教学日历',
   '参考资料',
   ...lessons.value.flatMap(lesson => [lessonPath(lesson), `${lessonPath(lesson)}/资料`]),
 ]))
@@ -566,6 +570,19 @@ const treeData = computed<WorkspaceNode[]>(() => {
     id: 'managed:outline', label: t('courseFiles.names.outline'), kind: 'managed', type: 'outline', path: t('courseFiles.names.outline'),
     status: courseStore.nodes.length ? (courseStore.currentDocumentRevision ? 'ready' : 'draft') : 'missing', revision: courseStore.currentDocumentRevision || '', parentId: 'root',
     sizeBytes: courseStore.nodes.length ? textSize(outlineMarkdown()) : undefined,
+  }
+  const calendar = calendarStore.calendar?.course_id === props.courseId ? calendarStore.calendar : null
+  const calendarSessions = calendar?.sessions || []
+  const activeCalendarSessions = calendarSessions.filter(session => session.status !== 'cancelled')
+  const calendarStatus: NodeStatus = !calendarSessions.length
+    ? 'missing'
+    : activeCalendarSessions.length > 0 && activeCalendarSessions.every(session => session.status === 'scheduled' && session.date && session.start_time && session.end_time)
+      ? 'ready'
+      : 'draft'
+  const teachingCalendar: WorkspaceNode = {
+    id: 'managed:teaching-calendar', label: t('courseFiles.names.teachingCalendar'), kind: 'managed', type: 'teaching_calendar', path: '教学日历',
+    status: calendarStore.loading && !calendar ? 'working' : calendarStatus, revision: calendar?.revision ? `r${calendar.revision}` : '', updatedAt: calendar?.updated_at, parentId: 'root',
+    sizeBytes: calendarSessions.length ? textSize(JSON.stringify(calendarSessions)) : undefined,
   }
   const referenceChildren = physicalChildren('参考资料', 'folder:reference')
   const reference: WorkspaceNode = { id: 'folder:reference', label: t('courseFiles.names.reference'), kind: 'folder', type: 'reference', path: '参考资料', status: referenceChildren.length ? 'ready' : 'empty', parentId: 'root', children: referenceChildren }
@@ -599,7 +616,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
   const other: WorkspaceNode | null = otherRootChildren.value.length ? { id: 'folder:other', label: t('courseFiles.names.other'), kind: 'folder', type: 'folder', path: '', status: 'ready', parentId: 'root', children: otherRootChildren.value } : null
   const courseRoot: WorkspaceNode = {
     id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: outline.status === 'ready' && lessonNodes.every(item => item.status === 'ready') ? 'ready' : 'draft',
-    children: [outline, reference, ...lessonNodes, ...(other ? [other] : [])],
+    children: [outline, teachingCalendar, reference, ...lessonNodes, ...(other ? [other] : [])],
   }
   return [courseRoot]
 })
@@ -780,15 +797,15 @@ function categoryState(group: CategoryGroup) {
   return 'attention'
 }
 
-const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type}`)
+const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type === 'teaching_calendar' ? 'teachingCalendar' : node.type}`)
 function assetRole(node: WorkspaceNode) {
-  if (node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'practice'].includes(node.type)) return 'required'
+  if (node.kind === 'managed' && ['outline', 'teaching_calendar', 'lesson_plan', 'content', 'practice'].includes(node.type)) return 'required'
   if (node.type === 'ppt') return 'companion'
   if (node.type === 'reference' || node.type === 'material' || node.type === 'folder' || node.kind === 'asset' || node.type === 'file') return 'teacher'
   return 'navigation'
 }
 const statusLabel = (node: WorkspaceNode) => t(`courseFiles.status.${node.status}`)
-const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'ppt' ? Presentation : node.type === 'practice' ? ListChecks : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
+const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'teaching_calendar' ? CalendarDays : node.type === 'ppt' ? Presentation : node.type === 'practice' ? ListChecks : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
 const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
 const lessonNumber = (id?: string) => {
   const lesson = lessons.value.find(item => item.lesson_unit_id === id)
@@ -855,6 +872,7 @@ function shortRevision(revision: string) {
 
 function inspectorSource(node: WorkspaceNode) {
   if (node.type === 'outline') return t('courseFiles.inspector.sources.courseStructure')
+  if (node.type === 'teaching_calendar') return t('courseFiles.inspector.sources.outlineSchedule')
   if (node.type === 'lesson_plan') return t('courseFiles.inspector.sources.outlineAndMaterials')
   if (node.type === 'content') {
     const lesson = lessons.value.find(item => item.lesson_unit_id === node.lessonId)
@@ -877,6 +895,7 @@ function inspectorSource(node: WorkspaceNode) {
 
 function inspectorUse(node: WorkspaceNode) {
   if (node.type === 'outline') return t('courseFiles.inspector.uses.outline')
+  if (node.type === 'teaching_calendar') return t('courseFiles.inspector.uses.teachingCalendar')
   if (node.type === 'lesson_plan') return t('courseFiles.inspector.uses.lessonPlan')
   if (node.type === 'content') return t('courseFiles.inspector.uses.content')
   if (node.type === 'practice') return t('courseFiles.inspector.uses.practice')
@@ -922,6 +941,7 @@ function primaryLabel(node: WorkspaceNode) {
   if (node.kind === 'folder') return t('courseFiles.openFolder')
   if (node.asset) return t('courseFiles.preview')
   if (node.type === 'outline') return node.status === 'missing' ? t('courseFiles.workbench.createOutline') : t('courseFiles.openEdit')
+  if (node.type === 'teaching_calendar') return node.status === 'missing' ? t('courseFiles.workbench.createTeachingCalendar') : t('courseFiles.openEdit')
   if (node.type === 'lesson_plan') return node.status === 'missing' ? t('courseFiles.workbench.createLessonPlan') : t('courseFiles.openEdit')
   if (node.type === 'content') return node.status === 'missing' ? t('courseFiles.createContent') : t('courseFiles.openContent')
   if (node.type === 'ppt') return node.status === 'missing' ? t('courseFiles.createPpt') : t('courseFiles.openPpt')
@@ -937,6 +957,7 @@ async function primaryAction(node: WorkspaceNode) {
   if (node.kind === 'folder') { openFolder(node.id); return }
   if (node.asset) { await previewFile(node.asset); return }
   if (node.type === 'outline') { node.status === 'missing' ? openCreateDialog('outline') : emit('openOutline'); return }
+  if (node.type === 'teaching_calendar') { emit('openTeachingCalendar'); return }
   if (node.type === 'lesson_plan') { node.status === 'missing' ? openCreateDialog('lesson_plan', node.lessonId) : emit('openTeachingPlan', node.lessonId || ''); return }
   if (node.type === 'content') {
     node.status === 'missing'
@@ -962,7 +983,7 @@ function workspaceReturnTo(lessonId = '') {
 
 const canExportManaged = (node: WorkspaceNode) => node.kind === 'managed'
   && node.status !== 'missing'
-  && ['outline', 'lesson_plan', 'content', 'ppt'].includes(node.type)
+  && ['outline', 'teaching_calendar', 'lesson_plan', 'content', 'ppt'].includes(node.type)
 
 function readableNodeContent(node: Node) {
   if (node.node_content?.trim()) return node.node_content.trim()
@@ -1052,6 +1073,14 @@ async function exportManagedNode(node: WorkspaceNode) {
     const lesson = node.lessonId ? lessons.value.find(item => item.lesson_unit_id === node.lessonId) : undefined
     if (node.type === 'outline') {
       downloadBlob(new Blob([outlineMarkdown()], { type: 'text/markdown;charset=utf-8' }), `${safePart(selected.value?.course_name || t('courseFiles.names.outline'))}-${t('courseFiles.names.outline')}.md`)
+    } else if (node.type === 'teaching_calendar') {
+      const calendar = calendarStore.calendar?.course_id === props.courseId ? calendarStore.calendar : null
+      if (!calendar?.sessions.length) throw new Error(t('courseFiles.errors.exportUnavailable'))
+      const response = await http.get(`/api/courses/${props.courseId}/teaching-calendar/export`, {
+        params: { format: 'docx', revision: calendar.revision },
+        responseType: 'blob',
+      })
+      downloadBlob(response.data, `${safePart(selected.value?.course_name || courseTitle.value || t('courseFiles.names.teachingCalendar'))}-${t('courseFiles.names.teachingCalendar')}-r${calendar.revision}.docx`)
     } else if (node.type === 'content' && lesson) {
       downloadBlob(new Blob([lessonContentMarkdown(lesson)], { type: 'text/markdown;charset=utf-8' }), `${safePart(lesson.title)}-${t('courseFiles.names.content')}.md`)
     } else if (node.type === 'lesson_plan' && lesson) {
@@ -1102,6 +1131,7 @@ async function refresh() {
     if (match) selected.value = (await http.get(`/api/teacher-course-spaces/${match.package_id}`)).data
     if (props.courseId) {
       await lessonStore.load(props.courseId).catch(() => undefined)
+      await calendarStore.loadCourse(props.courseId).catch(() => undefined)
       await loadQuestionBankSummary()
     }
     const requestedLessonId = String(route.query.lesson || '')
@@ -1300,6 +1330,14 @@ async function deleteAsset(asset: Asset) {
 }
 
 watch(readinessSummary, summary => emit('readinessChange', summary), { immediate: true })
+watch(
+  () => [calendarStore.calendar?.course_id, calendarStore.calendar?.revision, calendarStore.calendar?.updated_at],
+  () => {
+    if (selectedNode.value?.id === 'managed:teaching-calendar') {
+      selectedNode.value = flatNodes.value.get('managed:teaching-calendar') || selectedNode.value
+    }
+  },
+)
 onMounted(refresh)
 </script>
 
@@ -1310,7 +1348,7 @@ onMounted(refresh)
 .category-layout{height:100%;min-height:0;display:grid;grid-template-columns:272px minmax(0,1fr);overflow:hidden;background:#fff}.category-navigation{min-height:0;overflow:auto;padding:18px 12px;border-right:1px solid var(--lz-border);background:#f8fafc}.category-navigation>header{display:grid;gap:5px;padding:0 8px 15px}.category-navigation>header strong{font-size:14px}.category-navigation>header small{color:var(--lz-text-muted);font-size:12px;line-height:1.45}.category-navigation nav{display:grid;gap:5px}.category-group{min-width:0}.category-group__button{width:100%;min-width:0;min-height:58px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border:1px solid transparent;border-radius:10px;color:var(--lz-text-muted);background:transparent;text-align:left;cursor:pointer}.category-group__button:hover{background:#fff}.category-group__button.active{border-color:rgba(99,102,241,.2);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-group__button>span:nth-child(2){min-width:0;display:grid;gap:3px}.category-group__button strong,.category-group__button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.category-group__button strong{color:var(--lz-text-secondary);font-size:13px}.category-group__button small{color:var(--lz-text-muted);font-size:12px}.category-group__button.active strong{color:var(--lz-brand-strong)}.category-group__trailing{display:flex;align-items:center;gap:4px}.category-group__trailing b{min-width:30px;color:var(--lz-text-muted);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}.category-group__trailing b[data-state="ready"]{color:var(--lz-success)}.category-group__trailing b[data-state="working"]{color:var(--lz-brand-strong)}.category-group__trailing b[data-state="attention"]{color:var(--lz-warning)}.category-group__chevron{transition:transform .16s ease}.category-group.active .category-group__chevron{transform:rotate(90deg)}.category-children{display:grid;gap:2px;margin:3px 5px 9px 26px;padding-left:11px;border-left:1px solid #dbe2ec}.category-child{width:100%;min-width:0;min-height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 8px;align-items:center;gap:7px;padding:5px 8px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.category-child:hover{background:#fff}.category-child.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.08)}.category-child__index{color:var(--lz-text-muted);font-size:11px;font-variant-numeric:tabular-nums}.category-child__name{overflow:hidden;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.category-child .status-dot{margin:0}.category-group__button:focus-visible,.category-child:focus-visible,.category-detail-actions button:focus-visible,.category-detail-empty button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.category-detail-pane{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;background:#f8fafc}.category-detail-header{min-height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 24px;border-bottom:1px solid var(--lz-border);background:#fff}.category-detail-header>div:first-child{min-width:0;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 12px}.category-detail-header small{grid-column:1/-1;color:var(--lz-text-muted);font-size:12px}.category-detail-header h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.category-detail-status{display:inline-flex;align-items:center;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}.category-detail-status .status-dot{margin-right:6px}.category-detail-actions{flex:none;display:flex;align-items:center;gap:8px}.category-detail-actions button,.category-detail-empty button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:700;cursor:pointer}.category-detail-actions button.primary,.category-detail-empty button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.category-detail-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-detail-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-detail-actions button:disabled,.category-detail-empty button:disabled{opacity:.45;cursor:not-allowed}.category-document-scroll{min-height:0;overflow:auto;padding:28px 32px 48px}.category-document{width:min(940px,100%);min-height:calc(100% - 4px);margin:0 auto;padding:32px 42px 52px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.05)}.category-document :deep(.markdown-renderer){color:var(--lz-text-secondary);font-size:14px;line-height:1.75}.category-document :deep(.markdown-renderer> :first-child){margin-top:0}.category-document :deep(h2){margin:28px 0 12px;color:var(--lz-text-strong);font-size:20px}.category-document :deep(h3){margin:22px 0 10px;color:var(--lz-text-strong);font-size:16px}.category-document :deep(p),.category-document :deep(ul),.category-document :deep(ol){margin:10px 0}.category-document :deep(blockquote){margin:14px 0;padding:10px 14px;border-left:3px solid var(--lz-brand-border);color:var(--lz-text-secondary);background:var(--lz-brand-soft)}.category-detail-empty{min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:28px;color:var(--lz-text-muted);text-align:center}.category-detail-empty>svg{color:#94a3b8}.category-detail-empty strong{color:var(--lz-text-secondary);font-size:16px}.category-detail-empty>span{max-width:380px;font-size:13px;line-height:1.6}.category-detail-empty button{margin-top:5px}
 .file-list-pane{display:flex;flex-direction:column;background:#fff}.list-toolbar{min-height:58px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 18px;border-bottom:1px solid var(--lz-border)}.list-toolbar nav{min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}.list-toolbar nav button{display:flex;align-items:center;gap:6px;min-width:0;padding:5px;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;white-space:nowrap;cursor:pointer}.list-toolbar nav svg{flex:none;color:#94a3b8}.toolbar-actions{display:flex;align-items:center;gap:8px}.list-search{width:248px;height:40px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;border:1px solid transparent;border-radius:10px;color:#94a3b8;background:#f1f5f9;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}.list-search:focus-within{border-color:var(--lz-brand-border);background:#fff;box-shadow:0 0 0 3px var(--lz-brand-soft)}.list-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text-strong);background:transparent;font-size:13px}.list-search input::-webkit-search-cancel-button{display:none}.list-search button{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.list-search button:hover{color:var(--lz-text-strong);background:#e2e8f0}.list-search button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .folder-title{min-height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 18px}.folder-title h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.folder-title__actions{flex:none;display:flex;align-items:center;gap:7px}.folder-title__actions>span{margin-right:3px;color:var(--lz-text-muted);font-size:13px}.folder-title__actions button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:700;cursor:pointer}.folder-title__actions button:hover{border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.add-material-button{padding:0 12px}.add-folder-button{width:36px;padding:0}
-.file-table{min-height:0;flex:1;overflow:auto;padding:0 12px 20px}.file-table__head,.file-row{display:grid;grid-template-columns:minmax(230px,1.65fr) 126px 88px 76px 98px;align-items:center;gap:10px}.file-table__head{min-height:42px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px;font-weight:700}.sort-button{height:40px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.sort-button svg{opacity:.55}.sort-button:hover,.sort-button.active{color:var(--lz-text-secondary)}.sort-button.active svg{opacity:1}.sort-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-table__head span:nth-child(4) .sort-button{width:100%;justify-content:flex-end}.file-row{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid #edf1f6;background:transparent;color:var(--lz-text-secondary);text-align:left;font-size:13px;cursor:pointer}.file-row:hover,.file-row:focus-visible{outline:0;background:#f7f9fc}.file-row.selected{background:#e9eeff}.file-name{min-width:0;display:flex;align-items:center;gap:10px}.file-name strong{overflow:hidden;color:var(--lz-text-strong);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.file-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f1f5f9;color:#64748b}.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"]{background:#eef2ff;color:#4f46e5}.status-dot{width:7px;height:7px;display:inline-block;margin-right:6px;border-radius:50%;background:#94a3b8}.status-dot[data-state="ready"],.status-dot[data-state="uploaded"]{background:#10b981}.status-dot[data-state="working"]{background:#6366f1}.status-dot[data-state="stale"]{background:#f97316}.status-dot[data-state="missing"],.status-dot[data-state="empty"]{background:#cbd5e1}
+.file-table{min-height:0;flex:1;overflow:auto;padding:0 12px 20px}.file-table__head,.file-row{display:grid;grid-template-columns:minmax(230px,1.65fr) 126px 88px 76px 98px;align-items:center;gap:10px}.file-table__head{min-height:42px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px;font-weight:700}.sort-button{height:40px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.sort-button svg{opacity:.55}.sort-button:hover,.sort-button.active{color:var(--lz-text-secondary)}.sort-button.active svg{opacity:1}.sort-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-table__head span:nth-child(4) .sort-button{width:100%;justify-content:flex-end}.file-row{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid #edf1f6;background:transparent;color:var(--lz-text-secondary);text-align:left;font-size:13px;cursor:pointer}.file-row:hover,.file-row:focus-visible{outline:0;background:#f7f9fc}.file-row.selected{background:#e9eeff}.file-name{min-width:0;display:flex;align-items:center;gap:10px}.file-name strong{overflow:hidden;color:var(--lz-text-strong);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.file-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f1f5f9;color:#64748b}.file-icon[data-type="outline"],.file-icon[data-type="teaching_calendar"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"]{background:#eef2ff;color:#4f46e5}.status-dot{width:7px;height:7px;display:inline-block;margin-right:6px;border-radius:50%;background:#94a3b8}.status-dot[data-state="ready"],.status-dot[data-state="uploaded"]{background:#10b981}.status-dot[data-state="working"]{background:#6366f1}.status-dot[data-state="stale"]{background:#f97316}.status-dot[data-state="missing"],.status-dot[data-state="empty"]{background:#cbd5e1}
 .file-empty{min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);text-align:center}.file-empty strong{color:var(--lz-text-secondary);font-size:15px}.file-empty span{max-width:320px;font-size:13px;line-height:1.55}.file-empty button{display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:#4f46e5;font-size:13px;cursor:pointer}.file-empty button:hover{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.runtime-note{margin:0;padding:9px 18px;border-top:1px solid var(--lz-border);color:#9a3412;background:#fff7ed;font-size:13px}
 .file-inspector{display:flex;flex-direction:column;border-left:1px solid var(--lz-border);background:#fbfcfe}.file-inspector>header{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:11px;padding:17px 16px 15px;border-bottom:1px solid var(--lz-border)}.inspector-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:11px;background:#eef2ff;color:#4f46e5}.file-inspector header div{min-width:0;display:grid;gap:3px}.file-inspector header small{color:var(--lz-text-muted);font-size:12px}.file-inspector header strong{overflow:hidden;font-size:16px;text-overflow:ellipsis;white-space:nowrap}.inspector-status{padding:13px 16px;border-bottom:1px solid #e8edf4}.inspector-status>span{display:flex;align-items:center;gap:7px;color:var(--lz-text-secondary);font-size:13px;font-weight:700}.inspector-status i{width:8px;height:8px;border-radius:50%;background:#94a3b8}.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i{background:#10b981}.inspector-status[data-state="working"] i{background:#6366f1}.inspector-status[data-state="stale"] i{background:#f97316}.inspector-status[data-state="empty"] i{background:#cbd5e1}.inspector-overview{min-height:0;overflow:auto;padding:18px 16px}.inspector-overview h3{margin:0 0 8px;color:var(--lz-text-secondary);font-size:14px}.inspector-overview dl{margin:0}.inspector-overview dl>div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid #e8edf4}.inspector-overview dt{color:var(--lz-text-muted);font-size:12px}.inspector-overview dd{margin:0;overflow-wrap:anywhere;color:var(--lz-text-secondary);font-size:13px;line-height:1.5}.inspector-actions{display:grid;gap:8px;margin-top:auto;padding:16px;border-top:1px solid var(--lz-border)}.inspector-actions button{min-height:40px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--lz-border);border-radius:9px;background:#fff;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}.inspector-actions button.primary{border-color:#4f46e5;background:#4f46e5;color:#fff}.inspector-actions button.danger{color:#b91c1c}.inspector-actions button:disabled{opacity:.45;cursor:not-allowed}
 .space-state{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center;font-size:13px}.space-state strong{color:var(--lz-text-secondary);font-size:15px}.space-state span{max-width:240px;font-size:13px;line-height:1.5}.space-state button{padding:8px 13px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;font-size:13px}
@@ -1337,6 +1375,14 @@ onMounted(refresh)
 .category-console{min-height:0;overflow:auto;display:grid;place-items:center;padding:32px;background:radial-gradient(circle at 50% 8%,rgba(99,102,241,.06),transparent 34%),#f8fafc}
 .category-console__card{width:min(600px,100%);display:grid;justify-items:center;padding:34px 38px 36px;border:1px solid #e0e6ef;border-radius:16px;background:#fff;box-shadow:0 16px 44px rgba(15,23,42,.06);text-align:center}.category-console__card>header{width:100%;display:flex;align-items:center;justify-content:space-between}.category-console__icon{width:48px;height:48px;display:grid;place-items:center;border-radius:13px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__step{padding:5px 8px;border-radius:999px;color:#667085;background:#f2f4f7;font-size:11px;font-weight:750}.category-console__card h3{margin:22px 0 8px;color:var(--lz-text-strong);font-size:22px;letter-spacing:-.012em}.category-console__card>p{max-width:470px;margin:0;color:var(--lz-text-muted);font-size:13px;line-height:1.65}
 .category-prerequisite{width:100%;display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:9px;margin-top:22px;padding:12px 14px;border:1px solid #e4e8f1;border-radius:10px;color:#64748b;background:#f8fafc;text-align:left}.category-prerequisite>svg{color:var(--lz-brand)}.category-prerequisite>div{display:grid;gap:2px}.category-prerequisite small{font-size:10px}.category-prerequisite strong{color:#475569;font-size:12px}
+.category-group__trailing b,
+.category-child__index,
+.category-group__step,
+.category-group__copy small,
+.workbench-brief-bar__title small,
+.workbench-brief-bar dt,
+.category-console__step,
+.category-prerequisite small { font-size:12px; }
 .category-console__actions{display:flex;align-items:center;justify-content:center;gap:9px;margin-top:24px}.category-console__actions button{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:750;cursor:pointer}.category-console__actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.category-console__actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-console__actions button:disabled{opacity:.45;cursor:not-allowed}.category-console__actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 @media (max-width:1180px){.category-layout{grid-template-columns:280px minmax(0,1fr)}.workbench-brief-bar{grid-template-columns:minmax(180px,.8fr) minmax(300px,1.4fr) auto;gap:12px;padding-inline:16px}.workbench-brief-bar dl>div:nth-child(4){display:none}.workbench-brief-bar dl{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(210px,37vh) minmax(0,1fr)}.category-navigation{padding:10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-progress{margin:0 2px 8px;padding:8px 10px}.category-group__button{min-height:54px;grid-template-columns:24px 16px minmax(0,1fr) auto;padding:7px 8px}.category-group__step{width:24px;height:24px}.category-group__copy small{display:none}.category-children{margin-bottom:5px}.category-detail-header{min-height:66px}.workbench-brief-bar{min-height:60px;grid-template-columns:minmax(0,1fr) auto;padding:8px 12px}.workbench-brief-bar__title small,.workbench-brief-bar dl{display:none}.category-console{padding:14px 10px 26px}.category-console__card{padding:22px 18px 24px;border-radius:12px}.category-console__card h3{margin-top:18px;font-size:19px}.category-console__actions{width:100%;display:grid;grid-template-columns:1fr;margin-top:20px}.category-console__actions button{width:100%}}

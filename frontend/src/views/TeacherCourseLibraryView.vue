@@ -1,7 +1,7 @@
 <template>
   <section
     class="course-library glass-panel-elevated"
-    :class="{ 'course-library--paginated': totalPages > 1 }"
+    :class="{ 'course-library--paginated': totalPages > 1, 'course-library--embedded': embedded }"
   >
     <header class="library-header">
       <div>
@@ -9,7 +9,7 @@
         <h1>{{ t('teacherCourseLibrary.title', '课程工作台') }}</h1>
         <span>{{ t('teacherCourseLibrary.subtitle', '管理教学大纲、教学日历、分讲教案、PPT 与学生发布版本。') }}</span>
       </div>
-      <div class="library-actions">
+      <div v-if="!embedded" class="library-actions">
         <nav class="library-global-actions" :aria-label="t('courseLibrary.globalActions', '课程库全局操作')">
           <button
             type="button"
@@ -104,10 +104,20 @@
           :placeholder="t('courseLibrary.search', '搜索课程')"
         />
       </label>
-      <div class="library-toolbar__summary" aria-label="课程状态摘要">
-        <span>全部 <strong>{{ filteredCourses.length }}</strong></span>
-        <span>待处理 <strong :class="{ attention: attentionCourseCount > 0 }">{{ attentionCourseCount }}</strong></span>
-        <span>已发布 <strong>{{ publishedCourseCount }}</strong></span>
+      <div class="library-toolbar__end">
+        <div class="library-toolbar__summary" :aria-label="t('teacherCourseLibrary.statusSummary')">
+          <span>{{ t('teacherCourseLibrary.allCourses') }} <strong>{{ filteredCourses.length }}</strong></span>
+          <span>{{ t('teacherCourseLibrary.attentionCourses') }} <strong :class="{ attention: attentionCourseCount > 0 }">{{ attentionCourseCount }}</strong></span>
+          <span>{{ t('teacherCourseLibrary.publishedCourses') }} <strong>{{ publishedCourseCount }}</strong></span>
+        </div>
+        <div class="library-view-switch" role="group" :aria-label="t('teacherCourseLibrary.viewMode')">
+          <button type="button" :class="{ active: displayMode === 'grid' }" :aria-pressed="displayMode === 'grid'" :title="t('teacherCourseLibrary.cardView')" @click="displayMode = 'grid'">
+            <Grid2X2 :size="16" /><span>{{ t('teacherCourseLibrary.cardView') }}</span>
+          </button>
+          <button type="button" :class="{ active: displayMode === 'list' }" :aria-pressed="displayMode === 'list'" :title="t('teacherCourseLibrary.listView')" @click="displayMode = 'list'">
+            <List :size="16" /><span>{{ t('teacherCourseLibrary.listView') }}</span>
+          </button>
+        </div>
       </div>
     </div>
 
@@ -124,10 +134,10 @@
 
     <section v-else class="course-collection">
       <header class="course-collection__header">
-        <strong>{{ query ? '搜索结果' : '全部课程' }}</strong>
-        <span>{{ filteredCourses.length }} {{ t('courseLibrary.courseUnit', '门课程') }} · 按最近维护排序</span>
+        <strong>{{ query ? t('teacherCourseLibrary.searchResults') : t('teacherCourseLibrary.collectionTitle') }}</strong>
+        <span>{{ t('teacherCourseLibrary.collectionSummary').replace('{count}', String(filteredCourses.length)) }}</span>
       </header>
-      <div ref="courseGridRef" class="course-grid" data-layout="responsive-three-column">
+      <div ref="courseGridRef" class="course-grid" :data-view="displayMode" data-layout="responsive-three-column">
         <article
         v-for="{ course, status } in courseCards"
         :key="course.course_id"
@@ -325,7 +335,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, LayoutDashboard, LoaderCircle, Plus, Search, Trash2, Upload, Workflow } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Ellipsis, FilePlus2, Grid2X2, LayoutDashboard, List, LoaderCircle, Plus, Search, Trash2, Upload, Workflow } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
@@ -334,11 +344,14 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { activeLocale, t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
 import { formatCourseTitle } from '../utils/course-presentation'
+import type { Course } from '../stores/course'
 
 const router = useRouter()
+const { embedded = false } = defineProps<{ embedded?: boolean }>()
 const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
 const query = ref('')
+const displayMode = ref<'grid' | 'list'>(localStorage.getItem('teacher_course_library_view') === 'list' ? 'list' : 'grid')
 const currentPage = ref(1)
 const pageJumpInput = ref('')
 const courseGridRef = ref<HTMLElement | null>(null)
@@ -353,10 +366,15 @@ const workbenchOpen = ref(false)
 const selectedWorkbenchCourseId = ref('')
 const creating = ref(false)
 
+const orderedCourses = computed(() => [...courseStore.courseList].sort((left, right) => {
+  const leftTime = Date.parse(left.updated_at || '') || 0
+  const rightTime = Date.parse(right.updated_at || '') || 0
+  return rightTime - leftTime
+}))
 const filteredCourses = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
-  if (!keyword) return courseStore.courseList
-  return courseStore.courseList.filter(course => course.course_name.toLocaleLowerCase().includes(keyword))
+  if (!keyword) return orderedCourses.value
+  return orderedCourses.value.filter(course => course.course_name.toLocaleLowerCase().includes(keyword))
 })
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredCourses.value.length / COURSES_PER_PAGE)))
 const paginatedCourses = computed(() => {
@@ -365,9 +383,9 @@ const paginatedCourses = computed(() => {
 })
 const courseCards = computed(() => paginatedCourses.value.map(course => ({
   course,
-  status: courseStatus(course.course_id),
+  status: courseStatus(course),
 })))
-const attentionCourseCount = computed(() => filteredCourses.value.filter(course => courseStatus(course.course_id).active).length)
+const attentionCourseCount = computed(() => filteredCourses.value.filter(course => courseStatus(course).active).length)
 const publishedCourseCount = computed(() => filteredCourses.value.filter(course => course.is_published).length)
 const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
   const pages = totalPages.value
@@ -384,6 +402,8 @@ watch(query, () => {
   closeCourseMenu()
 })
 
+watch(displayMode, mode => localStorage.setItem('teacher_course_library_view', mode))
+
 watch(totalPages, pages => {
   if (currentPage.value > pages) currentPage.value = pages
 })
@@ -394,7 +414,9 @@ onMounted(async () => {
   courseStore.currentCourseVersionId = ''
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
-  await courseStore.fetchCourseList({ surface: 'teacher' })
+  if (!embedded) {
+    await courseStore.fetchCourseList({ surface: 'teacher' })
+  }
 })
 
 onBeforeUnmount(() => {
@@ -462,8 +484,9 @@ function jumpToPage() {
   void selectPage(page)
 }
 
-function courseStatus(courseId: string) {
-  const task = generationStore.getTask(courseId)
+function courseStatus(course: Course) {
+  const task = generationStore.getTask(course.course_id)
+  const emptyDraft = course.course_status === 'draft' && !task
   const publishedWarning = Boolean(task && isPublishedWarning(task))
   const active = Boolean(task && taskNeedsAttention(task))
   const labels: Record<string, string> = {
@@ -479,14 +502,18 @@ function courseStatus(courseId: string) {
   return {
     active,
     retryable: task?.status === 'error',
-    tone: task?.status === 'error'
+    tone: emptyDraft
+      ? 'draft'
+      : task?.status === 'error'
       ? 'danger'
       : active
         ? 'processing'
         : publishedWarning
           ? 'warning'
           : 'ready',
-    label: publishedWarning
+    label: emptyDraft
+      ? t('teacherCourseLibrary.status.draft', '待开始备课')
+      : publishedWarning
       ? t('teacherCourseLibrary.status.readyWithSuggestions', '已发布，有优化建议')
       : labels[task?.status || 'completed'] || t('teacherCourseLibrary.status.ready', '课程可维护'),
     detail: courseProductionTaskDetail(task)
@@ -511,8 +538,11 @@ function taskRequiresAction(task: { status: string; publicationAllowed?: boolean
   return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
-function teacherAssetSummary(course: { node_count: number; is_published?: boolean }, active: boolean) {
+function teacherAssetSummary(course: Course, active: boolean) {
   if (active) return t('teacherCourseLibrary.teacherSummary.generating', '大纲与教案正在生成，进入课程查看确认点')
+  if (course.course_status === 'draft' && !course.is_published) {
+    return t('teacherCourseLibrary.teacherSummary.empty', '空课程空间 · 从大纲开始新建或生成')
+  }
   if (course.is_published) {
     return t('teacherCourseLibrary.teacherSummary.published', '大纲已确认 · {count} 个教学单元 · 可继续维护 PPT')
       .replace('{count}', String(course.node_count || 0))
@@ -524,8 +554,9 @@ function teacherAssetSummary(course: { node_count: number; is_published?: boolea
 function openCourse(courseId: string) {
   closeCourseMenu()
   void router.push({
-    name: 'teacher-course-overview',
-    params: { courseId },
+    name: 'course-workspace',
+    params: { courseId, mode: 'setup' },
+    query: { returnTo: '/courses?view=courses' },
   })
 }
 
@@ -539,7 +570,7 @@ function openGeneratingCourse(courseId: string) {
 
 function openCourseProduction(courseId: string) {
   closeCourseMenu()
-  void router.push({ name: 'teacher-course-production', params: { courseId } })
+  void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' }, query: { returnTo: '/courses?view=courses' } })
 }
 
 function openTaskCenter(courseId = '') {
@@ -604,6 +635,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 
 <style scoped>
 .course-library { --course-content-width:1280px; --course-grid-width:1280px; --course-card-height:150px; --course-grid-gap:18px; --course-cover-width:78px; width:100%; height:100%; overflow:auto; padding:30px clamp(18px,4vw,54px) 48px; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:rgba(255,255,255,.76); box-shadow:var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
+.course-library--embedded { border:0; border-radius:0; background:var(--lz-surface); box-shadow:none; }
 .library-header { max-width:var(--course-content-width); margin:0 auto; display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
 .library-header p { margin: 0 0 7px; color: var(--lz-brand); font-size: 12px; font-weight: 700; }
 .library-header h1 { margin:0; color:#312e81; font-size:clamp(25px,3vw,32px); line-height:1.2; }
@@ -634,6 +666,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-toolbar { max-width:var(--course-content-width); margin:24px auto 14px; display:grid; grid-template-columns:minmax(240px,360px) minmax(0,1fr); align-items:center; gap:12px; }
 .library-toolbar label { width:100%; height:44px; display:flex; align-items:center; gap:8px; padding:0 14px; border:1px solid rgba(203,213,225,.68); border-radius:999px; color:var(--lz-text-muted); background:rgba(255,255,255,.76); box-shadow:inset 0 1px 0 rgba(255,255,255,.8); }
 .library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
+.library-toolbar__end { min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:14px; }
 .library-resume { min-width:0; height:44px; display:grid; grid-template-columns:28px minmax(0,1fr) auto; align-items:center; gap:9px; padding:0 12px 0 9px; overflow:hidden; border:1px solid rgba(134,239,172,.62); border-radius:12px; color:var(--lz-text); background:rgba(240,253,244,.52); box-shadow:inset 0 1px 0 rgba(255,255,255,.88); text-align:left; cursor:pointer; transition:border-color .18s ease,background .18s ease,box-shadow .18s ease; }
 .library-resume:hover,.library-resume:focus-visible { border-color:rgba(74,222,128,.92); background:rgba(240,253,244,.9); box-shadow:0 5px 14px rgba(21,128,61,.08),inset 0 1px 0 rgba(255,255,255,.9); outline:none; }
 .library-resume:focus-visible { box-shadow:0 0 0 3px rgba(34,197,94,.14),0 5px 14px rgba(21,128,61,.08); }
@@ -653,11 +686,25 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-toolbar__summary span:last-child { padding-right:0; border-right:0; }
 .library-toolbar__summary strong { margin-left:4px; color:var(--lz-text-primary); font-size:13px; }
 .library-toolbar__summary strong.attention { color:var(--lz-warning); }
-.course-collection { width:100%; max-width:1040px; margin:0 auto; }
+.library-view-switch { flex:0 0 auto; height:38px; display:flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:10px; background:var(--lz-fill); }
+.library-view-switch button { height:30px; display:flex; align-items:center; gap:6px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text-muted); background:transparent; font-size:11px; font-weight:700; cursor:pointer; }
+.library-view-switch button.active { color:var(--lz-brand-strong); background:var(--lz-surface); box-shadow:0 2px 7px rgb(79 70 229 / 10%); }
+.library-view-switch button:focus-visible { outline:3px solid var(--lz-brand-soft); }
+.course-collection { width:100%; max-width:var(--course-grid-width); margin:0 auto; }
 .course-collection__header { height:36px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:11px; }
 .course-collection__header strong { color:var(--lz-text-primary); font-size:13px; }
 .course-grid { width:100%; margin:14px 0 0; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
 .course-grid:has(.course-item:only-child) { grid-template-columns:minmax(0,1fr); }
+.course-grid[data-view='list'] { --course-cover-width:44px; grid-template-columns:minmax(0,1fr); gap:8px; }
+.course-grid[data-view='list'] .course-item { min-height:86px; grid-template-columns:minmax(0,1fr) 132px; border-radius:12px; }
+.course-grid[data-view='list'] .course-main { min-height:84px; grid-template-columns:52px minmax(0,1fr); gap:14px; padding:10px 8px 10px 14px; border-radius:12px 0 0 12px; }
+.course-grid[data-view='list'] .course-copy { display:grid; grid-template-columns:minmax(180px,1fr) minmax(170px,.72fr) minmax(220px,1fr); align-items:center; gap:18px; }
+.course-grid[data-view='list'] .course-copy h2 { margin:0; font-size:14px; }
+.course-grid[data-view='list'] .teacher-asset-summary { margin:0; font-size:11px; }
+.course-grid[data-view='list'] .generation-progress { grid-column:2; width:100%; margin-top:6px; }
+.course-grid[data-view='list'] .course-actions { flex-direction:row; align-items:center; justify-content:flex-start; padding:10px 48px 10px 10px; }
+.course-grid[data-view='list'] .course-menu-trigger { top:50%; right:12px; transform:translateY(-50%); }
+.course-grid[data-view='list'] .course-menu { top:calc(50% + 22px); right:12px; }
 .course-item { position:relative; min-width:0; min-height:var(--course-card-height); display:grid; grid-template-columns:minmax(0,1fr) 96px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.88); box-shadow:0 4px 14px rgba(79,70,229,.04),inset 0 1px 0 rgba(255,255,255,.94); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
 .course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.09); transform:translateY(-1px); }
 .course-item--menu-open { z-index:30; }
@@ -675,6 +722,8 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-status--danger .course-status__dot { background:var(--lz-danger); }
 .course-status--warning { color:#a16207; }
 .course-status--warning .course-status__dot { background:#d97706; }
+.course-status--draft { color:var(--lz-text-muted); }
+.course-status--draft .course-status__dot { background:#94a3b8; }
 .generation-progress { display:block; width:min(100%,260px); margin-top:10px; }
 .progress-track { display:block; height:4px; overflow:hidden; border-radius:999px; background:var(--lz-surface-muted); }
 .progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
@@ -705,6 +754,18 @@ async function deleteCourse(courseId: string, courseName: string) {
 .pagination-jump input { width:46px; height:32px; padding:0 5px; border:1px solid rgba(203,213,225,.84); border-radius:8px; color:var(--lz-text,#334155); background:#fff; font-size:12px; font-weight:700; text-align:center; outline:none; }
 .pagination-jump input:focus { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.12); }
 .pagination-jump__submit { height:32px; padding:0 10px; border:0; border-radius:8px; color:var(--lz-brand-strong,#4f46e5); background:var(--lz-brand-soft,#eef2ff); font-size:11px; font-weight:800; cursor:pointer; }
+.task-center-button > .action-count,
+.create-course-menu__item small,
+.library-resume__label,
+.library-resume__separator,
+.library-resume__location,
+.library-resume__action,
+.library-view-switch button,
+.course-collection__header,
+.course-grid[data-view='list'] .teacher-asset-summary,
+.teacher-asset-summary,
+.pagination-jump,
+.pagination-jump__submit { font-size:12px; }
 .pagination-jump__submit:hover,.pagination-jump__submit:focus-visible { color:#fff; background:var(--lz-brand,#6366f1); outline:none; }
 .pagination-dock-enter-active,.pagination-dock-leave-active { transition:opacity .16s ease,transform .16s ease; }
 .pagination-dock-enter-from,.pagination-dock-leave-to { opacity:0; transform:translate(-50%,8px); }
@@ -726,6 +787,8 @@ async function deleteCourse(courseId: string, courseName: string) {
 @media (max-width:860px) {
   .course-collection { max-width:620px; }
   .course-grid { grid-template-columns:minmax(0,1fr); }
+  .course-grid[data-view='list'] .course-copy { grid-template-columns:minmax(0,1fr); gap:5px; }
+  .course-grid[data-view='list'] .course-status,.course-grid[data-view='list'] .teacher-asset-summary { display:none; }
 }
 @media (max-width:700px) {
   .course-library { --course-card-height:150px; --course-cover-width:72px; padding:22px 20px 40px; border:0; border-radius:0; box-shadow:none; }
@@ -734,6 +797,8 @@ async function deleteCourse(courseId: string, courseName: string) {
   .library-actions,.create-course-menu,.create-course-trigger { width:100%; }
   .create-course-menu__panel { left:0; right:0; width:auto; }
   .library-toolbar { margin-top:18px; grid-template-columns:minmax(0,1fr); gap:10px; }
+  .library-toolbar__end { justify-content:space-between; }
+  .library-view-switch button span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
   .course-collection__header { height:auto; min-height:36px; gap:12px; }
   .library-resume { width:100%; }
   .course-item { min-height:var(--course-card-height); grid-template-columns:minmax(0,1fr) 96px; }

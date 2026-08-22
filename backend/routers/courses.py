@@ -41,6 +41,7 @@ from web_material_curation import (
     normalize_exclusions,
 )
 from teacher_course_space import teacher_course_space_repository
+from material_storage import material_repository
 
 router = APIRouter(tags=["courses"])
 
@@ -84,6 +85,10 @@ class TeacherCourseCreateRequest(BaseModel):
     course_name: str = Field(min_length=1, max_length=200)
     academic_year: str = Field(default="", max_length=30)
     term: str = Field(default="", max_length=30)
+    course_code: str = Field(default="", max_length=64)
+    course_goal: str = Field(default="", max_length=1500)
+    default_location: str = Field(default="", max_length=200)
+    generation_request: Optional[CourseGenerationRequest] = None
 
 
 class WebMaterialCurationRequest(BaseModel):
@@ -186,6 +191,14 @@ async def create_teacher_course(
     term = body.term.strip() or ("秋季" if now.month >= 8 else "春季")
     owner_id = resolve_user_id(request.headers.get("X-User-Id"))
     course_id = str(uuid.uuid4())
+    generation_request = (
+        body.generation_request.model_dump(
+            mode="json",
+            exclude={"request_id", "target_course_id"},
+        )
+        if body.generation_request
+        else {}
+    )
     repository = get_course_document_repository()
     await repository.create_teacher_draft(
         course_id,
@@ -194,6 +207,12 @@ async def create_teacher_course(
             "owner_id": owner_id,
             "academic_year": academic_year,
             "term": term,
+            "course_profile": {
+                "course_code": body.course_code.strip(),
+                "course_goal": body.course_goal.strip(),
+                "default_location": body.default_location.strip(),
+            },
+            "generation_request": generation_request,
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
         },
@@ -211,6 +230,24 @@ async def create_teacher_course(
     except BaseException:
         storage.delete_course(course_id)
         raise
+    if generation_request.get("material_bindings"):
+        bound_package = teacher_course_space_repository.load_owned(
+            package["package_id"], owner_id
+        )
+        for binding in generation_request["material_bindings"]:
+            asset = material_repository.get_asset(str(binding.get("asset_id") or ""))
+            if not asset:
+                continue
+            try:
+                teacher_course_space_repository.register_material_reference(
+                    owner_id,
+                    asset,
+                    package=bound_package,
+                )
+            except Exception:
+                # The uploaded material remains available through material_storage;
+                # a missing file-space reference must not destroy the new course shell.
+                continue
     return {
         "course_id": course_id,
         "course_name": course_name,

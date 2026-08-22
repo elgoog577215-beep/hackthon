@@ -1,7 +1,7 @@
 ## 1. Contract and navigation
 
 - [x] 1.1 Freeze the calendar-file-space-formal-course information architecture, terminology and source-of-truth boundaries.
-- [x] 1.2 Make the teaching calendar the teacher home with a wider course rail and non-title-derived course icons.
+- [x] 1.2 Make the teacher home a two-tab surface for the full teaching calendar and the full course library; remove the calendar-side course rail.
 - [x] 1.3 Make course entries open the file space and add an explicit formal-course preview route.
 - [x] 1.4 Redirect legacy teacher routes without preserving the duplicate four-stage tab bar.
 
@@ -13,6 +13,7 @@
 - [x] 2.4 Project folder navigation to a horizontal mobile control instead of stacking the desktop tree.
 - [x] 2.5 Split PPT creation into AI-generated and teacher-uploaded flows, preserving uploaded originals and optionally deriving a reviewable lesson-plan draft from PPTX evidence.
 - [x] 2.6 Create an empty course space before generation; keep outline, lesson plan, content, practice and companion PPT visible as direct asset entries with `Not generated` states, while materials use explicit add-file and add-folder actions.
+- [x] 2.7 Restore the course-level teaching calendar as a fixed managed file type, reuse the existing outline-derived editor and exports, and route legacy calendar links into the unified workspace.
 
 ## 3. Formal course and teacher agent
 
@@ -41,3 +42,6 @@
 - [x] 5.5 Remove repeated helper copy and decorative hierarchy from the teacher home, course header, course-creation dialog, outline-generation dialog and task workbench; keep supporting text at 12px or above.
 - [x] 5.6 Remove redundant empty-state, option and dialog helper copy across the active teacher path while retaining error recovery, data-boundary and irreversible-action warnings.
 - [x] 5.7 Add direct task-row deletion, status filters, invalid-task cleanup and completed-record cleanup to the task center.
+- [x] 5.8 Restore the teacher course library inside the home, including card/list switching and a single-row global header.
+- [x] 5.9 Route new-course entry to the detailed creation flow, persist its production baseline on an empty course shell, and enter the default four-stage workbench without starting generation.
+- [x] 5.10 Verify the two home tabs, empty-shell creation, zh/en copy and desktop/mobile layouts; then update product docs and release evidence.

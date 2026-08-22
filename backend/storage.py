@@ -302,8 +302,15 @@ class Storage:
                 section_count = len(items)
             generation_job_id = str(data.get("generation_job_id") or "")
             generation_status = str(data.get("generation_status") or "")
+            authoring_surface = str(data.get("authoring_surface") or "")
+            course_status = str(data.get("course_status") or "")
+            is_teacher_draft = (
+                authoring_surface == "teacher" and course_status == "draft"
+            )
             is_published = bool(data.get("course_document_publication")) or (
                 bool(generation_job_id) and generation_status == "passed"
+            ) or (
+                not generation_job_id and not is_teacher_draft
             )
             courses.append({
                 "course_id": course_id,
@@ -312,7 +319,10 @@ class Storage:
                 "course_schema_version": data.get("course_schema_version") or "legacy",
                 "generation_job_id": generation_job_id or None,
                 "generation_status": generation_status or None,
-                "is_published": is_published or not generation_job_id,
+                "is_published": is_published,
+                "course_status": course_status or None,
+                "authoring_surface": authoring_surface or None,
+                "updated_at": str(data.get("updated_at") or ""),
             })
         return courses
 

@@ -35,6 +35,9 @@ describe('learning routes', () => {
     const filesRoute = router.getRoutes().find(route => route.name === 'teacher-course-files')
     const redirected = (filesRoute!.redirect as Function)({ params: { courseId: 'course-1' }, query: {} })
     expect(router.resolve(redirected).fullPath).toBe('/course/course-1/workspace/setup')
+    const calendarRoute = router.getRoutes().find(route => route.name === 'teacher-course-calendar')
+    const calendarRedirect = (calendarRoute!.redirect as Function)({ params: { courseId: 'course-1' }, query: { session: 'session-2' } })
+    expect(router.resolve(calendarRedirect).fullPath).toBe('/course/course-1/workspace/setup?section=calendar&session=session-2')
   })
 
   it('教师命名空间中的未知地址只能回教师工作台', () => {

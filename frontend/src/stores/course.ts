@@ -56,6 +56,10 @@ export type TeacherCourseSpaceCreate = {
     course_name: string
     academic_year: string
     term: string
+    course_code?: string
+    course_goal?: string
+    default_location?: string
+    generation_request?: { subject: string } & CourseGenerationOptions
 }
 
 type GenerationPreviewEnvelope = {
