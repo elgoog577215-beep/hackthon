@@ -48,6 +48,14 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).not.toContain('useTeacherCourseRuntime')
   })
 
+  it('keeps the teacher card view as the dense three-column course grid', () => {
+    const library = source('views/TeacherCourseLibraryView.vue')
+
+    expect(library).toContain("grid-template-columns:repeat(3,minmax(0,1fr))")
+    expect(library).toContain(".course-grid[data-view='list'] { --course-cover-width:44px; grid-template-columns:minmax(0,1fr)")
+    expect(library).not.toContain('.course-grid:has(.course-item:only-child)')
+  })
+
   it('keeps active routes in one namespace and redirects legacy teacher URLs', () => {
     const router = source('router/index.ts')
 
