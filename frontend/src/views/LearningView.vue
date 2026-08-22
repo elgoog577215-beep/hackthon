@@ -1,5 +1,5 @@
 <template>
-  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth, 'is-teacher-preview': isTeacherPreview }">
+  <section class="learning-view" :class="{ 'focus-mode': courseStore.isFocusMode, 'has-mobile-resume': showMobileResumePrompt, 'is-generation-preview': isGenerationPreview, 'has-ai-course-growth': hasAppliedCourseGrowth }">
     <div v-if="overlayVisible" class="surface-backdrop" @click="closeMobileSurfaces"></div>
 
     <Transition name="slide-left">
@@ -17,44 +17,6 @@
     </Transition>
 
     <main class="learning-main glass-panel-elevated">
-      <div v-if="isTeacherPreview" class="teacher-preview-bar" role="status">
-        <span class="teacher-preview-copy">
-          <Eye :size="15" />
-          <strong>{{ t('learningShell.teacherPreviewTitle', '学生视角预览') }}</strong>
-          <span class="teacher-preview-help">{{ t('learningShell.teacherPreviewHelp', '内容、练习、笔记与学生端一致；体验记录不写入学生数据。') }}</span>
-        </span>
-        <button type="button" @click="leaveTeacherPreview"><ArrowLeft :size="15" />{{ t('learningShell.backToCourseFiles', '返回课程文件') }}</button>
-      </div>
-      <div
-        class="learning-context-bar"
-        :class="{ 'is-generation': isGenerationPreview }"
-      >
-        <div class="context-leading">
-          <button v-if="!navigatorVisible && canOpenNavigator" type="button" :title="t('learningShell.openNavigator', '打开课程目录')" :aria-label="t('learningShell.openNavigator', '打开课程目录')" @click="navigatorOpen = true">
-            <PanelLeftOpen :size="17" />
-          </button>
-          <div class="context-copy">
-            <span>{{ currentParentLabel }}</span>
-            <strong>{{ courseStore.currentNode?.node_name || t('learningShell.selectNode', '选择一个学习目标') }}</strong>
-          </div>
-        </div>
-        <div class="context-actions">
-          <div v-if="hasAppliedCourseGrowth" class="ai-course-version" role="status">
-            <Sparkles :size="14" />
-            <span>
-              <small>{{ t('courseEvolution.applicationVisual.courseEyebrow', 'AI 个体化课程') }}</small>
-              <strong>{{ t('courseEvolution.applicationVisual.newVersion', '新版本已应用') }}</strong>
-            </span>
-          </div>
-          <button v-if="isGenerationPreview && !autoFollowGeneration" type="button" :title="t('courseGeneration.workspace.follow', '跟随当前生成章节')" :aria-label="t('courseGeneration.workspace.follow', '跟随当前生成章节')" @click="resumeGenerationFollow">
-            <LocateFixed :size="17" />
-          </button>
-          <button v-if="!aiVisible && !isGenerationPreview" type="button" :title="t('learningShell.openAi', '打开 AI 老师')" :aria-label="t('learningShell.openAi', '打开 AI 老师')" @click="openAi()">
-            <MessageSquareText :size="17" />
-          </button>
-        </div>
-      </div>
-
       <AITeacherSuggestion
         :suggestion="aiTeacherStore.suggestion"
         @shown="aiTeacherStore.markSuggestionShown"
@@ -144,6 +106,7 @@
         :quote-anchor="aiAnchor"
         :prefill="aiPrefill"
         :entrypoint="aiEntrypoint"
+        :identity-scope="isTeacherPreview ? 'teacher' : 'learner'"
         :block-target="aiBlockTarget"
         @close="closeAi"
         @clear-block-target="clearBlockImprovement"
@@ -175,7 +138,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, History, LoaderCircle, LocateFixed, MessageSquareText, PanelLeftOpen, Sparkles } from 'lucide-vue-next'
+import { History, LoaderCircle } from 'lucide-vue-next'
 import ContentArea from '../components/ContentArea.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseNavigator from '../components/CourseNavigator.vue'
@@ -255,9 +218,6 @@ const navigatorVisible = computed(() => (
 ))
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
-))
-const canOpenNavigator = computed(() => (
-  !isGenerationPreview.value || courseStore.courseTree.length > 0
 ))
 const hasAppliedCourseGrowth = computed(() => (
   courseEvolutionStore.courseId === courseStore.currentCourseId
@@ -519,12 +479,6 @@ async function selectCourseBlock(target: CourseBlockNavigationTarget) {
 
 function handleActiveBlockChange(payload: { nodeId: string; blockId: string }) {
   activeCourseBlockId.value = payload.blockId
-}
-
-function resumeGenerationFollow() {
-  autoFollowGeneration.value = true
-  const node = courseStore.nodes.find(item => item.node_id === activeGenerationNodeId.value)
-  if (node) selectNode(node, false, false)
 }
 
 function openAi(payload?: { text: string; nodeId: string; anchor?: Record<string, unknown> }) {
@@ -818,27 +772,7 @@ function closeMobileSurfaces() {
 .learning-view { position: relative; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; gap: 12px; overflow: hidden; background: transparent; }
 .navigator-surface { flex: 0 0 292px; }
 .learning-main { position: relative; min-width: 0; min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; border: 1px solid rgba(255,255,255,.82); border-radius: var(--lz-radius-surface); background: #fff; box-shadow: var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
-.teacher-preview-bar{min-height:38px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;border-bottom:1px solid var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:10px}.teacher-preview-copy,.teacher-preview-bar button{display:flex;align-items:center;gap:6px}.teacher-preview-copy{min-width:0}.teacher-preview-help{min-width:0}.teacher-preview-bar button{height:28px;flex:0 0 auto;padding:0 9px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-surface);cursor:pointer;white-space:nowrap}
-.learning-context-bar { min-height:58px; flex:0 0 auto; display:grid; grid-template-columns:minmax(180px,1fr) auto; align-items:center; gap:12px; padding:7px 12px; border-bottom:1px solid var(--lz-border); background:rgba(255,255,255,.94); }
 .has-ai-course-growth .learning-main { border-color:rgba(165,180,252,.7); box-shadow:0 16px 42px rgba(30,64,175,.1),0 2px 8px rgba(15,23,42,.05); }
-.has-ai-course-growth .learning-context-bar:not(.is-generation) { position:relative; border-bottom-color:rgba(191,219,254,.9); background:linear-gradient(90deg,rgba(248,250,255,.98),rgba(240,249,255,.96) 58%,rgba(248,250,252,.98)); }
-.has-ai-course-growth .learning-context-bar:not(.is-generation)::after { content:""; position:absolute; right:0; bottom:-1px; left:0; height:2px; background:linear-gradient(90deg,#4f46e5 0 24%,#0891b2 62%,rgba(14,165,233,0)); opacity:.72; }
-.learning-context-bar.is-generation { min-height:52px; background:rgba(255,255,255,.96); }
-.learning-context-bar.is-generation { grid-template-columns:minmax(0,1fr) auto; }
-.learning-context-bar.is-generation .context-copy span { font-size:11px; line-height:1.35; }
-.learning-context-bar.is-generation .context-copy strong { margin-top:2px; font-size:14px; line-height:1.4; }
-.context-leading { min-width:0; display:flex; align-items:center; gap:9px; }
-.context-leading > button,.context-actions > button { width:32px; height:32px; flex:0 0 32px; display:grid; place-items:center; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
-.context-leading > button:hover,.context-actions > button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
-.context-copy { min-width:0; flex:1; display:flex; flex-direction:column; }
-.context-copy span { color:var(--lz-text-muted); font-size:9px; }
-.context-copy strong { margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--lz-text-strong); font-size:12px; }
-.context-actions { min-width:0; justify-self:end; display:flex; align-items:center; gap:7px; }
-.ai-course-version { min-width:0; display:flex; align-items:center; gap:7px; padding:5px 8px; border:1px solid rgba(165,180,252,.72); border-radius:9px; color:#4338ca; background:rgba(255,255,255,.86); box-shadow:0 5px 14px rgba(79,70,229,.08); }
-.ai-course-version > svg { flex:0 0 auto; color:#0891b2; }
-.ai-course-version > span { min-width:0; display:flex; flex-direction:column; line-height:1.12; }
-.ai-course-version small { color:#64748b; font-size:8px; font-weight:700; white-space:nowrap; }
-.ai-course-version strong { color:#312e81; font-size:10px; font-weight:800; white-space:nowrap; }
 .learning-content { min-height: 0; flex: 1; }
 .notebook-side-panel { width:clamp(340px,28vw,410px); min-width:0; min-height:0; flex:0 0 clamp(340px,28vw,410px); overflow:hidden; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:#fff; box-shadow:var(--lz-shadow-panel); }
 .notebook-side-panel :deep(.records-panel) { height:100%; min-height:0; }
@@ -855,13 +789,10 @@ function closeMobileSurfaces() {
 .stats-tool { flex:1; min-width:0; min-height:0; }
 .surface-backdrop { display: none; }
 .focus-mode .learning-main { max-width: 1040px; margin: 0 auto; }
-.focus-mode :deep(.learning-context-bar) { display: none; }
 .slide-left-enter-active, .slide-left-leave-active, .slide-right-enter-active, .slide-right-leave-active { transition: transform .2s ease, opacity .2s ease; }
 .slide-left-enter-from, .slide-left-leave-to { transform: translateX(-100%); opacity: 0; }
 .slide-right-enter-from, .slide-right-leave-to { transform: translateX(100%); opacity: 0; }
 @media (max-width:1279px) {
-  .learning-context-bar { grid-template-columns:minmax(120px,1fr) auto; }
-  .ai-course-version small { display:none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { inset:0; padding:80px 12px 12px; }
 }
 @media (max-width: 1023px) {
@@ -875,15 +806,6 @@ function closeMobileSurfaces() {
   .learning-view.has-mobile-resume { padding-bottom:calc(102px + env(safe-area-inset-bottom, 0px)); }
   .navigator-surface { left:0; top:96px; bottom:calc(58px + env(safe-area-inset-bottom, 0px)); border-radius:0 16px 0 0; }
   .learning-main { border: 0; border-radius: 0; box-shadow: none; }
-  .teacher-preview-bar { align-items:flex-start; gap:8px; padding:7px 8px; }
-  .teacher-preview-copy { display:grid; grid-template-columns:15px minmax(0,1fr); align-items:center; gap:2px 5px; line-height:1.3; }
-  .teacher-preview-help { grid-column:2; }
-  .teacher-preview-bar button { height:26px; padding:0 7px; }
-  .learning-context-bar { min-height:52px; grid-template-columns:minmax(0,1fr) auto; gap:6px; padding:5px 7px; }
-  .context-copy { display:none; }
-  .learning-context-bar.is-generation .context-copy { display:flex; }
-  .ai-course-version { padding:6px; }
-  .ai-course-version > span { display:none; }
   .learning-view :deep(.ai-teacher-panel.is-overlay) { padding:96px 0 calc(58px + env(safe-area-inset-bottom, 0px)); }
   .learning-tool-overlay { position:fixed; inset:96px 0 calc(58px + env(safe-area-inset-bottom, 0px)); z-index:105; }
   .learning-tool-modal { padding:10px; }
@@ -896,6 +818,6 @@ function closeMobileSurfaces() {
 @media (min-width:768px) { .mobile-resume-prompt { display:none; } }
 @keyframes mobile-resume-spin { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) {
-  .learning-main,.learning-context-bar { transition:none; }
+  .learning-main { transition:none; }
 }
 </style>

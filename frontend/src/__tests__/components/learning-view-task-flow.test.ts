@@ -193,7 +193,7 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.findAll('.learning-context-bar [data-workspace-item]')).toHaveLength(0)
+    expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
 
     await wrapper.get('.open-practice').trigger('click')
@@ -254,10 +254,11 @@ describe('LearningView 正文任务覆盖层', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.teacher-preview-bar').text()).toContain('学生视角预览')
+    expect(wrapper.find('.teacher-preview-bar').exists()).toBe(false)
+    expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
     expect(wrapper.get('#content-scroll-container').attributes('data-read-only')).toBe('false')
     expect(wrapper.find('[data-testid="open-content-practice"]').exists()).toBe(false)
-    expect(wrapper.find('[title="打开 AI 老师"]').exists()).toBe(true)
+    expect(wrapper.find('[title="打开 AI 老师"]').exists()).toBe(false)
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
     expect(course.loadCourse).toHaveBeenCalledWith('c1')
     expect(notes.loadCourseRecords).toHaveBeenCalledWith('c1')
@@ -361,7 +362,7 @@ describe('LearningView 正文任务覆盖层', () => {
           ContentArea: GrowthContentAreaStub,
           LearningTaskOverlay: TaskOverlayStub,
           CourseNavigator: true,
-          LearningDock: true,
+          LearningDock: { template: '<button data-testid="open-ai" @click="$emit(\'ai\')">AI</button>' },
           LearningStats: true,
           NotesPanel: true,
           SideAIPanel: GrowthSideAIPanelStub,
@@ -372,8 +373,8 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.classes()).toContain('has-ai-course-growth')
-    expect(wrapper.get('.ai-course-version').text()).toContain('新版本已应用')
-    await wrapper.get('[title="打开 AI 老师"]').trigger('click')
+    expect(wrapper.find('.ai-course-version').exists()).toBe(false)
+    await wrapper.get('[data-testid="open-ai"]').trigger('click')
     await flushPromises()
 
     vi.useFakeTimers()
@@ -591,8 +592,7 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.findComponent({ name: 'CourseGenerationLifecycle' }).exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseProductionStage' }).exists()).toBe(false)
     expect(wrapper.find('#content-scroll-container').exists()).toBe(true)
-    expect(wrapper.get('.context-copy').text()).toContain('向量空间')
-    expect(wrapper.get('.context-copy').text()).not.toContain('课程生产')
+    expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
     wrapper.unmount()
   })
 
@@ -649,7 +649,7 @@ describe('LearningView 正文任务覆盖层', () => {
     await flushPromises()
 
     expect(wrapper.find('course-navigator-stub').exists()).toBe(false)
-    expect(wrapper.find('.context-leading button').exists()).toBe(false)
+    expect(wrapper.find('.learning-context-bar').exists()).toBe(false)
     expect(wrapper.find('[data-workspace-item]').exists()).toBe(false)
     expect(wrapper.find('.formation-recovery').exists()).toBe(false)
     expect(wrapper.find('.generation-gate').exists()).toBe(false)
