@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
 import logger from '../utils/logger'
+import { trackClientError } from '../utils/usage-tracker'
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -126,6 +127,7 @@ const router = createRouter({
 })
 
 router.onError((error) => {
+    trackClientError('router_error')
     logger.error('Router Error:', error)
 })
 

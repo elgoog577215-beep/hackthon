@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { ElMessage } from 'element-plus';
+import { trackApiAction } from './usage-tracker';
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
@@ -145,10 +146,12 @@ interface ErrorConfig {
 declare module 'axios' {
   export interface AxiosRequestConfig {
     silentError?: boolean;
+    usageStartedAt?: number;
   }
 
   export interface InternalAxiosRequestConfig {
     silentError?: boolean;
+    usageStartedAt?: number;
   }
 }
 
@@ -258,6 +261,7 @@ http.interceptors.request.use(
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
       config.headers.delete('Content-Type');
     }
+    config.usageStartedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
     return applyLearnerIdentity(config, getSurfaceIdentity());
   },
   (error: AxiosError) => {
@@ -269,9 +273,27 @@ http.interceptors.request.use(
 // Response Interceptor
 http.interceptors.response.use(
   (response: AxiosResponse) => {
+    const startedAt = response.config.usageStartedAt;
+    const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+    trackApiAction({
+      method: response.config.method,
+      url: response.config.url,
+      statusCode: response.status,
+      durationMs: startedAt === undefined ? 0 : now - startedAt,
+      userId: String(response.config.headers?.get?.('X-User-Id') || ''),
+    });
     return response;
   },
   (error: AxiosError) => {
+    const startedAt = error.config?.usageStartedAt;
+    const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+    trackApiAction({
+      method: error.config?.method,
+      url: error.config?.url,
+      statusCode: error.response?.status || 0,
+      durationMs: startedAt === undefined ? 0 : now - startedAt,
+      userId: String(error.config?.headers?.get?.('X-User-Id') || ''),
+    });
     handleHttpError(error, { showMessage: error.config?.silentError !== true });
     return Promise.reject(error);
   }

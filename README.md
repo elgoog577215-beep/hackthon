@@ -152,6 +152,25 @@ WEB_RETRIEVAL_V2_MODE=off
 
 生产环境通过 GitHub Actions 的 `Provision Lingzhi SearXNG` 手动工作流首次安装或显式升级固定镜像。常规应用发布不会更新 SearXNG；当检索模式为 `allowlist` 或 `on` 时，会在停止当前应用前检查 `/config` 和一次 JSON 搜索，失败即终止发布。Exa 只保留显式兼容适配器，不会成为自动兜底。
 
+## 产品使用记录
+
+前端默认把浏览器会话、最终页面 route、Axios 写操作成功/失败和分类客户端错误写入自托管 `UsageEvent`。事件只保存稳定标识、脱敏 API 模板、状态码和耗时；不保存请求体、响应体、课程正文、答案、Prompt、错误消息、URL 查询、IP 或 User-Agent。采集失败不会改变正式业务请求结果。
+
+```dotenv
+# 服务端：默认保留 180 天、最近 200000 条。
+LINGZHI_USAGE_TRACKING_ENABLED=true
+LINGZHI_USAGE_RETENTION_DAYS=180
+LINGZHI_USAGE_MAX_RECORDS=200000
+
+# 可选。未配置时全局聚合端点保持关闭；不要把真实值提交到 Git。
+# LINGZHI_ANALYTICS_ADMIN_TOKEN=replace-with-a-secret
+
+# 前端构建时可完全关闭采集。
+VITE_USAGE_TRACKING_ENABLED=true
+```
+
+稳定身份可以通过 `/api/usage-events/summary`、`/export` 和 `/delete` 查询、导出或硬删除自己的记录。`/api/usage-events/admin/summary` 只在配置管理密钥且请求携带 `X-Analytics-Admin-Token` 时返回跨用户聚合，不提供跨用户原始事件。
+
 ## 测试与检查
 
 当前两套后端测试目录存在同名 `conftest` 收集边界，需要分别运行：

@@ -64,6 +64,7 @@ from routers import (
     teacher_lesson_authoring,
     teaching_calendar,
     ppt_template_packs,
+    usage_events,
 )
 
 @asynccontextmanager
@@ -126,7 +127,10 @@ app.add_middleware(
     allow_origin_regex=r"^http://(localhost|127\.0\.0\.1):\d+$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-User-Id"],
+    allow_headers=[
+        "Content-Type", "Authorization", "X-Requested-With", "X-User-Id",
+        "X-Analytics-Admin-Token",
+    ],
 )
 
 
@@ -198,6 +202,7 @@ app.include_router(teacher_course_space.router, prefix="/api")
 app.include_router(teacher_authoring.router, prefix="/api")
 app.include_router(teacher_lesson_authoring.router, prefix="/api")
 app.include_router(teaching_calendar.router, prefix="/api")
+app.include_router(usage_events.router, prefix="/api")
 
 
 # ============================================================================

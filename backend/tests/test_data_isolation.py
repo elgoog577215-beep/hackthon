@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 
 import learning_events
+import product_usage
 import storage as storage_module
 from learning_records import learning_record_repository
 from practice_attempts import practice_attempt_repository
@@ -54,3 +55,26 @@ def test_recording_an_event_never_touches_the_versioned_ledger():
         event.get("user_id") == "isolation-probe"
         for event in learning_events.load_learning_events(user_id="isolation-probe")
     )
+
+
+def test_recording_usage_never_touches_the_repository_data_dir():
+    versioned = REPO_DATA_DIR / product_usage.USAGE_EVENTS_FILE
+    before = versioned.read_bytes() if versioned.exists() else None
+
+    product_usage.append_usage_events(
+        user_id="usage-isolation-probe",
+        events=[{
+            "client_event_id": "usage-isolation-event",
+            "event_name": "page_viewed",
+            "session_id": "usage-isolation-session",
+            "surface": "learner",
+            "route_name": "learning",
+            "course_id": "isolation-course",
+            "properties": {"navigation_kind": "route"},
+            "client_occurred_at": "2026-08-22T12:00:00Z",
+        }],
+    )
+
+    after = versioned.read_bytes() if versioned.exists() else None
+    assert after == before
+    assert len(product_usage.load_usage_events(user_id="usage-isolation-probe")) == 1

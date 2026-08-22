@@ -25,6 +25,7 @@ from routers import (
     question_bank,
     review,
     tasks,
+    usage_events,
 )
 
 __all__ = [name for name in globals() if not name.startswith("_")]

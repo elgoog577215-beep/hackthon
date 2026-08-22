@@ -11,6 +11,10 @@ vi.mock('element-plus', () => ({
   ElMessage: { error: vi.fn() },
 }))
 
+vi.mock('@/utils/usage-tracker', () => ({
+  trackApiAction: vi.fn(),
+}))
+
 vi.mock('axios', () => {
   const instance = {
     interceptors: {
@@ -32,7 +36,10 @@ vi.mock('axios', () => {
 import http, { handleHttpError, createRequestConfig, safeRequest } from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
+import { trackApiAction } from '@/utils/usage-tracker'
 
+const requestHandler = (axios as any).__instance.interceptors.request.use.mock.calls[0][0]
+const responseSuccessHandler = (axios as any).__instance.interceptors.response.use.mock.calls[0][0]
 const responseErrorHandler = (axios as any).__instance.interceptors.response.use.mock.calls[0][1]
 
 // ---------------------------------------------------------------------------
@@ -74,6 +81,54 @@ function makeAxiosError(overrides: {
 
 beforeEach(() => {
   vi.clearAllMocks()
+})
+
+describe('HTTP mutation usage tracking', () => {
+  const headers = () => {
+    const values = new Map<string, string>()
+    return {
+      has: (key: string) => values.has(key),
+      get: (key: string) => values.get(key),
+      set: (key: string, value: string) => values.set(key, value),
+      delete: (key: string) => values.delete(key),
+    }
+  }
+
+  it('tracks a successful mutation after identity is attached', () => {
+    const config = requestHandler({
+      method: 'post',
+      url: '/api/courses/course-1',
+      headers: headers(),
+    })
+    const response = { config, status: 201, data: {} }
+
+    expect(responseSuccessHandler(response)).toBe(response)
+    expect(trackApiAction).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'post',
+      url: '/api/courses/course-1',
+      statusCode: 201,
+      userId: expect.stringMatching(/^(learner_|teacher-)/),
+    }))
+  })
+
+  it('tracks a failed mutation without recording the error body', async () => {
+    const config = requestHandler({
+      method: 'delete',
+      url: '/api/courses/course-1?private=value',
+      headers: headers(),
+      silentError: true,
+    })
+    const error = makeAxiosError({ status: 500, data: { detail: 'private failure detail' } })
+    error.config = config
+
+    await expect(responseErrorHandler(error)).rejects.toBe(error)
+    expect(trackApiAction).toHaveBeenCalledWith(expect.objectContaining({
+      method: 'delete',
+      url: '/api/courses/course-1?private=value',
+      statusCode: 500,
+    }))
+    expect(JSON.stringify(vi.mocked(trackApiAction).mock.calls)).not.toContain('private failure detail')
+  })
 })
 
 describe('handleHttpError – HTTP 状态码错误消息', () => {

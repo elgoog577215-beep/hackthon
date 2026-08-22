@@ -180,9 +180,11 @@ def isolate_learning_event_store(tmp_path, monkeypatch):
     themselves still win, because their ``monkeypatch.setattr`` runs after this.
     """
     import learning_events
+    import product_usage
 
     event_store = _IsolatedEventStorage(tmp_path / "learning_events")
     monkeypatch.setattr(learning_events, "storage", event_store)
+    monkeypatch.setattr(product_usage, "storage", event_store)
     return event_store
 
 
