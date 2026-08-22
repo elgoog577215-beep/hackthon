@@ -39,9 +39,8 @@
             <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
           </label>
         </el-popover>
-        <button class="agent-action" :class="{ active: agentOpen }" type="button" :aria-pressed="agentOpen" @click="agentOpen = !agentOpen"><Sparkles :size="16" />{{ agentOpen ? t('courseFiles.hideTeacherAgent') : t('courseFiles.teacherAgent') }}</button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
-        <button class="task-action" type="button" @click="openTasks"><ListTodo :size="16" /><span>{{ t('courseFiles.taskCenter') }}</span></button>
+        <button class="agent-action" :class="{ active: agentOpen }" type="button" :aria-pressed="agentOpen" @click="agentOpen = !agentOpen"><Sparkles :size="16" />{{ agentOpen ? t('courseFiles.hideTeacherAgent') : t('courseFiles.teacherAgent') }}</button>
       </div>
     </Teleport>
 
@@ -125,7 +124,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, ListTodo, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
@@ -327,7 +326,6 @@ onMounted(loadWorkspace)
 .workspace-route-actions .agent-action { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:#fff; }
 .workspace-route-actions .agent-action.active { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
-.workspace-route-actions .task-action { padding-inline:11px; }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }
 .workspace-state[data-state="working"] { background:#eef2ff; color:#4f46e5; }
@@ -355,7 +353,6 @@ onMounted(loadWorkspace)
   .workspace-route-actions { gap:5px; }
   .workspace-route-actions>button { width:36px; padding:0; font-size:0; }
   .workspace-route-actions>button svg { margin:auto; }
-  .workspace-route-actions .task-action { display:none; }
 }
 @media (max-width:1500px) {
   .workspace-search--inline { display:none; }
