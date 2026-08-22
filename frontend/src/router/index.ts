@@ -21,8 +21,7 @@ const routes: Array<RouteRecordRaw> = [
   {
     path: '/teacher/courses/new',
     name: 'teacher-course-create',
-    component: () => import('../views/TeacherCourseCreateView.vue'),
-    meta: { fullscreenConcept: true }
+    redirect: { name: 'course-library', query: { view: 'courses', create: 'course' } }
   },
   {
     path: '/teacher-course-space',

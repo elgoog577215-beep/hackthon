@@ -60,7 +60,7 @@
 
 ## 7. Minimal teacher-agent course production
 
-- [x] 7.1 Replace the new-course dialog flow with a progressive basic-information form and keep all file upload in the course workspace.
+- [x] 7.1 Replace the legacy generation dialog with one compact new-course modal, keep optional basic information expanded, and keep all file upload in the course workspace.
 - [x] 7.2 Add course-scoped material registration and a durable bidirectional relationship index between uploaded assets and formal course files.
 - [x] 7.3 Replace the workbench chat rail with a primary-source/reference tray and four guided stages: course foundation, lesson plan, script plus PPT, and question bank.
 - [x] 7.4 Switch the center pane from the stage form to real streaming generation output in place, preserving partial output and recovery controls.

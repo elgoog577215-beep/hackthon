@@ -27,7 +27,8 @@ describe('calendar and course file-space boundary', () => {
     expect(home).toContain('class="day-inspector"')
     expect(home).toContain(':selected-date="selectedDate"')
     expect(home).toContain('@day="selectDay"')
-    expect(home).toContain("router.push({ name: 'teacher-course-create' })")
+    expect(home).toContain("create: 'course'")
+    expect(home).toContain('<TeacherCourseCreateView v-if="courseCreateOpen"')
     expect(home).not.toContain('<CreateCourseSpaceDialog')
     expect(home).not.toContain('<CourseGenerationDialog')
     expect(home).not.toContain('v-if="!visibleSessions.length" class="calendar-empty"')
@@ -70,7 +71,7 @@ describe('calendar and course file-space boundary', () => {
     expect(router).toContain("path: '/course/:courseId/learn/:nodeId?'")
     expect(router).toContain("path: '/course/:courseId/ppt'")
     expect(router).toContain("component: () => import('../views/TeacherTeachingCalendarView.vue')")
-    expect(router).toMatch(/path:\s*'\/teacher\/courses\/new'[\s\S]*?component:\s*\(\) => import\('\.\.\/views\/TeacherCourseCreateView\.vue'\)/)
+    expect(router).toMatch(/path:\s*'\/teacher\/courses\/new'[\s\S]*?redirect:[\s\S]*?create:\s*'course'/)
     expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/files'[\s\S]*?redirect:[\s\S]*?name:\s*'course-workspace'/)
     expect(router).toMatch(/path:\s*'\/teacher\/course\/:courseId\/teaching-calendar'[\s\S]*?redirect:[\s\S]*?name:\s*'course-workspace'[\s\S]*?section:\s*'calendar'/)
     expect(router).toMatch(/path:\s*'\/teacher\/:pathMatch\(\.\*\)\*'[\s\S]*?redirect:\s*'\/courses'/)
@@ -78,12 +79,16 @@ describe('calendar and course file-space boundary', () => {
     expect(router).not.toContain("import('../views/TeacherCourseProductionView.vue')")
   })
 
-  it('creates the course space from a progressive basic-information form before opening the managed-asset workbench', () => {
+  it('creates the course space from an always-expanded modal before opening the managed-asset workbench', () => {
     const create = source('views/TeacherCourseCreateView.vue')
     const store = source('stores/course.ts')
 
     expect(create).toContain('class="course-form"')
-    expect(create).toContain('<details class="course-details">')
+    expect(create).toContain('<dialog')
+    expect(create).toContain("dialogRef.value?.showModal()")
+    expect(create).toContain('<section class="course-details"')
+    expect(create).not.toContain('<details')
+    expect(create).not.toContain('<summary')
     expect(create).toContain('v-model="form.generateOutline"')
     expect(create).not.toContain('<CourseGenerationDialog')
     expect(create).not.toContain('type="file"')

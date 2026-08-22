@@ -184,6 +184,7 @@
       </aside>
     </div>
 
+    <TeacherCourseCreateView v-if="courseCreateOpen" @close="closeCourseCreate" />
     <CourseWorkbench v-model="workbenchOpen" :course-id="workbenchCourseId" surface="teacher" />
   </section>
 </template>
@@ -198,6 +199,7 @@ import {
 } from 'lucide-vue-next'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
+import TeacherCourseCreateView from './TeacherCourseCreateView.vue'
 import TeacherCourseLibraryView from './TeacherCourseLibraryView.vue'
 import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
@@ -236,6 +238,7 @@ const periodLabel = computed(() => view.value === 'week' ? `${iso(weekStart.valu
 const todayLabel = computed(() => new Intl.DateTimeFormat(document.documentElement.lang || 'zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()))
 const weekdayNames = computed(() => [1, 2, 3, 4, 5, 6, 7].map(index => t(`teacherHome.weekdays.${index}`)))
 const activeHomeTab = computed<'calendar' | 'courses'>(() => route.query.view === 'courses' ? 'courses' : 'calendar')
+const courseCreateOpen = computed(() => route.query.create === 'course')
 const filteredCourses = computed(() => {
   const keyword = courseQuery.value.trim().toLocaleLowerCase()
   return keyword ? courseStore.courseList.filter(course => course.course_name.toLocaleLowerCase().includes(keyword)) : courseStore.courseList
@@ -287,7 +290,12 @@ function selectDay(date: string) {
 }
 function switchHomeTab(tab: 'calendar' | 'courses') { void router.replace({ name: 'course-library', query: tab === 'courses' ? { view: 'courses' } : {} }) }
 function openCourse(courseId: string) { if (courseId) void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' } }) }
-function openCourseCreate() { void router.push({ name: 'teacher-course-create' }) }
+function openCourseCreate() { void router.push({ name: 'course-library', query: { ...route.query, create: 'course' } }) }
+function closeCourseCreate() {
+  const query = { ...route.query }
+  delete query.create
+  void router.replace({ name: 'course-library', query })
+}
 function openPreparation(session: ClassSession) { if (session.course_id) void router.push({ name: 'course-workspace', params: { courseId: session.course_id, mode: 'setup' }, query: { lesson: session.lesson_unit_id || '', returnTo: '/courses?view=calendar' } }) }
 function enterSession(session: ClassSession) {
   if (!session.course_id) return
