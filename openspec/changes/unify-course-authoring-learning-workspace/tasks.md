@@ -1,7 +1,7 @@
 ## 1. Contract and navigation
 
 - [x] 1.1 Freeze the calendar-file-space-formal-course information architecture, terminology and source-of-truth boundaries.
-- [x] 1.2 Make the teacher home a two-tab surface for the full teaching calendar and the full course library; remove the calendar-side course rail.
+- [x] 1.2 Keep the teacher home as a two-tab surface for the full teaching calendar and the full course library; retain a calendar-side course shortcut rail for search and direct entry.
 - [x] 1.3 Make course entries open the file space and add an explicit formal-course preview route.
 - [x] 1.4 Redirect legacy teacher routes without preserving the duplicate four-stage tab bar.
 

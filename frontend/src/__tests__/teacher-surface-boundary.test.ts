@@ -6,7 +6,7 @@ const sourceRoot = resolve(process.cwd(), 'src')
 const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
 
 describe('calendar and course file-space boundary', () => {
-  it('uses two primary home tabs and removes the duplicated calendar course rail', () => {
+  it('keeps both primary home tabs and the calendar course shortcut rail', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const app = source('App.vue')
     const home = source('views/TeacherTeachingCalendarView.vue')
@@ -18,8 +18,10 @@ describe('calendar and course file-space boundary', () => {
     expect(home).toContain("activeHomeTab === 'courses'")
     expect(home).toContain('<TeacherCourseLibraryView')
     expect(home).toContain('embedded />')
-    expect(home).not.toContain('class="course-rail"')
-    expect(home).not.toContain('class="course-search" role="search"')
+    expect(home).toContain('class="course-rail"')
+    expect(home).toContain('class="course-search" role="search"')
+    expect(home).toContain('v-for="(course, index) in filteredCourses"')
+    expect(home).toContain('@click="openCourse(course.course_id)"')
     expect(home).not.toContain('<TeacherCourseCalendarView')
     expect(home).toContain('class="calendar-surface"')
     expect(home).toContain('class="day-inspector"')
