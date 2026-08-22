@@ -318,14 +318,26 @@ async function createBaselineDraft(payload: { conversationId: string; messageId:
   }
 }
 
+async function resolveBaselineDocumentRevision() {
+  const currentRevision = String(courseStore.currentDocumentRevision || '').trim()
+  if (currentRevision) return currentRevision
+
+  const response = await http.get(`/api/courses/${courseId.value}/document`, { silentError: true })
+  const resolvedRevision = String(response.data?.document?.document_revision || '').trim()
+  if (resolvedRevision) courseStore.currentDocumentRevision = resolvedRevision
+  return resolvedRevision
+}
+
 async function saveCourseBaseline(payload: { subject: string; options: CourseGenerationOptions }) {
-  if (baselineSaveBusy.value || !courseStore.currentDocumentRevision) return
+  if (baselineSaveBusy.value) return
   baselineSaveBusy.value = true
   try {
+    const expectedDocumentRevision = await resolveBaselineDocumentRevision()
+    if (!expectedDocumentRevision) throw new Error('Missing canonical course revision')
     const response = await http.put(`/api/courses/${courseId.value}/generation-request`, {
       generation_request: { subject: payload.subject, ...payload.options },
       expected_revision: baselineEditorRevision.value,
-      expected_document_revision: courseStore.currentDocumentRevision,
+      expected_document_revision: expectedDocumentRevision,
       idempotency_key: `course-baseline:${crypto.randomUUID()}`,
       source: baselineEditorSource.value,
       draft_id: baselineDraftId.value,
