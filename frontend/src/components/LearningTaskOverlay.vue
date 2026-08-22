@@ -28,10 +28,23 @@
           <div>
             <strong :id="dialogTitleId">{{ t('questionBook.title', '题库本') }}</strong>
             <span :id="dialogDescriptionId">
-              {{ t('questionBook.modalSubtitle', '按当前课程范围随时出题与练习') }}
+              {{ t('questionBook.currentTarget', '当前目标 · {target}')
+                .replace('{target}', nodeLabel || t('courseWorkspace.allCourse', '全课程')) }}
             </span>
           </div>
         </div>
+
+        <nav class="question-book-dialog__views" :aria-label="t('courseWorkspace.practice.views', '练习视图')">
+          <button :class="{ active: practiceView === 'current' }" @click="setPracticeView('current')">
+            {{ t('courseWorkspace.practice.current', '当前练习') }}
+          </button>
+          <button :class="{ active: practiceView === 'history' }" @click="setPracticeView('history')">
+            {{ t('courseWorkspace.practice.history', '练习历史') }}
+          </button>
+          <button :class="{ active: practiceView === 'needs_review' }" @click="setPracticeView('needs_review')">
+            {{ t('courseWorkspace.practice.needsReview', '错题本') }}
+          </button>
+        </nav>
 
         <div class="question-book-dialog__actions">
           <span v-if="recordCount" class="question-book-dialog__count">
@@ -51,13 +64,16 @@
       </header>
 
       <PracticeWorkspace
+        ref="practiceWorkspace"
         class="question-book-dialog__workspace"
         :course-id="courseId"
         :node-id="nodeId"
         :node-label="nodeLabel"
+        hide-view-switch
         scope="node"
         @ask-teacher="emit('askTeacher', $event)"
         @graded="emit('graded')"
+        @view-change="practiceView = $event"
       />
     </section>
   </section>
@@ -85,8 +101,17 @@ const emit = defineEmits<{
 
 const modalRoot = ref<HTMLElement | null>(null)
 const closeButton = ref<HTMLButtonElement | null>(null)
+type PracticeView = 'current' | 'history' | 'needs_review'
+const practiceView = ref<PracticeView>('current')
+const practiceWorkspace = ref<InstanceType<typeof PracticeWorkspace> | null>(null)
 const dialogTitleId = `question-book-title-${Math.random().toString(36).slice(2, 9)}`
 const dialogDescriptionId = `question-book-description-${Math.random().toString(36).slice(2, 9)}`
+
+function setPracticeView(view: PracticeView) {
+  practiceView.value = view
+  if (view === 'current') practiceWorkspace.value?.selectView('current')
+  else void practiceWorkspace.value?.openHistory(view === 'history' ? 'all' : 'needs_review')
+}
 
 onMounted(async () => {
   await nextTick()
@@ -135,9 +160,9 @@ onMounted(async () => {
 .question-book-dialog__header {
   min-height: 64px;
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 20px;
   padding: 10px 14px 10px 18px;
   border-bottom: 1px solid var(--lz-border);
@@ -152,7 +177,44 @@ onMounted(async () => {
 }
 
 .question-book-dialog__identity { gap: 11px; }
-.question-book-dialog__actions { gap: 10px; }
+.question-book-dialog__actions { justify-self: end; gap: 10px; }
+
+.question-book-dialog__views {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid #e1e5ee;
+  border-radius: 10px;
+  background: #f5f6fa;
+}
+
+.question-book-dialog__views button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  color: #646c80;
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.question-book-dialog__views button:hover { color: #292f43; }
+
+.question-book-dialog__views button.active {
+  color: var(--lz-brand-strong);
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(35, 40, 67, .09);
+  font-weight: 700;
+}
+
+.question-book-dialog__views button:focus-visible {
+  outline: 2px solid var(--lz-brand);
+  outline-offset: 2px;
+}
 
 .question-book-dialog__mark {
   width: 36px;

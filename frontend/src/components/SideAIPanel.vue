@@ -2,6 +2,10 @@
   <div :class="panelClasses" class="ai-teacher-panel glass-panel-elevated">
     <section
       class="ai-teacher-surface"
+      :class="{
+        'has-conversation-rail': !props.blockTarget,
+        'conversation-rail-open': !props.blockTarget && conversationOpen,
+      }"
       role="dialog"
       aria-modal="true"
       :aria-label="assistantTitle"
@@ -13,16 +17,68 @@
             <strong>{{ assistantTitle }}</strong>
           </div>
         </div>
+
+        <div v-if="!props.blockTarget" class="ai-teacher-header-context">
+          <div class="context-line">
+            <BookOpenText :size="14" />
+            <strong>{{ contextLabel }}</strong>
+            <small
+              v-if="!isTeacherMode && modelEvidenceLabel"
+              class="context-evidence"
+              :title="t('courseWorkspace.aiTeacher.evidenceReady', '已加载学习证据')"
+            >{{ t('courseWorkspace.aiTeacher.evidenceSummary', '学习证据 · {level}').replace('{level}', modelEvidenceLabel) }}</small>
+          </div>
+          <div v-if="isTeacherMode && props.scopeFiles.length" class="file-scope-picker">
+            <button
+              type="button"
+              class="file-scope-picker__toggle"
+              :aria-expanded="fileScopeOpen"
+              data-testid="teacher-ai-file-scope"
+              @click="fileScopeOpen = !fileScopeOpen"
+            >
+              <Files :size="14" />
+              <span>{{ t('courseWorkspace.teacherAgent.fileScope', '文件范围') }}</span>
+              <strong>{{ fileScopeLabel }}</strong>
+              <ChevronDown :size="14" />
+            </button>
+            <div v-if="fileScopeOpen" class="file-scope-picker__menu">
+              <button type="button" :class="{ active: allScopeFilesSelected }" @click="selectAllScopeFiles">
+                <Check v-if="allScopeFilesSelected" :size="13" />
+                <span>{{ t('courseWorkspace.teacherAgent.allFiles', '全部文件') }}</span>
+              </button>
+              <label v-for="file in props.scopeFiles" :key="file.id">
+                <input
+                  type="checkbox"
+                  :checked="selectedScopeFileIds.has(file.id)"
+                  @change="toggleScopeFile(file.id)"
+                />
+                <span>{{ file.label }}</span>
+              </label>
+            </div>
+          </div>
+          <label v-if="!isTeacherMode" class="retrieval-setting">
+            <input
+              data-testid="ai-teacher-retrieval-toggle"
+              type="checkbox"
+              :checked="Boolean(aiStore.currentConversation?.retrieval_enabled)"
+              :disabled="aiStore.loadingConversations || aiStore.retrievalUpdating || !aiStore.currentConversation"
+              @change="toggleRetrieval"
+            />
+            <span>{{ t('courseWorkspace.aiTeacher.retrieval', '联网检索') }}</span>
+          </label>
+        </div>
+
         <div class="ai-teacher-header-actions">
           <button
             v-if="!props.blockTarget"
             type="button"
-            class="new-conversation-button"
-            :title="t('courseWorkspace.aiTeacher.newConversation', '新建对话')"
-            @click="createConversation"
+            class="conversation-rail-toggle"
+            :aria-expanded="conversationOpen"
+            :title="t('courseWorkspace.aiTeacher.manageConversations', '管理对话')"
+            @click="conversationOpen = !conversationOpen"
           >
-            <Plus :size="17" />
-            <span>{{ t('courseWorkspace.aiTeacher.newConversation', '新建对话') }}</span>
+            <History :size="16" />
+            <span>{{ t('courseWorkspace.aiTeacher.conversations', '对话') }}</span>
           </button>
           <button
             type="button"
@@ -35,104 +91,62 @@
         </div>
       </header>
 
-      <div v-if="!props.blockTarget" class="conversation-shell" :class="{ open: conversationOpen }">
-        <button
-          type="button"
-          class="conversation-toggle"
-          :aria-expanded="conversationOpen"
-          :title="t('courseWorkspace.aiTeacher.manageConversations', '管理对话')"
-          @click="conversationOpen = !conversationOpen"
-        >
-          <History :size="15" />
-          <span>
-            <small>{{ t('courseWorkspace.aiTeacher.conversation', '当前对话') }}</small>
-            <strong>{{ currentConversationTitle }}</strong>
-          </span>
-          <ChevronDown :size="15" />
-        </button>
-
-        <Transition name="conversation-reveal">
-          <div v-if="conversationOpen" class="conversation-drawer">
-            <label class="conversation-select-wrap">
-              <span class="sr-only">{{ t('courseWorkspace.aiTeacher.conversation', '对话') }}</span>
-              <select v-model="selectedConversationId" class="conversation-select" @change="switchConversation">
-                <option
-                  v-for="conversation in aiStore.conversations"
-                  :key="conversation.conversation_id"
-                  :value="conversation.conversation_id"
-                >
-                  {{ localizedConversationTitle(conversation.title) }}
-                </option>
-              </select>
-              <ChevronDown :size="14" />
-            </label>
-            <button
-              type="button"
-              class="icon-button danger"
-              :disabled="!aiStore.currentConversationId"
-              :title="t('courseWorkspace.aiTeacher.deleteConversation', '删除当前对话')"
-              @click="deleteConversation"
-            >
-              <Trash2 :size="15" />
-            </button>
+      <aside v-if="!props.blockTarget" class="conversation-shell" :class="{ open: conversationOpen }">
+        <header class="conversation-rail-heading">
+          <div>
+            <History :size="15" />
+            <strong>{{ t('courseWorkspace.aiTeacher.conversations', '对话') }}</strong>
           </div>
-        </Transition>
-      </div>
-
-      <div class="context-panel">
-        <div class="context-line">
-          <BookOpenText :size="14" />
-          <span>{{ t('courseWorkspace.aiTeacher.context', '当前上下文') }}</span>
-          <strong>{{ contextLabel }}</strong>
-          <small
-            v-if="!isTeacherMode && modelEvidenceLabel"
-            class="context-evidence"
-            :title="t('courseWorkspace.aiTeacher.evidenceReady', '已加载学习证据')"
-          >{{ modelEvidenceLabel }}</small>
-        </div>
-        <div v-if="isTeacherMode && props.scopeFiles.length" class="file-scope-picker">
           <button
             type="button"
-            class="file-scope-picker__toggle"
-            :aria-expanded="fileScopeOpen"
-            data-testid="teacher-ai-file-scope"
-            @click="fileScopeOpen = !fileScopeOpen"
+            :title="t('courseWorkspace.aiTeacher.newConversation', '新建对话')"
+            @click="createConversation"
           >
-            <Files :size="14" />
-            <span>{{ t('courseWorkspace.teacherAgent.fileScope', '文件范围') }}</span>
-            <strong>{{ fileScopeLabel }}</strong>
-            <ChevronDown :size="14" />
+            <Plus :size="16" />
           </button>
-          <div v-if="fileScopeOpen" class="file-scope-picker__menu">
-            <button type="button" :class="{ active: allScopeFilesSelected }" @click="selectAllScopeFiles">
-              <Check v-if="allScopeFilesSelected" :size="13" />
-              <span>{{ t('courseWorkspace.teacherAgent.allFiles', '全部文件') }}</span>
-            </button>
-            <label v-for="file in props.scopeFiles" :key="file.id">
-              <input
-                type="checkbox"
-                :checked="selectedScopeFileIds.has(file.id)"
-                @change="toggleScopeFile(file.id)"
-              />
-              <span>{{ file.label }}</span>
-            </label>
-          </div>
-        </div>
-        <label v-if="!props.blockTarget && !isTeacherMode" class="retrieval-setting">
-          <span>
-            <strong>{{ t('courseWorkspace.aiTeacher.retrieval', '联网检索') }}</strong>
-            <small>{{ aiStore.currentConversation?.retrieval_enabled
-              ? t('courseWorkspace.aiTeacher.retrievalOn', '当前会话已开启')
-              : t('courseWorkspace.aiTeacher.retrievalOff', '当前会话已关闭') }}</small>
-          </span>
+        </header>
+        <label class="conversation-search">
+          <Search :size="14" />
+          <span class="sr-only">{{ t('courseWorkspace.aiTeacher.searchConversations', '搜索对话') }}</span>
           <input
-            data-testid="ai-teacher-retrieval-toggle"
-            type="checkbox"
-            :checked="Boolean(aiStore.currentConversation?.retrieval_enabled)"
-            :disabled="aiStore.loadingConversations || aiStore.retrievalUpdating || !aiStore.currentConversation"
-            @change="toggleRetrieval"
+            v-model="conversationQuery"
+            type="search"
+            :placeholder="t('courseWorkspace.aiTeacher.searchConversations', '搜索对话')"
           />
         </label>
+        <div class="conversation-list">
+          <div
+            v-for="conversation in filteredConversations"
+            :key="conversation.conversation_id"
+            class="conversation-row"
+            :class="{ active: aiStore.currentConversationId === conversation.conversation_id }"
+          >
+            <button type="button" class="conversation-row__select" @click="switchConversation(conversation.conversation_id)">
+              <MessageSquareText :size="14" />
+              <span>
+                <strong>{{ localizedConversationTitle(conversation.title) }}</strong>
+                <small>{{ conversationTime(conversation.updated_at || conversation.created_at) }}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="conversation-row__delete"
+              :title="t('courseWorkspace.aiTeacher.deleteConversation', '删除当前对话')"
+              :aria-label="`${t('courseWorkspace.aiTeacher.deleteConversation', '删除当前对话')}：${localizedConversationTitle(conversation.title)}`"
+              @click.stop="deleteConversation(conversation.conversation_id)"
+            >
+              <Trash2 :size="14" />
+            </button>
+          </div>
+          <div v-if="!filteredConversations.length" class="conversation-list-empty">
+            {{ t('courseWorkspace.aiTeacher.noMatchingConversations', '没有找到相关对话') }}
+          </div>
+        </div>
+      </aside>
+
+      <div class="assistant-main">
+
+      <div v-if="props.blockTarget || quoteVisible" class="context-panel">
         <div v-if="props.blockTarget" class="block-target-line">
           <WandSparkles :size="14" />
           <span>{{ t('courseWorkspace.blockRegeneration.target', '改进正文块') }}</span>
@@ -519,6 +533,13 @@
         <div v-else-if="!aiStore.messages.length" class="ai-teacher-empty">
           <span class="empty-mark"><MessageSquareText :size="22" /></span>
           <strong>{{ assistantEmptyTitle }}</strong>
+          <p>{{ assistantEmptyDescription }}</p>
+          <div class="quick-actions">
+            <button v-for="item in quickPrompts" :key="item.prompt" type="button" @click="sendPrompt(item.prompt)">
+              <component :is="item.icon" :size="14" />
+              {{ item.label }}
+            </button>
+          </div>
         </div>
 
         <article
@@ -627,13 +648,6 @@
       </main>
 
       <footer v-if="!props.blockTarget" class="ai-teacher-composer">
-        <div v-if="!props.blockTarget && !aiStore.messages.length && !aiStore.loadingConversations" class="quick-actions">
-          <button v-for="item in quickPrompts" :key="item.prompt" type="button" @click="sendPrompt(item.prompt)">
-            <component :is="item.icon" :size="14" />
-            {{ item.label }}
-          </button>
-        </div>
-
         <div v-if="aiStore.loading" class="composer-status">
           <LoaderCircle class="spin" :size="13" />
           <span>{{ t('courseWorkspace.aiTeacher.generating', '正在生成回答') }}</span>
@@ -667,6 +681,7 @@
           </button>
         </div>
       </footer>
+      </div>
     </section>
   </div>
 </template>
@@ -691,6 +706,7 @@ import {
   Plus,
   Quote,
   RotateCcw,
+  Search,
   Send,
   Sparkles,
   Square,
@@ -715,7 +731,7 @@ import {
 } from '../stores/courseEvolution'
 import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
-import { t } from '../shared/i18n'
+import { activeLocale, t } from '../shared/i18n'
 import type { CourseBlockEditTarget } from '../stores/types'
 import type {
   ChangeProposal,
@@ -760,13 +776,13 @@ const noteStore = useNoteStore()
 const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
 const quoteVisible = ref(Boolean(props.quoteText))
-const conversationOpen = ref(false)
+const conversationOpen = ref(window.innerWidth > 760)
+const conversationQuery = ref('')
 const fileScopeOpen = ref(false)
 const selectedScopeFileIds = reactive(new Set<string>())
 const isOnline = ref(navigator.onLine)
 const messageList = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
-const selectedConversationId = ref('')
 const personalizationDirection = ref<PersonalizationDirection>('simplify')
 const personalizationScope = ref<CourseAdjustmentScope>('current_block')
 const personalizationFeedback = ref('')
@@ -797,6 +813,9 @@ const assistantCloseLabel = computed(() => isTeacherMode.value
 const assistantEmptyTitle = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.emptyTitle', '从教案与 PPT 开始协同备课')
   : t('courseWorkspace.aiTeacher.emptyTitle', '从当前学习现场开始提问'))
+const assistantEmptyDescription = computed(() => isTeacherMode.value
+  ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前课程真源分析怎么教，正式改动会先说明影响。')
+  : t('courseWorkspace.aiTeacher.emptyBody', '可以解释概念、分析作答，也可以检查你是否真正理解。'))
 const panelClasses = computed(() => 'is-fullscreen')
 const currentNode = computed(() => (
   courseStore.nodes.find(node => node.node_id === (props.quoteNodeId || courseStore.currentNode?.node_id))
@@ -829,9 +848,12 @@ function localizedConversationTitle(title: string | undefined) {
   }
   return normalized
 }
-const currentConversationTitle = computed(() => localizedConversationTitle(
-  aiStore.currentConversation?.title,
-))
+const filteredConversations = computed(() => {
+  const query = conversationQuery.value.trim().toLocaleLowerCase()
+  return aiStore.conversations.filter(conversation => (
+    !query || localizedConversationTitle(conversation.title).toLocaleLowerCase().includes(query)
+  ))
+})
 const blockTargetTitle = computed(() => String(props.blockTarget?.block.payload.title || props.blockTarget?.nodeName || ''))
 const blockOriginalContent = computed(() => String(props.blockTarget?.block.payload.markdown || props.blockTarget?.block.payload.text || ''))
 const personalizationPlan = computed<CourseEvolutionPlan | null>(() => (
@@ -945,6 +967,11 @@ const quickPrompts = computed(() => isTeacherMode.value
         label: t('courseWorkspace.teacherAgent.quickTeach', '给出教学建议'),
         prompt: t('courseWorkspace.teacherAgent.quickTeachPrompt', '请围绕当前课程说明怎么教，并给出可执行的课堂组织建议。'),
       },
+      {
+        icon: LocateFixed,
+        label: t('courseWorkspace.teacherAgent.quickRisk', '检查教学风险'),
+        prompt: t('courseWorkspace.teacherAgent.quickRiskPrompt', '请检查当前课程在目标、先备知识、课堂活动和理解检查上的教学风险，并按优先级给出改进建议。'),
+      },
     ]
   : [
       {
@@ -956,6 +983,11 @@ const quickPrompts = computed(() => isTeacherMode.value
         icon: Lightbulb,
         label: t('courseWorkspace.aiTeacher.quickExample', '举一个例子'),
         prompt: t('courseWorkspace.aiTeacher.quickExamplePrompt', '请用一个具体例子解释当前内容。'),
+      },
+      {
+        icon: LocateFixed,
+        label: t('courseWorkspace.aiTeacher.quickCheck', '检查我是否理解'),
+        prompt: t('courseWorkspace.aiTeacher.quickCheckPrompt', '请先用一个小问题检查我是否真正理解当前内容，不要直接给答案。'),
       },
     ])
 
@@ -999,7 +1031,6 @@ async function initialize() {
   if (!courseStore.currentCourseId) return
   if (props.blockTarget) return
   await aiStore.load(courseStore.currentCourseId, currentNode.value?.node_id)
-  selectedConversationId.value = aiStore.currentConversationId
   if (props.prefill) input.value = props.prefill
   await nextTick()
   resizeComposer()
@@ -1529,22 +1560,30 @@ async function saveAnswerAsNote(message: AIMessage) {
 }
 
 async function createConversation() {
-  const conversation = await aiStore.createConversation()
-  selectedConversationId.value = conversation?.conversation_id || ''
-  conversationOpen.value = false
+  await aiStore.createConversation()
+  conversationQuery.value = ''
+  await nextTick()
+  inputElement.value?.focus()
 }
 
-async function switchConversation() {
-  if (selectedConversationId.value) await aiStore.selectConversation(selectedConversationId.value)
-  conversationOpen.value = false
+async function switchConversation(conversationId: string) {
+  if (conversationId) await aiStore.selectConversation(conversationId)
   scrollToBottom()
 }
 
-async function deleteConversation() {
-  if (!aiStore.currentConversationId) return
-  await aiStore.deleteConversation(aiStore.currentConversationId)
-  selectedConversationId.value = aiStore.currentConversationId
-  conversationOpen.value = false
+async function deleteConversation(conversationId: string) {
+  if (!conversationId) return
+  await aiStore.deleteConversation(conversationId)
+}
+
+function conversationTime(value?: string) {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(activeLocale.value === 'en' ? 'en-US' : 'zh-CN', {
+    month: 'short',
+    day: 'numeric',
+  }).format(date)
 }
 
 async function toggleRetrieval(event: Event) {
@@ -1645,7 +1684,6 @@ watch(() => `${props.blockTarget?.block.block_id || ''}:${props.blockTarget?.blo
   resetPersonalization()
   void restorePersonalizationPlan()
 }, { immediate: true })
-watch(() => aiStore.currentConversationId, value => { selectedConversationId.value = value })
 watch(() => aiStore.messages.length, scrollToBottom)
 watch(() => aiStore.loading, scrollToBottom)
 watch(() => courseStore.currentCourseId, () => {
@@ -1668,53 +1706,66 @@ onUnmounted(() => {
 <style scoped>
 .ai-teacher-panel { min-width: 0; }
 .ai-teacher-panel.is-fullscreen { position: fixed; inset: 0; z-index: 620; width: 100vw; height: 100dvh; overflow: hidden; color: var(--lz-text); background: #fff; }
-.ai-teacher-surface { position: relative; width: 100%; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: linear-gradient(180deg,#fff 0%,#fbfcff 100%); }
+.ai-teacher-surface { position: relative; width: 100%; height: 100%; min-width: 0; display: grid; grid-template-columns:0 minmax(0,1fr); grid-template-rows:64px minmax(0,1fr); overflow: hidden; background: linear-gradient(180deg,#fff 0%,#fbfcff 100%); transition:grid-template-columns .18s ease; }
+.ai-teacher-surface.conversation-rail-open { grid-template-columns:248px minmax(0,1fr); }
+.assistant-main { grid-column:2; grid-row:2; min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
+.ai-teacher-surface:not(.conversation-rail-open) .assistant-main { grid-column:1 / -1; }
 
-.ai-teacher-header { min-height: 64px; flex: 0 0 64px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 max(18px,calc((100vw - 1120px)/2)); border-bottom:1px solid var(--lz-border); background:#fff; }
+.ai-teacher-header { grid-column:1 / -1; grid-row:1; min-height:64px; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:18px; padding:0 18px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .ai-teacher-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
 .ai-teacher-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.4); border-radius: 11px; color: #fff; background: linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow: 0 7px 16px rgba(99,102,241,.23), inset 0 1px 0 rgba(255,255,255,.25); }
 .ai-teacher-heading-copy { min-width: 0; display: flex; flex-direction: column; }
 .ai-teacher-heading-copy strong { color: #312e81; font-size: 14px; line-height: 1.2; }
+.ai-teacher-header-context { min-width:0; max-width:680px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-muted); }
+.ai-teacher-header-actions { justify-self:end; }
 .ai-teacher-header-actions,.proposal-actions { display: flex; align-items: center; gap: 5px; }
-.new-conversation-button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:1px solid var(--lz-brand-border); border-radius:9px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-size:11px; font-weight:700; cursor:pointer; }
-.new-conversation-button:hover { border-color:var(--lz-brand); background:#eef2ff; }
+.conversation-rail-toggle { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; font-size:11px; font-weight:700; cursor:pointer; }
+.conversation-rail-toggle:hover,.conversation-rail-toggle[aria-expanded="true"] { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .icon-button { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid transparent; border-radius: 9px; color: var(--lz-text-muted); background: transparent; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .icon-button:hover:not(:disabled) { transform: translateY(-1px); border-color: #e0e7ff; color: var(--lz-brand-strong); background: #f5f3ff; }
 .icon-button.danger:hover:not(:disabled) { border-color: #fecaca; color: var(--lz-danger); background: var(--lz-danger-soft); }
 .icon-button:disabled { opacity: .4; cursor: not-allowed; }
 
-.conversation-shell { width:min(960px,calc(100% - 32px)); flex: 0 0 auto; margin: 12px auto 8px; border-radius: 11px; background: rgba(248,250,252,.7); transition: background .16s ease, box-shadow .16s ease; }
-.conversation-shell.open { background: #f8fafc; box-shadow: inset 0 0 0 1px rgba(226,232,240,.8); }
-.conversation-toggle { width: 100%; min-height: 42px; display: grid; grid-template-columns: 17px minmax(0,1fr) 16px; align-items: center; gap: 9px; padding: 6px 10px; border: 0; border-radius: 11px; color: var(--lz-text-muted); background: transparent; text-align: left; cursor: pointer; }
-.conversation-toggle:hover { color: var(--lz-brand-strong); background: rgba(238,242,255,.66); }
-.conversation-toggle > span { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
-.conversation-toggle small { flex: 0 0 auto; color: inherit; font-size: 9px; }
-.conversation-toggle strong { min-width: 0; overflow: hidden; color: var(--lz-text-secondary); font-size: 11px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-toggle > svg:last-child { transition: transform .18s ease; }
-.conversation-shell.open .conversation-toggle > svg:last-child { transform: rotate(180deg); }
-.conversation-drawer { display: flex; align-items: center; gap: 6px; padding: 0 7px 8px 10px; }
-.conversation-select-wrap { position: relative; min-width: 0; flex: 1; display: flex; align-items: center; }
-.conversation-select { width: 100%; height: 34px; appearance: none; border: 1px solid rgba(203,213,225,.8); border-radius: 8px; padding: 0 30px 0 9px; color: var(--lz-text-secondary); background: #fff; font: inherit; font-size: 11px; outline: none; }
-.conversation-select:focus { border-color: var(--lz-brand); box-shadow: 0 0 0 3px rgba(99,102,241,.08); }
-.conversation-select-wrap svg { position: absolute; right: 9px; color: var(--lz-text-muted); pointer-events: none; }
+.conversation-shell { grid-column:1; grid-row:2; min-width:0; min-height:0; display:none; grid-template-rows:auto auto minmax(0,1fr); gap:10px; padding:14px 10px; overflow:hidden; border-right:1px solid var(--lz-border); background:#f7f8fb; }
+.conversation-shell.open { display:grid; }
+.conversation-rail-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; min-height:34px; padding:0 4px; }
+.conversation-rail-heading>div { min-width:0; display:flex; align-items:center; gap:7px; color:var(--lz-text-secondary); }
+.conversation-rail-heading strong { font-size:12px; }
+.conversation-rail-heading>button { width:30px; height:30px; display:grid; place-items:center; border:1px solid var(--lz-brand-border); border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); cursor:pointer; }
+.conversation-rail-heading>button:hover { border-color:var(--lz-brand); background:#eef2ff; }
+.conversation-search { height:36px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:7px; padding:0 9px; border:1px solid transparent; border-radius:9px; color:var(--lz-text-muted); background:#fff; }
+.conversation-search:focus-within { border-color:var(--lz-brand-border); box-shadow:0 0 0 3px rgba(99,102,241,.07); }
+.conversation-search input { min-width:0; width:100%; border:0; outline:0; color:var(--lz-text-secondary); background:transparent; font:inherit; font-size:11px; }
+.conversation-search input::-webkit-search-cancel-button { display:none; }
+.conversation-list { min-height:0; display:grid; align-content:start; gap:3px; overflow:auto; }
+.conversation-row { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 30px; align-items:center; border:1px solid transparent; border-radius:9px; }
+.conversation-row:hover { background:#fff; }
+.conversation-row.active { border-color:rgba(99,102,241,.2); background:#eef2ff; }
+.conversation-row__select { min-width:0; min-height:48px; display:grid; grid-template-columns:16px minmax(0,1fr); align-items:center; gap:7px; padding:7px 4px 7px 9px; border:0; color:var(--lz-text-muted); background:transparent; text-align:left; cursor:pointer; }
+.conversation-row__select>span { min-width:0; display:grid; gap:3px; }
+.conversation-row__select strong,.conversation-row__select small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.conversation-row__select strong { color:var(--lz-text-secondary); font-size:11px; font-weight:650; }
+.conversation-row__select small { color:var(--lz-text-muted); font-size:9px; }
+.conversation-row.active .conversation-row__select,.conversation-row.active .conversation-row__select strong { color:var(--lz-brand-strong); }
+.conversation-row__delete { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:7px; color:var(--lz-text-muted); background:transparent; opacity:0; cursor:pointer; }
+.conversation-row:hover .conversation-row__delete,.conversation-row:focus-within .conversation-row__delete { opacity:1; }
+.conversation-row__delete:hover { color:var(--lz-danger); background:var(--lz-danger-soft); }
+.conversation-list-empty { padding:28px 10px; color:var(--lz-text-muted); font-size:11px; line-height:1.5; text-align:center; }
 .conversation-reveal-enter-active,.conversation-reveal-leave-active { transition: opacity .16s ease, transform .16s ease; }
 .conversation-reveal-enter-from,.conversation-reveal-leave-to { opacity: 0; transform: translateY(-4px); }
 
-.context-panel { width:min(960px,calc(100% - 32px)); flex: 0 0 auto; margin: 0 auto 10px; padding: 10px 11px; border: 1px solid rgba(165,180,252,.58); border-radius: 10px; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
-.retrieval-setting { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(129,140,248,.2); cursor:pointer; }
-.retrieval-setting > span { min-width:0; display:flex; flex-direction:column; gap:1px; }
-.retrieval-setting strong { color:#3730a3; font-size:11px; }
-.retrieval-setting small { color:var(--lz-text-muted); font-size:9px; }
-.retrieval-setting input { width:16px; height:16px; accent-color:#4f46e5; }
-.context-line { min-width: 0; display: grid; grid-template-columns: 15px auto minmax(0,1fr) auto; align-items: center; gap: 6px; color: var(--lz-brand); }
-.context-line span { color: var(--lz-text-muted); font-size: 9px; }
-.context-line strong { min-width: 0; overflow: hidden; color: var(--lz-text-secondary); font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.context-evidence { padding: 2px 5px; border-radius: 5px; color: #6d28d9; background: rgba(255,255,255,.76); font-size: 8px; font-weight: 700; white-space: nowrap; }
-.file-scope-picker { position:relative; margin-top:8px; padding-top:8px; border-top:1px solid rgba(129,140,248,.2); }
-.file-scope-picker__toggle { width:100%; min-height:32px; display:grid; grid-template-columns:15px auto minmax(0,1fr) 14px; align-items:center; gap:7px; padding:0; border:0; color:var(--lz-brand); background:transparent; text-align:left; cursor:pointer; }
+.context-panel { width:min(960px,calc(100% - 32px)); flex: 0 0 auto; margin: 10px auto; padding: 10px 11px; border: 1px solid rgba(165,180,252,.58); border-radius: 10px; background: linear-gradient(100deg,rgba(238,242,255,.84),rgba(250,250,255,.62)); }
+.retrieval-setting { min-height:30px; display:inline-flex; align-items:center; gap:6px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-secondary); background:#fff; font-size:10px; font-weight:700; white-space:nowrap; cursor:pointer; }
+.retrieval-setting:has(input:checked) { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.retrieval-setting input { width:14px; height:14px; margin:0; accent-color:#4f46e5; }
+.context-line { min-width:0; display:flex; align-items:center; gap:6px; color:var(--lz-brand); }
+.context-line strong { max-width:300px; overflow:hidden; color:var(--lz-text-secondary); font-size:10px; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.context-evidence { padding:2px 6px; border-radius:999px; color:#6d28d9; background:#f5f3ff; font-size:8px; font-weight:700; white-space:nowrap; }
+.file-scope-picker { position:relative; }
+.file-scope-picker__toggle { min-height:30px; display:grid; grid-template-columns:15px auto minmax(0,1fr) 14px; align-items:center; gap:6px; padding:0 8px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-brand); background:#fff; text-align:left; cursor:pointer; }
 .file-scope-picker__toggle span { color:var(--lz-text-muted); font-size:9px; }
 .file-scope-picker__toggle strong { overflow:hidden; color:var(--lz-text-secondary); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
-.file-scope-picker__menu { max-height:220px; display:grid; gap:3px; overflow:auto; margin-top:6px; padding:6px; border:1px solid var(--lz-border); border-radius:9px; background:#fff; box-shadow:0 10px 24px rgba(15,23,42,.08); }
+.file-scope-picker__menu { position:absolute; z-index:20; top:calc(100% + 7px); left:50%; width:260px; max-height:220px; display:grid; gap:3px; overflow:auto; padding:6px; border:1px solid var(--lz-border); border-radius:9px; background:#fff; box-shadow:0 14px 32px rgba(15,23,42,.14); transform:translateX(-50%); }
 .file-scope-picker__menu button,.file-scope-picker__menu label { min-height:32px; display:flex; align-items:center; gap:8px; padding:0 8px; border:0; border-radius:6px; color:var(--lz-text-secondary); background:transparent; font-size:10px; text-align:left; cursor:pointer; }
 .file-scope-picker__menu button.active,.file-scope-picker__menu label:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .file-scope-picker__menu input { accent-color:var(--lz-brand); }
@@ -1824,7 +1875,7 @@ onUnmounted(() => {
 .ai-teacher-empty { width:min(900px,100%); min-height: 100%; margin:0 auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 9px; padding: 30px 15px; color: var(--lz-text-muted); text-align: center; }
 .empty-mark { width: 44px; height: 44px; display: grid; place-items: center; border: 1px solid #e0e7ff; border-radius: 14px; color: var(--lz-brand); background: linear-gradient(145deg,#fff,#eef2ff); box-shadow: 0 8px 22px rgba(99,102,241,.1); }
 .ai-teacher-empty strong { color: var(--lz-text-strong); font-size: 14px; }
-.ai-teacher-empty p { max-width: 280px; margin: 0; color: var(--lz-text-muted); font-size: 11px; line-height: 1.6; }
+.ai-teacher-empty p { max-width: 440px; margin: 0; color: var(--lz-text-muted); font-size: 11px; line-height: 1.6; }
 .ai-message { width:min(900px,100%); margin:0 auto 24px; }
 .ai-message.is-user { display: flex; justify-content: flex-end; }
 .ai-message:not(.is-user) { display: grid; grid-template-columns: 28px minmax(0,1fr); align-items: start; gap: 11px; }
@@ -1899,7 +1950,7 @@ onUnmounted(() => {
 .action-receipt button { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; border: 0; color: inherit; background: transparent; font-size: 9px; font-weight: 700; cursor: pointer; }
 
 .ai-teacher-composer { flex: 0 0 auto; padding: 8px 12px calc(11px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(180deg,rgba(255,255,255,.88),#fff 24%); box-shadow: 0 -10px 24px rgba(79,70,229,.035); }
-.quick-actions { width:min(900px,100%); display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; margin:0 auto 8px; }
+.quick-actions { width:min(620px,100%); display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; margin:8px auto 0; }
 .quick-actions button { min-width: 0; min-height: 37px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 5px 6px; border: 1px solid #e0e7ff; border-radius: 9px; color: var(--lz-text-secondary); background: rgba(255,255,255,.92); font-size: 9px; line-height: 1.25; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
 .quick-actions button:hover { transform: translateY(-1px); border-color: #c4b5fd; color: var(--lz-brand-strong); background: #f5f3ff; }
 .composer-status,.offline-notice { width:min(900px,100%); display: flex; align-items: center; gap: 6px; margin:0 auto 7px; font-size: 9px; }
@@ -1920,9 +1971,16 @@ onUnmounted(() => {
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes thinking-pulse { 0%,80%,100% { transform: translateY(0); opacity: .38; } 40% { transform: translateY(-4px); opacity: 1; } }
 
+@media (max-width: 760px) {
+  .ai-teacher-surface,.ai-teacher-surface.conversation-rail-open { grid-template-columns:minmax(0,1fr); grid-template-rows:58px minmax(0,1fr); }
+  .ai-teacher-header { min-height:58px; padding-inline:12px; }
+  .assistant-main,.ai-teacher-surface.conversation-rail-open .assistant-main { grid-column:1; }
+  .conversation-shell { position:fixed; z-index:3; top:58px; bottom:0; left:0; width:min(300px,86vw); display:grid; border-right:1px solid var(--lz-border); box-shadow:18px 0 46px rgba(15,23,42,.18); transform:translateX(-105%); transition:transform .18s ease; }
+  .conversation-shell.open { transform:translateX(0); }
+}
+
 @media (max-width: 520px) {
-  .ai-teacher-header { min-height: 58px; flex-basis: 58px; padding-inline:12px; }
-  .conversation-shell,.context-panel,.change-proposals-panel,.representation-sync-receipt { width:calc(100% - 20px); }
+  .context-panel,.change-proposals-panel,.representation-sync-receipt { width:calc(100% - 20px); }
   .ai-teacher-messages { padding: 16px 12px 24px; }
   .ai-teacher-composer { padding-left: 10px; padding-right: 10px; }
   .quick-actions { gap: 5px; }

@@ -104,19 +104,21 @@ describe('SideAIPanel', () => {
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
   })
 
-  it('默认收起会话管理，并把章节与选区组织成上下文', async () => {
+  it('默认展示对话历史，并把章节与选区组织成上下文', async () => {
     const wrapper = mountPanel([], '线性无关意味着不存在非零系数组合。')
 
-    expect(wrapper.find('.conversation-drawer').exists()).toBe(false)
+    expect(wrapper.find('.conversation-shell').classes()).toContain('open')
+    expect(wrapper.get('.conversation-row').text()).toContain('线性空间答疑')
+    expect(wrapper.get('.conversation-search input').attributes('placeholder')).toBe('搜索对话')
     expect(wrapper.find('.context-line').text()).toContain('向量空间与线性相关')
-    expect(wrapper.find('.context-evidence').text()).toBe('有限证据')
+    expect(wrapper.find('.context-evidence').text()).toContain('有限证据')
     expect(wrapper.find('.context-quote').text()).toContain('线性无关')
-    expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
+    expect(wrapper.get('.ai-teacher-header-context').text()).toContain('联网检索')
     expect(wrapper.text()).not.toContain('解释下一步')
 
-    await wrapper.get('.conversation-toggle').trigger('click')
-    expect(wrapper.find('.conversation-drawer').exists()).toBe(true)
-    expect((wrapper.get('.conversation-select').element as HTMLSelectElement).value).toBe('conversation-1')
+    await wrapper.get('.conversation-rail-toggle').trigger('click')
+    expect(wrapper.find('.conversation-shell').classes()).not.toContain('open')
   })
 
   it('在课程文件空间以教师视角分析怎么教', async () => {
@@ -129,7 +131,8 @@ describe('SideAIPanel', () => {
     expect(wrapper.get('.ai-teacher-empty').text()).toContain('备课问答')
     expect(wrapper.find('.retrieval-setting').exists()).toBe(false)
     expect(wrapper.find('.context-evidence').exists()).toBe(false)
-    expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
+    expect(wrapper.get('.ai-teacher-header-context').text()).toContain('向量空间与线性相关')
 
     await wrapper.findAll('.quick-actions button')[0]!.trigger('click')
     await flushPromises()
@@ -337,7 +340,7 @@ describe('SideAIPanel', () => {
     expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-fullscreen')
     expect(wrapper.find('.ai-teacher-backdrop').exists()).toBe(false)
     expect(wrapper.find('.ai-teacher-surface').exists()).toBe(true)
-    expect(wrapper.findAll('.quick-actions button')).toHaveLength(2)
+    expect(wrapper.findAll('.quick-actions button')).toHaveLength(3)
   })
 
   it('当前内容通过统一课程方案生成、审阅并应用', async () => {

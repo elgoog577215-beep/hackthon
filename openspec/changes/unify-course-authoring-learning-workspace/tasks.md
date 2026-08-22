@@ -20,6 +20,9 @@
 - [x] 3.2 Add a teacher-agent entry in the course file space with teacher-specific prompts and actions.
 - [x] 3.3 Prevent teacher mode from exposing learner evidence, learner-note actions or web retrieval.
 - [x] 3.4 Keep semantic changes behind impact preview, teacher confirmation and affected-unit rebuild.
+- [x] 3.5 Reuse the existing centered top bar for file/category and question-book view switches instead of adding dedicated rows.
+- [x] 3.6 Upgrade the existing assistant context and prompts with teacher file-scope discipline and intent-adaptive learner/teacher response strategies, without adding an endpoint.
+- [x] 3.7 Replace the category production table with a master-detail browser that expands lesson-scoped assets in the left navigation and renders the selected content on the right.
 
 ## 4. Same-source authoring
 

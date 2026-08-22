@@ -22,12 +22,6 @@
             <h2 :id="titleId">{{ workbenchTitle }}</h2>
           </div>
 
-          <div class="course-workbench__summary">
-            <ListChecks :size="16" />
-            <span>{{ taskTabLabel }}</span>
-            <small v-if="actionRequiredCount">{{ actionRequiredCount }}</small>
-          </div>
-
           <button type="button" class="course-workbench__close" :title="t('common.cancel', '关闭')" @click="close">
             <X :size="19" />
           </button>
@@ -49,7 +43,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
-import { ListChecks, X } from 'lucide-vue-next'
+import { X } from 'lucide-vue-next'
 import CourseTaskCenter from '@/components/CourseTaskCenter.vue'
 import { useGenerationStore } from '@/stores/generation'
 import { activeLocale, t } from '@/shared/i18n'
@@ -71,16 +65,6 @@ const previousFocus = ref<HTMLElement | null>(null)
 
 const isEnglish = computed(() => activeLocale.value === 'en')
 const workbenchTitle = computed(() => isEnglish.value ? 'Course tasks' : '课程任务')
-const taskTabLabel = computed(() => isEnglish.value ? 'Generation tasks' : '生成任务')
-const actionRequiredCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => (
-  (!props.courseId || task.courseId === props.courseId)
-  && (
-  ['waiting_for_review', 'conflict', 'error', 'paused'].includes(task.status)
-  || (task.status === 'completed_with_warnings'
-    && task.publicationAllowed !== true
-    && task.recovery?.state !== 'completed')
-  )
-)).length)
 const hasVisibleTasks = computed(() => {
   const globalTasks = generationStore.globalTasks || []
   const localTasks = Array.from(generationStore.tasks.values())
@@ -133,11 +117,9 @@ function handleDialogKeydown(event: KeyboardEvent) {
 .course-workbench-backdrop { position:absolute; inset:0; width:100%; height:100%; border:0; background:rgba(30,41,59,.38); cursor:default; }
 .course-workbench { position:relative; width:min(1320px,calc(100vw - 40px)); height:min(860px,calc(100vh - 40px)); display:grid; grid-template-rows:64px minmax(0,1fr); overflow:hidden; border:1px solid var(--lz-border); border-radius:12px; color:var(--lz-text); background:#fff; box-shadow:var(--lz-shadow-overlay); outline:none; }
 .course-workbench--compact { height:min(360px,calc(100vh - 40px)); }
-.course-workbench__header { display:grid; grid-template-columns:minmax(220px,1fr) auto minmax(44px,1fr); align-items:center; gap:16px; padding:0 12px 0 20px; border-bottom:1px solid var(--lz-border); background:#fff; }
+.course-workbench__header { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:16px; padding:0 12px 0 20px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .course-workbench__identity { min-width:0; display:flex; align-items:center; }
 .course-workbench__identity h2 { margin:0; color:var(--lz-text-strong); font-size:18px; }
-.course-workbench__summary { display:inline-flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:12px; font-weight:700; }
-.course-workbench__summary small { min-width:20px; height:20px; display:grid; place-items:center; padding:0 6px; border-radius:10px; color:#fff; background:var(--lz-warning); font-size:12px; }
 .course-workbench__close { width:38px; height:38px; display:grid; justify-self:end; place-items:center; border:0; border-radius:9px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .course-workbench__close:hover,.course-workbench__close:focus-visible { color:var(--lz-text-strong); background:var(--lz-surface-muted); outline:none; }
 .course-workbench__body { min-height:0; overflow:hidden; }
@@ -147,7 +129,6 @@ function handleDialogKeydown(event: KeyboardEvent) {
   .course-workbench--compact { height:min(390px,calc(100vh - 40px)); }
   .course-workbench__header { grid-template-columns:minmax(0,1fr) auto; gap:7px 10px; padding:8px 10px 8px 14px; }
   .course-workbench__identity h2 { font-size:16px; }
-  .course-workbench__summary { grid-column:1 / -1; grid-row:2; min-height:32px; }
   .course-workbench__close { width:34px; height:34px; }
 }
 </style>

@@ -8,11 +8,13 @@ const componentSource = readFileSync(
 )
 
 describe('PracticeWorkspace question-book dialog layout', () => {
-  it('uses compact modal-native context controls and a bounded reading stage', () => {
-    expect(componentSource).toContain(
-      '.question-book-context {',
-    )
+  it('lets the dialog own the three view buttons without adding a content row', () => {
+    expect(componentSource).toContain('hideViewSwitch?: boolean')
+    expect(componentSource).toContain("(event: 'viewChange', view: 'current' | 'history' | 'needs_review'): void")
+    expect(componentSource).toContain('defineExpose({ openHistory, selectView })')
     expect(componentSource).toContain('.question-book-views {')
+    expect(componentSource).toContain("t('courseWorkspace.practice.needsReview', '错题本')")
+    expect(componentSource).toContain('.practice-workspace.has-external-view-switch .question-book-empty')
     expect(componentSource).toContain('width: min(820px, calc(100% - 48px));')
     expect(componentSource).not.toContain('.practice-header')
     expect(componentSource).not.toContain('.practice-tabs')
@@ -23,7 +25,8 @@ describe('PracticeWorkspace question-book dialog layout', () => {
     expect(componentSource).toContain('class="question-bank-rebuild__heading"')
     expect(componentSource).toContain('class="question-bank-rebuild__retrieval"')
     expect(componentSource).toContain('.question-book-empty {')
-    expect(componentSource).toContain('grid-template-columns: minmax(0, .9fr) minmax(330px, 1.1fr);')
+    expect(componentSource).toContain('flex-direction: column;')
+    expect(componentSource).toContain('width: min(420px, 100%);')
     expect(componentSource).toContain('@media (max-width: 760px)')
   })
 

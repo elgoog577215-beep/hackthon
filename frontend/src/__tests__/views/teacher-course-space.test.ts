@@ -13,6 +13,7 @@ vi.mock('@/utils/question-bank-rebuild', () => ({ runQuestionBankRebuild: rebuil
 import TeacherCourseSpaceView from '@/views/TeacherCourseSpaceView.vue'
 import { setLocale } from '@/shared/i18n'
 import { useCourseStore } from '@/stores/course'
+import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
 const coursePackage = {
@@ -80,6 +81,81 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-empty').text()).not.toContain('这个文件夹还是空的')
     await wrapper.get('.file-empty button').trigger('click')
     expect((wrapper.get('.list-search input').element as HTMLInputElement).value).toBe('')
+
+    expect(wrapper.find('.workspace-viewbar').exists()).toBe(false)
+    expect(wrapper.get('.standalone-header').find('.workspace-view-switch').exists()).toBe(true)
+    await wrapper.findAll('.workspace-view-switch button')[1]!.trigger('click')
+    expect(wrapper.get('.category-layout')).toBeTruthy()
+    expect(wrapper.findAll('.category-navigation nav button')).toHaveLength(4)
+    expect(wrapper.get('.category-navigation').text()).toContain('课程大纲')
+    expect(wrapper.get('.category-navigation').text()).toContain('教案')
+    expect(wrapper.get('.category-navigation').text()).toContain('正文')
+    expect(wrapper.get('.category-navigation').text()).toContain('PPT')
+    expect(wrapper.get('.category-navigation').text()).not.toContain('练习')
+    expect(wrapper.find('.category-table').exists()).toBe(false)
+    expect(wrapper.get('.category-detail-pane')).toBeTruthy()
+  })
+
+  it('分类视图在左侧展开课次，并在右侧直接显示所选内容', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    await router.push('/course/course-1/workspace/setup')
+    const courseStore = useCourseStore()
+    courseStore.currentDocumentRevision = 'document-revision-1'
+    courseStore.nodes = [
+      { node_id: 'lesson-1', parent_node_id: 'root', node_name: '第一讲 内存管理', node_level: 1, node_content: '内存管理正文', node_type: 'original' },
+      { node_id: 'lesson-2', parent_node_id: 'root', node_name: '第二讲 垃圾回收', node_level: 1, node_content: '垃圾回收正文', node_type: 'original' },
+    ] as any
+    const lessons = [
+      {
+        lesson_unit_id: 'lesson-1', number: 1, title: '内存管理', duration_minutes: 45, sections: [],
+        plan: {
+          lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ppt_assets: [],
+          revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1', generation_source: 'ai', status: 'confirmed', warnings: [], plan: { objectives: ['理解引用计数'] }, actor: 'teacher', created_at: '2026-08-22T00:00:00Z' }],
+        },
+      },
+      {
+        lesson_unit_id: 'lesson-2', number: 2, title: '垃圾回收', duration_minutes: 45, sections: [],
+        plan: {
+          lesson_unit_id: 'lesson-2', working_revision_id: 'plan-2', confirmed_revision_id: 'plan-2', source_state: 'current', ppt_assets: [],
+          revisions: [{ revision_id: 'plan-2', lesson_unit_id: 'lesson-2', source_outline_revision_id: 'outline-1', generation_source: 'ai', status: 'confirmed', warnings: [], plan: { teaching_process: ['讲解标记清除'] }, actor: 'teacher', created_at: '2026-08-22T00:00:00Z' }],
+        },
+      },
+    ]
+    useTeacherLessonAuthoringStore().lessons = lessons as any
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [coursePackage] })
+      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: coursePackage })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: 'outline-1', lessons, jobs: [] } })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: {} })
+    })
+
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseTitle: '数据结构', workspaceView: 'categories' },
+      global: {
+        plugins: [pinia, router],
+        stubs: {
+          ElDialog: true,
+          MarkdownRenderer: { props: ['content'], template: '<div class="markdown-renderer">{{ content }}</div>' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const lessonPlanCategory = wrapper.findAll('.category-group__button').find(button => button.text().includes('教案'))
+    await lessonPlanCategory!.trigger('click')
+    await flushPromises()
+    expect(lessonPlanCategory!.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.findAll('.category-child')).toHaveLength(2)
+    expect(wrapper.get('.category-detail-header h2').text()).toContain('内存管理')
+    expect(wrapper.get('.category-document').text()).toContain('理解引用计数')
+    expect(wrapper.find('.category-table').exists()).toBe(false)
+
+    await wrapper.findAll('.category-child')[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.category-detail-header h2').text()).toContain('垃圾回收')
+    expect(wrapper.get('.category-document').text()).toContain('讲解标记清除')
   })
 
   it('把固定课程资产直接作为入口，教师文件只在资料目录添加', () => {

@@ -1,15 +1,24 @@
 <template>
-  <div class="app-shell" :class="{ 'is-fullscreen-concept': isFullscreenConceptRoute }">
+  <div
+    class="app-shell"
+    :class="{
+      'is-fullscreen-concept': isFullscreenConceptRoute,
+      'is-course-workspace-route': isCourseWorkspaceRoute,
+    }"
+  >
     <header
       v-if="!isFullscreenConceptRoute"
       class="app-header glass-panel-elevated"
     >
-      <RouterLink class="brand-button" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
-        <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
-        <span class="brand-name">启智</span>
-      </RouterLink>
+      <div class="app-header-start">
+        <RouterLink class="brand-button" :class="{ 'is-route-hidden': isCourseWorkspaceRoute }" :to="{ name: 'course-library' }" :aria-label="t('app.backToLibrary', '返回课程库')">
+          <img class="brand-mark" src="/qizhi-favicon.svg" alt="启智" />
+          <span class="brand-name">启智</span>
+        </RouterLink>
+        <div v-if="!isLearningRoute" id="app-header-route-context" class="route-header-context" />
+      </div>
 
-      <div class="app-header-center" aria-hidden="true" />
+      <div v-if="!isLearningRoute" id="app-header-route-center" class="app-header-center" />
 
       <div v-if="!isLearningRoute" id="app-header-route-actions" class="route-header-actions" />
 
@@ -133,6 +142,7 @@ onBeforeUnmount(() => {
 })
 
 const isLearningRoute = computed(() => route.name === 'learning')
+const isCourseWorkspaceRoute = computed(() => route.name === 'course-workspace')
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)
 const searchQuery = computed({
@@ -194,12 +204,31 @@ function changeLocale(locale: 'zh' | 'en') {
   -webkit-backdrop-filter: blur(14px);
 }
 
+.app-shell.is-course-workspace-route .app-header {
+  grid-template-columns: minmax(320px, 1.2fr) auto minmax(320px, 1fr);
+  gap: 12px;
+}
+
+.app-shell.is-course-workspace-route .app-header-start { gap: 0; }
+
 .brand-button,
 .header-icon-button,
 .header-search button,
 .segmented-control button {
   border: 0;
   cursor: pointer;
+}
+
+.app-header-start {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.route-header-context {
+  min-width: 0;
+  flex: 1;
 }
 
 .brand-button {
@@ -219,6 +248,7 @@ function changeLocale(locale: 'zh' | 'en') {
 }
 .brand-button:hover { transform: translateY(-1px); }
 .brand-button:hover .brand-mark { transform: scale(1.035); filter: drop-shadow(0 6px 10px rgba(0,16,129,.16)); }
+.brand-button.is-route-hidden { display:none; }
 
 .brand-mark {
   width: 34px;
@@ -269,20 +299,42 @@ function changeLocale(locale: 'zh' | 'en') {
 .language-control { grid-template-columns: repeat(2, 1fr); }
 
 @media (max-width: 900px) {
-  .app-header { grid-template-columns: auto minmax(360px, 1fr) auto; gap: 8px; padding: 0 10px; }
+  .app-header { grid-template-columns: auto minmax(180px, 1fr) auto; gap: 8px; padding: 0 10px; }
+  .app-shell.is-course-workspace-route .app-header { grid-template-columns:minmax(230px,1fr) auto minmax(180px,auto); }
+  .brand-name { display:none; }
   .header-search { display: none; }
 }
 
 @media (max-width: 1400px) {
 }
 
+@media (max-width: 720px) {
+  .app-shell.is-course-workspace-route { grid-template-rows:102px minmax(0,1fr); }
+  .app-shell.is-course-workspace-route .app-header {
+    grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:58px 44px;
+    gap:0 8px;
+    padding:0 10px;
+  }
+  .app-shell.is-course-workspace-route .app-header-start { grid-column:1; grid-row:1; }
+  .app-shell.is-course-workspace-route .app-header-center {
+    grid-column:1/-1;
+    grid-row:2;
+    align-self:stretch;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-top:1px solid var(--lz-border);
+  }
+  .app-shell.is-course-workspace-route .route-header-actions { grid-column:2; grid-row:1; }
+}
+
 @media (max-width: 600px) {
   .app-shell { grid-template-rows:auto minmax(0,1fr); gap: 0; padding: 0; }
   .app-header { border-width: 0 0 1px; border-radius: 0; box-shadow: none; }
   .app-main { border-radius: 0; }
-  .app-header { grid-template-columns: auto minmax(0, 1fr); min-height:60px; }
-  .app-header-center { display:none; }
-  .route-header-actions,.header-actions { grid-column:2; grid-row:1; }
+  .app-header { grid-template-columns: auto minmax(70px, 1fr) auto; min-height:60px; }
+  .route-header-actions,.header-actions { grid-column:3; grid-row:1; }
   .brand-mark { width:32px; height:32px; }
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),

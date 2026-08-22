@@ -35,7 +35,7 @@ describe('CourseWorkbench', () => {
 
     expect(wrapper.get('[data-testid="course-workbench"]').attributes('role')).toBe('dialog')
     expect(wrapper.get('[data-testid="course-workbench"]').classes()).toContain('course-workbench--compact')
-    expect(wrapper.text()).toContain('生成任务')
+    expect(wrapper.text()).toContain('课程任务')
     const taskCenter = wrapper.getComponent({ name: 'CourseTaskCenter' })
     expect(taskCenter.props()).toMatchObject({
       modelValue: true,

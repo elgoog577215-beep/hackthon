@@ -1,6 +1,10 @@
 <template>
-  <section class="practice-workspace" :aria-busy="workspace.loading">
-    <header class="question-book-context">
+  <section
+    class="practice-workspace"
+    :class="{ 'has-external-view-switch': props.hideViewSwitch }"
+    :aria-busy="workspace.loading"
+  >
+    <header v-if="!props.hideViewSwitch" class="question-book-context">
       <div class="question-book-context__copy">
         <span>{{ practiceScopeLabel }}</span>
         <strong>{{ currentQuestion?.learning_objective || currentNodeLabel }}</strong>
@@ -14,7 +18,7 @@
           {{ t('courseWorkspace.practice.history', '练习历史') }}
         </button>
         <button :class="{ active: practiceView === 'needs_review' }" @click="openHistory('needs_review')">
-          {{ t('courseWorkspace.practice.needsReview', '待巩固') }}
+          {{ t('courseWorkspace.practice.needsReview', '错题本') }}
         </button>
       </nav>
 
@@ -531,7 +535,10 @@
     <div v-else class="history-list">
       <div v-if="!historyAttempts.length && !legacyEvents.length" class="practice-empty">
         <History :size="24" />
-        <span>{{ t('courseWorkspace.practice.noHistory', '还没有相关练习记录') }}</span>
+        <strong>{{ practiceView === 'needs_review'
+          ? t('courseWorkspace.practice.wrongBookEmpty', '错题本还没有记录')
+          : t('courseWorkspace.practice.noHistory', '还没有相关练习记录') }}</strong>
+        <span v-if="practiceView === 'needs_review'">{{ t('courseWorkspace.practice.wrongBookEmptyHelp', '未通过的正式练习会自动收进这里，之后可以直接针对再练。') }}</span>
       </div>
       <article v-for="attempt in historyAttempts" :key="attempt.attempt_id" class="history-row">
         <div>
@@ -590,10 +597,12 @@ const props = defineProps<{
   nodeId?: string
   nodeLabel?: string
   scope: 'node' | 'final' | 'all'
+  hideViewSwitch?: boolean
 }>()
 const emit = defineEmits<{
   (event: 'askTeacher', payload: { text: string; nodeId: string }): void
   (event: 'graded'): void
+  (event: 'viewChange', view: 'current' | 'history' | 'needs_review'): void
 }>()
 // Mirrors socratic_guidance.MAX_ROUNDS; the server is authoritative and returns
 // guidance_round_limit_reached, this only avoids offering a doomed request.
@@ -601,6 +610,7 @@ const MAX_GUIDANCE_ROUNDS = 6
 
 const workspace = useCourseWorkspaceStore()
 const practiceView = ref<'current' | 'history' | 'needs_review'>(workspace.practiceLandingView)
+watch(practiceView, view => emit('viewChange', view), { immediate: true })
 const submitting = ref(false)
 const targetedRetryingId = ref('')
 const questionRefreshing = ref(false)
@@ -1066,6 +1076,8 @@ function selectView(view: 'current') {
   workspace.practiceLandingView = view
 }
 
+defineExpose({ openHistory, selectView })
+
 async function rebuildQuestionBank() {
   if (!props.courseId || questionBankRebuilding.value) return
   questionBankRebuilding.value = true
@@ -1271,19 +1283,26 @@ function formatSolutionValue(value: unknown) {
 
 .question-book-empty {
   min-height: calc(100% - 68px);
-  display: grid;
-  grid-template-columns: minmax(0, .9fr) minmax(330px, 1.1fr);
-  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: clamp(38px, 8vh, 82px) 24px;
   background: #f6f7fb;
 }
 
+.practice-workspace.has-external-view-switch .question-book-empty {
+  min-height: 100%;
+}
+
 .question-book-empty__intro {
+  width: min(520px, 100%);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 16px;
-  padding: clamp(44px, 8vh, 86px) clamp(30px, 5vw, 64px);
-  border-right: 1px solid #e2e6ee;
-  background: #fbfbfd;
+  padding: 0;
+  background: transparent;
 }
 
 .question-book-empty__icon {
@@ -1325,11 +1344,10 @@ function formatSolutionValue(value: unknown) {
 }
 
 .question-bank-rebuild {
-  align-self: center;
-  width: min(360px, calc(100% - 52px));
+  width: min(420px, 100%);
   display: grid;
   gap: 14px;
-  margin: 36px auto;
+  margin: 0;
 }
 
 .question-bank-rebuild__heading {
@@ -1917,15 +1935,17 @@ function formatSolutionValue(value: unknown) {
 
   .question-book-empty {
     min-height: calc(100% - 98px);
-    display: block;
+    display: flex;
+    gap: 24px;
+    padding: 30px 20px;
     overflow: auto;
   }
 
   .question-book-empty__intro {
     gap: 12px;
-    padding: 24px 20px 20px;
+    padding: 0;
     border-right: 0;
-    border-bottom: 1px solid #e2e6ee;
+    border-bottom: 0;
   }
 
   .question-book-empty__icon { width: 38px; height: 38px; }
@@ -1934,9 +1954,9 @@ function formatSolutionValue(value: unknown) {
   .question-book-empty__intro p { font-size: 12px; line-height: 1.6; }
 
   .question-bank-rebuild {
-    width: calc(100% - 40px);
+    width: 100%;
     gap: 11px;
-    margin: 22px auto 28px;
+    margin: 0;
   }
 
   .workflow-band,

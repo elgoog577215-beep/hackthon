@@ -24,6 +24,7 @@ describe('LearningTaskOverlay navigation', () => {
     expect(wrapper.find('.learning-tool-overlay').exists()).toBe(false)
     expect(wrapper.find('.question-book-modal__backdrop').exists()).toBe(true)
     expect(dialog.find('.question-book-dialog__close').exists()).toBe(true)
+    expect(dialog.findAll('.question-book-dialog__views button')).toHaveLength(3)
   })
 
   it('题库本保留当前范围，并可从遮罩或关闭按钮返回正文', async () => {
@@ -43,7 +44,9 @@ describe('LearningTaskOverlay navigation', () => {
 
     expect(wrapper.find('.course-workspace-tabs').exists()).toBe(false)
     expect(wrapper.get('.question-book-dialog__identity').text()).toContain('题库本')
+    expect(wrapper.get('.question-book-dialog__identity').text()).toContain('哲学的本质与学科边界')
     expect(wrapper.getComponent({ name: 'PracticeWorkspace' }).props('nodeLabel')).toBe('哲学的本质与学科边界')
+    expect(wrapper.getComponent({ name: 'PracticeWorkspace' }).props('hideViewSwitch')).toBe(true)
     await wrapper.get('.question-book-modal__backdrop').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(1)
     await wrapper.get('.question-book-dialog__close').trigger('click')

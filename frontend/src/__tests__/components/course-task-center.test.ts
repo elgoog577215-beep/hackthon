@@ -233,15 +233,17 @@ describe('CourseTaskCenter', () => {
     await flushPromises()
 
     const rows = wrapper.findAll('.task-row')
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(1)
     expect(rows[0]!.text()).toContain('42%')
-    expect(rows[1]!.text()).toContain('100%')
 
     await wrapper.get('.task-actions .secondary-button:not(.task-actions__open)').trigger('click')
     await flushPromises()
     expect(pause).toHaveBeenCalledWith('course-1', 'task-new')
 
-    await rows[1]!.trigger('click')
+    await wrapper.findAll('.task-filters button')[2]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.task-row').text()).toContain('100%')
+    await wrapper.get('.task-row').trigger('click')
     await flushPromises()
     await wrapper.get('.task-actions .danger-button').trigger('click')
     await flushPromises()
@@ -298,7 +300,7 @@ describe('CourseTaskCenter', () => {
     expect(deleteTask).toHaveBeenCalledWith('course-1', 'task-completed')
   })
 
-  it('支持状态筛选并从任务行直接删除', async () => {
+  it('按待处理、进行中和已完成组织任务，并把删除收进更多操作', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [
       {
@@ -321,40 +323,31 @@ describe('CourseTaskCenter', () => {
 
     const filters = wrapper.findAll('.task-filters button')
     expect(filters.map(button => button.text())).toEqual([
-      '全部 3', '进行中 1', '失效 1', '已完成 1',
+      '待处理 1', '进行中 1', '已完成 1',
     ])
-    await filters[2]!.trigger('click')
-    await flushPromises()
-
     expect(wrapper.findAll('.task-row')).toHaveLength(1)
     expect(wrapper.get('.task-row').text()).toContain('线性代数旧任务')
-    await wrapper.get('.task-row__delete').trigger('click')
+    expect(wrapper.find('.task-row__delete').exists()).toBe(false)
+    await wrapper.get('.task-actions__more .danger-button').trigger('click')
     await flushPromises()
 
     expect(deleteTask).toHaveBeenCalledWith('course-1', 'task-failed')
   })
 
-  it('一键清理当前课程的失效任务', async () => {
+  it('不在主工具栏暴露批量删除入口', async () => {
     const generation = useGenerationStore()
     generation.globalTasks = [
       { id: 'task-failed-1', course_id: 'course-1', course_name: '线性代数', status: 'failed', progress: 20 },
       { id: 'task-conflict', course_id: 'course-1', course_name: '线性代数', status: 'conflict', progress: 60 },
       { id: 'task-running', course_id: 'course-1', course_name: '线性代数', status: 'running', progress: 30 },
     ]
-    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
     const clearTaskRecords = vi.spyOn(generation, 'clearTaskRecords').mockResolvedValue(2)
     const wrapper = mountCenter()
     await flushPromises()
 
-    await wrapper.get('.toolbar-action--danger').trigger('click')
-    await flushPromises()
-
-    expect(ElMessageBox.confirm).toHaveBeenCalledWith(
-      '删除 2 个失效任务？',
-      '删除失效',
-      expect.any(Object),
-    )
-    expect(clearTaskRecords).toHaveBeenCalledWith('invalid', 'course-1')
+    expect(wrapper.find('.toolbar-action--danger').exists()).toBe(false)
+    expect(wrapper.find('.toolbar-action').exists()).toBe(false)
+    expect(clearTaskRecords).not.toHaveBeenCalled()
   })
 
   it('在等待审阅时读取、保存并确认同一份蓝图', async () => {

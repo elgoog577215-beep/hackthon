@@ -21,7 +21,7 @@ describe('App home navigation', () => {
     vi.clearAllMocks()
   })
 
-  it('returns to the course-library home when the brand link is clicked', async () => {
+  it('shows the brand on the course-library home and removes it from a course workspace', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const router = createRouter({
@@ -37,10 +37,15 @@ describe('App home navigation', () => {
           name: 'learning',
           component: { template: '<div>Learning workspace</div>' },
         },
+        {
+          path: '/course/:courseId/workspace/:mode?',
+          name: 'course-workspace',
+          component: { template: '<div>Course workspace</div>' },
+        },
       ],
     })
 
-    await router.push('/course/course-1/learn/node-1')
+    await router.push('/courses')
     await router.isReady()
 
     const wrapper = mount(App, {
@@ -61,9 +66,11 @@ describe('App home navigation', () => {
     expect(wrapper.find('.app-course-stages').exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'CourseStageTabs' }).exists()).toBe(false)
 
-    await homeLink.trigger('click')
+    await router.push('/course/course-1/workspace/setup')
     await flushPromises()
 
-    expect(router.currentRoute.value.name).toBe('course-library')
+    expect(router.currentRoute.value.name).toBe('course-workspace')
+    expect(wrapper.get('a.brand-button').classes()).toContain('is-route-hidden')
+    expect(wrapper.classes()).toContain('is-course-workspace-route')
   })
 })

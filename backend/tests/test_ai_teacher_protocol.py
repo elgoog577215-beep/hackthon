@@ -239,9 +239,14 @@ def test_teacher_perspective_prioritizes_teaching_and_same_source_change_control
     assert package["request"]["intent"] == "teacher_design"
     assert package["permissions"]["allowed_proposals"] == []
     prompt = format_ai_teacher_context_prompt(package)
-    assert "教师智能体" in prompt
+    assert "教师端的通用 AI 助手" in prompt
     assert "怎么教" in prompt
+    assert package["learner_model"] == {}
+    assert package["learner_evidence"] == []
+    assert package["response_strategy"]["audience"] == "teacher"
+    assert package["response_strategy"]["change_requires_confirmation"] is True
     assert "稳定块 ID" in prompt
+    assert "当前文件范围内证据不足" in prompt
     assert "先说明影响" in prompt
     assert "不得声称已自动修改" in prompt
 
@@ -279,6 +284,24 @@ def test_teacher_file_scope_limits_course_sources(monkeypatch):
     assert package["sources"]
     assert {item["node_id"] for item in package["sources"]} == {"node-2"}
     assert "文件范围：循环" in format_ai_teacher_context_prompt(package)
+
+
+def test_student_response_strategy_adapts_to_understanding_checks(monkeypatch):
+    monkeypatch.setattr(ai_teacher_context, "build_learning_runtime", lambda *args, **kwargs: _runtime())
+    monkeypatch.setattr(ai_teacher_context.practice_attempt_repository, "list", lambda *args, **kwargs: [])
+
+    package = build_ai_teacher_context(
+        _course(),
+        user_id="u1",
+        question="检查我是否真正理解变量绑定",
+        node_id="node-1",
+    )
+    prompt = format_ai_teacher_context_prompt(package)
+
+    assert package["response_strategy"]["audience"] == "learner"
+    assert package["response_strategy"]["focus"] == "explain_content"
+    assert "只提出一个可作答的小问题并等待" in prompt
+    assert "不得泄露标准答案" in prompt
 
 
 def test_ai_teacher_does_not_treat_degraded_course_index_as_runtime_truth(monkeypatch):
@@ -493,6 +516,30 @@ async def test_ai_teacher_converts_provider_error_chunk_to_failure():
         ):
             pass
     assert excinfo.value.code == "model_auth_failed"
+
+
+@pytest.mark.asyncio
+async def test_ai_teacher_does_not_duplicate_conversation_history_in_user_prompt():
+    service = AIQAService()
+    captured: dict[str, str] = {}
+
+    async def captured_stream(prompt, system_prompt):
+        captured["prompt"] = prompt
+        captured["system_prompt"] = system_prompt
+        yield "回答"
+
+    service._stream_llm = captured_stream
+    package = {
+        "request": {"question": "当前问题", "perspective": "learner"},
+        "conversation": {
+            "recent_messages": [{"role": "user", "content": "只应出现一次的历史"}],
+        },
+    }
+    async for _ in service.answer_question_stream("当前问题", context_package=package):
+        pass
+
+    assert "只应出现一次的历史" in captured["system_prompt"]
+    assert "只应出现一次的历史" not in captured["prompt"]
 
 
 @pytest.mark.asyncio

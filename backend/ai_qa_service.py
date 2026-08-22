@@ -159,11 +159,6 @@ class AIQAService(AIBase):
         context_package: dict[str, Any],
         **_: Any,
     ):
-        recent = ((context_package.get("conversation") or {}).get("recent_messages") or [])
-        history_text = "\n".join(
-            f"{item.get('role', 'user')}: {item.get('content', '')}"
-            for item in recent
-        )
         system_prompt = format_ai_teacher_context_prompt(context_package)
         web_sources = [
             item
@@ -177,12 +172,12 @@ class AIQAService(AIBase):
                 "Never cite a source that is not present above and never "
                 "claim current information without a cited dated source."
             )
-        prompt = f"""最近对话：
-{history_text or '无'}
+        # Conversation history and the bounded course context are already in
+        # the system prompt. Repeating them here wastes context and can make
+        # stale turns look more important than the user's current question.
+        prompt = f"""用户当前问题：{question}
 
-用户问题：{question}
-
-请直接回答当前问题。不要假装已经写入笔记、错题或复习任务；需要改变系统状态时，只能说明建议动作。"""
+请严格执行上面的视角、文件范围、回答策略和披露边界。不要假装已经写入笔记、错题、复习任务或课程内容；需要改变系统状态时，只能说明建议动作。"""
         emitted = ""
         try:
             async for chunk in self._stream_llm(prompt, system_prompt):

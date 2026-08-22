@@ -59,12 +59,16 @@ def build_ai_teacher_context(
         task_ref=effective_task_ref,
         entrypoint=entrypoint,
     )
-    learner_model = _learner_model_context(
-        runtime.get("learner_model") or {},
-        intent=intent,
-        node_id=effective_node_id,
+    learner_model = (
+        {}
+        if perspective == "teacher"
+        else _learner_model_context(
+            runtime.get("learner_model") or {},
+            intent=intent,
+            node_id=effective_node_id,
+        )
     )
-    evidence = _learner_evidence(learner_model, intent=intent)
+    evidence = [] if perspective == "teacher" else _learner_evidence(learner_model, intent=intent)
     recent_messages = []
     for message in (conversation or {}).get("messages", [])[-MAX_RECENT_MESSAGES:]:
         recent_messages.append({
@@ -100,13 +104,20 @@ def build_ai_teacher_context(
         "task": task,
         "sources": sources,
         "learner_evidence": evidence,
+        "response_strategy": _response_strategy(
+            perspective=perspective,
+            intent=intent,
+            question=question,
+            has_course_sources=bool(sources),
+            answer_disclosure=(task.get("answer_disclosure") or {}),
+        ),
         "conversation": {
             "conversation_id": str((conversation or {}).get("conversation_id") or ""),
             "recent_messages": recent_messages,
         },
         "permissions": {
             "answer": True,
-            "explain_runtime_action": True,
+            "explain_runtime_action": perspective != "teacher",
             "allowed_proposals": [] if perspective == "teacher" else [
                 "create_note",
                 "create_issue",
@@ -137,11 +148,8 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
     evidence = package.get("learner_evidence") or []
     conversation = package.get("conversation") or {}
     permissions = package.get("permissions") or {}
+    response_strategy = package.get("response_strategy") or {}
 
-    source_lines = [
-        f"- [{item.get('source_id')}] {item.get('title') or '课程片段'}：{item.get('content')}"
-        for item in sources
-    ] or ["- 无可用课程片段。"]
     source_lines = [
         (
             f"- [{item.get('citation_id')}] "
@@ -165,18 +173,22 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
 
     if request.get("perspective") == "teacher":
         file_scope = ((scene.get("content_anchor") or {}).get("file_scope") or {})
+        file_scope_mode = str(file_scope.get("mode") or "all")
         file_scope_label = (
             "全部文件"
-            if file_scope.get("mode") == "all"
+            if file_scope_mode == "all"
             else "、".join(file_scope.get("labels") or []) or "未选择文件"
         )
-        return f"""你是灵知教师端的教师智能体。你帮教师分析“怎么教”，优先服务教案与 PPT 备课，不代替教师做正式发布决定。
+        return f"""你是灵知教师端的通用 AI 助手。你在教师界面中以教师工作视角回答，核心任务是帮助教师理解课程、判断“怎么教”与改进备课；你不代替教师做正式发布决定。
 
 ## 当前教师请求
 - 问题：{request.get('question')}
 - 当前课节：{scene.get('node_name') or '全课程'}
 - 文件范围：{file_scope_label}
 - 意图：{request.get('intent')}
+
+## 本次回答策略
+{json.dumps(response_strategy, ensure_ascii=False, indent=2)}
 
 ## 课程结构与版本现场
 {json.dumps(scene, ensure_ascii=False, indent=2)}
@@ -191,11 +203,13 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
 {chr(10).join(history_lines)}
 
 ## 回答要求
-1. 先分析教学目标、原理、过程和课堂组织，再给可执行建议；不以直接代答学生题目为主。
-2. 课程事实优先使用上面当前版本的结构块；没有来源时明确说明是通用建议。
-3. 教案、PPT、正文和练习必须引用同一语义真源的稳定块 ID、修订号和依赖关系，不要建议多份脱节的副本。
-4. 当底层事实或版本变化时，先说明影响到哪些教案、PPT、正文和练习，再由教师确认是否精确重建。
-5. 不得声称已自动修改或发布正式课程；课程正式变更必须可预览、可确认、可追溯。
+1. 严格限制在“文件范围”内检索课程事实。范围内没有足够来源时，明确写“当前文件范围内证据不足”，再把补充内容标为专业判断；不得悄悄引用范围外文件。
+2. 先给结论，再按“本次回答策略”的 answer_order 组织内容。结构分析要覆盖目标、先备关系、重点与断点；课堂设计要覆盖讲解/示范、学生活动、理解检查和备用处理；风险检查要给优先级、依据、影响与动作。
+3. 明确区分“课程现状/来源证据”和“教学专业判断”。引用课程事实时使用上面真实 source_id；不得编造稳定块 ID、修订号、知识 ID 或学生数据。
+4. 教案、PPT、正文和练习必须引用同一语义真源的稳定块 ID、修订号和依赖关系，不要建议多份脱节的副本。
+5. 当底层事实或版本变化时，先说明影响到哪些教案、PPT、正文和练习，再由教师确认是否精确重建。
+6. 不得声称已自动修改或发布正式课程；课程正式变更必须先给影响预览，且可确认、可追溯。
+7. 教师未要求完整方案时保持紧凑，不为显得全面而机械堆叠模板，也不主动转去代答学生题目。
 """
 
     return f"""你是灵知课程中的 AI 老师。你负责回答、解释和提出可确认动作，但不拥有学习状态，也不能修改正式课程、掌握结论、画像、诊断结论或替学生提交答案。
@@ -233,15 +247,20 @@ def format_ai_teacher_context_prompt(package: dict[str, Any]) -> str:
 ## 权限
 {json.dumps(permissions, ensure_ascii=False, indent=2)}
 
+## 本次回答策略
+{json.dumps(response_strategy, ensure_ascii=False, indent=2)}
+
 ## 回答要求
-1. 直接回答当前问题，不强制添加无关的后续问题。
-2. 课程事实优先使用上面的当前版本来源；没有来源时明确说明是在做通用解释。
-3. 区分事实、用户陈述和推断，不把提问次数、一次错误或会话措辞写成稳定薄弱点。
-4. 当前正式任务未允许完整答案时，只能提供方向、关键步骤或允许的量规，不得泄露标准答案。
-5. 如果用户询问下一步，只解释 LearningRuntime 的 primary_action，不创建竞争动作。
-6. 回答正文中不伪造已经执行的系统动作。写动作由独立 ActionProposal 协议处理。
-7. 当前课程知识库是本课程知识身份、能力、易错与掌握标准的统一坐标；只允许使用已通过质量门的条目。回答仍须结合当前正文、任务和学习证据，不得忽略真实问题或伪造知识 ID。
-8. 当入口为 block 时，回答到当前解释、例子、简化或问题本身为止；不得主动提出下一步、出题、保存或课程改写，也不要在结尾添加“如果你愿意”“需要我可以”等邀请。"""
+1. 先直接回应学习者当前问题，再按“本次回答策略”的 answer_order 补充必要内容；不强制添加无关总结、下一步或邀请。
+2. explain_content：先给清晰结论与关键机制，例子只在确有帮助时加入；若用户要求“检查理解”，只提出一个可作答的小问题并等待，不同时公布答案。
+3. practice_help：在正式任务未允许完整答案时，用递进提示或关键检查点引导，停在学习者可以继续作答的位置；不得泄露标准答案。
+4. analyze_attempt：先复述学习者实际思路，再定位最早的推理分叉点，解释原因并给一个下一提示；不得把一次错误升级成稳定薄弱点。
+5. learner_review：先说明证据充分度，再陈述有正式依据的优势/待巩固点；证据有限时明确不确定性，不用提问次数或会话措辞代替学习证据。
+6. explain_next_action：只解释 LearningRuntime 的 primary_action、原因和当前具体动作，不创建竞争动作。
+7. 课程事实优先使用上面的当前版本来源；没有来源时明确说明是在做通用解释。区分课程事实、用户陈述和推断，不伪造知识 ID、来源或已执行动作。
+8. 回答正文中不伪造已经执行的系统动作。写动作由独立 ActionProposal 协议处理。
+9. 当前课程知识库是本课程知识身份、能力、易错与掌握标准的统一坐标；只允许使用已通过质量门的条目。回答仍须结合当前正文、任务和学习证据，不得忽略真实问题。
+10. 当入口为 block 时，回答到当前解释、例子、简化或问题本身为止；不得主动提出下一步、出题、保存或课程改写，也不要在结尾添加“如果你愿意”“需要我可以”等邀请。"""
 
 
 def context_public_summary(package: dict[str, Any]) -> dict[str, Any]:
@@ -582,6 +601,55 @@ def _progress_summary(progress: dict[str, Any], node_id: str) -> dict[str, Any]:
     objectives = progress.get("nodes") or []
     current = next((item for item in objectives if str(item.get("node_id") or "") == node_id), None)
     return deepcopy(current or {})
+
+
+def _response_strategy(
+    *,
+    perspective: str,
+    intent: str,
+    question: str,
+    has_course_sources: bool,
+    answer_disclosure: dict[str, Any],
+) -> dict[str, Any]:
+    """Select a response shape without creating another assistant endpoint."""
+    if perspective == "teacher":
+        text = _normalize(question)
+        if any(token in text for token in ["风险", "漏洞", "检查", "缺失", "问题"]):
+            focus = "teaching_risk_review"
+            answer_order = ["priority_finding", "course_evidence", "teaching_impact", "recommended_action"]
+        elif any(token in text for token in ["修改", "重写", "更新", "ppt", "正文"]):
+            focus = "course_change_analysis"
+            answer_order = ["requested_change", "affected_artifacts", "impact_preview", "confirmation_boundary"]
+        elif any(token in text for token in ["怎么教", "课堂", "活动", "教案", "备课"]):
+            focus = "lesson_design"
+            answer_order = ["learning_objective", "teaching_sequence", "classroom_activity", "understanding_check", "fallback"]
+        else:
+            focus = "course_structure_analysis"
+            answer_order = ["conclusion", "course_evidence", "instructional_reasoning", "recommended_action"]
+        return {
+            "audience": "teacher",
+            "focus": focus,
+            "answer_order": answer_order,
+            "course_evidence_available": has_course_sources,
+            "separate_evidence_from_judgment": True,
+            "change_requires_confirmation": True,
+        }
+
+    strategies = {
+        "practice_help": ["brief_hint", "reasoning_checkpoint", "wait_for_learner"],
+        "analyze_attempt": ["answer_readback", "first_divergence", "why_it_matters", "next_hint"],
+        "learner_review": ["evidence_sufficiency", "current_strength", "current_gap", "single_next_step"],
+        "explain_next_action": ["current_action", "runtime_reason", "what_to_do_now"],
+        "explain_content": ["direct_answer", "mechanism", "example_if_useful", "understanding_check_if_requested"],
+    }
+    return {
+        "audience": "learner",
+        "focus": intent,
+        "answer_order": strategies.get(intent, strategies["explain_content"]),
+        "course_evidence_available": has_course_sources,
+        "full_solution_allowed": bool(answer_disclosure.get("full_solution_allowed")),
+        "avoid_stable_diagnosis_without_formal_evidence": True,
+    }
 
 
 def _request_intent(question: str, entrypoint: str) -> str:

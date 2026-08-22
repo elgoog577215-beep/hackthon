@@ -1,23 +1,49 @@
 <template>
   <main class="course-workspace-page">
-    <Teleport to="#app-header-route-actions">
-      <div class="workspace-route-actions">
-        <button class="agent-action" type="button" @click="agentOpen = true"><Sparkles :size="16" />{{ t('courseFiles.teacherAgent') }}</button>
-        <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
-        <button class="task-action" type="button" :title="t('courseFiles.taskCenter')" :aria-label="t('courseFiles.taskCenter')" @click="openTasks"><ListTodo :size="16" /></button>
+    <Teleport to="#app-header-route-context">
+      <div class="workspace-route-context">
+        <button class="back-button" type="button" :aria-label="t('courseFiles.backToCalendar')" @click="router.push({ name: 'course-library' })">
+          <ArrowLeft :size="17" />
+        </button>
+        <FolderOpen :size="18" />
+        <h1>{{ courseTitle || t('courseFiles.untitledCourse') }}</h1>
+        <small class="workspace-state" :data-state="courseState">{{ courseStateLabel }}</small>
       </div>
     </Teleport>
 
-    <header class="workspace-local-header">
-      <button class="back-button" type="button" @click="router.push({ name: 'course-library' })">
-        <ArrowLeft :size="17" /><span>{{ t('courseFiles.backToCalendar') }}</span>
-      </button>
-      <div class="workspace-title">
-        <FolderOpen :size="16" />
-        <strong>{{ courseTitle || t('courseFiles.untitledCourse') }}</strong>
-        <small class="workspace-state" :data-state="courseState">{{ courseStateLabel }}</small>
+    <Teleport to="#app-header-route-center">
+      <nav class="workspace-view-switch" :aria-label="t('courseFiles.views.label')">
+        <button type="button" :class="{ active: workspaceView === 'files' }" @click="workspaceView = 'files'">
+          <FolderTree :size="15" />{{ t('courseFiles.views.files') }}
+        </button>
+        <button type="button" :class="{ active: workspaceView === 'categories' }" @click="workspaceView = 'categories'">
+          <LayoutGrid :size="15" />{{ t('courseFiles.views.categories') }}
+        </button>
+      </nav>
+    </Teleport>
+
+    <Teleport to="#app-header-route-actions">
+      <div class="workspace-route-actions">
+        <label v-if="workspaceView === 'files'" class="workspace-search workspace-search--inline">
+          <Search :size="15" />
+          <input v-model="searchQuery" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
+          <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
+        </label>
+        <el-popover v-if="workspaceView === 'files'" placement="bottom-end" :width="280" trigger="click">
+          <template #reference>
+            <button class="search-action" type="button" :title="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')"><Search :size="16" /></button>
+          </template>
+          <label class="workspace-search workspace-search--popover">
+            <Search :size="15" />
+            <input v-model="searchQuery" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
+            <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
+          </label>
+        </el-popover>
+        <button class="agent-action" type="button" @click="agentOpen = true"><Sparkles :size="16" />{{ t('courseFiles.teacherAgent') }}</button>
+        <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
+        <button class="task-action" type="button" @click="openTasks"><ListTodo :size="16" /><span>{{ t('courseFiles.taskCenter') }}</span></button>
       </div>
-    </header>
+    </Teleport>
 
     <section v-if="loading" class="workspace-loading" role="status">
       <LoaderCircle :size="22" class="spin" />{{ t('courseFiles.loading') }}
@@ -31,6 +57,8 @@
       embedded
       :course-id="courseId"
       :course-title="courseTitle"
+      v-model:workspace-view="workspaceView"
+      v-model:query="searchQuery"
       @open-outline="outlineOpen = true"
       @create-outline="generationDialogOpen = true"
       @open-teaching-plan="openLessonPlan"
@@ -95,7 +123,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, ListTodo, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, ListTodo, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
@@ -125,6 +153,8 @@ const generationDialogOpen = ref(false)
 const generationStarting = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
+const workspaceView = ref<'files' | 'categories'>('files')
+const searchQuery = ref('')
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -246,18 +276,32 @@ onMounted(loadWorkspace)
 </script>
 
 <style scoped>
-.course-workspace-page { height:100%; min-height:0; display:grid; grid-template-rows:58px minmax(0,1fr); overflow:hidden; color:var(--lz-text-strong); }
-.workspace-local-header { display:flex; align-items:center; gap:16px; padding:0 16px; border-bottom:1px solid var(--lz-border); background:#fff; }
+.course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); }
+.workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
+.workspace-route-context>svg { flex:none; color:var(--lz-brand); }
+.workspace-route-context>h1 { min-width:0; margin:0; overflow:hidden; color:var(--lz-text-strong); font-family:inherit; font-size:18px; font-weight:800; letter-spacing:-.012em; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
 .back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:13px; font-weight:700; cursor:pointer; }
-.workspace-title { min-width:0; display:flex; align-items:center; gap:8px; }
-.workspace-title>svg { flex:none; color:#64748b; }
-.workspace-title strong { overflow:hidden; color:var(--lz-text-strong); font-size:15px; text-overflow:ellipsis; white-space:nowrap; }
+.back-button { width:34px; height:34px; flex:none; border-radius:8px; }
+.back-button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
+.back-button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.workspace-view-switch { display:flex; align-items:center; justify-content:center; gap:3px; width:max-content; margin:auto; padding:3px; border:1px solid var(--lz-border); border-radius:10px; background:#f5f6fa; }
+.workspace-view-switch button { height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; }
+.workspace-view-switch button:hover { color:var(--lz-text-strong); }
+.workspace-view-switch button.active { color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(15,23,42,.08); }
+.workspace-view-switch button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .workspace-route-actions { display:flex; align-items:center; gap:8px; }
 .workspace-route-actions button { min-height:38px; padding:0 11px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; white-space:nowrap; }
+.workspace-search { height:38px; display:flex; align-items:center; gap:7px; padding:0 9px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-muted); background:#f8fafc; }
+.workspace-search--inline { width:clamp(160px,16vw,240px); }
+.workspace-search--popover { width:100%; }
+.workspace-search:focus-within { border-color:var(--lz-brand); background:#fff; box-shadow:0 0 0 3px var(--lz-brand-soft); }
+.workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:12px; }
+.workspace-search button { width:24px; min-height:24px; padding:0; border:0; background:transparent; }
+.workspace-route-actions .search-action { display:none; width:38px; padding:0; }
 .workspace-route-actions .agent-action { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
-.workspace-route-actions .task-action { width:38px; padding:0; }
-.workspace-state { padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; }
+.workspace-route-actions .task-action { padding-inline:11px; }
+.workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }
 .workspace-state[data-state="working"] { background:#eef2ff; color:#4f46e5; }
 .workspace-state[data-state="attention"] { background:#fff7ed; color:#c2410c; }
@@ -269,14 +313,29 @@ onMounted(loadWorkspace)
 .teacher-agent-host :deep(.ai-teacher-panel) { width:100%; height:100%; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
+@media (max-width:1050px) {
+  .workspace-route-actions>button { width:38px; padding:0; font-size:0; }
+  .workspace-route-actions>button svg { margin:auto; }
+}
 @media (max-width:720px) {
-  .course-workspace-page { grid-template-rows:52px minmax(0,1fr); }
-  .workspace-local-header { padding:0 10px; gap:10px; }
-  .back-button span { display:none; }
-  .workspace-title small { display:none; }
+  .workspace-route-context { display:flex; gap:6px; }
+  .workspace-route-context>svg,.workspace-state { display:none; }
+  .workspace-route-context>h1 { max-width:52vw; font-size:16px; }
+  .workspace-view-switch button { width:34px; padding:0; }
+  .workspace-view-switch button svg { margin:auto; }
+  .workspace-view-switch button { font-size:0; }
   .workspace-route-actions { gap:5px; }
-  .workspace-route-actions button { padding:0 8px; font-size:12px; }
+  .workspace-route-actions>button { width:36px; padding:0; font-size:0; }
+  .workspace-route-actions>button svg { margin:auto; }
   .workspace-route-actions .task-action { display:none; }
   .teacher-agent-host { position:fixed; inset:0; width:100vw; height:100dvh; }
+}
+@media (max-width:1500px) {
+  .workspace-search--inline { display:none; }
+  .workspace-route-actions .search-action { display:inline-flex; }
+}
+@media (min-width:721px) and (max-width:1180px) {
+  .workspace-route-context>h1 { max-width:280px; }
+  .workspace-state { display:none; }
 }
 </style>

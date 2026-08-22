@@ -2,7 +2,22 @@
   <main class="file-space" :class="{ 'file-space--embedded': embedded }">
     <header v-if="!embedded" class="standalone-header">
       <div><small>{{ t('courseFiles.spaceLabel') }}</small><h1>{{ courseTitle || t('courseFiles.allCourseFiles') }}</h1></div>
-      <button type="button" @click="router.push({ name: 'course-library' })"><ArrowLeft :size="16" />{{ t('courseFiles.backToCalendar') }}</button>
+      <nav class="workspace-view-switch" :aria-label="t('courseFiles.views.label')">
+        <button type="button" :class="{ active: workspaceView === 'categories' }" @click="setWorkspaceView('categories')">
+          <LayoutGrid :size="15" />{{ t('courseFiles.views.categories') }}
+        </button>
+        <button type="button" :class="{ active: workspaceView === 'files' }" @click="setWorkspaceView('files')">
+          <FolderTree :size="15" />{{ t('courseFiles.views.files') }}
+        </button>
+      </nav>
+      <div class="standalone-header-actions">
+        <div class="list-search" role="search">
+          <Search :size="15" />
+          <input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
+          <button v-if="query" type="button" :aria-label="t('courseFiles.clearSearch')" @click="query = ''"><X :size="14" /></button>
+        </div>
+        <button type="button" @click="router.push({ name: 'course-library' })"><ArrowLeft :size="16" />{{ t('courseFiles.backToCalendar') }}</button>
+      </div>
     </header>
 
     <section v-if="initializing" class="space-state" role="status"><LoaderCircle class="spin" :size="22" />{{ t('courseFiles.preparingSpace') }}</section>
@@ -11,7 +26,8 @@
       <button type="button" @click="refresh">{{ t('common.retry') }}</button>
     </section>
 
-    <section v-else class="file-layout">
+    <section v-else class="workspace-ready">
+      <section v-if="workspaceView === 'files'" class="file-layout">
       <aside class="file-tree-pane">
         <header class="pane-heading">
           <span><FolderTree :size="15" /><strong>{{ t('courseFiles.folderNavigation') }}</strong></span>
@@ -37,20 +53,13 @@
       </aside>
 
       <section class="file-list-pane">
-        <header class="list-toolbar">
-          <nav v-if="breadcrumbs.length" :aria-label="t('courseFiles.filePath')">
+        <header v-if="breadcrumbs.length" class="list-toolbar">
+          <nav :aria-label="t('courseFiles.filePath')">
             <button type="button" @click="openFolder('root')"><Home :size="14" />{{ t('courseFiles.rootName') }}</button>
             <template v-for="crumb in breadcrumbs" :key="crumb.id">
               <ChevronRight :size="13" /><button type="button" @click="openFolder(crumb.id)">{{ crumb.label }}</button>
             </template>
           </nav>
-          <div class="toolbar-actions">
-            <div class="list-search" role="search">
-              <Search :size="15" />
-              <input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
-              <button v-if="query" type="button" :aria-label="t('courseFiles.clearSearch')" @click="query = ''"><X :size="14" /></button>
-            </div>
-          </div>
         </header>
 
         <div class="folder-title">
@@ -132,6 +141,128 @@
           </footer>
         </template>
       </aside>
+      </section>
+
+      <section v-else class="category-layout">
+        <aside class="category-navigation">
+          <header>
+            <strong>{{ t('courseFiles.categories.title') }}</strong>
+            <small>{{ t('courseFiles.categories.help') }}</small>
+          </header>
+          <section class="category-progress" :aria-label="t('courseFiles.workbench.progressLabel')">
+            <div>
+              <span>{{ t('courseFiles.workbench.progressLabel') }}</span>
+              <strong>{{ completedCategoryStages }}/{{ categoryGroups.length }}</strong>
+            </div>
+            <span
+              class="category-progress__track"
+              role="progressbar"
+              :aria-valuenow="completedCategoryStages"
+              :aria-valuemax="categoryGroups.length"
+              aria-valuemin="0"
+            ><i :style="{ width: `${categoryProgressPercent}%` }" /></span>
+          </section>
+          <nav :aria-label="t('courseFiles.categories.title')">
+            <div
+              v-for="group in categoryGroups"
+              :key="group.type"
+              class="category-group"
+              :class="{ active: selectedCategory === group.type }"
+            >
+              <button
+                type="button"
+                class="category-group__button"
+                :class="{ active: selectedCategory === group.type }"
+                :aria-expanded="categoryHasChildren(group) ? selectedCategory === group.type : undefined"
+                @click="selectCategory(group)"
+              >
+                <span class="category-group__step">{{ String(group.step).padStart(2, '0') }}</span>
+                <component :is="group.icon" :size="17" />
+                <span class="category-group__copy">
+                  <strong>{{ group.label }}</strong>
+                  <small>{{ group.description }}</small>
+                </span>
+                <span class="category-group__trailing">
+                  <b :data-state="categoryState(group)">{{ categoryCountLabel(group) }}</b>
+                  <ChevronRight v-if="categoryHasChildren(group)" :size="14" class="category-group__chevron" />
+                </span>
+              </button>
+
+              <div v-if="selectedCategory === group.type && categoryHasChildren(group)" class="category-children" role="group" :aria-label="group.label">
+                <button
+                  v-for="node in group.items"
+                  :key="node.id"
+                  type="button"
+                  class="category-child"
+                  :class="{ active: categoryDetailNode?.id === node.id }"
+                  @click="selectCategoryNode(node)"
+                >
+                  <span class="category-child__index">{{ lessonNumber(node.lessonId) }}</span>
+                  <span class="category-child__name">{{ lessonLabel(node.lessonId || '') }}</span>
+                  <i class="status-dot" :data-state="node.status" />
+                </button>
+              </div>
+            </div>
+          </nav>
+        </aside>
+
+        <section class="category-detail-pane">
+          <header class="category-detail-header">
+            <div>
+              <small>{{ t('courseFiles.workbench.stepLabel').replace('{step}', String(activeCategory?.step || 1)) }} · {{ activeCategory?.label }}<template v-if="categoryDetailNode?.lessonId"> · {{ t('courseFiles.lessonLevel') }}</template></small>
+              <h2>{{ categoryDetailTitle }}</h2>
+              <span v-if="categoryDetailNode" class="category-detail-status"><i class="status-dot" :data-state="categoryDetailNode.status" />{{ statusLabel(categoryDetailNode) }}</span>
+            </div>
+            <div v-if="categoryDetailNode && categoryDetailMarkdown" class="category-detail-actions">
+              <button type="button" class="primary" :disabled="busy || primaryDisabled(categoryDetailNode)" @click="primaryAction(categoryDetailNode)">
+                <LoaderCircle v-if="busy" :size="15" class="spin" /><component :is="primaryIcon(categoryDetailNode)" v-else :size="15" />{{ primaryLabel(categoryDetailNode) }}
+              </button>
+              <button v-if="canExportManaged(categoryDetailNode)" type="button" :disabled="exportingNodeId === categoryDetailNode.id" @click="exportManagedNode(categoryDetailNode)">
+                <LoaderCircle v-if="exportingNodeId === categoryDetailNode.id" :size="14" class="spin" /><Download v-else :size="14" />{{ t('courseFiles.exportFile') }}
+              </button>
+            </div>
+          </header>
+
+          <section class="workbench-brief-bar" :aria-label="t('courseFiles.workbench.settingsTitle')">
+            <div class="workbench-brief-bar__title">
+              <span><SlidersHorizontal :size="16" /></span>
+              <div><strong>{{ t('courseFiles.workbench.settingsTitle') }}</strong><small>{{ t('courseFiles.workbench.settingsHelp') }}</small></div>
+            </div>
+            <dl>
+              <div v-for="item in productionContextItems" :key="item.label" :title="item.title || item.value">
+                <dt>{{ item.label }}</dt><dd :data-empty="item.empty || undefined">{{ item.value }}</dd>
+              </div>
+            </dl>
+            <button type="button" class="workbench-settings-button" @click="emit('openCourseSettings')"><SlidersHorizontal :size="14" />{{ t('courseFiles.workbench.adjustSettings') }}</button>
+          </section>
+
+          <div v-if="categoryDetailNode && categoryDetailMarkdown" class="category-document-scroll">
+            <article class="category-document" :aria-label="categoryDetailTitle">
+              <MarkdownRenderer :content="categoryDetailMarkdown" :enable-code-run="false" />
+            </article>
+          </div>
+          <div v-else class="category-console">
+            <section class="category-console__card">
+              <header>
+                <span class="category-console__icon"><component :is="activeCategory?.icon || FileText" :size="24" /></span>
+                <span class="category-console__step">{{ t('courseFiles.workbench.stepLabel').replace('{step}', String(activeCategory?.step || 1)) }}</span>
+              </header>
+              <h3>{{ categoryConsoleTitle }}</h3>
+              <p>{{ categoryConsoleDescription }}</p>
+              <section v-if="!categoryDetailNode && activeCategory?.type !== 'outline'" class="category-prerequisite">
+                <FileText :size="17" />
+                <div><small>{{ t('courseFiles.workbench.prerequisite') }}</small><strong>{{ t('courseFiles.workbench.completeOutlineFirst') }}</strong></div>
+              </section>
+              <div class="category-console__actions">
+                <button type="button" class="primary" :disabled="busy || Boolean(categoryDetailNode && primaryDisabled(categoryDetailNode))" @click="startActiveCategory">
+                  <component :is="categoryDetailNode ? primaryIcon(categoryDetailNode) : Pencil" :size="15" />{{ categoryConsoleActionLabel }}
+                </button>
+                <button type="button" @click="emit('openCourseSettings')"><SlidersHorizontal :size="15" />{{ t('courseFiles.workbench.reviewSettings') }}</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </section>
     </section>
 
     <input ref="importInput" class="sr-only" type="file" @change="captureImportFile" />
@@ -215,18 +346,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, markRaw, nextTick, onMounted, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, BookOpen, BookOpenText, ChevronRight, ClipboardList, Download, Eye,
   FileText, Folder, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
-  Pencil, Plus, Presentation, RefreshCw, Search, SearchX, Sparkles, Trash2, TriangleAlert, Upload, X,
+  LayoutGrid, Pencil, Plus, Presentation, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
+import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import http from '../utils/http'
+import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; uploaded_at?: string; updated_at?: string }
@@ -242,16 +375,39 @@ type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean;
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
 type SortKey = 'name' | 'updated' | 'type' | 'size' | 'status'
 type SortDirection = 'ascending' | 'descending'
+type WorkspaceView = 'files' | 'categories'
+type CategoryType = 'outline' | 'lesson_plan' | 'content' | 'ppt'
+type CategoryGroup = {
+  type: CategoryType
+  step: number
+  label: string
+  description: string
+  icon: Component
+  items: WorkspaceNode[]
+  ready: number
+  working: number
+  attention: number
+}
 
-const props = withDefaults(defineProps<{ embedded?: boolean; courseId?: string; courseTitle?: string }>(), { embedded: false, courseId: '', courseTitle: '' })
+const props = withDefaults(defineProps<{
+  embedded?: boolean
+  courseId?: string
+  courseTitle?: string
+  workspaceView?: WorkspaceView
+  query?: string
+  generationOptions?: CourseGenerationOptions
+}>(), { embedded: false, courseId: '', courseTitle: '' })
 const emit = defineEmits<{
   (event: 'openOutline'): void
   (event: 'createOutline'): void
   (event: 'openTeachingPlan', lessonId: string): void
   (event: 'openTasks'): void
   (event: 'openPractice', lessonId: string): void
+  (event: 'openCourseSettings'): void
   (event: 'contextChange', context: { lessonId: string; nodeId: string; label: string; type: NodeType; path: string }): void
   (event: 'readinessChange', summary: { required: number; ready: number; pending: number }): void
+  (event: 'update:workspaceView', value: WorkspaceView): void
+  (event: 'update:query', value: string): void
 }>()
 const route = useRoute()
 const router = useRouter()
@@ -267,9 +423,19 @@ const status = ref('')
 const currentFolderId = ref('root')
 const expandedFolderIds = ref<string[]>(['root'])
 const selectedNode = ref<WorkspaceNode | null>(null)
-const query = ref('')
+const localQuery = ref('')
+const query = computed({
+  get: () => props.query ?? localQuery.value,
+  set: (value: string) => {
+    if (props.query === undefined) localQuery.value = value
+    emit('update:query', value)
+  },
+})
 const sortKey = ref<SortKey>('name')
 const sortDirection = ref<SortDirection>('ascending')
+const localWorkspaceView = ref<WorkspaceView>('files')
+const workspaceView = computed(() => props.workspaceView ?? localWorkspaceView.value)
+const selectedCategory = ref<CategoryType>('outline')
 const createOpen = ref(false)
 const createType = ref<CreateType>('material')
 const createTargetFolderId = ref('')
@@ -452,6 +618,95 @@ const flatNodes = computed(() => {
   treeData.value.forEach(visit)
   return map
 })
+const categoryGroups = computed<CategoryGroup[]>(() => ([
+  { type: 'outline' as const, step: 1, label: t('courseFiles.names.outline'), description: t('courseFiles.workbench.stages.outline'), icon: markRaw(FileText) },
+  { type: 'lesson_plan' as const, step: 2, label: t('courseFiles.names.lessonPlan'), description: t('courseFiles.workbench.stages.lessonPlan'), icon: markRaw(ClipboardList) },
+  { type: 'content' as const, step: 3, label: t('courseFiles.names.content'), description: t('courseFiles.workbench.stages.content'), icon: markRaw(BookOpenText) },
+  { type: 'ppt' as const, step: 4, label: t('courseFiles.names.ppt'), description: t('courseFiles.workbench.stages.ppt'), icon: markRaw(Presentation) },
+]).map(definition => {
+  const items = [...flatNodes.value.values()]
+    .filter(node => node.kind === 'managed' && node.type === definition.type)
+    .sort((left, right) => {
+      if (!left.lessonId && right.lessonId) return -1
+      if (left.lessonId && !right.lessonId) return 1
+      const leftNumber = lessons.value.find(item => item.lesson_unit_id === left.lessonId)?.number || 0
+      const rightNumber = lessons.value.find(item => item.lesson_unit_id === right.lessonId)?.number || 0
+      return leftNumber - rightNumber || left.label.localeCompare(right.label)
+    })
+  return {
+    ...definition,
+    items,
+    ready: items.filter(node => node.status === 'ready').length,
+    working: items.filter(node => node.status === 'working').length,
+    attention: items.filter(node => ['draft', 'missing', 'stale', 'empty'].includes(node.status)).length,
+  }
+}))
+const completedCategoryStages = computed(() => categoryGroups.value.filter(group => group.items.length > 0 && group.ready === group.items.length).length)
+const categoryProgressPercent = computed(() => categoryGroups.value.length ? Math.round(completedCategoryStages.value / categoryGroups.value.length * 100) : 0)
+const activeCategory = computed(() => categoryGroups.value.find(group => group.type === selectedCategory.value) || categoryGroups.value[0])
+const categoryDetailNode = computed(() => {
+  const group = activeCategory.value
+  if (!group) return null
+  return group.items.find(node => node.id === selectedNode.value?.id) || group.items[0] || null
+})
+const categoryDetailTitle = computed(() => {
+  const node = categoryDetailNode.value
+  if (!node) return activeCategory.value?.label || t('courseFiles.views.categories')
+  return node.lessonId ? lessonLabel(node.lessonId) : node.label
+})
+const categoryDetailMarkdown = computed(() => {
+  const node = categoryDetailNode.value
+  if (!node || node.status === 'missing' || node.status === 'working') return ''
+  if (node.type === 'outline') return previewMarkdown(outlineMarkdown())
+  const lesson = node.lessonId ? lessons.value.find(item => item.lesson_unit_id === node.lessonId) : undefined
+  if (!lesson) return ''
+  if (node.type === 'lesson_plan') return previewMarkdown(lessonPlanMarkdown(lesson))
+  if (node.type === 'content') return previewMarkdown(lessonContentMarkdown(lesson))
+  if (node.type === 'ppt') return previewMarkdown(lessonPptMarkdown(lesson))
+  return ''
+})
+const productionContextItems = computed(() => {
+  const options = props.generationOptions || {}
+  const brief = options.teacher_course_brief || {}
+  const difficulty = options.difficulty
+    ? t(`courseGeneration.difficulty.${options.difficulty}.label`, String(options.difficulty))
+    : t('courseFiles.workbench.notSet')
+  const classHours = Number(brief.total_class_hours || 0)
+  const lessonMinutes = Number(brief.lesson_duration_minutes || 0)
+  const schedule = classHours && lessonMinutes
+    ? t('courseFiles.workbench.scheduleValue').replace('{hours}', String(classHours)).replace('{minutes}', String(lessonMinutes))
+    : t('courseFiles.workbench.notSet')
+  const requirements = String(options.requirements || brief.additional_requirements || '').trim()
+  return [
+    { label: t('courseFiles.workbench.audience'), value: String(brief.target_audience || options.target_audience || t('courseFiles.workbench.notSet')), empty: !brief.target_audience && !options.target_audience },
+    { label: t('courseFiles.workbench.schedule'), value: schedule, empty: !classHours || !lessonMinutes },
+    { label: t('courseFiles.workbench.difficulty'), value: difficulty, empty: !options.difficulty },
+    { label: t('courseFiles.workbench.requirements'), value: requirements || t('courseFiles.workbench.notSet'), title: requirements, empty: !requirements },
+  ]
+})
+const categoryConsoleTitle = computed(() => {
+  const group = activeCategory.value
+  const node = categoryDetailNode.value
+  if (!group) return t('courseFiles.workbench.startPreparing')
+  if (!node) return t('courseFiles.workbench.noLessonsTitle').replace('{stage}', group.label)
+  if (node.status === 'working') return t('courseFiles.workbench.workingTitle').replace('{stage}', group.label)
+  if (node.status === 'stale') return t('courseFiles.workbench.updateTitle').replace('{stage}', group.label)
+  return t('courseFiles.workbench.startStage').replace('{stage}', group.label)
+})
+const categoryConsoleDescription = computed(() => {
+  const group = activeCategory.value
+  const node = categoryDetailNode.value
+  if (!group) return ''
+  if (!node) return t(`courseFiles.workbench.empty.${group.type}`)
+  if (node.status === 'missing') return t(`courseFiles.workbench.empty.${group.type}`)
+  return t(`courseFiles.statusHelp.${node.status}`)
+})
+const categoryConsoleActionLabel = computed(() => {
+  if (categoryDetailNode.value) return primaryLabel(categoryDetailNode.value)
+  return activeCategory.value?.type === 'outline'
+    ? t('courseFiles.workbench.createOutline')
+    : t('courseFiles.workbench.returnToOutline')
+})
 const currentFolder = computed(() => flatNodes.value.get(currentFolderId.value) || treeData.value[0])
 const inspectedNode = computed(() => selectedNode.value || currentFolder.value || null)
 const sortColumns = computed<Array<{ key: SortKey; label: string }>>(() => [
@@ -484,6 +739,52 @@ const createTargetFolder = computed(() => flatNodes.value.get(createTargetFolder
 const canAddTeacherFiles = computed(() => Boolean(currentFolder.value && ['reference', 'material', 'folder'].includes(currentFolder.value.type)))
 const emptyFolderTitle = computed(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
 
+function setWorkspaceView(value: WorkspaceView) {
+  if (props.workspaceView === undefined) localWorkspaceView.value = value
+  emit('update:workspaceView', value)
+  if (value === 'categories' && activeCategory.value) selectCategory(activeCategory.value)
+}
+
+const categoryHasChildren = (group: CategoryGroup) => group.type !== 'outline' && group.items.length > 0
+function selectCategory(group: CategoryGroup) {
+  selectedCategory.value = group.type
+  const current = group.items.find(node => node.id === selectedNode.value?.id)
+  if (current) return
+  if (group.items[0]) selectNode(group.items[0])
+  else selectedNode.value = null
+}
+function selectCategoryNode(node: WorkspaceNode) { selectNode(node) }
+
+function categoryStatusSummary(group: CategoryGroup) {
+  if (!group.items.length) return t('courseFiles.categories.notStarted')
+  if (group.ready === group.items.length) return t('courseFiles.categories.allReady')
+  if (group.working) return t('courseFiles.categories.inProgress').replace('{count}', String(group.working))
+  return t('courseFiles.categories.pendingCount').replace('{count}', String(group.attention))
+}
+
+function categoryCountLabel(group: CategoryGroup) {
+  if (!group.items.length) return t('courseFiles.categories.notStarted')
+  if (group.ready === group.items.length) return t('courseFiles.workbench.completed')
+  if (group.working) return t('courseFiles.workbench.generating')
+  return t('courseFiles.workbench.progressCount').replace('{ready}', String(group.ready)).replace('{total}', String(group.items.length))
+}
+
+function startActiveCategory() {
+  if (categoryDetailNode.value) {
+    void primaryAction(categoryDetailNode.value)
+    return
+  }
+  const outline = categoryGroups.value.find(group => group.type === 'outline')?.items[0]
+  if (outline) void primaryAction(outline)
+  else emit('createOutline')
+}
+
+function categoryState(group: CategoryGroup) {
+  if (group.ready === group.items.length && group.items.length) return 'ready'
+  if (group.working) return 'working'
+  return 'attention'
+}
+
 const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type}`)
 function assetRole(node: WorkspaceNode) {
   if (node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'practice'].includes(node.type)) return 'required'
@@ -494,6 +795,10 @@ function assetRole(node: WorkspaceNode) {
 const statusLabel = (node: WorkspaceNode) => t(`courseFiles.status.${node.status}`)
 const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'ppt' ? Presentation : node.type === 'practice' ? ListChecks : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
 const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
+const lessonNumber = (id?: string) => {
+  const lesson = lessons.value.find(item => item.lesson_unit_id === id)
+  return lesson ? String(lesson.number).padStart(2, '0') : '—'
+}
 const dateLabel = (value?: string) => value ? new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value)) : t('courseFiles.notUpdated')
 const size = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
 const displayUpdated = (node: WorkspaceNode) => dateLabel(node.updatedAt)
@@ -724,6 +1029,25 @@ function planValueMarkdown(value: unknown, depth = 2): string {
 function lessonPlanMarkdown(lesson: TeacherLessonProjection) {
   const revision = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
   return `# ${lesson.title} · ${t('courseFiles.names.lessonPlan')}\n\n${planValueMarkdown(revision?.plan || {})}`.trimEnd() + '\n'
+}
+
+function lessonPptMarkdown(lesson: TeacherLessonProjection) {
+  const asset = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
+  const revision = asset?.revisions.find(item => item.revision_id === asset.working_revision_id)
+  const slides = revision?.deck?.slides || []
+  if (!slides.length) return ''
+  const title = revision?.deck?.title || `${lesson.title} · ${t('courseFiles.names.ppt')}`
+  const body = slides.map((slide, index) => {
+    const lines = [`## ${index + 1}. ${slide.title}`]
+    if (slide.body?.length) lines.push('', ...slide.body.map(item => `- ${item}`))
+    if (slide.speaker_notes?.trim()) lines.push('', `> ${slide.speaker_notes.trim()}`)
+    return lines.join('\n')
+  }).join('\n\n')
+  return `# ${title}\n\n${body}\n`
+}
+
+function previewMarkdown(value: string) {
+  return value.replace(/^#\s+[^\n]+\n+/, '').trim()
 }
 
 async function exportManagedNode(node: WorkspaceNode) {
@@ -984,8 +1308,10 @@ onMounted(refresh)
 </script>
 
 <style scoped>
-.file-space,.file-space *{box-sizing:border-box}.file-space{height:100%;min-height:0;color:var(--lz-text-strong);background:#f8fafc;font-size:14px}.standalone-header{height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--lz-border);background:#fff}.standalone-header small,.standalone-header h1{display:block;margin:0}.standalone-header small{color:var(--lz-text-muted);font-size:13px}.standalone-header h1{font-size:20px}.standalone-header button{display:flex;align-items:center;gap:7px;border:0;background:transparent;font-size:14px}
+.file-space,.file-space *{box-sizing:border-box}.file-space{height:100%;min-height:0;color:var(--lz-text-strong);background:#f8fafc;font-size:14px}.standalone-header{position:relative;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--lz-border);background:#fff}.standalone-header small,.standalone-header h1{display:block;margin:0}.standalone-header small{color:var(--lz-text-muted);font-size:13px}.standalone-header h1{font-size:20px}.standalone-header-actions{display:flex;align-items:center;gap:10px}.standalone-header-actions>button{height:38px;display:flex;align-items:center;gap:7px;padding:0 10px;border:0;border-radius:8px;color:var(--lz-text-secondary);background:transparent;font-size:14px;cursor:pointer}.standalone-header-actions>button:hover{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
+.workspace-ready{height:100%;min-height:0;overflow:hidden}.workspace-view-switch{position:absolute;left:50%;top:50%;display:inline-flex;align-items:center;gap:3px;padding:3px;border:1px solid var(--lz-border);border-radius:10px;background:#f5f6fa;transform:translate(-50%,-50%)}.workspace-view-switch button{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.workspace-view-switch button:hover{color:var(--lz-text-strong)}.workspace-view-switch button.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 2px 7px rgba(15,23,42,.08)}.workspace-view-switch button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .file-layout{height:100%;min-height:0;display:grid;grid-template-columns:260px minmax(560px,1fr) 312px;overflow:hidden;background:#fff}.file-tree-pane,.file-list-pane,.file-inspector{min-height:0;overflow:hidden}.file-tree-pane{display:grid;grid-template-rows:auto minmax(0,1fr) auto;border-right:1px solid var(--lz-border);background:#f8fafc}.pane-heading{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px;border-bottom:1px solid #e8edf4}.pane-heading>span{min-width:0;display:flex;align-items:center;gap:8px;color:#475569}.pane-heading>span>svg{color:#64748b}.pane-heading strong{overflow:hidden;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.pane-heading button,.file-inspector header>button{width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:7px;background:transparent;color:var(--lz-text-muted);cursor:pointer}.pane-heading button:hover,.file-inspector header>button:hover{color:var(--lz-text-strong);background:#eef2f7}.folder-navigation{min-height:0;overflow:auto;padding:9px 8px 16px}.folder-navigation>ul{margin:0;padding:0;list-style:none}.file-tree-pane footer{display:grid;gap:9px;padding:14px;border-top:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px}.file-tree-pane footer button{display:flex;align-items:center;gap:7px;padding:0;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}
+.category-layout{height:100%;min-height:0;display:grid;grid-template-columns:272px minmax(0,1fr);overflow:hidden;background:#fff}.category-navigation{min-height:0;overflow:auto;padding:18px 12px;border-right:1px solid var(--lz-border);background:#f8fafc}.category-navigation>header{display:grid;gap:5px;padding:0 8px 15px}.category-navigation>header strong{font-size:14px}.category-navigation>header small{color:var(--lz-text-muted);font-size:12px;line-height:1.45}.category-navigation nav{display:grid;gap:5px}.category-group{min-width:0}.category-group__button{width:100%;min-width:0;min-height:58px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border:1px solid transparent;border-radius:10px;color:var(--lz-text-muted);background:transparent;text-align:left;cursor:pointer}.category-group__button:hover{background:#fff}.category-group__button.active{border-color:rgba(99,102,241,.2);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-group__button>span:nth-child(2){min-width:0;display:grid;gap:3px}.category-group__button strong,.category-group__button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.category-group__button strong{color:var(--lz-text-secondary);font-size:13px}.category-group__button small{color:var(--lz-text-muted);font-size:12px}.category-group__button.active strong{color:var(--lz-brand-strong)}.category-group__trailing{display:flex;align-items:center;gap:4px}.category-group__trailing b{min-width:30px;color:var(--lz-text-muted);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}.category-group__trailing b[data-state="ready"]{color:var(--lz-success)}.category-group__trailing b[data-state="working"]{color:var(--lz-brand-strong)}.category-group__trailing b[data-state="attention"]{color:var(--lz-warning)}.category-group__chevron{transition:transform .16s ease}.category-group.active .category-group__chevron{transform:rotate(90deg)}.category-children{display:grid;gap:2px;margin:3px 5px 9px 26px;padding-left:11px;border-left:1px solid #dbe2ec}.category-child{width:100%;min-width:0;min-height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 8px;align-items:center;gap:7px;padding:5px 8px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.category-child:hover{background:#fff}.category-child.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.08)}.category-child__index{color:var(--lz-text-muted);font-size:11px;font-variant-numeric:tabular-nums}.category-child__name{overflow:hidden;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.category-child .status-dot{margin:0}.category-group__button:focus-visible,.category-child:focus-visible,.category-detail-actions button:focus-visible,.category-detail-empty button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.category-detail-pane{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;background:#f8fafc}.category-detail-header{min-height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 24px;border-bottom:1px solid var(--lz-border);background:#fff}.category-detail-header>div:first-child{min-width:0;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 12px}.category-detail-header small{grid-column:1/-1;color:var(--lz-text-muted);font-size:12px}.category-detail-header h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.category-detail-status{display:inline-flex;align-items:center;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}.category-detail-status .status-dot{margin-right:6px}.category-detail-actions{flex:none;display:flex;align-items:center;gap:8px}.category-detail-actions button,.category-detail-empty button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:700;cursor:pointer}.category-detail-actions button.primary,.category-detail-empty button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.category-detail-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-detail-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-detail-actions button:disabled,.category-detail-empty button:disabled{opacity:.45;cursor:not-allowed}.category-document-scroll{min-height:0;overflow:auto;padding:28px 32px 48px}.category-document{width:min(940px,100%);min-height:calc(100% - 4px);margin:0 auto;padding:32px 42px 52px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.05)}.category-document :deep(.markdown-renderer){color:var(--lz-text-secondary);font-size:14px;line-height:1.75}.category-document :deep(.markdown-renderer> :first-child){margin-top:0}.category-document :deep(h2){margin:28px 0 12px;color:var(--lz-text-strong);font-size:20px}.category-document :deep(h3){margin:22px 0 10px;color:var(--lz-text-strong);font-size:16px}.category-document :deep(p),.category-document :deep(ul),.category-document :deep(ol){margin:10px 0}.category-document :deep(blockquote){margin:14px 0;padding:10px 14px;border-left:3px solid var(--lz-brand-border);color:var(--lz-text-secondary);background:var(--lz-brand-soft)}.category-detail-empty{min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:28px;color:var(--lz-text-muted);text-align:center}.category-detail-empty>svg{color:#94a3b8}.category-detail-empty strong{color:var(--lz-text-secondary);font-size:16px}.category-detail-empty>span{max-width:380px;font-size:13px;line-height:1.6}.category-detail-empty button{margin-top:5px}
 .file-list-pane{display:flex;flex-direction:column;background:#fff}.list-toolbar{min-height:58px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 18px;border-bottom:1px solid var(--lz-border)}.list-toolbar nav{min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}.list-toolbar nav button{display:flex;align-items:center;gap:6px;min-width:0;padding:5px;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;white-space:nowrap;cursor:pointer}.list-toolbar nav svg{flex:none;color:#94a3b8}.toolbar-actions{display:flex;align-items:center;gap:8px}.list-search{width:248px;height:40px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;border:1px solid transparent;border-radius:10px;color:#94a3b8;background:#f1f5f9;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}.list-search:focus-within{border-color:var(--lz-brand-border);background:#fff;box-shadow:0 0 0 3px var(--lz-brand-soft)}.list-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text-strong);background:transparent;font-size:13px}.list-search input::-webkit-search-cancel-button{display:none}.list-search button{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.list-search button:hover{color:var(--lz-text-strong);background:#e2e8f0}.list-search button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .folder-title{min-height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 18px}.folder-title h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.folder-title__actions{flex:none;display:flex;align-items:center;gap:7px}.folder-title__actions>span{margin-right:3px;color:var(--lz-text-muted);font-size:13px}.folder-title__actions button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:700;cursor:pointer}.folder-title__actions button:hover{border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.add-material-button{padding:0 12px}.add-folder-button{width:36px;padding:0}
 .file-table{min-height:0;flex:1;overflow:auto;padding:0 12px 20px}.file-table__head,.file-row{display:grid;grid-template-columns:minmax(230px,1.65fr) 126px 88px 76px 98px;align-items:center;gap:10px}.file-table__head{min-height:42px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px;font-weight:700}.sort-button{height:40px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.sort-button svg{opacity:.55}.sort-button:hover,.sort-button.active{color:var(--lz-text-secondary)}.sort-button.active svg{opacity:1}.sort-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-table__head span:nth-child(4) .sort-button{width:100%;justify-content:flex-end}.file-row{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid #edf1f6;background:transparent;color:var(--lz-text-secondary);text-align:left;font-size:13px;cursor:pointer}.file-row:hover,.file-row:focus-visible{outline:0;background:#f7f9fc}.file-row.selected{background:#e9eeff}.file-name{min-width:0;display:flex;align-items:center;gap:10px}.file-name strong{overflow:hidden;color:var(--lz-text-strong);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.file-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f1f5f9;color:#64748b}.file-icon[data-type="outline"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"]{background:#eef2ff;color:#4f46e5}.status-dot{width:7px;height:7px;display:inline-block;margin-right:6px;border-radius:50%;background:#94a3b8}.status-dot[data-state="ready"],.status-dot[data-state="uploaded"]{background:#10b981}.status-dot[data-state="working"]{background:#6366f1}.status-dot[data-state="stale"]{background:#f97316}.status-dot[data-state="missing"],.status-dot[data-state="empty"]{background:#cbd5e1}
@@ -996,5 +1322,26 @@ onMounted(refresh)
 .source-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker button{align-items:center;gap:8px}.ppt-origin-picker button svg{grid-row:auto}.practice-create-note,.create-prerequisite{align-items:center}
 .preview-surface{min-height:420px;display:grid;place-items:center}.preview-surface img{max-width:100%;max-height:75vh}.preview-surface iframe{width:100%;min-height:72vh;border:0}.office-note{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--lz-text-muted);text-align:center;font-size:13px}.office-note strong{color:var(--lz-text-strong);font-size:15px}.office-note button{padding:8px 11px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;font-size:13px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:1080px){.file-layout{grid-template-columns:220px minmax(440px,1fr) 270px}.list-search{display:none}.file-table__head,.file-row{grid-template-columns:minmax(190px,1.5fr) 104px 78px 90px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}}
-@media (max-width:760px){.file-layout{grid-template-columns:1fr;grid-template-rows:170px minmax(0,1fr) auto}.file-tree-pane{display:grid;grid-template-rows:46px minmax(0,1fr);overflow:hidden;border-right:0;border-bottom:1px solid var(--lz-border)}.pane-heading{min-height:46px;padding:0 11px}.folder-navigation{overflow:auto;padding:6px 8px 11px}.file-tree-pane footer{display:none}.file-inspector{max-height:48vh;border-left:0;border-top:1px solid var(--lz-border)}.inspector-actions{grid-template-columns:1fr auto auto}.list-toolbar{min-height:50px;padding:0 11px}.list-toolbar nav button{max-width:110px}.folder-title{min-height:58px;padding:8px 12px}.folder-title h2{font-size:17px}.folder-title__actions>span{display:none}.add-material-button{padding:0 10px}.file-table{padding:0 7px 12px}.file-table__head,.file-row{grid-template-columns:minmax(180px,1fr) 94px}.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}.form-grid{grid-template-columns:1fr}}
+@media (max-width:760px){.workspace-view-switch button{padding:0 8px}.file-layout{grid-template-columns:1fr;grid-template-rows:170px minmax(0,1fr) auto}.file-tree-pane{display:grid;grid-template-rows:46px minmax(0,1fr);overflow:hidden;border-right:0;border-bottom:1px solid var(--lz-border)}.pane-heading{min-height:46px;padding:0 11px}.folder-navigation{overflow:auto;padding:6px 8px 11px}.file-tree-pane footer{display:none}.file-inspector{max-height:48vh;border-left:0;border-top:1px solid var(--lz-border)}.inspector-actions{grid-template-columns:1fr auto auto}.list-toolbar{min-height:50px;padding:0 11px}.list-toolbar nav button{max-width:110px}.folder-title{min-height:58px;padding:8px 12px}.folder-title h2{font-size:17px}.folder-title__actions>span{display:none}.add-material-button{padding:0 10px}.file-table{padding:0 7px 12px}.file-table__head,.file-row{grid-template-columns:minmax(180px,1fr) 94px}.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(160px,32vh) minmax(0,1fr)}.category-navigation{padding:11px 10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-group__button{min-height:50px}.category-detail-header{min-height:72px;align-items:flex-start;gap:10px;padding:10px 12px}.category-detail-header>div:first-child{gap:3px 8px}.category-detail-header h2{font-size:17px}.category-detail-actions{gap:5px}.category-detail-actions button{min-height:34px;padding:0 9px}.category-document-scroll{padding:12px 10px 28px}.category-document{min-height:100%;padding:20px 18px 34px;border-radius:9px}.form-grid{grid-template-columns:1fr}}
+.category-layout{grid-template-columns:312px minmax(0,1fr)}
+.category-navigation{padding:20px 14px;background:linear-gradient(180deg,#f8fafc 0%,#f6f7fb 100%)}
+.category-navigation>header{padding:0 8px 14px}.category-navigation>header strong{font-size:15px}.category-navigation>header small{max-width:248px;line-height:1.55}
+.category-progress{display:grid;gap:8px;margin:0 4px 14px;padding:12px 13px;border:1px solid #e4e8f1;border-radius:10px;background:rgba(255,255,255,.84)}
+.category-progress>div{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--lz-text-muted);font-size:12px}.category-progress>div strong{color:var(--lz-brand-strong);font-size:13px;font-variant-numeric:tabular-nums}
+.category-progress__track{height:5px;overflow:hidden;border-radius:999px;background:#e7eaf2}.category-progress__track i{display:block;height:100%;border-radius:inherit;background:var(--lz-brand);transition:width .24s ease}
+.category-navigation nav{gap:6px}.category-group__button{min-height:68px;grid-template-columns:27px 18px minmax(0,1fr) auto;gap:9px;padding:9px 10px}.category-group__button>svg{color:#8b98ab}.category-group__button.active>svg{color:var(--lz-brand)}
+.category-group__step{width:27px;height:27px;display:grid;place-items:center;border:1px solid #dbe2ec;border-radius:7px;color:#7b8798;background:rgba(255,255,255,.72);font-size:10px;font-weight:800;font-variant-numeric:tabular-nums}.category-group__button.active .category-group__step{border-color:rgba(99,102,241,.24);color:var(--lz-brand-strong);background:#fff}
+.category-group__copy{min-width:0;display:grid;gap:3px}.category-group__copy strong,.category-group__copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.category-group__copy strong{color:var(--lz-text-secondary);font-size:13px}.category-group__copy small{color:var(--lz-text-muted);font-size:11px}.category-group__button.active .category-group__copy strong{color:var(--lz-brand-strong)}
+.category-group__trailing b{min-width:max-content;padding:3px 6px;border-radius:999px;background:#eef2f7;text-align:center}.category-group__trailing b[data-state="ready"]{background:#ecfdf5}.category-group__trailing b[data-state="working"]{background:#eef2ff}.category-group__trailing b[data-state="attention"]{background:#fff7ed}
+.category-detail-pane{grid-template-rows:auto auto minmax(0,1fr)}
+.workbench-brief-bar{min-height:72px;display:grid;grid-template-columns:minmax(180px,.8fr) minmax(420px,1.7fr) auto;align-items:center;gap:18px;padding:10px 24px;border-bottom:1px solid var(--lz-border);background:#fff}
+.workbench-brief-bar__title{min-width:0;display:flex;align-items:center;gap:10px}.workbench-brief-bar__title>span{width:32px;height:32px;display:grid;place-items:center;flex:none;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.workbench-brief-bar__title>div{min-width:0;display:grid;gap:2px}.workbench-brief-bar__title strong{font-size:13px}.workbench-brief-bar__title small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.workbench-brief-bar dl{min-width:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0}.workbench-brief-bar dl>div{min-width:0;display:grid;gap:2px;padding-left:10px;border-left:1px solid #e7eaf0}.workbench-brief-bar dt{color:var(--lz-text-muted);font-size:10px}.workbench-brief-bar dd{margin:0;overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}.workbench-brief-bar dd[data-empty="true"]{color:#a1a9b6;font-weight:600}
+.workbench-settings-button{min-height:34px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid var(--lz-brand-border);border-radius:8px;color:var(--lz-brand-strong);background:#fff;font-size:12px;font-weight:750;white-space:nowrap;cursor:pointer}.workbench-settings-button:hover{background:var(--lz-brand-soft)}.workbench-settings-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
+.category-console{min-height:0;overflow:auto;display:grid;place-items:center;padding:32px;background:radial-gradient(circle at 50% 8%,rgba(99,102,241,.06),transparent 34%),#f8fafc}
+.category-console__card{width:min(600px,100%);display:grid;justify-items:center;padding:34px 38px 36px;border:1px solid #e0e6ef;border-radius:16px;background:#fff;box-shadow:0 16px 44px rgba(15,23,42,.06);text-align:center}.category-console__card>header{width:100%;display:flex;align-items:center;justify-content:space-between}.category-console__icon{width:48px;height:48px;display:grid;place-items:center;border-radius:13px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__step{padding:5px 8px;border-radius:999px;color:#667085;background:#f2f4f7;font-size:11px;font-weight:750}.category-console__card h3{margin:22px 0 8px;color:var(--lz-text-strong);font-size:22px;letter-spacing:-.012em}.category-console__card>p{max-width:470px;margin:0;color:var(--lz-text-muted);font-size:13px;line-height:1.65}
+.category-prerequisite{width:100%;display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:9px;margin-top:22px;padding:12px 14px;border:1px solid #e4e8f1;border-radius:10px;color:#64748b;background:#f8fafc;text-align:left}.category-prerequisite>svg{color:var(--lz-brand)}.category-prerequisite>div{display:grid;gap:2px}.category-prerequisite small{font-size:10px}.category-prerequisite strong{color:#475569;font-size:12px}
+.category-console__actions{display:flex;align-items:center;justify-content:center;gap:9px;margin-top:24px}.category-console__actions button{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:750;cursor:pointer}.category-console__actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.category-console__actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-console__actions button:disabled{opacity:.45;cursor:not-allowed}.category-console__actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
+@media (max-width:1180px){.category-layout{grid-template-columns:280px minmax(0,1fr)}.workbench-brief-bar{grid-template-columns:minmax(180px,.8fr) minmax(300px,1.4fr) auto;gap:12px;padding-inline:16px}.workbench-brief-bar dl>div:nth-child(4){display:none}.workbench-brief-bar dl{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:760px){.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(210px,37vh) minmax(0,1fr)}.category-navigation{padding:10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-progress{margin:0 2px 8px;padding:8px 10px}.category-group__button{min-height:54px;grid-template-columns:24px 16px minmax(0,1fr) auto;padding:7px 8px}.category-group__step{width:24px;height:24px}.category-group__copy small{display:none}.category-children{margin-bottom:5px}.category-detail-header{min-height:66px}.workbench-brief-bar{min-height:60px;grid-template-columns:minmax(0,1fr) auto;padding:8px 12px}.workbench-brief-bar__title small,.workbench-brief-bar dl{display:none}.category-console{padding:14px 10px 26px}.category-console__card{padding:22px 18px 24px;border-radius:12px}.category-console__card h3{margin-top:18px;font-size:19px}.category-console__actions{width:100%;display:grid;grid-template-columns:1fr;margin-top:20px}.category-console__actions button{width:100%}}
 </style>
