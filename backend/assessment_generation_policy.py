@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v3"
+    "assessment_generation_policy_v4"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -99,13 +99,6 @@ class AssessmentGenerationPolicy:
         decision = requires_deliberation(stage, resolved_context)
         if stage == "review":
             decision = DeliberationDecision(False)
-        elif stage == "generate" and resolved_context.get(
-            "batch_generation"
-        ):
-            decision = DeliberationDecision(
-                True,
-                ("complete_batch_generation",),
-            )
         if not _global_thinking_enabled():
             decision = DeliberationDecision(False)
         return AssessmentModelCallPolicy(
@@ -142,7 +135,10 @@ def resolve_assessment_generation_policy(
         generation_batch_size=2,
         solution_batch_size=1,
         max_provider_attempts=None,
-        compact_candidate=False,
+        # 候选生成器只负责锁定题面、答案和验证器；完整教学解析由看不到
+        # 生成器答案的独立求解器补全。这样既缩短结构化 JSON，避免 reasoning
+        # 吃光正文预算，也让解析天然成为一次独立正确性复核。
+        compact_candidate=True,
         max_model_solve_calls_per_question=3,
         # 本地确定性解题器在完整链路中继续启用。
         #

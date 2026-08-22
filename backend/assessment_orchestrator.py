@@ -63,6 +63,8 @@ PRACTICE_LEVELS = (
     "mastery_check",
 )
 
+ASSESSMENT_PROMPT_TEMPLATE_VERSION = "assessment_prompt_template_v4"
+
 
 def _out_tokens(limit: int) -> int:
     """Raise a per-call output ceiling to the floor the current model needs.
@@ -234,6 +236,11 @@ class UniversalAssessmentModel(AIBase):
             "structured_fields",
             "rich_text",
         }
+        reasoning_enabled = (
+            call_policy.enable_thinking
+            if call_policy is not None
+            else deliberate
+        )
         response = await self._assessment_llm_call(
             call_policy,
             _generation_prompt(
@@ -250,16 +257,23 @@ class UniversalAssessmentModel(AIBase):
             ),
             retry_count=_assessment_retry_count(),
             enable_thinking=(
-                call_policy.enable_thinking
-                if call_policy is not None
-                else deliberate
+                reasoning_enabled
             ),
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(
                 2048
                 if input_mode == "choice"
-                else (4096 if input_mode != "code" else 6144)
+                else (
+                    8192
+                    if reasoning_enabled and input_mode != "code"
+                    else (
+                        12288
+                        if reasoning_enabled and input_mode == "code"
+                        else (4096 if input_mode != "code" else 6144)
+                    )
+                )
             ),
             json_mode=True,
             model_role="assessment_generator",
@@ -302,6 +316,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=False,
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(12288),
             json_mode=True,
             model_role="assessment_generator",
@@ -355,6 +370,15 @@ class UniversalAssessmentModel(AIBase):
                 "use threads, processes, timers, benchmarks, network, files, "
                 "randomness, or third-party packages.\n"
             )
+        reasoning_enabled = (
+            call_policy.enable_thinking
+            if call_policy is not None
+            else input_mode in {
+                "code",
+                "structured_fields",
+                "rich_text",
+            }
+        )
         response = await self._assessment_llm_call(
             call_policy,
             (
@@ -382,20 +406,23 @@ class UniversalAssessmentModel(AIBase):
             ),
             retry_count=_assessment_retry_count(),
             enable_thinking=(
-                call_policy.enable_thinking
-                if call_policy is not None
-                else input_mode in {
-                    "code",
-                    "structured_fields",
-                    "rich_text",
-                }
+                reasoning_enabled
             ),
             use_fast_model=input_mode in {"choice", "numeric_unit"},
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(
                 1536
                 if input_mode == "choice"
-                else (3072 if input_mode != "code" else 4096)
+                else (
+                    6144
+                    if reasoning_enabled and input_mode != "code"
+                    else (
+                        8192
+                        if reasoning_enabled and input_mode == "code"
+                        else (3072 if input_mode != "code" else 4096)
+                    )
+                )
             ),
             json_mode=True,
             model_role="assessment_solver",
@@ -440,6 +467,7 @@ class UniversalAssessmentModel(AIBase):
                 for item in items
             ),
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(min(8192, 2048 * len(items))),
             json_mode=True,
             model_role="assessment_solver",
@@ -500,6 +528,7 @@ class UniversalAssessmentModel(AIBase):
                 }
             ),
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(6144),
             json_mode=True,
             model_role="assessment_generator",
@@ -533,6 +562,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=False,
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(min(12288, 4096 * len(items))),
             json_mode=True,
             model_role="assessment_generator",
@@ -580,17 +610,10 @@ class UniversalAssessmentModel(AIBase):
             "evidence": ["Short evidence without code quotations"],
             "issues": [],
         }
-        semantic_review_directive = (
-            "Independently verify question-type semantics, whether material is "
-            "necessary for the answer, whether the prompt presupposes a "
-            "nonexistent error, consistency between prompt facts and the "
-            "independent answer, and whether all options answer one question. "
-            "Use the defined semantic issue codes for failures. "
-        )
         response = await self._assessment_llm_call(
             call_policy,
             (
-                semantic_review_directive
+                _semantic_review_directive()
                 +
                 "严格按以下JSON结构输出，所有字符串必须正确转义。"
                 "evidence只写短句，不复制代码，不在字符串中使用引号。\n"
@@ -616,6 +639,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=True,
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(2048),
             json_mode=True,
             model_role="assessment_reviewer",
@@ -650,6 +674,7 @@ class UniversalAssessmentModel(AIBase):
             ),
             use_fast_model=True,
             raise_on_failure=True,
+            reject_truncated=True,
             max_tokens=_out_tokens(4096),
             json_mode=True,
             model_role="assessment_reviewer",
@@ -1375,6 +1400,9 @@ class AssessmentGenerationOrchestrator:
             "course_id": str(prepared.get("course_id") or ""),
             "assessment_generation_profile": generation_policy.profile,
             "assessment_generation_policy_version": generation_policy.version,
+            "assessment_prompt_template_version": (
+                ASSESSMENT_PROMPT_TEMPLATE_VERSION
+            ),
             "generation_scope": resolved_generation_scope,
             "generation_calls": 0,
             "batch_generation_calls": 0,
@@ -2241,16 +2269,10 @@ class AssessmentGenerationOrchestrator:
             list[dict[str, Any]],
         ] = {}
         for context in contexts:
-            if generation_policy.profile == "complete":
-                call_policy = generation_policy.call_policy(
-                    "generate",
-                    {"batch_generation": True},
-                )
-            else:
-                call_policy = generation_policy.call_policy(
-                    "generate",
-                    context,
-                )
+            call_policy = generation_policy.call_policy(
+                "generate",
+                {**context, "batch_generation": True},
+            )
             grouped.setdefault(
                 (
                     call_policy.enable_thinking,
@@ -2273,11 +2295,10 @@ class AssessmentGenerationOrchestrator:
                     continue
                 call_policy = generation_policy.call_policy(
                     "generate",
-                    (
-                        {"batch_generation": True}
-                        if generation_policy.profile == "complete"
-                        else batch_contexts[0]
-                    ),
+                    {
+                        **batch_contexts[0],
+                        "batch_generation": True,
+                    },
                 )
                 audit["generation_calls"] += 1
                 audit["batch_generation_calls"] += 1
@@ -3286,6 +3307,10 @@ def _audit_snapshot(audit: dict[str, Any]) -> dict[str, Any]:
         "assessment_generation_policy_version": str(
             audit.get("assessment_generation_policy_version")
             or ASSESSMENT_GENERATION_POLICY_VERSION
+        ),
+        "assessment_prompt_template_version": str(
+            audit.get("assessment_prompt_template_version")
+            or ASSESSMENT_PROMPT_TEMPLATE_VERSION
         ),
         "generation_scope": str(
             audit.get("generation_scope") or "scoped_repair"
@@ -4598,9 +4623,48 @@ def _form_directive(question_form: str) -> str:
             "要挖就挖成「该过程中系统内能{{1}}」、答案「增加」。\n"
             "答案超过 5 个字的空会被直接拒收，整道题作废。"
         )
+    if question_form == "numeric":
+        return (
+            "本题是数值题：options 必须为空数组；题面必须给出足以唯一计算答案的"
+            "公开条件，并明确所需精度、容差或单位。canonical_answer 必须使用"
+            "numeric_unit 作答合同要求的数值 payload，不得写成选项 id；"
+            "solution_graph 必须声明可复核的列式、单位换算和结果检查步骤。"
+        )
+    if question_form == "short_answer":
+        return (
+            "本题是简答题：options 必须为空数组；任务必须要求一个边界清楚、可在"
+            "短文本中完成的答案，不得退化成长篇论述。canonical_answer 必须给出"
+            "实际参考答案，acceptable_answers 用于容纳等价表述，rubric 必须对应"
+            "题面要求的可观察要点。"
+        )
+    if question_form == "essay":
+        return (
+            "本题是论述题：options 必须为空数组；题面必须明确论点、证据、比较或"
+            "论证范围。canonical_answer 必须给出一份实质性参考作答，rubric 必须"
+            "拆成可观察、可分别评分的标准，不得只写“言之有理即可”。"
+        )
+    if question_form == "structured":
+        return (
+            "本题是结构化作答题：options 必须为空数组；学生提交的每个字段必须与"
+            "assessment_slot.input_contract.fields 中的 field_id 一一对应。"
+            "canonical_answer 与 rubric 必须覆盖每个必填字段，不得把多字段任务"
+            "压成一段无结构文本。"
+        )
+    if question_form == "coding":
+        return (
+            "本题是代码实现题：options 必须为空数组；题面必须给出确定性的输入、"
+            "输出和边界条件，canonical_answer 必须是包含完整程序的 code payload，"
+            "并由至少三个不暴露给学生的 hidden_tests 验证。"
+        )
+    if question_form == "single_choice" or not question_form:
+        return (
+            "选择题必须提供至少两个唯一 options，标准答案必须对应"
+            "一个 option id。"
+        )
     return (
-        "选择题必须提供至少两个唯一 options，标准答案必须对应"
-        "一个 option id。"
+        "严格遵守 assessment_slot.input_mode 与 input_contract；只有 choice 模式"
+        "可以提供 options，其他模式 options 必须为空数组。canonical_answer 必须"
+        "是该作答合同可直接判定的实际答案，不得伪造选项 id。"
     )
 
 
@@ -4684,6 +4748,36 @@ def _repair_prompt(
         f"上下文：{json.dumps(context, ensure_ascii=False)}\n"
         f"原候选：{json.dumps(candidate, ensure_ascii=False)}\n"
         f"验证报告：{json.dumps(validation, ensure_ascii=False)}"
+    )
+
+
+def _authoring_quality_directive() -> str:
+    """Single source of truth for single and batch authoring quality rules."""
+    return (
+        "Treat question_design_brief as immutable. First lock one verifiable "
+        "answer fact, canonical answer and validator; then select the smallest "
+        "material used by a solution step, derive distractors from named "
+        "misconceptions, and write the public wording last. Never change the "
+        "question type, answer fact, validator, or input mode. "
+        "Ground every course-specific fact in content_evidence or the "
+        "objective source excerpt. If the supplied evidence is insufficient, "
+        "write a self-contained problem whose answer follows from public "
+        "conditions; never invent a course fact or external citation. "
+        "Demonstrate the requested difficulty through the number of necessary "
+        "reasoning steps, interaction of conditions, transfer distance, and "
+        "diagnostic distractors. A difficulty label or verbose wording does not "
+        "make a question difficult. The learner action must directly elicit "
+        "the objective's observable_evidence. "
+        "output_prediction must ask for a concrete output, exception, state, "
+        "identity, or call order. debugging_trace must contain a real "
+        "reproducible defect and an answer with location, cause, repair and "
+        "retest evidence. Every material block must be needed for the answer, "
+        "and ordinary code material must not exceed 20 effective lines. "
+        "Obey question_design_brief.diversity_plan and "
+        "diversity_constraints. Do not reuse a forbidden core instance, "
+        "data set, source passage, code sample, formula set, or reasoning "
+        "route. Changing only wording, response format, labels, context "
+        "decoration, or numeric parameters is not a new question. "
     )
 
 
@@ -4782,28 +4876,17 @@ def _generation_prompt_v2(
     }
     if compact:
         output_schema["solution"].pop("worked_solution", None)
+    if _slot_question_form(context) not in {
+        "single_choice",
+        "multiple_choice",
+        "true_false",
+    }:
+        output_schema["question_spec"]["options"] = []
     if _slot_question_form(context) != "fill_blank":
         # 非填空题不该输出 blanks；留在 schema 里模型会照着填一个空壳。
         output_schema["solution"].pop("blanks", None)
-    answer_first_directive = (
-        "Treat question_design_brief as immutable. First lock one verifiable "
-        "answer fact, canonical answer and validator; then select the smallest "
-        "material used by a solution step, derive distractors from named "
-        "misconceptions, and write the public wording last. Never change the "
-        "question type, answer fact, validator, or input mode. "
-        "output_prediction must ask for a concrete output, exception, state, "
-        "identity, or call order. debugging_trace must contain a real "
-        "reproducible defect and an answer with location, cause, repair and "
-        "retest evidence. Every material block must be needed for the answer, "
-        "and ordinary code material must not exceed 20 effective lines. "
-        "Obey question_design_brief.diversity_plan and "
-        "diversity_constraints. Do not reuse a forbidden core instance, "
-        "data set, source passage, code sample, formula set, or reasoning "
-        "route. Changing only wording, response format, labels, context "
-        "decoration, or numeric parameters is not a new question. "
-    )
     return (
-        answer_first_directive
+        _authoring_quality_directive()
         +
         "输出必须严格使用 REQUIRED_OUTPUT_SCHEMA 中的键名和嵌套结构，"
         "不得改名或省略必填字段。stimulus.rendered_text 与 "
@@ -5046,6 +5129,19 @@ def _batch_generation_prompt(
     }
     if compact:
         candidate_schema["solution"].pop("worked_solution", None)
+    batch_forms = {
+        str(
+            (context.get("assessment_slot") or {}).get("question_form")
+            or ""
+        )
+        for context in contexts
+    }
+    if batch_forms and batch_forms.isdisjoint({
+        "single_choice",
+        "multiple_choice",
+        "true_false",
+    }):
+        candidate_schema["question_spec"]["options"] = []
     if not any(
         str(
             (context.get("assessment_slot") or {}).get("question_form") or ""
@@ -5061,7 +5157,8 @@ def _batch_generation_prompt(
         }],
     }
     return (
-        f"一次生成{len(batch)}道相互独立的原创课程题目。"
+        _authoring_quality_directive()
+        + f"一次生成{len(batch)}道相互独立的原创课程题目。"
         "必须为每个BATCH_ITEM生成且只生成一个candidate，"
         "不能遗漏、合并或交换slot_id。只输出JSON，不输出解释。\n"
         "同批题目之间不得复用核心实例、材料、数据集、代码样例、"
@@ -5224,7 +5321,8 @@ def _batch_evaluation_prompt(
         }],
     }
     return (
-        f"分别评审以下{len(items)}道题。每道题必须独立评分，"
+        _semantic_review_directive()
+        + f"分别评审以下{len(items)}道题。每道题必须独立评分，"
         "不能用另一题的答案或结论。只输出JSON，不输出思维过程。"
         "dimensions只能包含curriculum_targeting(0-20)、"
         "answerability_and_completeness(0-15)、"
@@ -5239,11 +5337,32 @@ def _batch_evaluation_prompt(
     )
 
 
+def _semantic_review_directive() -> str:
+    return (
+        "Independently verify question-type semantics, whether every material "
+        "block is necessary for the answer, whether the prompt presupposes a "
+        "nonexistent error, consistency between public facts and the "
+        "independent answer, and whether all options answer one question. "
+        "Verify that the learner action directly elicits objective.observable_evidence "
+        "and the locked knowledge or skill; otherwise emit OBJECTIVE_MISMATCH. "
+        "Judge actual difficulty from necessary reasoning steps, interaction "
+        "of conditions, transfer distance, and distractor diagnosticity rather "
+        "than the difficulty label or wording length; emit DIFFICULTY_MISMATCH "
+        "when the public task does not substantiate the slot contract. When "
+        "the objective supplies source_excerpt or source_refs, reject any "
+        "course-specific factual claim that conflicts with or is unsupported "
+        "by that evidence using SOURCE_CONFLICT. Use the defined semantic "
+        "issue codes, set passed=false for every critical issue, and cite only "
+        "short public evidence. "
+    )
+
+
 _generation_prompt = _generation_prompt_v2
 _repair_prompt = _repair_prompt_v2
 
 
 __all__ = [
+    "ASSESSMENT_PROMPT_TEMPLATE_VERSION",
     "AssessmentGenerationOrchestrator",
     "AssessmentModel",
     "PRACTICE_LEVELS",

@@ -534,6 +534,40 @@ def test_quality_score_passes_at_85_and_blocks_reference_copy():
     }
 
 
+def test_triggered_semantic_review_is_a_hard_publish_gate():
+    contract, objective, slot = _quality_contract()
+    report = evaluate_question_contract_quality(
+        contract,
+        objective=objective,
+        slot=slot,
+        semantic_report={
+            "reviewer_triggered": True,
+            "passed": False,
+            "confidence": 0.97,
+            "solution_consistent": True,
+            "dimensions": {
+                "curriculum_targeting": 20,
+                "answerability_and_completeness": 15,
+                "difficulty_fit": 10,
+                "clarity": 5,
+            },
+            "issues": [{
+                "code": "DIFFICULTY_MISMATCH",
+                "severity": "critical",
+                "message": "题面只有一步代入，未达到掌握检验难度",
+            }],
+        },
+    )
+
+    assert report["passed"] is False
+    assert report["hard_gates"]["semantic_review"] is False
+    assert report["decision"] == "repair"
+    assert {
+        "SEMANTIC_REVIEW_FAILED",
+        "DIFFICULTY_MISMATCH",
+    }.issubset({issue["code"] for issue in report["issues"]})
+
+
 def test_quality_gate_rejects_missing_worked_solution():
     contract, objective, slot = _quality_contract()
     contract["solution_envelope"].pop("worked_solution")

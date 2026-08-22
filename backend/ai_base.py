@@ -601,6 +601,16 @@ class AIBase:
         """Choose a bounded cooldown from the failure's operational meaning."""
         status_code = AIBase._error_status_code(error)
         message = str(error).lower()
+        if "has no provider supported" in message:
+            return max(
+                60.0,
+                float(
+                    os.getenv(
+                        "AI_MODEL_UNSUPPORTED_COOLDOWN_SECONDS",
+                        "86400",
+                    )
+                ),
+            )
         quota_exhausted = any(marker in message for marker in (
             "insufficient_quota",
             "insufficient balance",
@@ -723,6 +733,8 @@ class AIBase:
     @staticmethod
     def _capacity_failure_kind(error: Exception) -> str:
         message = str(error).lower()
+        if "has no provider supported" in message:
+            return "unsupported"
         if any(marker in message for marker in (
             "insufficient_quota",
             "insufficient balance",

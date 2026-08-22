@@ -16,7 +16,10 @@ from uuid import uuid4
 from fastapi import APIRouter, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from assessment_orchestrator import AssessmentGenerationOrchestrator
+from assessment_orchestrator import (
+    ASSESSMENT_PROMPT_TEMPLATE_VERSION,
+    AssessmentGenerationOrchestrator,
+)
 from assessment_generation_policy import (
     ASSESSMENT_GENERATION_POLICY_VERSION,
     normalize_assessment_generation_profile,
@@ -542,6 +545,10 @@ def _generation_summary(
         "assessment_generation_policy_version": audit.get(
             "assessment_generation_policy_version",
             ASSESSMENT_GENERATION_POLICY_VERSION,
+        ),
+        "assessment_prompt_template_version": audit.get(
+            "assessment_prompt_template_version",
+            ASSESSMENT_PROMPT_TEMPLATE_VERSION,
         ),
         "logical_call_count": audit.get("logical_call_count", 0),
         "wall_clock_ms": audit.get("wall_clock_ms", 0),
@@ -1336,6 +1343,10 @@ async def _execute_question_bank_rebuild(
         and normalize_assessment_generation_profile(
             checkpoint.get("assessment_generation_profile")
         ) == payload.assessment_generation_profile
+        and checkpoint.get("assessment_generation_policy_version")
+        == ASSESSMENT_GENERATION_POLICY_VERSION
+        and checkpoint.get("assessment_prompt_template_version")
+        == ASSESSMENT_PROMPT_TEMPLATE_VERSION
         and sorted(
             str(value)
             for value in checkpoint.get("material_asset_ids") or []
@@ -1360,6 +1371,7 @@ async def _execute_question_bank_rebuild(
             payload.scope == "course"
             and payload.resume_existing
             and not resumable_checkpoint
+            and not checkpoint
         )
         else set()
     )
@@ -1477,6 +1489,9 @@ async def _execute_question_bank_rebuild(
             "assessment_generation_policy_version": (
                 ASSESSMENT_GENERATION_POLICY_VERSION
             ),
+            "assessment_prompt_template_version": (
+                ASSESSMENT_PROMPT_TEMPLATE_VERSION
+            ),
             "planned_item_count": 3,
             "failure_count": 0,
             "items": deepcopy(event.get("audit_items") or []),
@@ -1540,6 +1555,9 @@ async def _execute_question_bank_rebuild(
             "assessment_generation_policy_version": (
                 ASSESSMENT_GENERATION_POLICY_VERSION
             ),
+            "assessment_prompt_template_version": (
+                ASSESSMENT_PROMPT_TEMPLATE_VERSION
+            ),
             "planned_item_count": total_chapters * 3,
             "published_item_count": len(audit_by_slot),
             "failure_count": 0,
@@ -1594,6 +1612,9 @@ async def _execute_question_bank_rebuild(
                 ),
                 "assessment_generation_policy_version": (
                     ASSESSMENT_GENERATION_POLICY_VERSION
+                ),
+                "assessment_prompt_template_version": (
+                    ASSESSMENT_PROMPT_TEMPLATE_VERSION
                 ),
                 "material_asset_ids": selected_material_asset_ids,
                 "blueprint_revision_id": (

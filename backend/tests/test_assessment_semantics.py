@@ -441,6 +441,47 @@ async def test_clean_low_risk_deterministic_question_skips_llm_review():
     assert model.calls == 0
 
 
+@pytest.mark.parametrize(
+    "practice_level",
+    ["objective_practice", "mastery_check"],
+)
+async def test_higher_practice_levels_require_semantic_review_even_when_deterministic(
+    practice_level,
+):
+    model = _ReviewerCountingModel()
+    orchestrator = AssessmentGenerationOrchestrator(model=model)
+    contract = _contract(
+        question_type="output_prediction",
+        stimulus="```python\nprint(1 + 1)\n```",
+        task="Predict the exact printed output.",
+        canonical_answer="A",
+        options=[
+            {"id": "A", "text": "2"},
+            {"id": "B", "text": "1"},
+        ],
+    )
+    contract["question_spec"]["practice_level"] = practice_level
+    contract["solution_validation"] = {
+        "deterministic": True,
+        "passed": True,
+    }
+    contract["semantic_preflight"] = (
+        evaluate_question_semantic_preflight(contract)
+    )
+    audit = {"semantic_evaluation_calls": 0, "call_timings": []}
+
+    report = await orchestrator._semantic_report(
+        contract,
+        independent={"answer": "A"},
+        objective={"objective_id": "obj-1"},
+        slot={"slot_id": "slot-1"},
+        audit=audit,
+    )
+
+    assert report["reviewer_triggered"] is True
+    assert model.calls == 1
+
+
 async def test_open_or_warned_question_invokes_isolated_llm_review():
     model = _ReviewerCountingModel()
     orchestrator = AssessmentGenerationOrchestrator(model=model)

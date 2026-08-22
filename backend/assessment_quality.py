@@ -56,6 +56,10 @@ _REPAIRABLE_HARD_CODES = {
     "OBSERVABLE_RESULT_MISSING",
     "DISTRACTOR_NOT_SAME_QUESTION",
     "MATERIAL_BINDING_INVALID",
+    "SEMANTIC_REVIEW_FAILED",
+    "OBJECTIVE_MISMATCH",
+    "DIFFICULTY_MISMATCH",
+    "SOURCE_CONFLICT",
     # 学科事实类问题同样可修复。具体有哪些码由学科检查注册表提供，
     # 通用门不再逐个列举——列举就等于把单课程特例焊进通用引擎（N1）。
     *SUBJECT_FACT_ISSUE_CODES,
@@ -85,6 +89,17 @@ def evaluate_question_contract_quality(
     )
     semantic_preflight = deepcopy(
         contract.get("semantic_preflight") or {}
+    )
+    semantic = deepcopy(semantic_report or {})
+    semantic_issues = [
+        deepcopy(issue)
+        for issue in semantic.get("issues") or []
+        if isinstance(issue, dict) and issue.get("code")
+    ]
+    reviewer_triggered = bool(semantic.get("reviewer_triggered"))
+    reviewer_has_critical_issue = any(
+        str(issue.get("severity") or "") == "critical"
+        for issue in semantic_issues
     )
     semantic_preflight_required = bool(
         contract.get("design_brief")
@@ -150,6 +165,17 @@ def evaluate_question_contract_quality(
         "semantic_preflight": bool(
             semantic_preflight.get("passed")
         ) if semantic_preflight_required else True,
+        # 一旦隔离语义评审被触发，它就是发布硬门，不允许“答案校验通过”
+        # 掩盖目标偏离、难度虚标或来源冲突。
+        "semantic_review": (
+            not reviewer_triggered
+            or (
+                semantic.get("passed") is True
+                and semantic.get("solution_consistent") is True
+                and float(semantic.get("confidence") or 0) >= 0.85
+                and not reviewer_has_critical_issue
+            )
+        ),
         # G1：题目必须说得出「学生要表现出什么可观察动作」。
         #
         # 这个字段早就在 AssessmentIntent 里（practice_analysis:141），
@@ -201,6 +227,10 @@ def evaluate_question_contract_quality(
         "semantic_preflight": (
             "SEMANTIC_PREFLIGHT_FAILED",
             "题型、材料、题面前提与答案之间的语义硬门未通过",
+        ),
+        "semantic_review": (
+            "SEMANTIC_REVIEW_FAILED",
+            "隔离语义评审未通过，题目存在目标、难度、来源或答案一致性风险",
         ),
         "observable_action": (
             "OBSERVABLE_ACTION_MISSING",
@@ -298,12 +328,6 @@ def evaluate_question_contract_quality(
             )
         )
 
-    semantic = deepcopy(semantic_report or {})
-    semantic_issues = [
-        deepcopy(issue)
-        for issue in semantic.get("issues") or []
-        if isinstance(issue, dict) and issue.get("code")
-    ]
     issues.extend(semantic_issues)
     dimensions = _dimension_scores(
         contract,

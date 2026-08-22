@@ -827,6 +827,62 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
     assert repository.course_storage.save_count == 2
 
 
+def test_resume_restarts_campaign_when_prompt_contract_changed(
+    monkeypatch,
+    tmp_path,
+):
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=_two_chapter_course(),
+        orchestrator=DeterministicAssessmentOrchestrator(
+            fail_node_id="node-2",
+        ),
+    )
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-old-prompt-failure",
+            "mode": "full",
+        },
+    )
+    failed = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    ).json()
+    assert failed["status"] == "failed"
+
+    checkpoint = repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]
+    checkpoint["assessment_prompt_template_version"] = (
+        "assessment_prompt_template_v3"
+    )
+    replacement = DeterministicAssessmentOrchestrator()
+    monkeypatch.setattr(
+        question_bank,
+        "assessment_generation_orchestrator",
+        replacement,
+    )
+
+    _, rebuilt = _rebuild(
+        client,
+        "request-new-prompt-restart",
+        mode="full",
+    )
+
+    assert rebuilt["result"]["coverage"]
+    assert replacement.requested_node_ids == [["node-1", "node-2"]]
+    current_checkpoint = repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]
+    assert current_checkpoint["assessment_prompt_template_version"] == (
+        question_bank.ASSESSMENT_PROMPT_TEMPLATE_VERSION
+    )
+
+
 def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, tmp_path):
     client, repository = _client(monkeypatch, tmp_path)
     stored = repository.save_bundle("course-api", build_question_bank(_course()))

@@ -93,6 +93,34 @@ TBD - created by archiving change unify-course-blueprint-and-learning-assets. Up
 - **AND** MAY 定向修复一次并重复相同闸门
 - **AND** MUST NOT 使用通用回退题补足数量
 
+### Requirement: 题目生成合同必须可追溯并失败关闭
+
+单题与批量生成 MUST 使用同一套答案先行、来源约束、真实难度和题型作答合同。系统 MUST 在生成审计中保存生成策略版本和提示词模板版本；旧断点只有在蓝图、资料范围、生成策略和提示词模板全部一致时才可恢复。生成器只负责公开题面、标准答案和验证器等候选合同，完整教学解析 MUST 由隔离的独立求解阶段补全。
+
+#### Scenario: 非选择题生成
+
+- **WHEN** 任务槽的作答形态为数值、简答、论述、结构化字段或代码
+- **THEN** 生成提示 MUST 明确要求空 `options`
+- **AND** MUST NOT 同时要求标准答案为选项 ID
+
+#### Scenario: 复杂结构化响应达到输出上限
+
+- **WHEN** 模型响应达到输出 token 上限或只返回推理而未返回完整 JSON
+- **THEN** 系统 MUST 将本次调用判定为截断失败并在有真实余量时重试
+- **AND** MUST NOT 使用修补后的残缺 JSON 进入独立求解或质量门
+
+#### Scenario: 隔离语义评审被触发
+
+- **WHEN** 题目属于目标练习、掌握检验、非确定性验证、高风险或语义预检要求复核
+- **THEN** 评审 MUST 检查课程目标、可观察表现、实际推理难度、来源支持和答案一致性
+- **AND** 任一 critical 语义问题或低置信度结论 MUST 阻止自动发布
+
+#### Scenario: 恢复旧题库重建任务
+
+- **WHEN** 当前生成策略版本或提示词模板版本与断点不同
+- **THEN** 系统 MUST 启动新的重建 campaign
+- **AND** MUST NOT 将旧提示词生成的章节视为本轮已通过章节
+
 ### Requirement: 学习结果必须写入事件账本
 
 新作答、错题、自我确认和复习结果 MUST 写入 LearningEvent，并保存当时的 CourseVersion、QuestionRevision、Criterion 和 Concept 引用。学习者模型 MUST 从事件派生掌握状态，新数据不得继续写入 node.quiz_score 或 course.review_history。

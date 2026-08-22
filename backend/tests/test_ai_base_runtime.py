@@ -56,6 +56,25 @@ def _clear_model_environment(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
+def test_unsupported_provider_model_opens_long_lived_circuit_immediately(
+    monkeypatch,
+):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_MODEL_CANDIDATES", "unsupported-model,working-model")
+    service = AIBase()
+    service._model_failure_cache.clear()
+    service._model_transient_failures.clear()
+    error = RuntimeError("Model id has no provider supported")
+
+    assert service._capacity_failure_kind(error) == "unsupported"
+    assert service._model_failure_cooldown_seconds(error) >= 86400
+
+    service._cool_down_model("unsupported-model", error)
+
+    assert service._models_for(False) == ["working-model"]
+
+
 @pytest.mark.asyncio
 async def test_call_llm_does_not_print_reasoning_content(monkeypatch, capsys, caplog):
     monkeypatch.setenv("AI_API_KEY", "test-key")

@@ -226,6 +226,22 @@ def test_new_forms_get_specific_directives() -> None:
     assert "{{1}}" in fill_blank
     assert "solution.blanks" in fill_blank
 
+    for form in (
+        "numeric",
+        "short_answer",
+        "essay",
+        "structured",
+        "coding",
+    ):
+        directive = _form_directive(form)
+        assert "options 必须为空数组" in directive
+        assert "option id" not in directive
+
+    assert "numeric_unit" in _form_directive("numeric")
+    assert "acceptable_answers" in _form_directive("short_answer")
+    assert "field_id" in _form_directive("structured")
+    assert "hidden_tests" in _form_directive("coding")
+
 
 def test_batch_prompt_sends_per_item_directives_when_forms_differ() -> None:
     from assessment_orchestrator import _batch_generation_prompt
@@ -250,6 +266,33 @@ def test_batch_prompt_sends_per_item_directives_when_forms_differ() -> None:
         context("single_choice", 1), context("single_choice", 2),
     ])
     assert "标准答案必须对应一个 option id" in uniform
+
+
+def test_single_and_batch_prompts_share_answer_source_and_difficulty_rules() -> None:
+    from assessment_orchestrator import (
+        _batch_generation_prompt,
+        _generation_prompt_v2,
+    )
+
+    context = {
+        "assessment_slot": {
+            "slot_id": "slot-1",
+            "question_form": "numeric",
+            "input_mode": "numeric_unit",
+            "validation_mode": "numeric_unit_validator",
+        },
+    }
+    prompts = [
+        _generation_prompt_v2(context),
+        _batch_generation_prompt([context]),
+    ]
+    for prompt in prompts:
+        assert "First lock one verifiable answer fact" in prompt
+        assert "content_evidence" in prompt
+        assert "never invent a course fact" in prompt
+        assert "transfer distance" in prompt
+        assert "observable_evidence" in prompt
+        assert '"options": []' in prompt
 
 
 def test_blanks_schema_only_appears_for_fill_blank() -> None:

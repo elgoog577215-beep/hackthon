@@ -662,6 +662,14 @@ def should_run_semantic_review(
         return True
     if preflight.get("requires_llm_review"):
         return True
+    # 确定性验证只能证明答案与验证器一致，不能证明题目真的命中了课程目标，
+    # 也不能证明所谓“掌握检验”具备足够的迁移距离。概念检查保留低成本快路；
+    # 目标练习和掌握检验必须再经过隔离语义评审。
+    if str(spec.get("practice_level") or "") in {
+        "objective_practice",
+        "mastery_check",
+    }:
+        return True
     risk = spec.get("risk_contract") or {}
     return bool(
         str(risk.get("risk_level") or "low") != "low"

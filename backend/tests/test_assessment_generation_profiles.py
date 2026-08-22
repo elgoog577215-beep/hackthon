@@ -36,7 +36,7 @@ def test_complete_policy_preserves_the_full_quality_budget() -> None:
     assert policy.generation_batch_size == 2
     assert policy.solution_batch_size == 1
     assert policy.max_provider_attempts is None
-    assert policy.compact_candidate is False
+    assert policy.compact_candidate is True
     assert policy.stage_timeouts == {
         "generate": None,
         "repair": None,
@@ -103,6 +103,34 @@ def test_deliberation_is_selective_and_reasoned() -> None:
     assert structural_repair.required is False
     assert semantic_repair.required is True
     assert semantic_repair.reason_codes == ("semantic_repair",)
+
+
+def test_batch_generation_does_not_force_thinking_for_simple_items() -> None:
+    policy = resolve_assessment_generation_policy("complete")
+
+    simple = policy.call_policy(
+        "generate",
+        {
+            "batch_generation": True,
+            "assessment_slot": {
+                "input_mode": "choice",
+                "validation_mode": "exact_validator",
+            },
+        },
+    )
+    complex_item = policy.call_policy(
+        "generate",
+        {
+            "batch_generation": True,
+            "assessment_slot": {
+                "input_mode": "structured_fields",
+                "validation_mode": "expert_rubric_validator",
+            },
+        },
+    )
+
+    assert simple.enable_thinking is False
+    assert complex_item.enable_thinking is True
 
 
 def test_global_thinking_switch_vetoes_provider_request(monkeypatch) -> None:

@@ -7,10 +7,14 @@ import pytest
 
 from ai_base import AIProviderRequestError
 from assessment_orchestrator import (
+    ASSESSMENT_PROMPT_TEMPLATE_VERSION,
     AssessmentGenerationOrchestrator,
     UniversalAssessmentModel,
     _batch_generation_prompt,
     _SemanticEvaluationBatcher,
+)
+from assessment_generation_policy import (
+    resolve_assessment_generation_policy,
 )
 from question_bank import approved_formal_tasks, build_question_bank
 
@@ -907,9 +911,46 @@ async def test_choice_generation_uses_fast_non_thinking_json_mode(
     assert captured["use_fast_model"] is True
     assert captured["enable_thinking"] is False
     assert captured["json_mode"] is True
+    assert captured["reject_truncated"] is True
     assert captured["max_tokens"] == 2048
     assert isinstance(captured["prompt"], str)
     assert "<REQUIRED_OUTPUT_SCHEMA>" in captured["prompt"]
+
+
+async def test_complex_generation_reserves_answer_budget_and_uses_compact_candidate(
+    monkeypatch,
+):
+    monkeypatch.delenv("ASSESSMENT_MIN_OUTPUT_TOKENS", raising=False)
+    captured = {}
+    model = UniversalAssessmentModel()
+
+    async def fake_call(prompt, **kwargs):
+        captured["prompt"] = prompt
+        captured.update(kwargs)
+        return '{"question_spec": {}, "solution": {}}'
+
+    monkeypatch.setattr(model, "_call_llm", fake_call)
+    context = {
+        "assessment_slot": {
+            "input_mode": "structured_fields",
+            "validation_mode": "expert_rubric_validator",
+        },
+    }
+    policy = resolve_assessment_generation_policy("complete")
+
+    await model.generate_candidate(
+        context,
+        call_policy=policy.call_policy("generate", context),
+    )
+
+    assert captured["enable_thinking"] is True
+    assert captured["max_tokens"] == 8192
+    assert captured["reject_truncated"] is True
+    schema = captured["prompt"].split(
+        "<REQUIRED_OUTPUT_SCHEMA>\n",
+        1,
+    )[1].split("\n</REQUIRED_OUTPUT_SCHEMA>", 1)[0]
+    assert '"worked_solution"' not in schema
 
 
 async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
@@ -983,6 +1024,9 @@ async def test_scoped_orchestration_only_calls_models_for_requested_nodes():
     assert chapter_events[0]["audit_snapshot"][
         "assessment_generation_policy_version"
     ]
+    assert chapter_events[0]["audit_snapshot"][
+        "assessment_prompt_template_version"
+    ] == ASSESSMENT_PROMPT_TEMPLATE_VERSION
     assert chapter_events[0]["audit_snapshot"]["logical_call_count"] >= 1
     assert chapter_events[0]["audit_snapshot"]["wall_clock_ms"] >= 0
 
@@ -1001,6 +1045,9 @@ async def test_legacy_fast_profile_resolves_to_complete_policy():
     audit = prepared["_assessment_generation_audit"]
     assert audit["assessment_generation_profile"] == "complete"
     assert audit["assessment_generation_policy_version"]
+    assert audit["assessment_prompt_template_version"] == (
+        ASSESSMENT_PROMPT_TEMPLATE_VERSION
+    )
     assert audit["max_generation_attempts_per_question"] == 4
     assert audit["max_repairs_per_question"] == 3
 
