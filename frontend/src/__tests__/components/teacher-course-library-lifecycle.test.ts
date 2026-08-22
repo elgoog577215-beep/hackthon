@@ -3,7 +3,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { ElMessageBox } from 'element-plus'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent } from 'vue'
 import CourseLibraryView from '@/views/TeacherCourseLibraryView.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
@@ -22,12 +21,6 @@ const router = createRouter({
     { path: '/course/:courseId/workspace/:mode', name: 'course-workspace', component: { template: '<div />' } },
     { path: '/course/:courseId/learn', name: 'learning', component: { template: '<div />' } },
   ],
-})
-
-const GenerationDialogStub = defineComponent({
-  props: { modelValue: Boolean, busy: Boolean },
-  emits: ['generate', 'update:modelValue'],
-  template: '<button v-if="modelValue" class="generate-now" @click="$emit(\'generate\', { subject: \'微积分\', options: {} })">generate</button>',
 })
 
 describe('CourseLibraryView generation lifecycle', () => {
@@ -68,10 +61,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.library-header h1').text()).toBe('课程工作台')
-    expect(wrapper.get('.library-header p').text()).toBe('我的课程')
+    expect(wrapper.find('.library-header').exists()).toBe(false)
     expect(wrapper.classes()).not.toContain('course-library--empty')
     expect(wrapper.find('.library-toolbar').exists()).toBe(true)
+    expect(wrapper.find('.library-status-filters').exists()).toBe(true)
     expect(wrapper.get('.library-state').text()).toContain('还没有课程')
   })
 
@@ -145,7 +138,15 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.teacher-asset-summary').text()).toContain('尚无教学大纲')
     expect(wrapper.get('.teacher-asset-summary').text()).toContain('下一步建立课程大纲')
     expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
-    expect(wrapper.findAll('.library-toolbar__summary strong')[2]!.text()).toBe('0')
+    const statusFilters = wrapper.findAll('.library-status-filters button')
+    expect(statusFilters[1]!.text()).toContain('未开始')
+    expect(statusFilters[1]!.get('strong').text()).toBe('1')
+    expect(statusFilters[4]!.text()).toContain('备课完成')
+    expect(statusFilters[4]!.get('strong').text()).toBe('0')
+
+    await statusFilters[4]!.trigger('click')
+    expect(wrapper.find('.course-item').exists()).toBe(false)
+    expect(wrapper.get('.library-state').text()).toContain('调整搜索词或备课状态')
   })
 
   it('保持原课程卡片结构，并展示真实教学单元、近期课次和推荐动作', async () => {
@@ -462,151 +463,6 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('[data-testid="course-cover-course-math"]').attributes('data-cover-preset')).toBe('mathematics')
     expect(wrapper.get('[data-testid="course-cover-course-programming"]').attributes('data-cover-preset')).toBe('programming')
     expect(wrapper.get('[data-testid="course-cover-course-general"]').attributes('data-cover-preset')).toBe('general')
-  })
-
-  it('新建课程先进入可恢复的三步创建页', async () => {
-    const courses = useCourseStore()
-    const generation = useGenerationStore()
-    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
-    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
-
-    const wrapper = mount(CourseLibraryView, {
-      global: {
-        plugins: [router],
-        stubs: {
-          CourseGenerationDialog: GenerationDialogStub,
-          CourseWorkbench: true,
-          CourseTaskCenter: true,
-          QuestionBankReviewCenter: true,
-          Teleport: true,
-        },
-      },
-    })
-    await flushPromises()
-
-    await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
-    await wrapper.get('[data-testid="create-blank-course"]').trigger('click')
-    await flushPromises()
-
-    expect(router.currentRoute.value.name).toBe('teacher-course-create')
-    expect(wrapper.findComponent({ name: 'CourseWorkbench' }).props('modelValue')).toBe(false)
-  })
-
-  it('Markdown 导入创建后台任务后打开任务中心而不是提前进入空课程', async () => {
-    const courses = useCourseStore()
-    const generation = useGenerationStore()
-    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
-    vi.spyOn(courses, 'importMarkdown').mockResolvedValue({
-      job_id: 'import-job-1', course_id: 'course-import-1',
-    } as any)
-    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
-    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
-
-    const wrapper = mount(CourseLibraryView, {
-      global: {
-        plugins: [router],
-        stubs: {
-          CourseGenerationDialog: true,
-          CourseWorkbench: true,
-          CourseTaskCenter: true,
-          QuestionBankReviewCenter: true,
-          Teleport: true,
-        },
-      },
-    })
-    await flushPromises()
-    const input = wrapper.get('input[type="file"]')
-    const inputClick = vi.spyOn(input.element as HTMLInputElement, 'click')
-    await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
-    await wrapper.get('[data-testid="import-markdown-course"]').trigger('click')
-    expect(inputClick).toHaveBeenCalledOnce()
-
-    const file = new File(['# 线性代数\n\n向量有大小和方向。'], 'linear.md', { type: 'text/markdown' })
-    Object.defineProperty(input.element, 'files', { configurable: true, value: [file] })
-
-    await input.trigger('change')
-    await flushPromises()
-
-    expect(courses.importMarkdown).toHaveBeenCalledWith(file)
-    expect(router.currentRoute.value.name).toBe('teacher-course-library')
-    const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
-    expect(workbench.props('modelValue')).toBe(true)
-    expect(workbench.props('courseId')).toBe('course-import-1')
-  })
-
-  it('在教师全屏课程库标题区集中跨课程入口和新建课程菜单', async () => {
-    const courses = useCourseStore()
-    const generation = useGenerationStore()
-    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
-    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
-    const runningTask = generation.createTask('job-running', 'course-running', '进行中的课程')
-    runningTask.status = 'running'
-    const reviewTask = generation.createTask('job-needs-attention', 'course-review', '等待确认的课程')
-    reviewTask.status = 'waiting_for_review'
-
-    const wrapper = mount(CourseLibraryView, {
-      global: {
-        plugins: [router],
-        stubs: {
-          CourseGenerationDialog: true,
-          CourseWorkbench: true,
-          CourseTaskCenter: true,
-          QuestionBankReviewCenter: true,
-          Teleport: true,
-        },
-      },
-    })
-    await flushPromises()
-
-    expect(wrapper.find('.library-actions .task-center-button').exists()).toBe(true)
-    expect(wrapper.find('.library-actions .import-button').exists()).toBe(false)
-    expect(wrapper.find('.library-global-actions .task-center-button').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="open-course-workbench"]').text()).toContain('任务中心')
-    expect(wrapper.get('.library-global-actions .action-count').text()).toBe('1')
-    expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('false')
-
-    await wrapper.get('[data-testid="create-course-menu-trigger"]').trigger('click')
-
-    expect(wrapper.get('[data-testid="create-course-menu-trigger"]').attributes('aria-expanded')).toBe('true')
-    expect(wrapper.get('[data-testid="create-blank-course"]').text()).toContain('进入新建课程')
-    expect(wrapper.get('[data-testid="import-markdown-course"]').text()).toContain('导入 Markdown')
-
-    await wrapper.get('.library-global-actions .task-center-button').trigger('click')
-    const workbench = wrapper.getComponent({ name: 'CourseWorkbench' })
-    expect(workbench.props('modelValue')).toBe(true)
-  })
-
-  it('从全局顶栏进入教学总日历', async () => {
-    const courses = useCourseStore()
-    const generation = useGenerationStore()
-    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
-    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
-    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
-
-    const wrapper = mount(CourseLibraryView, {
-      global: {
-        plugins: [router],
-        stubs: {
-          CourseGenerationDialog: true,
-          CourseWorkbench: true,
-          CourseTaskCenter: true,
-          QuestionBankReviewCenter: true,
-          Teleport: true,
-        },
-      },
-    })
-    await flushPromises()
-
-    await wrapper.get('[data-testid="open-teacher-calendar"]').trigger('click')
-    await flushPromises()
-
-    expect(router.currentRoute.value.name).toBe('teacher-teaching-calendar')
   })
 
   it('opens a published course in the unified course workbench', async () => {
