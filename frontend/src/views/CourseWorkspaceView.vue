@@ -85,6 +85,7 @@
         @open-tasks="openTasks"
         @open-practice="openPractice"
         @open-question-bank="openQuestionBankWorkbench"
+        @open-companion-documents="openCompanionDocuments"
         @context-change="selectedContext = $event"
         @readiness-change="readiness = $event"
       />
@@ -176,7 +177,7 @@ const autoGenerationHandled = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
-const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'>('foundation')
+const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
 
@@ -248,6 +249,11 @@ function openLessonPlan(lessonId: string) {
 
 function openQuestionBankWorkbench() {
   requestedWorkbenchStage.value = 'question-bank'
+  workspaceView.value = 'categories'
+}
+
+function openCompanionDocuments() {
+  requestedWorkbenchStage.value = 'companion'
   workspaceView.value = 'categories'
 }
 

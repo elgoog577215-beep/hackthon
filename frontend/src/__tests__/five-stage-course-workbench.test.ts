@@ -12,7 +12,8 @@ describe('five-stage course workbench boundary', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     const questionBank = source('components/QuestionBankReviewPanel.vue')
 
-    expect(workbench).toContain("type StageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'")
+    expect(workbench).toContain("type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'")
+    expect(workbench).toContain("type StageId = CoreStageId | 'companion'")
     expect(workbench.indexOf("id: 'question-bank'")).toBeLessThan(
       workbench.indexOf("id: 'script'"),
     )
@@ -20,6 +21,22 @@ describe('five-stage course workbench boundary', () => {
     expect(workbench).toContain(':material-asset-ids="activeReferences.map')
     expect(questionBank).toContain('<ExamPaperComposer')
     expect(questionBank).toContain('material_asset_ids: props.materialAssetIds')
+  })
+
+  it('keeps companion documents outside the numbered teaching chain', () => {
+    const workbench = source('components/TeacherCourseWorkbench.vue')
+    const studio = source('components/CompanionDocumentStudio.vue')
+    const fileView = source('views/TeacherCourseSpaceView.vue')
+
+    expect(workbench).toContain('class="companion-entry"')
+    expect(workbench).toContain('<CompanionDocumentStudio')
+    expect(workbench).not.toContain("id: 'companion' as const, step: '06'")
+    expect(studio).toContain('class="template-grid"')
+    expect(studio).toContain('grading_rubric')
+    expect(studio).toContain('material_checklist')
+    expect(fileView).toContain("type: 'companion_documents'")
+    expect(fileView).toContain("type: 'companion_document'")
+    expect(fileView).toContain("emit('openCompanionDocuments')")
   })
 
   it('manages question banks and exam papers as formal file-view assets', () => {

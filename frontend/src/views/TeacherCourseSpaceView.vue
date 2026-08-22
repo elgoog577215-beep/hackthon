@@ -382,12 +382,13 @@ import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; material_asset_id?: string; uploaded_at?: string; updated_at?: string }
 type FileRelationship = { link_id: string; source_asset_id: string; source_label: string; target_id: string; target_type: string; target_label: string; role: 'primary' | 'reference' }
 type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; relationships?: FileRelationship[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
+type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; rendered_markdown: string; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
-type NodeType = 'root' | 'reference' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'folder' | 'file'
+type NodeType = 'root' | 'reference' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
 type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
-  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
+  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
 }
 type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
@@ -423,6 +424,7 @@ const emit = defineEmits<{
   (event: 'openTasks'): void
   (event: 'openPractice', lessonId: string): void
   (event: 'openQuestionBank'): void
+  (event: 'openCompanionDocuments'): void
   (event: 'openAssistant'): void
   (event: 'editBaseline'): void
   (event: 'discussBaseline'): void
@@ -471,6 +473,7 @@ const previewUrl = ref('')
 const questionBankItems = ref<Array<{ node_id?: string; lifecycle_status?: string }>>([])
 const questionBankRevisionId = ref('')
 const examPapers = ref<Array<{ paper_id: string; revision_id: string; title: string; item_count: number; total_score: number; duration_minutes: number; updated_at?: string }>>([])
+const companionDocuments = ref<CompanionDocument[]>([])
 const practiceWorkingLessonIds = ref<string[]>([])
 
 const lessons = computed<TeacherLessonProjection[]>(() => {
@@ -501,8 +504,8 @@ const textSize = (value: string) => new TextEncoder().encode(value).byteLength |
 const displayPath = (value: string) => {
   if (!value) return t('courseFiles.rootName')
   const labels = activeLocale.value === 'en'
-    ? { 教学日历: 'Teaching calendar', 课次: 'Sessions', 教案: 'Lesson plan', 讲稿: 'Script', 资料: 'Materials', 练习: 'Practice', 题库: 'Question bank', 试卷: 'Exam papers', 参考资料: 'References' }
-    : { 教学日历: '教学日历', 课次: '课次', 教案: '教案', 讲稿: '讲稿', 资料: '资料', 练习: '练习', 题库: '题库', 试卷: '试卷', 参考资料: '参考资料' }
+    ? { 教学日历: 'Teaching calendar', 配套文档: 'Companion documents', 课次: 'Sessions', 教案: 'Lesson plan', 讲稿: 'Script', 资料: 'Materials', 练习: 'Practice', 题库: 'Question bank', 试卷: 'Exam papers', 参考资料: 'References' }
+    : { 教学日历: '教学日历', 配套文档: '配套文档', 课次: '课次', 教案: '教案', 讲稿: '讲稿', 资料: '资料', 练习: '练习', 题库: '题库', 试卷: '试卷', 参考资料: '参考资料' }
   return value.split('/').filter(Boolean).map(part => (labels as Record<string, string>)[part] || part.replace(/^(\d+)_/, '$1 ')).join(' / ')
 }
 
@@ -566,6 +569,7 @@ function physicalChildren(basePath: string, parentId: string): WorkspaceNode[] {
 
 const managedPaths = computed(() => new Set([
   '教学日历',
+  '配套文档',
   '参考资料',
   '题库',
   ...lessons.value.flatMap(lesson => [lessonPath(lesson), `${lessonPath(lesson)}/资料`]),
@@ -622,6 +626,29 @@ const treeData = computed<WorkspaceNode[]>(() => {
     id: 'folder:question-bank', label: t('courseFiles.names.questionBankAndPapers'), kind: 'folder', type: 'question_bank', path: '题库',
     status: questionBankItems.value.length || examPaperNodes.length ? 'ready' : 'empty', parentId: 'root', children: [formalQuestionBank, ...examPaperNodes],
   }
+  const companionDocumentNodes: WorkspaceNode[] = companionDocuments.value.map(document => ({
+    id: `companion-document:${document.document_id}`,
+    label: document.title,
+    kind: 'managed',
+    type: 'companion_document',
+    path: `配套文档/${safePart(document.title)}`,
+    status: document.status === 'ready' ? 'ready' : 'draft',
+    revision: document.revision_id,
+    updatedAt: document.updated_at,
+    sizeBytes: textSize(document.rendered_markdown || ''),
+    parentId: 'folder:companion-documents',
+    companionDocument: document,
+  }))
+  const companionDocumentsFolder: WorkspaceNode = {
+    id: 'folder:companion-documents',
+    label: t('courseFiles.names.companionDocuments', '配套文档'),
+    kind: 'folder',
+    type: 'companion_documents',
+    path: '配套文档',
+    status: companionDocumentNodes.length ? 'ready' : 'empty',
+    parentId: 'root',
+    children: companionDocumentNodes,
+  }
   const lessonNodes: WorkspaceNode[] = lessons.value.map(lesson => {
     const working = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
     const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
@@ -652,7 +679,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
   const other: WorkspaceNode | null = otherRootChildren.value.length ? { id: 'folder:other', label: t('courseFiles.names.other'), kind: 'folder', type: 'folder', path: '', status: 'ready', parentId: 'root', children: otherRootChildren.value } : null
   const courseRoot: WorkspaceNode = {
     id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: outline.status === 'ready' && lessonNodes.every(item => item.status === 'ready') ? 'ready' : 'draft',
-    children: [outline, teachingCalendar, questionBankFolder, reference, ...lessonNodes, ...(other ? [other] : [])],
+    children: [outline, teachingCalendar, questionBankFolder, companionDocumentsFolder, reference, ...lessonNodes, ...(other ? [other] : [])],
   }
   return [courseRoot]
 })
@@ -783,6 +810,7 @@ function formalTargetId(node: WorkspaceNode) {
   if (node.type === 'content') return `script:${node.lessonId || ''}`
   if (node.type === 'ppt') return `ppt:${node.lessonId || ''}`
   if (node.type === 'practice') return `question-bank:${node.lessonId || ''}`
+  if (node.type === 'companion_document') return node.id
   return ''
 }
 const inspectedRelationships = computed(() => {
@@ -864,15 +892,15 @@ function categoryState(group: CategoryGroup) {
   return 'attention'
 }
 
-const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type === 'teaching_calendar' ? 'teachingCalendar' : node.type}`)
+const typeLabel = (node: WorkspaceNode) => t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type === 'teaching_calendar' ? 'teachingCalendar' : node.type === 'companion_document' ? 'companionDocument' : node.type === 'companion_documents' ? 'companionDocuments' : node.type}`)
 function assetRole(node: WorkspaceNode) {
   if (node.kind === 'managed' && ['outline', 'teaching_calendar', 'lesson_plan', 'content', 'practice', 'question_bank', 'exam_paper'].includes(node.type)) return 'required'
-  if (node.type === 'ppt') return 'companion'
+  if (node.type === 'ppt' || node.type === 'companion_document') return 'companion'
   if (node.type === 'reference' || node.type === 'material' || node.type === 'folder' || node.kind === 'asset' || node.type === 'file') return 'teacher'
   return 'navigation'
 }
 const statusLabel = (node: WorkspaceNode) => t(`courseFiles.status.${node.status}`)
-const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'teaching_calendar' ? CalendarDays : node.type === 'ppt' ? Presentation : ['practice', 'question_bank'].includes(node.type) ? ListChecks : node.type === 'exam_paper' ? FileCheck2 : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
+const nodeIcon = (node: WorkspaceNode) => markRaw(node.type === 'teaching_calendar' ? CalendarDays : node.type === 'ppt' ? Presentation : ['practice', 'question_bank'].includes(node.type) ? ListChecks : ['exam_paper', 'companion_document', 'companion_documents'].includes(node.type) ? FileCheck2 : node.type === 'lesson_plan' ? ClipboardList : node.type === 'content' ? BookOpenText : node.type === 'material' || node.type === 'reference' ? BookOpen : FileText)
 const lessonLabel = (id: string) => lessons.value.find(item => item.lesson_unit_id === id)?.title || id
 const lessonNumber = (id?: string) => {
   const lesson = lessons.value.find(item => item.lesson_unit_id === id)
@@ -989,6 +1017,7 @@ function inspectorSource(node: WorkspaceNode) {
   }
   if (node.type === 'question_bank') return t('courseFiles.inspector.sources.questionBank').replace('{count}', String(questionBankItems.value.length))
   if (node.type === 'exam_paper') return t('courseFiles.inspector.sources.pinnedQuestionRevisions')
+  if (node.type === 'companion_document') return t('courseFiles.inspector.sources.schoolTemplate', '学校模板与已填写课程信息')
   if (node.type === 'ppt') {
     if (node.origin === 'uploaded') return t('courseFiles.inspector.sources.uploadedDeck')
     if (node.origin === 'generated') return t('courseFiles.inspector.sources.generatedDeck')
@@ -1005,6 +1034,7 @@ function inspectorUse(node: WorkspaceNode) {
   if (node.type === 'practice') return t('courseFiles.inspector.uses.practice')
   if (node.type === 'question_bank') return t('courseFiles.inspector.uses.questionBank')
   if (node.type === 'exam_paper') return t('courseFiles.inspector.uses.examPaper')
+  if (node.type === 'companion_document') return t('courseFiles.inspector.uses.companionDocument', '学校提交、学生说明与课程归档')
   if (node.type === 'ppt') return t('courseFiles.inspector.uses.ppt')
   return t('courseFiles.inspector.uses.material')
 }
@@ -1053,6 +1083,7 @@ function primaryLabel(node: WorkspaceNode) {
   if (node.type === 'ppt') return node.status === 'missing' ? t('courseFiles.createPpt') : t('courseFiles.openPpt')
   if (node.type === 'practice') return node.status === 'missing' ? t('courseFiles.createPractice') : t('courseFiles.openPractice')
   if (node.type === 'question_bank' || node.type === 'exam_paper') return t('courseFiles.openQuestionBank')
+  if (node.type === 'companion_document') return t('courseFiles.openEdit')
   return t('courseFiles.open')
 }
 function primaryIcon(node: WorkspaceNode) { return markRaw(node.kind === 'folder' ? FolderOpen : node.asset ? Eye : node.status === 'missing' ? Sparkles : Pencil) }
@@ -1079,6 +1110,7 @@ async function primaryAction(node: WorkspaceNode) {
   if (node.type === 'ppt') { node.status === 'missing' ? openCreateDialog('ppt', node.lessonId) : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } }); return }
   if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : emit('openPractice', node.lessonId || ''); return }
   if (node.type === 'question_bank' || node.type === 'exam_paper') { emit('openQuestionBank'); return }
+  if (node.type === 'companion_document') { emit('openCompanionDocuments'); return }
 }
 
 function workspaceReturnTo(lessonId = '') {
@@ -1091,7 +1123,7 @@ function workspaceReturnTo(lessonId = '') {
 
 const canExportManaged = (node: WorkspaceNode) => node.kind === 'managed'
   && node.status !== 'missing'
-  && ['outline', 'teaching_calendar', 'lesson_plan', 'content', 'ppt'].includes(node.type)
+  && ['outline', 'teaching_calendar', 'lesson_plan', 'content', 'ppt', 'companion_document'].includes(node.type)
 
 function readableNodeContent(node: Node) {
   if (node.node_content?.trim()) return node.node_content.trim()
@@ -1193,6 +1225,12 @@ async function exportManagedNode(node: WorkspaceNode) {
       downloadBlob(new Blob([lessonContentMarkdown(lesson)], { type: 'text/markdown;charset=utf-8' }), `${safePart(lesson.title)}-${t('courseFiles.names.content')}.md`)
     } else if (node.type === 'lesson_plan' && lesson) {
       downloadBlob(new Blob([lessonPlanMarkdown(lesson)], { type: 'text/markdown;charset=utf-8' }), `${safePart(lesson.title)}-${t('courseFiles.names.lessonPlan')}.md`)
+    } else if (node.type === 'companion_document' && node.companionDocument) {
+      const response = await http.get(
+        `/api/courses/${props.courseId}/companion-documents/${node.companionDocument.document_id}/export`,
+        teacherRequestConfig({ params: { format: 'docx' }, responseType: 'blob' }),
+      )
+      downloadBlob(response.data, `${safePart(node.companionDocument.title)}.docx`)
     } else if (node.type === 'ppt' && lesson) {
       const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
       if (!ppt) throw new Error(t('courseFiles.errors.exportUnavailable'))
@@ -1242,6 +1280,7 @@ async function refresh() {
       await calendarStore.loadCourse(props.courseId).catch(() => undefined)
       await loadQuestionBankSummary()
       await loadExamPapers()
+      await loadCompanionDocuments()
     }
     const requestedLessonId = String(route.query.lesson || '')
     currentFolderId.value = requestedLessonId && flatNodes.value.has(`lesson:${requestedLessonId}`)
@@ -1288,6 +1327,21 @@ async function loadExamPapers() {
       : []
   } catch {
     examPapers.value = []
+  }
+}
+
+async function loadCompanionDocuments() {
+  if (!props.courseId) return
+  try {
+    const response = await http.get(
+      `/api/courses/${props.courseId}/companion-documents`,
+      teacherRequestConfig({ silentError: true }),
+    )
+    companionDocuments.value = Array.isArray(response.data?.documents)
+      ? response.data.documents
+      : []
+  } catch {
+    companionDocuments.value = []
   }
 }
 
@@ -1515,6 +1569,7 @@ onMounted(refresh)
 .workbench-brief-items span,
 .category-prerequisite small { font-size:12px; }
 .category-console__actions{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:28px}.category-console__actions button{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid var(--lz-border);border-radius:13px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:750;cursor:pointer}.category-console__actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand);box-shadow:0 9px 20px rgba(99,102,241,.17)}.category-console__actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-console__actions button:disabled{opacity:.45;cursor:not-allowed}.category-console__actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
+.file-icon[data-type="companion_document"]{background:#eef2ff;color:#4f46e5}
 @media (max-width:1180px){.category-layout{grid-template-columns:280px minmax(0,1fr)}.workbench-brief-bar{grid-template-columns:minmax(130px,.55fr) minmax(300px,1.7fr) auto;gap:12px;padding-inline:16px}.workbench-brief-items{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:760px){.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(210px,37vh) minmax(0,1fr)}.category-navigation{padding:10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-progress{margin:0 2px 8px;padding:8px 10px}.category-group__button{min-height:54px;grid-template-columns:24px 16px minmax(0,1fr) auto;padding:7px 8px}.category-group__step{width:24px;height:24px}.category-group__copy small{display:none}.category-children{margin-bottom:5px}.category-detail-header{min-height:66px}.workbench-brief-bar{min-height:60px;grid-template-columns:minmax(0,1fr) auto;padding:8px 12px}.workbench-brief-bar__title small,.workbench-brief-items{display:none}.workbench-edit-baseline{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 10px;border:1px solid var(--lz-border);border-radius:11px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:750;white-space:nowrap;cursor:pointer}.category-console{padding:14px 10px 26px}.category-console__card{padding:22px 18px 24px;border-radius:12px}.category-console__card h3{margin-top:18px;font-size:19px}.category-console__actions{width:100%;display:grid;grid-template-columns:1fr;margin-top:20px}.category-console__actions button{width:100%}}
 @media (max-width:760px){.category-layout{grid-template-rows:minmax(210px,34vh) minmax(0,1fr)}.category-navigation{margin:8px 8px 0;padding:9px;border:1px solid #e6eaf1;border-radius:18px}.category-detail-pane{margin:8px;border-radius:18px}.category-detail-header{padding:11px 14px}.category-document-scroll{padding:10px 8px 24px}.category-document{padding:22px 18px 34px;border-radius:16px}.category-console{padding:12px 8px 22px}.category-console__card{padding:26px 20px 28px;border-radius:18px}.category-console__icon{width:48px;height:48px;border-radius:15px}.workbench-settings-button{min-height:38px;border-radius:11px}}

@@ -29,6 +29,7 @@ FORMAL_FILE_TYPES = {
     "ppt",
     "question_bank",
     "exam_paper",
+    "companion_document",
 }
 CATEGORIES = {
     "teaching_design": "教学设计",

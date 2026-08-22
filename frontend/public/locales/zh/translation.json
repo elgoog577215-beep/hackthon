@@ -274,6 +274,13 @@
       "script": "讲稿", "scriptHelp": "轻量可编辑正文",
       "ppt": "PPT", "pptHelp": "与讲稿结构化同源"
     },
+    "supporting": {
+      "group": "其他课程文件",
+      "title": "配套文档",
+      "help": "学校模板快捷生成",
+      "kicker": "配套文档",
+      "description": "从学校模板快速生成正式文件"
+    },
     "form": {
       "learningGoal": "教学目标", "learningGoalPlaceholder": "学生完成课程后能够……",
       "totalHours": "总学时", "sessionCount": "预计课次", "requirements": "补充要求",
@@ -292,6 +299,49 @@
       "supporting": "参考资料", "addSupporting": "添加或拖入资料", "courseMaterials": "课程资料",
       "allSelected": "当前资料已全部引用", "loadFailed": "课程资料读取失败",
       "registerFailed": "资料已上传，但未能加入当前课程", "uploadFailed": "资料上传失败"
+    }
+  },
+  "companionDocuments": {
+    "loading": "正在读取配套文档模板…",
+    "loadFailed": "配套文档读取失败",
+    "availableTemplates": "可用模板",
+    "continueEditing": "继续编辑",
+    "create": "创建",
+    "noTemplates": "当前没有可用的学校模板。",
+    "allTemplates": "全部模板",
+    "savedRevision": "已保存为正式文件 · 第 {revision} 版",
+    "formalTemplate": "正式文件模板",
+    "sourceHint": "右侧资料会作为引用依据，并保留来源关系",
+    "saving": "正在生成…",
+    "generateAndSave": "生成并保存",
+    "generateFailed": "生成失败，请检查表单后重试。",
+    "exportFailed": "导出失败，请稍后重试。",
+    "fields": {
+      "title": "文档标题", "courseName": "课程名称", "teacherName": "任课教师", "teacherPlaceholder": "可稍后填写或签字",
+      "effectiveDate": "落款日期", "datePlaceholder": "例如：2026年9月1日", "collegeName": "学院名称", "courseCode": "课程代码",
+      "academicYear": "开课学年", "term": "学期", "examTime": "考试时间", "courseType": "课程类型", "submittedAt": "递交日期"
+    },
+    "rubric": {
+      "components": "考核项目", "componentsHelp": "各项比例合计必须为 100%", "name": "项目名称", "weight": "比例", "scope": "评价对象",
+      "details": "评分项目与提交物", "addComponent": "添加考核项目", "specialRules": "补交与特殊情况"
+    },
+    "checklist": {
+      "items": "材料清单", "itemsHelp": "只勾选已经确认齐全的材料", "notePlaceholder": "备注（选填）",
+      "labels": {
+        "actual_papers": "实考试卷按实际份数上交存档",
+        "paper_a": "空白试卷A卷、A卷标准答案（含参考答案、评分细则）各一份上交存档",
+        "paper_b": "空白试卷B卷、B卷标准答案（含参考答案、评分细则）各一份上交存档；多个平行班由出卷老师提供",
+        "grade_sheets": "含平时成绩、期末成绩和总评成绩的成绩单2份，签名后上交存档",
+        "exam_analysis": "试卷分析填写规范完整，签名后上交存档",
+        "teaching_calendar": "从教务系统导出本学期教学日历，打印上交存档",
+        "grading_rubric": "课程成绩评定细则完整，与教学大纲一致，签名上交存档",
+        "grade_breakdown": "课程成绩明细汇总表与成绩评定细则对应",
+        "syllabus_alignment": "考核方式、成绩评定方式与课程教学大纲实际情况相符",
+        "paper_duplication": "近三年A卷重复率不超过30%，当年A卷、B卷不重复，卷首课程信息完整",
+        "marking_signature": "考生实考试卷卷首评阅人签全名，卷首和卷面标明各题得分",
+        "total_signature": "考生实考试卷卷首登分表总分处由任课老师签全名",
+        "room_records": "考场情况记录表、考场签到表上交存档"
+      }
     }
   },
   "teacherOverview": {
@@ -4322,15 +4372,15 @@
     "sortBy": "按{name}排序",
     "types": {
       "root": "课程文件", "reference": "参考资料", "outline": "大纲", "teachingCalendar": "教学日历", "lesson": "课次", "lessonPlan": "教案",
-      "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "题目", "question_bank": "题库", "exam_paper": "试卷", "folder": "文件夹", "file": "文件"
+      "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "题目", "question_bank": "题库", "exam_paper": "试卷", "companionDocuments": "配套文档", "companionDocument": "配套文档", "folder": "文件夹", "file": "文件"
     },
     "status": { "ready": "已就绪", "draft": "准备中", "missing": "未生成", "working": "生成中", "stale": "待更新", "uploaded": "已上传", "empty": "暂无内容" },
     "statusHelp": {
       "ready": "当前版本可直接使用。", "draft": "部分必备内容尚未完成，可进入后继续准备。", "missing": "当前还没有内容。选中后可在右侧开始生成或创建。",
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。", "empty": "当前文件夹还没有老师添加的资料。"
     },
-    "names": { "outline": "课程大纲", "teachingCalendar": "教学日历", "reference": "参考资料", "lessonPlan": "教案", "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "题目", "questionBank": "课程题库", "questionBankAndPapers": "题库与试卷", "other": "其他文件", "newMaterial": "新建资料" },
-    "assetRole": { "required": "课程必备", "companion": "配套课件", "teacher": "教师文件" },
+    "names": { "outline": "课程大纲", "teachingCalendar": "教学日历", "reference": "参考资料", "lessonPlan": "教案", "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "题目", "questionBank": "课程题库", "questionBankAndPapers": "题库与试卷", "companionDocuments": "配套文档", "other": "其他文件", "newMaterial": "新建资料" },
+    "assetRole": { "required": "课程必备", "companion": "课程配套文件", "teacher": "教师文件" },
     "ppt": {
       "chooseMethodSubtitle": "可 AI 生成，也可上传老师的旧课件",
       "generatedSubtitle": "AI 生成 · 跟随教案同源更新",
@@ -4343,10 +4393,10 @@
       "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作",
       "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料",
       "actionHints": { "managed": "打开对应工作流；导出只生成当前版本的派生文件。", "uploaded": "可预览或下载原件；删除只移除这个上传文件。", "folder": "新增内容将保存到当前资料目录。", "course": "导出当前课程文件包，不会改变正式课程。" },
-      "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程讲稿 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "pinnedQuestionRevisions": "已固定引用的题目修订", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
-      "uses": { "outline": "教学日历、教案、讲稿、PPT、题目", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "讲稿、PPT、题目", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "questionBank": "出题、审核与组卷", "examPaper": "考试与正式导出", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
+      "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程讲稿 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "pinnedQuestionRevisions": "已固定引用的题目修订", "schoolTemplate": "学校模板与已填写课程信息", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
+      "uses": { "outline": "教学日历、教案、讲稿、PPT、题目", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "讲稿、PPT、题目", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "questionBank": "出题、审核与组卷", "examPaper": "考试与正式导出", "companionDocument": "学校提交、学生说明与课程归档", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
     },
-    "formalTypes": { "outline": "课程大纲", "teaching_calendar": "教学日历", "lesson_plan": "教案", "script": "讲稿", "ppt": "PPT", "question_bank": "题库", "exam_paper": "试卷" },
+    "formalTypes": { "outline": "课程大纲", "teaching_calendar": "教学日历", "lesson_plan": "教案", "script": "讲稿", "ppt": "PPT", "question_bank": "题库", "exam_paper": "试卷", "companion_document": "配套文档" },
     "relationship": {
       "outline": "大纲是课程结构来源；调整后会提示教案、资料、PPT 和练习检查更新。",
       "teachingCalendar": "教学日历从当前大纲形成课次候选，并保留教师人工排课；导出的 DOCX、PDF、Excel 和 CSV 都是当前修订的派生文件。",

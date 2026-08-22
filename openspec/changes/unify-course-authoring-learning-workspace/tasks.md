@@ -83,3 +83,12 @@
 - [x] 9.4 Return one structured draft-owner error and leave the workbench in an explicit interrupted state without a duplicate generic toast.
 - [x] 9.5 Add a dry-run-first, externally backed-up reconciliation tool and repair only proven empty local drafts created under transient learner identities.
 - [x] 9.6 Run focused frontend/backend tests, production build, strict OpenSpec validation and update canonical architecture documentation.
+
+## 10. Template-backed companion documents
+
+- [x] 10.1 Keep the five numbered teaching-production entries unchanged and add one separate, non-numbered companion-document entry.
+- [x] 10.2 Provision only the Zhejiang University grading-rubric and exam-course material-checklist templates supported by teacher-provided samples.
+- [x] 10.3 Save generated companion documents as course-owned immutable revisions, keep source relationships in the existing file-space index and treat DOCX/Markdown as exports.
+- [x] 10.4 Add the second-level template gallery, structured forms, formal preview, re-editing and DOCX export to the course workbench.
+- [x] 10.5 Project generated companion documents into a dedicated file-space folder and route editing back to the same template studio.
+- [x] 10.6 Add zh/en copy, focused backend/frontend tests, canonical documentation and desktop verification.

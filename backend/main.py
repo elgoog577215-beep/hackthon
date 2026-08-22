@@ -63,6 +63,7 @@ from routers import (
     teacher_authoring,
     teacher_lesson_authoring,
     teaching_calendar,
+    companion_documents,
     ppt_template_packs,
     usage_events,
 )
@@ -204,6 +205,7 @@ app.include_router(teacher_course_space.router, prefix="/api")
 app.include_router(teacher_authoring.router, prefix="/api")
 app.include_router(teacher_lesson_authoring.router, prefix="/api")
 app.include_router(teaching_calendar.router, prefix="/api")
+app.include_router(companion_documents.router, prefix="/api")
 app.include_router(usage_events.router, prefix="/api")
 
 
