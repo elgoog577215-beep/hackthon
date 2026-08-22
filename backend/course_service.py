@@ -2066,6 +2066,11 @@ class CourseService(AIBase):
         ).get("course_teaching_plan") or {}
         lesson_plan = deepcopy(scoped_course.get("course_teaching_plan") or {})
         warnings = deepcopy(teaching_stage.get("fallback_units") or [])
+        source_kinds = {
+            str(item.get("source_kind") or "uploaded_ppt")
+            for item in source_evidence or []
+        }
+        uploaded_ppt_only = bool(source_kinds) and source_kinds == {"uploaded_ppt"}
         return {
             "schema_version": "teacher_lesson_plan_result_v1",
             "lesson_unit_id": lesson_unit_id,
@@ -2077,7 +2082,7 @@ class CourseService(AIBase):
             "warnings": warnings,
             "source_refs": [
                 {
-                    "source_kind": "uploaded_ppt",
+                    "source_kind": str(item.get("source_kind") or "uploaded_ppt"),
                     "asset_id": str(item.get("asset_id") or ""),
                     "evidence_id": str(item.get("evidence_id") or ""),
                     "slide": item.get("slide"),
@@ -2086,8 +2091,12 @@ class CourseService(AIBase):
             ],
             "generation_source": (
                 "uploaded_ppt_with_local_fallback"
-                if source_hints and warnings
+                if uploaded_ppt_only and source_hints and warnings
                 else "uploaded_ppt"
+                if uploaded_ppt_only and source_hints
+                else "course_materials_with_local_fallback"
+                if source_hints and warnings
+                else "course_materials"
                 if source_hints
                 else "deterministic_local_fallback"
                 if warnings

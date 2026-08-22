@@ -113,7 +113,9 @@ def _requirement_phrases(requirements: str) -> list[str]:
         if cleaned.lower() in _STOPWORDS:
             continue
         tokens: list[str] = []
-        for token in re.findall(r"[A-Za-z][A-Za-z0-9_+-]{1,30}|[㐀-鿿]{2,20}", cleaned):
+        # 中文不能按固定 20 字切块：检索词现在会直接展示给教师，
+        # 机械切块会把“官方”拆成“官 方”，同时降低搜索相关性。
+        for token in re.findall(r"[A-Za-z][A-Za-z0-9_+-]{1,30}|[㐀-鿿]{2,80}", cleaned):
             if token.lower() in _STOPWORDS:
                 continue
             if re.fullmatch(r"[㐀-鿿]+", token):

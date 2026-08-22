@@ -92,3 +92,11 @@
 - [x] 10.4 Add the second-level template gallery, structured forms, formal preview, re-editing and DOCX export to the course workbench.
 - [x] 10.5 Project generated companion documents into a dedicated file-space folder and route editing back to the same template studio.
 - [x] 10.6 Add zh/en copy, focused backend/frontend tests, canonical documentation and desktop verification.
+
+## 11. Stage-scoped web research sources
+
+- [x] 11.1 Add web sources beside uploaded references in the course-workbench right rail and open a responsive research dialog from that section.
+- [x] 11.2 Show the teacher-visible research brief, actual outbound queries, filtered source summaries, trust/license metadata and explicit source selection.
+- [x] 11.3 Persist bounded stage/lesson research sessions and convert selected sources into ordinary course material assets through the existing parse, evidence and file-space relationship chain.
+- [x] 11.4 Pass selected material assets into outline, lesson-plan and question-bank generation while preserving web-source authority and reuse restrictions.
+- [x] 11.5 Add zh/en copy plus focused backend/frontend tests and production-build verification.

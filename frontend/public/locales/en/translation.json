@@ -298,7 +298,20 @@
       "primary": "Primary source", "primaryLimit": "Up to 1", "addPrimary": "Add primary source",
       "supporting": "References", "addSupporting": "Add or drop files", "courseMaterials": "Course materials",
       "allSelected": "All current materials are selected", "loadFailed": "Could not load course materials",
-      "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed"
+      "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed",
+      "webSources": "Web sources", "startWebResearch": "Add web sources", "continueWebResearch": "Continue searching"
+    },
+    "webResearch": {
+      "title": "Web research", "subtitle": "Describe what you need, then review the actual queries and sources",
+      "brief": "What should we research?", "briefPlaceholder": "For example: find public explanations of this concept from a named instructor's textbook, plus university and official sources",
+      "customQueries": "Custom queries (optional)", "customQueriesPlaceholder": "One query per line; leave blank to generate queries from the research brief",
+      "search": "Start search", "searching": "Searching and filtering…", "queryPlan": "Queries used",
+      "policy": "Web pages are references only. Content without an open license is not reused verbatim.", "results": "Candidate sources",
+      "loadingHistory": "Loading research history…", "emptyTitle": "Describe the sources you need first", "emptyHelp": "The system shows the actual queries and does not write results into the course without your review.",
+      "noResults": "No usable sources yet", "notConfigured": "Web search is not configured", "timeout": "This search timed out. Narrow the scope and try again.", "tryAgain": "Adjust the brief or provide more precise queries and try again.",
+      "resultSummary": "{count} reviewable sources · {rejected} low-relevance results filtered", "reviewRecommended": "Sensitive content needs review",
+      "highTrust": "High trust", "reviewTrust": "Review", "lowTrust": "Low trust", "selectedCount": "{count} sources selected",
+      "saving": "Adding to course…", "save": "Add to this stage", "loadFailed": "Could not load research history", "searchFailed": "Web search failed", "saveFailed": "Could not add web sources to the course"
     }
   },
   "companionDocuments": {

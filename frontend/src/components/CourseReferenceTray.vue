@@ -2,7 +2,7 @@
   <aside class="reference-tray" :aria-label="t('courseWorkbench.references.title', '引用资料')">
     <header>
       <div><strong>{{ t('courseWorkbench.references.title', '引用资料') }}</strong><small>{{ t('courseWorkbench.references.help', '决定本次生成使用哪些老师资料') }}</small></div>
-      <button type="button" :aria-label="t('common.refresh', '刷新')" @click="loadMaterials"><RefreshCw :size="15" :class="{ spin: loading }" /></button>
+      <button type="button" :aria-label="t('common.refresh', '刷新')" @click="loadAll"><RefreshCw :size="15" :class="{ spin: loading }" /></button>
     </header>
 
     <section class="system-context">
@@ -49,6 +49,18 @@
       <input ref="referenceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'reference')" />
     </section>
 
+    <section class="source-group source-group--web">
+      <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
+      <div class="web-source-list">
+        <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
+          <Globe2 :size="17" />
+          <div><strong>{{ item.source_label || item.filename }}</strong><a v-if="item.source_metadata?.url" :href="String(item.source_metadata.url)" target="_blank" rel="noopener noreferrer">{{ item.source_metadata.domain || item.source_metadata.url }}<ExternalLink :size="11" /></a><small v-else>{{ item.filename }}</small></div>
+          <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+        </div>
+        <button type="button" class="web-research-open" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
+      </div>
+    </section>
+
     <section v-if="materials.length" class="material-library">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料') }}</strong><small>{{ materials.length }}</small></div>
       <button v-for="item in availableMaterials" :key="item.asset_id" type="button" @click="addExisting(item)">
@@ -58,12 +70,14 @@
     </section>
 
     <p v-if="error" class="tray-error" role="alert">{{ error }}</p>
+    <WebResearchDialog :visible="researchVisible" :course-id="courseId" :stage="stage" :lesson-id="lessonId" @close="researchVisible = false" @saved="handleWebSaved" />
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { Check, Database, FileText, Plus, RefreshCw, X } from 'lucide-vue-next'
+import { Check, Database, ExternalLink, FileText, Globe2, Plus, RefreshCw, Search, X } from 'lucide-vue-next'
+import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
 import http, { teacherRequestConfig } from '../utils/http'
 
@@ -76,19 +90,27 @@ export type CourseReferenceItem = {
   size_bytes: number
   uploaded_at?: string
   role: 'primary' | 'reference'
+  origin?: 'material' | 'web_search'
+  source_label?: string
+  reuse_policy?: 'verbatim_allowed' | 'reference_only' | 'original_generation'
+  rights_basis?: 'teacher_asserted' | 'open_license' | 'license_unknown' | 'platform_owned'
+  source_metadata?: Record<string, any>
 }
 
-const props = defineProps<{ courseId: string; modelValue: CourseReferenceItem[] }>()
+const props = withDefaults(defineProps<{ courseId: string; modelValue: CourseReferenceItem[]; stage?: string; lessonId?: string }>(), { stage: 'foundation', lessonId: '' })
 const emit = defineEmits<{ (event: 'update:modelValue', value: CourseReferenceItem[]): void }>()
 const materials = ref<CourseReferenceItem[]>([])
 const selected = ref<CourseReferenceItem[]>([])
+const storedWebReferences = ref<CourseReferenceItem[]>([])
 const loading = ref(false)
 const error = ref('')
+const researchVisible = ref(false)
 const dragRole = ref<'' | 'primary' | 'reference'>('')
 const primaryInput = ref<HTMLInputElement | null>(null)
 const referenceInput = ref<HTMLInputElement | null>(null)
 const primarySource = computed(() => selected.value.find(item => item.role === 'primary'))
-const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference'))
+const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin !== 'web_search'))
+const webSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin === 'web_search'))
 const availableMaterials = computed(() => {
   const chosen = new Set(selected.value.map(item => item.asset_id))
   return materials.value.filter(item => !chosen.has(item.asset_id))
@@ -99,11 +121,33 @@ function commit(value: CourseReferenceItem[]) { selected.value = value; emit('up
 function fileSize(value: number) { return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB` }
 
 async function loadMaterials() {
-  loading.value = true; error.value = ''
   try {
     const response = await http.get('/api/materials', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
-    materials.value = (response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, role: 'reference' }))
+    const webByMaterialId = new Map([...storedWebReferences.value, ...webSources.value].map(item => [item.material_asset_id, item]))
+    materials.value = (response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, ...(webByMaterialId.get(item.material_asset_id) || {}), role: 'reference' }))
   } catch (reason: any) { error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.loadFailed', '课程资料读取失败')) }
+}
+
+function mergeWebReferences(references: CourseReferenceItem[]) {
+  const next = [...selected.value]
+  for (const reference of references) {
+    const normalized = { ...reference, role: 'reference' as const, origin: 'web_search' as const }
+    const index = next.findIndex(item => item.asset_id === normalized.asset_id || item.material_asset_id === normalized.material_asset_id)
+    if (index >= 0) next[index] = normalized; else next.push(normalized)
+  }
+  commit(next)
+}
+
+async function loadWebReferences() {
+  try {
+    const response = await http.get(`/api/courses/${props.courseId}/web-research`, teacherRequestConfig({ params: { stage: props.stage, lesson_id: props.lessonId }, silentError: true }))
+    storedWebReferences.value = response.data?.accepted_references || []
+  } catch (reason: any) { error.value = String(reason?.response?.data?.detail?.message || reason?.response?.data?.detail || reason?.message || t('courseWorkbench.webResearch.loadFailed', '调研记录读取失败')) }
+}
+
+async function loadAll() {
+  loading.value = true; error.value = ''
+  try { await loadWebReferences(); await loadMaterials() }
   finally { loading.value = false }
 }
 
@@ -134,9 +178,12 @@ function handleInput(event: Event, role: 'primary' | 'reference') {
 function handleDrop(event: DragEvent, role: 'primary' | 'reference') { dragRole.value = ''; void uploadFiles(Array.from(event.dataTransfer?.files || []), role) }
 function removeSource(assetId: string) { commit(selected.value.filter(item => item.asset_id !== assetId)) }
 function addExisting(item: CourseReferenceItem) { commit([...selected.value, { ...item, role: 'reference' }]) }
-onMounted(loadMaterials)
+function handleWebSaved(references: CourseReferenceItem[]) { storedWebReferences.value = references; mergeWebReferences(references); void loadMaterials() }
+watch(() => [props.courseId, props.stage, props.lessonId], () => { void loadAll() })
+onMounted(loadAll)
 </script>
 
 <style scoped>
 .reference-tray{min-width:0;min-height:0;overflow:auto;border-left:1px solid #e4e9f1;background:#fbfcfe}.reference-tray>header{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 18px;border-bottom:1px solid #e7ebf2;background:#fff}.reference-tray>header>div{display:grid;gap:3px}.reference-tray>header strong{color:#243047;font-size:14px}.reference-tray>header small{color:#64748b;font-size:12px}.reference-tray>header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:#64748b;background:transparent;cursor:pointer}.system-context{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;margin:16px 16px 4px;padding:11px 12px;border:1px solid #e2e7ef;border-radius:10px;background:#fff}.system-context>span{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.system-context>div{display:grid;gap:2px}.system-context strong{color:#334155;font-size:12px}.system-context small{color:#64748b;font-size:11px;line-height:1.35}.system-context>svg{color:#16a34a}.source-group,.material-library{display:grid;gap:8px;padding:16px 16px 0}.group-heading{display:flex;align-items:center;justify-content:space-between;color:#334155;font-size:12px}.group-heading small{color:#64748b}.drop-zone{min-height:78px;display:flex;align-items:center;gap:10px;padding:10px;border:1px dashed #b9c3d2;border-radius:10px;color:#64748b;background:#fff}.drop-zone.dragging,.reference-add.dragging{border-color:#5b57e8;background:#f4f4ff}.drop-zone.has-file{border-style:solid}.drop-zone>div,.reference-item>div{min-width:0;display:grid;gap:3px;flex:1}.drop-zone strong,.reference-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.drop-zone small,.reference-item small{color:#64748b;font-size:11px}.drop-zone>button:not(.empty-drop),.reference-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.empty-drop{width:100%;min-height:58px;display:flex;align-items:center;justify-content:center;gap:7px;border:0;color:#4f46e5;background:transparent;font-size:12px;font-weight:700;cursor:pointer}.reference-list{display:grid;gap:7px}.reference-item{min-height:54px;display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.reference-item>svg{color:#6366f1}.reference-add{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #b9c3d2;border-radius:9px;color:#4f46e5;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.material-library{padding-bottom:18px}.material-library>button{min-height:38px;display:grid;grid-template-columns:18px minmax(0,1fr) 16px;align-items:center;gap:7px;padding:0 9px;border:0;border-radius:7px;color:#475569;background:transparent;text-align:left;cursor:pointer}.material-library>button:hover{background:#eef2ff;color:#4338ca}.material-library>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.material-library>p{margin:3px 0;color:#64748b;font-size:12px}.tray-error{margin:12px 16px;padding:9px 10px;border-radius:8px;color:#b91c1c;background:#fff1f2;font-size:12px}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.source-group--web{padding-top:18px}.web-source-list{display:grid;gap:7px}.web-source-item{min-height:56px;display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:9px;padding:8px 9px;border:1px solid #dce5f0;border-radius:9px;background:#fff}.web-source-item>svg{color:#0f766e}.web-source-item>div{min-width:0;display:grid;gap:3px}.web-source-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.web-source-item a{display:flex;align-items:center;gap:4px;overflow:hidden;color:#0f766e;font-size:12px;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.web-source-item small{color:#64748b;font-size:12px}.web-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.web-research-open{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #8fbab5;border-radius:9px;color:#0f766e;background:#f4fbfa;font-size:12px;font-weight:750;cursor:pointer}
 </style>

@@ -41,8 +41,24 @@ from web_material_curation import (
     normalize_exclusions,
 )
 from teacher_course_space import teacher_course_space_repository
-from material_storage import material_repository
+from material_pipeline import prepare_course_materials
+from material_storage import MaterialStorageError, material_repository
 from teaching_calendar import teaching_calendar_repository
+from course_web_research import (
+    MAX_RESULTS_PER_SESSION,
+    WEB_RESEARCH_METADATA_KEY,
+    normalize_candidate,
+    normalize_scope,
+    research_session,
+    scoped_research_projection,
+    upsert_research_session,
+)
+from web_material_search import (
+    candidate_from_source,
+    derive_search_queries,
+    safe_query_term,
+)
+from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 
 router = APIRouter(tags=["courses"])
 
@@ -104,6 +120,21 @@ class WebMaterialCurationRequest(BaseModel):
     """教师剔除的联网来源，按课程持久保存。"""
     excluded_source_ids: list[str] = []
     excluded_urls: list[str] = []
+
+
+class CourseWebResearchSearchRequest(BaseModel):
+    """老师在课程工作台发起的显式联网调研。"""
+
+    brief: str = Field(min_length=2, max_length=2_000)
+    stage: str = Field(default="foundation", min_length=1, max_length=50)
+    lesson_id: str = Field(default="", max_length=160)
+    queries: list[str] = Field(default_factory=list, max_length=4)
+
+
+class CourseWebResearchSelectionRequest(BaseModel):
+    """老师确认要进入当前课程资料链的网页来源。"""
+
+    selected_source_ids: list[str] = Field(default_factory=list, max_length=16)
 
 
 # =============================================================================
@@ -608,6 +639,252 @@ async def update_web_material_curation(
         {CURATION_METADATA_KEY: exclusions},
     )
     return {"status": "curation_updated", **exclusions}
+
+
+def _course_research_topic(course: dict) -> str:
+    return str(
+        course.get("course_name")
+        or course.get("subject")
+        or course.get("title")
+        or "课程资料"
+    ).strip()[:200]
+
+
+def _requested_research_queries(
+    course: dict,
+    body: CourseWebResearchSearchRequest,
+) -> list[str]:
+    explicit: list[str] = []
+    for value in body.queries:
+        query = safe_query_term(value)
+        if len(query) >= 2 and query not in explicit:
+            explicit.append(query)
+    if explicit:
+        return explicit[:4]
+    return derive_search_queries(
+        topic=_course_research_topic(course),
+        requirements=body.brief,
+        objectives=[],
+        max_queries=4,
+    )
+
+
+@router.get("/courses/{course_id}/web-research")
+async def get_course_web_research(
+    course_id: str,
+    request: Request,
+    stage: str = "foundation",
+    lesson_id: str = "",
+    repository=Depends(get_course_document_repository),
+):
+    """读取当前生产阶段的最近调研与已选网页来源。"""
+    course = await get_course_or_404(course_id)
+    # 调研词和未入选候选属于教师备课数据；即使课程已发布也不对学生开放。
+    _require_teacher_course_write_access(course, request)
+    raw = await run_in_threadpool(repository.load_raw, course_id)
+    return scoped_research_projection(raw, stage=stage, lesson_id=lesson_id)
+
+
+@router.post("/courses/{course_id}/web-research/search")
+async def search_course_web_research(
+    course_id: str,
+    body: CourseWebResearchSearchRequest,
+    request: Request,
+    repository=Depends(get_course_document_repository),
+):
+    """通过统一检索网关执行老师可见、可复核的查询。"""
+    course = await get_course_or_404(course_id)
+    _require_teacher_course_write_access(course, request)
+    queries = _requested_research_queries(course, body)
+    if not queries:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "web_research_no_queries", "message": "未能从调研要求中得到有效查询"},
+        )
+
+    actor_id = resolve_user_id(request.headers.get("X-User-Id"))
+    gateway, feature = configured_retrieval_gateway(actor_id)
+    package = await gateway.retrieve(RetrievalRequest(
+        purpose="course",
+        enabled=True,
+        queries=queries,
+        max_queries=4,
+        max_sources=MAX_RESULTS_PER_SESSION,
+    ))
+    results = [
+        normalize_candidate(candidate_from_source(source))
+        for source in (package.get("sources") or [])[:MAX_RESULTS_PER_SESSION]
+        if isinstance(source, dict)
+    ]
+    normalized_stage, normalized_lesson_id = normalize_scope(body.stage, body.lesson_id)
+    session = {
+        "session_id": f"wrs-{uuid.uuid4().hex}",
+        "stage": normalized_stage,
+        "lesson_id": normalized_lesson_id,
+        "brief": body.brief.strip(),
+        "queries": [str(item) for item in package.get("queries") or queries],
+        "status": str(package.get("status") or "failed_fallback_local"),
+        "provider": str(package.get("provider") or feature.get("provider") or ""),
+        "provider_available": bool(feature.get("enabled_for_user", True)),
+        "retrieved_at": str(package.get("retrieved_at") or ""),
+        "package_hash": str(package.get("package_hash") or ""),
+        "receipt": package.get("receipt") or {},
+        "errors": list(package.get("errors") or []),
+        "rejected_count": len(package.get("rejected_sources") or []),
+        "results": results,
+        "selected_source_ids": [],
+        "accepted_references": [],
+    }
+    # 检索可能耗时；回写前重读课程，避免把同期完成的其他调研盖掉。
+    latest = await run_in_threadpool(repository.load_raw, course_id)
+    state = upsert_research_session(latest, session)
+    await repository.update_metadata(course_id, {WEB_RESEARCH_METADATA_KEY: state})
+    return session
+
+
+def _existing_web_references(course: dict) -> dict[str, dict]:
+    references: dict[str, dict] = {}
+    state = course.get(WEB_RESEARCH_METADATA_KEY)
+    if not isinstance(state, dict):
+        return references
+    for session in state.get("sessions") or []:
+        if not isinstance(session, dict):
+            continue
+        for item in session.get("accepted_references") or []:
+            if not isinstance(item, dict):
+                continue
+            source_id = str((item.get("source_metadata") or {}).get("source_id") or "")
+            if source_id:
+                references[source_id] = item
+    return references
+
+
+@router.put("/courses/{course_id}/web-research/{session_id}")
+async def select_course_web_research_sources(
+    course_id: str,
+    session_id: str,
+    body: CourseWebResearchSelectionRequest,
+    request: Request,
+    repository=Depends(get_course_document_repository),
+):
+    """把已勾选网页转成课程资料资产，并登记到当前课程文件空间。"""
+    course = await get_course_or_404(course_id)
+    _require_teacher_course_write_access(course, request)
+    raw = await run_in_threadpool(repository.load_raw, course_id)
+    session = research_session(raw, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="联网调研会话不存在")
+
+    selected_ids = list(dict.fromkeys(
+        str(value or "").strip()
+        for value in body.selected_source_ids
+        if str(value or "").strip()
+    ))
+    candidates_by_id = {
+        str(item.get("source_id") or ""): item
+        for item in session.get("results") or []
+        if isinstance(item, dict) and str(item.get("source_id") or "")
+    }
+    unknown = [value for value in selected_ids if value not in candidates_by_id]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "web_research_source_unknown", "source_ids": unknown},
+        )
+
+    owner_id = require_actor_id(request.headers.get("X-User-Id"))
+    packages = teacher_course_space_repository.list_owned(owner_id, course_id)
+    if not packages:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "course_space_missing", "message": "当前课程文件空间不存在"},
+        )
+    package = teacher_course_space_repository.load_owned(
+        str(packages[0].get("package_id") or ""), owner_id
+    )
+
+    existing = _existing_web_references(raw)
+    accepted_references: list[dict] = []
+    new_candidates: list[dict] = []
+    for source_id in selected_ids:
+        if source_id in existing:
+            accepted_references.append(existing[source_id])
+        else:
+            new_candidates.append(candidates_by_id[source_id])
+
+    if new_candidates:
+        try:
+            prepared = await prepare_course_materials(
+                course_id=course_id,
+                material_bindings=[],
+                legacy_materials=[],
+                web_search_report={
+                    "enabled": True,
+                    "status": "ready",
+                    "degraded": False,
+                    "queries": list(session.get("queries") or []),
+                    "candidates": new_candidates,
+                    "rejected": [],
+                    "message_code": "web_research_selected",
+                },
+            )
+        except MaterialStorageError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        assets = {
+            str(item.get("asset_id") or ""): item
+            for item in prepared.get("material_assets") or []
+        }
+        candidates = {
+            str(item.get("source_id") or ""): item for item in new_candidates
+        }
+        for binding in prepared.get("material_bindings") or []:
+            metadata = binding.get("source_metadata") or {}
+            source_id = str(metadata.get("source_id") or "")
+            asset_id = str(binding.get("asset_id") or "")
+            asset = material_repository.get_asset(asset_id)
+            candidate = candidates.get(source_id)
+            if not source_id or not asset or not candidate:
+                continue
+            course_reference = teacher_course_space_repository.register_material_reference(
+                owner_id, asset, package=package
+            )
+            public_asset = assets.get(asset_id) or material_repository.public_asset(asset)
+            accepted_references.append({
+                "package_id": str(course_reference.get("package_id") or package["package_id"]),
+                "asset_id": str(course_reference.get("asset_id") or ""),
+                "material_asset_id": asset_id,
+                "filename": str(course_reference.get("filename") or public_asset.get("filename") or ""),
+                "relative_path": str(course_reference.get("relative_path") or ""),
+                "size_bytes": int(public_asset.get("size_bytes") or 0),
+                "uploaded_at": str(public_asset.get("uploaded_at") or ""),
+                "role": "reference",
+                "origin": "web_search",
+                "source_label": str(candidate.get("title") or candidate.get("domain") or "联网资料")[:200],
+                "reuse_policy": str(binding.get("reuse_policy") or "reference_only"),
+                "rights_basis": str(binding.get("rights_basis") or "license_unknown"),
+                "source_metadata": metadata,
+            })
+
+    reference_order = {source_id: index for index, source_id in enumerate(selected_ids)}
+    accepted_references.sort(key=lambda item: reference_order.get(
+        str((item.get("source_metadata") or {}).get("source_id") or ""), 10_000
+    ))
+    session["selected_source_ids"] = selected_ids
+    session["accepted_references"] = accepted_references
+    session["accepted_at"] = datetime.now(timezone.utc).isoformat()
+
+    latest = await run_in_threadpool(repository.load_raw, course_id)
+    state = upsert_research_session(latest, session)
+    await repository.update_metadata(course_id, {WEB_RESEARCH_METADATA_KEY: state})
+    return {
+        "status": "sources_selected",
+        **scoped_research_projection(
+            {WEB_RESEARCH_METADATA_KEY: state},
+            stage=session.get("stage"),
+            lesson_id=session.get("lesson_id"),
+        ),
+    }
 
 
 @router.post("/courses/{course_id}/course-space/publish")

@@ -192,6 +192,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       lessonUnitId: string,
       source?: { packageId: string; assetId: string },
       requirements = '',
+      materialAssetIds: string[] = [],
     ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -203,6 +204,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             source_package_id: source?.packageId || '',
             source_asset_id: source?.assetId || '',
             requirements,
+            material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
           requestConfig(),
         )

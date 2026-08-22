@@ -132,6 +132,16 @@ def test_queries_drop_stopword_only_requirements():
     assert all("希望" not in query and "我们" not in query for query in queries)
 
 
+def test_queries_do_not_split_chinese_words_at_fixed_character_boundaries():
+    queries = derive_search_queries(
+        topic="电动力学",
+        requirements="查找大学电动力学中麦克斯韦方程组的官方或高校公开讲义",
+        max_queries=4,
+    )
+    assert any("官方" in query for query in queries)
+    assert all("官 方" not in query for query in queries)
+
+
 def test_queries_strip_injection_from_requirements():
     queries = derive_search_queries(
         topic="微积分",
