@@ -23,6 +23,7 @@
 - [x] 3.5 Reuse the existing centered top bar for file/category and question-book view switches instead of adding dedicated rows.
 - [x] 3.6 Upgrade the existing assistant context and prompts with teacher file-scope discipline and intent-adaptive learner/teacher response strategies, without adding an endpoint.
 - [x] 3.7 Replace the category production table with a master-detail browser that expands lesson-scoped assets in the left navigation and renders the selected content on the right.
+- [x] 3.8 Rename the category surface to the default course workbench, add outline-to-PPT production guidance and progress, and reuse the persisted course-generation request as shared workbench settings.
 
 ## 4. Same-source authoring
 

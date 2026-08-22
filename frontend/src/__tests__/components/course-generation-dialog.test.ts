@@ -165,6 +165,86 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
+  it('从工作台打开时恢复原课程生成设置，并保留已有资料绑定', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: {
+        modelValue: false,
+        initialSubject: '物理',
+        workbenchMode: true,
+        initialOptions: {
+          course_type: 'systematic',
+          difficulty: 'advanced',
+          pedagogy_mode: 'natural_science',
+          requirements: '加强实验设计',
+          material_bindings: [{
+            asset_id: 'asset-1', source_label: '教材.pdf', purpose: 'content_source', priority: 'core', authority: 'primary',
+            usage_policy: 'must_use', reuse_policy: 'reference_only', rights_basis: 'teacher_asserted', source_metadata: {},
+          }],
+          teacher_course_brief: {
+            schema_version: 'teacher_course_brief_v1',
+            target_audience: '高中二年级',
+            total_class_hours: 24,
+            lesson_duration_minutes: 45,
+            teaching_context: 'classroom',
+            chapter_count: 8,
+          },
+        },
+      },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    await wrapper.setProps({ modelValue: true })
+    await flushPromises()
+
+    expect(wrapper.get('.generation-dialog__heading').text()).toContain('课程生产设置')
+    expect((wrapper.get('#teacher-target-audience').element as HTMLInputElement).value).toBe('高中二年级')
+    expect((wrapper.get('#teacher-total-hours').element as HTMLInputElement).value).toBe('24')
+    expect((wrapper.get('#course-requirements').element as HTMLTextAreaElement).value).toBe('加强实验设计')
+    expect(wrapper.find('.difficulty-option.active').text()).toContain('高阶')
+
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.material_bindings).toEqual([
+      expect.objectContaining({ asset_id: 'asset-1' }),
+    ])
+  })
+
+  it('切换课程后重置旧表单，并兼容历史顶层教学对象', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: {
+        modelValue: false,
+        initialSubject: '物理',
+        workbenchMode: true,
+        initialOptions: {
+          difficulty: 'advanced',
+          requirements: '保留上一门课程的实验要求',
+          teacher_course_brief: {
+            schema_version: 'teacher_course_brief_v1',
+            target_audience: '高中二年级',
+            total_class_hours: 24,
+            lesson_duration_minutes: 45,
+            teaching_context: 'classroom',
+          },
+        },
+      },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    await wrapper.setProps({ modelValue: true })
+    await wrapper.setProps({ modelValue: false })
+    await wrapper.setProps({
+      initialSubject: '历史',
+      initialOptions: { target_audience: '初中一年级' },
+      modelValue: true,
+    })
+    await flushPromises()
+
+    expect((wrapper.get('#teacher-target-audience').element as HTMLInputElement).value).toBe('初中一年级')
+    expect((wrapper.get('#teacher-total-hours').element as HTMLInputElement).value).toBe('16')
+    expect((wrapper.get('#course-requirements').element as HTMLTextAreaElement).value).toBe('')
+    expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
+  })
+
   it('将非必填的课堂信息收进渐进展开区', () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },

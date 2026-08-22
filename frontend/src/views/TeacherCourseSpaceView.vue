@@ -564,7 +564,7 @@ const otherRootChildren = computed(() => physicalChildren('', 'folder:other').fi
 const treeData = computed<WorkspaceNode[]>(() => {
   const outline: WorkspaceNode = {
     id: 'managed:outline', label: t('courseFiles.names.outline'), kind: 'managed', type: 'outline', path: t('courseFiles.names.outline'),
-    status: courseStore.currentDocumentRevision ? 'ready' : courseStore.nodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision || '', parentId: 'root',
+    status: courseStore.nodes.length ? (courseStore.currentDocumentRevision ? 'ready' : 'draft') : 'missing', revision: courseStore.currentDocumentRevision || '', parentId: 'root',
     sizeBytes: courseStore.nodes.length ? textSize(outlineMarkdown()) : undefined,
   }
   const referenceChildren = physicalChildren('参考资料', 'folder:reference')
@@ -667,18 +667,18 @@ const categoryDetailMarkdown = computed(() => {
 })
 const productionContextItems = computed(() => {
   const options = props.generationOptions || {}
-  const brief = options.teacher_course_brief || {}
+  const brief = options.teacher_course_brief
   const difficulty = options.difficulty
     ? t(`courseGeneration.difficulty.${options.difficulty}.label`, String(options.difficulty))
     : t('courseFiles.workbench.notSet')
-  const classHours = Number(brief.total_class_hours || 0)
-  const lessonMinutes = Number(brief.lesson_duration_minutes || 0)
+  const classHours = Number(brief?.total_class_hours || 0)
+  const lessonMinutes = Number(brief?.lesson_duration_minutes || 0)
   const schedule = classHours && lessonMinutes
     ? t('courseFiles.workbench.scheduleValue').replace('{hours}', String(classHours)).replace('{minutes}', String(lessonMinutes))
     : t('courseFiles.workbench.notSet')
-  const requirements = String(options.requirements || brief.additional_requirements || '').trim()
+  const requirements = String(options.requirements || brief?.additional_requirements || '').trim()
   return [
-    { label: t('courseFiles.workbench.audience'), value: String(brief.target_audience || options.target_audience || t('courseFiles.workbench.notSet')), empty: !brief.target_audience && !options.target_audience },
+    { label: t('courseFiles.workbench.audience'), value: String(brief?.target_audience || options.target_audience || t('courseFiles.workbench.notSet')), empty: !brief?.target_audience && !options.target_audience },
     { label: t('courseFiles.workbench.schedule'), value: schedule, empty: !classHours || !lessonMinutes },
     { label: t('courseFiles.workbench.difficulty'), value: difficulty, empty: !options.difficulty },
     { label: t('courseFiles.workbench.requirements'), value: requirements || t('courseFiles.workbench.notSet'), title: requirements, empty: !requirements },
@@ -691,6 +691,8 @@ const categoryConsoleTitle = computed(() => {
   if (!node) return t('courseFiles.workbench.noLessonsTitle').replace('{stage}', group.label)
   if (node.status === 'working') return t('courseFiles.workbench.workingTitle').replace('{stage}', group.label)
   if (node.status === 'stale') return t('courseFiles.workbench.updateTitle').replace('{stage}', group.label)
+  if (node.status === 'ready') return t('courseFiles.workbench.manageTitle').replace('{stage}', group.label)
+  if (node.status === 'draft') return t('courseFiles.workbench.continueTitle').replace('{stage}', group.label)
   return t('courseFiles.workbench.startStage').replace('{stage}', group.label)
 })
 const categoryConsoleDescription = computed(() => {
@@ -754,13 +756,6 @@ function selectCategory(group: CategoryGroup) {
   else selectedNode.value = null
 }
 function selectCategoryNode(node: WorkspaceNode) { selectNode(node) }
-
-function categoryStatusSummary(group: CategoryGroup) {
-  if (!group.items.length) return t('courseFiles.categories.notStarted')
-  if (group.ready === group.items.length) return t('courseFiles.categories.allReady')
-  if (group.working) return t('courseFiles.categories.inProgress').replace('{count}', String(group.working))
-  return t('courseFiles.categories.pendingCount').replace('{count}', String(group.attention))
-}
 
 function categoryCountLabel(group: CategoryGroup) {
   if (!group.items.length) return t('courseFiles.categories.notStarted')
@@ -926,7 +921,8 @@ function handleNodeClick(node: WorkspaceNode) {
 function primaryLabel(node: WorkspaceNode) {
   if (node.kind === 'folder') return t('courseFiles.openFolder')
   if (node.asset) return t('courseFiles.preview')
-  if (node.type === 'outline' || node.type === 'lesson_plan') return node.status === 'missing' ? t('courseFiles.create') : t('courseFiles.openEdit')
+  if (node.type === 'outline') return node.status === 'missing' ? t('courseFiles.workbench.createOutline') : t('courseFiles.openEdit')
+  if (node.type === 'lesson_plan') return node.status === 'missing' ? t('courseFiles.workbench.createLessonPlan') : t('courseFiles.openEdit')
   if (node.type === 'content') return node.status === 'missing' ? t('courseFiles.createContent') : t('courseFiles.openContent')
   if (node.type === 'ppt') return node.status === 'missing' ? t('courseFiles.createPpt') : t('courseFiles.openPpt')
   if (node.type === 'practice') return node.status === 'missing' ? t('courseFiles.createPractice') : t('courseFiles.openPractice')

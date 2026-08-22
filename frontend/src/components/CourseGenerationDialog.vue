@@ -17,7 +17,8 @@
       >
         <header class="generation-dialog__header">
           <div class="generation-dialog__heading">
-            <h2 :id="titleId">{{ props.initialSubject ? t('courseGeneration.dialog.createOutline', '生成课程大纲') : t('teacherHome.newCourse', '新建课程') }}</h2>
+            <h2 :id="titleId">{{ props.workbenchMode ? t('courseFiles.workbench.settingsDialogTitle') : props.initialSubject ? t('courseGeneration.dialog.createOutline', '生成课程大纲') : t('teacherHome.newCourse', '新建课程') }}</h2>
+            <p v-if="props.workbenchMode">{{ t('courseFiles.workbench.settingsDialogHelp') }}</p>
           </div>
           <button type="button" class="icon-button" :title="t('common.cancel', '取消')" @click="close">
             <X :size="18" />
@@ -443,7 +444,7 @@
             <button type="button" class="primary-button" :disabled="!canSubmit" @click="submit">
               <LoaderCircle v-if="busy" class="spin" :size="16" />
               <Sparkles v-else :size="16" />
-              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录') }}
+              {{ busy ? t('courseGeneration.actions.submitting', '正在提交') : props.workbenchMode ? t('courseFiles.workbench.applySettings') : t('courseGeneration.actions.confirmRequirements', '确认需求，生成目录') }}
             </button>
           </div>
         </footer>
@@ -490,14 +491,18 @@ const props = withDefaults(defineProps<{
   initialLessonDurationMinutes?: number
   initialChapterCount?: number
   initialSectionCount?: number
+  initialOptions?: CourseGenerationOptions
+  initialContextKey?: string
+  workbenchMode?: boolean
 }>(), {
   busy: false,
   initialSubject: '',
   initialAudience: '',
   initialAcademicTerm: '',
-  initialTotalClassHours: 16,
-  initialLessonDurationMinutes: 45,
+  initialTotalClassHours: undefined,
+  initialLessonDurationMinutes: undefined,
   initialChapterCount: undefined,
+  workbenchMode: false,
 })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -518,6 +523,7 @@ const defaultAudience = () => t(
   activeLocale.value === 'en' ? 'University students' : '大学生',
 )
 let lastDefaultAudience = defaultAudience()
+let lastOpenContextKey = ''
 const form = reactive({
   courseType: 'systematic' as CourseType,
   systematicTopic: '',
@@ -607,6 +613,90 @@ const typeIntentComplete = computed(() => ({
   inquiry: Boolean(form.coreQuestion.trim() && form.desiredOutput.trim()),
   exam: Boolean(form.examName.trim() && form.examDate.trim() && form.examScope.trim()),
 }[form.courseType]))
+
+function resetFormForOpen() {
+  lastDefaultAudience = defaultAudience()
+  Object.assign(form, {
+    courseType: 'systematic' as CourseType,
+    systematicTopic: '',
+    projectGoal: '',
+    expectedDeliverable: '',
+    priorExperience: '',
+    currentUncertainty: '',
+    coreQuestion: '',
+    existingUnderstanding: '',
+    evidenceScope: '',
+    desiredOutput: '',
+    examName: '',
+    examDate: '',
+    examScope: '',
+    currentPreparation: '',
+    difficulty: 'intermediate' as DifficultyLevel,
+    pedagogyMode: 'auto' as PedagogyModeSelection,
+    secondaryMode: '' as '' | PedagogyMode,
+    groundingStrategy: 'material_first' as const,
+    retrievalEnabled: false,
+    generateQuestions: false,
+    webMaterialIngest: true,
+    requirements: '',
+    targetAudience: lastDefaultAudience,
+    academicTerm: '',
+    totalClassHours: 16,
+    lessonDurationMinutes: 45,
+    teachingContext: 'classroom' as const,
+    classSize: undefined,
+    classProfile: '',
+    chapterCount: undefined,
+    sectionCount: undefined,
+  })
+}
+
+function hydrateInitialOptions(options?: CourseGenerationOptions) {
+  if (!options) return
+  const brief = options.teacher_course_brief
+  const intent = options.course_intent as Record<string, any> | undefined
+  if (['systematic', 'project', 'inquiry', 'exam'].includes(String(options.course_type || ''))) form.courseType = options.course_type as CourseType
+  if (['beginner', 'intermediate', 'advanced'].includes(String(options.difficulty || ''))) form.difficulty = options.difficulty as DifficultyLevel
+  if (options.pedagogy_mode) form.pedagogyMode = options.pedagogy_mode
+  if (options.secondary_mode) form.secondaryMode = options.secondary_mode
+  if (options.grounding_strategy) form.groundingStrategy = options.grounding_strategy
+  form.retrievalEnabled = Boolean(options.retrieval?.enabled)
+  form.webMaterialIngest = !options.web_material_ingest?.skip_ingest
+  form.generateQuestions = Boolean(options.asset_preferences?.questions || options.asset_preferences?.final_assessment)
+  if (typeof options.requirements === 'string') form.requirements = options.requirements
+  if (options.target_audience) form.targetAudience = options.target_audience
+  if (brief) {
+    if (brief.target_audience) form.targetAudience = brief.target_audience
+    if (brief.academic_term) form.academicTerm = brief.academic_term
+    if (brief.total_class_hours) form.totalClassHours = brief.total_class_hours
+    if (brief.lesson_duration_minutes) form.lessonDurationMinutes = brief.lesson_duration_minutes
+    form.teachingContext = brief.teaching_context || form.teachingContext
+    form.classSize = brief.class_size
+    form.classProfile = brief.class_profile || ''
+    form.chapterCount = brief.chapter_count
+    form.sectionCount = brief.section_count
+    if (!form.requirements && brief.additional_requirements) form.requirements = brief.additional_requirements
+  }
+  if (!intent) return
+  if (intent.type === 'project') {
+    form.projectGoal = String(intent.project_goal || '')
+    form.expectedDeliverable = String(intent.expected_deliverable || '')
+    form.priorExperience = String(intent.prior_experience || '')
+    form.currentUncertainty = String(intent.current_uncertainty || '')
+  } else if (intent.type === 'inquiry') {
+    form.coreQuestion = String(intent.core_question || '')
+    form.existingUnderstanding = String(intent.existing_understanding || '')
+    form.evidenceScope = String(intent.evidence_scope || '')
+    form.desiredOutput = String(intent.desired_output || '')
+  } else if (intent.type === 'exam') {
+    form.examName = String(intent.exam_name || '')
+    form.examDate = String(intent.exam_date || '')
+    form.examScope = String(intent.exam_scope || '')
+    form.currentPreparation = String(intent.current_preparation || '')
+  } else if (intent.learning_goal) {
+    form.systematicTopic = String(intent.learning_goal)
+  }
+}
 const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Boolean(form.targetAudience.trim())
   && Number.isInteger(form.totalClassHours) && form.totalClassHours >= 1 && form.totalClassHours <= 1000
   && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
@@ -618,20 +708,24 @@ watch(() => props.modelValue, async open => {
     submissionIdentity.value = ''
     return
   }
-  if (form.targetAudience === lastDefaultAudience) {
-    lastDefaultAudience = defaultAudience()
-    form.targetAudience = lastDefaultAudience
+  const openContextKey = JSON.stringify([props.initialContextKey || '', props.initialSubject, props.initialOptions || {}])
+  if (openContextKey !== lastOpenContextKey) {
+    resetFormForOpen()
+    hydrateInitialOptions(props.initialOptions)
+    lastOpenContextKey = openContextKey
   }
   if (!form.systematicTopic.trim() && props.initialSubject.trim()) form.systematicTopic = props.initialSubject.trim()
   if (props.initialAudience.trim()) form.targetAudience = props.initialAudience.trim()
   if (props.initialAcademicTerm.trim()) form.academicTerm = props.initialAcademicTerm.trim()
-  if (Number.isFinite(props.initialTotalClassHours) && props.initialTotalClassHours > 0) form.totalClassHours = props.initialTotalClassHours
-  if (Number.isFinite(props.initialLessonDurationMinutes) && props.initialLessonDurationMinutes > 0) form.lessonDurationMinutes = props.initialLessonDurationMinutes
+  const initialTotalClassHours = props.initialTotalClassHours
+  const initialLessonDurationMinutes = props.initialLessonDurationMinutes
+  if (typeof initialTotalClassHours === 'number' && Number.isFinite(initialTotalClassHours) && initialTotalClassHours > 0) form.totalClassHours = initialTotalClassHours
+  if (typeof initialLessonDurationMinutes === 'number' && Number.isFinite(initialLessonDurationMinutes) && initialLessonDurationMinutes > 0) form.lessonDurationMinutes = initialLessonDurationMinutes
   if (Number.isFinite(props.initialChapterCount) && Number(props.initialChapterCount) > 0) form.chapterCount = Number(props.initialChapterCount)
   if (Number.isFinite(props.initialSectionCount) && Number(props.initialSectionCount) > 0) form.sectionCount = Number(props.initialSectionCount)
   await nextTick()
   dialogRef.value?.focus()
-})
+}, { immediate: true })
 
 watch(() => form.pedagogyMode, primaryMode => {
   if (primaryMode !== 'auto' && form.secondaryMode === primaryMode) form.secondaryMode = ''
@@ -653,7 +747,7 @@ async function submit() {
   try {
     const materialBindings = materials.value.length
       ? await materialInputRef.value?.ensureUploaded()
-      : []
+      : (props.initialOptions?.material_bindings || [])
     const options: CourseGenerationOptions = {
       difficulty: form.difficulty,
       composition_style: ({
@@ -756,8 +850,9 @@ async function submit() {
 .generation-dialog-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30, 41, 59, .34); cursor: default; }
 .generation-dialog { position: relative; width: min(920px, 100%); max-height: min(860px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--lz-border); border-radius: 12px; color: var(--lz-text); background: #fff; box-shadow: var(--lz-shadow-overlay); outline: none; }
 .generation-dialog__header { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--lz-border); }
-.generation-dialog__heading { min-width: 0; display: flex; align-items: center; }
+.generation-dialog__heading { min-width: 0; display: grid; gap: 3px; }
 .generation-dialog__heading h2 { margin: 0; color: var(--lz-text-strong); font-size: 18px; line-height: 1.25; }
+.generation-dialog__heading p { margin:0; color:var(--lz-text-muted); font-size:12px; line-height:1.45; }
 .icon-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--lz-text-secondary); background: transparent; cursor: pointer; }
 .icon-button:hover { color: var(--lz-text-strong); background: var(--lz-surface-muted); }
 .generation-dialog__body { min-height: 0; overflow: auto; padding: 4px 24px 24px; }

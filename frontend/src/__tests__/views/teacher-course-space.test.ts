@@ -84,7 +84,7 @@ describe('TeacherCourseSpaceView', () => {
 
     expect(wrapper.find('.workspace-viewbar').exists()).toBe(false)
     expect(wrapper.get('.standalone-header').find('.workspace-view-switch').exists()).toBe(true)
-    await wrapper.findAll('.workspace-view-switch button')[1]!.trigger('click')
+    await wrapper.findAll('.workspace-view-switch button')[0]!.trigger('click')
     expect(wrapper.get('.category-layout')).toBeTruthy()
     expect(wrapper.findAll('.category-navigation nav button')).toHaveLength(4)
     expect(wrapper.get('.category-navigation').text()).toContain('课程大纲')
@@ -94,6 +94,13 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.category-navigation').text()).not.toContain('练习')
     expect(wrapper.find('.category-table').exists()).toBe(false)
     expect(wrapper.get('.category-detail-pane')).toBeTruthy()
+    expect(wrapper.get('.category-navigation').text()).toContain('课程生产')
+    expect(wrapper.get('.category-progress').text()).toContain('备课进度')
+    expect(wrapper.get('.workbench-brief-bar').text()).toContain('课程生产设置')
+    expect(wrapper.get('.category-console').text()).toContain('课程目标')
+    expect(wrapper.get('.category-navigation').text()).not.toContain('0/0')
+    await wrapper.get('.workbench-settings-button').trigger('click')
+    expect(wrapper.emitted('openCourseSettings')).toBeTruthy()
   })
 
   it('分类视图在左侧展开课次，并在右侧直接显示所选内容', async () => {
@@ -156,6 +163,26 @@ describe('TeacherCourseSpaceView', () => {
     await flushPromises()
     expect(wrapper.get('.category-detail-header h2').text()).toContain('垃圾回收')
     expect(wrapper.get('.category-document').text()).toContain('讲解标记清除')
+  })
+
+  it('空文档不能仅凭修订号伪装成大纲已完成', async () => {
+    const pinia = createPinia()
+    setActivePinia(pinia)
+    const courseStore = useCourseStore()
+    courseStore.currentDocumentRevision = 'empty-document-revision'
+    courseStore.nodes = []
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseTitle: '物理', workspaceView: 'categories' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
+    })
+    await flushPromises()
+
+    const outline = wrapper.findAll('.category-group__button').find(button => button.text().includes('课程大纲'))!
+    expect(outline.text()).toContain('0/1')
+    expect(outline.text()).not.toContain('已完成')
+    expect(wrapper.get('.category-console').text()).toContain('开始生成课程大纲')
+    await wrapper.get('.category-console__actions .primary').trigger('click')
+    expect(wrapper.emitted('createOutline')).toBeTruthy()
   })
 
   it('把固定课程资产直接作为入口，教师文件只在资料目录添加', () => {

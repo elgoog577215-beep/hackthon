@@ -13,11 +13,11 @@
 
     <Teleport to="#app-header-route-center">
       <nav class="workspace-view-switch" :aria-label="t('courseFiles.views.label')">
-        <button type="button" :class="{ active: workspaceView === 'files' }" @click="workspaceView = 'files'">
-          <FolderTree :size="15" />{{ t('courseFiles.views.files') }}
-        </button>
         <button type="button" :class="{ active: workspaceView === 'categories' }" @click="workspaceView = 'categories'">
           <LayoutGrid :size="15" />{{ t('courseFiles.views.categories') }}
+        </button>
+        <button type="button" :class="{ active: workspaceView === 'files' }" @click="workspaceView = 'files'">
+          <FolderTree :size="15" />{{ t('courseFiles.views.files') }}
         </button>
       </nav>
     </Teleport>
@@ -57,6 +57,7 @@
       embedded
       :course-id="courseId"
       :course-title="courseTitle"
+      :generation-options="courseGenerationOptions"
       v-model:workspace-view="workspaceView"
       v-model:query="searchQuery"
       @open-outline="outlineOpen = true"
@@ -64,6 +65,7 @@
       @open-teaching-plan="openLessonPlan"
       @open-tasks="openTasks"
       @open-practice="openPractice"
+      @open-course-settings="generationDialogOpen = true"
       @context-change="selectedContext = $event"
       @readiness-change="readiness = $event"
     />
@@ -101,6 +103,9 @@
       v-model="generationDialogOpen"
       :busy="generationStarting"
       :initial-subject="courseTitle"
+      :initial-options="courseGenerationOptions"
+      :initial-context-key="courseId"
+      workbench-mode
       @generate="startOutlineGeneration"
     />
 
@@ -135,6 +140,7 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
+import http from '../utils/http'
 
 const props = defineProps<{ courseId: string; mode?: string }>()
 const route = useRoute()
@@ -153,8 +159,9 @@ const generationDialogOpen = ref(false)
 const generationStarting = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
-const workspaceView = ref<'files' | 'categories'>('files')
+const workspaceView = ref<'files' | 'categories'>('categories')
 const searchQuery = ref('')
+const courseGenerationOptions = ref<CourseGenerationOptions>({})
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -200,6 +207,8 @@ async function loadWorkspace() {
     ])
     await courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
     await lessonStore.load(courseId.value).catch(() => undefined)
+    const courseResponse = await http.get(`/api/courses/${courseId.value}`, { silentError: true }).catch(() => ({ data: {} }))
+    courseGenerationOptions.value = courseResponse.data?.generation_request || {}
     await nextTick()
     const requestedSection = String(route.query.section || '')
     if (requestedSection === 'outline') outlineOpen.value = true
