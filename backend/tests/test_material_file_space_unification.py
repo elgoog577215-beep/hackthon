@@ -211,6 +211,30 @@ async def test_upload_without_identity_still_works(stores, monkeypatch):
     assert payload["course_space"] == {"registered": False}
 
 
+@pytest.mark.asyncio
+async def test_upload_can_register_directly_in_the_current_course(stores, monkeypatch):
+    from routers import materials as materials_router
+
+    materials, space = stores
+    course_package = space.create_package(
+        "teacher-a", "设计思维", "2026-2027", "秋季", course_id="course-1"
+    )
+    monkeypatch.setattr(materials_router, "material_repository", materials)
+    monkeypatch.setattr(materials_router, "teacher_course_space_repository", space)
+
+    payload = await materials_router.upload_material(
+        file=_Upload("旧教案.md", b"# lesson plan"),
+        upload_batch_id="batch-1",
+        course_id="course-1",
+        x_user_id="teacher-a",
+    )
+
+    assert payload["course_space"]["registered"] is True
+    assert payload["course_space"]["package_id"] == course_package["package_id"]
+    assert payload["course_space"]["course_asset_id"].startswith("tca-")
+    assert len(space.list_owned("teacher-a", "course-1")) == 1
+
+
 # --- 引用的双向可查 ---------------------------------------------------------
 # 引用只有单向可用是不够的：资料出问题时，得能从解析产物反查"教师在文件空间的
 # 哪个位置能看到它"，否则只能全量翻包。

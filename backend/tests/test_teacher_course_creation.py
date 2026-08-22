@@ -27,6 +27,14 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "course_code": "DES101",
         "course_goal": "完成可验证的创新方案",
         "default_location": "西1-205",
+        "target_grade": "本科生",
+        "course_category": "通识必修课",
+        "target_major": "工业设计",
+        "credits": 2.0,
+        "total_hours": 32,
+        "assessment_method": "过程考核 + 课程项目",
+        "course_intro": "从真实问题出发学习设计思维。",
+        "teaching_goals": "能够完成问题定义、创意与验证。",
         "generation_request": {
             "subject": "设计思维",
             "target_audience": "大学生",
@@ -64,6 +72,14 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "course_code": "DES101",
         "course_goal": "完成可验证的创新方案",
         "default_location": "西1-205",
+        "target_grade": "本科生",
+        "course_category": "通识必修课",
+        "target_major": "工业设计",
+        "credits": 2.0,
+        "total_hours": 32,
+        "assessment_method": "过程考核 + 课程项目",
+        "course_intro": "从真实问题出发学习设计思维。",
+        "teaching_goals": "能够完成问题定义、创意与验证。",
     }
     package_repository.create_package.assert_called_once()
 

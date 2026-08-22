@@ -59,6 +59,14 @@ export type TeacherCourseSpaceCreate = {
     course_code?: string
     course_goal?: string
     default_location?: string
+    target_grade?: string
+    course_category?: string
+    target_major?: string
+    credits?: number
+    total_hours?: number
+    assessment_method?: string
+    course_intro?: string
+    teaching_goals?: string
     generation_request?: { subject: string } & CourseGenerationOptions
 }
 

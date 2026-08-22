@@ -57,3 +57,12 @@
 - [x] 6.7 Let the existing teacher conversation produce a bounded, reviewable course-framing draft that opens in the same editor without silently saving.
 - [x] 6.8 Verify baseline persistence, AI draft boundaries, zh/en copy and desktop/mobile editing flows.
 - [x] 6.9 Move full course adjustment out of the teacher chat rail into one dedicated responsive workspace while preserving AI and inline launch paths to the same `CourseEvolutionPlan`.
+
+## 7. Minimal teacher-agent course production
+
+- [x] 7.1 Replace the new-course dialog flow with a progressive basic-information form and keep all file upload in the course workspace.
+- [x] 7.2 Add course-scoped material registration and a durable bidirectional relationship index between uploaded assets and formal course files.
+- [x] 7.3 Replace the workbench chat rail with a primary-source/reference tray and four guided stages: course foundation, lesson plan, script plus PPT, and question bank.
+- [x] 7.4 Switch the center pane from the stage form to real streaming generation output in place, preserving partial output and recovery controls.
+- [x] 7.5 Show upstream sources for formal files and downstream formal usages for uploaded files without duplicating the underlying asset.
+- [x] 7.6 Add focused backend/frontend tests, zh/en copy, canonical documentation and desktop/mobile verification.

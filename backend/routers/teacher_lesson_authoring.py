@@ -61,6 +61,7 @@ class GenerateLessonPlanRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     source_package_id: str = Field(default="", max_length=160)
     source_asset_id: str = Field(default="", max_length=160)
+    requirements: str = Field(default="", max_length=4000)
 
 
 class SaveLessonPlanDraftRequest(BaseModel):
@@ -848,8 +849,33 @@ async def generate_lesson_plan(
             lesson_id: str,
             on_progress,
         ) -> dict[str, Any]:
+            scoped_course = deepcopy(course)
+            normalized_requirements = body.requirements.strip()
+            if normalized_requirements:
+                scoped_course["requirements"] = normalized_requirements
+                scoped_course.setdefault("metadata", {}).setdefault(
+                    "teacher_lesson_requirements", {}
+                )[lesson_id] = normalized_requirements
+                for plan_key in ("course_plan", "course_outline"):
+                    scoped_plan = scoped_course.get(plan_key)
+                    if not isinstance(scoped_plan, dict):
+                        continue
+                    for chapter in scoped_plan.get("chapters") or []:
+                        if not isinstance(chapter, dict):
+                            continue
+                        chapter_id = str(
+                            chapter.get("node_id")
+                            or chapter.get("chapter_id")
+                            or ""
+                        )
+                        if chapter_id != lesson_id:
+                            continue
+                        chapter["teacher_requirements"] = normalized_requirements
+                        for section in chapter.get("sections") or []:
+                            if isinstance(section, dict):
+                                section["teacher_requirements"] = normalized_requirements
             return await tm.course_service.prepare_teacher_lesson_plan(
-                course_data=course,
+                course_data=scoped_course,
                 lesson_unit_id=lesson_id,
                 on_phase=on_progress,
                 source_evidence=source_evidence,

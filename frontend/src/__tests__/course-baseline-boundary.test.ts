@@ -6,22 +6,21 @@ import { describe, expect, it } from 'vitest'
 const source = (relativePath: string) => fs.readFileSync(path.resolve(__dirname, '..', relativePath), 'utf8')
 
 
-describe('course baseline authoring boundary', () => {
-  it('makes every framing card editable and routes AI discussion through a reviewable draft', () => {
-    const space = source('views/TeacherCourseSpaceView.vue')
+describe('course workbench authoring boundary', () => {
+  it('uses a structured form, real stream state, and source tray instead of chat as the production core', () => {
+    const workbench = source('components/TeacherCourseWorkbench.vue')
+    const references = source('components/CourseReferenceTray.vue')
     const workspace = source('views/CourseWorkspaceView.vue')
-    const assistant = source('components/SideAIPanel.vue')
 
-    expect(space).toContain("@click=\"emit('editBaseline')\"")
-    expect(space).toContain("emit('discussBaseline')")
-    expect(workspace).toContain('<CourseBaselineDialog')
-    expect(workspace).toContain('/generation-request/draft')
-    expect(workspace).toContain("source: baselineEditorSource.value")
-    expect(workspace).toContain('async function resolveBaselineDocumentRevision()')
-    expect(workspace).toContain("http.get(`/api/courses/${courseId.value}/document`")
-    expect(workspace).toContain('expected_document_revision: expectedDocumentRevision')
-    expect(workspace).not.toContain('baselineSaveBusy.value || !courseStore.currentDocumentRevision')
-    expect(assistant).toContain("emit('courseBaselineDraft'")
-    expect(assistant).not.toContain('/generation-request')
+    expect(workspace).toContain('<TeacherCourseWorkbench')
+    expect(workspace).not.toContain('<SideAIPanel')
+    expect(workbench).toContain('class="stage-form"')
+    expect(workbench).toContain('class="generation-surface"')
+    expect(workbench).toContain('generationStore.streamingContent')
+    expect(workbench).toContain('<CourseReferenceTray')
+    expect(workbench).toContain("'foundation' | 'lesson' | 'script-ppt' | 'assessment'")
+    expect(references).toContain('class="drop-zone"')
+    expect(references).toContain("data.append('course_id', props.courseId)")
+    expect(references).toContain("role: 'primary' | 'reference'")
   })
 })

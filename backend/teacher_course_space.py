@@ -21,6 +21,14 @@ MATERIAL_INBOX_NAME = "课程资料"
 MATERIAL_INBOX_YEAR = "通用"
 MATERIAL_INBOX_TERM = "全部"
 MATERIAL_INBOX_FOLDER = "生成资料"
+FORMAL_FILE_TYPES = {
+    "outline",
+    "teaching_calendar",
+    "lesson_plan",
+    "script",
+    "ppt",
+    "question_bank",
+}
 CATEGORIES = {
     "teaching_design": "教学设计",
     "lesson_materials": "讲次资料",
@@ -132,7 +140,7 @@ class TeacherCourseSpaceRepository:
         entries = [{**entry, "path": entry["name"]} for entry in SCHOOL_TEMPLATE] if template == "school_course_materials" else []
         package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
                    "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "imports": [],
-                   "entries": entries}
+                   "entries": entries, "relationships": []}
         package_path = self._path(package_id)
         package_path.mkdir(parents=True, exist_ok=False)
         (package_path / "files").mkdir(exist_ok=True)  # immutable source copies for download/history
@@ -306,6 +314,10 @@ class TeacherCourseSpaceRepository:
             if materialized.is_file():
                 materialized.unlink()
         package["assets"] = [item for item in package.get("assets", []) if item.get("asset_id") != asset_id]
+        package["relationships"] = [
+            item for item in package.get("relationships", [])
+            if item.get("source_asset_id") != asset_id
+        ]
         self.save(package)
         return asset
 
@@ -329,6 +341,10 @@ class TeacherCourseSpaceRepository:
             shutil.rmtree(destination)
         affected_ids = {item["asset_id"] for item in affected_assets}
         package["assets"] = [item for item in package.get("assets", []) if item.get("asset_id") not in affected_ids]
+        package["relationships"] = [
+            item for item in package.get("relationships", [])
+            if item.get("source_asset_id") not in affected_ids
+        ]
         package["entries"] = [item for item in entries if item not in affected_entries]
         self.save(package)
         return {"path": normalized, "deleted_assets": len(affected_assets), "deleted_folders": len(affected_entries)}
@@ -485,5 +501,91 @@ class TeacherCourseSpaceRepository:
         target.setdefault("assets", []).append(asset)
         self.save(target)
         return {**asset, "package_id": target["package_id"], "outcome": "registered"}
+
+    # --- 正式课程文件与原始资料的双向关系 ---------------------------------
+
+    def replace_formal_relationships(
+        self,
+        package: dict[str, Any],
+        *,
+        target_id: str,
+        target_type: str,
+        target_label: str,
+        sources: list[dict[str, str]],
+        target_revision: str = "",
+    ) -> list[dict[str, Any]]:
+        """替换一个正式文件的来源集合；只改关系，不复制或删除原文件。"""
+        normalized_target_id = str(target_id or "").strip()
+        normalized_target_type = str(target_type or "").strip()
+        if not normalized_target_id or len(normalized_target_id) > 240:
+            raise MaterialStorageError("正式文件标识不合法")
+        if normalized_target_type not in FORMAL_FILE_TYPES:
+            raise MaterialStorageError("正式文件类型不合法")
+
+        assets = {
+            str(item.get("asset_id") or ""): item
+            for item in package.get("assets", [])
+        }
+        normalized_sources: list[tuple[dict[str, Any], str]] = []
+        seen: set[str] = set()
+        primary_count = 0
+        for source in sources:
+            source_asset_id = str(source.get("source_asset_id") or "").strip()
+            role = str(source.get("role") or "reference").strip()
+            if role not in {"primary", "reference"}:
+                raise MaterialStorageError("引用角色不合法")
+            if source_asset_id in seen:
+                continue
+            asset = assets.get(source_asset_id)
+            if asset is None:
+                raise FileNotFoundError(source_asset_id)
+            if role == "primary":
+                primary_count += 1
+            seen.add(source_asset_id)
+            normalized_sources.append((asset, role))
+        if primary_count > 1:
+            raise MaterialStorageError("一个正式文件只能有一个主来源")
+
+        now = _now()
+        relationships = [
+            item for item in package.get("relationships", [])
+            if str(item.get("target_id") or "") != normalized_target_id
+        ]
+        created: list[dict[str, Any]] = []
+        for asset, role in normalized_sources:
+            relationship = {
+                "link_id": f"tcr-{uuid.uuid4().hex}",
+                "source_asset_id": str(asset.get("asset_id") or ""),
+                "material_asset_id": str(asset.get("material_asset_id") or ""),
+                "source_label": str(asset.get("filename") or ""),
+                "target_id": normalized_target_id,
+                "target_type": normalized_target_type,
+                "target_label": str(target_label or normalized_target_id).strip(),
+                "target_revision": str(target_revision or "").strip(),
+                "role": role,
+                "created_at": now,
+                "updated_at": now,
+            }
+            relationships.append(relationship)
+            created.append(relationship)
+        package["relationships"] = relationships
+        self.save(package)
+        return created
+
+    def relationships_for_target(
+        self, package: dict[str, Any], target_id: str
+    ) -> list[dict[str, Any]]:
+        return [
+            dict(item) for item in package.get("relationships", [])
+            if str(item.get("target_id") or "") == str(target_id or "")
+        ]
+
+    def relationships_for_source(
+        self, package: dict[str, Any], source_asset_id: str
+    ) -> list[dict[str, Any]]:
+        return [
+            dict(item) for item in package.get("relationships", [])
+            if str(item.get("source_asset_id") or "") == str(source_asset_id or "")
+        ]
 
 teacher_course_space_repository = TeacherCourseSpaceRepository()

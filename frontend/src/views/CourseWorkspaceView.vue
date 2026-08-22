@@ -48,7 +48,6 @@
           <GitBranchPlus :size="16" />{{ t('courseEvolution.workspace.open', '调整课程') }}
         </button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
-        <button class="agent-action" :class="{ active: agentOpen }" type="button" :aria-pressed="agentOpen" @click="agentOpen = !agentOpen"><Sparkles :size="16" />{{ agentOpen ? t('courseFiles.hideTeacherAgent') : t('courseFiles.teacherAgent') }}</button>
       </div>
     </Teleport>
 
@@ -59,13 +58,25 @@
       <TriangleAlert :size="22" /><strong>{{ t('courseFiles.loadFailed') }}</strong><span>{{ loadError }}</span>
       <button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button>
     </section>
-    <section v-else class="workspace-operating-shell" :class="{ 'assistant-open': agentOpen }">
-      <TeacherCourseSpaceView
-        embedded
+    <section v-else class="workspace-operating-shell">
+      <TeacherCourseWorkbench
+        v-if="workspaceView === 'categories'"
         :course-id="courseId"
         :course-title="courseTitle"
         :generation-options="courseGenerationOptions"
-        v-model:workspace-view="workspaceView"
+        :generation-starting="generationStarting"
+        @generate-outline="startOutlineGeneration"
+        @open-outline="outlineOpen = true"
+        @open-teaching-plan="openLessonPlan"
+        @open-script="openScript"
+        @open-practice="openPractice"
+      />
+      <TeacherCourseSpaceView
+        v-else
+        embedded
+        :course-id="courseId"
+        :course-title="courseTitle"
+        workspace-view="files"
         v-model:query="searchQuery"
         @open-outline="outlineOpen = true"
         @create-outline="startOutlineFromBaseline"
@@ -73,30 +84,9 @@
         @open-teaching-plan="openLessonPlan"
         @open-tasks="openTasks"
         @open-practice="openPractice"
-        @open-assistant="agentOpen = true"
-        @edit-baseline="openBaselineEditor"
-        @discuss-baseline="openBaselineAssistant"
         @context-change="selectedContext = $event"
         @readiness-change="readiness = $event"
       />
-      <aside v-if="agentOpen" class="teacher-agent-host" :aria-label="t('courseFiles.teacherAgent')">
-        <SideAIPanel
-          embedded
-          :visible="agentOpen"
-          mode="teacher"
-          :quote-text="agentContextText"
-          :quote-node-id="selectedContext.lessonId"
-          :entrypoint="selectedContext.nodeId ? 'selection' : 'global'"
-          :scope-files="teacherAssistantFiles"
-          :prefill="agentPrefill"
-          course-baseline-draft-enabled
-          :course-baseline-draft-busy="baselineDraftBusy"
-          @close="agentOpen = false"
-          @block-applied="loadWorkspace"
-          @open-course-adjustment="openCourseAdjustment"
-          @course-baseline-draft="createBaselineDraft"
-        />
-      </aside>
     </section>
 
     <el-drawer v-model="outlineOpen" size="min(1040px, 92vw)" :title="t('courseFiles.outlineEditor')" destroy-on-close>
@@ -143,29 +133,18 @@
       @course-applied="handleCourseAdjustmentApplied"
     />
 
-    <CourseBaselineDialog
-      v-model="baselineEditorOpen"
-      :busy="baselineSaveBusy"
-      :initial-options="baselineEditorOptions"
-      :context-key="baselineEditorContextKey"
-      :ai-draft="baselineEditorSource === 'ai_draft'"
-      @save="saveCourseBaseline"
-      @discuss-ai="openBaselineAssistant"
-    />
   </main>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
-import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
-import SideAIPanel from '../components/SideAIPanel.vue'
+import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
 import { t } from '../shared/i18n'
@@ -191,22 +170,13 @@ const workbenchOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
 const courseAdjustmentFocusPlanId = ref('')
 const courseAdjustmentSectionId = ref('')
-const agentOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1280)
 const generationStarting = ref(false)
+const autoGenerationHandled = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
-const courseGenerationRevision = ref(0)
-const baselineEditorOpen = ref(false)
-const baselineEditorOptions = ref<CourseGenerationOptions & { subject?: string }>({})
-const baselineEditorRevision = ref(0)
-const baselineEditorSource = ref<'manual' | 'ai_draft'>('manual')
-const baselineDraftId = ref('')
-const baselineSaveBusy = ref(false)
-const baselineDraftBusy = ref(false)
-const agentPrefill = ref('')
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -227,23 +197,6 @@ const selectedLessonTitle = computed(() => selectedLesson.value
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
-const agentContextText = computed(() => selectedContext.value.nodeId
-  ? t('courseFiles.agentContext')
-    .replace('{label}', selectedContext.value.label)
-    .replace('{path}', selectedContext.value.path || t('courseFiles.rootName'))
-  : '')
-const teacherAssistantFiles = computed(() => courseStore.nodes
-  .filter(node => Number(node.node_level || 0) === 2 && Boolean(node.node_content || node.content_blocks?.length))
-  .map(node => {
-    const parent = courseStore.nodes.find(candidate => candidate.node_id === node.parent_node_id)
-    return {
-      id: node.node_id,
-      nodeId: node.node_id,
-      label: node.node_name,
-      path: parent ? `${parent.node_name} / ${node.node_name}` : node.node_name,
-    }
-  }))
-const baselineEditorContextKey = computed(() => `${baselineEditorRevision.value}:${baselineDraftId.value}:${baselineEditorSource.value}`)
 
 function backToSource() {
   const returnTo = String(route.query.returnTo || '')
@@ -267,96 +220,19 @@ async function loadWorkspace() {
     await lessonStore.load(courseId.value).catch(() => undefined)
     const courseResponse = await http.get(`/api/courses/${courseId.value}`, { silentError: true }).catch(() => ({ data: {} }))
     courseGenerationOptions.value = courseResponse.data?.generation_request || {}
-    courseGenerationRevision.value = Number(courseResponse.data?.generation_request_revision || 0)
     await nextTick()
     const requestedSection = String(route.query.section || '')
     if (requestedSection === 'outline') outlineOpen.value = true
     if (requestedSection === 'calendar') calendarOpen.value = true
+    if (route.query.generate === 'outline' && !autoGenerationHandled.value && !generationTask.value) {
+      autoGenerationHandled.value = true
+      void startOutlineFromBaseline()
+      void router.replace({ query: { ...route.query, generate: undefined } })
+    }
   } catch (error: any) {
     loadError.value = String(error?.response?.data?.detail || error?.message || t('courseFiles.loadFailed'))
   } finally {
     loading.value = false
-  }
-}
-
-function openBaselineEditor() {
-  baselineEditorOptions.value = { ...courseGenerationOptions.value }
-  baselineEditorRevision.value = courseGenerationRevision.value
-  baselineEditorSource.value = 'manual'
-  baselineDraftId.value = ''
-  baselineEditorOpen.value = true
-}
-
-async function openBaselineAssistant() {
-  baselineEditorOpen.value = false
-  agentOpen.value = true
-  agentPrefill.value = ''
-  await nextTick()
-  agentPrefill.value = t('courseFiles.workbench.aiDiscussionPrefill')
-}
-
-async function createBaselineDraft(payload: { conversationId: string; messageId: string }) {
-  if (baselineDraftBusy.value) return
-  baselineDraftBusy.value = true
-  try {
-    const response = await http.post(`/api/courses/${courseId.value}/generation-request/draft`, {
-      conversation_id: payload.conversationId,
-      through_message_id: payload.messageId,
-    }, { silentError: true })
-    baselineEditorOptions.value = response.data?.generation_request || { ...courseGenerationOptions.value }
-    baselineEditorRevision.value = Number(response.data?.based_on_revision ?? courseGenerationRevision.value)
-    baselineEditorSource.value = 'ai_draft'
-    baselineDraftId.value = String(response.data?.draft_id || '')
-    baselineEditorOpen.value = true
-  } catch (error: any) {
-    const code = String(error?.response?.data?.detail?.code || '')
-    ElMessage.error(t(code === 'course_baseline_draft_invalid'
-      ? 'courseFiles.workbench.aiDraftInvalid'
-      : 'courseFiles.workbench.aiDraftFailed'))
-  } finally {
-    baselineDraftBusy.value = false
-  }
-}
-
-async function resolveBaselineDocumentRevision() {
-  const currentRevision = String(courseStore.currentDocumentRevision || '').trim()
-  if (currentRevision) return currentRevision
-
-  const response = await http.get(`/api/courses/${courseId.value}/document`, { silentError: true })
-  const resolvedRevision = String(response.data?.document?.document_revision || '').trim()
-  if (resolvedRevision) courseStore.currentDocumentRevision = resolvedRevision
-  return resolvedRevision
-}
-
-async function saveCourseBaseline(payload: { subject: string; options: CourseGenerationOptions }) {
-  if (baselineSaveBusy.value) return
-  baselineSaveBusy.value = true
-  try {
-    const expectedDocumentRevision = await resolveBaselineDocumentRevision()
-    if (!expectedDocumentRevision) throw new Error('Missing canonical course revision')
-    const response = await http.put(`/api/courses/${courseId.value}/generation-request`, {
-      generation_request: { subject: payload.subject, ...payload.options },
-      expected_revision: baselineEditorRevision.value,
-      expected_document_revision: expectedDocumentRevision,
-      idempotency_key: `course-baseline:${crypto.randomUUID()}`,
-      source: baselineEditorSource.value,
-      draft_id: baselineDraftId.value,
-    }, { silentError: true })
-    courseGenerationOptions.value = response.data?.generation_request || { subject: payload.subject, ...payload.options }
-    courseGenerationRevision.value = Number(response.data?.revision || baselineEditorRevision.value + 1)
-    baselineEditorOpen.value = false
-    ElMessage.success(t('courseFiles.workbench.baselineSaved'))
-  } catch (error: any) {
-    const detail = error?.response?.data?.detail
-    if (detail?.code === 'course_baseline_revision_changed') {
-      courseGenerationOptions.value = detail.generation_request || courseGenerationOptions.value
-      courseGenerationRevision.value = Number(detail.current_revision || courseGenerationRevision.value)
-      ElMessage.warning(t('courseFiles.workbench.baselineConflict'))
-    } else {
-      ElMessage.error(t('courseFiles.workbench.baselineSaveFailed'))
-    }
-  } finally {
-    baselineSaveBusy.value = false
   }
 }
 
@@ -381,6 +257,18 @@ function openPractice(lessonId: string) {
     name: 'learning',
     params: { courseId: courseId.value, ...(targetNode ? { nodeId: targetNode.node_id } : {}) },
     query: { teacherPreview: '1', returnTo: route.fullPath, workspace: 'question-book' },
+  })
+}
+
+function openScript(lessonId: string) {
+  const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+  const sectionIds = new Set(lesson?.sections.map(item => item.section_node_id) || [])
+  const targetNode = courseStore.nodes.find(node => sectionIds.has(node.node_id))
+    || courseStore.nodes.find(node => sectionIds.has(String(node.parent_node_id || '')))
+  void router.push({
+    name: 'learning',
+    params: { courseId: courseId.value, ...(targetNode ? { nodeId: targetNode.node_id } : {}) },
+    query: { teacherPreview: '1', returnTo: route.fullPath },
   })
 }
 
@@ -425,8 +313,7 @@ async function startOutlineGeneration(payload: { subject: string; options: Cours
       teacher_authoring_mode: 'lesson_assets_v1',
     })
     if (!result?.courseId) return
-    await loadWorkspace()
-    openTasks()
+    generationStore.observeCourse(courseId.value)
   } finally {
     generationStarting.value = false
   }
@@ -462,7 +349,6 @@ onMounted(loadWorkspace)
 <style scoped>
 .course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); background:#f3f5f9; }
 .workspace-operating-shell { position:relative; width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:#f3f5f9; }
-.workspace-operating-shell.assistant-open { grid-template-columns:minmax(0,1fr) clamp(360px,29vw,430px); }
 .workspace-operating-shell > :deep(.file-space) { min-width:0; min-height:0; }
 .workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
 .workspace-route-context>svg { flex:none; color:var(--lz-brand); }
@@ -485,8 +371,6 @@ onMounted(loadWorkspace)
 .workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:12px; }
 .workspace-search button { width:24px; min-height:24px; padding:0; border:0; background:transparent; }
 .workspace-route-actions .search-action { display:none; width:38px; padding:0; }
-.workspace-route-actions .agent-action { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:#fff; }
-.workspace-route-actions .agent-action.active { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-route-actions .adjustment-action { border-color:#d7d9ff; color:#5148dc; background:#f8f8ff; }
 .workspace-route-actions .adjustment-action:hover { border-color:#8580f5; background:#f0f0ff; }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
@@ -499,8 +383,6 @@ onMounted(loadWorkspace)
 .workspace-loading button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
 :global(.teaching-calendar-drawer .el-drawer__body) { min-height:0; overflow:hidden; padding:0; }
-.teacher-agent-host { min-width:0; min-height:0; overflow:hidden; margin:14px 14px 14px 0; border:1px solid #e5e9f0; border-radius:22px; background:#fff; box-shadow:0 16px 44px rgba(15,23,42,.055); }
-.teacher-agent-host :deep(.ai-teacher-panel) { width:100%; height:100%; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1050px) {
@@ -525,9 +407,5 @@ onMounted(loadWorkspace)
 @media (min-width:721px) and (max-width:1180px) {
   .workspace-route-context>h1 { max-width:280px; }
   .workspace-state { display:none; }
-}
-@media (max-width:1499px) {
-  .workspace-operating-shell.assistant-open { grid-template-columns:minmax(0,1fr); }
-  .teacher-agent-host { position:absolute; z-index:40; inset:0 0 0 auto; width:min(430px,100%); margin:10px; border-radius:20px; box-shadow:-20px 0 48px rgba(15,23,42,.16); }
 }
 </style>

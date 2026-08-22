@@ -89,6 +89,14 @@ class TeacherCourseCreateRequest(BaseModel):
     course_code: str = Field(default="", max_length=64)
     course_goal: str = Field(default="", max_length=1500)
     default_location: str = Field(default="", max_length=200)
+    target_grade: str = Field(default="", max_length=100)
+    course_category: str = Field(default="", max_length=100)
+    target_major: str = Field(default="", max_length=200)
+    credits: float | None = Field(default=None, ge=0, le=100)
+    total_hours: int | None = Field(default=None, ge=0, le=10000)
+    assessment_method: str = Field(default="", max_length=500)
+    course_intro: str = Field(default="", max_length=3000)
+    teaching_goals: str = Field(default="", max_length=3000)
     generation_request: Optional[CourseGenerationRequest] = None
 
 
@@ -249,6 +257,14 @@ async def create_teacher_course(
                 "course_code": body.course_code.strip(),
                 "course_goal": body.course_goal.strip(),
                 "default_location": body.default_location.strip(),
+                "target_grade": body.target_grade.strip(),
+                "course_category": body.course_category.strip(),
+                "target_major": body.target_major.strip(),
+                "credits": body.credits,
+                "total_hours": body.total_hours,
+                "assessment_method": body.assessment_method.strip(),
+                "course_intro": body.course_intro.strip(),
+                "teaching_goals": body.teaching_goals.strip(),
             },
             "generation_request": generation_request,
             "created_at": now.isoformat(),

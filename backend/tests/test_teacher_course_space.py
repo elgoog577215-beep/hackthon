@@ -143,3 +143,72 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         remaining = repository.load_owned(created["package_id"], "teacher-a")["assets"]
         self.assertEqual([item["asset_id"] for item in remaining], [second["asset_id"]])
         self.assertNotEqual(first["asset_id"], second["asset_id"])
+
+    async def test_formal_file_relationships_are_bidirectional_and_replaceable(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package(
+            "teacher-a", "数据结构", "2025-2026", "春季", course_id="course-1"
+        )
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        primary = await repository.import_file(
+            package, FakeUpload(), "原始资料/旧教案.pdf", "batch-1"
+        )
+        reference = await repository.import_file(
+            package, FakeUpload(), "原始资料/课堂案例.pdf", "batch-1"
+        )
+        repository.save(package)
+
+        links = repository.replace_formal_relationships(
+            package,
+            target_id="lesson-plan:lesson-1",
+            target_type="lesson_plan",
+            target_label="第 1 讲教案",
+            sources=[
+                {"source_asset_id": primary["asset_id"], "role": "primary"},
+                {"source_asset_id": reference["asset_id"], "role": "reference"},
+            ],
+        )
+
+        self.assertEqual(len(links), 2)
+        self.assertEqual(
+            repository.relationships_for_target(package, "lesson-plan:lesson-1"),
+            links,
+        )
+        self.assertEqual(
+            repository.relationships_for_source(package, primary["asset_id"])[0]["target_label"],
+            "第 1 讲教案",
+        )
+
+        replaced = repository.replace_formal_relationships(
+            package,
+            target_id="lesson-plan:lesson-1",
+            target_type="lesson_plan",
+            target_label="第 1 讲教案",
+            sources=[{"source_asset_id": reference["asset_id"], "role": "primary"}],
+        )
+
+        self.assertEqual(len(replaced), 1)
+        self.assertEqual(
+            repository.relationships_for_source(package, primary["asset_id"]), []
+        )
+
+    async def test_deleting_source_asset_removes_only_its_relationships(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        source = await repository.import_file(
+            package, FakeUpload(), "原始资料/旧教案.pdf", "batch-1"
+        )
+        repository.save(package)
+        repository.replace_formal_relationships(
+            package,
+            target_id="managed:outline",
+            target_type="outline",
+            target_label="课程大纲",
+            sources=[{"source_asset_id": source["asset_id"], "role": "primary"}],
+        )
+
+        repository.delete_asset(package, source["asset_id"])
+
+        loaded = repository.load_owned(created["package_id"], "teacher-a")
+        self.assertEqual(loaded["relationships"], [])

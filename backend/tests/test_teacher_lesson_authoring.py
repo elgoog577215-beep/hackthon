@@ -435,6 +435,13 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         async def prepare_teacher_lesson_plan(self, *, course_data, lesson_unit_id, on_phase, source_evidence=None):
             self.calls.append(lesson_unit_id)
             assert source_evidence == []
+            assert course_data["requirements"] == "突出课堂讨论与案例分析"
+            selected = next(
+                item
+                for item in course_data["course_plan"]["chapters"]
+                if item["node_id"] == lesson_unit_id
+            )
+            assert selected["teacher_requirements"] == "突出课堂讨论与案例分析"
             await on_phase("lesson_plan_batch", 60, "生成中")
             scope = lesson_scope(course_data, lesson_unit_id)
             return {
@@ -474,7 +481,10 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
 
         response = client.post(
             "/api/teacher/courses/course-1/lessons/L1-2/plan/generate",
-            json={"request_id": "lesson-two"},
+            json={
+                "request_id": "lesson-two",
+                "requirements": "突出课堂讨论与案例分析",
+            },
         )
         assert response.status_code == 202
         job_id = response.json()["job"]["id"]

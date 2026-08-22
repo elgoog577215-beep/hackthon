@@ -191,6 +191,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       courseId: string,
       lessonUnitId: string,
       source?: { packageId: string; assetId: string },
+      requirements = '',
     ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -201,6 +202,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             request_id: crypto.randomUUID(),
             source_package_id: source?.packageId || '',
             source_asset_id: source?.assetId || '',
+            requirements,
           },
           requestConfig(),
         )

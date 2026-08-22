@@ -29,7 +29,12 @@ def _optional_owner(raw: str | None) -> str:
     return "" if owner_id in {"", "default_user"} or len(owner_id) > 160 else owner_id
 
 
-def _register_in_course_space(owner_id: str, asset: Any) -> dict[str, Any] | None:
+def _register_in_course_space(
+    owner_id: str,
+    asset: Any,
+    *,
+    course_id: str = "",
+) -> dict[str, Any] | None:
     """把上传的资料登记进该教师的文件空间。
 
     F-3：课程生成里的「添加资料」原本只写 material_storage，与文件空间零交集，
@@ -41,7 +46,20 @@ def _register_in_course_space(owner_id: str, asset: Any) -> dict[str, Any] | Non
     if not owner_id:
         return None
     try:
-        return teacher_course_space_repository.register_material_reference(owner_id, asset)
+        package = None
+        normalized_course_id = str(course_id or "").strip()
+        if normalized_course_id:
+            matches = teacher_course_space_repository.list_owned(
+                owner_id, normalized_course_id
+            )
+            if not matches:
+                raise FileNotFoundError(normalized_course_id)
+            package = teacher_course_space_repository.load_owned(
+                str(matches[0].get("package_id") or ""), owner_id
+            )
+        return teacher_course_space_repository.register_material_reference(
+            owner_id, asset, package=package
+        )
     except Exception:
         logger.warning(
             "资料 %s 已上传但未能登记到文件空间（owner=%s），可用 "
@@ -55,6 +73,7 @@ def _register_in_course_space(owner_id: str, asset: Any) -> dict[str, Any] | Non
 async def upload_material(
     file: UploadFile = File(...),
     upload_batch_id: str = Form(default=""),
+    course_id: str = Form(default=""),
     x_user_id: str | None = Header(default=None),
 ) -> dict[str, Any]:
     try:
@@ -65,12 +84,17 @@ async def upload_material(
     except MaterialStorageError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     payload = material_repository.public_asset(asset)
-    reference = _register_in_course_space(_optional_owner(x_user_id), asset)
+    reference = _register_in_course_space(
+        _optional_owner(x_user_id),
+        asset,
+        course_id=course_id if isinstance(course_id, str) else "",
+    )
     # 让前端能直接告诉老师"已存入文件空间"，并知道去哪个包找。
     payload["course_space"] = (
         {
             "registered": True,
             "package_id": reference.get("package_id", ""),
+            "course_asset_id": reference.get("asset_id", ""),
             "relative_path": reference.get("relative_path", ""),
         }
         if reference
@@ -80,7 +104,10 @@ async def upload_material(
 
 
 @router.get("")
-def list_materials(x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
+def list_materials(
+    course_id: str | None = None,
+    x_user_id: str | None = Header(default=None),
+) -> dict[str, Any]:
     """列出该教师在文件空间登记过的资料。
 
     `material_storage` 本身无归属也无列表接口，所以"我的资料"只能按文件空间的
@@ -90,7 +117,7 @@ def list_materials(x_user_id: str | None = Header(default=None)) -> dict[str, An
     if not owner_id:
         return {"assets": [], "owner_scoped": False}
     assets: list[dict[str, Any]] = []
-    for summary in teacher_course_space_repository.list_owned(owner_id):
+    for summary in teacher_course_space_repository.list_owned(owner_id, course_id):
         package_id = str(summary.get("package_id") or "")
         try:
             package = teacher_course_space_repository.load_owned(package_id, owner_id)
@@ -107,6 +134,9 @@ def list_materials(x_user_id: str | None = Header(default=None)) -> dict[str, An
                 "relative_path": item.get("relative_path", ""),
                 "size_bytes": item.get("size_bytes", 0),
                 "uploaded_at": item.get("uploaded_at", ""),
+                "usages": teacher_course_space_repository.relationships_for_source(
+                    package, str(item.get("asset_id") or "")
+                ),
             })
     assets.sort(key=lambda item: str(item.get("uploaded_at") or ""), reverse=True)
     return {"assets": assets, "owner_scoped": True}

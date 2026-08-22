@@ -4,7 +4,7 @@ import io, json, mimetypes, urllib.parse, zipfile
 from typing import Any
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from learner_context import require_user_id
 from material_storage import MaterialStorageError
 from teacher_course_space import CATEGORIES, package_folder_paths, teacher_course_space_repository as repository
@@ -14,6 +14,13 @@ class PackageCreate(BaseModel): course_name: str; academic_year: str; term: str;
 class PackageBinding(BaseModel): course_id: str
 class CategoryUpdate(BaseModel): category: str
 class FolderCreate(BaseModel): name: str
+class RelationshipSource(BaseModel): source_asset_id: str; role: str = "reference"
+class RelationshipUpdate(BaseModel):
+    target_id: str
+    target_type: str
+    target_label: str
+    target_revision: str = ""
+    sources: list[RelationshipSource] = Field(default_factory=list)
 def owner(request: Request) -> str: return require_user_id(request.headers.get("X-User-Id"))
 def http_error(exc: Exception):
     if isinstance(exc, FileNotFoundError): raise HTTPException(404, "课程工作包或资料不存在")
@@ -33,6 +40,20 @@ def get_package(package_id: str, request: Request):
 @router.patch("/{package_id}")
 def bind_package(package_id: str, body: PackageBinding, request: Request):
     try: return repository.bind_course(repository.load_owned(package_id, owner(request)), body.course_id)
+    except Exception as exc: http_error(exc)
+@router.put("/{package_id}/relationships")
+def replace_relationships(package_id: str, body: RelationshipUpdate, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        relationships = repository.replace_formal_relationships(
+            package,
+            target_id=body.target_id,
+            target_type=body.target_type,
+            target_label=body.target_label,
+            target_revision=body.target_revision,
+            sources=[item.model_dump() for item in body.sources],
+        )
+        return {"relationships": relationships, "package": repository.public(package)}
     except Exception as exc: http_error(exc)
 @router.post("/{package_id}/imports")
 async def import_folder(package_id: str, request: Request, files: list[UploadFile] | None = File(default=None), relative_paths: list[str] | None = Form(default=None), folder_paths: list[str] | None = Form(default=None)):
