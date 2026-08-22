@@ -339,3 +339,51 @@ def test_rebuild_api_accepts_item_scope_and_resolves_its_node(
     assert created.json()["revision_ids"] == ["revision-1"]
     assert created.json()["node_ids"] == ["node-1"]
     assert executor.submissions[0]["payload"]["scope"] == "items"
+
+
+def test_rebuild_api_freezes_explicit_teacher_material_scope(
+    monkeypatch,
+    tmp_path,
+):
+    client, _, executor = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        question_bank,
+        "_course_owned_material_asset_ids",
+        lambda _course_id, _actor_id: {"mat-1", "mat-2"},
+    )
+
+    created = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-selected-materials",
+            "scope": "course",
+            "node_ids": [],
+            "mode": "full",
+            "material_asset_ids": ["mat-2", "mat-1", "mat-2"],
+        },
+    )
+
+    assert created.status_code == 202
+    assert created.json()["material_asset_ids"] == ["mat-1", "mat-2"]
+    assert created.json()["material_scope_explicit"] is True
+    assert executor.submissions[0]["payload"]["material_asset_ids"] == [
+        "mat-1",
+        "mat-2",
+    ]
+
+    rejected = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-unknown-material",
+            "scope": "course",
+            "node_ids": [],
+            "mode": "full",
+            "material_asset_ids": ["mat-unknown"],
+        },
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["code"] == (
+        "question_bank_materials_unknown"
+    )

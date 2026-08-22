@@ -56,6 +56,7 @@ class QuestionBankRebuildJobRepository:
         mode: str,
         actor_id: str,
         revision_ids: list[str] | None = None,
+        material_asset_ids: list[str] | None = None,
         worker_id: str = "",
         retrieval_enabled: bool = False,
         assessment_generation_profile: str = "complete",
@@ -76,6 +77,12 @@ class QuestionBankRebuildJobRepository:
             for value in revision_ids or []
             if str(value).strip()
         })
+        normalized_material_assets = sorted({
+            str(value).strip()
+            for value in material_asset_ids or []
+            if str(value).strip()
+        })
+        material_scope_explicit = material_asset_ids is not None
         if normalized_scope not in {"course", "nodes", "items"}:
             raise ValueError("scope must be course, nodes, or items")
         if normalized_mode not in {"incremental", "full"}:
@@ -101,6 +108,8 @@ class QuestionBankRebuildJobRepository:
                 "scope": normalized_scope,
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
+                "material_asset_ids": normalized_material_assets,
+                "material_scope_explicit": material_scope_explicit,
                 "mode": normalized_mode,
                 "retrieval_enabled": bool(retrieval_enabled),
                 "assessment_generation_profile": normalized_profile,
@@ -117,6 +126,8 @@ class QuestionBankRebuildJobRepository:
                         scope=normalized_scope,
                         node_ids=normalized_nodes,
                         revision_ids=normalized_revisions,
+                        material_asset_ids=normalized_material_assets,
+                        material_scope_explicit=material_scope_explicit,
                         mode=normalized_mode,
                         actor_id=normalized_actor_id,
                         retrieval_enabled=bool(retrieval_enabled),
@@ -147,6 +158,8 @@ class QuestionBankRebuildJobRepository:
                 "scope": normalized_scope,
                 "node_ids": normalized_nodes,
                 "revision_ids": normalized_revisions,
+                "material_asset_ids": normalized_material_assets,
+                "material_scope_explicit": material_scope_explicit,
                 "mode": normalized_mode,
                 "retrieval_enabled": bool(retrieval_enabled),
                 "assessment_generation_profile": normalized_profile,
@@ -487,6 +500,8 @@ def _same_active_scope(
     scope: str,
     node_ids: list[str],
     revision_ids: list[str],
+    material_asset_ids: list[str],
+    material_scope_explicit: bool,
     mode: str,
     actor_id: str,
     retrieval_enabled: bool,
@@ -501,6 +516,12 @@ def _same_active_scope(
             str(value)
             for value in job.get("revision_ids") or []
         ) == revision_ids
+        and sorted(
+            str(value)
+            for value in job.get("material_asset_ids") or []
+        ) == material_asset_ids
+        and bool(job.get("material_scope_explicit"))
+        is material_scope_explicit
         and str(job.get("mode") or "") == mode
         and str(job.get("actor_id") or "") == actor_id
         and bool(job.get("retrieval_enabled")) is retrieval_enabled

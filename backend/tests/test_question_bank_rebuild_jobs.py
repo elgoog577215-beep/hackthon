@@ -59,6 +59,66 @@ def test_rebuild_job_freezes_item_revision_scope(tmp_path):
     assert job["revision_ids"] == ["revision-1", "revision-2"]
 
 
+def test_rebuild_job_freezes_selected_teacher_materials(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+
+    first, first_created = repository.create_job(
+        "course-jobs",
+        request_id="request-materials-1",
+        scope="course",
+        node_ids=[],
+        material_asset_ids=["mat-2", "mat-1", "mat-2"],
+        mode="full",
+        actor_id="teacher-1",
+    )
+    second, second_created = repository.create_job(
+        "course-jobs",
+        request_id="request-materials-2",
+        scope="course",
+        node_ids=[],
+        material_asset_ids=["mat-1", "mat-2"],
+        mode="full",
+        actor_id="teacher-1",
+    )
+
+    assert first_created is True
+    assert second_created is False
+    assert first["material_asset_ids"] == ["mat-1", "mat-2"]
+    assert second["job_id"] == first["job_id"]
+
+
+def test_explicit_empty_material_scope_is_not_all_course_materials(tmp_path):
+    repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
+    all_materials, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-materials-all",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+    )
+    repository.fail(
+        all_materials["job_id"],
+        code="done",
+        message="done",
+        retryable=False,
+    )
+
+    no_materials, _ = repository.create_job(
+        "course-jobs",
+        request_id="request-materials-none",
+        scope="course",
+        node_ids=[],
+        material_asset_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+    )
+
+    assert all_materials["job_id"] != no_materials["job_id"]
+    assert all_materials["material_scope_explicit"] is False
+    assert no_materials["material_scope_explicit"] is True
+
+
 def test_rebuild_job_freezes_one_retrieval_package_across_resume(tmp_path):
     repository = QuestionBankRebuildJobRepository(tmp_path / "jobs")
     job, _ = repository.create_job(

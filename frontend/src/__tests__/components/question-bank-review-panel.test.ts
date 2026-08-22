@@ -415,7 +415,7 @@ describe('QuestionBankReviewPanel', () => {
         expected_bundle_revision_id: 'qbb-1',
       },
     )
-    expect(get).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalledTimes(2)
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     expect(wrapper.text()).toContain('已发布')
   })
@@ -532,6 +532,7 @@ describe('QuestionBankReviewPanel', () => {
         revision_ids: ['revision-published'],
         mode: 'incremental',
         retrieval_enabled: false,
+        material_asset_ids: [],
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -554,6 +555,7 @@ describe('QuestionBankReviewPanel', () => {
         node_ids: ['node-1'],
         mode: 'incremental',
         retrieval_enabled: false,
+        material_asset_ids: [],
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -567,6 +569,7 @@ describe('QuestionBankReviewPanel', () => {
         courseId: 'course-1',
         initialNodeIds: ['section-1', 'section-2'],
         initialScopeLabel: '1. 内存管理',
+        materialAssetIds: ['mat-primary', 'mat-reference'],
       },
     })
     await flushPromises()
@@ -584,6 +587,7 @@ describe('QuestionBankReviewPanel', () => {
         node_ids: ['section-1', 'section-2'],
         mode: 'incremental',
         retrieval_enabled: false,
+        material_asset_ids: ['mat-primary', 'mat-reference'],
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -611,6 +615,7 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'full',
         resume_existing: true,
         retrieval_enabled: false,
+        material_asset_ids: [],
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -644,10 +649,11 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'full',
         resume_existing: false,
         retrieval_enabled: false,
+        material_asset_ids: [],
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
-    expect(get).toHaveBeenCalledTimes(2)
+    expect(get).toHaveBeenCalledTimes(3)
   })
 
   it('识别已发布新版章节并从剩余章节继续生成', async () => {
@@ -694,6 +700,7 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'full',
         resume_existing: true,
         retrieval_enabled: false,
+        material_asset_ids: [],
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )

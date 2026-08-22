@@ -28,6 +28,7 @@ FORMAL_FILE_TYPES = {
     "script",
     "ppt",
     "question_bank",
+    "exam_paper",
 }
 CATEGORIES = {
     "teaching_design": "教学设计",

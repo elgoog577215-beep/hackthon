@@ -7,7 +7,7 @@
           <div>
             <small>{{ t('questionBank.studio.eyebrow', 'TEACHER PRACTICE STUDIO') }}</small>
             <h3 id="question-bank-title">{{ t('questionBank.studio.title', 'AI 智能出题') }}</h3>
-            <p>{{ t('questionBank.studio.description', '从课程目标与正式题库生成可直接进入学生练习的题目。') }}</p>
+            <p>{{ t('questionBank.studio.description', '依据课程目标、已选资料和已有题目生成可审阅的新题。') }}</p>
           </div>
         </div>
         <div v-if="publishedCount" class="question-generation-studio__published">
@@ -429,6 +429,35 @@
         </header>
       </section>
 
+      <section class="exam-paper-bar" aria-labelledby="exam-paper-bar-title">
+        <div>
+          <FileCheck2 :size="17" />
+          <span>
+            <strong id="exam-paper-bar-title">{{ t('questionBank.examPaper.titlePlural') }}</strong>
+            <small v-if="selectedQuestions.length">
+              {{ t('questionBank.examPaper.selectedCount').replace('{count}', String(selectedQuestions.length)) }}
+            </small>
+            <small v-else-if="examPapers.length">
+              {{ t('questionBank.examPaper.savedCount').replace('{count}', String(examPapers.length)) }}
+            </small>
+            <small v-else>{{ t('questionBank.examPaper.selectionHint') }}</small>
+          </span>
+        </div>
+        <div class="exam-paper-bar__actions">
+          <span v-if="examPapers[0]" :title="examPapers[0].title">
+            {{ t('questionBank.examPaper.latest') }}：{{ examPapers[0].title }}
+          </span>
+          <button
+            type="button"
+            :disabled="!selectedQuestions.length || !bundleRevisionId"
+            @click="paperComposerOpen = true"
+          >
+            <FilePlus2 :size="15" />
+            {{ t('questionBank.examPaper.compose') }}
+          </button>
+        </div>
+      </section>
+
       <div v-if="browseItems.length" class="question-review-list">
         <article
           v-for="item in paginatedBrowseItems"
@@ -437,14 +466,28 @@
           class="question-review-item"
           :class="{ 'is-expanded': isQuestionExpanded(item) }"
         >
-          <button
-            type="button"
-            class="question-review-item__summary"
-            data-testid="toggle-question-details"
-            :aria-expanded="isQuestionExpanded(item)"
-            :aria-controls="`question-details-${item.revision_id}`"
-            @click="toggleQuestionDetails(item)"
-          >
+          <div class="question-review-item__top">
+            <label
+              class="question-review-item__select"
+              :class="{ disabled: !canAddToExamPaper(item) }"
+              :title="canAddToExamPaper(item) ? t('questionBank.examPaper.selectQuestion') : t('questionBank.examPaper.approvedOnly')"
+            >
+              <input
+                type="checkbox"
+                :checked="isQuestionSelected(item)"
+                :disabled="!canAddToExamPaper(item)"
+                :aria-label="t('questionBank.examPaper.selectQuestion')"
+                @change="toggleQuestionSelection(item)"
+              />
+            </label>
+            <button
+              type="button"
+              class="question-review-item__summary"
+              data-testid="toggle-question-details"
+              :aria-expanded="isQuestionExpanded(item)"
+              :aria-controls="`question-details-${item.revision_id}`"
+              @click="toggleQuestionDetails(item)"
+            >
             <span class="question-review-item__summary-main">
               <span class="question-review-item__role">
                 {{ roleLabel(item.assessment_role) }}
@@ -469,7 +512,8 @@
                 <ChevronDown v-else :size="15" />
               </span>
             </span>
-          </button>
+            </button>
+          </div>
           <div
             v-if="isQuestionExpanded(item)"
             :id="`question-details-${item.revision_id}`"
@@ -740,6 +784,14 @@
         <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
       </div>
     </template>
+    <ExamPaperComposer
+      v-if="paperComposerOpen"
+      :course-id="courseId"
+      :bundle-revision-id="bundleRevisionId"
+      :questions="selectedQuestions"
+      @close="paperComposerOpen = false"
+      @created="handlePaperCreated"
+    />
   </section>
 </template>
 
@@ -759,6 +811,8 @@ import {
   CircleCheck,
   Ellipsis,
   Eye,
+  FileCheck2,
+  FilePlus2,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -770,6 +824,7 @@ import {
   WandSparkles,
   X,
 } from 'lucide-vue-next'
+import ExamPaperComposer from './ExamPaperComposer.vue'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
@@ -842,13 +897,22 @@ interface AssessmentObjective {
   risk_level?: string
 }
 
+interface ExamPaperSummary {
+  paper_id: string
+  title: string
+  item_count: number
+  updated_at?: string
+}
+
 const props = withDefaults(defineProps<{
   courseId: string
   initialNodeIds?: string[]
   initialScopeLabel?: string
+  materialAssetIds?: string[]
 }>(), {
   initialNodeIds: () => [],
   initialScopeLabel: '',
+  materialAssetIds: () => [],
 })
 const emit = defineEmits<{ updated: [bundleRevisionId: string] }>()
 const loading = ref(false)
@@ -865,6 +929,9 @@ const assessmentProfile = ref<Record<string, any>>({})
 const assessmentObjectives = ref<AssessmentObjective[]>([])
 const chapterRebuild = ref<Record<string, any>>({})
 const items = ref<QuestionBankItem[]>([])
+const examPapers = ref<ExamPaperSummary[]>([])
+const selectedQuestionRevisions = ref<string[]>([])
+const paperComposerOpen = ref(false)
 const reviewNotes = reactive<Record<string, string>>({})
 const expandedQuestionRevision = ref('')
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
@@ -887,6 +954,16 @@ const COVERED_OBJECTIVE_PAGE_SIZE = 10
 const activeItems = computed(() => items.value.filter(
   item => item.lifecycle_status !== 'retired',
 ))
+const selectedQuestions = computed(() => {
+  const selected = new Set(selectedQuestionRevisions.value)
+  return activeItems.value
+    .filter(item => selected.has(item.revision_id))
+    .map(item => ({
+      revision_id: item.revision_id,
+      prompt: item.prompt,
+      question_type: item.question_type,
+    }))
+})
 const publishedCount = computed(() => activeItems.value.filter(
   item => item.lifecycle_status === 'approved',
 ).length)
@@ -1136,6 +1213,7 @@ const webRetrievalError = computed(() => {
 
 onMounted(() => {
   void load()
+  void loadExamPapers()
   void recoverActiveRebuild()
 })
 onBeforeUnmount(() => {
@@ -1151,8 +1229,11 @@ watch(() => props.courseId, () => {
   setQuestionPage(1)
   expandedQuestionRevision.value = ''
   coveredObjectivesExpanded.value = false
+  selectedQuestionRevisions.value = []
+  paperComposerOpen.value = false
   setCoveredObjectivePage(1)
   void load()
+  void loadExamPapers()
   void recoverActiveRebuild()
 })
 watch(() => props.initialNodeIds, value => {
@@ -1298,6 +1379,10 @@ async function load() {
       ? data.assessment_objectives
       : []
     items.value = Array.isArray(data.items) ? data.items : []
+    const available = new Set(items.value.map(item => item.revision_id))
+    selectedQuestionRevisions.value = selectedQuestionRevisions.value.filter(
+      revisionId => available.has(revisionId),
+    )
   } catch (error: any) {
     errorMessage.value = error?.response?.status === 404
       ? t('questionBank.notBuilt', '该课程尚未整理题库，可从上方选择范围并开始智能出题。')
@@ -1305,6 +1390,45 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadExamPapers() {
+  if (!props.courseId) return
+  try {
+    const response = await http.get(
+      `/api/courses/${props.courseId}/question-bank/exam-papers`,
+      { silentError: true },
+    )
+    examPapers.value = Array.isArray(response.data?.papers)
+      ? response.data.papers
+      : []
+  } catch {
+    examPapers.value = []
+  }
+}
+
+function canAddToExamPaper(item: QuestionBankItem) {
+  return item.lifecycle_status === 'approved'
+    && item.quality_report?.passed !== false
+}
+
+function isQuestionSelected(item: QuestionBankItem) {
+  return selectedQuestionRevisions.value.includes(item.revision_id)
+}
+
+function toggleQuestionSelection(item: QuestionBankItem) {
+  if (!canAddToExamPaper(item)) return
+  selectedQuestionRevisions.value = isQuestionSelected(item)
+    ? selectedQuestionRevisions.value.filter(
+      revisionId => revisionId !== item.revision_id,
+    )
+    : [...selectedQuestionRevisions.value, item.revision_id]
+}
+
+function handlePaperCreated() {
+  paperComposerOpen.value = false
+  selectedQuestionRevisions.value = []
+  void loadExamPapers()
 }
 
 function startGeneration() {
@@ -1335,6 +1459,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
         node_ids: scopedNodeIds,
         mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
         retrieval_enabled: retrievalEnabled.value,
+        material_asset_ids: props.materialAssetIds,
         ...(!scopedNodeIds.length ? { resume_existing: resumeExisting } : {}),
       },
       {
@@ -1426,6 +1551,7 @@ async function rework(item: QuestionBankItem) {
         revision_ids: [item.revision_id],
         mode: 'incremental',
         retrieval_enabled: retrievalEnabled.value,
+        material_asset_ids: props.materialAssetIds,
       },
       {
         onUpdate: job => {
@@ -1699,10 +1825,23 @@ function formatValue(value: unknown) {
 .question-browser__page-jump label,.question-browser__page-jump span { color:var(--lz-text-muted); font-size:10px; }
 .question-browser__page-jump input { width:48px; height:34px; padding:0 6px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; font-size:11px; text-align:center; }
 .question-browser__page-jump button { min-width:auto; }
+.exam-paper-bar { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:9px 12px; border:1px solid #dbe3f2; border-radius:10px; background:#fff; }
+.exam-paper-bar>div:first-child { min-width:0; display:flex; align-items:center; gap:9px; color:#4f46e5; }
+.exam-paper-bar>div:first-child>span { min-width:0; display:grid; gap:2px; }
+.exam-paper-bar strong { color:var(--lz-text-strong); font-size:12px; }
+.exam-paper-bar small { color:var(--lz-text-muted); font-size:11px; }
+.exam-paper-bar__actions { min-width:0; display:flex; align-items:center; gap:10px; }
+.exam-paper-bar__actions>span { max-width:230px; overflow:hidden; color:var(--lz-text-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.exam-paper-bar button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #c7d2fe; border-radius:8px; color:#4338ca; background:#eef2ff; font-size:12px; font-weight:750; cursor:pointer; }
+.exam-paper-bar button:disabled { opacity:.45; cursor:not-allowed; }
 .question-review-list { display:grid; gap:5px; }
 .question-review-item { overflow:hidden; border:1px solid var(--lz-border); border-radius:10px; background:#fff; transition:border-color .15s ease,box-shadow .15s ease; }
 .question-review-item:hover { border-color:#c7d2fe; }
 .question-review-item.is-expanded { border-color:#c7d2fe; box-shadow:0 8px 22px rgba(30,41,59,.06); }
+.question-review-item__top { display:grid; grid-template-columns:42px minmax(0,1fr); align-items:stretch; }
+.question-review-item__select { display:grid; place-items:center; border-right:1px solid var(--lz-border); background:#fafbff; cursor:pointer; }
+.question-review-item__select input { width:16px; height:16px; accent-color:#4f46e5; }
+.question-review-item__select.disabled { cursor:not-allowed; opacity:.45; }
 .question-review-item__summary { width:100%; min-height:53px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; padding:7px 12px; border:0; color:inherit; background:#fff; text-align:left; cursor:pointer; }
 .question-review-item__summary:hover { background:#fafbff; }
 .question-review-item__summary:focus-visible { position:relative; z-index:1; outline:2px solid var(--lz-brand); outline-offset:-2px; }
@@ -1748,4 +1887,5 @@ function formatValue(value: unknown) {
 @media (max-width: 1040px) { .question-generation-flow { grid-template-columns:1fr 1fr; }.question-generation-flow>.question-generation-step:last-child { grid-column:1/-1; } }
 @media (max-width: 900px) { .question-review-item__summary-main { grid-template-columns:auto minmax(0,1fr); }.question-review-item__meta { grid-column:1/-1; max-width:none; } }
 @media (max-width: 720px) { .question-bank-panel { gap:12px; padding:12px; }.question-generation-studio { padding:14px; }.question-generation-studio>header,.question-generation-studio>footer { align-items:flex-start; flex-direction:column; }.question-generation-flow { grid-template-columns:1fr; }.question-generation-flow>.question-generation-step:last-child { grid-column:auto; }.question-generation-studio__published { align-self:flex-start; }.question-generation-studio__policy { align-items:flex-start; }.question-bank-panel__header { align-items:flex-start; flex-direction:column; }.question-bank-panel__header>div:first-child { display:none; }.question-bank-panel__header-action { width:100%; align-items:flex-start; flex-direction:column; gap:7px; }.question-bank-panel__header-copy { max-width:none; text-align:left; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; justify-content:center; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
+@media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
 </style>

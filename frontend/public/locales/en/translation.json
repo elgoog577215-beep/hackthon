@@ -182,7 +182,7 @@
     "termCapacity": "Term and course capacity",
     "defaultClassSetup": "Default class setup",
     "startTitle": "Confirm the course space and production baseline",
-    "workbenchPreview": "Four course workbench stages",
+    "workbenchPreview": "Five course workbench entries",
     "notCreated": "To create",
     "modeBoundary": "The course organization mode is only a default baseline. After the outline is created, individual sessions can use lecture, case, lab, project, inquiry, or review formats.",
     "configureAndCreate": "Configure baseline and create",
@@ -239,7 +239,7 @@
   "courseWorkbench": {
     "title": "Course workbench",
     "stageNavigation": "Course production stages",
-    "progress": "Build in dependency order",
+    "progress": "Create five asset types independently",
     "reviewOutline": "Review outline",
     "generating": "Generating course outline",
     "generatingShort": "Generating",
@@ -268,8 +268,9 @@
     "stages": {
       "foundation": "Course foundation", "foundationHelp": "Outline and teaching calendar",
       "lesson": "Lesson plans", "lessonHelp": "Plan each session",
-      "scriptPpt": "Script and PPT", "scriptPptHelp": "Structured same-source",
-      "assessment": "Question bank", "assessmentHelp": "Practice, assignments, and exams"
+      "questionBank": "Question bank", "questionBankHelp": "Optional · questions and papers",
+      "script": "Script", "scriptHelp": "Lightweight editable content",
+      "ppt": "PPT", "pptHelp": "Structured same-source with script"
     },
     "form": {
       "learningGoal": "Teaching goal", "learningGoalPlaceholder": "Students will be able to…",
@@ -3932,7 +3933,7 @@
     "studio": {
       "eyebrow": "Teacher practice studio",
       "title": "AI question generation",
-      "description": "Generate questions from course objectives and the formal question bank for direct student practice.",
+      "description": "Generate reviewable questions from course objectives, selected materials, and existing questions.",
       "published": "{count} published",
       "scope": "Choose a scope",
       "currentLesson": "Current session",
@@ -3954,6 +3955,29 @@
       "generate": "Generate questions",
       "qualityReview": "Quality and coverage",
       "issues": "{count} items need attention"
+    },
+    "examPaper": {
+      "eyebrow": "Question-bank action",
+      "titlePlural": "Exam papers",
+      "compose": "Compose paper",
+      "composeTitle": "Compose an exam paper",
+      "composeHelp": "{count} questions selected. Save them as a formal course asset.",
+      "title": "Paper title",
+      "defaultTitle": "Course exam paper",
+      "duration": "Duration (minutes)",
+      "totalScore": "Total score",
+      "selectedQuestions": "Selected questions",
+      "selectedCount": "{count} approved questions selected",
+      "savedCount": "{count} formal exam papers",
+      "selectionHint": "Select approved questions to compose a paper",
+      "latest": "Latest",
+      "selectQuestion": "Select this question",
+      "approvedOnly": "Only approved questions that passed quality checks can be selected",
+      "immutableHint": "The paper pins current question revisions; later edits do not silently replace them.",
+      "create": "Save paper",
+      "creating": "Saving",
+      "createFailed": "The paper could not be saved. Try again shortly.",
+      "revisionConflict": "The question bank changed. Close this dialog and select questions again."
     }
   },
   "units": {
@@ -4072,7 +4096,7 @@
     "lessonDrawerTitle": "Edit lesson plan · {title}", "lessonPlan": "Lesson plan", "lessonPlanUnavailable": "No editable version is available yet.", "preparingSpace": "Preparing course file space", "spaceUnavailable": "Course file space is unavailable",
     "courseLabel": "Current course", "rootName": "Course-wide files", "exportCourse": "Export course files", "filePath": "File path", "searchCurrent": "Search this folder", "clearSearch": "Clear search", "noSearchResults": "No matching files", "noSearchResultsHelp": "Try another filename or clear the search to see this folder.", "new": "New", "addMaterial": "Add material", "newFolder": "New folder", "folder": "Folder", "lessonFolder": "Session folder", "itemCount": "{count} items", "fileList": "Course file list",
     "emptyFolder": "This folder is empty", "emptyFolderHelp": "Create content or import a local file.", "emptyMaterials": "No additional materials", "emptyLessonMaterialsHelp": "The lesson body is listed one level up as an openable, exportable course asset. Upload handouts, cases, and references here.", "emptyReferenceHelp": "Store course-wide textbooks, standards, cases, and other source files here.", "createHere": "Create here", "selectFile": "Select a file", "selectFileHelp": "Status, version, source relationships, and actions appear here.", "sourceRelationship": "Structured same-source",
-    "updateNeeded": "Upstream content changed; update needed", "notUpdated": "Not available", "unknownSize": "—", "lessonHours": "Approx. {hours} hr", "openFolder": "Open folder", "openContent": "Open lesson body", "createContent": "Generate lesson body", "preview": "Preview", "create": "Create", "openEdit": "Open editor", "createPpt": "Generate PPT", "openPpt": "Open PPT", "createPractice": "Create practice", "openPractice": "Open practice", "open": "Open",
+    "updateNeeded": "Upstream content changed; update needed", "notUpdated": "Not available", "unknownSize": "—", "lessonHours": "Approx. {hours} hr", "openFolder": "Open folder", "openContent": "Open script", "createContent": "Generate script", "preview": "Preview", "create": "Create", "openEdit": "Open editor", "createPpt": "Generate PPT", "openPpt": "Open PPT", "createPractice": "Create practice", "openPractice": "Open practice", "openQuestionBank": "Open question-bank workbench", "open": "Open",
     "download": "Download", "exportFile": "Export", "exported": "Course asset exported.", "downloadOriginal": "Download original", "delete": "Delete", "deleteConfirm": "Delete “{name}”? This removes only the teacher-uploaded file, not any fixed course asset.", "deleted": "File deleted.", "created": "Created. Its status will stay visible in the file space.", "createFolder": "Create folder", "createFile": "Create material", "archiveName": "course-files", "officeSaved": "File stored securely on the local server", "officeSavedHelp": "Download Office files to open them locally. PDFs, images, and text can be previewed here.",
     "states": { "ready": "Course ready", "working": "Generation in progress", "attention": "Needs attention", "draft": "Preparing" },
     "views": {
@@ -4164,26 +4188,27 @@
         "outline": "Set the course goal, audience, schedule, and teaching requirements, then generate a reviewable course structure.",
         "teaching_calendar": "Derive session candidates from the current outline, or add sessions manually and schedule their dates, times, and locations.",
         "lesson_plan": "Once the outline defines sessions, lesson plans appear here for session-by-session generation and editing.",
-        "content": "Once the outline defines sessions, lesson content appears here and inherits the course settings and lesson-plan requirements.",
+        "questionBank": "The optional question bank supports course- or session-scoped generation and composes approved questions into papers.",
+        "content": "Once the outline defines sessions, scripts appear here and inherit the course settings and lesson-plan requirements.",
         "ppt": "Once the outline defines sessions, PPT entries appear here. AI-generated decks remain linked to their lesson plans."
       }
     },
     "columns": { "name": "Name", "type": "Type", "status": "Status", "updated": "Date modified", "size": "Size" },
     "sortBy": "Sort by {name}",
-    "types": { "root": "Course files", "reference": "References", "outline": "Outline", "teachingCalendar": "Teaching calendar", "lesson": "Session", "lessonPlan": "Lesson plan", "content": "Lesson body", "material": "Materials", "ppt": "PPT", "practice": "Practice", "folder": "Folder", "file": "File" },
+    "types": { "root": "Course files", "reference": "References", "outline": "Outline", "teachingCalendar": "Teaching calendar", "lesson": "Session", "lessonPlan": "Lesson plan", "content": "Script", "material": "Materials", "ppt": "PPT", "practice": "Questions", "question_bank": "Question bank", "exam_paper": "Exam paper", "folder": "Folder", "file": "File" },
     "status": { "ready": "Ready", "draft": "Preparing", "missing": "Not generated", "working": "Generating", "stale": "Update needed", "uploaded": "Uploaded", "empty": "No content" },
     "statusHelp": { "ready": "The current version is ready to use.", "draft": "Some required assets are not complete yet. Open this session to continue preparing.", "missing": "No content exists yet. Select it, then create or generate it from the inspector.", "working": "Generation is running in the background. The new version will appear here.", "stale": "An upstream outline, lesson plan, or source changed. Review and update this file.", "uploaded": "The original file is stored in the local course space.", "empty": "No teacher material has been added to this folder yet." },
-    "names": { "outline": "Course outline", "teachingCalendar": "Teaching calendar", "reference": "References", "lessonPlan": "Lesson plan", "content": "Lesson body", "material": "Materials", "ppt": "PPT", "practice": "Practice", "other": "Other files", "newMaterial": "New material" },
+    "names": { "outline": "Course outline", "teachingCalendar": "Teaching calendar", "reference": "References", "lessonPlan": "Lesson plan", "content": "Script", "material": "Materials", "ppt": "PPT", "practice": "Questions", "questionBank": "Course question bank", "questionBankAndPapers": "Question bank and papers", "other": "Other files", "newMaterial": "New material" },
     "assetRole": { "required": "Required course asset", "companion": "Companion deck", "teacher": "Teacher file" },
     "ppt": { "chooseMethodSubtitle": "Generate with AI or upload the teacher's existing deck", "generatedSubtitle": "AI generated · stays linked to the lesson plan", "uploadedSubtitle": "Teacher uploaded · original preserved", "generatedOrigin": "AI-generated deck", "uploadedOrigin": "Teacher's existing deck" },
     "meta": { "location": "Location", "items": "Contains", "lesson": "Session", "version": "Version", "origin": "Deck source", "size": "File size", "updated": "Date modified" },
     "inspector": {
       "fileInfo": "File information", "folderInfo": "Folder information", "source": "Source", "usedFor": "Used for", "pendingCount": "{count} need attention", "actionsTitle": "Available actions", "referencedBy": "Referenced by formal files", "referenceFiles": "Referenced files", "primarySource": "Primary source", "referenceSource": "Reference",
       "actionHints": { "managed": "Open the corresponding workflow. Export creates a derived file from the current version.", "uploaded": "Preview or download the original. Delete removes only this uploaded file.", "folder": "New content will be stored in the current materials folder.", "course": "Export the current course package without changing the formal course." },
-      "sources": { "courseStructure": "Course structure", "outlineSchedule": "Current outline and teacher scheduling", "outlineAndMaterials": "Course outline and references", "contentBlocks": "Lesson body · {count} content blocks", "questionBank": "Question bank · {count} questions", "generatedDeck": "AI-generated deck", "uploadedDeck": "Teacher-uploaded deck", "notSelected": "No deck source selected", "teacherFile": "Teacher-uploaded file" },
-      "uses": { "outline": "Teaching calendar, lesson plans, content, PPT, practice", "teachingCalendar": "Institutional scheduling, session sync, and formal file export", "lessonPlan": "Content, PPT, practice", "content": "Student preview, Markdown export", "practice": "Class checks, assignments, student preview", "ppt": "Class presentation", "material": "Lesson preparation and classroom use" }
+      "sources": { "courseStructure": "Course structure", "outlineSchedule": "Current outline and teacher scheduling", "outlineAndMaterials": "Course outline and references", "contentBlocks": "Course script · {count} content blocks", "questionBank": "Question bank · {count} questions", "pinnedQuestionRevisions": "Pinned question revisions", "generatedDeck": "AI-generated deck", "uploadedDeck": "Teacher-uploaded deck", "notSelected": "No deck source selected", "teacherFile": "Teacher-uploaded file" },
+      "uses": { "outline": "Teaching calendar, lesson plans, scripts, PPT, and questions", "teachingCalendar": "Institutional scheduling, session sync, and formal file export", "lessonPlan": "Scripts, PPT, and questions", "content": "Student preview and Markdown export", "practice": "Class checks, assignments, and student preview", "questionBank": "Question generation, review, and paper composition", "examPaper": "Exams and formal export", "ppt": "Class presentation", "material": "Lesson preparation and classroom use" }
     },
-    "formalTypes": { "outline": "Course outline", "teaching_calendar": "Teaching calendar", "lesson_plan": "Lesson plan", "script": "Script", "ppt": "PPT", "question_bank": "Question bank" },
+    "formalTypes": { "outline": "Course outline", "teaching_calendar": "Teaching calendar", "lesson_plan": "Lesson plan", "script": "Script", "ppt": "PPT", "question_bank": "Question bank", "exam_paper": "Exam paper" },
     "relationship": { "outline": "The outline defines course structure. Changes prompt lesson plans, materials, PPTs, and practice to be reviewed.", "teachingCalendar": "The teaching calendar derives session candidates from the current outline while preserving manual scheduling. DOCX, PDF, Excel, and CSV exports are derived files from the current revision.", "lessonPlan": "A lesson plan is based on the outline and references and becomes the main source for that session's materials, PPT, and practice.", "content": "The lesson body is projected from the current course structure and content blocks. It does not need to exist as a disk file; exporting creates a Markdown file.", "material": "Materials supplement lesson plans and PPTs and can also be used directly in class or shared with students.", "ppt": "Decks are managed by source, so uploaded existing decks are not mixed into the AI-generation update chain.", "pptPending": "Choose AI generation or upload an existing deck. Each source follows a different update policy.", "pptGenerated": "An AI-generated deck is bound to the session's lesson-plan revision. When the plan changes, the system previews impact before rebuilding confirmed slides.", "pptUploaded": "The teacher's existing deck is preserved. The system only maps content and flags staleness; it never rewrites the original without confirmation.", "practice": "Practice follows session objectives and knowledge points. Question banks, assignments, and exams are aggregate uses of the same content.", "file": "A local file in the course space that can be used as a teaching asset or generation source." },
     "exportLabels": { "objectives": "Learning objectives", "keyPoints": "Key points", "difficultPoints": "Difficult points", "teachingProcess": "Teaching process", "activities": "Learning activities", "assessment": "Assessment", "homework": "Follow-up work" },
     "form": { "lesson": "Session", "selectLesson": "Select a session", "fileName": "Material name", "materialPlaceholder": "e.g. Classroom case", "folderName": "Folder name", "folderPlaceholder": "e.g. Further reading", "classHours": "Planned hours", "generationMode": "Creation mode", "aiGenerate": "AI generate", "importFile": "Import file", "slideCount": "Slides", "style": "Style", "simpleTeaching": "Simple teaching", "followTemplate": "Follow template", "exerciseCount": "Questions", "difficulty": "Difficulty", "basic": "Basic", "mixed": "Mixed", "challenge": "Challenge", "pptOrigin": "Deck source", "pptGenerated": "AI-generated deck", "pptGeneratedHelp": "Updates with the lesson plan", "pptUploaded": "Upload existing deck", "pptUploadedHelp": "Preserve the original file", "afterUpload": "After upload", "derivePlanFromPpt": "Parse deck and create a lesson-plan draft (recommended)", "derivePlanHelp": "The system extracts slide structure and content into a reviewable draft. Existing confirmed revisions are preserved.", "storePptOnly": "Store the existing deck only", "storePptHelp": "Save the original in this session without generating a lesson plan.", "requirements": "Additional requirements", "sourceFile": "Source file", "oldDeckFile": "Existing deck file", "templateFile": "Personal template (optional)", "chooseFile": "Choose local file", "saveTo": "Save to", "importOldDeck": "Upload existing deck", "generatePpt": "Generate PPT", "importAndCreate": "Import and create", "startCreate": "Start creating", "practiceScopeTitle": "Generate formal practice for this session", "practiceScopeHelp": "Review it in the question bank; the same questions appear in student preview.", "pptNeedsPlanTitle": "AI PPT requires this session's lesson plan", "pptNeedsPlanHelp": "Existing deck upload remains available. Generated slides bind to the lesson-plan revision for same-source updates.", "createPlanFirst": "Create lesson plan first" },

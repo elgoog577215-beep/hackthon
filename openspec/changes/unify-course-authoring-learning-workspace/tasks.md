@@ -66,3 +66,11 @@
 - [x] 7.4 Switch the center pane from the stage form to real streaming generation output in place, preserving partial output and recovery controls.
 - [x] 7.5 Show upstream sources for formal files and downstream formal usages for uploaded files without duplicating the underlying asset.
 - [x] 7.6 Add focused backend/frontend tests, zh/en copy, canonical documentation and desktop/mobile verification.
+
+## 8. Five-entry asset workbench and exam papers
+
+- [x] 8.1 Split the workbench into course foundation, lesson plan, question bank, script and PPT entries; keep the order non-blocking and the question bank optional.
+- [x] 8.2 Embed the existing teacher question-bank studio in the workbench and bind the right-side selected materials to its rebuild request.
+- [x] 8.3 Add course-owned formal exam papers composed from approved immutable question revisions inside the question-bank studio.
+- [x] 8.4 Show question banks and exam papers as managed formal assets in the file view without duplicating question truth.
+- [x] 8.5 Add zh/en copy, focused backend/frontend tests, canonical documentation and Chinese desktop real-page verification.

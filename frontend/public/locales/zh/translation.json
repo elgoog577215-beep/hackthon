@@ -182,7 +182,7 @@
     "termCapacity": "学期与课程容量",
     "defaultClassSetup": "默认上课设置",
     "startTitle": "确认课程空间与生产基线",
-    "workbenchPreview": "课程工作台四个阶段",
+    "workbenchPreview": "课程工作台五个入口",
     "notCreated": "待新建",
     "modeBoundary": "整课组织方式只定义默认基线。进入工作台并生成大纲后，可以按具体课次决定理论讲授、案例、实验、项目、探究或复习安排。",
     "configureAndCreate": "完善生产设置并创建",
@@ -239,7 +239,7 @@
   "courseWorkbench": {
     "title": "课程工作台",
     "stageNavigation": "课程生产阶段",
-    "progress": "按依赖顺序逐步完善",
+    "progress": "五类资产可独立创建",
     "reviewOutline": "审阅大纲",
     "generating": "正在生成课程大纲",
     "generatingShort": "生成中",
@@ -268,8 +268,9 @@
     "stages": {
       "foundation": "课程基础", "foundationHelp": "大纲与教学日历",
       "lesson": "教案", "lessonHelp": "按课次组织教学",
-      "scriptPpt": "讲稿与 PPT", "scriptPptHelp": "结构化同源",
-      "assessment": "题库", "assessmentHelp": "练习、作业与考试"
+      "questionBank": "题库", "questionBankHelp": "可选 · 出题与组卷",
+      "script": "讲稿", "scriptHelp": "轻量可编辑正文",
+      "ppt": "PPT", "pptHelp": "与讲稿结构化同源"
     },
     "form": {
       "learningGoal": "教学目标", "learningGoalPlaceholder": "学生完成课程后能够……",
@@ -3932,7 +3933,7 @@
     "studio": {
       "eyebrow": "教师练习工作台",
       "title": "AI 智能出题",
-      "description": "从课程目标与正式题库生成可直接进入学生练习的题目。",
+      "description": "依据课程目标、已选资料和已有题目生成可审阅的新题。",
       "published": "已发布 {count} 道",
       "scope": "选择出题范围",
       "currentLesson": "当前课次",
@@ -3954,6 +3955,29 @@
       "generate": "开始智能出题",
       "qualityReview": "质量与覆盖检查",
       "issues": "{count} 项待处理"
+    },
+    "examPaper": {
+      "eyebrow": "题库内部功能",
+      "titlePlural": "试卷",
+      "compose": "组成试卷",
+      "composeTitle": "将选中题目组成试卷",
+      "composeHelp": "已选择 {count} 道题，保存后作为课程正式资产管理。",
+      "title": "试卷名称",
+      "defaultTitle": "课程测试卷",
+      "duration": "考试时长（分钟）",
+      "totalScore": "试卷总分",
+      "selectedQuestions": "已选题目",
+      "selectedCount": "已选择 {count} 道已批准题目",
+      "savedCount": "已有 {count} 份正式试卷",
+      "selectionHint": "勾选已批准题目后可组卷",
+      "latest": "最近",
+      "selectQuestion": "选择这道题",
+      "approvedOnly": "只有已批准且质量检查通过的题目可组卷",
+      "immutableHint": "试卷固定引用当前题目修订，后续改题不会静默覆盖。",
+      "create": "保存试卷",
+      "creating": "正在保存",
+      "createFailed": "试卷保存失败，请稍后重试。",
+      "revisionConflict": "题库刚刚发生变化，请关闭后重新选择题目。"
     }
   },
   "units": {
@@ -4173,8 +4197,8 @@
     "unknownSize": "—",
     "lessonHours": "约 {hours} 学时",
     "openFolder": "打开文件夹",
-    "openContent": "打开正文",
-    "createContent": "生成正文",
+    "openContent": "打开讲稿",
+    "createContent": "生成讲稿",
     "preview": "预览",
     "create": "新建",
     "openEdit": "打开编辑",
@@ -4182,6 +4206,7 @@
     "openPpt": "打开 PPT",
     "createPractice": "新建练习",
     "openPractice": "打开练习",
+    "openQuestionBank": "进入题库工作台",
     "open": "打开",
     "download": "下载",
     "exportFile": "导出",
@@ -4286,7 +4311,8 @@
         "outline": "先填写课程目标、教学对象、课时和教学要求，生成可审阅的课程结构。",
         "teaching_calendar": "从当前课程大纲生成课次候选，或手动新增课次并完成日期、时间和地点安排。",
         "lesson_plan": "课程大纲确认课次后，这里会按课次展开教案，并允许逐讲生成和编辑。",
-        "content": "课程大纲确认课次后，这里会按课次展开正文，并沿用课程生产设置与教案要求。",
+        "questionBank": "题库是可选资产，可按课程或课次出题，并在内部勾选已批准题目组成试卷。",
+        "content": "课程大纲确认课次后，这里会按课次展开讲稿，并沿用课程生产设置与教案要求。",
         "ppt": "课程大纲确认课次后，这里会按课次展开 PPT；AI 课件会继续沿用对应教案。"
       }
     },
@@ -4294,14 +4320,14 @@
     "sortBy": "按{name}排序",
     "types": {
       "root": "课程文件", "reference": "参考资料", "outline": "大纲", "teachingCalendar": "教学日历", "lesson": "课次", "lessonPlan": "教案",
-      "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "folder": "文件夹", "file": "文件"
+      "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "题目", "question_bank": "题库", "exam_paper": "试卷", "folder": "文件夹", "file": "文件"
     },
     "status": { "ready": "已就绪", "draft": "准备中", "missing": "未生成", "working": "生成中", "stale": "待更新", "uploaded": "已上传", "empty": "暂无内容" },
     "statusHelp": {
       "ready": "当前版本可直接使用。", "draft": "部分必备内容尚未完成，可进入后继续准备。", "missing": "当前还没有内容。选中后可在右侧开始生成或创建。",
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。", "empty": "当前文件夹还没有老师添加的资料。"
     },
-    "names": { "outline": "课程大纲", "teachingCalendar": "教学日历", "reference": "参考资料", "lessonPlan": "教案", "content": "正文", "material": "资料", "ppt": "PPT", "practice": "练习", "other": "其他文件", "newMaterial": "新建资料" },
+    "names": { "outline": "课程大纲", "teachingCalendar": "教学日历", "reference": "参考资料", "lessonPlan": "教案", "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "题目", "questionBank": "课程题库", "questionBankAndPapers": "题库与试卷", "other": "其他文件", "newMaterial": "新建资料" },
     "assetRole": { "required": "课程必备", "companion": "配套课件", "teacher": "教师文件" },
     "ppt": {
       "chooseMethodSubtitle": "可 AI 生成，也可上传老师的旧课件",
@@ -4315,10 +4341,10 @@
       "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作",
       "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料",
       "actionHints": { "managed": "打开对应工作流；导出只生成当前版本的派生文件。", "uploaded": "可预览或下载原件；删除只移除这个上传文件。", "folder": "新增内容将保存到当前资料目录。", "course": "导出当前课程文件包，不会改变正式课程。" },
-      "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程正文 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
-      "uses": { "outline": "教学日历、教案、正文、PPT、练习", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "正文、PPT、练习", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
+      "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程讲稿 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "pinnedQuestionRevisions": "已固定引用的题目修订", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
+      "uses": { "outline": "教学日历、教案、讲稿、PPT、题目", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "讲稿、PPT、题目", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "questionBank": "出题、审核与组卷", "examPaper": "考试与正式导出", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
     },
-    "formalTypes": { "outline": "课程大纲", "teaching_calendar": "教学日历", "lesson_plan": "教案", "script": "讲稿", "ppt": "PPT", "question_bank": "题库" },
+    "formalTypes": { "outline": "课程大纲", "teaching_calendar": "教学日历", "lesson_plan": "教案", "script": "讲稿", "ppt": "PPT", "question_bank": "题库", "exam_paper": "试卷" },
     "relationship": {
       "outline": "大纲是课程结构来源；调整后会提示教案、资料、PPT 和练习检查更新。",
       "teachingCalendar": "教学日历从当前大纲形成课次候选，并保留教师人工排课；导出的 DOCX、PDF、Excel 和 CSV 都是当前修订的派生文件。",

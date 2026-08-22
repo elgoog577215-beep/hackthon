@@ -12,6 +12,7 @@ export interface QuestionBankRebuildRequest {
   scope: 'course' | 'nodes' | 'items'
   node_ids: string[]
   revision_ids?: string[]
+  material_asset_ids?: string[]
   mode: 'incremental' | 'full'
   resume_existing?: boolean
   retrieval_enabled?: boolean

@@ -39,6 +39,7 @@ from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 from course_versions import course_version_repository
 from dependencies import get_course_or_404
+from exam_papers import exam_paper_repository
 from learning_asset_storage import learning_asset_repository
 from learning_assets import compile_learning_assets
 from learner_context import require_user_id
@@ -61,6 +62,7 @@ from question_bank_jobs import (
 from solution_contracts import project_solution_spec
 from storage import storage
 from storage_utils import save_course_compat
+from teacher_course_space import teacher_course_space_repository
 
 router = APIRouter(
     prefix="/courses/{course_id}/question-bank",
@@ -76,6 +78,10 @@ class QuestionBankRebuildRequest(BaseModel):
     node_ids: list[str] = Field(default_factory=list, max_length=200)
     revision_ids: list[str] = Field(
         default_factory=list,
+        max_length=200,
+    )
+    material_asset_ids: list[str] | None = Field(
+        default=None,
         max_length=200,
     )
     mode: Literal["incremental", "full"] = "incremental"
@@ -100,6 +106,12 @@ class QuestionBankRebuildRequest(BaseModel):
             for value in self.revision_ids
             if str(value).strip()
         })
+        if self.material_asset_ids is not None:
+            self.material_asset_ids = sorted({
+                str(value).strip()
+                for value in self.material_asset_ids
+                if str(value).strip()
+            })
         if self.scope == "nodes" and not self.node_ids:
             raise ValueError(
                 "node_ids are required when scope is nodes"
@@ -232,6 +244,32 @@ class QuestionBankReviewRequest(BaseModel):
 class QuestionBankRevisionRequest(BaseModel):
     patch: dict[str, Any]
     expected_bundle_revision_id: str | None = Field(default=None, max_length=200)
+
+
+class ExamPaperCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    duration_minutes: int = Field(default=120, ge=1, le=1440)
+    total_score: float = Field(default=100, gt=0, le=10000)
+    question_revision_ids: list[str] = Field(min_length=1, max_length=200)
+    expected_bundle_revision_id: str | None = Field(
+        default=None,
+        max_length=200,
+    )
+
+    @model_validator(mode="after")
+    def normalize_question_revisions(self):
+        normalized = [
+            str(value).strip()
+            for value in self.question_revision_ids
+            if str(value).strip()
+        ]
+        if not normalized:
+            raise ValueError("question_revision_ids are required")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("question_revision_ids must be unique")
+        self.question_revision_ids = normalized
+        self.title = self.title.strip()
+        return self
 
 
 @router.get("")
@@ -578,6 +616,22 @@ async def rebuild_question_bank(
 ):
     actor_id = require_user_id(x_user_id)
     course = await get_course_or_404(course_id)
+    if payload.material_asset_ids is not None:
+        allowed_material_ids = _course_owned_material_asset_ids(
+            course_id,
+            actor_id,
+        )
+        unknown_material_ids = sorted(
+            set(payload.material_asset_ids) - allowed_material_ids
+        )
+        if unknown_material_ids:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "question_bank_materials_unknown",
+                    "material_asset_ids": unknown_material_ids,
+                },
+            )
     if payload.scope == "nodes":
         known_node_ids = {
             str(node.get("node_id") or "")
@@ -691,6 +745,7 @@ async def rebuild_question_bank(
             scope=payload.scope,
             node_ids=payload.node_ids,
             revision_ids=payload.revision_ids,
+            material_asset_ids=payload.material_asset_ids,
             mode=payload.mode,
             actor_id=actor_id,
             worker_id=str(
@@ -732,6 +787,11 @@ def _same_rebuild_request(
         and sorted(
             str(value) for value in job.get("revision_ids") or []
         ) == payload.revision_ids
+        and sorted(
+            str(value) for value in job.get("material_asset_ids") or []
+        ) == sorted(payload.material_asset_ids or [])
+        and bool(job.get("material_scope_explicit"))
+        is (payload.material_asset_ids is not None)
         and str(job.get("mode") or "") == payload.mode
         and str(job.get("actor_id") or "") == actor_id
         and bool(job.get("retrieval_enabled"))
@@ -805,6 +865,120 @@ async def get_question_bank_rebuild(
     return _job_response(job, deduplicated=False)
 
 
+@router.get("/exam-papers")
+async def list_exam_papers(
+    course_id: str,
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
+):
+    require_user_id(x_user_id)
+    await get_course_or_404(course_id)
+    papers = exam_paper_repository.list_course(course_id)
+    return {
+        "schema_version": "exam_paper_list_v1",
+        "course_id": course_id,
+        "papers": [_paper_summary(paper) for paper in papers],
+        "total": len(papers),
+    }
+
+
+@router.post(
+    "/exam-papers",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_exam_paper(
+    course_id: str,
+    payload: ExamPaperCreateRequest,
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
+):
+    actor_id = require_user_id(x_user_id)
+    course = await get_course_or_404(course_id)
+    bundle = _require_bundle(course)
+    _require_expected_revision(
+        bundle,
+        payload.expected_bundle_revision_id,
+    )
+    by_revision = {
+        str(item.get("revision_id") or ""): item
+        for item in bundle.get("items") or []
+        if str(item.get("revision_id") or "")
+    }
+    unknown = [
+        revision_id
+        for revision_id in payload.question_revision_ids
+        if revision_id not in by_revision
+    ]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "exam_paper_questions_unknown",
+                "question_revision_ids": unknown,
+            },
+        )
+    questions = [
+        by_revision[revision_id]
+        for revision_id in payload.question_revision_ids
+    ]
+    unavailable = [
+        str(item.get("revision_id") or "")
+        for item in questions
+        if (
+            item.get("lifecycle_status") != "approved"
+            or (item.get("quality_report") or {}).get("passed") is False
+        )
+    ]
+    if unavailable:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "exam_paper_questions_not_approved",
+                "question_revision_ids": unavailable,
+            },
+        )
+    paper = exam_paper_repository.create(
+        course_id=course_id,
+        actor_id=actor_id,
+        title=payload.title,
+        duration_minutes=payload.duration_minutes,
+        total_score=payload.total_score,
+        bundle_revision_id=str(bundle.get("bundle_revision_id") or ""),
+        questions=questions,
+    )
+    return {
+        "schema_version": "exam_paper_api_v1",
+        "paper": _hydrate_exam_paper(course_id, paper),
+    }
+
+
+@router.get("/exam-papers/{paper_id}")
+async def get_exam_paper(
+    course_id: str,
+    paper_id: str,
+    x_user_id: str | None = Header(
+        default=None,
+        alias="X-User-Id",
+    ),
+):
+    require_user_id(x_user_id)
+    await get_course_or_404(course_id)
+    paper = exam_paper_repository.load(course_id, paper_id)
+    if not paper:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "exam_paper_not_found"},
+        )
+    return {
+        "schema_version": "exam_paper_api_v1",
+        "paper": _hydrate_exam_paper(course_id, paper),
+    }
+
+
 def _job_response(
     job: dict[str, Any],
     *,
@@ -817,6 +991,71 @@ def _job_response(
         f"rebuilds/{job['job_id']}"
     )
     return result
+
+
+def _paper_summary(paper: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: deepcopy(paper.get(key))
+        for key in (
+            "paper_id",
+            "course_id",
+            "revision_id",
+            "title",
+            "status",
+            "duration_minutes",
+            "total_score",
+            "source_bundle_revision_id",
+            "item_count",
+            "created_by",
+            "created_at",
+            "updated_at",
+        )
+    }
+
+
+def _hydrate_exam_paper(
+    course_id: str,
+    paper: dict[str, Any],
+) -> dict[str, Any]:
+    bundle_revision_id = str(
+        paper.get("source_bundle_revision_id") or ""
+    )
+    bundle = question_bank_repository.load_bundle(
+        course_id,
+        bundle_revision_id,
+    )
+    if not bundle:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "exam_paper_source_bundle_missing"},
+        )
+    items = {
+        str(item.get("revision_id") or ""): item
+        for item in bundle.get("items") or []
+    }
+    hydrated = deepcopy(paper)
+    hydrated["questions"] = [
+        {
+            **deepcopy(reference),
+            "prompt": str(
+                items.get(
+                    str(reference.get("question_revision_id") or ""),
+                    {},
+                ).get("prompt")
+                or ""
+            ),
+            "question_type": str(
+                reference.get("question_type")
+                or items.get(
+                    str(reference.get("question_revision_id") or ""),
+                    {},
+                ).get("question_type")
+                or ""
+            ),
+        }
+        for reference in paper.get("question_refs") or []
+    ]
+    return hydrated
 
 
 async def _run_rebuild_job(
@@ -913,8 +1152,18 @@ async def _execute_question_bank_rebuild(
         "enabled": payload.retrieval_enabled,
     }
     course_for_bank["generation_request"] = generation_request
+    selected_bindings = _selected_material_bindings(
+        course.get("material_bindings") or [],
+        payload.material_asset_ids,
+    )
+    selected_material_asset_ids = sorted({
+        str(binding.get("asset_id") or "")
+        for binding in selected_bindings
+        if str(binding.get("asset_id") or "")
+    })
+    course_for_bank["material_bindings"] = deepcopy(selected_bindings)
     course_for_bank["evidence_catalog"] = _load_course_evidence(
-        course.get("material_bindings") or []
+        selected_bindings
     )
     repository.advance(
         job_id,
@@ -1087,6 +1336,10 @@ async def _execute_question_bank_rebuild(
         and normalize_assessment_generation_profile(
             checkpoint.get("assessment_generation_profile")
         ) == payload.assessment_generation_profile
+        and sorted(
+            str(value)
+            for value in checkpoint.get("material_asset_ids") or []
+        ) == selected_material_asset_ids
     )
     checkpoint_node_ids = {
         str(node_id)
@@ -1342,6 +1595,7 @@ async def _execute_question_bank_rebuild(
                 "assessment_generation_policy_version": (
                     ASSESSMENT_GENERATION_POLICY_VERSION
                 ),
+                "material_asset_ids": selected_material_asset_ids,
                 "blueprint_revision_id": (
                     assessment_blueprint.get(
                         "blueprint_revision_id"
@@ -2434,6 +2688,55 @@ def _load_course_evidence(bindings: list[dict[str, Any]]) -> list[dict[str, Any]
             result.extend(material_repository.load_evidence(asset_id))
         except (OSError, ValueError):
             continue
+    return result
+
+
+def _selected_material_bindings(
+    bindings: list[dict[str, Any]],
+    material_asset_ids: list[str] | None,
+) -> list[dict[str, Any]]:
+    if material_asset_ids is None:
+        return deepcopy(bindings)
+    existing = {
+        str(binding.get("asset_id") or ""): deepcopy(binding)
+        for binding in bindings
+        if str(binding.get("asset_id") or "")
+    }
+    return [
+        existing.get(asset_id, {
+            "asset_id": asset_id,
+            "purpose": "supplement",
+            "priority": "supporting",
+            "authority": "secondary",
+            "usage_policy": "prefer",
+            "reuse_policy": "reference_only",
+            "rights_basis": "teacher_asserted",
+        })
+        for asset_id in material_asset_ids
+    ]
+
+
+def _course_owned_material_asset_ids(
+    course_id: str,
+    actor_id: str,
+) -> set[str]:
+    result: set[str] = set()
+    for summary in teacher_course_space_repository.list_owned(
+        actor_id,
+        course_id,
+    ):
+        try:
+            package = teacher_course_space_repository.load_owned(
+                str(summary.get("package_id") or ""),
+                actor_id,
+            )
+        except (FileNotFoundError, ValueError):
+            continue
+        result.update(
+            str(asset.get("material_asset_id") or "")
+            for asset in package.get("assets") or []
+            if str(asset.get("material_asset_id") or "")
+        )
     return result
 
 

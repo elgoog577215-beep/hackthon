@@ -65,11 +65,11 @@
         :course-title="courseTitle"
         :generation-options="courseGenerationOptions"
         :generation-starting="generationStarting"
+        :initial-stage="requestedWorkbenchStage"
         @generate-outline="startOutlineGeneration"
         @open-outline="outlineOpen = true"
         @open-teaching-plan="openLessonPlan"
         @open-script="openScript"
-        @open-practice="openPractice"
       />
       <TeacherCourseSpaceView
         v-else
@@ -84,6 +84,7 @@
         @open-teaching-plan="openLessonPlan"
         @open-tasks="openTasks"
         @open-practice="openPractice"
+        @open-question-bank="openQuestionBankWorkbench"
         @context-change="selectedContext = $event"
         @readiness-change="readiness = $event"
       />
@@ -175,6 +176,7 @@ const autoGenerationHandled = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
+const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'>('foundation')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
 
@@ -239,6 +241,11 @@ async function loadWorkspace() {
 function openLessonPlan(lessonId: string) {
   selectedLessonId.value = lessonId
   lessonOpen.value = true
+}
+
+function openQuestionBankWorkbench() {
+  requestedWorkbenchStage.value = 'question-bank'
+  workspaceView.value = 'categories'
 }
 
 function openPractice(lessonId: string) {
