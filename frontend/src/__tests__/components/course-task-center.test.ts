@@ -385,7 +385,7 @@ describe('CourseTaskCenter', () => {
 
     expect(wrapper.text()).toContain('确认课程目录')
     expect(wrapper.text()).not.toContain('确认后会冻结全课知识职责')
-    expect(wrapper.text()).toContain('确认发布')
+    expect(wrapper.find('.guided-workflow').exists()).toBe(false)
     expect(wrapper.text()).toContain('目录小节')
     await wrapper.find('.blueprint-nodes input').setValue('向量空间与线性映射')
     await wrapper.find('.task-actions .primary-button').trigger('click')
@@ -448,7 +448,7 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(4)
+    expect(wrapper.find('.guided-workflow').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('小节教案、知识库与关系图已由同一计划编译')
     expect(wrapper.text()).toContain('题目合同与可判定性')
     expect(wrapper.text()).toContain('为什么出这道题')
@@ -458,7 +458,7 @@ describe('CourseTaskCenter', () => {
     expect(wrapper.text()).toContain('3 / 3')
   })
 
-  it('英文模式完整显示四步和当前确认动作，不泄漏翻译键或中文', async () => {
+  it('英文模式显示当前确认动作，不重复展示课程生产步骤或泄漏翻译键', async () => {
     const generation = useGenerationStore()
     const workspace = useCourseWorkspaceStore()
     const workflow = {
@@ -498,10 +498,9 @@ describe('CourseTaskCenter', () => {
     const wrapper = mountCenter()
     await flushPromises()
 
-    expect(wrapper.findAll('.guided-workflow__step')).toHaveLength(4)
+    expect(wrapper.find('.guided-workflow').exists()).toBe(false)
     expect(wrapper.text()).toContain('Review course content')
     expect(wrapper.text()).toContain('Course task center')
-    expect(wrapper.text()).toContain('Confirm publication')
     expect(wrapper.text()).toContain('Some lesson-plan units used the local fallback')
     expect(wrapper.text()).not.toContain('本地确定性保底')
     expect(wrapper.text()).not.toContain('courseTasks.')

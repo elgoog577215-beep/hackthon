@@ -25,7 +25,6 @@
 
         <div v-if="tasks.length" class="task-center-toolbar">
           <div class="task-center-toolbar__copy">
-            <strong>{{ t('courseTasks.title', '课程任务中心') }}</strong>
             <span>{{ t('courseTasks.subtitle', '只显示需要处理、正在运行和已经结束的课程任务。') }}</span>
           </div>
           <nav class="task-filters" :aria-label="t('courseTasks.listLabel', '课程任务列表')">
@@ -216,33 +215,6 @@
                 </ul>
               </details>
             </section>
-
-            <details v-if="workflowSteps.length" class="task-detail-group">
-              <summary>{{ activeLocale === 'en' ? 'Generation steps' : '生成步骤' }}</summary>
-            <section class="guided-workflow" :aria-label="t('courseTasks.workflow.label', '课程生成四步流程')">
-              <ol>
-                <li v-for="step in workflowSteps" :key="step.key" :data-status="step.displayStatus">
-                  <button
-                    type="button"
-                    class="guided-workflow__step"
-                    :disabled="!canReopenWorkflowStep(step)"
-                    :title="canReopenWorkflowStep(step) ? t('courseTasks.workflow.reopenHint', '返回修改课程目录；后续步骤将按新目录重建') : ''"
-                    @click="reopenWorkflowStep(step)"
-                  >
-                    <span class="guided-workflow__marker">
-                      <CircleCheck v-if="step.displayStatus === 'confirmed'" :size="14" />
-                      <LoaderCircle v-else-if="step.displayStatus === 'in_progress'" class="spin" :size="14" />
-                      <span v-else>{{ step.number }}</span>
-                    </span>
-                    <span class="guided-workflow__copy">
-                      <strong>{{ step.label }}</strong>
-                      <small>{{ workflowStatusLabel(step.displayStatus) }}</small>
-                    </span>
-                  </button>
-                </li>
-              </ol>
-            </section>
-            </details>
 
             <section v-if="shouldShowGenerationReview(selectedTask)" class="generation-review">
               <header>
@@ -656,37 +628,10 @@ const currentReviewStep = computed<GuidedGenerationStepKey>(() => (
   || 'outline'
 ))
 const reviewArtifact = computed(() => generationReview.value?.artifact || null)
-const workflowSteps = computed(() => {
-  if (selectedTask.value?.taskType === 'course_import') return []
-  const workflow = selectedTask.value?.guidedWorkflow || generationReview.value?.guided_workflow
-  const current = workflow?.current_step
-  const sourceSteps = workflow?.steps || []
-  const visibleKeys: Exclude<GuidedGenerationStepKey, 'requirements'>[] = ['outline', 'teaching', 'content', 'release']
-  const currentIndex = visibleKeys.indexOf(current as Exclude<GuidedGenerationStepKey, 'requirements'>)
-  return visibleKeys.map((key, index) => {
-    const source = sourceSteps.find((step: any) => step.key === key)
-    const status = source?.status || (
-      currentIndex > index ? 'confirmed'
-        : currentIndex === index ? 'pending'
-          : 'locked'
-    )
-    return {
-      ...source,
-      key,
-      number: index + 1,
-      status,
-      label: guidedStepLabel(key),
-      displayStatus: (
-        status === 'pending'
-        && current === key
-        && selectedTask.value?.status === 'running'
-      ) ? 'in_progress' : status,
-    }
-  })
-})
 const currentReviewNumber = computed(() => {
-  const step = workflowSteps.value.find((item: any) => item.key === currentReviewStep.value)
-  return String(step?.number || 2).padStart(2, '0')
+  const visibleSteps: GuidedGenerationStepKey[] = ['outline', 'teaching', 'content', 'release']
+  const index = visibleSteps.indexOf(currentReviewStep.value)
+  return String(index >= 0 ? index + 1 : 2).padStart(2, '0')
 })
 const currentReviewTitle = computed(() => ({
   outline: t('courseTasks.blueprint.title', '确认课程目录'),
@@ -864,41 +809,6 @@ async function confirmCurrentStep() {
     )
   })
 }
-function canReopenWorkflowStep(step: any) {
-  return (
-    selectedTask.value?.status === 'waiting_for_review'
-    && step?.key === 'outline'
-    && step?.status === 'confirmed'
-    && currentReviewStep.value !== 'outline'
-  )
-}
-async function reopenWorkflowStep(step: any) {
-  if (!selectedTask.value || !canReopenWorkflowStep(step)) return
-  try {
-    await ElMessageBox.confirm(
-      t(
-        'courseTasks.workflow.reopenConfirm',
-        '返回修改目录后，全课小节教案、知识库、课程内容和发布确认都会失效，并按照新目录重新生成。',
-      ),
-      t('courseTasks.workflow.reopenTitle', '返回修改课程目录'),
-      {
-        type: 'warning',
-        confirmButtonText: t('courseTasks.workflow.reopenAction', '返回并修改'),
-        cancelButtonText: t('common.cancel', '取消'),
-      },
-    )
-    await runAction(() => workspace.reopenGenerationStep(
-      selectedTask.value!.courseId,
-      'outline',
-    ))
-    await loadSelectedReview()
-    ElMessage.success(t('courseTasks.workflow.reopened', '已返回目录步骤，可以修改后重新确认'))
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(t('courseTasks.actionFailed', '任务操作失败'))
-    }
-  }
-}
 async function deleteSelected() {
   if (!selectedTask.value) return
   await deleteTask(selectedTask.value)
@@ -990,15 +900,6 @@ function formatTaskTime(value: string) {
     minute: '2-digit',
   }).format(date)
 }
-function guidedStepLabel(step: GuidedGenerationStepKey) {
-  return {
-    requirements: t('courseTasks.workflow.requirements', '需求输入'),
-    outline: t('courseTasks.workflow.outline', '目录确认'),
-    teaching: t('courseTasks.workflow.teaching', '教案确认'),
-    content: t('courseTasks.workflow.content', '正文生成'),
-    release: t('courseTasks.workflow.release', '确认发布'),
-  }[step]
-}
 function observableStageStatusLabel(status: ObservableTaskStageStatus) {
   return {
     completed: t('taskObservability.status.completed', '已完成'),
@@ -1013,17 +914,6 @@ function taskKindLabel(task: TaskView) {
   return task.taskType === 'course_import'
     ? t('taskObservability.kind.import', '课程导入')
     : t('taskObservability.kind.generation', '课程生成')
-}
-function workflowStatusLabel(status: string) {
-  return {
-    locked: t('courseTasks.workflow.locked', '未开始'),
-    pending: t('courseTasks.workflow.pending', '等待开始'),
-    in_progress: t('courseTasks.workflow.inProgress', '生成中'),
-    waiting_for_confirmation: t('courseTasks.workflow.waiting', '待确认'),
-    confirmed: t('courseTasks.workflow.confirmed', '已确认'),
-    needs_regeneration: t('courseTasks.workflow.needsRegeneration', '需要重做'),
-    failed: t('courseTasks.workflow.failed', '失败'),
-  }[status] || status
 }
 function learningAssetLabel(type: string) {
   return t(`courseTasks.review.assets.${type}`, {
@@ -1283,7 +1173,7 @@ function formatDuration(seconds: number) {
 .icon-button { width:34px; height:34px; display:grid; place-items:center; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .icon-button:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }
 .task-center-toolbar { min-width:0; min-height:62px; display:grid; grid-template-columns:minmax(210px,1fr) auto auto; align-items:center; gap:16px; padding:8px 14px 8px 18px; border-bottom:1px solid var(--lz-border); background:#fff; }
-.task-center-toolbar__copy { min-width:0; display:grid; gap:3px; }.task-center-toolbar__copy strong { color:var(--lz-text-strong); font-size:13px; }.task-center-toolbar__copy span { overflow:hidden; color:var(--lz-text-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
+.task-center-toolbar__copy { min-width:0; }.task-center-toolbar__copy span { display:block; overflow:hidden; color:var(--lz-text-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .task-filters { min-width:0; display:flex; align-items:center; gap:3px; overflow-x:auto; scrollbar-width:none; }.task-filters::-webkit-scrollbar { display:none; }
 .task-filters button { flex:0 0 auto; min-height:32px; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; }
 .task-filters button span { color:var(--lz-text-muted); font-variant-numeric:tabular-nums; }.task-filters button:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }.task-filters button.active { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }.task-filters button.active span { color:inherit; }
@@ -1314,7 +1204,7 @@ function formatDuration(seconds: number) {
 .task-detail-group { padding:14px 0; border-bottom:1px solid var(--lz-border); }
 .task-detail-group>summary { color:var(--lz-text-secondary); font-size:13px; font-weight:700; cursor:pointer; }
 .task-detail-group[open]>summary { margin-bottom:14px; color:var(--lz-brand-strong); }
-.task-detail-group .task-observability,.task-detail-group .guided-workflow { padding:0; border-bottom:0; }
+.task-detail-group .task-observability { padding:0; border-bottom:0; }
 .task-observability { padding:17px 0; border-bottom:1px solid var(--lz-border); }
 .web-search-summary { padding:18px 0; border-bottom:1px solid var(--lz-border); display:grid; gap:9px; }
 .web-search-summary__head { display:flex; align-items:center; gap:10px; }
@@ -1357,21 +1247,6 @@ function formatDuration(seconds: number) {
 .task-observability__stage[data-status="paused"] .task-observability__marker { color:var(--lz-text-secondary); background:var(--lz-surface-muted); }
 .task-heartbeat-alert { display:flex; align-items:flex-start; gap:7px; margin:16px 0 0; padding:10px 12px; border-radius:8px; color:#9a4d13; background:#fff8ed; font-size:12px; line-height:1.5; }
 .task-heartbeat-alert svg { flex:0 0 auto; margin-top:1px; }
-.guided-workflow { padding:17px 0; border-bottom:1px solid var(--lz-border); }
-.guided-workflow ol { margin:0; padding:0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); list-style:none; }
-.guided-workflow li { position:relative; min-width:0; display:grid; justify-items:center; gap:7px; color:var(--lz-text-muted); text-align:center; }
-.guided-workflow li:not(:last-child)::after { content:""; position:absolute; z-index:0; top:14px; left:calc(50% + 18px); right:calc(-50% + 18px); height:1px; background:var(--lz-border); }
-.guided-workflow__step { min-width:0; width:100%; display:grid; justify-items:center; gap:7px; padding:0 3px; border:0; color:inherit; background:transparent; text-align:center; }
-.guided-workflow__step:disabled { cursor:default; }.guided-workflow__step:not(:disabled) { cursor:pointer; }.guided-workflow__step:not(:disabled):hover .guided-workflow__marker { transform:translateY(-2px); box-shadow:0 5px 13px rgba(15,23,42,.12); }
-.guided-workflow__marker { position:relative; z-index:1; width:29px; height:29px; display:grid; place-items:center; border:1px solid var(--lz-border); border-radius:50%; color:var(--lz-text-muted); background:#fff; font-family:ui-monospace,monospace; font-size:12px; font-weight:750; }
-.guided-workflow__marker { transition:transform .16s ease,box-shadow .16s ease; }.guided-workflow__copy { min-width:0; max-width:100%; }
-.guided-workflow li strong,.guided-workflow li small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.guided-workflow li strong { color:var(--lz-text-secondary); font-size:12px; }.guided-workflow li small { margin-top:3px; font-size:12px; }
-.guided-workflow li[data-status="confirmed"] .guided-workflow__marker { border-color:rgba(5,150,105,.3); color:var(--lz-success); background:var(--lz-success-soft); }
-.guided-workflow li[data-status="confirmed"]:not(:last-child)::after { background:rgba(5,150,105,.35); }
-.guided-workflow li[data-status="in_progress"] .guided-workflow__marker,.guided-workflow li[data-status="waiting_for_confirmation"] .guided-workflow__marker { border-color:rgba(79,70,229,.32); color:var(--lz-brand-strong); background:var(--lz-brand-soft); box-shadow:0 0 0 4px rgba(99,102,241,.06); }
-.guided-workflow li[data-status="in_progress"] strong,.guided-workflow li[data-status="waiting_for_confirmation"] strong { color:var(--lz-text-strong); }
-.guided-workflow li[data-status="needs_regeneration"] .guided-workflow__marker,.guided-workflow li[data-status="failed"] .guided-workflow__marker { border-color:rgba(217,119,6,.3); color:var(--lz-warning); background:var(--lz-warning-soft); }
 .generation-review { padding:24px 0 4px; }.generation-review > header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; margin-bottom:16px; }.generation-review > header > div { position:relative; padding-left:42px; }.generation-review__step { position:absolute; left:0; top:-2px; width:31px; height:31px; display:grid; place-items:center; border-radius:8px; color:var(--lz-brand-strong); background:var(--lz-brand-soft); font-family:ui-monospace,monospace; font-size:12px; font-weight:800; }.generation-review h4 { margin:0; color:var(--lz-text-strong); font-size:14px; }.generation-review header p { margin:5px 0 0; color:var(--lz-text-muted); font-size:12px; }
 .blueprint-course-name span { display:block; margin-bottom:6px; color:var(--lz-text-muted); font-size:12px; }.blueprint-course-name input,.blueprint-nodes input,.blueprint-nodes textarea { width:100%; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; outline:none; }.blueprint-course-name input { height:38px; padding:0 10px; font-weight:650; }.blueprint-nodes { margin-top:12px; }.blueprint-nodes article { display:grid; grid-template-columns:28px minmax(0,1fr); gap:9px; padding:11px 0; border-top:1px solid rgba(226,232,240,.76); }.blueprint-nodes article > span { padding-top:9px; color:var(--lz-text-muted); font-size:12px; font-family:ui-monospace,monospace; }.blueprint-nodes input { height:36px; padding:0 9px; font-size:12px; font-weight:650; }.blueprint-nodes textarea { min-height:54px; margin-top:6px; padding:8px 9px; resize:vertical; font-size:12px; line-height:1.45; }.blueprint-course-name input:focus,.blueprint-nodes input:focus,.blueprint-nodes textarea:focus { border-color:var(--lz-brand); box-shadow:0 0 0 3px rgba(99,102,241,.08); }.blueprint-error,.blueprint-empty { color:var(--lz-warning); font-size:12px; }
 .review-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-bottom:15px; }.review-metrics div { padding:13px; border:1px solid var(--lz-border); border-radius:9px; background:var(--lz-surface-muted); }.review-metrics strong,.review-metrics span { display:block; }.review-metrics strong { color:var(--lz-text-strong); font-size:20px; }.review-metrics span { margin-top:3px; color:var(--lz-text-muted); font-size:12px; }
@@ -1389,6 +1264,6 @@ function formatDuration(seconds: number) {
 .task-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:13px clamp(20px,4vw,38px); border-top:1px solid var(--lz-border); background:rgba(255,255,255,.98); box-shadow:0 -8px 22px rgba(15,23,42,.035); }.task-actions__open { margin-left:auto; }.task-actions__more { position:relative; }.task-actions__more summary { min-height:38px; display:flex; align-items:center; padding:0 10px; border:1px solid transparent; border-radius:8px; color:var(--lz-text-muted); font-size:12px; font-weight:700; cursor:pointer; list-style:none; }.task-actions__more summary::-webkit-details-marker { display:none; }.task-actions__more summary:hover { color:var(--lz-text-strong); background:var(--lz-surface-muted); }.task-actions__more[open] .danger-button { position:absolute; right:0; bottom:44px; z-index:2; min-width:max-content; box-shadow:0 12px 28px rgba(15,23,42,.14); }
 .primary-button,.secondary-button,.danger-button { min-height:38px; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:0 13px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; }.primary-button { border:1px solid var(--lz-brand-strong); color:#fff; background:var(--lz-brand-strong); }.secondary-button { border:1px solid var(--lz-border); color:var(--lz-text-secondary); background:#fff; }.danger-button { border:1px solid rgba(185,28,28,.22); color:var(--lz-danger); background:var(--lz-danger-soft); }.primary-button:disabled,.secondary-button:disabled,.danger-button:disabled,.icon-button:disabled { cursor:not-allowed; opacity:.5; }
 .spin { animation:spin 1s linear infinite; }@keyframes spin { to { transform:rotate(360deg); } }
-@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--embedded { height:100%; border-radius:0; }.task-center--empty { height:auto; min-height:280px; }.task-center-toolbar { grid-template-columns:minmax(0,1fr) auto; gap:7px 8px; padding:8px 10px; }.task-center-toolbar__copy { grid-column:1 / -1; }.task-filters { width:100%; }.task-center-toolbar__actions { align-self:end; }.task-center__body { grid-template-columns:1fr; grid-template-rows:76px minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { display:flex; gap:6px; max-height:none; overflow-x:auto; overflow-y:hidden; padding:7px 10px; border-right:0; border-bottom:1px solid var(--lz-border); scroll-snap-type:x proximity; }.task-row-wrap { flex:0 0 min(270px,calc(100vw - 52px)); scroll-snap-align:start; }.task-row { min-height:60px; }.task-list-empty { flex:0 0 100%; min-height:60px; }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:16px 14px 12px; }.task-summary { padding-bottom:18px; }.task-summary__top { gap:12px; }.task-summary__top > strong { font-size:22px; }.task-summary h3 { margin:8px 0 4px; font-size:18px; }.task-progress { margin:14px 0 13px; }.task-summary dl { grid-template-columns:1fr 1fr; gap:9px; }.task-actions { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }.task-actions__open { margin-left:0; }.task-observability { padding:18px 0; }.task-observability ol,.guided-workflow ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:16px; }.task-observability__stage:nth-child(3n)::after,.guided-workflow li:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
+@media (max-width:720px) { .task-center-layer { align-items:end; padding:0; }.task-center { width:100%; height:calc(100dvh - 56px); border-radius:14px 14px 0 0; }.task-center--embedded { height:100%; border-radius:0; }.task-center--empty { height:auto; min-height:280px; }.task-center-toolbar { grid-template-columns:minmax(0,1fr) auto; gap:7px 8px; padding:8px 10px; }.task-center-toolbar__copy { grid-column:1 / -1; }.task-filters { width:100%; }.task-center-toolbar__actions { align-self:end; }.task-center__body { grid-template-columns:1fr; grid-template-rows:76px minmax(0,1fr); }.task-center__body--empty { display:block; }.task-list { display:flex; gap:6px; max-height:none; overflow-x:auto; overflow-y:hidden; padding:7px 10px; border-right:0; border-bottom:1px solid var(--lz-border); scroll-snap-type:x proximity; }.task-row-wrap { flex:0 0 min(270px,calc(100vw - 52px)); scroll-snap-align:start; }.task-row { min-height:60px; }.task-list-empty { flex:0 0 100%; min-height:60px; }.task-center-empty { min-height:218px; padding:26px 24px calc(30px + env(safe-area-inset-bottom)); }.task-detail__scroll { padding:16px 14px 12px; }.task-summary { padding-bottom:18px; }.task-summary__top { gap:12px; }.task-summary__top > strong { font-size:22px; }.task-summary h3 { margin:8px 0 4px; font-size:18px; }.task-progress { margin:14px 0 13px; }.task-summary dl { grid-template-columns:1fr 1fr; gap:9px; }.task-actions { padding:10px 14px calc(10px + env(safe-area-inset-bottom)); }.task-actions__open { margin-left:0; }.task-observability { padding:18px 0; }.task-observability ol { grid-template-columns:repeat(3,minmax(0,1fr)); row-gap:16px; }.task-observability__stage:nth-child(3n)::after { display:none; }.review-metrics { grid-template-columns:1fr 1fr 1fr; } }
 @media (prefers-reduced-motion: reduce) { .task-center { animation:none; }.spin { animation:none; } }
 </style>

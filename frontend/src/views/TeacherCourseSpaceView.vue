@@ -217,7 +217,7 @@
         <section class="category-detail-pane">
           <header class="category-detail-header">
             <div>
-              <small>{{ t('courseFiles.workbench.stepLabel').replace('{step}', String(activeCategory?.step || 1)) }} · {{ activeCategory?.label }}<template v-if="categoryDetailNode?.lessonId"> · {{ t('courseFiles.lessonLevel') }}</template></small>
+              <small v-if="categoryDetailNode?.lessonId">{{ activeCategory?.label }} · {{ t('courseFiles.lessonLevel') }}</small>
               <h2>{{ categoryDetailTitle }}</h2>
               <span v-if="categoryDetailNode" class="category-detail-status"><i class="status-dot" :data-state="categoryDetailNode.status" />{{ statusLabel(categoryDetailNode) }}</span>
             </div>
@@ -256,7 +256,6 @@
             <section class="category-console__card">
               <header>
                 <span class="category-console__icon"><component :is="activeCategory?.icon || FileText" :size="24" /></span>
-                <span class="category-console__step">{{ t('courseFiles.workbench.stepLabel').replace('{step}', String(activeCategory?.step || 1)) }}</span>
               </header>
               <h3>{{ categoryConsoleTitle }}</h3>
               <section v-if="!categoryDetailNode && activeCategory?.type !== 'outline'" class="category-prerequisite">
@@ -1434,7 +1433,7 @@ onMounted(refresh)
 .workbench-settings-button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid var(--lz-brand-border);border-radius:12px;color:var(--lz-brand-strong);background:#fff;font-size:12px;font-weight:750;white-space:nowrap;cursor:pointer}.workbench-settings-button:hover{background:var(--lz-brand-soft)}.workbench-settings-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .category-document-scroll{padding:24px 28px 42px;background:#f8f9fc}.category-document{width:min(980px,100%);padding:38px 46px 56px;border-color:#e6eaf1;border-radius:22px;box-shadow:0 14px 34px rgba(15,23,42,.045)}
 .category-console{min-height:0;overflow:auto;display:grid;place-items:center;padding:32px;background:#f8f9fc}
-.category-console__card{width:min(660px,100%);display:grid;justify-items:center;padding:42px 44px 44px;border:1px solid #e4e8ef;border-radius:24px;background:#fff;box-shadow:0 18px 46px rgba(15,23,42,.06);text-align:center}.category-console__card>header{width:100%;display:flex;align-items:center;justify-content:space-between}.category-console__icon{width:54px;height:54px;display:grid;place-items:center;border-radius:17px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__step{padding:6px 10px;border-radius:999px;color:#667085;background:#f2f4f7;font-size:11px;font-weight:750}.category-console__card h3{margin:26px 0 0;color:var(--lz-text-strong);font-size:23px;letter-spacing:-.018em}
+.category-console__card{width:min(660px,100%);display:grid;justify-items:center;padding:42px 44px 44px;border:1px solid #e4e8ef;border-radius:24px;background:#fff;box-shadow:0 18px 46px rgba(15,23,42,.06);text-align:center}.category-console__card>header{width:100%;display:flex;align-items:center;justify-content:center}.category-console__icon{width:54px;height:54px;display:grid;place-items:center;border-radius:17px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__card h3{margin:26px 0 0;color:var(--lz-text-strong);font-size:23px;letter-spacing:-.018em}
 .category-prerequisite{width:100%;display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:9px;margin-top:22px;padding:12px 14px;border:1px solid #e4e8f1;border-radius:10px;color:#64748b;background:#f8fafc;text-align:left}.category-prerequisite>svg{color:var(--lz-brand)}.category-prerequisite>div{display:grid;gap:2px}.category-prerequisite small{font-size:10px}.category-prerequisite strong{color:#475569;font-size:12px}
 .category-group__trailing b,
 .category-child__index,
@@ -1442,7 +1441,6 @@ onMounted(refresh)
 .category-group__copy small,
 .workbench-brief-bar__title small,
 .workbench-brief-items span,
-.category-console__step,
 .category-prerequisite small { font-size:12px; }
 .category-console__actions{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:28px}.category-console__actions button{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 18px;border:1px solid var(--lz-border);border-radius:13px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:750;cursor:pointer}.category-console__actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand);box-shadow:0 9px 20px rgba(99,102,241,.17)}.category-console__actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-console__actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-console__actions button:disabled{opacity:.45;cursor:not-allowed}.category-console__actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 @media (max-width:1180px){.category-layout{grid-template-columns:280px minmax(0,1fr)}.workbench-brief-bar{grid-template-columns:minmax(130px,.55fr) minmax(300px,1.7fr) auto;gap:12px;padding-inline:16px}.workbench-brief-items{grid-template-columns:repeat(3,minmax(0,1fr))}}
