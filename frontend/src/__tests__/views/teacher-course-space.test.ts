@@ -120,11 +120,11 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.category-detail-pane')).toBeTruthy()
     expect(wrapper.get('.category-navigation').text()).toContain('课程生产')
     expect(wrapper.get('.category-progress').text()).toContain('备课进度')
-    expect(wrapper.get('.workbench-brief-bar').text()).toContain('课程生产设置')
-    expect(wrapper.get('.category-console').text()).toContain('课程目标')
+    expect(wrapper.get('.workbench-brief-bar').text()).toContain('课程定调')
+    expect(wrapper.get('.category-console').text()).toContain('开始生成课程大纲')
     expect(wrapper.get('.category-navigation').text()).not.toContain('0/0')
     await wrapper.get('.workbench-settings-button').trigger('click')
-    expect(wrapper.emitted('openCourseSettings')).toBeTruthy()
+    expect(wrapper.emitted('openAssistant')).toBeTruthy()
   })
 
   it('分类视图在左侧展开课次，并在右侧直接显示所选内容', async () => {

@@ -44,6 +44,9 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).toContain("<span>{{ t('courseFiles.taskCenter') }}</span>")
     expect(workspace).not.toContain('class="workspace-local-header"')
     expect(workspace).toContain('mode="teacher"')
+    expect(workspace).toContain('<SideAIPanel')
+    expect(workspace).toContain('embedded')
+    expect(workspace).toContain('class="workspace-operating-shell"')
     expect(workspace).toContain('@click="openCoursePreview"')
     expect(workspace).not.toContain('workspace-subtabs')
     expect(workspace).toContain('<TeacherCourseCalendarView embedded />')
@@ -74,16 +77,20 @@ describe('calendar and course file-space boundary', () => {
     expect(router).not.toContain("import('../views/TeacherCourseProductionView.vue')")
   })
 
-  it('creates a detailed empty course space before opening the managed-asset workbench', () => {
+  it('creates the course space from one focused baseline panel before opening the managed-asset workbench', () => {
     const create = source('views/TeacherCourseCreateView.vue')
     const store = source('stores/course.ts')
 
     expect(create).toContain('show-course-type')
+    expect(create).toContain('course-space-mode')
+    expect(create).toContain(':fixed-audience="fixedAudience"')
+    expect(create).toContain('const generationDialogOpen = ref(true)')
+    expect(create).not.toContain('localStorage')
     expect(create).toContain("courseStore.createTeacherCourseSpace")
     expect(create).toContain('generation_request:')
     expect(create).toContain("name: 'course-workspace'")
     expect(create).not.toContain('courseStore.generateCourse')
-    expect(create).toContain('class="workbench-preview"')
+    expect(create).not.toContain('class="workbench-preview"')
     expect(store).toContain('generation_request?: { subject: string } & CourseGenerationOptions')
   })
 
@@ -94,7 +101,8 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace.match(/<GenerationLessonPlan/g)).toHaveLength(1)
     expect(workspace).toContain(':plan="selectedLessonPlan"')
     expect(workspace).toContain('@open-outline="outlineOpen = true"')
-    expect(workspace).toContain('@create-outline="generationDialogOpen = true"')
+    expect(workspace).toContain('@create-outline="startOutlineFromBaseline"')
+    expect(workspace).not.toContain('<CourseGenerationDialog')
     expect(workspace).toContain("target_course_id: courseId.value")
     expect(workspace).toContain('@open-teaching-plan="openLessonPlan"')
     expect(lessonPlan).toContain("visibleScope?: 'both' | 'overall' | 'sections'")

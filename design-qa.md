@@ -1,3 +1,55 @@
+# Design QA — 新建课程与课程工作台精修（2026-08-22）
+
+## Comparison target
+
+- Source visual truth: `/var/folders/5z/ysrw5tcd3fngb509jyxr533c0000gn/T/codex-clipboard-7c86619e-fc93-460b-aea8-1baa353e3f97.png` (`1436 × 1552`, supplied Retina-style reference).
+- Rendered creation route: `http://localhost:5173/teacher/courses/new`.
+- Normalized creation screenshot: `output/playwright/course-create-design-qa-718.jpg` (`718 × 776`, CSS viewport `718 × 776`, `devicePixelRatio = 1`).
+- Full-view comparison: `output/playwright/course-create-design-qa-comparison-normalized.jpg` (`1454 × 818`).
+- Focused header/field comparison: `output/playwright/course-create-design-qa-focused.jpg` (`1454 × 552`).
+- Workbench desktop evidence: `output/playwright/course-workbench-refined-center.jpg` (`1280 × 720`) and `output/playwright/course-workbench-refined.jpg` (`1280 × 720`, AI assistant open).
+- Mobile evidence: `output/playwright/course-create-refined-mobile.jpg` (`390 × 844`) and `output/playwright/course-workbench-refined-mobile.jpg` (`390 × 844`).
+- State: Chinese, light theme, empty creation form with systematic course/intermediate/manual defaults; existing AI-literacy course outline for the workbench.
+
+## Viewport and density normalization
+
+- The `1436 × 1552` source was treated as a 2× capture and downsampled to `718 × 776` for comparison with a `718 × 776` CSS viewport at 1× density.
+- The normalized comparison therefore judges component proportions, radius, hierarchy, spacing, selected states and copy density without confusing Retina density with CSS size.
+- The desktop workbench and `390 × 844` responsive captures are supplemental product-state evidence rather than direct pixel references for the creation panel.
+
+## Full-view and focused comparison evidence
+
+- The creation route now opens one full-height rounded panel instead of a three-step shell followed by a second dialog. The header, white surface, purple focal icon, large selectable cards, fixed footer and muted backdrop preserve the supplied reference's composition.
+- The current product needs course type, goal, knowledge structure, production mode and course scale, so those replace the reference's old teaching-style and free-form requirement groups. Explanatory subtitles and option descriptions are intentionally omitted per the user's instruction.
+- The focused comparison confirms a consistent icon family, readable Chinese hierarchy, clear active borders and evenly aligned controls. The mobile capture confirms two-column course-type cards, scrollable content and a fixed action footer without horizontal overflow.
+- The workbench captures confirm that the middle formal-content column is a distinct rounded surface with a matching radius/border/shadow system. At `1280px`, the AI assistant overlays instead of compressing the middle column; closing it restores the full content width.
+
+## Findings
+
+- No actionable P0, P1 or P2 visual mismatch remains.
+- Fonts and typography: the existing Chinese system sans stack is preserved; titles, labels and actions use a compact hierarchy with no instructional paragraphs. The implementation is intentionally less verbose than the reference.
+- Spacing and layout rhythm: creation uses a full-height sheet, fixed header/footer, orderly section dividers and large card controls. Workbench surfaces use `22–24px` primary radii and aligned `12–14px` control radii.
+- Colors and visual tokens: the reference's white, cool-gray and violet direction is retained using existing product tokens; semantic green/orange statuses remain limited to readiness states.
+- Image quality and asset fidelity: no content imagery is required by the revised fields. Product logo and Lucide icons are used directly; no emoji, handcrafted SVG, CSS illustration or placeholder image was introduced.
+- Copy and content: only stable creation fields, values, statuses and actions remain visible. Fixed “大学生” audience is persisted but no longer shown as a form field.
+- Interactions and accessibility: verified course-type switching, production-mode switching, required-field disabled submit state, AI assistant open/close, course navigation and desktop/mobile responsiveness. Dialog, fieldset, labels, pressed states and complementary regions remain semantic. Browser console reported no errors for the checked creation interactions.
+
+## Comparison history
+
+- Pass 1 found a P1 composition mismatch: the first implementation was capped at `1080 × 900`, leaving a large empty perimeter and losing the reference's full-sheet presence.
+- Fix: expanded the course-space dialog to `1320px` and `calc(100vh - 28px)`, retained its fixed footer, and captured `output/playwright/course-create-refined-top.jpg` plus the normalized post-fix comparison.
+- Pass 2 found a P2 workbench crowding issue at `1280px`: keeping the assistant as a fixed third grid column compressed and clipped the middle summary surface.
+- Fix: changed the assistant to an overlay below `1500px`; post-fix evidence is `output/playwright/course-workbench-refined.jpg`, and the unobstructed middle surface is `output/playwright/course-workbench-refined-center.jpg`.
+- Pass 3 found no remaining actionable P0/P1/P2 issue. Full-view, focused-region and mobile evidence all use the current verified implementation state.
+
+## Follow-up polish
+
+- P3: if future testing shows teachers frequently use 700–760px landscape windows, the course panel may adopt a small outer inset instead of the current bottom-sheet treatment at that breakpoint.
+
+final result: passed
+
+---
+
 # Design QA — 课程生产工作台（2026-08-22）
 
 ## Comparison target

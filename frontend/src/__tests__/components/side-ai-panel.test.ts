@@ -31,6 +31,7 @@ function mountPanel(
   configureCourseStore?: (store: ReturnType<typeof useCourseStore>) => void,
   mode: 'learner' | 'teacher' = 'learner',
   scopeFiles: Array<{ id: string; label: string; nodeId?: string }> = [],
+  embedded = false,
 ) {
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -70,6 +71,7 @@ function mountPanel(
       blockTarget,
       prefill: blockTarget ? '把定义讲得更清楚' : undefined,
       scopeFiles,
+      embedded,
     },
     global: {
       plugins: [pinia],
@@ -140,6 +142,16 @@ describe('SideAIPanel', () => {
       perspective: 'teacher',
       question: expect.stringContaining('教学设计'),
     }))
+  })
+
+  it('嵌入工作台时作为右侧协作区而不是全屏弹窗', () => {
+    const wrapper = mountPanel([], '', undefined, undefined, 'teacher', [], true)
+
+    expect(wrapper.get('.ai-teacher-panel').classes()).toContain('is-embedded')
+    expect(wrapper.get('.ai-teacher-surface').attributes('role')).toBe('complementary')
+    expect(wrapper.get('.ai-teacher-surface').attributes('aria-modal')).toBeUndefined()
+    expect(wrapper.find('.conversation-rail-toggle').exists()).toBe(false)
+    expect(wrapper.find('.conversation-shell').exists()).toBe(false)
   })
 
   it('教师问答默认使用全部文件，并可缩小到选定范围', async () => {

@@ -29,7 +29,8 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "default_location": "西1-205",
         "generation_request": {
             "subject": "设计思维",
-            "target_audience": "本科二年级",
+            "target_audience": "大学生",
+            "production_mode": "automatic",
             "course_type": "systematic",
             "difficulty": "intermediate",
             "course_intent": {
@@ -40,7 +41,7 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
             "teacher_course_brief": {
                 "schema_version": "teacher_course_brief_v1",
                 "academic_term": "2026-2027 秋冬",
-                "target_audience": "本科二年级",
+                "target_audience": "大学生",
                 "total_class_hours": 32,
                 "lesson_duration_minutes": 45,
                 "section_count": 16,
@@ -57,6 +58,7 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
     repository.create_teacher_draft.assert_awaited_once()
     metadata = repository.create_teacher_draft.await_args.kwargs["metadata"]
     assert metadata["generation_request"]["subject"] == "设计思维"
+    assert metadata["generation_request"]["production_mode"] == "automatic"
     assert metadata["generation_request"]["teacher_course_brief"]["section_count"] == 16
     assert metadata["course_profile"] == {
         "course_code": "DES101",

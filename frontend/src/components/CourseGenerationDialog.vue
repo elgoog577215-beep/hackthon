@@ -10,15 +10,19 @@
       <section
         ref="dialogRef"
         class="generation-dialog"
+        :class="{ 'generation-dialog--course-space': props.courseSpaceMode }"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
         tabindex="-1"
       >
         <header class="generation-dialog__header">
+          <span v-if="props.courseSpaceMode" class="generation-dialog__brand" aria-hidden="true">
+            <Sparkles :size="24" />
+          </span>
           <div class="generation-dialog__heading">
             <h2 :id="titleId">{{ props.title || (props.workbenchMode ? t('courseFiles.workbench.settingsDialogTitle') : props.initialSubject ? t('courseGeneration.dialog.createOutline', '生成课程大纲') : t('teacherHome.newCourse', '新建课程')) }}</h2>
-            <p v-if="props.helpText || props.workbenchMode">{{ props.helpText || t('courseFiles.workbench.settingsDialogHelp') }}</p>
+            <p v-if="!props.courseSpaceMode && (props.helpText || props.workbenchMode)">{{ props.helpText || t('courseFiles.workbench.settingsDialogHelp') }}</p>
           </div>
           <button type="button" class="icon-button" :title="t('common.cancel', '取消')" @click="close">
             <X :size="18" />
@@ -110,7 +114,7 @@
                   :disabled="busy"
                 />
               </label>
-              <label class="project-field" for="project-prior-experience">
+              <label v-if="!props.courseSpaceMode" class="project-field" for="project-prior-experience">
                 <span class="field-label">{{ t('courseGeneration.project.experienceLabel', '已经有哪些相关经验？') }}</span>
                 <textarea
                   id="project-prior-experience"
@@ -121,7 +125,7 @@
                   :disabled="busy"
                 />
               </label>
-              <label class="project-field" for="project-current-uncertainty">
+              <label v-if="!props.courseSpaceMode" class="project-field" for="project-current-uncertainty">
                 <span class="field-label">{{ t('courseGeneration.project.uncertaintyLabel', '当前最不确定什么？') }}</span>
                 <textarea
                   id="project-current-uncertainty"
@@ -171,7 +175,7 @@
                   :disabled="busy"
                 />
               </label>
-              <label class="project-field" for="inquiry-understanding">
+              <label v-if="!props.courseSpaceMode" class="project-field" for="inquiry-understanding">
                 <span class="field-label">{{ t('courseGeneration.inquiry.understandingLabel', '你目前怎么看？') }}</span>
                 <textarea
                   id="inquiry-understanding"
@@ -182,7 +186,7 @@
                   :disabled="busy"
                 />
               </label>
-              <label class="project-field" for="inquiry-evidence-scope">
+              <label v-if="!props.courseSpaceMode" class="project-field" for="inquiry-evidence-scope">
                 <span class="field-label">{{ t('courseGeneration.inquiry.evidenceLabel', '证据范围与边界') }}</span>
                 <textarea
                   id="inquiry-evidence-scope"
@@ -242,7 +246,7 @@
                   :disabled="busy"
                 />
               </label>
-              <label class="project-field project-field--wide" for="exam-preparation">
+              <label v-if="!props.courseSpaceMode" class="project-field project-field--wide" for="exam-preparation">
                 <span class="field-label">{{ t('courseGeneration.exam.preparationLabel', '当前准备情况与薄弱点') }}</span>
                 <textarea
                   id="exam-preparation"
@@ -256,8 +260,20 @@
             </div>
           </section>
 
-          <details class="form-section teaching-settings generation-advanced">
-            <summary>{{ activeLocale === 'en' ? 'More generation settings' : '更多生成设置' }}</summary>
+          <section v-if="props.courseSpaceMode" class="form-section course-goal-section">
+            <label class="field-label" for="course-learning-goal">{{ t('teacherCourseCreate.goal', '课程目标') }}</label>
+            <textarea
+              id="course-learning-goal"
+              v-model="form.requirements"
+              class="textarea-input"
+              maxlength="3000"
+              :placeholder="t('teacherCourseCreate.goalPlaceholder', '学生完成课程后能够……')"
+              :disabled="busy"
+            />
+          </section>
+
+          <details class="form-section teaching-settings generation-advanced" :open="props.courseSpaceMode">
+            <summary>{{ props.courseSpaceMode ? t('teacherCourseCreate.depthAndStructure', '内容深度与知识组织') : (activeLocale === 'en' ? 'More generation settings' : '更多生成设置') }}</summary>
             <div class="teaching-settings__core teaching-settings__core--common">
               <fieldset class="choice-group difficulty-group">
                 <legend class="choice-group__title">
@@ -287,22 +303,22 @@
 
               <div class="strategy-settings">
               <div class="strategy-settings__heading">
-                <strong>{{ t('courseGeneration.form.strategy', '课程策略') }}</strong>
+                <strong>{{ t('courseFiles.workbench.knowledgeStructure', '知识结构') }}</strong>
               </div>
-              <div class="compact-grid">
+              <div class="compact-grid" :class="{ 'compact-grid--course-space': props.courseSpaceMode }">
               <label>
                 <span class="field-label"><Route :size="13" />{{ t('courseGeneration.pedagogy.label', '主学科结构') }}</span>
                 <select v-model="form.pedagogyMode" class="select-input" :disabled="busy">
                   <option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
-              <label>
+              <label v-if="!props.courseSpaceMode">
                 <span class="field-label"><Network :size="13" />{{ t('courseGeneration.pedagogy.secondaryLabel', '辅助学科') }}</span>
                 <select v-model="form.secondaryMode" data-testid="secondary-pedagogy-mode" class="select-input" :disabled="busy">
                   <option v-for="item in secondaryPedagogyOptions" :key="item.value || 'none'" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
-              <label>
+              <label v-if="!props.courseSpaceMode">
                 <span class="field-label"><BookMarked :size="13" />{{ t('courseGeneration.grounding.label', '资料使用边界') }}</span>
                 <select v-model="form.groundingStrategy" class="select-input" :disabled="busy">
                   <option value="material_first">{{ t('courseGeneration.grounding.materialFirst', '资料优先') }}</option>
@@ -315,21 +331,50 @@
             </div>
           </details>
 
+          <section v-if="props.courseSpaceMode" class="form-section production-mode-section">
+            <fieldset class="choice-group">
+              <legend class="choice-group__title">
+                <span class="field-icon field-icon--rose"><Sparkles :size="14" /></span>
+                {{ t('teacherCourseCreate.productionMode', '生产模式') }}
+              </legend>
+              <div class="production-mode-options">
+                <button type="button" :class="{ active: form.productionMode === 'manual' }" :aria-pressed="form.productionMode === 'manual'" :disabled="busy" @click="form.productionMode = 'manual'">
+                  <strong>{{ t('teacherCourseCreate.productionModeManual', '分步确认') }}</strong>
+                </button>
+                <button type="button" :class="{ active: form.productionMode === 'automatic' }" :aria-pressed="form.productionMode === 'automatic'" :disabled="busy" @click="form.productionMode = 'automatic'">
+                  <strong>{{ t('teacherCourseCreate.productionModeAutomatic', '自动衔接') }}</strong>
+                </button>
+              </div>
+            </fieldset>
+          </section>
+
           <section class="form-section teacher-brief-section" data-testid="teacher-course-brief-form">
             <div class="teacher-brief-section__heading">
-              <strong>{{ activeLocale === 'en' ? 'Teaching setup' : '授课信息' }}</strong>
+              <strong>{{ props.courseSpaceMode ? t('teacherCourseCreate.courseScale', '课程规模') : (activeLocale === 'en' ? 'Teaching setup' : '授课信息') }}</strong>
             </div>
             <div class="teacher-brief-section__core">
-              <label for="teacher-target-audience">
+              <label v-if="!props.courseSpaceMode && !props.fixedAudience" for="teacher-target-audience">
                 <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
                 <input id="teacher-target-audience" v-model="form.targetAudience" class="text-input" type="text" maxlength="500" :disabled="busy" />
+              </label>
+              <div v-else-if="!props.courseSpaceMode" class="fixed-audience-field">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }}</span>
+                <strong>{{ props.fixedAudience }}</strong>
+              </div>
+              <label v-if="props.courseSpaceMode" for="teacher-academic-term">
+                <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
+                <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '2026-2027 第一学期')" :disabled="busy" />
               </label>
               <label for="teacher-total-hours">
                 <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
                 <input id="teacher-total-hours" v-model.number="form.totalClassHours" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
               </label>
+              <label v-if="props.courseSpaceMode" for="teacher-section-count">
+                <span class="field-label">{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span>
+                <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+              </label>
             </div>
-            <details class="teacher-brief-section__advanced">
+            <details v-if="!props.courseSpaceMode" class="teacher-brief-section__advanced">
               <summary>{{ t('courseGeneration.teacherBrief.advancedSettings', '更多课堂设置') }}</summary>
               <div class="teacher-brief-section__advanced-body">
                 <div class="teacher-brief-section__advanced-grid">
@@ -371,7 +416,7 @@
             </details>
           </section>
 
-          <details class="form-section supplemental-settings">
+          <details v-if="!props.courseSpaceMode" class="form-section supplemental-settings">
             <summary>{{ activeLocale === 'en' ? 'Research and additional requirements' : '联网与补充要求' }}</summary>
             <div class="supplemental-settings__body">
               <section class="web-enrichment-setting">
@@ -431,7 +476,7 @@
             </div>
           </details>
 
-          <section class="form-section material-section">
+          <section v-if="!props.courseSpaceMode" class="form-section material-section">
             <MaterialInputPanel ref="materialInputRef" v-model="materials" :disabled="busy" />
           </section>
         </form>
@@ -498,6 +543,8 @@ const props = withDefaults(defineProps<{
   title?: string
   helpText?: string
   submitLabel?: string
+  courseSpaceMode?: boolean
+  fixedAudience?: string
 }>(), {
   busy: false,
   initialSubject: '',
@@ -511,6 +558,8 @@ const props = withDefaults(defineProps<{
   title: '',
   helpText: '',
   submitLabel: '',
+  courseSpaceMode: false,
+  fixedAudience: '',
 })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -564,6 +613,7 @@ const form = reactive({
   classProfile: '',
   chapterCount: undefined as number | undefined,
   sectionCount: undefined as number | undefined,
+  productionMode: 'manual' as 'manual' | 'automatic',
 })
 
 const difficultyOptions = computed(() => ([
@@ -656,6 +706,7 @@ function resetFormForOpen() {
     classProfile: '',
     chapterCount: undefined,
     sectionCount: undefined,
+    productionMode: 'manual' as const,
   })
 }
 
@@ -671,6 +722,7 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
   form.retrievalEnabled = Boolean(options.retrieval?.enabled)
   form.webMaterialIngest = !options.web_material_ingest?.skip_ingest
   form.generateQuestions = Boolean(options.asset_preferences?.questions || options.asset_preferences?.final_assessment)
+  if (options.production_mode) form.productionMode = options.production_mode
   if (typeof options.requirements === 'string') form.requirements = options.requirements
   if (options.target_audience) form.targetAudience = options.target_audience
   if (brief) {
@@ -723,7 +775,8 @@ watch(() => props.modelValue, async open => {
     lastOpenContextKey = openContextKey
   }
   if (!form.systematicTopic.trim() && props.initialSubject.trim()) form.systematicTopic = props.initialSubject.trim()
-  if (props.initialAudience.trim()) form.targetAudience = props.initialAudience.trim()
+  if (props.fixedAudience.trim()) form.targetAudience = props.fixedAudience.trim()
+  else if (props.initialAudience.trim()) form.targetAudience = props.initialAudience.trim()
   if (props.initialAcademicTerm.trim()) form.academicTerm = props.initialAcademicTerm.trim()
   const initialTotalClassHours = props.initialTotalClassHours
   const initialLessonDurationMinutes = props.initialLessonDurationMinutes
@@ -769,6 +822,7 @@ async function submit() {
         ? { secondary_mode: form.secondaryMode, secondary_intensity: 'collaborative' as const }
         : {}),
       generation_mode: 'review_blueprint',
+      production_mode: form.productionMode,
       course_purpose: form.courseType === 'exam' ? 'exam_sprint' : 'systematic',
       course_type: form.courseType,
       course_intent: form.courseType === 'project'
@@ -855,12 +909,14 @@ async function submit() {
 
 <style scoped>
 .generation-dialog-layer { position: fixed; inset: 0; z-index: 520; display: grid; place-items: center; padding: 20px; }
+.generation-dialog-layer:has(.generation-dialog--course-space) { padding:14px; }
 .generation-dialog-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgba(30, 41, 59, .34); cursor: default; }
 .generation-dialog { position: relative; width: min(920px, 100%); max-height: min(860px, calc(100vh - 40px)); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; border: 1px solid var(--lz-border); border-radius: 12px; color: var(--lz-text); background: #fff; box-shadow: var(--lz-shadow-overlay); outline: none; }
 .generation-dialog__header { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 18px 0 22px; border-bottom: 1px solid var(--lz-border); }
 .generation-dialog__heading { min-width: 0; display: grid; gap: 3px; }
 .generation-dialog__heading h2 { margin: 0; color: var(--lz-text-strong); font-size: 18px; line-height: 1.25; }
 .generation-dialog__heading p { margin:0; color:var(--lz-text-muted); font-size:12px; line-height:1.45; }
+.generation-dialog__brand { width:54px; height:54px; display:grid; place-items:center; flex:none; border-radius:18px; color:#fff; background:#6d5dfc; box-shadow:0 12px 26px rgba(109,93,252,.24); }
 .icon-button { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 7px; color: var(--lz-text-secondary); background: transparent; cursor: pointer; }
 .icon-button:hover { color: var(--lz-text-strong); background: var(--lz-surface-muted); }
 .generation-dialog__body { min-height: 0; overflow: auto; padding: 4px 24px 24px; }
@@ -929,6 +985,14 @@ async function submit() {
 .difficulty-option__copy { min-width: 0; display: block; }
 .difficulty-option__copy strong { display:block; color:inherit; font-size:12px; }
 .difficulty-option:disabled { cursor: not-allowed; opacity: .6; }
+.production-mode-options { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.production-mode-options button { min-width:0; min-height:64px; display:grid; gap:4px; padding:10px 12px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; text-align:left; cursor:pointer; }
+.production-mode-options button:hover:not(:disabled) { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); }
+.production-mode-options button.active { border-color:var(--lz-brand); color:var(--lz-brand-strong); background:var(--lz-brand-soft); box-shadow:inset 0 0 0 1px rgba(99,102,241,.08); }
+.production-mode-options button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.production-mode-options button:disabled { opacity:.55; cursor:not-allowed; }
+.production-mode-options strong { font-size:12px; }
+.production-mode-options small { color:var(--lz-text-muted); font-size:12px; line-height:1.4; }
 .strategy-settings { padding-top: 18px; border-top: 1px dashed rgba(203,213,225,.72); }
 .strategy-settings__heading { display: flex; align-items: baseline; gap: 9px; margin-bottom: 11px; }
 .strategy-settings__heading strong { color: var(--lz-text); font-size: 12px; }
@@ -939,12 +1003,16 @@ async function submit() {
 .teacher-brief-section__heading strong { color:var(--lz-text); font-size:13px; }
 .teacher-brief-section__heading span { color:var(--lz-text-muted); font-size:12px; line-height:1.5; }
 .teacher-brief-section__core,.teacher-brief-section__advanced-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.fixed-audience-field { display:grid; align-content:center; min-height:42px; padding:7px 11px; border:1px solid var(--lz-border); border-radius:8px; background:var(--lz-surface-muted); }
+.fixed-audience-field .field-label { margin:0 0 2px; color:var(--lz-text-muted); font-size:10px; }
+.fixed-audience-field strong { color:var(--lz-text-strong); font-size:12px; }
 .teacher-brief-section__advanced { min-width:0; padding-top:12px; border-top:1px solid rgba(226,232,240,.78); }
 .teacher-brief-section__advanced summary { color:var(--lz-text-secondary); font-size:12px; font-weight:700; cursor:pointer; }
 .teacher-brief-section__advanced[open] summary { margin-bottom:14px; color:var(--lz-brand-strong); }
 .teacher-brief-section__advanced-body { display:grid; gap:12px; }
 .teacher-brief-section__profile { display:grid; gap:0; }
 .compact-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.compact-grid--course-space { grid-template-columns:minmax(0,1fr); }
 .field-label { display: block; margin-bottom: 8px; color: var(--lz-text); font-size: 12px; font-weight: 700; }
 .compact-grid .field-label { display: flex; align-items: center; gap: 6px; color: var(--lz-text-secondary); font-size:12px; }
 .text-input,.select-input,.textarea-input { width: 100%; border: 1px solid var(--lz-border); border-radius: 8px; color: var(--lz-text-strong); background: #fff; outline: none; transition: border-color .16s ease, box-shadow .16s ease; }
@@ -974,8 +1042,58 @@ async function submit() {
 .primary-button:disabled,.secondary-button:disabled { cursor: not-allowed; opacity: .55; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+.generation-dialog--course-space { width:min(1320px,100%); height:calc(100vh - 28px); max-height:calc(100vh - 28px); border:1px solid rgba(255,255,255,.78); border-radius:30px; box-shadow:0 32px 90px rgba(15,23,42,.24); }
+.generation-dialog--course-space .generation-dialog__header { min-height:96px; justify-content:flex-start; padding:18px 28px 18px 34px; border-bottom-color:#edf0f5; }
+.generation-dialog--course-space .generation-dialog__heading { flex:1; }
+.generation-dialog--course-space .generation-dialog__heading h2 { color:#29256f; font-size:26px; font-weight:850; letter-spacing:-.025em; }
+.generation-dialog--course-space .icon-button { width:42px; height:42px; border-radius:13px; color:#8b97aa; }
+.generation-dialog--course-space .generation-dialog__body { padding:10px 42px 34px; }
+.generation-dialog--course-space .form-section { padding:26px 0; border-bottom-color:#edf0f5; }
+.generation-dialog--course-space .form-section--lead { padding-top:28px; }
+.generation-dialog--course-space .choice-group__title,
+.generation-dialog--course-space .field-label,
+.generation-dialog--course-space .teacher-brief-section__heading strong,
+.generation-dialog--course-space .strategy-settings__heading strong { margin-bottom:14px; color:#344054; font-size:14px; font-weight:800; }
+.generation-dialog--course-space .field-icon { width:30px; height:30px; border-radius:10px; }
+.generation-dialog--course-space .course-type-options { grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:0; border:0; background:transparent; }
+.generation-dialog--course-space .course-type-option { min-height:82px; justify-content:center; gap:10px; padding:14px 12px; border:2px solid #edf0f5; border-radius:18px; color:#667085; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.025); }
+.generation-dialog--course-space .course-type-option:hover:not(:disabled) { border-color:#c9c2ff; color:#5547db; background:#fff; }
+.generation-dialog--course-space .course-type-option.active { border-color:#7665ef; color:#4438ca; background:#fff; box-shadow:0 10px 24px rgba(99,102,241,.12),inset 0 0 0 1px rgba(118,101,239,.12); }
+.generation-dialog--course-space .course-type-option__icon { width:38px; height:38px; border-radius:12px; }
+.generation-dialog--course-space .course-type-option__heading strong { font-size:14px; }
+.generation-dialog--course-space .intent-section { padding-top:22px; }
+.generation-dialog--course-space .text-input,
+.generation-dialog--course-space .select-input,
+.generation-dialog--course-space .textarea-input { border-color:#dfe4ec; border-radius:14px; background:#fff; }
+.generation-dialog--course-space .text-input { height:48px; padding-inline:15px; font-size:14px; }
+.generation-dialog--course-space .text-input--large { height:52px; font-size:15px; }
+.generation-dialog--course-space .select-input { height:48px; padding-inline:13px; font-size:14px; }
+.generation-dialog--course-space .textarea-input { min-height:88px; padding:13px 15px; font-size:14px; }
+.generation-dialog--course-space .generation-advanced>summary { margin-bottom:22px; color:#344054; font-size:14px; font-weight:800; list-style:none; pointer-events:none; }
+.generation-dialog--course-space .generation-advanced>summary::-webkit-details-marker { display:none; }
+.generation-dialog--course-space .teaching-settings { gap:0; }
+.generation-dialog--course-space .teaching-settings__core { gap:34px; }
+.generation-dialog--course-space .difficulty-options { gap:10px; padding:0; border:0; background:transparent; }
+.generation-dialog--course-space .difficulty-option { min-height:66px; border:2px solid #edf0f5; border-radius:16px; color:#667085; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,.025); }
+.generation-dialog--course-space .difficulty-option:hover:not(:disabled) { border-color:#c9c2ff; color:#5547db; background:#fff; }
+.generation-dialog--course-space .difficulty-option.active { border-color:#7665ef; color:#4438ca; background:#fff; box-shadow:0 10px 22px rgba(99,102,241,.1),inset 0 0 0 1px rgba(118,101,239,.1); }
+.generation-dialog--course-space .difficulty-option__copy strong { font-size:14px; }
+.generation-dialog--course-space .strategy-settings { padding-top:0; border-top:0; }
+.generation-dialog--course-space .production-mode-options { gap:12px; }
+.generation-dialog--course-space .production-mode-options button { min-height:64px; place-items:center; padding:12px 16px; border:2px solid #edf0f5; border-radius:16px; background:#fff; text-align:center; }
+.generation-dialog--course-space .production-mode-options button.active { border-color:#7665ef; color:#4438ca; background:#fff; box-shadow:0 10px 22px rgba(99,102,241,.1),inset 0 0 0 1px rgba(118,101,239,.1); }
+.generation-dialog--course-space .production-mode-options strong { font-size:14px; }
+.generation-dialog--course-space .teacher-brief-section { gap:16px; }
+.generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }
+.generation-dialog--course-space .generation-dialog__footer { min-height:82px; padding:14px 32px; border-top-color:#edf0f5; background:#fbfcff; }
+.generation-dialog--course-space .footer-actions { gap:12px; }
+.generation-dialog--course-space .primary-button,
+.generation-dialog--course-space .secondary-button { min-height:48px; padding:0 24px; border-radius:15px; font-size:14px; }
+.generation-dialog--course-space .primary-button { min-width:180px; border-color:#6757ef; background:#6757ef; box-shadow:0 10px 22px rgba(103,87,239,.2); }
+.generation-dialog--course-space .secondary-button { min-width:92px; }
 @media (max-width: 760px) {
-  .generation-dialog-layer { align-items: end; padding: 0; }
+  .generation-dialog-layer,.generation-dialog-layer:has(.generation-dialog--course-space) { align-items: end; padding: 0; }
   .generation-dialog { width: 100%; max-height: calc(100vh - 56px); border-radius: 14px 14px 0 0; }
   .generation-dialog__body { padding-inline: 16px; }
   .teaching-settings__core { grid-template-columns: 1fr; gap: 22px; }
@@ -985,6 +1103,15 @@ async function submit() {
   .generation-dialog__footer { align-items: stretch; flex-direction: column; padding: 10px 16px 14px; }
   .footer-actions,.footer-actions button { width: 100%; }
   .footer-actions button { flex: 1; }
+  .generation-dialog--course-space { height:calc(100vh - 18px); max-height:calc(100vh - 18px); border-radius:24px 24px 0 0; }
+  .generation-dialog--course-space .generation-dialog__header { min-height:78px; padding:14px 18px; }
+  .generation-dialog--course-space .generation-dialog__brand { width:46px; height:46px; border-radius:15px; }
+  .generation-dialog--course-space .generation-dialog__heading h2 { font-size:21px; }
+  .generation-dialog--course-space .generation-dialog__body { padding:4px 18px 26px; }
+  .generation-dialog--course-space .course-type-options { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .generation-dialog--course-space .teaching-settings__core { gap:24px; }
+  .generation-dialog--course-space .teacher-brief-section__core { grid-template-columns:1fr; }
+  .generation-dialog--course-space .generation-dialog__footer { padding:12px 18px 18px; }
 }
 @media (max-width: 520px) {
   .guided-intro__steps { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 12px; }
@@ -995,6 +1122,7 @@ async function submit() {
   .choice-group__title small { display:none; }
   .course-type-summary { min-height:29px; }
   .project-fields { grid-template-columns: 1fr; }
+  .production-mode-options { grid-template-columns:1fr; }
   .project-field--wide { grid-column: auto; }
   .segmented-options button { min-height: 52px; }
   .strategy-settings__heading { align-items: flex-start; flex-direction: column; gap: 3px; }

@@ -45,3 +45,11 @@
 - [x] 5.8 Restore the teacher course library inside the home, including card/list switching and a single-row global header.
 - [x] 5.9 Route new-course entry to the detailed creation flow, persist its production baseline on an empty course shell, and enter the default four-stage workbench without starting generation.
 - [x] 5.10 Verify the two home tabs, empty-shell creation, zh/en copy and desktop/mobile layouts; then update product docs and release evidence.
+
+## 6. Staged course-development workbench
+
+- [x] 6.1 Move stable course framing to course-space creation, fix the audience to university students, and remove outline-stage re-entry to the legacy course-settings panel.
+- [x] 6.2 Keep the stage navigator and formal course content visible while embedding the existing teacher AI assistant as a right-side workbench pane.
+- [x] 6.3 Preserve file scoping, reviewable proposals, impact preview and explicit confirmation in the embedded assistant; keep fullscreen behavior for other surfaces.
+- [x] 6.4 Add zh/en copy and focused tests for the three-column workbench and fixed-audience creation boundary.
+- [x] 6.5 Run focused tests, build, strict OpenSpec validation, the design detector and desktop/mobile real-page verification; update canonical docs and release evidence.

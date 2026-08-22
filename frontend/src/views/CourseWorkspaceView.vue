@@ -39,7 +39,7 @@
             <button v-if="searchQuery" type="button" :aria-label="t('courseFiles.clearSearch')" @click="searchQuery = ''"><X :size="14" /></button>
           </label>
         </el-popover>
-        <button class="agent-action" type="button" @click="agentOpen = true"><Sparkles :size="16" />{{ t('courseFiles.teacherAgent') }}</button>
+        <button class="agent-action" :class="{ active: agentOpen }" type="button" :aria-pressed="agentOpen" @click="agentOpen = !agentOpen"><Sparkles :size="16" />{{ agentOpen ? t('courseFiles.hideTeacherAgent') : t('courseFiles.teacherAgent') }}</button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
         <button class="task-action" type="button" @click="openTasks"><ListTodo :size="16" /><span>{{ t('courseFiles.taskCenter') }}</span></button>
       </div>
@@ -52,24 +52,39 @@
       <TriangleAlert :size="22" /><strong>{{ t('courseFiles.loadFailed') }}</strong><span>{{ loadError }}</span>
       <button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button>
     </section>
-    <TeacherCourseSpaceView
-      v-else
-      embedded
-      :course-id="courseId"
-      :course-title="courseTitle"
-      :generation-options="courseGenerationOptions"
-      v-model:workspace-view="workspaceView"
-      v-model:query="searchQuery"
-      @open-outline="outlineOpen = true"
-      @create-outline="generationDialogOpen = true"
-      @open-teaching-calendar="calendarOpen = true"
-      @open-teaching-plan="openLessonPlan"
-      @open-tasks="openTasks"
-      @open-practice="openPractice"
-      @open-course-settings="generationDialogOpen = true"
-      @context-change="selectedContext = $event"
-      @readiness-change="readiness = $event"
-    />
+    <section v-else class="workspace-operating-shell" :class="{ 'assistant-open': agentOpen }">
+      <TeacherCourseSpaceView
+        embedded
+        :course-id="courseId"
+        :course-title="courseTitle"
+        :generation-options="courseGenerationOptions"
+        v-model:workspace-view="workspaceView"
+        v-model:query="searchQuery"
+        @open-outline="outlineOpen = true"
+        @create-outline="startOutlineFromBaseline"
+        @open-teaching-calendar="calendarOpen = true"
+        @open-teaching-plan="openLessonPlan"
+        @open-tasks="openTasks"
+        @open-practice="openPractice"
+        @open-assistant="agentOpen = true"
+        @context-change="selectedContext = $event"
+        @readiness-change="readiness = $event"
+      />
+      <aside v-if="agentOpen" class="teacher-agent-host" :aria-label="t('courseFiles.teacherAgent')">
+        <SideAIPanel
+          embedded
+          :visible="agentOpen"
+          mode="teacher"
+          :quote-text="agentContextText"
+          :quote-node-id="selectedContext.lessonId"
+          :entrypoint="selectedContext.nodeId ? 'selection' : 'global'"
+          :scope-files="teacherAssistantFiles"
+          @close="agentOpen = false"
+          @block-applied="loadWorkspace"
+          @course-applied="loadWorkspace"
+        />
+      </aside>
+    </section>
 
     <el-drawer v-model="outlineOpen" size="min(1040px, 92vw)" :title="t('courseFiles.outlineEditor')" destroy-on-close>
       <CourseOutlineReview
@@ -104,29 +119,6 @@
       :course-id="courseId"
       surface="teacher"
     />
-    <CourseGenerationDialog
-      v-model="generationDialogOpen"
-      :busy="generationStarting"
-      :initial-subject="courseTitle"
-      :initial-options="courseGenerationOptions"
-      :initial-context-key="courseId"
-      workbench-mode
-      @generate="startOutlineGeneration"
-    />
-
-    <div v-if="agentOpen" class="teacher-agent-host">
-      <SideAIPanel
-        :visible="agentOpen"
-        mode="teacher"
-        :quote-text="agentContextText"
-        :quote-node-id="selectedContext.lessonId"
-        :entrypoint="selectedContext.nodeId ? 'selection' : 'global'"
-        :scope-files="teacherAssistantFiles"
-        @close="agentOpen = false"
-        @block-applied="loadWorkspace"
-        @course-applied="loadWorkspace"
-      />
-    </div>
   </main>
 </template>
 
@@ -135,7 +127,6 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, ListTodo, LoaderCircle, Search, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import CourseOutlineReview from '../components/CourseOutlineReview.vue'
-import CourseGenerationDialog from '../components/CourseGenerationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import SideAIPanel from '../components/SideAIPanel.vue'
@@ -161,14 +152,13 @@ const calendarOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
 const workbenchOpen = ref(false)
-const agentOpen = ref(false)
-const generationDialogOpen = ref(false)
+const agentOpen = ref(typeof window !== 'undefined' && window.innerWidth >= 1280)
 const generationStarting = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
 const searchQuery = ref('')
-const courseGenerationOptions = ref<CourseGenerationOptions>({})
+const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
@@ -274,12 +264,19 @@ async function startOutlineGeneration(payload: { subject: string; options: Cours
       teacher_authoring_mode: 'lesson_assets_v1',
     })
     if (!result?.courseId) return
-    generationDialogOpen.value = false
     await loadWorkspace()
     openTasks()
   } finally {
     generationStarting.value = false
   }
+}
+
+async function startOutlineFromBaseline() {
+  const { subject, ...options } = courseGenerationOptions.value
+  await startOutlineGeneration({
+    subject: String(subject || courseTitle.value),
+    options,
+  })
 }
 
 function openCoursePreview() {
@@ -302,7 +299,10 @@ onMounted(loadWorkspace)
 </script>
 
 <style scoped>
-.course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); }
+.course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); background:#f3f5f9; }
+.workspace-operating-shell { position:relative; width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:#f3f5f9; }
+.workspace-operating-shell.assistant-open { grid-template-columns:minmax(0,1fr) clamp(360px,29vw,430px); }
+.workspace-operating-shell > :deep(.file-space) { min-width:0; min-height:0; }
 .workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
 .workspace-route-context>svg { flex:none; color:var(--lz-brand); }
 .workspace-route-context>h1 { min-width:0; margin:0; overflow:hidden; color:var(--lz-text-strong); font-family:inherit; font-size:18px; font-weight:800; letter-spacing:-.012em; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
@@ -324,7 +324,8 @@ onMounted(loadWorkspace)
 .workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:12px; }
 .workspace-search button { width:24px; min-height:24px; padding:0; border:0; background:transparent; }
 .workspace-route-actions .search-action { display:none; width:38px; padding:0; }
-.workspace-route-actions .agent-action { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
+.workspace-route-actions .agent-action { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:#fff; }
+.workspace-route-actions .agent-action.active { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-route-actions .task-action { padding-inline:11px; }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
@@ -336,7 +337,7 @@ onMounted(loadWorkspace)
 .workspace-loading button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
 :global(.teaching-calendar-drawer .el-drawer__body) { min-height:0; overflow:hidden; padding:0; }
-.teacher-agent-host { position:fixed; z-index:610; inset:0; width:100vw; height:100dvh; }
+.teacher-agent-host { min-width:0; min-height:0; overflow:hidden; margin:14px 14px 14px 0; border:1px solid #e5e9f0; border-radius:22px; background:#fff; box-shadow:0 16px 44px rgba(15,23,42,.055); }
 .teacher-agent-host :deep(.ai-teacher-panel) { width:100%; height:100%; }
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
@@ -355,7 +356,6 @@ onMounted(loadWorkspace)
   .workspace-route-actions>button { width:36px; padding:0; font-size:0; }
   .workspace-route-actions>button svg { margin:auto; }
   .workspace-route-actions .task-action { display:none; }
-  .teacher-agent-host { position:fixed; inset:0; width:100vw; height:100dvh; }
 }
 @media (max-width:1500px) {
   .workspace-search--inline { display:none; }
@@ -364,5 +364,9 @@ onMounted(loadWorkspace)
 @media (min-width:721px) and (max-width:1180px) {
   .workspace-route-context>h1 { max-width:280px; }
   .workspace-state { display:none; }
+}
+@media (max-width:1499px) {
+  .workspace-operating-shell.assistant-open { grid-template-columns:minmax(0,1fr); }
+  .teacher-agent-host { position:absolute; z-index:40; inset:0 0 0 auto; width:min(430px,100%); margin:10px; border-radius:20px; box-shadow:-20px 0 48px rgba(15,23,42,.16); }
 }
 </style>

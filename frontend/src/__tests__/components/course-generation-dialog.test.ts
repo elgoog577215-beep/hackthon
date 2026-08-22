@@ -481,6 +481,43 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.text()).not.toContain('更多课堂设置')
   })
 
+  it('建立课程空间时固定大学生对象，只收集稳定生产基线', async () => {
+    const wrapper = mount(CourseGenerationDialog, {
+      props: {
+        modelValue: true,
+        initialSubject: '人工智能通识',
+        initialAudience: '不应使用的旧对象',
+        fixedAudience: '大学生',
+        courseSpaceMode: true,
+        showCourseType: true,
+      },
+      global: { stubs: { Teleport: true, MaterialInputPanel: true } },
+    })
+
+    expect(wrapper.find('#teacher-target-audience').exists()).toBe(false)
+    expect(wrapper.find('.fixed-audience-field').exists()).toBe(false)
+    expect(wrapper.find('#course-learning-goal').exists()).toBe(true)
+    expect(wrapper.find('#teacher-academic-term').exists()).toBe(true)
+    expect(wrapper.find('#teacher-section-count').exists()).toBe(true)
+    expect(wrapper.find('.teacher-brief-section__advanced').exists()).toBe(false)
+    expect(wrapper.find('.supplemental-settings').exists()).toBe(false)
+    expect(wrapper.find('.material-section').exists()).toBe(false)
+    expect(wrapper.findAll('.production-mode-options button')).toHaveLength(2)
+    expect(wrapper.text()).not.toContain('每一阶段由老师主动开始')
+
+    await wrapper.findAll('.production-mode-options button')[1]!.trigger('click')
+    await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options).toEqual(expect.objectContaining({
+      production_mode: 'automatic',
+      target_audience: '大学生',
+      teacher_course_brief: expect.objectContaining({ target_audience: '大学生' }),
+      retrieval: { enabled: false },
+      material_bindings: [],
+    }))
+  })
+
   it('生成过程中禁止关闭和重复提交', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true, busy: true },

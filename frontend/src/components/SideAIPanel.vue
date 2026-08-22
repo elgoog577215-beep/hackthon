@@ -3,11 +3,11 @@
     <section
       class="ai-teacher-surface"
       :class="{
-        'has-conversation-rail': !props.blockTarget,
-        'conversation-rail-open': !props.blockTarget && conversationOpen,
+        'has-conversation-rail': !props.blockTarget && !props.embedded,
+        'conversation-rail-open': !props.blockTarget && !props.embedded && conversationOpen,
       }"
-      role="dialog"
-      aria-modal="true"
+      :role="props.embedded ? 'complementary' : 'dialog'"
+      :aria-modal="props.embedded ? undefined : 'true'"
       :aria-label="assistantTitle"
     >
       <header class="ai-teacher-header">
@@ -70,7 +70,7 @@
 
         <div class="ai-teacher-header-actions">
           <button
-            v-if="!props.blockTarget"
+            v-if="!props.blockTarget && !props.embedded"
             type="button"
             class="conversation-rail-toggle"
             :aria-expanded="conversationOpen"
@@ -91,7 +91,7 @@
         </div>
       </header>
 
-      <aside v-if="!props.blockTarget" class="conversation-shell" :class="{ open: conversationOpen }">
+      <aside v-if="!props.blockTarget && !props.embedded" class="conversation-shell" :class="{ open: conversationOpen }">
         <header class="conversation-rail-heading">
           <div>
             <History :size="15" />
@@ -757,9 +757,11 @@ const props = withDefaults(defineProps<{
   entrypoint?: 'global' | 'selection' | 'practice' | 'continuity' | 'record'
   blockTarget?: CourseBlockEditTarget
   scopeFiles?: Array<{ id: string; label: string; nodeId?: string; path?: string }>
+  embedded?: boolean
 }>(), {
   mode: 'learner',
   scopeFiles: () => [],
+  embedded: false,
 })
 
 const emit = defineEmits<{
@@ -776,7 +778,7 @@ const noteStore = useNoteStore()
 const changeProposalsStore = useChangeProposalsStore()
 const input = ref('')
 const quoteVisible = ref(Boolean(props.quoteText))
-const conversationOpen = ref(window.innerWidth > 760)
+const conversationOpen = ref(!props.embedded && window.innerWidth > 760)
 const conversationQuery = ref('')
 const fileScopeOpen = ref(false)
 const selectedScopeFileIds = reactive(new Set<string>())
@@ -816,7 +818,7 @@ const assistantEmptyTitle = computed(() => isTeacherMode.value
 const assistantEmptyDescription = computed(() => isTeacherMode.value
   ? t('courseWorkspace.teacherAgent.emptyBody', '我会基于当前课程真源分析怎么教，正式改动会先说明影响。')
   : t('courseWorkspace.aiTeacher.emptyBody', '可以解释概念、分析作答，也可以检查你是否真正理解。'))
-const panelClasses = computed(() => 'is-fullscreen')
+const panelClasses = computed(() => props.embedded ? 'is-embedded' : 'is-fullscreen')
 const currentNode = computed(() => (
   courseStore.nodes.find(node => node.node_id === (props.quoteNodeId || courseStore.currentNode?.node_id))
   || courseStore.currentNode
@@ -1706,10 +1708,13 @@ onUnmounted(() => {
 <style scoped>
 .ai-teacher-panel { min-width: 0; }
 .ai-teacher-panel.is-fullscreen { position: fixed; inset: 0; z-index: 620; width: 100vw; height: 100dvh; overflow: hidden; color: var(--lz-text); background: #fff; }
+.ai-teacher-panel.is-embedded { position:relative; width:100%; height:100%; min-height:0; overflow:hidden; color:var(--lz-text); background:#fff; }
 .ai-teacher-surface { position: relative; width: 100%; height: 100%; min-width: 0; display: grid; grid-template-columns:0 minmax(0,1fr); grid-template-rows:64px minmax(0,1fr); overflow: hidden; background: linear-gradient(180deg,#fff 0%,#fbfcff 100%); transition:grid-template-columns .18s ease; }
 .ai-teacher-surface.conversation-rail-open { grid-template-columns:248px minmax(0,1fr); }
 .assistant-main { grid-column:2; grid-row:2; min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden; }
 .ai-teacher-surface:not(.conversation-rail-open) .assistant-main { grid-column:1 / -1; }
+.is-embedded .ai-teacher-surface { grid-template-columns:minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); }
+.is-embedded .assistant-main { grid-column:1; grid-row:2; }
 
 .ai-teacher-header { grid-column:1 / -1; grid-row:1; min-height:64px; display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:18px; padding:0 18px; border-bottom:1px solid var(--lz-border); background:#fff; }
 .ai-teacher-heading { min-width: 0; display: flex; align-items: center; gap: 10px; }
@@ -1719,6 +1724,14 @@ onUnmounted(() => {
 .ai-teacher-header-context { min-width:0; max-width:680px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-muted); }
 .ai-teacher-header-actions { justify-self:end; }
 .ai-teacher-header-actions,.proposal-actions { display: flex; align-items: center; gap: 5px; }
+.is-embedded .ai-teacher-header { min-height:76px; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:auto auto; gap:8px 10px; padding:10px 12px; }
+.is-embedded .ai-teacher-header-context { grid-column:1 / -1; width:100%; max-width:none; justify-content:flex-start; }
+.is-embedded .ai-teacher-header-actions { grid-column:2; grid-row:1; }
+.is-embedded .context-line { flex:1; overflow:hidden; }
+.is-embedded .context-line strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.is-embedded .file-scope-picker { flex:none; }
+.is-embedded .file-scope-picker__toggle { max-width:180px; }
+.is-embedded .file-scope-picker__toggle strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .conversation-rail-toggle { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid var(--lz-border); border-radius:9px; color:var(--lz-text-secondary); background:#fff; font-size:11px; font-weight:700; cursor:pointer; }
 .conversation-rail-toggle:hover,.conversation-rail-toggle[aria-expanded="true"] { border-color:var(--lz-brand-border); color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .icon-button { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid transparent; border-radius: 9px; color: var(--lz-text-muted); background: transparent; cursor: pointer; transition: color .16s ease, border-color .16s ease, background .16s ease, transform .16s ease; }
@@ -1999,5 +2012,10 @@ onUnmounted(() => {
   .personalization-workspace { padding-inline:10px; }
   .personalization-scope > div { grid-template-columns:1fr; }
   .personalization-diff-columns { grid-template-columns:1fr; }
+}
+
+@media (max-width: 420px) {
+  .is-embedded .ai-teacher-header-context { align-items:stretch; flex-direction:column; }
+  .is-embedded .file-scope-picker,.is-embedded .file-scope-picker__toggle { width:100%; max-width:none; }
 }
 </style>
