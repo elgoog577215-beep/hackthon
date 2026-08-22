@@ -4,11 +4,11 @@
     <div
       v-for="cell in cells"
       :key="cell.key"
-      type="button"
       class="day-cell"
-      :class="{ muted: !cell.inMonth, today: cell.isToday }"
+      :class="{ muted: !cell.inMonth, today: cell.isToday, selected: cell.date === selectedDate }"
       role="gridcell"
       tabindex="0"
+      :aria-selected="cell.date === selectedDate"
       @click="emitDay(cell.date)"
       @keydown.enter="emitDay(cell.date)"
       @keydown.space.prevent="emitDay(cell.date)"
@@ -76,6 +76,7 @@ const props = withDefaults(defineProps<{
   month: string
   sessions: ClassSession[]
   showCourse?: boolean
+  selectedDate?: string | null
 }>(), { showCourse: false })
 
 const emit = defineEmits<{
@@ -129,7 +130,7 @@ function emitDay(date: string) { emit('day', date) }
 .month-grid { min-width:0; height:100%; min-height:560px; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); grid-template-rows:36px repeat(6,minmax(82px,1fr)); border-top:1px solid var(--lz-border); border-left:1px solid var(--lz-border); background:var(--lz-surface); }
 .weekday { height:36px; display:grid; place-items:center; border-right:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:12px; font-weight:700; }
 .day-cell { min-width:0; min-height:82px; display:grid; grid-template-rows:26px minmax(0,1fr); gap:3px; padding:6px; border:0; border-right:1px solid var(--lz-border); border-bottom:1px solid var(--lz-border); color:var(--lz-text-primary); background:var(--lz-surface); text-align:left; cursor:pointer; }
-.day-cell:hover { background:var(--lz-fill); }.day-cell.muted { color:var(--lz-text-muted); background:color-mix(in srgb,var(--lz-fill) 48%,var(--lz-surface)); }.day-cell.today .day-number { color:#fff; background:var(--lz-brand); }
+.day-cell:hover { background:var(--lz-fill); }.day-cell:focus-visible{outline:2px solid var(--lz-brand);outline-offset:-2px}.day-cell.muted { color:var(--lz-text-muted); background:color-mix(in srgb,var(--lz-fill) 48%,var(--lz-surface)); }.day-cell.selected{background:var(--lz-brand-soft);box-shadow:inset 0 0 0 2px var(--lz-brand)}.day-cell.today .day-number { color:#fff; background:var(--lz-brand); }
 .day-number { width:26px; height:26px; display:grid; place-items:center; border-radius:50%; font-size:12px; font-weight:700; }
 .day-events { min-width:0; display:grid; align-content:start; gap:4px; }.day-events :deep(.el-popper__trigger){min-width:0;display:block}.event { --course-accent:var(--lz-brand);--course-bg:var(--lz-brand-soft);width:100%; min-width:0; height:24px; display:flex; align-items:center; gap:6px; padding:0 6px; border:1px solid transparent; border-radius:5px; color:var(--lz-text-secondary); background:var(--course-bg); font-size:12px; cursor:pointer; }.event:hover,.event:focus-visible{color:var(--lz-brand-strong);border-color:color-mix(in srgb,var(--course-accent) 22%,transparent);outline:none}.event i { width:6px; height:6px; flex:0 0 auto; border-radius:50%; background:var(--course-accent); }.event span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .event[data-color="1"]{--course-accent:var(--lz-success);--course-bg:var(--lz-success-soft)}.event[data-color="2"]{--course-accent:var(--lz-warning);--course-bg:var(--lz-warning-soft)}.event[data-color="3"]{--course-accent:var(--lz-danger);--course-bg:var(--lz-danger-soft)}.event[data-color="4"]{--course-accent:color-mix(in srgb,var(--lz-brand) 52%,var(--lz-success));--course-bg:color-mix(in srgb,var(--lz-brand-soft) 55%,var(--lz-success-soft))}.event[data-color="5"]{--course-accent:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-warning));--course-bg:color-mix(in srgb,var(--lz-brand-soft) 58%,var(--lz-warning-soft))}.event[data-color="6"]{--course-accent:color-mix(in srgb,var(--lz-brand) 58%,var(--lz-danger));--course-bg:color-mix(in srgb,var(--lz-brand-soft) 58%,var(--lz-danger-soft))}.event[data-color="7"]{--course-accent:color-mix(in srgb,var(--lz-success) 58%,var(--lz-warning));--course-bg:color-mix(in srgb,var(--lz-success-soft) 58%,var(--lz-warning-soft))}

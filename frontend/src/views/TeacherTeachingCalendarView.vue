@@ -62,9 +62,11 @@
           <TeachingCalendarMonthGrid
             :month="monthCursor"
             :sessions="visibleSessions"
+            :selected-date="selectedDate"
             show-course
             @select="selectSession"
             @prepare="openPreparation"
+            @day="selectDay"
           />
         </div>
 
@@ -92,7 +94,7 @@
         <template v-if="selectedSession">
           <header>
             <div><small>{{ t('teacherHome.selectedSession') }}</small><strong>{{ selectedSession.course_title || t('teacherHome.untitledCourse') }}</strong></div>
-            <button type="button" :aria-label="t('common.close')" @click="selectedSession = null"><X :size="16" /></button>
+            <button type="button" :aria-label="t('common.close')" @click="clearSelection"><X :size="16" /></button>
           </header>
           <section class="session-focus">
             <span class="session-number">{{ t('teacherHome.sessionNumber').replace('{number}', String(selectedSession.sequence)) }}</span>
@@ -112,6 +114,22 @@
             <button type="button" class="primary" @click="openPreparation(selectedSession)">{{ t('teacherHome.continuePreparing') }}<ArrowUpRight :size="15" /></button>
             <button type="button" @click="enterSession(selectedSession)">{{ t('teacherHome.enterSession') }}</button>
           </footer>
+        </template>
+
+        <template v-else-if="selectedDate">
+          <header>
+            <div><small>{{ t('teacherHome.selectedDate') }}</small><strong>{{ selectedDateLabel }}</strong></div>
+            <button type="button" :aria-label="t('common.close')" @click="clearSelection"><X :size="16" /></button>
+          </header>
+          <section class="today-list">
+            <div class="today-list__heading"><strong>{{ t('teacherHome.daySchedule') }}</strong><span>{{ selectedDateSessions.length }}</span></div>
+            <button v-for="session in selectedDateSessions" :key="session.session_id || `${session.course_id}-${session.sequence}`" type="button" @click="selectSession(session)">
+              <time>{{ session.start_time?.slice(0, 5) || '--:--' }}</time>
+              <span><strong>{{ session.course_title || t('teacherHome.untitledCourse') }}</strong><small>{{ session.content_summary || t('teacherHome.contentPending') }}</small></span>
+              <ChevronRight :size="14" />
+            </button>
+            <div v-if="!selectedDateSessions.length" class="today-empty"><CalendarDays :size="24" /><strong>{{ t('teacherHome.noClassOnDate') }}</strong></div>
+          </section>
         </template>
 
         <template v-else>
@@ -144,7 +162,7 @@ import {
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import TeacherCourseLibraryView from './TeacherCourseLibraryView.vue'
-import { t } from '../shared/i18n'
+import { activeLocale, t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import {
@@ -160,6 +178,7 @@ const calendarStore = useTeachingCalendarStore()
 const view = ref<'month' | 'week'>('month')
 const cursor = ref(new Date())
 const selectedSession = ref<ClassSession | null>(null)
+const selectedDate = ref<string | null>(null)
 const workbenchOpen = ref(false)
 const workbenchCourseId = ref('')
 
@@ -180,6 +199,15 @@ const todayLabel = computed(() => new Intl.DateTimeFormat(document.documentEleme
 const weekdayNames = computed(() => [1, 2, 3, 4, 5, 6, 7].map(index => t(`teacherHome.weekdays.${index}`)))
 const activeHomeTab = computed<'calendar' | 'courses'>(() => route.query.view === 'courses' ? 'courses' : 'calendar')
 const visibleSessions = computed(() => calendarStore.totalSessions.filter(item => item.calendar_layer !== 'incomplete'))
+const selectedDateSessions = computed(() => selectedDate.value ? visibleSessions.value
+  .filter(item => item.date === selectedDate.value)
+  .sort((left, right) => String(left.start_time || '').localeCompare(String(right.start_time || ''))) : [])
+const selectedDateLabel = computed(() => {
+  if (!selectedDate.value) return ''
+  const value = new Date(`${selectedDate.value}T12:00:00`)
+  if (Number.isNaN(value.getTime())) return selectedDate.value
+  return new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(value)
+})
 const weekDays = computed(() => Array.from({ length: 7 }, (_, index) => {
   const value = new Date(weekStart.value)
   value.setDate(value.getDate() + index)
@@ -205,9 +233,16 @@ function loadRange() {
 }
 async function loadCalendar() { const range = loadRange(); try { await calendarStore.loadTotal(range.from, range.to, true) } catch { /* store owns the visible error */ } }
 async function refresh() { await Promise.all([courseStore.fetchCourseList({ surface: 'teacher' }), generationStore.fetchGlobalTasks(), loadCalendar()]) }
-function movePeriod(delta: number) { const value = new Date(cursor.value); view.value === 'week' ? value.setDate(value.getDate() + delta * 7) : value.setMonth(value.getMonth() + delta); cursor.value = value }
-function goToday() { cursor.value = new Date() }
-function selectSession(session: ClassSession) { selectedSession.value = session }
+function clearSelection() { selectedSession.value = null; selectedDate.value = null }
+function movePeriod(delta: number) { clearSelection(); const value = new Date(cursor.value); view.value === 'week' ? value.setDate(value.getDate() + delta * 7) : value.setMonth(value.getMonth() + delta); cursor.value = value }
+function goToday() { clearSelection(); cursor.value = new Date() }
+function selectSession(session: ClassSession) { selectedSession.value = session; selectedDate.value = session.date || null }
+function selectDay(date: string) {
+  selectedSession.value = null
+  selectedDate.value = date
+  const value = new Date(`${date}T12:00:00`)
+  if (!Number.isNaN(value.getTime()) && (value.getFullYear() !== cursor.value.getFullYear() || value.getMonth() !== cursor.value.getMonth())) cursor.value = value
+}
 function switchHomeTab(tab: 'calendar' | 'courses') { void router.replace({ name: 'course-library', query: tab === 'courses' ? { view: 'courses' } : {} }) }
 function openCourseCreate() { void router.push({ name: 'teacher-course-create' }) }
 function openPreparation(session: ClassSession) { if (session.course_id) void router.push({ name: 'course-workspace', params: { courseId: session.course_id, mode: 'setup' }, query: { lesson: session.lesson_unit_id || '', returnTo: '/courses?view=calendar' } }) }

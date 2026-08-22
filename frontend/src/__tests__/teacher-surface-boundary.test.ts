@@ -23,6 +23,8 @@ describe('calendar and course file-space boundary', () => {
     expect(home).not.toContain('<TeacherCourseCalendarView')
     expect(home).toContain('class="calendar-surface"')
     expect(home).toContain('class="day-inspector"')
+    expect(home).toContain(':selected-date="selectedDate"')
+    expect(home).toContain('@day="selectDay"')
     expect(home).toContain("router.push({ name: 'teacher-course-create' })")
     expect(home).not.toContain('<CreateCourseSpaceDialog')
     expect(home).not.toContain('<CourseGenerationDialog')

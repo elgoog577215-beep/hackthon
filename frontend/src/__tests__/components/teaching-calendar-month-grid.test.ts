@@ -44,4 +44,28 @@ describe('TeachingCalendarMonthGrid', () => {
     await event.trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual([session])
   })
+
+  it('makes every date cell actionable and exposes the selected date', async () => {
+    const wrapper = mount(TeachingCalendarMonthGrid, {
+      props: { month: '2026-08-01', sessions: [], selectedDate: '2026-08-08' },
+      global: { components: { ElPopover: ElPopoverStub } },
+    })
+
+    const cells = wrapper.findAll('[role="gridcell"]')
+    const selected = cells.find(cell => cell.text() === '8')!
+    const emptyDate = cells.find(cell => cell.text() === '9')!
+
+    expect(selected.attributes('aria-selected')).toBe('true')
+    expect(selected.classes()).toContain('selected')
+
+    await emptyDate.trigger('click')
+    await emptyDate.trigger('keydown', { key: 'Enter' })
+    await emptyDate.trigger('keydown', { key: ' ' })
+
+    expect(wrapper.emitted('day')).toEqual([
+      ['2026-08-09'],
+      ['2026-08-09'],
+      ['2026-08-09'],
+    ])
+  })
 })
