@@ -116,3 +116,11 @@
 - [x] 13.1 Reorganize the selected session into class logistics and one outline/lesson-plan/PPT readiness list without the former flexible blank region.
 - [x] 13.2 Read lesson-plan and PPT state from the existing lesson-authoring view, explain missing/stale/working/review/failure states, and keep the selected lesson when opening its workbench.
 - [x] 13.3 Verify focused frontend tests, production build, strict OpenSpec validation, detector output and the Chinese desktop page.
+
+## 14. Stable outline handoff and visible lesson-plan jobs
+
+- [x] 14.1 Keep the final streamed outline visible while the teacher projection hydrates, and prevent the workbench from falling back to the initial form.
+- [x] 14.2 Reconcile teacher-outline completion through the teacher projection and move from confirmed outline to the first lesson automatically.
+- [x] 14.3 Normalize outline-only lesson scopes through the existing pedagogy compiler before reusing the V3 teaching-plan engine.
+- [x] 14.4 Show lesson-plan job progress and failures, prevent duplicate submission, add an explicit lesson-plan confirmation, and bind PPT generation to the confirmed revision.
+- [x] 14.5 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.

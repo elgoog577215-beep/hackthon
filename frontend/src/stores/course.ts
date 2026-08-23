@@ -402,11 +402,11 @@ export const useCourseStore = defineStore('course', {
         }
     },
 
-    async refreshCourseData(courseId: string) {
+    async refreshCourseData(courseId: string, surface: 'student' | 'teacher' = 'student') {
         if (this.currentCourseId !== courseId) return
         try {
             if (this.currentCourseProjection === 'generation_preview') {
-                const previewAvailable = await this.refreshGenerationPreview(courseId)
+                const previewAvailable = await this.refreshGenerationPreview(courseId, surface)
                 if (previewAvailable) return
             }
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)

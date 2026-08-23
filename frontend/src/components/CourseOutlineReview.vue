@@ -419,7 +419,9 @@
           >
             <LoaderCircle v-if="confirming" :size="15" />
             <ArrowRight v-else :size="15" />
-            {{ t('courseGeneration.gate.confirmOutline', '确认目录并继续') }}
+            {{ surface === 'teacher'
+              ? t('courseWorkbench.confirmOutlineAndContinue', '确认大纲，进入教案')
+              : t('courseGeneration.gate.confirmOutline', '确认目录并继续') }}
           </button>
         </div>
       </footer>
@@ -444,10 +446,12 @@ const props = withDefaults(defineProps<{
   courseName?: string
   nodes?: Node[]
   task?: Task
+  surface?: 'student' | 'teacher'
 }>(), {
   courseName: '',
   nodes: () => [],
   task: undefined,
+  surface: 'student',
 })
 
 const emit = defineEmits<{
@@ -984,8 +988,13 @@ async function confirmOutline() {
     if (dirty.value) await persistDraft(false)
     await workspace.confirmGenerationStep(props.courseId, 'outline')
     generationStore.startGlobalMonitor()
-    await courseStore.refreshCourseData(props.courseId)
-    ElMessage.success(t('courseGeneration.gate.confirmed', '已确认，课程继续生成'))
+    if (props.surface === 'teacher') {
+      await courseStore.refreshGenerationPreview(props.courseId, 'teacher')
+      ElMessage.success(t('courseWorkbench.outlineConfirmed', '大纲已确认，正在进入教案'))
+    } else {
+      await courseStore.refreshCourseData(props.courseId)
+      ElMessage.success(t('courseGeneration.gate.confirmed', '已确认，课程继续生成'))
+    }
     emit('confirmed')
   } catch {
     actionError.value = t('courseGeneration.gate.confirmFailed', '确认失败，请检查目录后重试。')

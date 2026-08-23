@@ -373,6 +373,7 @@ async function handleOutlineConfirmed() {
     courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
     lessonStore.load(courseId.value).catch(() => undefined),
   ])
+  requestedWorkbenchStage.value = 'lesson'
 }
 
 watch(courseId, (value, previous) => {

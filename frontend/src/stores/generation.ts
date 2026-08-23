@@ -32,9 +32,15 @@ const SERVER_BACKED_TASK_STATUSES = new Set<Task['status']>([
   'error',
   'completed_with_warnings',
 ])
+const taskSurface = (task?: Task): 'student' | 'teacher' => (
+  task?.taskType === 'teacher_outline_generation' ? 'teacher' : 'student'
+)
 const isPublishedTask = (task: Task, backendTask?: Record<string, any>) => (
-  task.status === 'completed'
-  || (task.status === 'completed_with_warnings' && backendTask?.publication_allowed !== false)
+  task.taskType !== 'teacher_outline_generation'
+  && (
+    task.status === 'completed'
+    || (task.status === 'completed_with_warnings' && backendTask?.publication_allowed !== false)
+  )
 )
 const ACTIVE_BACKEND_TASK_STATUSES = new Set([
   'pending',
@@ -231,7 +237,10 @@ export const useGenerationStore = defineStore('generation', {
             }
             // Deterministic refresh on reconnect (Req 12.3)
             if (!wasConnected && this.observedCourseId) {
-              cs.refreshCourseData(this.observedCourseId)
+              cs.refreshCourseData(
+                this.observedCourseId,
+                taskSurface(this.tasks.get(this.observedCourseId)),
+              )
             }
           } else if (state === 'disconnected' || state === 'error') {
             // WebSocket disconnected → fall back to HTTP polling (Req 1.4)
@@ -277,9 +286,21 @@ export const useGenerationStore = defineStore('generation', {
           break
         case 'task_completed':
           this.handleWSProgressUpdate(message)
-          void this.reconcilePublishedCourses([message.course_id]).catch((error) => {
-            console.error('Failed to reconcile published course', error)
-          })
+          if (currentTask?.taskType === 'teacher_outline_generation') {
+            const cs = this._courseStore()
+            void Promise.all([
+              cs.fetchCourseList({ surface: 'teacher' }),
+              cs.currentCourseId === message.course_id
+                ? cs.refreshGenerationPreview(message.course_id, 'teacher')
+                : Promise.resolve(false),
+            ]).catch((error) => {
+              console.error('Failed to reconcile teacher outline', error)
+            })
+          } else {
+            void this.reconcilePublishedCourses([message.course_id]).catch((error) => {
+              console.error('Failed to reconcile published course', error)
+            })
+          }
           break
         case 'task_error':
           this.handleWSTaskError(message)
@@ -382,7 +403,7 @@ export const useGenerationStore = defineStore('generation', {
         }
       }
       if (course_id === cs.currentCourseId) {
-        cs.refreshCourseData(course_id)
+        cs.refreshCourseData(course_id, taskSurface(localTask))
       }
       const nodeId = payload.node_id as string
       if (nodeId) {
@@ -450,7 +471,7 @@ export const useGenerationStore = defineStore('generation', {
         if (!node) {
           if (!this.previewHydrationPending.has(nodeId)) {
             this.previewHydrationPending.add(nodeId)
-            void cs.refreshGenerationPreview(course_id).then(() => {
+            void cs.refreshGenerationPreview(course_id, taskSurface(localTask)).then(() => {
               const hydratedNode = cs.nodes.find((item: Node) => item.node_id === nodeId)
               if (!hydratedNode) return
               hydratedNode.node_content = mergeStreamDelta(
@@ -661,7 +682,7 @@ export const useGenerationStore = defineStore('generation', {
       const cs = this._courseStore()
       const refreshes: Promise<unknown>[] = [cs.fetchCourseList({ surface })]
       if (cs.currentCourseId && publishedCourseIds.has(cs.currentCourseId)) {
-        refreshes.push(cs.refreshCourseData(cs.currentCourseId))
+        refreshes.push(cs.refreshCourseData(cs.currentCourseId, surface))
       }
       await Promise.all(refreshes)
     },
@@ -928,6 +949,7 @@ export const useGenerationStore = defineStore('generation', {
         const recoveredTasks = await this.reconcileMissingLocalTasks(listedTasks)
         this.globalTasks = [...listedTasks, ...recoveredTasks]
         const publishedCourseIds = new Set<string>()
+        const completedTeacherOutlineCourseIds = new Set<string>()
         const discoveredCourseIds = new Set<string>()
         currentBackendTasksByCourse(this.globalTasks).forEach((backendTask: any) => {
           const courseId = backendTask.course_id
@@ -1009,6 +1031,12 @@ export const useGenerationStore = defineStore('generation', {
               && isPublishedTask(localTask, backendTask)
             ) {
               publishedCourseIds.add(courseId)
+            } else if (
+              prevStatus !== 'completed'
+              && localTask.taskType === 'teacher_outline_generation'
+              && localTask.status === 'completed'
+            ) {
+              completedTeacherOutlineCourseIds.add(courseId)
             }
           }
         })
@@ -1020,7 +1048,17 @@ export const useGenerationStore = defineStore('generation', {
           : 'student'
         if (publishedCourseIds.size) {
           await this.reconcilePublishedCourses(publishedCourseIds, currentSurface)
-        } else if (discoveredCourseIds.size) {
+        }
+        if (completedTeacherOutlineCourseIds.size) {
+          await cs.fetchCourseList({ surface: 'teacher' })
+          if (
+            cs.currentCourseId
+            && completedTeacherOutlineCourseIds.has(cs.currentCourseId)
+          ) {
+            await cs.refreshGenerationPreview(cs.currentCourseId, 'teacher')
+          }
+        }
+        if (!publishedCourseIds.size && !completedTeacherOutlineCourseIds.size && discoveredCourseIds.size) {
           await cs.fetchCourseList({ surface: currentSurface })
         }
         if (

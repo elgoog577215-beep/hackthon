@@ -51,6 +51,40 @@ def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     assert scoped["chapter"]["node_id"] == "L1-1"
 
 
+def test_outline_only_lesson_scope_reuses_existing_pedagogy_compiler(monkeypatch):
+    service = CourseService()
+    captured = {}
+
+    async def fake_prepare(*, course_data, plan, **_kwargs):
+        planned_sections = plan["chapters"][0]["sections"]
+        captured["module_ids"] = [
+            [item["module_id"] for item in section.get("module_plan") or []]
+            for section in planned_sections
+        ]
+        course_data["course_teaching_plan"] = {
+            "schema_version": "course_teaching_plan_v3",
+            "sections": [
+                {"node_id": section["node_id"], "teaching_modules": []}
+                for section in planned_sections
+            ],
+        }
+        course_data.setdefault("generation_stage_artifacts", {})["course_teaching_plan"] = {
+            "source_outline_revision_id": "outline-v1",
+            "fallback_units": [],
+        }
+        return plan
+
+    monkeypatch.setattr(service, "_prepare_course_teaching_plan", fake_prepare)
+
+    result = asyncio.run(service.prepare_teacher_lesson_plan(
+        course_data={**course_data(), "blueprint_revision_id": "outline-v1"},
+        lesson_unit_id="L1-1",
+    ))
+
+    assert all("core_explanation" in module_ids for module_ids in captured["module_ids"])
+    assert [item["node_id"] for item in result["plan"]["sections"]] == ["L2-1-1", "L2-1-2"]
+
+
 def test_uploaded_pptx_is_extracted_as_immutable_lesson_evidence(tmp_path):
     from pptx import Presentation
 

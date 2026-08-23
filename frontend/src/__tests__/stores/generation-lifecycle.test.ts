@@ -160,6 +160,29 @@ describe('course generation lifecycle reconciliation', () => {
     expect(refreshList).toHaveBeenCalledWith({ surface: 'teacher' })
   })
 
+  it('教师大纲完成只刷新教师投影而不伪装成学生课程发布', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-teacher-complete'
+    courses.currentCourseProjection = 'generation_preview'
+    const localTask = generation.createTask('job-teacher-complete', 'course-teacher-complete', '数据结构')
+    localTask.status = 'running'
+    localTask.taskType = 'teacher_outline_generation'
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-teacher-complete', course_id: 'course-teacher-complete', course_name: '数据结构',
+      type: 'teacher_outline_generation', status: 'completed', progress: 100, phase: 'completed',
+    }] })
+    const refreshPreview = vi.spyOn(courses, 'refreshGenerationPreview').mockResolvedValue(true)
+    const refreshDocument = vi.spyOn(courses, 'refreshCourseData').mockResolvedValue(undefined)
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.fetchGlobalTasks()
+
+    expect(refreshList).toHaveBeenCalledWith({ surface: 'teacher' })
+    expect(refreshPreview).toHaveBeenCalledWith('course-teacher-complete', 'teacher')
+    expect(refreshDocument).not.toHaveBeenCalled()
+  })
+
   it('发布完成后同步正式正文、课程库摘要和当前生成状态', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
@@ -181,7 +204,7 @@ describe('course generation lifecycle reconciliation', () => {
 
     await generation.fetchGlobalTasks()
 
-    expect(refreshDocument).toHaveBeenCalledWith('course-1')
+    expect(refreshDocument).toHaveBeenCalledWith('course-1', 'student')
     expect(refreshList).toHaveBeenCalledTimes(1)
     expect(generation.isGenerating).toBe(false)
     expect(generation.generationStatus).toBe('idle')
@@ -209,7 +232,7 @@ describe('course generation lifecycle reconciliation', () => {
 
     await vi.waitFor(() => {
       expect(refreshList).toHaveBeenCalledTimes(1)
-      expect(refreshDocument).toHaveBeenCalledWith('course-1')
+      expect(refreshDocument).toHaveBeenCalledWith('course-1', 'student')
     })
     expect(localTask.status).toBe('completed')
     expect(generation.isGenerating).toBe(false)
@@ -389,7 +412,7 @@ describe('course generation lifecycle reconciliation', () => {
 
     await generation.fetchGlobalTasks()
 
-    expect(refreshDocument).toHaveBeenCalledWith('course-warning')
+    expect(refreshDocument).toHaveBeenCalledWith('course-warning', 'student')
   })
 
   it('后端确认任务不存在时清理失效的本地活动状态', async () => {

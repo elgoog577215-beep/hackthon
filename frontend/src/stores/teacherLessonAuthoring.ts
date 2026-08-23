@@ -292,13 +292,22 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       return response.data.asset
     },
     async confirm(courseId: string, lessonUnitId: string, revisionId: string) {
-      const response = await http.post<{ lesson: TeacherLessonPlanAsset }>(
-        `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/confirm`,
-        { revision_id: revisionId },
-        requestConfig(),
-      )
-      this.replaceLessonAsset(lessonUnitId, response.data.lesson)
-      return response.data.lesson
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const response = await http.post<{ lesson: TeacherLessonPlanAsset }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/confirm`,
+          { revision_id: revisionId },
+          requestConfig(),
+        )
+        this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '本讲教案确认失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
+      }
     },
     async createAiCandidate(
       courseId: string,

@@ -108,6 +108,35 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.emitted('update:outlineEditing')).toEqual([[true]])
   })
 
+  it('最终检查点暂时没有投影时保留审阅状态而不退回初始表单', () => {
+    const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
+    task.status = 'waiting_for_review'
+    task.currentPhase = 'outline_ready'
+    task.phaseDetail = {}
+
+    const wrapper = mountWorkbench()
+
+    expect(wrapper.find('[data-testid="outline-review-ready"]').exists()).toBe(true)
+    expect(wrapper.find('form.stage-form').exists()).toBe(false)
+    expect(wrapper.text()).toContain('正在整理完整大纲')
+  })
+
+  it('任务切换为最终审阅时保留最后一次小章节生成结果', async () => {
+    const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
+    task.status = 'running'
+    task.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: growth }
+    const wrapper = mountWorkbench()
+
+    const reactiveTask = useGenerationStore().getTask('course-1')!
+    reactiveTask.status = 'waiting_for_review'
+    reactiveTask.currentPhase = 'outline_ready'
+    reactiveTask.phaseDetail = { artifact_type: 'course_outline_ready' }
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="outline-review-ready"]').text()).toContain('Hello World 与编译过程')
+    expect(wrapper.find('form.stage-form').exists()).toBe(false)
+  })
+
   it('把大纲编辑器放在工作台中央而不是右侧抽屉', async () => {
     const wrapper = mountWorkbench({ outlineEditing: true })
 
@@ -203,5 +232,67 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.prerequisite').text()).toContain('分讲教案状态读取失败')
     await wrapper.get('.prerequisite button').trigger('click')
     expect(reload).toHaveBeenCalledWith('course-1')
+  })
+
+  it('教案任务开始后原位显示真实进度并隐藏重复提交按钮', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }] as any
+    lessonStore.jobs = [{
+      id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
+      status: 'running', progress: 36, phase: 'course_teaching_plan_skeleton', message: '正在冻结知识职责', warnings: [],
+    }] as any
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect(wrapper.get('.lesson-generation-surface').text()).toContain('正在冻结知识职责')
+    expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
+  })
+
+  it('教案任务失败后显示真实原因并提供单一重试动作', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }] as any
+    lessonStore.jobs = [{
+      id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
+      status: 'failed', progress: 36, phase: 'lesson_plan_failed', message: '本讲教案生成失败', warnings: [],
+      error: { code: 'lesson_plan_generation_failed', message: '知识骨架汇编失败', retryable: true },
+    }] as any
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect(wrapper.get('.lesson-generation-error').text()).toContain('知识骨架汇编失败')
+    expect(wrapper.get('button[type="submit"]').text()).toContain('重新生成本讲教案')
+  })
+
+  it('教案工作稿需要显式确认且未确认前不能生成 PPT', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45, sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程' }],
+      plan: {
+        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ppt_assets: [],
+        revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'draft', warnings: [], plan: { sections: [{ node_id: 'L2-1-1', key_points: ['编译', '运行'], teaching_modules: [{ module_id: 'core_explanation', planned_minutes: 15, teacher_activity: '演示源码如何编译运行', student_activity: '跟随完成首次运行' }] }] }, actor: 'teacher', created_at: '' }],
+      },
+    }] as any
+    const confirm = vi.spyOn(lessonStore, 'confirm').mockResolvedValue({} as any)
+    const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect(lessonWrapper.text()).toContain('待确认')
+    expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
+    expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
+    expect(lessonWrapper.get('.lesson-actions .primary').text()).toContain('确认并进入题库')
+    await lessonWrapper.get('.lesson-actions .primary').trigger('click')
+    expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
+    expect(lessonWrapper.get('.center-heading h2').text()).toBe('题库')
+
+    const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
+    expect(pptWrapper.get('.lesson-formal header button').attributes('disabled')).toBeDefined()
   })
 })

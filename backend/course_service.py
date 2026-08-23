@@ -2078,6 +2078,17 @@ class CourseService(AIBase):
 
         scoped_plan = deepcopy(source_plan)
         scoped_plan["chapters"] = [deepcopy(chapter)]
+        # Teacher outline generation stops before the legacy whole-course
+        # teaching-design phase. Its confirmed sections therefore do not carry
+        # ``module_plan`` entries yet, while the reused V3 lesson planner needs
+        # every knowledge responsibility to bind to an allowed teaching module.
+        # Normalize this single-lesson slice through the same pedagogy compiler
+        # used by the original production pipeline instead of creating a second
+        # lesson-plan path or letting the deterministic fallback fail validation.
+        scoped_plan = attach_module_plans_to_plan(
+            scoped_plan,
+            coerce_persisted_profile(course_data),
+        )
         source_hints = [
             {
                 "evidence_id": str(item.get("evidence_id") or ""),
