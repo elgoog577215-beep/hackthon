@@ -63,6 +63,20 @@ describe('calendar and course file-space boundary', () => {
     expect(library).not.toContain('.course-grid:has(.course-item:only-child)')
   })
 
+  it('opens both teaching calendars on the Zhejiang University weekly timetable', () => {
+    const home = source('views/TeacherTeachingCalendarView.vue')
+    const courseCalendar = source('views/TeacherCourseCalendarView.vue')
+
+    expect(home).toContain("const view = ref<'month' | 'week'>('week')")
+    expect(courseCalendar).toContain("const view = ref<'table' | 'month' | 'week'>('week')")
+    expect(home.indexOf("view === 'week'")).toBeLessThan(home.indexOf("view === 'month'"))
+    expect(courseCalendar.indexOf('data-testid="calendar-week-view"')).toBeLessThan(courseCalendar.indexOf('data-testid="calendar-month-view"'))
+    expect(home).toContain('class="total-week-grid"')
+    expect(courseCalendar).toContain('class="course-week-grid"')
+    expect(home).toContain('ZJU_CLASS_PERIODS')
+    expect(courseCalendar).toContain('ZJU_CLASS_PERIODS')
+  })
+
   it('keeps active routes in one namespace and redirects legacy teacher URLs', () => {
     const router = source('router/index.ts')
 

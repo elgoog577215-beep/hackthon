@@ -71,11 +71,11 @@
             <strong>{{ periodLabel }}</strong>
           </div>
           <div class="view-switch" role="tablist" :aria-label="t('teacherHome.calendarView')">
-            <button type="button" role="tab" :aria-selected="view === 'month'" :class="{ active: view === 'month' }" @click="view = 'month'">
-              <CalendarDays :size="14" />{{ t('teacherHome.month') }}
-            </button>
             <button type="button" role="tab" :aria-selected="view === 'week'" :class="{ active: view === 'week' }" @click="view = 'week'">
               <Columns3 :size="14" />{{ t('teacherHome.week') }}
+            </button>
+            <button type="button" role="tab" :aria-selected="view === 'month'" :class="{ active: view === 'month' }" @click="view = 'month'">
+              <CalendarDays :size="14" />{{ t('teacherHome.month') }}
             </button>
           </div>
           <span class="toolbar-spacer" />
@@ -107,24 +107,56 @@
           />
         </div>
 
-        <div v-else class="week-canvas">
-          <section v-for="day in weekDays" :key="day.date" :class="{ today: day.date === todayIso }">
-            <header><strong>{{ day.label }}</strong><span>{{ day.date.slice(5) }}</span></header>
-            <button
-              v-for="session in day.sessions"
-              :key="session.session_id || `${session.course_id}-${session.sequence}`"
-              type="button"
-              :data-color="session.course_color_key ?? 0"
-              :class="{ active: selectedSession?.session_id === session.session_id }"
-              @click="selectSession(session)"
+        <template v-else>
+          <button v-if="unmatchedWeekSessions.length" type="button" class="week-unmatched" @click="selectFirstUnmatchedSession">
+            <Clock3 :size="15" /><span>{{ t('teacherCalendar.unmatchedWeek', '本周有 {count} 个课次尚未匹配浙大标准节次').replace('{count}', String(unmatchedWeekSessions.length)) }}</span><strong>{{ t('teacherCalendar.viewSession', '查看课次') }}</strong>
+          </button>
+
+          <div class="week-canvas">
+            <div class="total-week-grid" :aria-label="t('teacherCalendar.standardWeekAria', '浙江大学标准周课表')">
+            <div class="week-corner">{{ t('teacherCalendar.periodAxis', '节次') }}</div>
+            <div
+              v-for="(day, dayIndex) in weekDays"
+              :key="`header-${day.date}`"
+              class="week-day-heading"
+              :class="{ today: day.date === todayIso }"
+              :style="{ gridColumn: String(dayIndex + 2), gridRow: '1' }"
             >
-              <time>{{ session.start_time?.slice(0, 5) || t('teacherHome.timePending') }}</time>
-              <strong>{{ session.course_title || t('teacherHome.untitledCourse') }}</strong>
-              <span>{{ session.content_summary || t('teacherHome.contentPending') }}</span>
+              <strong>{{ day.label }}</strong><span>{{ day.date.slice(5) }}</span>
+            </div>
+            <template v-for="(period, periodIndex) in classPeriods" :key="period.number">
+              <div
+                class="week-period"
+                :class="{ 'section-start': period.number === 6 || period.number === 11 }"
+                :style="{ gridColumn: '1', gridRow: String(periodIndex + 2) }"
+              >
+                <strong>{{ singlePeriodLabel(period.number) }}</strong><span>{{ period.start }}–{{ period.end }}</span>
+              </div>
+              <div
+                v-for="(day, dayIndex) in weekDays"
+                :key="`${day.date}-${period.number}`"
+                class="week-slot"
+                :class="{ 'section-start': period.number === 6 || period.number === 11 }"
+                :style="{ gridColumn: String(dayIndex + 2), gridRow: String(periodIndex + 2) }"
+              ></div>
+            </template>
+            <button
+              v-for="block in weekSessionBlocks"
+              :key="block.key"
+              type="button"
+              class="week-session"
+              :data-color="block.session.course_color_key ?? 0"
+              :class="{ active: selectedSession?.session_id === block.session.session_id, conflict: block.session.has_conflict }"
+              :style="block.style"
+              @click="selectSession(block.session)"
+            >
+              <time>{{ block.periodLabel }}<span>{{ block.timeLabel }}</span></time>
+              <strong>{{ block.session.course_title || t('teacherHome.untitledCourse') }}</strong>
+              <small>{{ block.session.content_summary || t('teacherHome.contentPending') }}</small>
             </button>
-            <p v-if="!day.sessions.length">{{ t('teacherHome.noClass') }}</p>
-          </section>
-        </div>
+            </div>
+          </div>
+        </template>
       </main>
 
       <aside class="day-inspector" :aria-label="t('teacherHome.dayInspector')">
@@ -208,6 +240,7 @@ import {
   TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY,
   useTeachingCalendarStore, type ClassSession,
 } from '../stores/teachingCalendar'
+import { ZJU_CLASS_PERIODS, resolveZjuClassPeriodRange } from '../utils/zju-class-periods'
 
 const router = useRouter()
 const route = useRoute()
@@ -215,7 +248,7 @@ const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const calendarStore = useTeachingCalendarStore()
 const courseQuery = ref('')
-const view = ref<'month' | 'week'>('month')
+const view = ref<'month' | 'week'>('week')
 const cursor = ref(new Date())
 const selectedSession = ref<ClassSession | null>(null)
 const selectedDate = ref<string | null>(null)
@@ -259,6 +292,32 @@ const weekDays = computed(() => Array.from({ length: 7 }, (_, index) => {
   const date = iso(value)
   return { date, label: weekdayNames.value[index], sessions: visibleSessions.value.filter(item => item.date === date) }
 }))
+const classPeriods = ZJU_CLASS_PERIODS
+const weekSessionBlocks = computed(() => weekDays.value.flatMap((day, dayIndex) => day.sessions.flatMap(session => {
+  const range = resolveZjuClassPeriodRange(session.start_time, session.end_time)
+  if (!range) return []
+  return [{
+    key: session.session_id || `${session.course_id}-${day.date}-${session.sequence}`,
+    session,
+    periodLabel: classPeriodRangeLabel(range.startIndex, range.endIndex),
+    timeLabel: `${session.start_time?.slice(0, 5)}–${session.end_time?.slice(0, 5)}`,
+    style: {
+      gridColumn: String(dayIndex + 2),
+      gridRow: `${range.startIndex + 2} / span ${range.endIndex - range.startIndex + 1}`,
+    },
+  }]
+})))
+const matchedWeekSessions = computed(() => new Set(weekSessionBlocks.value.map(block => block.session)))
+const unmatchedWeekSessions = computed(() => weekDays.value.flatMap(day => day.sessions).filter(session => !matchedWeekSessions.value.has(session)))
+function singlePeriodLabel(number: number) { return t('teacherCalendar.periodSingle', '第 {start} 节').replace('{start}', String(number)) }
+function classPeriodRangeLabel(startIndex: number, endIndex: number) {
+  const start = ZJU_CLASS_PERIODS[startIndex]?.number
+  const end = ZJU_CLASS_PERIODS[endIndex]?.number
+  if (!start || !end) return ''
+  return start === end
+    ? singlePeriodLabel(start)
+    : t('teacherCalendar.periodRange', '第 {start}–{end} 节').replace('{start}', String(start)).replace('{end}', String(end))
+}
 const upcomingSessions = computed(() => [...visibleSessions.value]
   .filter(item => String(item.date || '') >= todayIso)
   .sort((left, right) => `${left.date || ''}${left.start_time || ''}`.localeCompare(`${right.date || ''}${right.start_time || ''}`))
@@ -282,6 +341,7 @@ function clearSelection() { selectedSession.value = null; selectedDate.value = n
 function movePeriod(delta: number) { clearSelection(); const value = new Date(cursor.value); view.value === 'week' ? value.setDate(value.getDate() + delta * 7) : value.setMonth(value.getMonth() + delta); cursor.value = value }
 function goToday() { clearSelection(); cursor.value = new Date() }
 function selectSession(session: ClassSession) { selectedSession.value = session; selectedDate.value = session.date || null }
+function selectFirstUnmatchedSession() { const session = unmatchedWeekSessions.value[0]; if (session) selectSession(session) }
 function selectDay(date: string) {
   selectedSession.value = null
   selectedDate.value = date
@@ -341,7 +401,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .teacher-home,.teacher-home *{box-sizing:border-box}.teacher-home{width:100%;height:100%;min-height:0;overflow:hidden;color:var(--lz-text);background:var(--lz-surface)}button,input{font:inherit}.home-primary-tabs{width:min(100%,360px);height:46px;justify-self:center;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:4px;padding:5px;border:1px solid var(--lz-border);border-radius:16px;background:var(--lz-surface-subtle)}.home-primary-tabs button{min-width:0;height:34px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:0;border-radius:11px;color:var(--lz-text-secondary);background:transparent;font-size:13px;font-weight:750;white-space:nowrap;cursor:pointer;transition:color .16s ease,background-color .16s ease,box-shadow .16s ease}.home-primary-tabs button:hover:not(.active){color:var(--lz-text);background:rgb(255 255 255 / 48%)}.home-primary-tabs button.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 3px 10px rgb(15 23 42 / 10%)}.home-primary-tabs button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.home-header-actions{display:flex;align-items:center;gap:8px}.home-header-actions button{height:38px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}.header-quiet{border:1px solid var(--lz-border);color:var(--lz-text-secondary);background:var(--lz-surface)}.header-quiet b{min-width:20px;padding:1px 6px;border-radius:10px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:12px}.header-primary{border:1px solid var(--lz-brand);color:#fff;background:var(--lz-brand)}
 .home-layout{height:100%;min-height:0;display:grid;grid-template-columns:250px minmax(600px,1fr) 300px}.course-rail{min-width:0;min-height:0;display:grid;grid-template-rows:64px 48px minmax(0,1fr);border-right:1px solid var(--lz-border);background:var(--lz-surface-subtle)}.course-rail>header{display:flex;align-items:center;padding:0 16px}.course-rail>header>div{min-width:0;display:grid;gap:3px}.course-rail>header strong{font-size:15px}.course-rail>header span{color:var(--lz-text-muted);font-size:12px}.course-search{height:40px;display:flex;align-items:center;gap:8px;margin:0 12px;padding:0 9px 0 11px;border:1px solid transparent;border-radius:9px;color:var(--lz-text-muted);background:rgb(226 232 240 / 58%)}.course-search:focus-within{border-color:color-mix(in srgb,var(--lz-brand) 36%,var(--lz-border));background:#fff;box-shadow:0 0 0 3px var(--lz-brand-soft)}.course-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:13px}.course-search input::-webkit-search-cancel-button{display:none}.course-search>button{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.course-search>button:hover{color:var(--lz-text-strong);background:rgb(203 213 225 / 56%)}.course-list{min-height:0;overflow:auto;padding:7px}.course-entry{width:100%;min-height:56px;display:grid;grid-template-columns:34px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:7px 8px;border:0;border-radius:9px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.course-entry:hover,.course-entry:focus-visible{outline:0;background:#fff}.course-entry:focus-visible{box-shadow:inset 0 0 0 2px var(--lz-brand)}.course-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-icon[data-color="1"]{color:var(--lz-success);background:var(--lz-success-soft)}.course-icon[data-color="2"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.course-icon[data-color="3"]{color:var(--lz-danger);background:var(--lz-danger-soft)}.course-entry__copy{min-width:0;display:grid;gap:3px}.course-entry__copy strong,.course-entry__copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-entry__copy strong{color:var(--lz-text-strong);font-size:13px}.course-entry__copy small{color:var(--lz-text-muted);font-size:12px}.course-search-empty{min-height:180px;display:grid;place-content:center;justify-items:center;gap:9px;padding:20px;color:var(--lz-text-muted);text-align:center}.course-search-empty strong{color:var(--lz-text-secondary);font-size:14px}.course-search-empty button{padding:6px 9px;border:0;border-radius:6px;color:var(--lz-brand-strong);background:transparent;font-size:12px;font-weight:700;cursor:pointer}
-.calendar-surface{min-width:0;min-height:0;display:grid;grid-template-rows:64px auto minmax(0,1fr);background:var(--lz-surface)}.calendar-toolbar{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--lz-border)}.calendar-title{min-width:0;display:flex;align-items:center;gap:9px}.calendar-title>svg{color:var(--lz-brand)}.calendar-title strong{font-size:16px}.toolbar-spacer{flex:1}.view-switch{display:flex;border-bottom:1px solid var(--lz-border)}.view-switch button{height:38px;display:flex;align-items:center;gap:6px;padding:0 12px;border:0;border-bottom:2px solid transparent;color:var(--lz-text-secondary);background:transparent;font-size:13px;cursor:pointer}.view-switch button.active{border-bottom-color:var(--lz-brand);color:var(--lz-brand-strong)}.period-actions{display:flex;align-items:center;gap:6px}.period-actions button{height:36px;min-width:36px;display:grid;place-items:center;padding:0 10px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;cursor:pointer}.calendar-issue{min-height:40px;display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-warning);background:var(--lz-warning-soft);font-size:13px}.calendar-issue span{flex:1}.calendar-issue button{height:28px;border:1px solid var(--lz-warning-border);border-radius:6px;background:var(--lz-surface)}.calendar-loading{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:13px}.month-canvas{position:relative;min-width:0;min-height:0;overflow:auto;padding:10px}.month-canvas :deep(.month-grid){min-height:100%;overflow:hidden}.week-canvas{min-width:720px;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(100px,1fr));overflow:auto;padding:10px}.week-canvas>section{min-width:0;border:1px solid var(--lz-border);border-right:0}.week-canvas>section:last-child{border-right:1px solid var(--lz-border)}.week-canvas>section>header{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 9px;border-bottom:1px solid var(--lz-border);font-size:12px}.week-canvas>section.today>header{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.week-canvas>section>button{width:calc(100% - 10px);display:grid;gap:4px;margin:5px;padding:8px;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-brand-soft);text-align:left;cursor:pointer}.week-canvas>section>button.active{border-color:var(--lz-brand)}.week-canvas time{color:var(--lz-brand-strong);font-size:12px;font-weight:700}.week-canvas button strong,.week-canvas button span{overflow:hidden;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.week-canvas section>p{margin:12px;color:var(--lz-text-muted);font-size:12px}
+.calendar-surface{min-width:0;min-height:0;display:grid;grid-template-rows:64px auto minmax(0,1fr);background:var(--lz-surface)}.calendar-toolbar{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--lz-border)}.calendar-title{min-width:0;display:flex;align-items:center;gap:9px}.calendar-title>svg{color:var(--lz-brand)}.calendar-title strong{font-size:16px}.toolbar-spacer{flex:1}.view-switch{display:flex;border-bottom:1px solid var(--lz-border)}.view-switch button{height:38px;display:flex;align-items:center;gap:6px;padding:0 12px;border:0;border-bottom:2px solid transparent;color:var(--lz-text-secondary);background:transparent;font-size:13px;cursor:pointer}.view-switch button.active{border-bottom-color:var(--lz-brand);color:var(--lz-brand-strong)}.period-actions{display:flex;align-items:center;gap:6px}.period-actions button{height:36px;min-width:36px;display:grid;place-items:center;padding:0 10px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;cursor:pointer}.calendar-issue{min-height:40px;display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-warning);background:var(--lz-warning-soft);font-size:13px}.calendar-issue span{flex:1}.calendar-issue button{height:28px;border:1px solid var(--lz-warning-border);border-radius:6px;background:var(--lz-surface)}.calendar-loading{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:13px}.month-canvas{position:relative;min-width:0;min-height:0;overflow:auto;padding:10px}.month-canvas :deep(.month-grid){min-height:100%;overflow:hidden}.week-unmatched{min-height:38px;display:flex;align-items:center;gap:7px;padding:7px 12px;border:0;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-text-secondary);background:var(--lz-warning-soft);font-size:12px;text-align:left;cursor:pointer}.week-unmatched svg{color:var(--lz-warning)}.week-unmatched span{flex:1}.week-unmatched strong{color:var(--lz-warning);font-size:12px}.week-canvas{grid-row:3;min-width:0;min-height:0;overflow:auto}.total-week-grid{min-width:900px;display:grid;grid-template-columns:78px repeat(7,minmax(112px,1fr));grid-template-rows:44px repeat(13,58px);position:relative;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border)}.week-corner,.week-day-heading,.week-period{position:sticky;z-index:3;background:var(--lz-surface)}.week-corner{top:0;left:0;z-index:5;display:grid;place-items:center;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:11px;font-weight:700}.week-day-heading{top:0;display:flex;align-items:center;justify-content:center;gap:7px;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border)}.week-day-heading strong{font-size:12px}.week-day-heading span{color:var(--lz-text-muted);font-size:11px}.week-day-heading.today{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.week-period{left:0;display:grid;place-content:center;gap:3px;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);text-align:center}.week-period strong{font-size:11px}.week-period span{color:var(--lz-text-muted);font-size:10px}.week-slot{border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.week-slot.section-start,.week-period.section-start{border-top:2px solid var(--lz-border-strong,#cbd5e1)}.week-session{--course-color:var(--lz-brand-strong);--course-bg:var(--lz-brand-soft);--course-border:var(--lz-brand-border);z-index:2;min-width:0;display:grid;align-content:start;gap:4px;margin:3px;padding:7px 8px;overflow:hidden;border:1px solid var(--course-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--course-bg);text-align:left;cursor:pointer}.week-session[data-color="1"],.week-session[data-color="5"]{--course-color:var(--lz-success);--course-bg:var(--lz-success-soft);--course-border:color-mix(in srgb,var(--lz-success) 34%,transparent)}.week-session[data-color="2"],.week-session[data-color="6"]{--course-color:var(--lz-warning);--course-bg:var(--lz-warning-soft);--course-border:color-mix(in srgb,var(--lz-warning) 34%,transparent)}.week-session[data-color="3"],.week-session[data-color="7"]{--course-color:var(--lz-danger);--course-bg:var(--lz-danger-soft);--course-border:color-mix(in srgb,var(--lz-danger) 32%,transparent)}.week-session:hover,.week-session.active{z-index:4;border-color:var(--course-color)}.week-session.active{box-shadow:0 3px 10px rgb(15 23 42 / 14%)}.week-session.conflict{outline:2px solid var(--lz-danger);outline-offset:-3px}.week-session time{display:flex;align-items:center;justify-content:space-between;gap:5px;color:var(--course-color);font-size:10px;font-weight:750}.week-session time span{color:color-mix(in srgb,var(--course-color) 70%,var(--lz-text-muted));font-size:9px;font-weight:600}.week-session strong,.week-session small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.week-session strong{font-size:11px}.week-session small{color:var(--lz-text-muted);font-size:10px}.week-session:focus-visible{z-index:4;outline:3px solid color-mix(in srgb,var(--course-color) 28%,transparent);outline-offset:1px}
 .day-inspector{min-width:0;min-height:0;display:grid;grid-template-rows:64px minmax(0,1fr) auto;border-left:1px solid var(--lz-border);background:var(--lz-surface)}.day-inspector>header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--lz-border)}.day-inspector>header>div{min-width:0;display:grid;gap:3px}.day-inspector>header small{color:var(--lz-text-muted);font-size:12px}.day-inspector>header strong{overflow:hidden;font-size:15px;text-overflow:ellipsis;white-space:nowrap}.day-inspector>header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.session-focus{align-content:start;display:grid;gap:14px;padding:20px 16px;border-bottom:1px solid var(--lz-border)}.session-number{width:max-content;color:var(--lz-text-muted);font-size:12px;font-weight:700}.session-focus h2{margin:0;font-size:18px;line-height:1.45}.session-focus dl{display:grid;gap:11px;margin:3px 0 0}.session-focus dl>div{display:grid;grid-template-columns:88px minmax(0,1fr);gap:8px}.session-focus dt{display:flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px}.session-focus dd{margin:0;color:var(--lz-text-secondary);font-size:13px}.preparation-summary{align-self:start;display:grid;padding:16px}.preparation-summary>header{margin-bottom:7px}.preparation-summary>header strong{font-size:14px}.preparation-summary>div{min-height:42px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--lz-border);font-size:13px}.preparation-summary>div strong{color:var(--lz-text-secondary)}.inspector-actions{display:grid;gap:8px;padding:14px 16px;border-top:1px solid var(--lz-border)}.inspector-actions button{height:40px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.inspector-actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.today-list{min-height:0;overflow:auto;padding:12px 14px}.today-list__heading{height:40px;display:flex;align-items:center;justify-content:space-between}.today-list__heading strong{font-size:14px}.today-list__heading span{color:var(--lz-text-muted);font-size:12px}.today-list>button{width:100%;min-height:64px;display:grid;grid-template-columns:48px minmax(0,1fr) 15px;align-items:center;gap:9px;padding:8px 2px;border:0;border-bottom:1px solid var(--lz-border);color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.today-list time{color:var(--lz-brand-strong);font-size:12px;line-height:1.5}.today-list button>span{min-width:0;display:grid;gap:3px}.today-list button strong,.today-list button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-list button strong{font-size:13px}.today-list button small{color:var(--lz-text-muted);font-size:12px}.today-empty{min-height:230px;display:grid;place-content:center;justify-items:center;gap:9px;color:var(--lz-text-muted);text-align:center}.today-empty strong{color:var(--lz-text-strong);font-size:14px}.spin{animation:home-spin .85s linear infinite}@keyframes home-spin{to{transform:rotate(360deg)}}
 @media(max-width:1200px){.home-layout{grid-template-columns:220px minmax(0,1fr) 260px}.session-focus,.preparation-summary{padding-left:13px;padding-right:13px}}
 @media(max-width:980px){.teacher-home{overflow:auto}.home-layout{height:auto;min-height:100%;grid-template-columns:220px minmax(580px,1fr)}.course-rail,.calendar-surface{min-height:650px}.day-inspector{grid-column:1/-1;min-height:350px;border-top:1px solid var(--lz-border);border-left:0}}

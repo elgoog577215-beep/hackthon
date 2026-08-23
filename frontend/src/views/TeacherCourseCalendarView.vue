@@ -21,9 +21,9 @@
         <section class="calendar-workspace">
           <header class="workspace-toolbar">
             <div class="segmented" role="tablist">
-              <button type="button" role="tab" :aria-selected="view === 'table'" data-testid="calendar-table-view" :class="{ active: view === 'table' }" @click="view = 'table'"><Table2 :size="15" />{{ t('teacherCalendar.tableView', '表格') }}</button>
-              <button type="button" role="tab" :aria-selected="view === 'month'" data-testid="calendar-month-view" :class="{ active: view === 'month' }" @click="view = 'month'"><CalendarDays :size="15" />月历</button>
               <button type="button" role="tab" :aria-selected="view === 'week'" data-testid="calendar-week-view" :class="{ active: view === 'week' }" @click="view = 'week'"><Columns3 :size="15" />周历</button>
+              <button type="button" role="tab" :aria-selected="view === 'month'" data-testid="calendar-month-view" :class="{ active: view === 'month' }" @click="view = 'month'"><CalendarDays :size="15" />月历</button>
+              <button type="button" role="tab" :aria-selected="view === 'table'" data-testid="calendar-table-view" :class="{ active: view === 'table' }" @click="view = 'table'"><Table2 :size="15" />{{ t('teacherCalendar.tableView', '表格') }}</button>
             </div>
             <template v-if="editable">
               <label class="meta-field"><span>学年</span><input v-model="editable.academic_year" placeholder="2025-2026" @input="markDirty" /></label>
@@ -85,16 +85,54 @@
                   <div><small>本周排期</small><strong>{{ weekLabel }}</strong></div>
                   <div><button type="button" aria-label="上一周" @click="moveWeek(-1)"><ChevronLeft :size="16" /></button><button type="button" @click="goToday">今天</button><button type="button" aria-label="下一周" @click="moveWeek(1)"><ChevronRight :size="16" /></button></div>
                 </header>
-                <div class="course-week-grid">
-                  <section v-for="day in weekDays" :key="day.date">
-                    <header><strong>{{ day.label }}</strong><span>{{ day.date.slice(5) }}</span></header>
-                    <button v-for="session in day.sessions" :key="session.session_id || `${day.date}-${session.sequence}`" type="button" :class="{ active: session === selectedSession }" @click="focusSession(session)">
-                      <time>{{ session.start_time?.slice(0, 5) || '时间待定' }}</time>
-                      <strong>第 {{ session.sequence }} 讲 · {{ session.content_summary }}</strong>
-                      <small>{{ session.location || '地点待定' }}</small>
+                <button v-if="unmatchedWeekSessions.length" type="button" class="week-unmatched" @click="focusFirstUnmatchedSession">
+                  <Clock3 :size="15" /><span>{{ t('teacherCalendar.unmatchedWeek', '本周有 {count} 个课次尚未匹配浙大标准节次').replace('{count}', String(unmatchedWeekSessions.length)) }}</span><strong>{{ t('teacherCalendar.fillTime', '补充时间') }}</strong>
+                </button>
+                <div class="course-week-scroll">
+                  <div class="course-week-grid" :aria-label="t('teacherCalendar.standardWeekAria', '浙江大学标准周课表')">
+                    <div class="week-corner">{{ t('teacherCalendar.periodAxis', '节次') }}</div>
+                    <div
+                      v-for="(day, dayIndex) in weekDays"
+                      :key="`header-${day.date}`"
+                      class="week-day-heading"
+                      :class="{ today: day.date === todayIso }"
+                      :style="{ gridColumn: String(dayIndex + 2), gridRow: '1' }"
+                    >
+                      <strong>{{ day.label }}</strong><span>{{ day.date.slice(5) }}</span>
+                    </div>
+                    <template v-for="(period, periodIndex) in classPeriods" :key="period.number">
+                      <div
+                        class="week-period"
+                        :class="{ 'section-start': period.number === 6 || period.number === 11 }"
+                        :style="{ gridColumn: '1', gridRow: String(periodIndex + 2) }"
+                      >
+                        <strong>{{ singlePeriodLabel(period.number) }}</strong><span>{{ period.start }}–{{ period.end }}</span>
+                      </div>
+                      <button
+                        v-for="(day, dayIndex) in weekDays"
+                        :key="`${day.date}-${period.number}`"
+                        type="button"
+                        class="week-slot"
+                        :class="{ 'section-start': period.number === 6 || period.number === 11 }"
+                        :style="{ gridColumn: String(dayIndex + 2), gridRow: String(periodIndex + 2) }"
+                        :aria-label="periodSlotLabel(day.label, day.date, period.number)"
+                        @click="addSessionForPeriod(day.date, period)"
+                      ><Plus :size="14" /></button>
+                    </template>
+                    <button
+                      v-for="block in weekSessionBlocks"
+                      :key="block.key"
+                      type="button"
+                      class="week-session"
+                      :class="{ active: block.session === selectedSession }"
+                      :style="block.style"
+                      @click="focusSession(block.session)"
+                    >
+                      <time>{{ block.periodLabel }}<span>{{ block.timeLabel }}</span></time>
+                      <strong>第 {{ block.session.sequence }} 讲 · {{ block.session.content_summary }}</strong>
+                      <small>{{ block.session.location || '地点待定' }}</small>
                     </button>
-                    <button v-if="!day.sessions.length" type="button" class="add-day" @click="addSessionForDate(day.date)"><Plus :size="14" />安排课次</button>
-                  </section>
+                  </div>
                 </div>
               </template>
 
@@ -125,7 +163,7 @@
               </div>
             </section>
 
-            <aside v-if="view !== 'table'" class="session-inspector" aria-label="当前课次编辑">
+            <aside v-if="view !== 'table' && editable.sessions.length" class="session-inspector" aria-label="当前课次编辑">
               <template v-if="selectedSession">
                 <header><div><small>当前课次</small><strong>第 {{ selectedSession.sequence }} 讲</strong></div><span :data-state="selectedSession.status">{{ selectedSession.status === 'scheduled' ? '已排期' : '待排期' }}</span></header>
                 <div class="inspector-form">
@@ -179,13 +217,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowUpDown, CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Columns3, Download, LoaderCircle, PencilLine, Plus, RefreshCw, Save, Sparkles, Table2, Trash2, TriangleAlert, Upload } from 'lucide-vue-next'
+import { ArrowUpDown, CalendarDays, CalendarRange, ChevronDown, ChevronLeft, ChevronRight, Clock3, Columns3, Download, LoaderCircle, PencilLine, Plus, RefreshCw, Save, Sparkles, Table2, Trash2, TriangleAlert, Upload } from 'lucide-vue-next'
 import TeacherCourseSidebar from '../components/TeacherCourseSidebar.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
 import { useTeachingCalendarStore, type ClassSession, type OutlineCalendarCandidate, type TeachingCalendar } from '../stores/teachingCalendar'
 import { sessionImportKey, teachingCalendarFromCsv } from '../utils/teaching-calendar-csv'
+import { ZJU_CLASS_PERIODS, resolveZjuClassPeriodRange, type ZjuClassPeriod } from '../utils/zju-class-periods'
 import http, { getTeacherIdentity } from '../utils/http'
 
 const route = useRoute()
@@ -197,7 +236,7 @@ const store = useTeachingCalendarStore()
 const editable = ref<TeachingCalendar | null>(null)
 const csvInput = ref<HTMLInputElement | null>(null)
 const dirty = ref(false)
-const view = ref<'table' | 'month' | 'week'>('table')
+const view = ref<'table' | 'month' | 'week'>('week')
 const monthCursor = ref(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`)
 const weekCursor = ref(`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`)
 const selectedIndex = ref<number | null>(null)
@@ -221,15 +260,46 @@ const weekStart = computed(() => {
 })
 const pad = (value: number) => String(value).padStart(2, '0')
 const iso = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
+const todayIso = iso(new Date())
+const classPeriods = ZJU_CLASS_PERIODS
 const weekLabel = computed(() => { const end = new Date(weekStart.value); end.setDate(end.getDate() + 6); return `${iso(weekStart.value)} — ${iso(end)}` })
 const weekDays = computed(() => ['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, index) => {
   const value = new Date(weekStart.value); value.setDate(value.getDate() + index); const date = iso(value)
-  return { label, date, sessions: editable.value?.sessions.filter(item => item.date === date && item.status !== 'cancelled') || [] }
+  return { label, date, sessions: (editable.value?.sessions.filter(item => item.date === date && item.status !== 'cancelled') || []).sort((left, right) => String(left.start_time || '').localeCompare(String(right.start_time || ''))) }
 }))
+const weekSessionBlocks = computed(() => weekDays.value.flatMap((day, dayIndex) => day.sessions.flatMap(session => {
+  const range = resolveZjuClassPeriodRange(session.start_time, session.end_time)
+  if (!range) return []
+  return [{
+    key: session.session_id || `${day.date}-${session.sequence}`,
+    session,
+    periodLabel: classPeriodRangeLabel(range.startIndex, range.endIndex),
+    timeLabel: `${session.start_time?.slice(0, 5)}–${session.end_time?.slice(0, 5)}`,
+    style: {
+      gridColumn: String(dayIndex + 2),
+      gridRow: `${range.startIndex + 2} / span ${range.endIndex - range.startIndex + 1}`,
+    },
+  }]
+})))
+const matchedWeekSessions = computed(() => new Set(weekSessionBlocks.value.map(block => block.session)))
+const unmatchedWeekSessions = computed(() => weekDays.value.flatMap(day => day.sessions).filter(session => !matchedWeekSessions.value.has(session)))
 
 function normalizeClock(value?: string | null) {
   const normalized = String(value || '').trim()
   return /^([01]\d|2[0-3]):[0-5]\d/.test(normalized) ? normalized.slice(0, 5) : null
+}
+function singlePeriodLabel(number: number) { return t('teacherCalendar.periodSingle', '第 {start} 节').replace('{start}', String(number)) }
+function classPeriodRangeLabel(startIndex: number, endIndex: number) {
+  const start = ZJU_CLASS_PERIODS[startIndex]?.number
+  const end = ZJU_CLASS_PERIODS[endIndex]?.number
+  if (!start || !end) return ''
+  return start === end
+    ? singlePeriodLabel(start)
+    : t('teacherCalendar.periodRange', '第 {start}–{end} 节').replace('{start}', String(start)).replace('{end}', String(end))
+}
+function periodSlotLabel(day: string, date: string, number: number) {
+  return t('teacherCalendar.periodSlotLabel', '{day} {date} 第 {number} 节安排课次')
+    .replace('{day}', day).replace('{date}', date.slice(5)).replace('{number}', String(number))
 }
 function cloneCalendar(calendar: TeachingCalendar): TeachingCalendar {
   const cloned = JSON.parse(JSON.stringify(calendar)) as TeachingCalendar
@@ -254,6 +324,12 @@ function blankSession(date = ''): ClassSession { return { sequence: (editable.va
 function selectSession(index: number) { selectedIndex.value = index; const date = editable.value?.sessions[index]?.date; if (date) { monthCursor.value = `${date.slice(0, 7)}-01`; weekCursor.value = date } }
 function addSession() { if (!editable.value) return; editable.value.sessions.push(blankSession()); selectSession(editable.value.sessions.length - 1); markDirty() }
 function addSessionForDate(date: string) { if (!editable.value) return; editable.value.sessions.push(blankSession(date)); selectSession(editable.value.sessions.length - 1); markDirty() }
+function addSessionForPeriod(date: string, period: ZjuClassPeriod) {
+  if (!editable.value) return
+  editable.value.sessions.push({ ...blankSession(date), start_time: period.start, end_time: period.end, credit_hours: 1, status: 'scheduled' })
+  selectSession(editable.value.sessions.length - 1)
+  markDirty()
+}
 function openEditor(index: number) { selectSession(index); editorOpen.value = true }
 function sessionMeta(session: ClassSession) { return session.date ? `${session.date.slice(5)} · ${session.start_time?.slice(0, 5) || '时间待定'}` : '日期待安排' }
 function handleTransferCommand(command: 'import' | 'docx' | 'pdf' | 'xlsx' | 'csv') {
@@ -384,6 +460,7 @@ function moveMonth(delta: number) { const value = new Date(`${monthCursor.value.
 function moveWeek(delta: number) { const value = new Date(weekStart.value); value.setDate(value.getDate() + delta * 7); weekCursor.value = iso(value) }
 function goToday() { const value = new Date(); monthCursor.value = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-01`; weekCursor.value = iso(value) }
 function focusSession(session: ClassSession) { const index = editable.value?.sessions.findIndex(item => item === session || (session.session_id && item.session_id === session.session_id)) ?? -1; if (index >= 0) selectSession(index) }
+function focusFirstUnmatchedSession() { const session = unmatchedWeekSessions.value[0]; if (session) focusSession(session) }
 
 watch(courseId, () => { store.resetCourse(); editable.value = null; void load() }, { immediate: true })
 function beforeUnload(event: BeforeUnloadEvent) { if (!dirty.value) return; event.preventDefault(); event.returnValue = '' }
@@ -410,15 +487,14 @@ onBeforeRouteLeave(async () => {
 .calendar-board{grid-row:3}
 .calendar-board.is-table{grid-template-rows:minmax(0,1fr)}
 .cell-editor-trigger{width:100%;min-height:60px;display:grid;grid-template-columns:minmax(0,1fr) 16px;align-items:start;gap:5px;padding:5px;border:1px solid transparent;border-radius:6px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.cell-editor-trigger span{display:-webkit-box;overflow:hidden;line-height:1.5;-webkit-box-orient:vertical;-webkit-line-clamp:3}.cell-editor-trigger svg{margin-top:2px;color:var(--lz-text-muted)}.cell-editor-trigger:hover,.cell-editor-trigger:focus-visible{border-color:var(--lz-brand-border);background:var(--lz-surface);outline:none}
-.course-week-grid{min-width:760px;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(105px,1fr));overflow:auto;padding:10px}.course-week-grid>section{min-width:0;border:1px solid var(--lz-border);border-right:0}.course-week-grid>section:last-child{border-right:1px solid var(--lz-border)}.course-week-grid>section>header{height:38px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid var(--lz-border);font-size:10px}.course-week-grid>section>header span{color:var(--lz-text-muted)}.course-week-grid>section>button{width:calc(100% - 10px);display:grid;gap:4px;margin:5px;padding:8px;border:1px solid var(--lz-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-surface);text-align:left;cursor:pointer}.course-week-grid>section>button.active{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.course-week-grid time{color:var(--lz-brand-strong);font-size:9px;font-weight:700}.course-week-grid strong,.course-week-grid small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-week-grid strong{font-size:10px}.course-week-grid small{color:var(--lz-text-muted);font-size:9px}.course-week-grid .add-day{display:flex;align-items:center;justify-content:center;color:var(--lz-text-muted);border-style:dashed;background:transparent}
+.week-unmatched{min-height:36px;display:flex;align-items:center;gap:7px;padding:6px 12px;border:0;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-text-secondary);background:var(--lz-warning-soft);font-size:11px;text-align:left;cursor:pointer}.week-unmatched svg{color:var(--lz-warning)}.week-unmatched span{flex:1}.week-unmatched strong{color:var(--lz-warning);font-size:11px}.course-week-scroll{grid-row:3;min-width:0;min-height:0;overflow:auto;background:var(--lz-surface)}.course-week-grid{min-width:900px;display:grid;grid-template-columns:78px repeat(7,minmax(112px,1fr));grid-template-rows:44px repeat(13,58px);position:relative;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border)}.week-corner,.week-day-heading,.week-period{position:sticky;z-index:3;background:var(--lz-surface)}.week-corner{top:0;left:0;z-index:5;display:grid;place-items:center;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:11px;font-weight:700}.week-day-heading{top:0;display:flex;align-items:center;justify-content:center;gap:7px;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border)}.week-day-heading strong{font-size:12px}.week-day-heading span{color:var(--lz-text-muted);font-size:11px}.week-day-heading.today{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.week-period{left:0;display:grid;place-content:center;gap:3px;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);text-align:center}.week-period strong{font-size:11px}.week-period span{color:var(--lz-text-muted);font-size:10px}.week-slot{z-index:0;display:grid;place-items:center;border:0;border-right:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);color:transparent;background:var(--lz-surface);cursor:pointer}.week-slot svg{opacity:0;transition:opacity .14s ease-out}.week-slot:hover{color:var(--lz-brand);background:var(--lz-fill)}.week-slot:hover svg,.week-slot:focus-visible svg{opacity:1}.week-slot:focus-visible{z-index:2;color:var(--lz-brand);outline:2px solid var(--lz-brand);outline-offset:-2px}.week-slot.section-start,.week-period.section-start{border-top:2px solid var(--lz-border-strong, #cbd5e1)}.week-session{z-index:2;min-width:0;display:grid;align-content:start;gap:4px;margin:3px;padding:7px 8px;overflow:hidden;border:1px solid var(--lz-brand-border);border-radius:7px;color:var(--lz-text-secondary);background:var(--lz-brand-soft);text-align:left;cursor:pointer}.week-session:hover{border-color:var(--lz-brand)}.week-session.active{z-index:4;border-color:var(--lz-brand);box-shadow:0 3px 10px rgba(79,70,229,.16)}.week-session time{display:flex;align-items:center;justify-content:space-between;gap:6px;color:var(--lz-brand-strong);font-size:10px;font-weight:750}.week-session time span{color:var(--lz-text-muted);font-size:9px;font-weight:600}.week-session strong,.week-session small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.week-session strong{font-size:11px}.week-session small{color:var(--lz-text-muted);font-size:10px}.week-session:focus-visible{outline:3px solid rgba(99,102,241,.24);outline-offset:1px}
 .drawer-session-editor{display:grid;gap:16px}.drawer-session-meta{display:flex;align-items:center;justify-content:space-between;padding-bottom:12px;border-bottom:1px solid var(--lz-border)}.drawer-session-meta>span{padding:3px 7px;border-radius:7px;color:var(--lz-warning);background:var(--lz-warning-soft);font-size:10px}.drawer-session-meta>span[data-state="scheduled"]{color:var(--lz-success);background:var(--lz-success-soft)}.drawer-session-editor label{display:grid;gap:6px}.drawer-session-editor label>span{color:var(--lz-text-muted);font-size:10px;font-weight:700}.drawer-session-editor textarea{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-primary);background:var(--lz-surface);line-height:1.65;resize:vertical;outline:0}.drawer-session-editor textarea:focus{border-color:var(--lz-brand-border);box-shadow:0 0 0 3px var(--lz-brand-soft)}.drawer-session-editor p{margin:0;color:var(--lz-text-muted);font-size:10px;line-height:1.6}
 .derive-summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 12px;border-bottom:1px solid var(--lz-border);background:var(--lz-fill)}.derive-summary strong{font-size:11px}.derive-summary span{color:var(--lz-text-muted);font-size:10px}.derive-list{max-height:52vh;overflow:auto;border-bottom:1px solid var(--lz-border)}.derive-list label{min-height:54px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--lz-border);cursor:pointer}.derive-list label:last-child{border-bottom:0}.derive-list label[data-kind="stale"]{background:var(--lz-warning-soft)}.derive-list input{width:16px;height:16px}.derive-marker{width:8px;height:8px;justify-self:center;border-radius:50%;background:var(--lz-text-muted)}.derive-list label[data-kind="stale"] .derive-marker{background:var(--lz-warning)}.derive-list label>span:last-child{min-width:0;display:grid;gap:4px}.derive-list strong{overflow:hidden;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.derive-list small{color:var(--lz-text-muted);font-size:9px;line-height:1.5}
 /* Calendar content stays compact through layout, not through unreadably small type. */
 .session-rail>header strong,.session-copy strong,.month-heading strong,.session-inspector>header strong{font-size:12px}
-.session-rail>header span,.session-sequence,.session-copy small,.session-rail footer,.month-heading small,.calendar-hint,.session-inspector>header small,.session-inspector>header>span,.inspector-form label>span,.session-inspector>footer,.course-week-grid time,.course-week-grid small,.derive-list small{font-size:11px}
+.session-rail>header span,.session-sequence,.session-copy small,.session-rail footer,.month-heading small,.calendar-hint,.session-inspector>header small,.session-inspector>header>span,.inspector-form label>span,.session-inspector>footer,.derive-list small{font-size:11px}
 .table-wrap th{height:38px;font-size:11px}
 .table-wrap input,.table-wrap textarea,.table-wrap select,.inspector-form input,.inspector-form textarea,.inspector-form select{font-size:12px}
-.course-week-grid strong,.course-week-grid>section>header{font-size:12px}
 @media(max-width:1100px){.calendar-board{grid-template-columns:170px minmax(0,1fr) 286px}.calendar-board.is-table{grid-template-columns:170px minmax(0,1fr)}.meta-field{display:none}}
 @media(max-width:900px){.product-bar{grid-template-columns:64px minmax(0,1fr) auto}.brand{justify-content:center;padding:0}.brand strong{display:none}.page-shell{grid-template-columns:64px minmax(0,1fr)}.status-bar>span:nth-of-type(n+4){display:none}.workspace-toolbar>.quiet-button{font-size:0}.workspace-toolbar>.quiet-button svg{margin:0}.transfer-button{font-size:0}.calendar-board{grid-template-columns:150px minmax(0,1fr) 250px}.calendar-board.is-table{grid-template-columns:150px minmax(0,1fr)}}
 @media(max-width:680px){.course-calendar-page{height:auto;overflow:auto}.course-calendar-page--embedded{min-height:720px}.product-bar nav button:first-child,.product-bar nav svg,.product-actions button:first-child{display:none}.product-bar nav{padding:0 10px}.page-shell{height:auto;display:block}.course-calendar-page--embedded .page-shell{height:auto}.calendar-main{min-height:calc(100vh - 52px)}.course-calendar-page--embedded .calendar-main{min-height:720px}.workspace-toolbar{flex-wrap:wrap}.toolbar-spacer{display:none}.primary-button{margin-left:auto}.status-bar>span{display:none}.calendar-board,.calendar-board.is-table{grid-template-columns:1fr}.session-rail{display:none}.session-inspector{min-height:430px;border-top:1px solid var(--lz-border);border-left:0}.month-scroll{min-height:500px}}
