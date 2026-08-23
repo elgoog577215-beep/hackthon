@@ -220,13 +220,16 @@ let workspaceAttempt = 0
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
 const courseId = computed(() => String(route.params.courseId || ''))
-const isTeacherSurface = computed(() => route.meta?.courseSurface === 'teacher')
-const teacherLessonId = computed(() => isTeacherSurface.value
-  ? String(route.query.lesson || route.query.node || '')
-  : '')
+const teacherLessonId = computed(() => String(route.query?.lesson || route.query?.node || ''))
+const isTeacherSurface = computed(() => (
+  Boolean(teacherLessonId.value)
+  || route.meta?.courseSurface === 'teacher'
+))
 const courseTitle = computed(() => (
   store.selectedSpec?.payload?.content?.title
   || courseStore.currentCourse?.course_name
+  || documentEnvelope.value?.document?.title
+  || documentEnvelope.value?.course_name
   || t('pptWorkspace.untitledCourse', '课程演示')
 ))
 const targetSlideRepresentations = computed(() => (

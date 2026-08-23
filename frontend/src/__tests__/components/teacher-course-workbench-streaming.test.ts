@@ -52,6 +52,7 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       CourseReferenceTray: true,
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
+      TeacherScriptDocument: true,
       MarkdownRenderer: true,
       CourseOutlineReview: {
         props: ['editable', 'variant', 'requiresConfirmation'],
@@ -297,12 +298,29 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.text()).toContain('待确认')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
-    expect(lessonWrapper.get('.document-actions .primary-action').text()).toContain('确认并进入题库')
-    await lessonWrapper.get('.document-actions .primary-action').trigger('click')
+    expect(lessonWrapper.get('.document-footer button').text()).toContain('确认并进入题库')
+    await lessonWrapper.get('.document-footer button').trigger('click')
     expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
     expect(lessonWrapper.get('.center-heading h2').text()).toBe('题库')
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
-    expect(pptWrapper.get('.lesson-formal header button').attributes('disabled')).toBeDefined()
+    expect(pptWrapper.get('.ppt-entry button.primary').attributes('disabled')).toBeDefined()
+  })
+
+  it('所有讲次在同一位置切换上一讲与下一讲', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    })) as any
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect((wrapper.get('.lesson-selector select').element as HTMLSelectElement).value).toBe('L1-1')
+    const navigationButtons = wrapper.findAll('.lesson-navigator>button')
+    expect(navigationButtons[0]!.attributes('disabled')).toBeDefined()
+    await navigationButtons[1]!.trigger('click')
+    expect((wrapper.get('.lesson-selector select').element as HTMLSelectElement).value).toBe('L1-2')
+    expect(wrapper.findAll('.lesson-navigator>button')[1]!.attributes('disabled')).toBeDefined()
   })
 })

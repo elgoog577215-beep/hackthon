@@ -124,3 +124,12 @@
 - [x] 14.3 Normalize outline-only lesson scopes through the existing pedagogy compiler before reusing the V3 teaching-plan engine.
 - [x] 14.4 Show lesson-plan job progress and failures, prevent duplicate submission, add an explicit lesson-plan confirmation, and bind PPT generation to the confirmed revision.
 - [x] 14.5 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.
+
+## 15. Unified lesson review and V6 production handoff
+
+- [x] 15.1 Keep lesson-plan viewing, editing and AI candidates in one document surface; move confirmation to the stable bottom-right workflow position.
+- [x] 15.2 Add one shared previous/current/next lesson navigator for lesson plans, question bank, scripts and PPT handoff.
+- [x] 15.3 Store one formal script asset per lesson, generate it from the confirmed lesson plan and teacher requirements, support inline editing and AI candidates, and require an explicit script confirmation bound to the confirmed lesson-plan revision.
+- [x] 15.4 Remove active legacy PPT generation/edit candidate APIs and route every teacher PPT creation to the existing `SlideDeckV6` workbench.
+- [x] 15.5 Bind each V6 PPT revision to both the confirmed lesson-plan revision and confirmed script revision; mark it stale when either source changes.
+- [x] 15.6 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.

@@ -28,7 +28,6 @@ SCHEMA_VERSION = "teacher_lesson_authoring_v1"
 LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
-    "teacher_lesson_ppt_generation",
 }
 
 
@@ -441,6 +440,45 @@ def lesson_scope(course_data: dict[str, Any], lesson_unit_id: str) -> dict[str, 
     }
 
 
+def teacher_lesson_script_revision(
+    course_data: dict[str, Any],
+    lesson_unit_id: str,
+) -> str:
+    """Fingerprint the saved course body used as this lesson's single script source."""
+    scope = lesson_scope(course_data, lesson_unit_id)
+    payload = [
+        {
+            "section_node_id": str(section.get("node_id") or ""),
+            "title": str(section.get("node_name") or ""),
+            "content": str(section.get("node_content") or ""),
+        }
+        for section in scope["sections"]
+    ]
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    return f"tlsr-{digest}"
+
+
+def teacher_lesson_script_sections_revision(
+    sections: list[dict[str, Any]],
+) -> str:
+    """Fingerprint one teacher-script asset without depending on course storage."""
+    payload = [
+        {
+            "section_node_id": str(section.get("section_node_id") or ""),
+            "title": str(section.get("title") or ""),
+            "content": str(section.get("content") or ""),
+        }
+        for section in sections
+        if isinstance(section, dict)
+    ]
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    return f"tlsr-{digest}"
+
+
 def lesson_plan_ppt_source(
     plan: dict[str, Any],
     *,
@@ -512,6 +550,7 @@ def teacher_lesson_v6_source(
     *,
     lesson_unit_id: str,
     plan_revision: dict[str, Any],
+    script_revision: dict[str, Any] | None = None,
 ) -> tuple[Any, dict[str, Any], str]:
     """Adapt one teacher plan revision to the existing V6 source contracts.
 
@@ -531,6 +570,14 @@ def teacher_lesson_v6_source(
     ).hexdigest()[:20]
     synthetic_course_id = f"teacher-lesson-{digest}"
     lesson_title = str(scope["lesson"].get("node_name") or "本讲课件")
+    script_sections = {
+        str(item.get("section_node_id") or ""): deepcopy(item)
+        for item in (script_revision or {}).get("sections") or []
+        if isinstance(item, dict) and item.get("section_node_id")
+    }
+    script_revision_id = str((script_revision or {}).get("revision_id") or "")
+    if not script_revision_id:
+        script_revision_id = teacher_lesson_script_revision(course_data, lesson_unit_id)
     lesson_node = deepcopy(scope["lesson"])
     lesson_node.update({
         "node_id": lesson_unit_id,
@@ -550,6 +597,22 @@ def teacher_lesson_v6_source(
             if isinstance(item, dict)
         ]
         blocks: list[dict[str, Any]] = []
+        script_content = str(
+            (script_sections.get(section_id) or {}).get("content")
+            or outline_section.get("node_content")
+            or ""
+        ).strip()
+        if script_content:
+            blocks.append({
+                "block_id": f"{section_id}-teacher-script",
+                "type": "concept",
+                "title": "讲稿正文",
+                "content": script_content,
+                "metadata": {
+                    "role": "concept",
+                    "source_kind": "confirmed_teacher_script",
+                },
+            })
         for module_index, module in enumerate(modules, start=1):
             module_id = str(module.get("module_id") or "core_explanation")
             role = module_block_role(module_id)
@@ -663,6 +726,7 @@ def teacher_lesson_v6_source(
             "real_course_id": str(course_data.get("course_id") or ""),
             "lesson_unit_id": lesson_unit_id,
             "lesson_plan_revision_id": str(plan_revision.get("revision_id") or ""),
+            "script_revision_id": script_revision_id,
         },
     }
     document = document_from_generation_draft(synthetic)
@@ -833,6 +897,9 @@ class TeacherLessonAuthoringRepository:
                 "source_state": "current",
                 "revisions": [],
                 "ai_candidates": [],
+                "working_script_revision_id": "",
+                "script_revisions": [],
+                "script_confirmation": {},
                 "ppt_assets": [],
             })
             revision_id = f"tlpr-{uuid.uuid4().hex}"
@@ -941,6 +1008,7 @@ class TeacherLessonAuthoringRepository:
         lesson_unit_id: str,
         *,
         source_lesson_plan_revision_id: str,
+        source_script_revision_id: str,
         synthetic_course_id: str,
         representation_id: str,
         spec_id: str,
@@ -952,10 +1020,10 @@ class TeacherLessonAuthoringRepository:
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
                 raise TeacherLessonAuthoringError("lesson_plan_not_found", "请先生成本讲教案。")
-            if lesson.get("working_revision_id") != source_lesson_plan_revision_id:
+            if lesson.get("confirmed_revision_id") != source_lesson_plan_revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_plan_revision_conflict",
-                    "教案草稿已经变化，V6 结果未登记。",
+                    "已确认教案已经变化，V6 结果未登记。",
                 )
             assets = lesson.setdefault("ppt_assets", [])
             asset = next(
@@ -981,6 +1049,7 @@ class TeacherLessonAuthoringRepository:
                 "representation_id": representation_id,
                 "spec_id": spec_id,
                 "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                "source_script_revision_id": source_script_revision_id,
                 "candidate_status": candidate_status,
                 "created_at": _now(),
             }
@@ -990,6 +1059,7 @@ class TeacherLessonAuthoringRepository:
             asset["working_representation_id"] = representation_id
             asset["synthetic_course_id"] = synthetic_course_id
             asset["source_lesson_plan_revision_id"] = source_lesson_plan_revision_id
+            asset["source_script_revision_id"] = source_script_revision_id
             asset["source_state"] = "current"
             saved = self._save(value)
             return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
@@ -1101,6 +1171,9 @@ class TeacherLessonAuthoringRepository:
                 "source_state": "current",
                 "revisions": [],
                 "ai_candidates": [],
+                "working_script_revision_id": "",
+                "script_revisions": [],
+                "script_confirmation": {},
                 "ppt_assets": [],
             }
         return deepcopy(lesson)
@@ -1158,6 +1231,146 @@ class TeacherLessonAuthoringRepository:
             lesson["confirmed_revision_id"] = revision_id
             revision["status"] = "confirmed"
             revision["confirmed_at"] = _now()
+            script_confirmation = lesson.get("script_confirmation")
+            if isinstance(script_confirmation, dict) and script_confirmation.get("confirmed_revision_id"):
+                if script_confirmation.get("source_lesson_plan_revision_id") != revision_id:
+                    script_confirmation["source_state"] = "stale"
+            saved = self._save(value)
+            return deepcopy(saved["lessons"][lesson_unit_id])
+
+    def save_script_revision(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        sections: list[dict[str, Any]],
+        *,
+        source_lesson_plan_revision_id: str,
+        generation_source: str = "model",
+        requirements: str = "",
+        material_asset_ids: list[str] | None = None,
+        actor: str = "teacher",
+    ) -> dict[str, Any]:
+        normalized_sections = [
+            {
+                "section_node_id": str(item.get("section_node_id") or "").strip(),
+                "title": str(item.get("title") or "").strip(),
+                "content": str(item.get("content") or "").strip(),
+            }
+            for item in sections
+            if isinstance(item, dict)
+        ]
+        if not normalized_sections or any(
+            not item["section_node_id"] or not item["content"]
+            for item in normalized_sections
+        ):
+            raise TeacherLessonAuthoringError(
+                "lesson_script_incomplete",
+                "本讲仍有小节没有讲稿内容，暂时不能保存。",
+            )
+        revision_id = teacher_lesson_script_sections_revision(normalized_sections)
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_not_found",
+                    "请先生成并确认本讲教案。",
+                )
+            if lesson.get("confirmed_revision_id") != source_lesson_plan_revision_id:
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_revision_conflict",
+                    "已确认教案已经变化，请基于最新教案生成讲稿。",
+                )
+            revisions = lesson.setdefault("script_revisions", [])
+            existing = next(
+                (
+                    item for item in revisions
+                    if isinstance(item, dict) and item.get("revision_id") == revision_id
+                ),
+                None,
+            )
+            if existing is None:
+                revisions.append({
+                    "revision_id": revision_id,
+                    "lesson_unit_id": lesson_unit_id,
+                    "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                    "generation_source": generation_source,
+                    "requirements": requirements,
+                    "material_asset_ids": list(dict.fromkeys(
+                        str(value or "").strip()
+                        for value in material_asset_ids or []
+                        if str(value or "").strip()
+                    )),
+                    "sections": normalized_sections,
+                    "actor": actor,
+                    "created_at": _now(),
+                })
+            lesson["working_script_revision_id"] = revision_id
+            confirmation = lesson.get("script_confirmation")
+            if isinstance(confirmation, dict) and confirmation.get("confirmed_revision_id") != revision_id:
+                confirmation["source_state"] = "stale"
+            for asset in lesson.get("ppt_assets") or []:
+                if not isinstance(asset, dict) or asset.get("engine") != "slide_deck_v6":
+                    continue
+                if asset.get("source_script_revision_id") != revision_id:
+                    asset["source_state"] = "stale"
+            saved = self._save(value)
+            return deepcopy(saved["lessons"][lesson_unit_id])
+
+    def confirm_script_revision(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_not_found",
+                    "请先生成并确认本讲教案。",
+                )
+            source_plan_revision = str(lesson.get("confirmed_revision_id") or "")
+            if not source_plan_revision:
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_not_confirmed",
+                    "请先确认本讲教案，再确认讲稿。",
+                )
+            if lesson.get("working_script_revision_id") != revision_id:
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_revision_conflict",
+                    "只能确认当前讲稿工作稿。",
+                )
+            revision = next(
+                (
+                    item for item in lesson.get("script_revisions") or []
+                    if isinstance(item, dict) and item.get("revision_id") == revision_id
+                ),
+                None,
+            )
+            if not isinstance(revision, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_revision_not_found",
+                    "讲稿修订不存在。",
+                )
+            if revision.get("source_lesson_plan_revision_id") != source_plan_revision:
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_revision_conflict",
+                    "讲稿对应的教案已经变化，请重新生成讲稿。",
+                )
+            lesson["script_confirmation"] = {
+                "confirmed_revision_id": revision_id,
+                "source_lesson_plan_revision_id": source_plan_revision,
+                "source_state": "current",
+                "confirmed_at": _now(),
+            }
+            for asset in lesson.get("ppt_assets") or []:
+                if not isinstance(asset, dict):
+                    continue
+                source_revision = str(asset.get("source_script_revision_id") or "")
+                if asset.get("engine") == "slide_deck_v6" and source_revision != revision_id:
+                    asset["source_state"] = "stale"
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 

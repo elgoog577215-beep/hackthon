@@ -41,21 +41,6 @@
           <button type="button" @click="beginEditing">
             <Pencil :size="15" />{{ tr('courseWorkbench.lessonDocument.edit') }}
           </button>
-          <button
-            v-if="!confirmed"
-            class="primary-action"
-            type="button"
-            :disabled="confirming || qualityBlocked"
-            :title="qualityBlocked ? qualityBlockMessage : ''"
-            @click="emit('confirm')"
-          >
-            <LoaderCircle v-if="confirming" :size="15" class="spin" />
-            <Check v-else :size="15" />
-            {{ confirming ? tr('courseWorkbench.confirmingLessonPlan') : tr('courseWorkbench.confirmLessonPlanAndContinue') }}
-          </button>
-          <button v-else class="primary-action" type="button" @click="emit('next')">
-            <ArrowRight :size="15" />{{ tr('courseWorkbench.lessonDocument.next') }}
-          </button>
         </template>
       </div>
     </header>
@@ -245,6 +230,25 @@
     </article>
 
     <div v-else class="document-empty">{{ tr('courseWorkbench.lessonPlanPreparing') }}</div>
+
+    <footer v-if="!pendingCandidate && !editing" class="document-footer">
+      <span v-if="confirmed" class="document-saved"><Check :size="15" />{{ tr('courseWorkbench.lessonPlanConfirmed') }}</span>
+      <span v-else />
+      <button
+        type="button"
+        :disabled="confirming || qualityBlocked"
+        :title="qualityBlocked ? qualityBlockMessage : ''"
+        @click="continueWorkflow"
+      >
+        <LoaderCircle v-if="confirming" :size="15" class="spin" />
+        <ArrowRight v-else :size="15" />
+        {{ confirming
+          ? tr('courseWorkbench.confirmingLessonPlan')
+          : confirmed
+            ? tr('courseWorkbench.lessonDocument.next')
+            : tr('courseWorkbench.confirmLessonPlanAndContinue') }}
+      </button>
+    </footer>
   </section>
 </template>
 
@@ -394,6 +398,11 @@ const documentStateLabel = computed(() => pendingCandidate.value
     : props.confirmed
       ? tr('courseWorkbench.lessonPlanConfirmed')
       : tr('courseWorkbench.lessonPlanPendingReview'))
+
+function continueWorkflow() {
+  if (props.confirmed) emit('next')
+  else emit('confirm')
+}
 const emptyValue = computed(() => tr('courseWorkbench.lessonDocument.empty'))
 
 const moduleLabels = computed<Record<string, string>>(() => ({
@@ -548,15 +557,15 @@ watch(planSections, sections => {
 </script>
 
 <style scoped>
-.lesson-document{max-width:1080px;margin:20px 20px 0;overflow:hidden;border:1px solid #dde3ec;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.04)}
-.document-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:18px 22px;border-bottom:1px solid #e8ecf2}
+.lesson-document{background:#fff}
+.document-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}
 .document-title{min-width:0;display:grid;gap:5px}.document-kicker{display:flex;align-items:center;gap:9px;color:#6366f1;font-size:11px;font-weight:800}.document-kicker i{padding:3px 7px;border-radius:999px;color:#92400e;background:#fff7ed;font-style:normal;font-weight:750}.document-kicker i[data-state="confirmed"]{color:#047857;background:#ecfdf5}.document-kicker i[data-state="editing"],.document-kicker i[data-state="candidate"]{color:#4338ca;background:#eef2ff}.document-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.document-title p{display:flex;align-items:center;gap:7px;margin:0;color:#7a8699;font-size:12px}
-.document-actions{flex:none;display:flex;align-items:center;gap:8px}.document-actions button{min-height:36px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid #d5dce7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.document-actions button:hover{border-color:#b8c2d2;background:#f8fafc}.document-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.document-actions button:disabled{opacity:.5;cursor:not-allowed}.document-actions .primary-action{border-color:#514bdc;color:#fff;background:#514bdc}.document-actions .primary-action:hover{border-color:#4338ca;background:#4338ca}
-.ai-command{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 22px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.ai-command textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.5;resize:vertical}.ai-command textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.ai-command button{min-width:108px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:0;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.ai-command button:disabled{opacity:.5;cursor:not-allowed}.document-error{margin:0;padding:10px 22px;color:#b91c1c;background:#fff1f2;font-size:12px}.section-tabs{display:flex;gap:3px;overflow:auto;padding:9px 14px;border-bottom:1px solid #e8ecf2;background:#fbfcfe}.section-tabs button{max-width:250px;min-height:34px;display:flex;align-items:center;gap:7px;padding:0 10px;border:0;border-radius:7px;color:#64748b;background:transparent;font-size:12px;white-space:nowrap;cursor:pointer}.section-tabs button span{color:#94a3b8;font-size:10px;font-weight:800}.section-tabs button:hover{background:#f1f4f8}.section-tabs button.active{color:#3730a3;background:#eef0ff;font-weight:750}.section-tabs button.active span{color:#6366f1}
+.document-actions{flex:none;display:flex;align-items:center;gap:2px}.document-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.document-actions button:hover{color:#3730a3;background:#f2f3fa}.document-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.document-actions button:disabled{opacity:.5;cursor:not-allowed}.document-actions .primary-action{margin-left:4px;border-color:#d7ddea;color:#3730a3;background:#fff}.document-actions .primary-action:hover{border-color:#c6cbe0;background:#f7f7ff}
+.ai-command{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.ai-command textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.5;resize:vertical}.ai-command textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.ai-command button{min-width:108px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:0;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.ai-command button:disabled{opacity:.5;cursor:not-allowed}.document-error{margin:0;padding:10px 28px;color:#b91c1c;background:#fff1f2;font-size:12px}.section-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.section-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:12px;white-space:nowrap;cursor:pointer}.section-tabs button span{color:#94a3b8;font-size:10px;font-weight:800}.section-tabs button:hover{color:#3730a3}.section-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.section-tabs button.active span{color:#6366f1}
 .document-body{display:grid;padding:12px 28px 34px}.section-title{display:flex;align-items:center;gap:10px;padding:17px 0 2px}.section-title span{color:#6366f1;font-size:11px;font-weight:850}.section-title h4{margin:0;color:#172033;font-size:16px}.document-section{padding:22px 0;border-bottom:1px solid #e8ecf2}.document-section:last-child{border-bottom:0}.document-section h4{margin:0 0 12px;color:#263147;font-size:13px}.document-section p{margin:0;color:#536176;font-size:13px;line-height:1.7}.document-section ul,.document-section ol{display:grid;gap:7px;margin:0;padding-left:18px;color:#536176;font-size:13px;line-height:1.6}.document-section textarea,.flow-row input{width:100%;box-sizing:border-box;border:1px solid #cbd4e1;border-radius:7px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.55}.document-section textarea{min-height:74px;padding:9px 10px;resize:vertical}.document-section textarea:focus,.flow-row input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}
 .objective-section>p{max-width:820px;font-size:14px}.focus-grid,.closing-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}.focus-grid>div,.closing-grid>div{min-width:0;padding-right:26px}.focus-grid>div+div,.closing-grid>div+div{padding-right:0;padding-left:26px;border-left:1px solid #e8ecf2}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading span{color:#7a8699;font-size:11px}
 .flow-table{overflow:hidden;border:1px solid #dde3ec;border-radius:8px}.flow-row{display:grid;grid-template-columns:64px minmax(120px,.82fr) minmax(170px,1.2fr) minmax(150px,1fr) minmax(150px,1fr);border-top:1px solid #e3e8f0}.flow-row:first-child{border-top:0}.flow-row>div,.flow-head>span{min-width:0;padding:12px 11px;border-left:1px solid #e3e8f0}.flow-row>div:first-child,.flow-head>span:first-child{border-left:0}.flow-head{color:#64748b;background:#f6f8fb;font-size:11px;font-weight:750}.flow-row p{font-size:12px;line-height:1.58}.flow-row ul{gap:5px;padding-left:15px;font-size:12px;line-height:1.5}.duration-cell{color:#475569;font-size:12px;text-align:center}.duration-cell input{height:34px;padding:6px;text-align:center}.phase-cell{display:grid;align-content:start;gap:7px}.phase-cell strong{color:#334155;font-size:12px}.phase-cell p{color:#7a8699;font-size:11px}.flow-row textarea{min-height:112px}.flow-empty{padding:28px;color:#7a8699;font-size:12px;text-align:center}
-.document-empty{min-height:280px;display:grid;place-items:center;color:#7a8699;font-size:13px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1050px){.lesson-document{margin-inline:14px}.document-body{padding-inline:20px}.flow-table{overflow:auto}.flow-row{min-width:800px}}
-@media(max-width:760px){.document-header{align-items:flex-start;flex-direction:column}.document-actions{width:100%;justify-content:flex-end}.ai-command{grid-template-columns:1fr}.ai-command button{min-height:38px}.focus-grid,.closing-grid{grid-template-columns:1fr}.focus-grid>div,.closing-grid>div{padding-right:0}.focus-grid>div+div,.closing-grid>div+div{margin-top:20px;padding:20px 0 0;border-top:1px solid #e8ecf2;border-left:0}}
+.document-empty{min-height:280px;display:grid;place-items:center;color:#7a8699;font-size:13px}.document-footer{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.document-footer button{min-height:38px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.document-footer button:hover{border-color:#4338ca;background:#4338ca}.document-footer button:disabled{opacity:.45;cursor:not-allowed}.document-saved{display:flex;align-items:center;gap:7px;color:#047857;font-size:12px;font-weight:700}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:1050px){.document-body{padding-inline:20px}.flow-table{overflow:auto}.flow-row{min-width:800px}}
+@media(max-width:760px){.document-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.document-actions{width:100%;justify-content:flex-end}.ai-command{grid-template-columns:1fr;padding-inline:18px}.ai-command button{min-height:38px}.section-tabs{padding-inline:18px}.focus-grid,.closing-grid{grid-template-columns:1fr}.focus-grid>div,.closing-grid>div{padding-right:0}.focus-grid>div+div,.closing-grid>div+div{margin-top:20px;padding:20px 0 0;border-top:1px solid #e8ecf2;border-left:0}.document-footer{padding-inline:18px}}
 </style>

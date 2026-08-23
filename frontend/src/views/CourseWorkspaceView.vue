@@ -70,7 +70,6 @@
         v-model:outline-editing="outlineEditing"
         @generate-outline="startOutlineGeneration"
         @outline-confirmed="handleOutlineConfirmed"
-        @open-script="openScript"
       />
       <TeacherCourseSpaceView
         v-else
@@ -85,6 +84,8 @@
         @open-teaching-plan="openLessonPlan"
         @open-tasks="openTasks"
         @open-practice="openPractice"
+        @open-script="openScript"
+        @open-ppt="openPpt"
         @open-question-bank="openQuestionBankWorkbench"
         @open-companion-documents="openCompanionDocuments"
         @context-change="selectedContext = $event"
@@ -269,16 +270,16 @@ function openPractice(lessonId: string) {
   })
 }
 
+function openPpt(lessonId: string) {
+  requestedWorkbenchStage.value = 'ppt'
+  requestedLessonId.value = lessonId
+  workspaceView.value = 'categories'
+}
+
 function openScript(lessonId: string) {
-  const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
-  const sectionIds = new Set(lesson?.sections.map(item => item.section_node_id) || [])
-  const targetNode = courseStore.nodes.find(node => sectionIds.has(node.node_id))
-    || courseStore.nodes.find(node => sectionIds.has(String(node.parent_node_id || '')))
-  void router.push({
-    name: 'learning',
-    params: { courseId: courseId.value, ...(targetNode ? { nodeId: targetNode.node_id } : {}) },
-    query: { teacherPreview: '1', returnTo: route.fullPath },
-  })
+  requestedWorkbenchStage.value = 'script'
+  requestedLessonId.value = lessonId
+  workspaceView.value = 'categories'
 }
 
 function openTasks() {

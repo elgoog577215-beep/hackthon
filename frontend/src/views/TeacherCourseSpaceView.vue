@@ -423,6 +423,8 @@ const emit = defineEmits<{
   (event: 'openTeachingPlan', lessonId: string): void
   (event: 'openTasks'): void
   (event: 'openPractice', lessonId: string): void
+  (event: 'openScript', lessonId: string): void
+  (event: 'openPpt', lessonId: string): void
   (event: 'openQuestionBank'): void
   (event: 'openCompanionDocuments'): void
   (event: 'openAssistant'): void
@@ -486,6 +488,10 @@ const lessons = computed<TeacherLessonProjection[]>(() => {
       title: node.node_name.replace(/^第\s*\d+\s*讲\s*/, ''),
       duration_minutes: Number((node as any).estimated_minutes || 45),
       sections: [],
+      script: {
+        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
+        source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [],
+      },
       plan: {
         lesson_unit_id: node.node_id,
         working_revision_id: '',
@@ -1100,25 +1106,18 @@ async function primaryAction(node: WorkspaceNode) {
   if (node.type === 'content') {
     node.status === 'missing'
       ? emit('openTasks')
-      : router.push({
-        name: 'learning',
-        params: { courseId: props.courseId, nodeId: node.lessonId },
-        query: { teacherPreview: '1', returnTo: workspaceReturnTo(node.lessonId || '') },
-      })
+      : emit('openScript', node.lessonId || '')
     return
   }
-  if (node.type === 'ppt') { node.status === 'missing' ? openCreateDialog('ppt', node.lessonId) : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } }); return }
+  if (node.type === 'ppt') {
+    node.status === 'missing'
+      ? emit('openPpt', node.lessonId || '')
+      : router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: node.lessonId } })
+    return
+  }
   if (node.type === 'practice') { node.status === 'missing' ? openCreateDialog('practice', node.lessonId) : emit('openPractice', node.lessonId || ''); return }
   if (node.type === 'question_bank' || node.type === 'exam_paper') { emit('openQuestionBank'); return }
   if (node.type === 'companion_document') { emit('openCompanionDocuments'); return }
-}
-
-function workspaceReturnTo(lessonId = '') {
-  return router.resolve({
-    name: 'course-workspace',
-    params: { courseId: props.courseId, mode: 'setup' },
-    query: { ...route.query, ...(lessonId ? { lesson: lessonId } : {}) },
-  }).fullPath
 }
 
 const canExportManaged = (node: WorkspaceNode) => node.kind === 'managed'
@@ -1458,7 +1457,10 @@ async function submitCreate() {
         if (createForm.value.style === 'template' && createForm.value.file) {
           await uploadFile(createForm.value.file, `${targetPath('ppt', createForm.value.lessonId)}/风格参考`)
         }
-        await lessonStore.generatePpt(props.courseId, createForm.value.lessonId, revision)
+        const lessonId = createForm.value.lessonId
+        closeCreateDialog()
+        await router.push({ name: 'ppt-workspace', params: { courseId: props.courseId }, query: { lesson: lessonId } })
+        return
       }
     } else if (createForm.value.file) {
       await uploadFile(createForm.value.file, targetPath(createType.value, createForm.value.lessonId))

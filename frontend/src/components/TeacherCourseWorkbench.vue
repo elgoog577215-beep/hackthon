@@ -117,18 +117,12 @@
         @saved="handleCompanionSaved"
       />
 
-      <QuestionBankReviewPanel
-        v-else-if="activeStage === 'question-bank'"
-        class="question-workbench-surface"
-        :course-id="courseId"
-        :initial-node-ids="selectedLessonQuestionNodeIds"
-        :initial-scope-label="selectedLesson?.title || ''"
-        :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
-        @updated="questionBankReady = true"
-      />
-
       <section v-else class="lesson-stage">
-        <label v-if="lessonStore.lessons.length && !outlineGatePending" class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ String(lesson.number).padStart(2, '0') }} · {{ lesson.title }}</option></select></label>
+        <nav v-if="lessonStore.lessons.length && !outlineGatePending" class="lesson-navigator" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
+          <button type="button" :disabled="!previousLesson" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
+          <label class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ String(lesson.number).padStart(2, '0') }} · {{ lesson.title }}</option></select></label>
+          <button type="button" :disabled="!nextLesson" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
+        </nav>
         <div v-if="lessonStageBlocked" class="prerequisite" :data-state="lessonPrerequisiteState.kind" aria-live="polite">
           <LoaderCircle v-if="lessonPrerequisiteState.kind === 'loading'" :size="24" class="spin" />
           <TriangleAlert v-else-if="lessonPrerequisiteState.kind === 'error'" :size="24" />
@@ -137,6 +131,18 @@
           <span>{{ lessonPrerequisiteState.detail }}</span>
           <button v-if="lessonPrerequisiteState.action" type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button>
         </div>
+
+        <template v-else-if="activeStage === 'question-bank'">
+          <QuestionBankReviewPanel
+            class="question-workbench-surface"
+            :course-id="courseId"
+            :initial-node-ids="selectedLessonQuestionNodeIds"
+            :initial-scope-label="selectedLesson?.title || ''"
+            :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
+            @updated="questionBankReady = true"
+          />
+          <footer class="stage-next-bar"><span /><button class="primary" type="button" @click="activeStage = 'script'"><ChevronRight :size="15" />{{ t('courseWorkbench.nextToScript', '进入讲稿') }}</button></footer>
+        </template>
 
         <template v-else-if="activeStage === 'lesson'">
           <section v-if="lessonGenerationActive" class="generation-surface lesson-generation-surface" aria-live="polite">
@@ -161,11 +167,29 @@
         </template>
 
         <template v-else-if="activeStage === 'script'">
-          <section class="formal-surface lesson-formal"><header><div><strong>{{ t('courseWorkbench.script', '讲稿') }}</strong><small>{{ t('courseWorkbench.scriptPptSameSource', '与 PPT 结构化同源') }}</small></div><button type="button" :disabled="!selectedLessonId" @click="emit('openScript', selectedLessonId)"><Pencil :size="15" />{{ t('courseWorkbench.openEditor', '打开编辑') }}</button></header><article v-if="scriptMarkdown"><MarkdownRenderer :content="scriptMarkdown" /></article><div v-else class="empty-asset">{{ t('courseWorkbench.scriptPending', '课程内容生成后，这里会形成可编辑的轻量讲稿。') }}</div></section>
+          <TeacherScriptDocument
+            v-if="selectedLesson"
+            :course-id="courseId"
+            :lesson="selectedLesson"
+            :confirmed="scriptConfirmed"
+            :confirming="scriptConfirming"
+            :confirm-error="scriptConfirmError"
+            :generating="scriptGenerating"
+            :generation-error="scriptGenerationError"
+            :can-generate="Boolean(confirmedLessonRevision)"
+            @generate="generateScript"
+            @saved="handleScriptSaved"
+            @confirm="confirmScript"
+            @next="activeStage = 'ppt'"
+          />
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
-          <section class="formal-surface lesson-formal"><header><div><strong>PPT</strong><small>{{ pptAsset ? t('courseWorkbench.formalSaved', '已进入课程正式文件') : t('courseWorkbench.pptFromScript', '从教案与讲稿生成') }}</small></div><button type="button" :disabled="pptBusy || !confirmedLessonRevision" @click="generatePpt"><LoaderCircle v-if="pptBusy" :size="15" class="spin" /><Presentation v-else :size="15" />{{ pptAsset ? t('courseWorkbench.openPpt', '打开 PPT') : t('courseWorkbench.generatePpt', '生成 PPT') }}</button></header><article v-if="pptAsset"><h3>{{ pptAsset.revisions?.at(-1)?.deck?.title || selectedLesson?.title }}</h3><ol><li v-for="slide in pptAsset.revisions?.at(-1)?.deck?.slides || []" :key="slide.slide_id">{{ slide.title }}</li></ol></article><div v-else class="empty-asset">{{ confirmedLessonRevision ? t('courseWorkbench.pptReadyToGenerate', '教案已准备好，可以生成配套 PPT。') : t('courseWorkbench.planBeforePpt', '请先生成并确认本讲教案。') }}</div></section>
+          <section class="ppt-entry">
+            <Presentation :size="24" />
+            <div><strong>{{ selectedLesson?.title }}</strong><span>{{ t('courseWorkbench.pptFromScript', '从已确认教案与讲稿进入同一份 V6 PPT') }}</span></div>
+            <button class="primary" type="button" :disabled="!confirmedLessonRevision || !scriptConfirmed" @click="openPptWorkspace"><Presentation :size="15" />{{ t('courseWorkbench.openPptWorkbench', '进入 PPT 工作台') }}</button>
+          </section>
         </template>
       </section>
     </main>
@@ -176,7 +200,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
@@ -184,6 +208,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
+import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
@@ -199,7 +224,6 @@ const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
   (event: 'outlineConfirmed'): void
-  (event: 'openScript', lessonId: string): void
 }>()
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
@@ -220,7 +244,7 @@ const shapeConfirming = ref(false)
 const shapeConfirmError = ref('')
 const totalSectionCount = computed(() => chapterSectionCounts.value.reduce((total, count) => total + Math.max(1, Number(count || 1)), 0))
 const lessonRequirements = ref('')
-const lessonBusy = ref(false); const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const pptBusy = ref(false); const generationRequested = ref(false)
+const lessonBusy = ref(false); const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
 const stages = computed(() => [
@@ -238,10 +262,13 @@ const activeStageDefinition = computed(() => stages.value.find(item => item.id =
   icon: markRaw(FileCheck2),
 })
 const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
+const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
+const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
+const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
 const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
-const pptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(item => item.role === 'primary') || selectedLesson.value?.plan.ppt_assets[0])
+const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.confirmed))
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskStatus = computed(() => String(generationTask.value?.status || ''))
 const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.value))
@@ -280,14 +307,11 @@ const lessonGenerationActive = computed(() => ['pending', 'running'].includes(St
 const lessonGenerationFailed = computed(() => lessonJob.value?.status === 'failed')
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
 const lessonGenerationError = computed(() => String(lessonJob.value?.error?.message || lessonStore.error || ''))
-const scriptNodes = computed(() => { const ids = new Set(selectedLesson.value?.sections.map(item => item.section_node_id) || []); return courseStore.nodes.filter(node => ids.has(node.node_id) || ids.has(String(node.parent_node_id || ''))) })
-const scriptMarkdown = computed(() => scriptNodes.value.map(node => `## ${node.node_name}\n\n${node.node_content || ''}`).join('\n\n'))
 const selectedLessonQuestionNodeIds = computed(() => selectedLesson.value?.sections.map(item => item.section_node_id).filter(Boolean) || [])
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
   || outlineGatePending.value
-  || Boolean(lessonStore.error)
   || !lessonStore.lessons.length
 ))
 const lessonPrerequisiteState = computed(() => {
@@ -309,7 +333,7 @@ const lessonPrerequisiteState = computed(() => {
     detail: t('courseWorkbench.lessonPrerequisite.outlineReviewHelp', '确认后会直接形成可选择的课次，不需要重新生成大纲。'),
     action: t('courseWorkbench.lessonPrerequisite.reviewOutline', '查看并确认大纲'),
   }
-  if (lessonStore.error) return {
+  if (lessonStore.error && !lessonStore.lessons.length) return {
     kind: 'error',
     title: t('courseWorkbench.lessonPrerequisite.loadFailed', '课次读取失败'),
     detail: lessonStore.error,
@@ -329,7 +353,7 @@ const lessonPrerequisiteState = computed(() => {
   }
 })
 
-function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return courseStore.nodes.some(node => Boolean(node.node_content)); return lessonStore.lessons.some(item => item.plan.ppt_assets.length > 0) }
+function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => asset.engine === 'slide_deck_v6' && asset.source_state === 'current')) }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
 async function toggleOutlineEditing() {
@@ -363,7 +387,46 @@ async function submitFoundation() { generationRequested.value = true; try { cons
 async function confirmOutlineShape() { if (!shapeCountsValid.value || shapeConfirming.value) return; shapeConfirming.value = true; shapeConfirmError.value = ''; try { const counts = chapterSectionCounts.value.map(count => Number(count)); await courseWorkspaceStore.confirmOutlineShape(props.courseId, counts); generationRequested.value = true; await generationStore.fetchGlobalTasks() } catch (error: any) { shapeConfirmError.value = String(error?.response?.data?.detail || error?.message || t('courseWorkbench.shapeReview.failed', '无法继续生成，请稍后重试')) } finally { shapeConfirming.value = false } }
 async function generateLessonPlan() { if (!selectedLesson.value || lessonGenerationActive.value) return; lessonBusy.value = true; lessonConfirmError.value = ''; try { await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', selectedLesson.value.title); const primary = activeReferences.value.find(item => item.role === 'primary'); await lessonStore.generateLesson(props.courseId, selectedLessonId.value, primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined, lessonRequirements.value, activeReferences.value.map(item => item.material_asset_id)) } catch { /* The store keeps the teacher-visible reason. */ } finally { lessonBusy.value = false } }
 async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision); activeStage.value = 'question-bank' } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
-async function generatePpt() { if (!selectedLesson.value) return; if (pptAsset.value) { window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`); return } const revision = confirmedLessonRevision.value?.revision_id; if (!revision) return; pptBusy.value = true; try { await saveRelationships(`ppt:${selectedLessonId.value}`, 'ppt', `${selectedLesson.value.title} PPT`); await lessonStore.generatePpt(props.courseId, selectedLessonId.value, revision) } finally { pptBusy.value = false } }
+function selectLesson(lessonId?: string) { if (lessonId) selectedLessonId.value = lessonId }
+async function handleScriptSaved() { scriptConfirmError.value = ''; await lessonStore.load(props.courseId) }
+async function generateScript(requirements: string) {
+  if (!selectedLesson.value || !confirmedLessonRevision.value || scriptGenerating.value) return
+  scriptGenerating.value = true
+  scriptGenerationError.value = ''
+  scriptConfirmError.value = ''
+  try {
+    await saveRelationships(`script:${selectedLessonId.value}`, 'script', `${selectedLesson.value.title} 讲稿`)
+    await lessonStore.generateScript(
+      props.courseId,
+      selectedLessonId.value,
+      requirements,
+      activeReferences.value.map(item => item.material_asset_id),
+    )
+  } catch {
+    scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed', '本讲讲稿生成失败，请重试。')
+  } finally {
+    scriptGenerating.value = false
+  }
+}
+async function confirmScript() {
+  const revision = selectedLesson.value?.script.current_revision_id
+  if (!selectedLesson.value || !revision || scriptConfirmed.value || scriptConfirming.value) return
+  scriptConfirming.value = true
+  scriptConfirmError.value = ''
+  try {
+    await lessonStore.confirmScript(props.courseId, selectedLessonId.value, revision)
+    activeStage.value = 'ppt'
+  } catch {
+    scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptConfirmFailed', '本讲讲稿确认失败，请重试。')
+  } finally {
+    scriptConfirming.value = false
+  }
+}
+async function openPptWorkspace() {
+  if (!selectedLesson.value || !confirmedLessonRevision.value || !scriptConfirmed.value) return
+  await saveRelationships(`ppt-v6:${selectedLessonId.value}`, 'ppt', `${selectedLesson.value.title} PPT`)
+  window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`)
+}
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
 function handleInlineOutlineConfirmed() { editingOutline.value = false; emit('outlineConfirmed') }
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0 } catch { questionBankReady.value = false } }
@@ -382,7 +445,7 @@ watch(() => lessonStore.lessons, lessons => {
   }
   if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) selectedLessonId.value = lessons[0]?.lesson_unit_id || ''
 }, { immediate: true, deep: true })
-watch(selectedLessonId, () => { lessonConfirmError.value = '' })
+watch(selectedLessonId, () => { lessonConfirmError.value = ''; scriptGenerationError.value = ''; scriptConfirmError.value = '' })
 watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 </script>
@@ -398,4 +461,6 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 .lesson-generation-surface{min-height:68px}.lesson-generation-error{margin:-4px 0 0;padding:10px 12px;border-radius:8px}
 .workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace>header{border-bottom:1px solid #e7ebf2}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
+.lesson-stage{padding:0;overflow:hidden}.lesson-navigator{min-height:54px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid #e7ebf2;background:#fbfcfe}.lesson-navigator>button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 5px;border:0;color:#64748b;background:transparent;font-size:12px;font-weight:700;cursor:pointer}.lesson-navigator>button:hover:not(:disabled){color:#4338ca}.lesson-navigator>button:disabled{opacity:.35;cursor:not-allowed}.lesson-selector{min-width:0;display:flex;align-items:center;justify-content:center;gap:0;padding:0;border:0}.lesson-selector>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.lesson-selector select{width:min(100%,560px);min-height:36px;padding:0 34px 0 12px;border:0;border-radius:7px;color:#263147;background:transparent;font-size:13px;font-weight:750;text-align:center;box-shadow:none}.lesson-selector select:hover{background:#f3f5fa}.lesson-selector select:focus{background:#fff}.stage-form--lesson{border:0;border-radius:0;box-shadow:none}.stage-next-bar{min-height:64px;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.ppt-entry{min-height:180px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;padding:36px 28px}.ppt-entry>svg{color:#5b57e8}.ppt-entry>div{min-width:0;display:grid;gap:5px}.ppt-entry strong{color:#1f2a40;font-size:15px}.ppt-entry span{color:#64748b;font-size:12px}.question-workbench-surface{max-width:860px;margin:0 auto;padding:0;border:0;border-radius:0;box-shadow:none}
+@media(max-width:760px){.lesson-navigator{gap:6px;padding-inline:10px}.lesson-navigator>button{font-size:0}.lesson-navigator>button svg{display:block}.lesson-selector select{padding-inline:8px;font-size:12px}.ppt-entry{grid-template-columns:auto minmax(0,1fr);padding:28px 18px}.ppt-entry .primary{grid-column:1/-1}}
 </style>

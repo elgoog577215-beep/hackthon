@@ -50,6 +50,30 @@ function courseEnvelope(
 }
 
 describe('PptWorkspaceView', () => {
+  it('带课次参数时直接读取已确认教案与讲稿的 V6 源', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher' },
+    })
+    const store = useTeachingRepresentationsStore()
+    const ensure = vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+
+    mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    expect(store.teacherLessonId).toBe('L1-1')
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source',
+    )
+    expect(ensure).toHaveBeenCalledWith('course-1', {
+      loadSelectedSpec: false,
+      handleMissingRepresentations: false,
+    })
+  })
+
   it('loads the CourseDocument envelope and teaching registry in parallel', async () => {
     const calls: string[] = []
     let resolveDocument!: (value: { data: ReturnType<typeof courseEnvelope> }) => void

@@ -14,6 +14,12 @@ const lesson: TeacherLessonProjection = {
   title: '第1讲 爬虫概述与HTTP基础',
   duration_minutes: 45,
   sections: [{ section_node_id: 'section-1', title: '1.1 爬虫的定义、原理与应用场景' }],
+  script: {
+    current_revision_id: 'script-1', confirmed_revision_id: 'script-1',
+    source_lesson_plan_revision_id: 'revision-1', source_state: 'current',
+    ready: true, confirmed: true, confirmed_at: '2026-08-24T10:00:00Z',
+    sections: [{ section_node_id: 'section-1', title: '1.1 爬虫的定义、原理与应用场景', content: '讲稿正文' }],
+  },
   plan: {
     lesson_unit_id: 'lesson-1',
     working_revision_id: 'revision-1',
@@ -136,10 +142,19 @@ describe('统一教案页面', () => {
 
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/CourseWorkspaceView.vue'), 'utf8')
+    const fileSource = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
+    const workbenchSource = readFileSync(resolve(process.cwd(), 'src/components/TeacherCourseWorkbench.vue'), 'utf8')
     expect(source).not.toContain('<GenerationLessonPlan')
     expect(source).not.toContain('lessonOpen')
     expect(source).toContain("requestedWorkbenchStage.value = 'lesson'")
+    expect(source).toContain("requestedWorkbenchStage.value = 'script'")
+    expect(source).toContain("requestedWorkbenchStage.value = 'ppt'")
     expect(source).toContain('requestedLessonId.value = lessonId')
     expect(source).toContain("workspaceView.value = 'categories'")
+    expect(fileSource).toContain("emit('openScript', node.lessonId || '')")
+    expect(fileSource).not.toContain('lessonStore.generatePpt')
+    expect(workbenchSource).toContain('<TeacherScriptDocument')
+    expect(workbenchSource).not.toContain("emit('openScript'")
+    expect(workbenchSource).not.toContain('lessonStore.generatePpt')
   })
 })

@@ -15,6 +15,7 @@ from teacher_lesson_authoring import (
     lesson_plan_ppt_source,
     lesson_scope,
     normalize_teacher_lesson_plan,
+    teacher_lesson_script_revision,
     teacher_lesson_section_content,
     teacher_lesson_v6_source,
     validate_teacher_lesson_plan,
@@ -503,6 +504,7 @@ def test_lesson_ppt_binds_exact_plan_revision_and_becomes_stale(tmp_path):
 
 def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
     source = course_data()
+    source["nodes"][1]["node_content"] = "这是一段已确认的一手讲稿正文。"
     source_before = str(source)
     revision = {
         "revision_id": "plan-v1",
@@ -547,7 +549,266 @@ def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
     assert {block.section_id for block in document.blocks} == {"L2-1-1", "L2-1-2"}
     assert graph.primary_block_coverage == 1.0
     assert graph.diagnostics == []
+    assert view["teacher_lesson_source"]["script_revision_id"].startswith("tlsr-")
+    assert view["nodes"][1]["content_blocks"][0]["content"] == "这是一段已确认的一手讲稿正文。"
     assert str(source) == source_before
+
+
+def test_script_confirmation_versions_the_body_and_stales_bound_v6_ppt(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    quality = validate_teacher_lesson_plan(standard_lesson_plan())
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=quality,
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+
+    source = course_data()
+    source["nodes"][1]["node_content"] = "第一节正式讲稿"
+    source["nodes"][2]["node_content"] = "第二节正式讲稿"
+    first_script_revision = teacher_lesson_script_revision(source, "L1-1")
+    repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [
+            {"section_node_id": "L2-1-1", "title": "1.1", "content": "第一节正式讲稿"},
+            {"section_node_id": "L2-1-2", "title": "1.2", "content": "第二节正式讲稿"},
+        ],
+        source_lesson_plan_revision_id=plan_revision,
+    )
+    repository.confirm_script_revision("course-1", "L1-1", first_script_revision)
+    asset = repository.bind_v6_ppt_revision(
+        "course-1",
+        "L1-1",
+        source_lesson_plan_revision_id=plan_revision,
+        source_script_revision_id=first_script_revision,
+        synthetic_course_id="teacher-lesson-1",
+        representation_id="representation-1",
+        spec_id="spec-1",
+        candidate_status="v6_ready",
+    )
+    assert asset["source_state"] == "current"
+    assert asset["source_script_revision_id"] == first_script_revision
+
+    source["nodes"][1]["node_content"] = "第一节修改后的正式讲稿"
+    second_script_revision = teacher_lesson_script_revision(source, "L1-1")
+    assert second_script_revision != first_script_revision
+    repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [
+            {"section_node_id": "L2-1-1", "title": "1.1", "content": "第一节修改后的正式讲稿"},
+            {"section_node_id": "L2-1-2", "title": "1.2", "content": "第二节正式讲稿"},
+        ],
+        source_lesson_plan_revision_id=plan_revision,
+        generation_source="teacher_edit",
+    )
+    repository.confirm_script_revision("course-1", "L1-1", second_script_revision)
+    stale = repository.lesson("course-1", "L1-1")["ppt_assets"][0]
+    assert stale["source_state"] == "stale"
+
+
+def test_script_confirmation_is_required_by_the_only_v6_ppt_api(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    source = course_data()
+    source["blueprint_revision_id"] = "outline-v1"
+    source["nodes"][1]["node_content"] = "第一节正式讲稿"
+    source["nodes"][2]["node_content"] = "第二节正式讲稿"
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+    )
+    repository.confirm_plan_revision(
+        "course-1",
+        "L1-1",
+        lesson["working_revision_id"],
+    )
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(course_id):
+            assert course_id == "course-1"
+            return source
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+    script_revision = teacher_lesson_script_revision(source, "L1-1")
+
+    with TestClient(app) as client:
+        blocked = client.get("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source")
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["code"] == "lesson_script_not_confirmed"
+
+        confirmed = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/confirm",
+            json={"revision_id": script_revision},
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()["lesson"]["script"]["confirmed"] is True
+
+        source_response = client.get(
+            "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source"
+        )
+        assert source_response.status_code == 200
+        assert source_response.json()["document"]["document_revision"]
+
+        legacy_generation = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/ppt/generate",
+            json={"source_revision_id": lesson["working_revision_id"]},
+        )
+        assert legacy_generation.status_code == 404
+
+
+def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain(tmp_path, monkeypatch):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    source = {**course_data(), "blueprint_revision_id": "outline-v1"}
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+
+    class FakeCourseService:
+        registered = False
+        redefine_calls = []
+        rewrite_calls = []
+
+        @classmethod
+        def register_course_generation_metadata(cls, course_id, course):
+            assert course_id == "course-1"
+            assert course["nodes"]
+            cls.registered = True
+
+        @staticmethod
+        async def redefine_content(**kwargs):
+            FakeCourseService.redefine_calls.append(kwargs)
+            return f"{kwargs['node']['node_name']} 的正式课堂讲稿，严格遵循已确认教案。"
+
+        @staticmethod
+        async def rewrite_selection(**kwargs):
+            FakeCourseService.rewrite_calls.append(kwargs)
+            assert "增加一个真实案例" in kwargs["user_requirement"]
+            return {"replacement_text": "AI 候选讲稿，已增加真实案例。"}
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(course_id):
+            assert course_id == "course-1"
+            return source
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+        course_service = FakeCourseService()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_course_material_evidence",
+        lambda _course_id, _actor, material_ids: (
+            material_ids,
+            [{"asset_id": "material-1", "unit_id": "evidence-1", "text": "资料中的可靠案例"}],
+        ),
+    )
+
+    with TestClient(app) as client:
+        generated = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/generate",
+            json={"requirements": "增加案例", "material_asset_ids": ["material-1"]},
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert generated.status_code == 200
+        first_script = generated.json()["lesson"]["script"]
+        assert first_script["ready"] is True
+        assert len(first_script["sections"]) == 2
+        first_revision = first_script["current_revision_id"]
+
+        candidate = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/rewrite-candidate",
+            json={
+                "base_revision_id": first_revision,
+                "section_node_id": "L2-1-1",
+                "instruction": "增加一个真实案例",
+            },
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert candidate.status_code == 200
+        assert repository.lesson("course-1", "L1-1")["working_script_revision_id"] == first_revision
+
+        edited_sections = first_script["sections"]
+        edited_sections[0]["content"] = candidate.json()["replacement_text"]
+        saved = client.put(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/draft",
+            json={"base_revision_id": first_revision, "sections": edited_sections},
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert saved.status_code == 200
+        second_revision = saved.json()["lesson"]["script"]["current_revision_id"]
+        assert second_revision != first_revision
+        stored_second_revision = next(
+            item for item in repository.lesson("course-1", "L1-1")["script_revisions"]
+            if item["revision_id"] == second_revision
+        )
+        assert stored_second_revision["requirements"] == "增加案例"
+        assert stored_second_revision["material_asset_ids"] == ["material-1"]
+
+        confirmed = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/confirm",
+            json={"revision_id": second_revision},
+        )
+        assert confirmed.status_code == 200
+        assert confirmed.json()["lesson"]["script"]["confirmed"] is True
+
+        ppt_source = client.get(
+            "/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source"
+        )
+        assert ppt_source.status_code == 200
+        payload = json.dumps(ppt_source.json(), ensure_ascii=False)
+        assert "AI 候选讲稿" in payload
+
+    assert FakeCourseService.registered is True
+    assert len(FakeCourseService.redefine_calls) == 2
+    assert all("增加案例" in call["requirement"] for call in FakeCourseService.redefine_calls)
+    assert all("需核验" in call["requirement"] for call in FakeCourseService.redefine_calls)
+    generation_context = json.loads(FakeCourseService.redefine_calls[0]["course_context"])
+    assert generation_context["selected_material_evidence"][0]["text"] == "资料中的可靠案例"
+    rewrite_context = json.loads(FakeCourseService.rewrite_calls[0]["course_context"])
+    assert rewrite_context["confirmed_lesson_plan"]["node_id"] == "L2-1-1"
+    assert rewrite_context["teacher_requirements"] == "增加案例"
 
 
 def test_ppt_ai_candidate_acceptance_creates_new_deck_revision(tmp_path):
@@ -624,6 +885,50 @@ def test_teacher_lesson_api_projects_sessions_from_canonical_course_document(tmp
     assert view.json()["outline_revision_id"] == "outline-v2"
     assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
     assert [item["section_node_id"] for item in view.json()["lessons"][0]["sections"]] == ["L2-1-1", "L2-1-2"]
+
+
+def test_teacher_lesson_api_ignores_empty_persisted_shell_and_uses_workspace(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    empty_shell = {
+        "course_id": "course-1",
+        "nodes": [],
+        "course_document": {
+            "schema_version": "course_document_v1",
+            "sections": [],
+            "blocks": [],
+        },
+    }
+    workspace = {**course_data(), "blueprint_revision_id": "outline-workspace-v1"}
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(course_id):
+            assert course_id == "course-1"
+            return empty_shell
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return workspace
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        view = client.get("/api/teacher/courses/course-1/lesson-authoring")
+
+    assert view.status_code == 200
+    assert view.json()["outline_revision_id"] == "outline-workspace-v1"
+    assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
 
 
 def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):

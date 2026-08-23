@@ -33,7 +33,28 @@ export interface TeacherLessonPlanAsset {
   source_state: 'current' | 'stale'
   revisions: TeacherLessonPlanRevision[]
   ai_candidates?: TeacherLessonPlanCandidate[]
+  script_confirmation?: {
+    confirmed_revision_id?: string
+    source_lesson_plan_revision_id?: string
+    source_state?: 'current' | 'stale'
+    confirmed_at?: string
+  }
   ppt_assets: TeacherLessonPptAsset[]
+}
+
+export interface TeacherLessonScriptState {
+  current_revision_id: string
+  confirmed_revision_id: string
+  source_lesson_plan_revision_id: string
+  source_state: 'current' | 'stale'
+  ready: boolean
+  confirmed: boolean
+  confirmed_at: string
+  sections: Array<{
+    section_node_id: string
+    title: string
+    content: string
+  }>
 }
 
 export interface TeacherLessonPptRevision {
@@ -72,6 +93,7 @@ export interface TeacherLessonPptAsset {
   role: 'primary' | 'supplemental'
   working_revision_id: string
   source_lesson_plan_revision_id: string
+  source_script_revision_id?: string
   source_state: 'current' | 'stale'
   revisions: TeacherLessonPptRevision[]
   ai_candidates: TeacherLessonPptCandidate[]
@@ -86,6 +108,7 @@ export interface TeacherLessonPptAsset {
     representation_id: string
     spec_id: string
     source_lesson_plan_revision_id: string
+    source_script_revision_id: string
     candidate_status: string
     created_at: string
   }>
@@ -108,6 +131,7 @@ export interface TeacherLessonProjection {
   title: string
   duration_minutes: number
   sections: Array<{ section_node_id: string; title: string }>
+  script: TeacherLessonScriptState
   plan: TeacherLessonPlanAsset
 }
 
@@ -243,26 +267,6 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       )
       return response.data
     },
-    async generatePpt(courseId: string, lessonUnitId: string, sourceRevisionId: string) {
-      this.actionLessonId = lessonUnitId
-      this.error = ''
-      try {
-        const response = await http.post<{ job: TeacherLessonJob }>(
-          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/ppt/generate`,
-          { request_id: crypto.randomUUID(), source_revision_id: sourceRevisionId },
-          requestConfig(),
-        )
-        const job = response.data.job
-        this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
-        void this.pollJob(courseId, job.id)
-        return job
-      } catch (error) {
-        this.error = errorMessage(error, '本讲 PPT 生成失败')
-        throw error
-      } finally {
-        this.actionLessonId = ''
-      }
-    },
     async pollJob(courseId: string, jobId: string) {
       for (let attempt = 0; attempt < 180; attempt += 1) {
         const response = await http.get<{ job: TeacherLessonJob }>(
@@ -288,20 +292,6 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       this.replaceLessonAsset(lessonUnitId, response.data.lesson)
       return response.data.lesson
     },
-    async savePptDraft(
-      courseId: string,
-      lessonUnitId: string,
-      sourceRevisionId: string,
-      deck: TeacherLessonPptRevision['deck'],
-    ) {
-      const response = await http.patch<{ asset: TeacherLessonPptAsset }>(
-        `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/ppt/draft`,
-        { deck, source_revision_id: sourceRevisionId },
-        requestConfig(),
-      )
-      this.replacePptAsset(lessonUnitId, response.data.asset)
-      return response.data.asset
-    },
     async confirm(courseId: string, lessonUnitId: string, revisionId: string) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -312,12 +302,104 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           requestConfig(),
         )
         this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+        await this.load(courseId)
         return response.data.lesson
       } catch (error) {
         this.error = errorMessage(error, '本讲教案确认失败')
         throw error
       } finally {
         this.actionLessonId = ''
+      }
+    },
+    async confirmScript(courseId: string, lessonUnitId: string, revisionId: string) {
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const response = await http.post<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/confirm`,
+          { revision_id: revisionId },
+          requestConfig(),
+        )
+        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '本讲讲稿确认失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
+      }
+    },
+    async generateScript(
+      courseId: string,
+      lessonUnitId: string,
+      requirements = '',
+      materialAssetIds: string[] = [],
+    ) {
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const response = await http.post<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/generate`,
+          { requirements, material_asset_ids: materialAssetIds },
+          requestConfig(),
+        )
+        const index = this.lessons.findIndex(item => item.lesson_unit_id === lessonUnitId)
+        if (index >= 0) this.lessons[index] = response.data.lesson
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '本讲讲稿生成失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
+      }
+    },
+    async saveScriptDraft(
+      courseId: string,
+      lessonUnitId: string,
+      baseRevisionId: string,
+      sections: TeacherLessonScriptState['sections'],
+    ) {
+      this.error = ''
+      try {
+        const response = await http.put<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/draft`,
+          { base_revision_id: baseRevisionId, sections },
+          requestConfig(),
+        )
+        const index = this.lessons.findIndex(item => item.lesson_unit_id === lessonUnitId)
+        if (index >= 0) this.lessons[index] = response.data.lesson
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '讲稿保存失败')
+        throw error
+      }
+    },
+    async rewriteScriptSection(
+      courseId: string,
+      lessonUnitId: string,
+      baseRevisionId: string,
+      sectionNodeId: string,
+      instruction: string,
+    ) {
+      this.error = ''
+      try {
+        const response = await http.post<{
+          base_revision_id: string
+          section_node_id: string
+          replacement_text: string
+        }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/rewrite-candidate`,
+          {
+            base_revision_id: baseRevisionId,
+            section_node_id: sectionNodeId,
+            instruction,
+          },
+          requestConfig(),
+        )
+        return response.data
+      } catch (error) {
+        this.error = errorMessage(error, 'AI 优化讲稿失败')
+        throw error
       }
     },
     async createAiCandidate(
@@ -361,54 +443,15 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       this.replaceLessonAsset(lessonUnitId, response.data.lesson)
       return response.data.lesson
     },
-    async createPptAiCandidate(
-      courseId: string,
-      lessonUnitId: string,
-      assetId: string,
-      baseRevisionId: string,
-      instruction: string,
-      slideIndexes: number[] = [],
-    ) {
-      const response = await http.post<{ candidate: TeacherLessonPptCandidate }>(
-        `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/ppt/ai-candidates`,
-        {
-          asset_id: assetId,
-          base_revision_id: baseRevisionId,
-          instruction,
-          slide_indexes: slideIndexes,
-        },
-        requestConfig(),
-      )
-      return response.data.candidate
-    },
-    async resolvePptAiCandidate(
-      courseId: string,
-      lessonUnitId: string,
-      candidateId: string,
-      accept: boolean,
-    ) {
-      const response = await http.post<{ asset: TeacherLessonPptAsset }>(
-        `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/ppt/ai-candidates/${candidateId}/resolve`,
-        { accept },
-        requestConfig(),
-      )
-      this.replacePptAsset(lessonUnitId, response.data.asset)
-      return response.data.asset
-    },
     replaceLessonAsset(lessonUnitId: string, plan: TeacherLessonPlanAsset) {
       this.lessons = this.lessons.map(item => (
         item.lesson_unit_id === lessonUnitId ? { ...item, plan } : item
       ))
     },
-    replacePptAsset(lessonUnitId: string, asset: TeacherLessonPptAsset) {
-      this.lessons = this.lessons.map(item => {
-        if (item.lesson_unit_id !== lessonUnitId) return item
-        const pptAssets = [
-          ...item.plan.ppt_assets.filter(existing => existing.asset_id !== asset.asset_id),
-          asset,
-        ]
-        return { ...item, plan: { ...item.plan, ppt_assets: pptAssets } }
-      })
+    replaceLessonProjection(lessonUnitId: string, lesson: TeacherLessonProjection) {
+      this.lessons = this.lessons.map(item => (
+        item.lesson_unit_id === lessonUnitId ? lesson : item
+      ))
     },
   },
 })
