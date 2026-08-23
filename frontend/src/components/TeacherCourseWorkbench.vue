@@ -16,20 +16,20 @@
       <footer><span>{{ readyStageCount }}/5</span><div><i :style="{ width: `${readyStageCount / 5 * 100}%` }" /></div></footer>
     </aside>
 
-    <main ref="workbenchCenter" class="workbench-center" :class="{ 'is-outline-editing': editingOutline }">
+    <main ref="workbenchCenter" class="workbench-center" :class="{ 'is-outline-workspace': showOutlineWorkspace }">
       <header class="center-heading">
-        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ editingOutline ? t('courseWorkbench.outlineEditor', '编辑课程大纲') : activeStageDefinition.label }}</h2><p>{{ editingOutline ? t('courseWorkbench.outlineEditorHelp', '直接在当前工作区调整章节、小节与学习目标') : activeStageDefinition.description }}</p></div>
-        <button v-if="editingOutline" type="button" @click="editingOutline = false"><ArrowLeft :size="15" />{{ t('courseWorkbench.backToOutline', '返回大纲') }}</button>
-        <button v-else-if="activeStage === 'foundation' && hasOutline && !outlineAwaitingReview" type="button" @click="editingOutline = true"><FileText :size="15" />{{ t('courseWorkbench.reviewOutline', '审阅大纲') }}</button>
+        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ showOutlineWorkspace ? t('courseWorkbench.outlineTitle', '课程大纲') : activeStageDefinition.label }}</h2><p>{{ showOutlineWorkspace ? t('courseWorkbench.outlineWorkspaceHelp', '查看并完善章节、小节与学习目标') : activeStageDefinition.description }}</p></div>
+        <button v-if="showOutlineWorkspace" type="button" :aria-pressed="editingOutline" :disabled="!editingOutline && !hasOutlinePreview && !outlineAwaitingReview" @click="editingOutline = !editingOutline"><Pencil :size="15" />{{ editingOutline ? t('courseWorkbench.finishOutlineEditing', '完成编辑') : t('courseWorkbench.editOutline', '编辑大纲') }}</button>
       </header>
 
       <CourseOutlineReview
-        v-if="activeStage === 'foundation' && editingOutline"
+        v-if="showOutlineWorkspace"
         class="inline-outline-review"
         :course-id="courseId"
         :course-name="courseTitle"
         :nodes="courseStore.nodes"
         :task="generationTask"
+        :editable="editingOutline"
         surface="teacher"
         @confirmed="handleInlineOutlineConfirmed"
       />
@@ -72,17 +72,6 @@
           <p v-if="shapeConfirmError" class="shape-confirm-error" role="alert">{{ shapeConfirmError }}</p>
         </article>
         <footer><span>{{ t('courseWorkbench.shapeReview.total', '确认后将生成 {count} 个小节').replace('{count}', String(totalSectionCount)) }}</span><button class="primary" type="button" :disabled="shapeConfirming || !shapeCountsValid" @click="confirmOutlineShape"><Sparkles :size="16" />{{ shapeConfirming ? t('courseWorkbench.shapeReview.confirming', '正在继续…') : t('courseWorkbench.shapeReview.confirm', '确认并生成小章节') }}</button></footer>
-      </section>
-
-      <section v-else-if="activeStage === 'foundation' && outlineAwaitingReview" class="formal-surface outline-review-ready" data-testid="outline-review-ready">
-        <header><div><strong>{{ t('courseWorkbench.outlineReady', '课程大纲已生成') }}</strong><small>{{ t('courseWorkbench.outlineReadyHelp', '已保存完整章节结构，等待审阅确认') }}</small></div><button type="button" :disabled="!hasOutlinePreview" @click="editingOutline = true"><FileText :size="15" />{{ t('courseWorkbench.reviewOutline', '审阅大纲') }}</button></header>
-        <article v-if="hasOutlinePreview"><OutlineGrowthStream :growth="outlineGrowth" :nodes="outlinePreviewNodes" review-ready /></article>
-        <div v-else class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.loadingOutlineReview', '正在整理完整大纲…') }}</div>
-      </section>
-
-      <section v-else-if="activeStage === 'foundation' && hasOutline" class="formal-surface">
-        <header><div><strong>{{ t('courseWorkbench.formalOutline', '正式课程大纲') }}</strong><small>{{ t('courseWorkbench.formalSaved', '已进入课程正式文件') }}</small></div><button type="button" @click="submitFoundation"><RefreshCw :size="15" />{{ t('courseWorkbench.regenerate', '重新生成') }}</button></header>
-        <article><ol class="outline-list"><li v-for="node in outlinePreviewNodes" :key="node.node_id" :data-level="node.node_level"><span>{{ node.node_name }}</span><small>{{ Number(node.node_level || 0) === 1 ? t('courseWorkbench.chapter', '章节') : t('courseWorkbench.section', '小节') }}</small></li></ol></article>
       </section>
 
       <form v-else-if="activeStage === 'foundation'" class="stage-form" @submit.prevent="submitFoundation">
@@ -150,7 +139,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, reactive, ref, watch } from 'vue'
-import { ArrowLeft, BookOpenText, Check, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
@@ -241,6 +230,10 @@ const outlineGrowthChapters = computed<Record<string, any>[]>(() => Array.isArra
 const outlineShapeRevision = computed(() => String(generationTask.value?.phaseDetail?.skeleton_revision_id || ''))
 const shapeCountsValid = computed(() => chapterSectionCounts.value.length === outlineGrowthChapters.value.length && chapterSectionCounts.value.every(count => Number.isInteger(Number(count)) && Number(count) >= 1 && Number(count) <= 100))
 const hasOutlinePreview = computed(() => hasOutline.value || Boolean((outlineGrowth.value?.chapters as unknown[])?.length))
+const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
+  && !showStreaming.value
+  && !outlineShapeAwaitingReview.value
+  && (outlineAwaitingReview.value || hasOutline.value || editingOutline.value))
 const generationProgress = computed(() => Math.max(2, Number(generationTask.value?.progress || generationStore.generationProgress || 0)))
 const currentGenerationLabel = computed(() => generationTask.value?.currentStep || generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
 const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
@@ -389,6 +382,6 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0;color:#b91c1c;font-size:12px}
 .lesson-generation-surface{min-height:68px}.lesson-generation-error{margin:-4px 0 0;padding:10px 12px;border-radius:8px}.lesson-actions{display:flex!important;align-items:center;gap:8px}.lesson-actions .primary{min-height:36px!important;border-color:#514bdc!important;color:#fff!important;background:#514bdc!important;box-shadow:none}.confirmed-state{display:flex;align-items:center;gap:6px;color:#047857;font-size:12px;font-weight:750}
 .lesson-plan-preview{display:grid;gap:26px}.lesson-plan-preview>section{display:grid;gap:12px;margin:0!important}.lesson-plan-preview>section+section{padding-top:24px;border-top:1px solid #e8ecf2}.lesson-plan-preview>section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.lesson-plan-preview h3{margin:0!important;color:#263147;font-size:16px}.lesson-plan-preview header p{margin:5px 0 0;color:#64748b;font-size:12px}.lesson-plan-preview header>small{flex:none;color:#64748b;font-size:12px}.lesson-plan-preview ol{display:grid;gap:0;margin:0;padding:0;list-style:none}.lesson-plan-preview li{display:grid;gap:5px;padding:12px 0;border-top:1px solid #eef1f5}.lesson-plan-preview li>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.lesson-plan-preview li strong{color:#334155;font-size:13px}.lesson-plan-preview li small{color:#64748b;font-size:11px}.lesson-plan-preview li p{margin:0;color:#475569;font-size:13px;line-height:1.65}.lesson-plan-preview li .student-activity{color:#64748b;font-size:12px}
-.workbench-center.is-outline-editing{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;padding-bottom:24px}.workbench-center>.inline-outline-review{width:100%;height:auto;min-height:0;padding:0;overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.inline-outline-review :deep(.outline-review__sheet){width:100%;max-width:none}.inline-outline-review :deep(.outline-review__body){padding-inline:24px}
+.workbench-center.is-outline-workspace{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;padding-bottom:24px}.workbench-center>.inline-outline-review{width:100%;height:auto;min-height:0;padding:0;overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.inline-outline-review :deep(.outline-review__sheet){width:100%;max-width:none}.inline-outline-review :deep(.outline-review__body){padding-inline:24px}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
 </style>

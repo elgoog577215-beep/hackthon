@@ -54,7 +54,8 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       QuestionBankReviewPanel: true,
       MarkdownRenderer: true,
       CourseOutlineReview: {
-        template: '<section data-testid="inline-outline-editor"><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
+        props: ['editable'],
+        template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'"><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
         emits: ['confirmed'],
       },
     },
@@ -83,7 +84,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.generation-surface>header').text()).toContain('正在展开各章小节')
   })
 
-  it('大纲进入待审阅后退出生成面板并显示真实章节', async () => {
+  it('大纲进入待审阅后在同一工作区显示只读大纲并原位解锁编辑', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -102,10 +103,17 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="outline-review-ready"]').text()).toContain('课程大纲已生成')
-    expect(wrapper.get('[data-testid="outline-review-ready"]').text()).toContain('Hello World 与编译过程')
-    await wrapper.get('[data-testid="outline-review-ready"] header button').trigger('click')
+    expect(wrapper.get('.center-heading h2').text()).toBe('课程大纲')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
+    expect(wrapper.get('.center-heading>button').text()).toContain('编辑大纲')
+    await wrapper.get('.center-heading>button').trigger('click')
     expect(wrapper.emitted('update:outlineEditing')).toEqual([[true]])
+
+    const outlineElement = wrapper.get('[data-testid="inline-outline-editor"]').element
+    await wrapper.setProps({ outlineEditing: true })
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').element).toBe(outlineElement)
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
+    expect(wrapper.get('.center-heading>button').text()).toContain('完成编辑')
   })
 
   it('最终检查点暂时没有投影时保留审阅状态而不退回初始表单', () => {
@@ -116,9 +124,9 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench()
 
-    expect(wrapper.find('[data-testid="outline-review-ready"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(true)
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
-    expect(wrapper.text()).toContain('正在整理完整大纲')
+    expect(wrapper.get('.center-heading>button').attributes('disabled')).toBeUndefined()
   })
 
   it('任务切换为最终审阅时保留最后一次小章节生成结果', async () => {
@@ -133,7 +141,7 @@ describe('teacher course workbench outline streaming', () => {
     reactiveTask.phaseDetail = { artifact_type: 'course_outline_ready' }
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="outline-review-ready"]').text()).toContain('Hello World 与编译过程')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
   })
 
@@ -218,7 +226,7 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.get('.prerequisite button').trigger('click')
 
     expect(wrapper.emitted('update:outlineEditing')).toContainEqual([true])
-    expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
+    expect(wrapper.get('.center-heading h2').text()).toBe('课程大纲')
   })
 
   it('课次投影读取失败时显示真实错误并复用现有重载动作', async () => {
