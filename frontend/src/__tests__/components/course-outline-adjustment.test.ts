@@ -78,6 +78,77 @@ describe('一句话调整课程目录', () => {
     await setLocale('zh')
   })
 
+  it('内联大纲始终使用同一内容结构，只在编辑态解锁操作', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        ...currentDraft(),
+        course_type: 'project',
+        course_intent: { expected_deliverable: '研究报告' },
+        learner_starting_profile: { status: 'tentative', self_reported_strengths: ['会写提示词'] },
+      },
+      coverage: { available: true, status: 'partial', scale_label: '专题课' },
+      retrieval: { notice: '联网核验未完成' },
+    } as any)
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-1',
+        courseName: 'Unity 游戏编程',
+        editable: false,
+        variant: 'inline',
+        requiresConfirmation: true,
+        surface: 'teacher',
+      },
+    })
+    await flushPromises()
+
+    const outlineElement = wrapper.get('[data-testid="outline-chapter-list"]').element
+    expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('view')
+    expect(wrapper.get('.outline-review__chapter-heading input').attributes('readonly')).toBeDefined()
+    expect(wrapper.find('.outline-review__list-toolbar').exists()).toBe(false)
+    expect(wrapper.find('.outline-review__starting-point').exists()).toBe(false)
+    expect(wrapper.find('.outline-coverage').exists()).toBe(false)
+    expect(wrapper.find('.outline-retrieval').exists()).toBe(false)
+    expect(wrapper.text()).toContain('确认大纲，进入教案')
+
+    await wrapper.setProps({ editable: true })
+
+    expect(wrapper.get('[data-testid="outline-chapter-list"]').element).toBe(outlineElement)
+    expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('edit')
+    expect(wrapper.get('.outline-review__chapter-heading input').attributes('readonly')).toBeUndefined()
+    expect(wrapper.get('.outline-review__list-toolbar').text()).toContain('AI 调整')
+    expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
+    await wrapper.get('.outline-review__list-toolbar button').trigger('click')
+    expect(wrapper.find('.outline-review__adjustment').exists()).toBe(true)
+  })
+
+  it('完成编辑时保存当前修改并留在同一大纲页', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)
+    const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({
+      draft: { ...payload, draft_revision_id: 'draft-2' },
+    }) as any)
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-1',
+        courseName: 'Unity 游戏编程',
+        editable: true,
+        variant: 'inline',
+        requiresConfirmation: false,
+        surface: 'teacher',
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('.outline-review__chapter-heading input').setValue('新的基础章')
+    const finished = await (wrapper.vm as any).finishEditing()
+
+    expect(finished).toBe(true)
+    expect(save).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      nodes: expect.arrayContaining([expect.objectContaining({ node_name: '新的基础章' })]),
+    }))
+  })
+
   it('先保存手动修改，再生成差异并通过现有草稿接口应用整套方案', async () => {
     const course = useCourseStore()
     course.currentCourseId = 'course-1'

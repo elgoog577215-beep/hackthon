@@ -1,5 +1,11 @@
 <template>
-  <section class="outline-review" :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程目录确认')">
+  <section
+    class="outline-review"
+    :class="{ 'is-editing': editable }"
+    :data-mode="editable ? 'edit' : 'view'"
+    :data-variant="variant"
+    :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程大纲')"
+  >
     <article class="outline-review__sheet">
       <div v-if="loading" class="outline-review__loading" aria-live="polite">
         <LoaderCircle :size="18" />
@@ -17,9 +23,9 @@
 
       <template v-else>
         <div class="outline-review__body">
-          <div class="outline-review__setup">
+          <div v-if="inlineSetupVisible" class="outline-review__setup">
           <section
-            v-if="coverageVerdict"
+            v-if="!isInline && coverageVerdict"
             class="outline-coverage"
             :data-status="coverageVerdict.status"
             data-testid="outline-coverage-verdict"
@@ -47,7 +53,7 @@
           </section>
 
           <section
-            v-if="retrievalProposal"
+            v-if="!isInline && retrievalProposal"
             class="outline-retrieval"
             data-testid="retrieval-outline-proposal"
           >
@@ -94,7 +100,7 @@
           </section>
 
           <section
-            v-else-if="retrievalNotice || retrievalErrorKey"
+            v-else-if="!isInline && (retrievalNotice || retrievalErrorKey)"
             class="outline-retrieval outline-retrieval--notice"
             data-testid="retrieval-outline-notice"
             role="status"
@@ -115,7 +121,7 @@
             <small>{{ t('courseGeneration.outlineReview.retrievalOffline', '也可以直接确认当前本地蓝图，离线继续。') }}</small>
           </section>
 
-          <section v-if="isProjectCourse" class="outline-review__starting-point" :data-status="startingProfileStatus">
+          <section v-if="!isInline && isProjectCourse" class="outline-review__starting-point" :data-status="startingProfileStatus">
             <header>
               <span>{{ t('courseGeneration.outlineReview.startingPoint', '项目起点') }}</span>
               <strong>{{ startingProfileStatusLabel }}</strong>
@@ -135,7 +141,7 @@
               </p>
             </div>
           </section>
-          <section v-else-if="courseType === 'inquiry'" class="outline-review__starting-point" data-status="tentative">
+          <section v-else-if="!isInline && courseType === 'inquiry'" class="outline-review__starting-point" data-status="tentative">
             <header>
               <span>{{ t('courseGeneration.outlineReview.inquiryContract', '探究信息') }}</span>
               <strong>{{ t('courseGeneration.outlineReview.inquiryGuard', '待验证') }}</strong>
@@ -156,7 +162,7 @@
             </div>
           </section>
 
-          <section v-else-if="courseType === 'exam'" class="outline-review__starting-point" data-status="tentative">
+          <section v-else-if="!isInline && courseType === 'exam'" class="outline-review__starting-point" data-status="tentative">
             <header>
               <span>{{ t('courseGeneration.outlineReview.examContract', '考试信息') }}</span>
               <strong>{{ courseIntent.exam_date || t('courseGeneration.outlineReview.notProvided', '暂未提供') }}</strong>
@@ -177,7 +183,7 @@
             </div>
           </section>
 
-          <section class="outline-review__adjustment" :aria-busy="generatingProposal">
+          <section v-if="!isInline || (editable && inlineToolsOpen)" class="outline-review__adjustment" :aria-busy="generatingProposal">
             <div class="outline-review__adjustment-heading">
               <label for="outline-adjustment-instruction">
                 {{ t('courseGeneration.outlineReview.adjustmentTitle', '目录调整') }}
@@ -297,20 +303,32 @@
           </div>
 
           <div class="outline-review__chapters" data-testid="outline-chapter-list">
-            <div class="outline-review__list-toolbar">
-              <strong>{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
-              <button type="button" :disabled="adjustmentBusy" @click="addChapter">
-                <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
-              </button>
+            <div v-if="!isInline || editable" class="outline-review__list-toolbar">
+              <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
+              <div class="outline-review__toolbar-actions">
+                <button
+                  v-if="isInline"
+                  type="button"
+                  :aria-expanded="inlineToolsOpen"
+                  :disabled="adjustmentBusy"
+                  @click="inlineToolsOpen = !inlineToolsOpen"
+                >
+                  <Sparkles :size="14" />{{ t('courseWorkbench.aiAdjustOutline', 'AI 调整') }}
+                </button>
+                <button type="button" :disabled="adjustmentBusy" @click="addChapter">
+                  <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
+                </button>
+              </div>
             </div>
             <section
-              v-for="group in outlineGroups"
+              v-for="(group, groupIndex) in outlineGroups"
               :key="group.key"
               class="outline-review__chapter"
               :class="{ 'outline-review__chapter--ungrouped': !group.chapter }"
             >
               <header v-if="group.chapter" class="outline-review__chapter-heading">
-                <div v-if="group.chapter.node.learning_path_role" class="outline-review__node-meta">
+                <span v-if="isInline" class="outline-review__chapter-index">{{ String(groupIndex + 1).padStart(2, '0') }}</span>
+                <div v-if="!isInline && group.chapter.node.learning_path_role" class="outline-review__node-meta">
                   <span :data-role="normalizedPathRole(group.chapter.node.learning_path_role)">
                     {{ pathRoleLabel(group.chapter.node.learning_path_role) }}
                   </span>
@@ -321,6 +339,8 @@
                     v-model="group.chapter.node.node_name"
                     type="text"
                     :disabled="adjustmentBusy"
+                    :readonly="isInline && !editable"
+                    :tabindex="isInline && !editable ? -1 : undefined"
                     :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                     @input="invalidateProposal"
                   />
@@ -329,12 +349,14 @@
                     v-model="group.chapter.node.learning_objective"
                     rows="1"
                     :disabled="adjustmentBusy"
+                    :readonly="isInline && !editable"
+                    :tabindex="isInline && !editable ? -1 : undefined"
                     :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
                     :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
                     @input="invalidateProposal"
                   />
                 </div>
-                <div class="outline-review__node-actions">
+                <div v-if="!isInline || editable" class="outline-review__node-actions">
                   <button type="button" :title="t('courseGeneration.outlineReview.addSection', '新增小节')" :disabled="adjustmentBusy" @click="addSection(group.chapter.node)"><Plus :size="14" /></button>
                   <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, -1)" @click="moveOutlineNode(group.chapter.node, -1)"><ArrowUp :size="14" /></button>
                   <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, 1)" @click="moveOutlineNode(group.chapter.node, 1)"><ArrowDown :size="14" /></button>
@@ -344,11 +366,12 @@
 
               <div v-if="group.sections.length" class="outline-review__section-list">
                 <article
-                  v-for="item in group.sections"
+                  v-for="(item, sectionIndex) in group.sections"
                   :key="item.node.node_id || item.index"
                   class="outline-review__section"
                 >
-                  <div v-if="item.node.learning_path_role" class="outline-review__node-meta">
+                  <span v-if="isInline" class="outline-review__section-index">{{ groupIndex + 1 }}.{{ sectionIndex + 1 }}</span>
+                  <div v-if="!isInline && item.node.learning_path_role" class="outline-review__node-meta">
                     <span :data-role="normalizedPathRole(item.node.learning_path_role)">
                       {{ pathRoleLabel(item.node.learning_path_role) }}
                     </span>
@@ -359,6 +382,8 @@
                       v-model="item.node.node_name"
                       type="text"
                       :disabled="adjustmentBusy"
+                      :readonly="isInline && !editable"
+                      :tabindex="isInline && !editable ? -1 : undefined"
                       :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                       @input="invalidateProposal"
                     />
@@ -366,12 +391,14 @@
                       v-model="item.node.learning_objective"
                       rows="1"
                       :disabled="adjustmentBusy"
+                      :readonly="isInline && !editable"
+                      :tabindex="isInline && !editable ? -1 : undefined"
                       :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
                       :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
                       @input="invalidateProposal"
                     />
                   </div>
-                  <div class="outline-review__node-actions">
+                  <div v-if="!isInline || editable" class="outline-review__node-actions">
                     <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(item.node, -1)" @click="moveOutlineNode(item.node, -1)"><ArrowUp :size="14" /></button>
                     <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(item.node, 1)" @click="moveOutlineNode(item.node, 1)"><ArrowDown :size="14" /></button>
                     <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeSection', '删除小节')" :disabled="adjustmentBusy" @click="removeOutlineNode(item.node)"><Trash2 :size="14" /></button>
@@ -387,11 +414,11 @@
         </div>
       </template>
 
-      <footer class="outline-review__footer">
+      <footer v-if="!isInline || requiresConfirmation || (editable && dirty) || actionError" class="outline-review__footer">
         <p v-if="actionError" class="outline-review__action-error" role="alert">{{ actionError }}</p>
         <div class="outline-review__actions">
           <span
-            v-if="!dirty && !saving && !loading && blueprintNodes.length"
+            v-if="editable && !dirty && !saving && !loading && blueprintNodes.length"
             class="outline-review__saved-state"
             role="status"
           >
@@ -399,7 +426,7 @@
             {{ t('courseGeneration.outlineReview.savedState', '已保存') }}
           </span>
           <button
-            v-else
+            v-else-if="editable"
             type="button"
             class="secondary"
             :disabled="loading || acting || !!adjustmentProposal || !dirty || !blueprintNodes.length"
@@ -412,6 +439,7 @@
               : t('courseGeneration.outlineReview.save', '保存修改') }}
           </button>
           <button
+            v-if="!isInline || requiresConfirmation"
             type="button"
             class="primary"
             :disabled="loading || acting || !!adjustmentProposal || !blueprintNodes.length"
@@ -447,11 +475,17 @@ const props = withDefaults(defineProps<{
   nodes?: Node[]
   task?: Task
   surface?: 'student' | 'teacher'
+  editable?: boolean
+  variant?: 'full' | 'inline'
+  requiresConfirmation?: boolean
 }>(), {
   courseName: '',
   nodes: () => [],
   task: undefined,
   surface: 'student',
+  editable: true,
+  variant: 'full',
+  requiresConfirmation: true,
 })
 
 const emit = defineEmits<{
@@ -509,7 +543,13 @@ const proposalNotice = ref('')
 const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
 const adjustmentRequestId = ref('')
+const inlineToolsOpen = ref(false)
 
+const isInline = computed(() => props.variant === 'inline')
+const inlineSetupVisible = computed(() => !isInline.value || (
+  props.editable
+  && (inlineToolsOpen.value || Boolean(adjustmentProposal.value))
+))
 const adjustmentBusy = computed(() => generatingProposal.value || applyingProposal.value)
 const retrievalProposal = computed<Record<string, any> | null>(() => (
   retrievalArtifact.value?.proposal || null
@@ -613,6 +653,9 @@ const dirty = computed(() => Boolean(baseline.value && draftSignature.value !== 
 onMounted(loadBlueprint)
 watch(() => props.courseId, (courseId, previous) => {
   if (courseId && courseId !== previous) void loadBlueprint()
+})
+watch(() => props.editable, editable => {
+  if (!editable) inlineToolsOpen.value = false
 })
 
 function clone<T>(value: T): T {
@@ -980,6 +1023,22 @@ async function saveDraft() {
   }
 }
 
+async function finishEditing() {
+  if (acting.value) return false
+  if (!dirty.value) return true
+  saving.value = true
+  actionError.value = ''
+  try {
+    await persistDraft()
+    return true
+  } catch {
+    actionError.value = t('courseGeneration.outlineReview.saveFailed', '目录修改保存失败，请检查后重试。')
+    return false
+  } finally {
+    saving.value = false
+  }
+}
+
 async function confirmOutline() {
   if (!blueprintNodes.value.length || acting.value) return
   confirming.value = true
@@ -1002,6 +1061,8 @@ async function confirmOutline() {
     confirming.value = false
   }
 }
+
+defineExpose({ finishEditing })
 </script>
 
 <style scoped>
@@ -1482,6 +1543,136 @@ async function confirmOutline() {
 }
 .outline-review__actions button:not(:disabled):hover { filter:brightness(.98); }
 .outline-review__actions svg.lucide-loader-circle { animation:outline-review-spin .9s linear infinite; }
+.outline-review__toolbar-actions { display:flex; align-items:center; gap:7px; margin-left:auto; }
+
+.outline-review[data-variant="inline"] {
+  height:auto;
+  display:block;
+  overflow:visible;
+  padding:0;
+  background:transparent;
+}
+.outline-review[data-variant="inline"] .outline-review__sheet {
+  width:100%;
+  height:auto;
+  display:block;
+  overflow:visible;
+  background:transparent;
+}
+.outline-review[data-variant="inline"] .outline-review__body { overflow:visible; }
+.outline-review[data-variant="inline"] .outline-review__loading,
+.outline-review[data-variant="inline"] .outline-review__load-error { min-height:180px; }
+.outline-review[data-variant="inline"] .outline-review__setup {
+  padding:0 20px;
+  border-bottom:1px solid #e7ebf2;
+}
+.outline-review[data-variant="inline"] .outline-review__adjustment {
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  padding:14px 0;
+  border:0;
+}
+.outline-review[data-variant="inline"] .outline-review__adjustment-heading {
+  position:absolute;
+  width:1px;
+  height:1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+}
+.outline-review[data-variant="inline"] .outline-review__adjustment textarea { min-height:42px; resize:none; }
+.outline-review[data-variant="inline"] .outline-review__proposal-notice { padding:0 0 12px; }
+.outline-review[data-variant="inline"] .outline-review__proposal { margin:0 0 14px; }
+.outline-review[data-variant="inline"] .outline-review__chapters {
+  gap:12px;
+  padding:18px 20px 22px;
+}
+.outline-review[data-variant="inline"] .outline-review__list-toolbar {
+  min-height:34px;
+  justify-content:flex-end;
+  margin-bottom:-2px;
+  border:0;
+}
+.outline-review[data-variant="inline"] .outline-review__chapter {
+  overflow:hidden;
+  border:1px solid #e1e7f0;
+  border-radius:11px;
+  background:#fff;
+}
+.outline-review[data-variant="inline"] .outline-review__chapter-heading {
+  grid-template-columns:30px minmax(0,1fr) auto;
+  align-items:center;
+  gap:11px;
+  min-height:62px;
+  padding:11px 14px;
+}
+.outline-review[data-variant="inline"] .outline-review__chapter-index {
+  width:28px;
+  height:28px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+  color:#047857;
+  background:#ecfdf5;
+  font-size:10px;
+  font-weight:800;
+}
+.outline-review[data-variant="inline"] .outline-review__chapter-heading input {
+  height:28px;
+  padding:0;
+  color:#263147;
+  font-size:13px;
+  font-weight:800;
+}
+.outline-review[data-variant="inline"] .outline-review__chapter-heading textarea {
+  min-height:24px;
+  margin:0;
+  padding:2px 0;
+  resize:none;
+  color:#64748b;
+  font-size:11px;
+  line-height:1.45;
+}
+.outline-review[data-variant="inline"] .outline-review__section-list { margin:0; padding:0 14px 10px 55px; }
+.outline-review[data-variant="inline"] .outline-review__section {
+  grid-template-columns:46px minmax(0,1fr) auto;
+  align-items:center;
+  gap:8px;
+  min-height:48px;
+  padding:7px 0;
+  border-top:1px solid #eef2f6;
+  border-bottom:0;
+}
+.outline-review[data-variant="inline"] .outline-review__section-index {
+  color:#6366f1;
+  font-size:11px;
+  font-weight:750;
+}
+.outline-review[data-variant="inline"] .outline-review__section input {
+  height:26px;
+  padding:0;
+  color:#334155;
+  font-size:12px;
+  font-weight:750;
+}
+.outline-review[data-variant="inline"] .outline-review__section textarea {
+  min-height:22px;
+  margin:0;
+  padding:1px 0;
+  resize:none;
+  color:#64748b;
+  font-size:11px;
+  line-height:1.45;
+}
+.outline-review[data-variant="inline"] input[readonly],
+.outline-review[data-variant="inline"] textarea[readonly] {
+  pointer-events:none;
+  cursor:default;
+}
+.outline-review[data-variant="inline"].is-editing .outline-review__node-fields input,
+.outline-review[data-variant="inline"].is-editing .outline-review__node-fields textarea { padding-inline:7px; }
+.outline-review[data-variant="inline"] .outline-review__node-actions { align-self:center; padding:0; }
+.outline-review[data-variant="inline"] .outline-review__footer { padding:12px 20px; }
 @keyframes outline-review-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .outline-review { padding:0 16px; }
