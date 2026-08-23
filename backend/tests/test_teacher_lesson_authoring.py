@@ -7,6 +7,7 @@ import time
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from course_document import document_from_generation_draft
 from teacher_lesson_authoring import (
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
@@ -424,6 +425,49 @@ def test_ppt_ai_candidate_acceptance_creates_new_deck_revision(tmp_path):
     )
     assert len(accepted["revisions"]) == 2
     assert accepted["revisions"][-1]["deck"]["slides"][0]["title"] == "after"
+
+
+def test_teacher_lesson_api_projects_sessions_from_canonical_course_document(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    source = {**course_data(), "course_name": "数据结构"}
+    document = document_from_generation_draft(source)
+    canonical = {
+        "course_id": "course-1",
+        "course_name": "数据结构",
+        "course_schema_version": "course_document_v1",
+        "blueprint_revision_id": "outline-v2",
+        "course_document": document.model_dump(mode="json"),
+    }
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(course_id):
+            assert course_id == "course-1"
+            return canonical
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        view = client.get("/api/teacher/courses/course-1/lesson-authoring")
+
+    assert view.status_code == 200
+    assert view.json()["outline_revision_id"] == "outline-v2"
+    assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
+    assert [item["section_node_id"] for item in view.json()["lessons"][0]["sections"]] == ["L2-1-1", "L2-1-2"]
 
 
 def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):

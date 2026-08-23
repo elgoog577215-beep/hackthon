@@ -168,6 +168,12 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
   },
   actions: {
     async load(courseId: string) {
+      if (this.courseId !== courseId) {
+        this.courseId = courseId
+        this.outlineRevisionId = ''
+        this.lessons = []
+        this.jobs = []
+      }
       this.loading = true
       this.error = ''
       try {

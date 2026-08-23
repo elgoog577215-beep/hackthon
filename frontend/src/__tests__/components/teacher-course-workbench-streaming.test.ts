@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
+import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 import http from '@/utils/http'
 
 const growth = {
@@ -167,5 +168,40 @@ describe('teacher course workbench outline streaming', () => {
     }))
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('chapter_count')
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('section_count')
+  })
+
+  it('大纲已生成待确认时阻断教案生成并恢复原有确认入口', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }] as any
+    const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
+    task.status = 'waiting_for_review'
+    task.currentPhase = 'outline_ready'
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect(wrapper.find('.lesson-selector').exists()).toBe(false)
+    expect(wrapper.get('.prerequisite').text()).toContain('课程大纲已生成，等待确认')
+    expect(wrapper.get('.prerequisite button').text()).toBe('审阅并确认大纲')
+    await wrapper.get('.prerequisite button').trigger('click')
+
+    expect(wrapper.emitted('update:outlineEditing')).toContainEqual([true])
+    expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
+  })
+
+  it('课次投影读取失败时显示真实错误并复用现有重载动作', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.courseId = 'course-1'
+    lessonStore.error = '分讲教案状态读取失败'
+    const reload = vi.spyOn(lessonStore, 'load').mockResolvedValue({} as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect(wrapper.get('.prerequisite').text()).toContain('分讲教案状态读取失败')
+    await wrapper.get('.prerequisite button').trigger('click')
+    expect(reload).toHaveBeenCalledWith('course-1')
   })
 })

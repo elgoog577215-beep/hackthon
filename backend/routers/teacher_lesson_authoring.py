@@ -49,7 +49,7 @@ from teaching_representations import (
     teaching_representation_repository,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
-from course_document import stable_hash
+from course_document import course_view_from_document, stable_hash
 from slide_deck_v6 import SlideDeckV6
 
 
@@ -141,6 +141,8 @@ def _source_course(tm: TaskManager, course_id: str) -> dict[str, Any]:
         source = raw if isinstance(raw, dict) else None
     if not isinstance(source, dict):
         raise TeacherLessonAuthoringError("course_not_found", "课程不存在或没有可用大纲。")
+    if not source.get("nodes") and isinstance(source.get("course_document"), dict):
+        source = course_view_from_document(source, source["course_document"])
     return deepcopy(source)
 
 

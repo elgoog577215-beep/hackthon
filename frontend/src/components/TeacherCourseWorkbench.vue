@@ -109,8 +109,15 @@
       />
 
       <section v-else class="lesson-stage">
-        <label class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ String(lesson.number).padStart(2, '0') }} · {{ lesson.title }}</option></select></label>
-        <div v-if="!lessonStore.lessons.length" class="prerequisite"><FileText :size="24" /><strong>{{ t('courseWorkbench.completeOutlineFirst', '请先生成并确认课程大纲') }}</strong><button type="button" @click="activeStage = 'foundation'">{{ t('courseWorkbench.backToFoundation', '返回课程基础') }}</button></div>
+        <label v-if="lessonStore.lessons.length && !outlineGatePending" class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ String(lesson.number).padStart(2, '0') }} · {{ lesson.title }}</option></select></label>
+        <div v-if="lessonStageBlocked" class="prerequisite" :data-state="lessonPrerequisiteState.kind" aria-live="polite">
+          <LoaderCircle v-if="lessonPrerequisiteState.kind === 'loading'" :size="24" class="spin" />
+          <TriangleAlert v-else-if="lessonPrerequisiteState.kind === 'error'" :size="24" />
+          <FileText v-else :size="24" />
+          <strong>{{ lessonPrerequisiteState.title }}</strong>
+          <span>{{ lessonPrerequisiteState.detail }}</span>
+          <button v-if="lessonPrerequisiteState.action" type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button>
+        </div>
 
         <template v-else-if="activeStage === 'lesson'">
           <form v-if="selectedLesson && !workingLessonRevision" class="stage-form stage-form--lesson" @submit.prevent="generateLessonPlan">
@@ -203,6 +210,7 @@ const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.v
 const taskPaused = computed(() => taskStatus.value === 'paused')
 const outlineShapeAwaitingReview = computed(() => taskStatus.value === 'waiting_for_review' && generationTask.value?.currentPhase === 'outline_shape_ready')
 const outlineAwaitingReview = computed(() => taskStatus.value === 'waiting_for_review' && !outlineShapeAwaitingReview.value)
+const outlineGatePending = computed(() => outlineShapeAwaitingReview.value || outlineAwaitingReview.value)
 const generationFailed = computed(() => generationTask.value
   ? ['error', 'failed', 'conflict'].includes(taskStatus.value)
   : generationStore.generationStatus === 'error')
@@ -233,10 +241,66 @@ const scriptNodes = computed(() => { const ids = new Set(selectedLesson.value?.s
 const scriptMarkdown = computed(() => scriptNodes.value.map(node => `## ${node.node_name}\n\n${node.node_content || ''}`).join('\n\n'))
 const selectedLessonQuestionNodeIds = computed(() => selectedLesson.value?.sections.map(item => item.section_node_id).filter(Boolean) || [])
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
+const lessonStageBlocked = computed(() => (
+  lessonStore.loading
+  || outlineGatePending.value
+  || Boolean(lessonStore.error)
+  || !lessonStore.lessons.length
+))
+const lessonPrerequisiteState = computed(() => {
+  if (lessonStore.loading) return {
+    kind: 'loading',
+    title: t('courseWorkbench.lessonPrerequisite.loading', '正在读取大纲课次'),
+    detail: t('courseWorkbench.lessonPrerequisite.loadingHelp', '已生成内容不会重复创建。'),
+    action: '',
+  }
+  if (outlineShapeAwaitingReview.value) return {
+    kind: 'review',
+    title: t('courseWorkbench.lessonPrerequisite.shapeReview', '大章节已生成，等待确认小节数'),
+    detail: t('courseWorkbench.lessonPrerequisite.shapeReviewHelp', '完成这一步后，系统会继续生成完整大纲。'),
+    action: t('courseWorkbench.lessonPrerequisite.continueOutline', '继续完善大纲'),
+  }
+  if (outlineAwaitingReview.value) return {
+    kind: 'review',
+    title: t('courseWorkbench.lessonPrerequisite.outlineReview', '课程大纲已生成，等待确认'),
+    detail: t('courseWorkbench.lessonPrerequisite.outlineReviewHelp', '确认后会直接形成可选择的课次，不需要重新生成大纲。'),
+    action: t('courseWorkbench.lessonPrerequisite.reviewOutline', '审阅并确认大纲'),
+  }
+  if (lessonStore.error) return {
+    kind: 'error',
+    title: t('courseWorkbench.lessonPrerequisite.loadFailed', '课次读取失败'),
+    detail: lessonStore.error,
+    action: t('courseWorkbench.lessonPrerequisite.retry', '重新读取课次'),
+  }
+  if (hasOutline.value || lessonStore.outlineRevisionId) return {
+    kind: 'sync',
+    title: t('courseWorkbench.lessonPrerequisite.syncPending', '课程大纲已存在，课次尚未同步'),
+    detail: t('courseWorkbench.lessonPrerequisite.syncPendingHelp', '重新读取会沿用当前大纲，不会重复生成内容。'),
+    action: t('courseWorkbench.lessonPrerequisite.retry', '重新读取课次'),
+  }
+  return {
+    kind: 'missing',
+    title: t('courseWorkbench.lessonPrerequisite.missing', '尚未生成可用的课程大纲'),
+    detail: t('courseWorkbench.lessonPrerequisite.missingHelp', '先生成大纲，再从审阅页确认后进入教案。'),
+    action: t('courseWorkbench.lessonPrerequisite.createOutline', '生成课程大纲'),
+  }
+})
 
 function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.working_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return courseStore.nodes.some(node => Boolean(node.node_content)); return lessonStore.lessons.some(item => item.plan.ppt_assets.length > 0) }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
+function resolveLessonPrerequisite() {
+  if (outlineGatePending.value) {
+    activeStage.value = 'foundation'
+    if (outlineAwaitingReview.value) editingOutline.value = true
+    return
+  }
+  if (lessonStore.error || hasOutline.value || lessonStore.outlineRevisionId) {
+    void lessonStore.load(props.courseId).catch(() => undefined)
+    return
+  }
+  activeStage.value = 'foundation'
+}
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
 async function submitFoundation() { generationRequested.value = true; try { const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }; delete baseTeacherBrief.chapter_count; delete baseTeacherBrief.section_count; await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')); emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { ...baseTeacherBrief, schema_version: 'teacher_course_brief_v1', target_audience: baseTeacherBrief.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: baseTeacherBrief.lesson_duration_minutes || 45, teaching_context: baseTeacherBrief.teaching_context || 'classroom' }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value }) } catch { generationRequested.value = false } }
@@ -273,4 +337,5 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0;color:#b91c1c;font-size:12px}
 .workbench-center.is-outline-editing{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;padding-bottom:24px}.workbench-center>.inline-outline-review{width:100%;height:auto;min-height:0;padding:0;overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.inline-outline-review :deep(.outline-review__sheet){width:100%;max-width:none}.inline-outline-review :deep(.outline-review__body){padding-inline:24px}
+.prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
 </style>
