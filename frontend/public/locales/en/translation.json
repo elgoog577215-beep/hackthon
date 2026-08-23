@@ -260,7 +260,7 @@
     "formalSaved": "Saved as a formal course file",
     "regenerate": "Regenerate",
     "generateOutline": "Generate course outline",
-    "generateChapterSkeleton": "Generate chapters first",
+    "generateChapterSkeleton": "Generate chapters",
     "generateLessonPlan": "Generate lesson plan",
     "completeOutlineFirst": "Generate and confirm the course outline first",
     "backToFoundation": "Back to course foundation",
@@ -302,7 +302,7 @@
     "form": {
       "learningGoal": "Teaching goal", "learningGoalPlaceholder": "Students will be able to…",
       "totalHours": "Total hours", "sessionCount": "Expected sessions", "requirements": "Additional requirements",
-      "generationOrder": "Outline generation order", "chapterFirst": "Generate chapters first", "chapterFirstHelp": "After seeing the actual chapter names, confirm each chapter's section count; hours do not automatically determine sections", "sectionUnit": "sections",
+      "sectionUnit": "sections",
       "requirementsPlaceholder": "For example: include case discussions and balance theory with practice",
       "sourceHint": "Sources on the right are sent to AI with this information", "lesson": "Select session",
       "chooseLesson": "Choose a session", "lessonFocus": "Lesson focus",

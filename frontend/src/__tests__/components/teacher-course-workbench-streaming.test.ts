@@ -149,11 +149,14 @@ describe('teacher course workbench outline streaming', () => {
     )
   })
 
-  it('生成大章节前不盲填逐章小节数，学时也不自动换算小节', async () => {
+  it('生成前只展示业务输入和操作，不展示内部流程解释', async () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.find('.chapter-shape-editor').exists()).toBe(false)
-    expect(wrapper.get('.course-shape-summary').text()).toContain('先生成大章节')
+    expect(wrapper.find('.course-shape-summary').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('大纲生成顺序')
+    expect(wrapper.text()).not.toContain('学时不自动换算小节')
+    expect(wrapper.get('form.stage-form button.primary').text()).toContain('生成大章节')
     await wrapper.get('.form-field input[type="number"]').setValue(12)
     await wrapper.get('form.stage-form').trigger('submit')
     await flushPromises()
