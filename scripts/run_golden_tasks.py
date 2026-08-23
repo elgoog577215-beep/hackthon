@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -835,9 +836,50 @@ TASKS: list[tuple[str, str, Callable, str]] = [
 ]
 
 
+# 每轮任务写出的子目录名。清理前用它确认目标确实是本脚本的工作目录。
+_WORKDIR_ENTRIES = {
+    "a1", "a2", "a3", "a4", "e1", "e2", "e3", "e4",
+    "g1", "g2", "g3", "g4", "g5", "r1", "r2", "r3",
+    "s1", "s2", "s3", "s4", "policy-moment", "policy-budget",
+}
+
+
+def _is_safe_to_clear(path: Path) -> bool:
+    """只清理明显属于本脚本的目录，避免 --workdir 打错删掉别的东西。"""
+    resolved = path.resolve()
+    if resolved == Path(resolved.anchor) or resolved == Path.home():
+        return False
+    if len(resolved.parts) < 3:
+        return False
+    try:
+        entries = {child.name for child in resolved.iterdir()}
+    except OSError:
+        return False
+    return not entries or entries <= _WORKDIR_ENTRIES
+
+
+def _reset_workdir(workdir: Path) -> None:
+    """每轮从空目录开始跑。
+
+    仓库的 create_once 是幂等的：上一轮留下的记录会让这一轮 created=False，
+    learning_record_created 事件不再发出（A3 判定②），策略预算也会从已用满
+    的状态起跑（每会话上限 2 次）。两者都表现为与代码、模型都无关的假失败,
+    2026-08-23 的重跑就被 2026-08-13 的残留误导过整整一轮。
+    """
+    if workdir.exists():
+        if not _is_safe_to_clear(workdir):
+            raise SystemExit(
+                f"拒绝清理 {workdir}：它不像本脚本的工作目录。"
+                "请换一个 --workdir，或手工确认后删除。"
+            )
+        shutil.rmtree(workdir)
+        print(f"已清空上轮残留：{workdir}")
+    workdir.mkdir(parents=True, exist_ok=True)
+
+
 async def main_async(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir)
-    workdir.mkdir(parents=True, exist_ok=True)
+    _reset_workdir(workdir)
     runner = Runner(args.provider_label, workdir)
 
     from ai_base import AIBase

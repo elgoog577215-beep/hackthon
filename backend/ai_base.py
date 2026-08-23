@@ -62,6 +62,15 @@ sys.path.insert(0, str(project_root))
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 2026-08-23 自部署 Qwen3.8-27B 真端点实测：推理模型会把思考撑满可用预算，
+# 而不是花固定开销。同一道硬题下 max_tokens=4096 时思考 10,577 字、8192 时
+# 22,442 字，两者都只有思考、正文为空（thinking_consumed_budget）；16384 起
+# 才稳定产出正文。因此开思考的调用必须有独立下限——沿用 AI_MAX_TOKENS 的
+# 8192 默认值会让硬任务必然失败，且失败形态看起来像模型不可用。
+THINKING_MIN_MAX_TOKENS = int(
+    os.getenv("AI_THINKING_MIN_MAX_TOKENS", "16384")
+)
+
 # API密钥存在性检查（不记录密钥内容）
 _api_key_present = bool(os.getenv("AI_API_KEY"))
 _modelscope_fallback_key_present = bool(os.getenv("MODELSCOPE_API_KEY"))
@@ -1682,6 +1691,28 @@ class AIBase:
             raise AIProviderRequestError(str(last_error)) from last_error
         raise AIProviderRequestError("ModelScope fallback has no available model")
 
+    def _thinking_aware_max_tokens(
+        self,
+        requested: int,
+        enable_thinking: bool,
+    ) -> int:
+        """开思考时把 max_tokens 抬到实测下限。
+
+        不开思考时原样返回：实测关掉思考后 max_tokens=60 都能正常出正文，
+        没有理由为它多花预算。
+        """
+        if not enable_thinking:
+            return requested
+        if requested >= THINKING_MIN_MAX_TOKENS:
+            return requested
+        logger.info(
+            "Raising max_tokens %d -> %d for a thinking-enabled call "
+            "(measured: reasoning alone overruns 8192 on hard prompts)",
+            requested,
+            THINKING_MIN_MAX_TOKENS,
+        )
+        return THINKING_MIN_MAX_TOKENS
+
     async def _call_llm(
         self,
         prompt: str,
@@ -1751,7 +1782,10 @@ class AIBase:
         # same ceiling usually truncates again.  Reasoning models spend this
         # same budget on hidden thinking tokens, so the retry only pays off
         # with real headroom.
-        requested_max_tokens = max_tokens or self.max_tokens
+        requested_max_tokens = self._thinking_aware_max_tokens(
+            max_tokens or self.max_tokens,
+            enable_thinking,
+        )
         effective_max_tokens = requested_max_tokens
         truncation_headroom_ceiling = max(
             self.max_tokens,
@@ -2230,7 +2264,10 @@ class AIBase:
             # 非流式路径已有"截断后加大预算重试"，流式没有：一次截断就以空
             # 正文收场，是正文阶段的单点故障，在 reasoning 模型上尤其常见
             # （thinking 吃光输出预算）。
-            stream_max_tokens = max_tokens or self.max_tokens
+            stream_max_tokens = self._thinking_aware_max_tokens(
+                max_tokens or self.max_tokens,
+                enable_thinking,
+            )
             truncation_ceiling = max(self.max_tokens, stream_max_tokens * 2)
             # A-1：流式路径此前完全没有埋点，而正文生成正走这条路。少了它
             # 账单会漏掉最耗时的阶段。
