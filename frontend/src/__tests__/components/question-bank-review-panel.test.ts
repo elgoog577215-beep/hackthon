@@ -602,7 +602,7 @@ describe('QuestionBankReviewPanel', () => {
     const button = wrapper.get(
       '[data-testid="generate-question-bank"]',
     )
-    expect(button.text()).toContain('开始智能出题')
+    expect(button.text()).toContain('开始生成')
     await button.trigger('click')
     await flushPromises()
 
@@ -633,6 +633,12 @@ describe('QuestionBankReviewPanel', () => {
       props: { courseId: 'course-1' },
     })
     await flushPromises()
+
+    const studio = wrapper.get('[data-testid="question-generation-studio"]')
+    expect(studio.text()).toContain('首次生成后，合格题目会自动进入课程题库')
+    expect(wrapper.find('.question-bank-panel__state--error').exists()).toBe(false)
+    expect(wrapper.find('.question-quality-details').exists()).toBe(false)
+    expect(wrapper.find('.question-browser').exists()).toBe(false)
 
     const button = wrapper.get(
       '[data-testid="generate-question-bank"]',

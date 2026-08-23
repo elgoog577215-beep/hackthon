@@ -37,7 +37,8 @@ describe('desktop UI density contract', () => {
 
   it('removes repeated desktop containers and redundant return actions', () => {
     expect(reviewCenterSource).not.toContain("t('questionBank.currentCourse'")
-    expect(reviewPanelSource).toMatch(/\.question-bank-panel\s*\{[^}]*border-top:1px solid[^}]*background:transparent/s)
+    expect(reviewPanelSource).toMatch(/\.question-bank-panel\s*\{[^}]*padding:0[^}]*background:transparent/s)
+    expect(reviewPanelSource).not.toContain('question-generation-studio__policy')
     expect(teacherSpaceSource).toContain('<header v-if="!embedded" class="standalone-header">')
     expect(teacherSpaceSource).toContain('class="file-tree-pane"')
     expect(teacherSpaceSource).toContain('class="file-list-pane"')
