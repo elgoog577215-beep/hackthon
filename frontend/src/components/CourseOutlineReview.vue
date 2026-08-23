@@ -1,5 +1,5 @@
 <template>
-  <section class="outline-review" :class="{ 'is-editing': editable }" :data-mode="editable ? 'edit' : 'view'" :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程目录确认')">
+  <section class="outline-review" :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程目录确认')">
     <article class="outline-review__sheet">
       <div v-if="loading" class="outline-review__loading" aria-live="polite">
         <LoaderCircle :size="18" />
@@ -299,7 +299,7 @@
           <div class="outline-review__chapters" data-testid="outline-chapter-list">
             <div class="outline-review__list-toolbar">
               <strong>{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
-              <button type="button" :disabled="adjustmentBusy" :tabindex="editable ? undefined : -1" @click="addChapter">
+              <button type="button" :disabled="adjustmentBusy" @click="addChapter">
                 <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
               </button>
             </div>
@@ -321,8 +321,6 @@
                     v-model="group.chapter.node.node_name"
                     type="text"
                     :disabled="adjustmentBusy"
-                    :readonly="!editable"
-                    :tabindex="editable ? undefined : -1"
                     :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                     @input="invalidateProposal"
                   />
@@ -331,18 +329,16 @@
                     v-model="group.chapter.node.learning_objective"
                     rows="1"
                     :disabled="adjustmentBusy"
-                    :readonly="!editable"
-                    :tabindex="editable ? undefined : -1"
                     :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
                     :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
                     @input="invalidateProposal"
                   />
                 </div>
                 <div class="outline-review__node-actions">
-                  <button type="button" :title="t('courseGeneration.outlineReview.addSection', '新增小节')" :disabled="adjustmentBusy" :tabindex="editable ? undefined : -1" @click="addSection(group.chapter.node)"><Plus :size="14" /></button>
-                  <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, -1)" :tabindex="editable ? undefined : -1" @click="moveOutlineNode(group.chapter.node, -1)"><ArrowUp :size="14" /></button>
-                  <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, 1)" :tabindex="editable ? undefined : -1" @click="moveOutlineNode(group.chapter.node, 1)"><ArrowDown :size="14" /></button>
-                  <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeChapter', '删除本章')" :disabled="adjustmentBusy" :tabindex="editable ? undefined : -1" @click="removeOutlineNode(group.chapter.node)"><Trash2 :size="14" /></button>
+                  <button type="button" :title="t('courseGeneration.outlineReview.addSection', '新增小节')" :disabled="adjustmentBusy" @click="addSection(group.chapter.node)"><Plus :size="14" /></button>
+                  <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, -1)" @click="moveOutlineNode(group.chapter.node, -1)"><ArrowUp :size="14" /></button>
+                  <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, 1)" @click="moveOutlineNode(group.chapter.node, 1)"><ArrowDown :size="14" /></button>
+                  <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeChapter', '删除本章')" :disabled="adjustmentBusy" @click="removeOutlineNode(group.chapter.node)"><Trash2 :size="14" /></button>
                 </div>
               </header>
 
@@ -363,8 +359,6 @@
                       v-model="item.node.node_name"
                       type="text"
                       :disabled="adjustmentBusy"
-                      :readonly="!editable"
-                      :tabindex="editable ? undefined : -1"
                       :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                       @input="invalidateProposal"
                     />
@@ -372,17 +366,15 @@
                       v-model="item.node.learning_objective"
                       rows="1"
                       :disabled="adjustmentBusy"
-                      :readonly="!editable"
-                      :tabindex="editable ? undefined : -1"
                       :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
                       :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
                       @input="invalidateProposal"
                     />
                   </div>
                   <div class="outline-review__node-actions">
-                    <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(item.node, -1)" :tabindex="editable ? undefined : -1" @click="moveOutlineNode(item.node, -1)"><ArrowUp :size="14" /></button>
-                    <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(item.node, 1)" :tabindex="editable ? undefined : -1" @click="moveOutlineNode(item.node, 1)"><ArrowDown :size="14" /></button>
-                    <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeSection', '删除小节')" :disabled="adjustmentBusy" :tabindex="editable ? undefined : -1" @click="removeOutlineNode(item.node)"><Trash2 :size="14" /></button>
+                    <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(item.node, -1)" @click="moveOutlineNode(item.node, -1)"><ArrowUp :size="14" /></button>
+                    <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(item.node, 1)" @click="moveOutlineNode(item.node, 1)"><ArrowDown :size="14" /></button>
+                    <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeSection', '删除小节')" :disabled="adjustmentBusy" @click="removeOutlineNode(item.node)"><Trash2 :size="14" /></button>
                   </div>
                 </article>
               </div>
@@ -455,13 +447,11 @@ const props = withDefaults(defineProps<{
   nodes?: Node[]
   task?: Task
   surface?: 'student' | 'teacher'
-  editable?: boolean
 }>(), {
   courseName: '',
   nodes: () => [],
   task: undefined,
   surface: 'student',
-  editable: true,
 })
 
 const emit = defineEmits<{
@@ -1090,23 +1080,14 @@ async function confirmOutline() {
   outline:none;
   transition:border-color .16s ease,background .16s ease,box-shadow .16s ease;
 }
-.outline-review.is-editing .outline-review__chapters input:hover,
-.outline-review.is-editing .outline-review__chapters textarea:hover { background:#f8f9fb; }
-.outline-review.is-editing .outline-review__chapters input:focus,
-.outline-review.is-editing .outline-review__chapters textarea:focus,
-.outline-review__adjustment textarea:focus {
+.outline-review input:hover,
+.outline-review textarea:hover { background:#f8f9fb; }
+.outline-review input:focus,
+.outline-review textarea:focus {
   border-color:#aeb4e9;
   background:#fff;
   box-shadow:0 0 0 3px rgba(79,70,217,.08);
 }
-.outline-review:not(.is-editing) .outline-review__chapters input,
-.outline-review:not(.is-editing) .outline-review__chapters textarea { cursor:default; }
-.outline-review:not(.is-editing) .outline-review__list-toolbar button,
-.outline-review:not(.is-editing) .outline-review__node-actions { visibility:hidden; pointer-events:none; }
-.outline-review.is-editing .outline-review__chapter-heading,
-.outline-review.is-editing .outline-review__section { transition:background-color .16s ease; }
-.outline-review.is-editing .outline-review__chapter-heading:hover,
-.outline-review.is-editing .outline-review__section:hover { background:#fbfbfd; }
 .outline-review__starting-point {
   margin:0;
   padding:16px 0 18px 114px;

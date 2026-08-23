@@ -78,29 +78,6 @@ describe('一句话调整课程目录', () => {
     await setLocale('zh')
   })
 
-  it('查看态与编辑态复用同一份大纲结构，只切换手工编辑能力', async () => {
-    const workspace = useCourseWorkspaceStore()
-    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)
-    const wrapper = mount(CourseOutlineReview, {
-      props: { courseId: 'course-1', courseName: 'Unity 游戏编程', editable: false },
-    })
-    await flushPromises()
-
-    const outlineElement = wrapper.get('[data-testid="outline-chapter-list"]').element
-    const chapterName = wrapper.get('.outline-review__chapter-heading input')
-    expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('view')
-    expect(chapterName.attributes('readonly')).toBeDefined()
-    expect(chapterName.attributes('tabindex')).toBe('-1')
-    expect(wrapper.get('.outline-review__adjustment textarea').attributes('readonly')).toBeUndefined()
-
-    await wrapper.setProps({ editable: true })
-
-    expect(wrapper.get('[data-testid="outline-chapter-list"]').element).toBe(outlineElement)
-    expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('edit')
-    expect(wrapper.get('.outline-review__chapter-heading input').attributes('readonly')).toBeUndefined()
-    expect(wrapper.get('.outline-review__chapter-heading input').attributes('tabindex')).toBeUndefined()
-  })
-
   it('先保存手动修改，再生成差异并通过现有草稿接口应用整套方案', async () => {
     const course = useCourseStore()
     course.currentCourseId = 'course-1'
