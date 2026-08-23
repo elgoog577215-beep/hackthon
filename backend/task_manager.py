@@ -72,6 +72,10 @@ from course_outline_adjustments import (
     compile_outline_draft,
     describe_outline_diff,
 )
+from course_outline_planning import (
+    normalize_outline_skeleton,
+    validate_outline_skeleton,
+)
 from course_quality import (
     build_final_course_quality_report,
     dedupe_quality_issues,
@@ -1985,6 +1989,187 @@ class TaskManager:
             for node in course_data.get("nodes") or []
             if isinstance(node, dict)
         )
+
+    @staticmethod
+    def _outline_shape_growth(
+        skeleton: dict[str, Any],
+        *,
+        state: str = "shape_review",
+    ) -> dict[str, Any]:
+        chapters = [
+            {
+                "chapter_number": int(item.get("chapter_number") or index),
+                "title": str(item.get("title") or ""),
+                "learning_focus": str(item.get("learning_focus") or ""),
+                "section_count": int(item.get("section_count") or 0),
+                "completed_section_count": 0,
+                "status": "waiting",
+                "sections": [],
+            }
+            for index, item in enumerate(
+                skeleton.get("chapters") or [],
+                start=1,
+            )
+            if isinstance(item, dict)
+        ]
+        return {
+            "schema_version": "course_outline_growth_v1",
+            "state": state,
+            "course_title": str(skeleton.get("course_title") or ""),
+            "positioning": str(skeleton.get("positioning") or ""),
+            "completed_batches": 0,
+            "total_batches": 0,
+            "completed_sections": 0,
+            "total_sections": sum(
+                int(item.get("section_count") or 0) for item in chapters
+            ),
+            "chapters": chapters,
+        }
+
+    async def confirm_outline_shape(
+        self,
+        course_id: str,
+        chapter_section_counts: list[int],
+    ) -> dict[str, Any]:
+        """Freeze teacher-adjusted section counts and resume the same outline job."""
+        counts = [int(item) for item in chapter_section_counts]
+        if not counts or any(item < 1 or item > 100 for item in counts):
+            raise ValueError("Each chapter must contain between 1 and 100 sections")
+        if sum(counts) > 1000:
+            raise ValueError("The course outline cannot exceed 1000 sections")
+
+        related = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id
+            and task.get("type") == "teacher_outline_generation"
+        ]
+        related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        if not related:
+            raise ValueError("No teacher outline job was found for this course")
+        task = related[0]
+        task_id = str(task["id"])
+        if task.get("outline_shape_confirmed"):
+            return {
+                "status": "already_confirmed",
+                "job_id": task_id,
+                "course_id": course_id,
+                "chapter_section_counts": counts,
+            }
+        if (
+            task.get("status") != "waiting_for_review"
+            or str(task.get("phase") or task.get("current_phase") or "")
+            != "outline_shape_ready"
+        ):
+            raise ValueError("The chapter skeleton is not waiting for review")
+
+        course_data = self._load_task_course(task_id)
+        if not course_data:
+            raise ValueError("Course not found")
+        outline_stage = (
+            (course_data.get("generation_stage_artifacts") or {}).get("outline")
+            or {}
+        )
+        raw_skeleton = outline_stage.get("skeleton")
+        if not isinstance(raw_skeleton, dict):
+            raise ValueError("The chapter skeleton checkpoint is unavailable")
+        chapters = [
+            deepcopy(item)
+            for item in raw_skeleton.get("chapters") or []
+            if isinstance(item, dict)
+        ]
+        if len(counts) != len(chapters):
+            raise ValueError("Section counts must match the generated chapter count")
+        for chapter, count in zip(chapters, counts, strict=True):
+            chapter["section_count"] = count
+
+        request_fingerprint = str(outline_stage.get("request_fingerprint") or "")
+        request = task.get("request_snapshot") or {}
+        topic = str(
+            request.get("subject")
+            or course_data.get("course_name")
+            or raw_skeleton.get("course_title")
+            or "课程"
+        )
+        skeleton = normalize_outline_skeleton(
+            {**deepcopy(raw_skeleton), "chapters": chapters},
+            topic=topic,
+            request_fingerprint=request_fingerprint,
+        )
+        confirmed_shape = {
+            "chapter_count": len(chapters),
+            "section_count": sum(counts),
+        }
+        brief = course_data.get("course_generation_brief") or {}
+        report = validate_outline_skeleton(
+            skeleton,
+            shape_constraints=confirmed_shape,
+            request_fingerprint=request_fingerprint,
+            course_type_contract=brief.get("course_type_contract") or {},
+        )
+        if not report.get("passed"):
+            messages = "；".join(
+                str(item.get("message") or "章节结构无效")
+                for item in report.get("issues") or []
+            )
+            raise ValueError(messages or "The confirmed chapter shape is invalid")
+
+        outline_stage.update({
+            "status": "shape_confirmed",
+            "shape_confirmed": True,
+            "confirmed_shape_constraints": confirmed_shape,
+            "shape_confirmation_revision_id": stable_hash(
+                {
+                    "skeleton_revision_id": skeleton.get("revision_id"),
+                    "chapter_section_counts": counts,
+                },
+                prefix="outline_shape_",
+            ),
+            "skeleton": skeleton,
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "skeleton_validation_report": report,
+            "chapter_count": len(chapters),
+            "section_count": sum(counts),
+            "batches": {},
+            "completed_batch_count": 0,
+            "completed_section_count": 0,
+        })
+        course_data["generation_status"] = "outline_shape_confirmed"
+        course_data.setdefault("generation_stage_artifacts", {})[
+            "outline"
+        ] = outline_stage
+        await self._save_task_course(task_id, course_data)
+
+        growth = self._outline_shape_growth(
+            skeleton,
+            state="shape_confirmed",
+        )
+        async with self._lock:
+            task["outline_shape_confirmed"] = True
+            task["status"] = "pending"
+            task["phase"] = "outline_shape_confirmed"
+            task["current_phase"] = "outline_shape_confirmed"
+            task["phase_progress"] = 100
+            task["phase_detail"] = {
+                "artifact_type": "course_outline_skeleton",
+                "skeleton_revision_id": skeleton.get("revision_id"),
+                "outline_growth": growth,
+            }
+            task["message"] = "大章节与逐章小节数已确认，开始生成小章节"
+            task["updated_at"] = datetime.now().isoformat()
+            self.save_tasks(strict=True)
+        await self._task_queue.put(task_id)
+        await self._push_progress(task_id)
+        return {
+            "status": "resumed",
+            "job_id": task_id,
+            "course_id": course_id,
+            "chapter_section_counts": counts,
+            "skeleton_revision_id": skeleton.get("revision_id"),
+            "shape_confirmation_revision_id": outline_stage.get(
+                "shape_confirmation_revision_id"
+            ),
+        }
 
     async def confirm_generation_step(
         self,
@@ -6621,6 +6806,21 @@ class TaskManager:
                 fresh.update(checkpoint)
                 await self._save_task_course(task_id, fresh)
 
+            outline_stage = (
+                (course_data.get("generation_stage_artifacts") or {}).get(
+                    "outline"
+                )
+                or {}
+            )
+            outline_shape_confirmed = bool(
+                task.get("outline_shape_confirmed")
+                or outline_stage.get("shape_confirmed")
+            )
+            stop_after_skeleton = bool(
+                is_teacher_outline
+                and not outline_shape_confirmed
+                and not course_data.get("course_outline")
+            )
             stop_after_outline = bool(
                 review_pending and not course_data.get("course_outline")
             )
@@ -6658,10 +6858,45 @@ class TaskManager:
                     load_course_exclusions(course_data),
                 ),
                 existing_course_data=course_data,
+                stop_after_skeleton=stop_after_skeleton,
                 stop_after_outline=stop_after_outline,
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
+            if (
+                stop_after_skeleton
+                and course_data.get("generation_status")
+                == "outline_shape_ready"
+            ):
+                outline_stage = (
+                    (course_data.get("generation_stage_artifacts") or {}).get(
+                        "outline"
+                    )
+                    or {}
+                )
+                skeleton = outline_stage.get("skeleton") or {}
+                growth = self._outline_shape_growth(skeleton)
+                course_data["generation_status"] = "outline_shape_ready"
+                await self._save_task_course(task_id, course_data)
+                await self._update_phase(
+                    task_id,
+                    "outline_shape_ready",
+                    32,
+                    "大章节骨架已生成，请确认每章小节数",
+                    phase_progress=100,
+                    phase_detail={
+                        "artifact_type": "course_outline_skeleton",
+                        "skeleton_revision_id": skeleton.get("revision_id"),
+                        "outline_growth": growth,
+                    },
+                )
+                await self._update_task_status(
+                    task_id,
+                    "waiting_for_review",
+                    message="大章节骨架已生成，请确认每章小节数",
+                )
+                await self._push_progress(task_id)
+                return
             if stop_after_outline:
                 course_data = await self._prepare_course_outline_research(
                     course_data,

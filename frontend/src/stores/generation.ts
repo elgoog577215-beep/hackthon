@@ -45,7 +45,11 @@ const ACTIVE_BACKEND_TASK_STATUSES = new Set([
 const backendTaskTimestamp = (task: Record<string, any>) => (
   Date.parse(String(task.updated_at || task.created_at || '')) || 0
 )
-const COURSE_LIFECYCLE_TASK_TYPES = new Set(['course_generation', 'course_import'])
+const COURSE_LIFECYCLE_TASK_TYPES = new Set([
+  'course_generation',
+  'course_import',
+  'teacher_outline_generation',
+])
 const DEFAULT_GLOBAL_TASK_BACKOFF_MS = 60_000
 const GLOBAL_TASK_POLL_INTERVAL_MS = 15_000
 
@@ -648,11 +652,14 @@ export const useGenerationStore = defineStore('generation', {
       this.currentGeneratingNode = active && currentStep ? currentStep : null
     },
 
-    async reconcilePublishedCourses(courseIds: Iterable<string>) {
+    async reconcilePublishedCourses(
+      courseIds: Iterable<string>,
+      surface: 'student' | 'teacher' = 'student',
+    ) {
       const publishedCourseIds = new Set(courseIds)
       if (!publishedCourseIds.size) return
       const cs = this._courseStore()
-      const refreshes: Promise<unknown>[] = [cs.fetchCourseList()]
+      const refreshes: Promise<unknown>[] = [cs.fetchCourseList({ surface })]
       if (cs.currentCourseId && publishedCourseIds.has(cs.currentCourseId)) {
         refreshes.push(cs.refreshCourseData(cs.currentCourseId))
       }
@@ -1005,14 +1012,17 @@ export const useGenerationStore = defineStore('generation', {
             }
           }
         })
-        if (publishedCourseIds.size) {
-          await this.reconcilePublishedCourses(publishedCourseIds)
-        } else if (discoveredCourseIds.size) {
-          await this._courseStore().fetchCourseList()
-        }
         const cs = this._courseStore()
         const now = Date.now()
         const currentTask = cs.currentCourseId ? this.tasks.get(cs.currentCourseId) : undefined
+        const currentSurface = currentTask?.taskType === 'teacher_outline_generation'
+          ? 'teacher'
+          : 'student'
+        if (publishedCourseIds.size) {
+          await this.reconcilePublishedCourses(publishedCourseIds, currentSurface)
+        } else if (discoveredCourseIds.size) {
+          await cs.fetchCourseList({ surface: currentSurface })
+        }
         if (
           cs.currentCourseProjection === 'generation_preview'
           && currentTask
@@ -1020,7 +1030,10 @@ export const useGenerationStore = defineStore('generation', {
           && now - this.lastGenerationPreviewRefreshAt >= 5000
         ) {
           this.lastGenerationPreviewRefreshAt = now
-          await cs.refreshGenerationPreview(cs.currentCourseId)
+          await cs.refreshGenerationPreview(
+            cs.currentCourseId,
+            currentTask.taskType === 'teacher_outline_generation' ? 'teacher' : 'student',
+          )
         }
       } catch (e) {
         const retryDelay = globalTaskRetryDelayMs(e)
@@ -1119,6 +1132,9 @@ export const useGenerationStore = defineStore('generation', {
           const courseName = res.data.course_name || subject
           const task = this.createTask(jobId, courseId, courseName, options)
           task.status = res.data.status || 'pending'
+          task.taskType = options.teacher_authoring_mode === 'lesson_assets_v1'
+            ? 'teacher_outline_generation'
+            : 'course_generation'
           task.currentPhase = String(res.data.phase || 'queued')
           cs.currentCourseId = courseId
           cs.currentPedagogyProfile = null
@@ -1140,6 +1156,10 @@ export const useGenerationStore = defineStore('generation', {
           this.persistGenerationState()
           if (this.wsConnected) useTaskWebSocket().subscribe(courseId)
           else this.startGlobalMonitor()
+          await cs.refreshGenerationPreview(
+            courseId,
+            task.taskType === 'teacher_outline_generation' ? 'teacher' : 'student',
+          )
           return { jobId, courseId, courseName }
         }
         return null

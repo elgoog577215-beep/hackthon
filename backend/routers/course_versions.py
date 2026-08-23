@@ -87,6 +87,19 @@ class RegenerateCourseRequest(BaseModel):
     regenerate_all: bool = False
 
 
+class OutlineShapeConfirmRequest(BaseModel):
+    chapter_section_counts: list[int] = Field(min_length=1, max_length=100)
+
+    @field_validator("chapter_section_counts")
+    @classmethod
+    def validate_chapter_section_counts(cls, value: list[int]) -> list[int]:
+        if any(item < 1 or item > 100 for item in value):
+            raise ValueError("each chapter must contain between 1 and 100 sections")
+        if sum(value) > 1000:
+            raise ValueError("the course outline cannot exceed 1000 sections")
+        return value
+
+
 GenerationStep = Literal[
     "outline",
     "knowledge",
@@ -379,6 +392,31 @@ async def get_generation_review(
             detail="No guided generation workflow was found for this course",
         )
     return review
+
+
+@router.post("/generation/outline-shape/confirm", status_code=202)
+async def confirm_outline_shape(
+    course_id: str,
+    request: OutlineShapeConfirmRequest,
+    tm: TaskManager = Depends(require_task_manager),
+):
+    await get_course_or_404(course_id)
+    try:
+        return await tm.confirm_outline_shape(
+            course_id,
+            request.chapter_section_counts,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except TaskStateConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "task_state_conflict",
+                "message": str(exc),
+                "status": exc.status,
+            },
+        ) from exc
 
 
 @router.post("/generation/steps/{step}/confirm", status_code=202)

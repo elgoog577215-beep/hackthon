@@ -181,6 +181,50 @@ class BlueprintService:
         return self._attach_teaching(deepcopy(course))
 
 
+class SkeletonGateService(BlueprintService):
+    async def build_course_draft(self, **kwargs):
+        if kwargs.get("stop_after_skeleton"):
+            course = deepcopy(kwargs["existing_course_data"])
+            course.update({
+                "generation_status": "outline_shape_ready",
+                "generation_stage_artifacts": {
+                    "outline": {
+                        "status": "waiting_for_shape_review",
+                        "request_fingerprint": "outline-request-1",
+                        "skeleton": {
+                            "schema_version": "course_outline_skeleton_v2",
+                            "request_fingerprint": "outline-request-1",
+                            "revision_id": "outline-skeleton-1",
+                            "course_title": "教师章节骨架",
+                            "positioning": "先确认章节规模",
+                            "learning_objectives": ["形成课程结构"],
+                            "prerequisites": [],
+                            "chapters": [
+                                {
+                                    "chapter_number": 1,
+                                    "title": "基础概念",
+                                    "learning_focus": "建立基础",
+                                    "section_count": 2,
+                                },
+                                {
+                                    "chapter_number": 2,
+                                    "title": "综合应用",
+                                    "learning_focus": "完成应用",
+                                    "section_count": 3,
+                                },
+                            ],
+                        },
+                    },
+                },
+                "course_generation_brief": {
+                    "course_shape_constraints": {},
+                    "course_type_contract": {},
+                },
+            })
+            return course
+        return await super().build_course_draft(**kwargs)
+
+
 @pytest.mark.asyncio
 async def test_process_task_persists_precise_release_quality_handoff(tmp_path, monkeypatch):
     import task_manager as task_manager_module
@@ -488,6 +532,71 @@ async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
     assert await manager._task_queue.get() == job["job_id"]
     workspaces.set_status(job["job_id"], "published")
     assert manager.get_generation_preview(job["course_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_teacher_confirms_section_counts_after_named_chapter_skeleton(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(
+        task_manager_module,
+        "TASKS_FILE",
+        tmp_path / "teacher-shape-tasks.json",
+    )
+    storage = MemoryStorage()
+    manager = TaskManager(
+        storage,
+        SkeletonGateService(),
+        None,
+        version_repository=CourseVersionRepository(tmp_path / "teacher-shape-versions"),
+        workspace_repository=GenerationWorkspaceRepository(tmp_path / "teacher-shape-workspaces"),
+        document_repository=CourseDocumentRepository(storage),
+    )
+    job = await manager.create_generation_job({
+        "subject": "教师章节骨架",
+        "teacher_authoring_mode": "lesson_assets_v1",
+        "teacher_course_brief": {"total_class_hours": 16},
+        "generation_mode": "review_blueprint",
+        "course_purpose": "systematic",
+    })
+
+    assert await manager._task_queue.get() == job["job_id"]
+    await manager._process_task(job["job_id"])
+    task = manager.tasks[job["job_id"]]
+    assert task["status"] == "waiting_for_review"
+    assert task["phase"] == "outline_shape_ready"
+    assert task["guided_workflow"]["review_step"] is None
+    assert [
+        chapter["title"]
+        for chapter in task["phase_detail"]["outline_growth"]["chapters"]
+    ] == ["基础概念", "综合应用"]
+
+    resumed = await manager.confirm_outline_shape(
+        job["course_id"],
+        [3, 5],
+    )
+    assert resumed["job_id"] == job["job_id"]
+    assert task["status"] == "pending"
+    assert task["outline_shape_confirmed"] is True
+    assert await manager._task_queue.get() == job["job_id"]
+    checkpoint = manager.get_generation_workspace_course(job["course_id"])
+    outline_stage = checkpoint["generation_stage_artifacts"]["outline"]
+    assert outline_stage["confirmed_shape_constraints"] == {
+        "chapter_count": 2,
+        "section_count": 8,
+    }
+    assert [
+        chapter["section_count"]
+        for chapter in outline_stage["skeleton"]["chapters"]
+    ] == [3, 5]
+
+    await asyncio.wait_for(manager._process_task(job["job_id"]), timeout=20)
+    assert task["status"] == "waiting_for_review"
+    assert task["phase"] == "outline_ready"
+    assert task["guided_workflow"]["review_step"] == "outline"
 
 
 @pytest.mark.asyncio

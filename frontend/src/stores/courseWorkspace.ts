@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { teacherRequestConfig } from '../utils/http'
 import { t } from '../shared/i18n'
 import { useLearningSessionStore } from './learningSession'
 import { useLearningProgressStore, type LearningTaskRef, type NextLearningAction } from './learningProgress'
@@ -718,6 +718,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       } finally {
         this.loading = false
       }
+    },
+    async confirmOutlineShape(
+      courseId: string,
+      chapterSectionCounts: number[],
+    ) {
+      const res = await http.post(
+        `/api/courses/${courseId}/generation/outline-shape/confirm`,
+        { chapter_section_counts: chapterSectionCounts },
+        teacherRequestConfig(),
+      )
+      return res.data
     },
     async confirmGenerationStep(
       courseId: string,

@@ -28,6 +28,42 @@ class PreviewManager:
         }
 
 
+class OutlineShapeManager:
+    def __init__(self):
+        self.calls = []
+
+    async def confirm_outline_shape(self, course_id, chapter_section_counts):
+        self.calls.append((course_id, chapter_section_counts))
+        return {
+            "status": "resumed",
+            "job_id": "job-shape-1",
+            "course_id": course_id,
+            "chapter_section_counts": chapter_section_counts,
+        }
+
+
+def test_outline_shape_confirmation_endpoint_resumes_teacher_job(monkeypatch):
+    manager = OutlineShapeManager()
+
+    async def load_course(course_id):
+        return {"course_id": course_id}
+
+    monkeypatch.setattr(course_versions, "get_course_or_404", load_course)
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: manager
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/courses/course-1/generation/outline-shape/confirm",
+        json={"chapter_section_counts": [3, 5]},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["job_id"] == "job-shape-1"
+    assert manager.calls == [("course-1", [3, 5])]
+
+
 def test_preview_endpoint_passes_optimistic_revisions_without_writing(monkeypatch):
     manager = PreviewManager()
     app = FastAPI()

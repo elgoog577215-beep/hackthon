@@ -255,6 +255,39 @@ def test_dedicated_course_planner_requires_complete_ordered_stages():
     assert compact_report["passed"] is True
 
 
+@pytest.mark.asyncio
+async def test_teacher_outline_can_stop_after_named_chapter_skeleton(monkeypatch):
+    service = CourseService()
+    calls: list[str] = []
+
+    async def fake_call(prompt, system_prompt="", **_kwargs):
+        calls.append(system_prompt)
+        assert "全课章节骨架 V2" in system_prompt
+        return _outline_skeleton_payload(
+            chapter_count=6,
+            sections_per_chapter=3,
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = await service.build_course_draft(
+        course_id="course-shape-review",
+        topic="并行系统",
+        requirements="形成完整课程",
+        stop_after_skeleton=True,
+        stop_after_outline=True,
+    )
+
+    assert len(calls) == 1
+    assert result["generation_status"] == "outline_shape_ready"
+    assert "course_outline" not in result
+    stage = result["generation_stage_artifacts"]["outline"]
+    assert stage["status"] == "waiting_for_shape_review"
+    assert [
+        chapter["title"] for chapter in stage["skeleton"]["chapters"]
+    ] == [f"第 {index} 章" for index in range(1, 7)]
+    assert stage["section_count"] == 18
+
+
 def test_large_outline_is_split_per_chapter_and_locally_assembled():
     shape = {"chapter_count": 8, "section_count": 48}
     fingerprint = outline_request_fingerprint(

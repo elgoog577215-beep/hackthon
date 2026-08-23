@@ -48,15 +48,11 @@
         </div>
 
         <footer class="form-footer">
-          <label class="outline-option">
-            <input v-model="form.generateOutline" type="checkbox" />
-            <span><strong>{{ t('teacherCourseCreate.generateOutline') }}</strong><small>{{ t('teacherCourseCreate.generateOutlineHelp') }}</small></span>
-          </label>
           <div class="form-actions">
             <button type="button" @click="closeCourseCreate">{{ t('common.cancel') }}</button>
             <button class="primary" type="submit" :disabled="creating || !form.courseName">
               <LoaderCircle v-if="creating" :size="16" class="spin" />
-              {{ form.generateOutline ? t('teacherCourseCreate.createAndGenerate') : t('teacherCourseCreate.createCourse') }}
+              {{ t('teacherCourseCreate.createCourse') }}
             </button>
           </div>
         </footer>
@@ -83,7 +79,7 @@ const basicInfoId = 'teacher-course-create-basic-info'
 const form = reactive({
   courseName: '', targetGrade: '本科生', courseCategory: '', targetMajor: '', courseCode: '',
   credits: undefined as number | undefined, totalHours: 32 as number | undefined,
-  academicYear: '', term: '', assessmentMethod: '', courseIntro: '', teachingGoals: '', generateOutline: false,
+  academicYear: '', term: '', assessmentMethod: '', courseIntro: '', teachingGoals: '',
 })
 
 function closeCourseCreate() {
@@ -112,13 +108,13 @@ async function createCourse() {
         production_mode: 'manual', teacher_course_brief: {
           schema_version: 'teacher_course_brief_v1', academic_term: [form.academicYear, form.term].filter(Boolean).join(' '),
           target_audience: form.targetGrade || '大学生', total_class_hours: totalHours,
-          lesson_duration_minutes: 45, teaching_context: 'classroom', section_count: Math.max(1, Math.round(totalHours / 2)),
+          lesson_duration_minutes: 45, teaching_context: 'classroom',
           additional_requirements: form.assessmentMethod,
         }, teacher_authoring_mode: 'lesson_assets_v1',
       },
     })
     await courseStore.fetchCourseList({ surface: 'teacher' })
-    await router.push({ name: 'course-workspace', params: { courseId: result.course_id, mode: 'setup' }, query: { returnTo: '/courses?view=courses', ...(form.generateOutline ? { generate: 'outline' } : {}) } })
+    await router.push({ name: 'course-workspace', params: { courseId: result.course_id, mode: 'setup' }, query: { returnTo: '/courses?view=courses' } })
   } catch (error: any) {
     ElMessage.error(String(error?.response?.data?.detail || error?.message || t('courseLibrary.createFailed')))
   } finally { creating.value = false }
@@ -141,7 +137,7 @@ onBeforeUnmount(() => { if (dialogRef.value?.open) dialogRef.value.close() })
 .field input,.field select,.field textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.field textarea{resize:vertical;line-height:1.6}.field input:focus,.field select:focus,.field textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.field--name input{min-height:48px;font-size:15px}
 .course-details{border-top:1px solid #e8edf4}.details-heading{min-height:56px;display:flex;align-items:center;gap:9px;padding:0 30px}.details-heading strong{color:#334155;font-size:14px}.details-heading small{padding:3px 7px;border-radius:5px;color:#64748b;background:#f1f5f9;font-size:11px;font-weight:650}
 .details-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:0 30px 30px}.field--wide{grid-column:1/-1}
-.form-footer{min-height:76px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 30px;border-top:1px solid #e8edf4;background:#fbfcfe}.outline-option{display:flex;align-items:flex-start;gap:10px;cursor:pointer}.outline-option input{width:17px;height:17px;margin-top:2px;accent-color:#5b57e8}.outline-option span{display:grid;gap:3px}.outline-option strong{color:#334155;font-size:13px}.outline-option small{color:#64748b;font-size:12px}.form-actions{display:flex;gap:9px}.form-actions button{min-height:40px;padding:0 15px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:13px;font-weight:700;cursor:pointer}.form-actions button.primary{min-width:132px;border-color:#514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.18)}.form-actions button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.form-footer{min-height:76px;display:flex;align-items:center;justify-content:flex-end;gap:20px;padding:14px 30px;border-top:1px solid #e8edf4;background:#fbfcfe}.form-actions{display:flex;gap:9px}.form-actions button{min-height:40px;padding:0 15px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:13px;font-weight:700;cursor:pointer}.form-actions button.primary{min-width:132px;border-color:#514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.18)}.form-actions button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:680px){.course-create-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:12px}.form-heading{min-height:82px;padding:18px 20px}.form-heading h2{font-size:21px}.identity-section{padding:20px}.details-heading{padding-inline:20px}.details-grid{grid-template-columns:1fr;padding:0 20px 24px}.field--wide{grid-column:auto}.form-footer{min-height:0;align-items:stretch;flex-direction:column;padding:14px 20px}.form-actions{display:grid;grid-template-columns:auto 1fr}.form-actions button.primary{min-width:0}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

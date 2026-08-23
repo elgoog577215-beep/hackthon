@@ -24,7 +24,7 @@ describe('teacher/student shared capability isolation', () => {
     expect(isCourseLifecycleBackendTask({})).toBe(true)
     expect(isCourseLifecycleBackendTask({ type: 'slide_deck_variant_build' })).toBe(false)
     expect(isCourseLifecycleBackendTask({ type: 'teaching_representation_build' })).toBe(false)
-    expect(isCourseLifecycleBackendTask({ type: 'teacher_outline_generation' })).toBe(false)
+    expect(isCourseLifecycleBackendTask({ type: 'teacher_outline_generation' })).toBe(true)
     expect(isCourseLifecycleBackendTask({ type: 'teacher_lesson_plan_generation' })).toBe(false)
     expect(isCourseLifecycleBackendTask({ type: 'teacher_lesson_ppt_generation' })).toBe(false)
   })

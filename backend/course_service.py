@@ -1163,6 +1163,7 @@ class CourseService(AIBase):
         web_question_enrichment: dict[str, Any] | None = None,
         web_material_ingest: dict[str, Any] | None = None,
         existing_course_data: dict[str, Any] | None = None,
+        stop_after_skeleton: bool = False,
         stop_after_outline: bool = False,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
         on_checkpoint: Callable[[dict[str, Any]], Awaitable[None] | None] | None = None,
@@ -1406,6 +1407,38 @@ class CourseService(AIBase):
             "教学画像与难度契约已确定",
             phase_progress=100,
         )
+        generation_request_payload = {
+            "subject": topic,
+            "course_type": resolved_course_type,
+            "course_intent": deepcopy(
+                artifacts["course_generation_brief"].get("course_intent") or {}
+            ),
+            "learner_starting_profile": deepcopy(
+                artifacts["course_generation_brief"].get(
+                    "learner_starting_profile"
+                ) or {}
+            ),
+            "difficulty": difficulty,
+            "composition_style": composition_profile["style"],
+            "style": style,
+            "requirements": requirements,
+            "target_audience": audience,
+            "learner_profile_summary": learner_profile_summary,
+            "current_readiness": current_readiness,
+            "adaptation_preference": adaptation_preference,
+            "pedagogy_mode": pedagogy_mode,
+            "secondary_mode": secondary_mode,
+            "secondary_intensity": secondary_intensity,
+            "generation_mode": generation_mode,
+            "course_purpose": course_purpose,
+            "asset_preferences": deepcopy(asset_preferences or {}),
+            "web_question_enrichment": deepcopy(
+                web_question_enrichment or {"enabled": False}
+            ),
+            "teacher_course_brief": deepcopy(teacher_course_brief or {}),
+            "material_bindings": artifacts.get("material_bindings", []),
+            "grounding_strategy": grounding_strategy,
+        }
         saved_plan = existing.get("course_plan") or existing.get("course_outline")
         plan: dict[str, Any] | None = (
             normalize_course_outline_contract(deepcopy(saved_plan))
@@ -1478,6 +1511,7 @@ class CourseService(AIBase):
                 existing_generation_stages=(
                     existing.get("generation_stage_artifacts") or {}
                 ),
+                stop_after_skeleton=stop_after_skeleton,
                 on_phase=on_phase,
                 on_checkpoint=on_checkpoint,
             )
@@ -1493,6 +1527,72 @@ class CourseService(AIBase):
             outline_detail_levels = list(
                 existing_outline_stage.get("prompt_detail_levels") or []
             )
+        if (
+            stop_after_skeleton
+            and plan is None
+            and plan_constraint_report.get("skeleton_only")
+        ):
+            skeleton = existing_outline_stage.get("skeleton") or {}
+            skeleton_course_data = {
+                **deepcopy(existing),
+                "course_id": course_id,
+                "course_name": str(
+                    existing.get("course_name")
+                    or skeleton.get("course_title")
+                    or topic
+                ),
+                "generation_schema_version": artifacts["pipeline_version"],
+                "prompt_contract_version": PROMPT_CONTRACT_VERSION,
+                "generation_pipeline_version": artifacts["pipeline_version"],
+                "generation_request": generation_request_payload,
+                "difficulty": difficulty,
+                "course_type": resolved_course_type,
+                "course_intent": deepcopy(
+                    artifacts["course_generation_brief"].get("course_intent") or {}
+                ),
+                "learner_starting_profile": deepcopy(
+                    artifacts["course_generation_brief"].get(
+                        "learner_starting_profile"
+                    ) or {}
+                ),
+                "composition_style": composition_profile["style"],
+                "style": style,
+                "requirements": requirements,
+                "target_audience": audience,
+                "generation_mode": generation_mode,
+                "course_purpose": course_purpose,
+                "subject_pedagogy_profile": profile.to_dict(),
+                "difficulty_profile": difficulty_profile.to_dict(),
+                "difficulty_gap_assessment": gap_assessment.to_dict(),
+                "adaptation_decision": adaptation_decision.to_dict(),
+                "course_composition_profile": composition_profile,
+                "generation_runtime_budget": deepcopy(
+                    artifacts["generation_runtime_budget"]
+                ),
+                "material_cards": artifacts["material_cards"],
+                "course_generation_brief": artifacts["course_generation_brief"],
+                "teacher_course_brief": deepcopy(
+                    artifacts["course_generation_brief"].get(
+                        "teacher_course_brief"
+                    ) or {}
+                ),
+                "material_assets": artifacts.get("material_assets", []),
+                "material_bindings": artifacts.get("material_bindings", []),
+                "parsed_documents": artifacts.get("parsed_documents", []),
+                "evidence_index": _compact_evidence_index(
+                    artifacts.get("evidence_catalog", [])
+                ),
+                "web_material_search": artifacts.get(
+                    "web_material_search", {"enabled": False}
+                ),
+                "generation_status": "outline_shape_ready",
+                "generation_stage_artifacts": {
+                    **deepcopy(existing.get("generation_stage_artifacts") or {}),
+                    "outline": deepcopy(existing_outline_stage),
+                },
+            }
+            await self._notify_checkpoint(on_checkpoint, skeleton_course_data)
+            return skeleton_course_data
         if not plan_constraint_report.get("passed") or plan is None:
             messages = "；".join(
                 str(item.get("message") or "未知目录错误")
@@ -1554,38 +1654,7 @@ class CourseService(AIBase):
             "generation_schema_version": artifacts["pipeline_version"],
             "prompt_contract_version": PROMPT_CONTRACT_VERSION,
             "generation_pipeline_version": artifacts["pipeline_version"],
-            "generation_request": {
-                "subject": topic,
-                "course_type": resolved_course_type,
-                "course_intent": deepcopy(
-                    artifacts["course_generation_brief"].get("course_intent") or {}
-                ),
-                "learner_starting_profile": deepcopy(
-                    artifacts["course_generation_brief"].get(
-                        "learner_starting_profile"
-                    ) or {}
-                ),
-                "difficulty": difficulty,
-                "composition_style": composition_profile["style"],
-                "style": style,
-                "requirements": requirements,
-                "target_audience": audience,
-                "learner_profile_summary": learner_profile_summary,
-                "current_readiness": current_readiness,
-                "adaptation_preference": adaptation_preference,
-                "pedagogy_mode": pedagogy_mode,
-                "secondary_mode": secondary_mode,
-                "secondary_intensity": secondary_intensity,
-                "generation_mode": generation_mode,
-                "course_purpose": course_purpose,
-                "asset_preferences": deepcopy(asset_preferences or {}),
-                "web_question_enrichment": deepcopy(
-                    web_question_enrichment or {"enabled": False}
-                ),
-                "teacher_course_brief": deepcopy(teacher_course_brief or {}),
-                "material_bindings": artifacts.get("material_bindings", []),
-                "grounding_strategy": grounding_strategy,
-            },
+            "generation_request": generation_request_payload,
             "difficulty": difficulty,
             "course_type": resolved_course_type,
             "course_intent": deepcopy(
@@ -4715,6 +4784,7 @@ class CourseService(AIBase):
         adaptation_decision: dict[str, Any],
         existing_stage: dict[str, Any],
         existing_generation_stages: dict[str, Any],
+        stop_after_skeleton: bool,
         on_phase: Callable[..., Awaitable[None] | None] | None,
         on_checkpoint: (
             Callable[[dict[str, Any]], Awaitable[None] | None] | None
@@ -4746,6 +4816,10 @@ class CourseService(AIBase):
             == request_fingerprint
             else {}
         )
+        if stage.get("shape_confirmed"):
+            confirmed_shape = stage.get("confirmed_shape_constraints")
+            if isinstance(confirmed_shape, dict):
+                shape_constraints = confirmed_shape
         started_at = time.monotonic()
         counter = {
             "calls": int(stage.get("model_call_count") or 0),
@@ -5116,6 +5190,63 @@ class CourseService(AIBase):
             if skeleton_error is not None:
                 raise skeleton_error
             return None, failed_report, stage
+
+        if stop_after_skeleton and not stage.get("shape_confirmed"):
+            chapters = [
+                {
+                    "chapter_number": int(item.get("chapter_number") or index),
+                    "title": str(item.get("title") or ""),
+                    "learning_focus": str(item.get("learning_focus") or ""),
+                    "section_count": int(item.get("section_count") or 0),
+                    "completed_section_count": 0,
+                    "status": "waiting",
+                    "sections": [],
+                }
+                for index, item in enumerate(
+                    skeleton.get("chapters") or [],
+                    start=1,
+                )
+                if isinstance(item, dict)
+            ]
+            stage["status"] = "waiting_for_shape_review"
+            await persist_stage()
+            await self._notify_phase(
+                on_phase,
+                "outline_shape_ready",
+                32,
+                "大章节骨架已生成，请确认每章小节数",
+                phase_progress=100,
+                phase_detail={
+                    "artifact_type": "course_outline_skeleton",
+                    "skeleton_revision_id": skeleton.get("revision_id"),
+                    "outline_growth": {
+                        "schema_version": "course_outline_growth_v1",
+                        "state": "shape_review",
+                        "course_title": str(
+                            skeleton.get("course_title") or topic
+                        ),
+                        "positioning": str(skeleton.get("positioning") or ""),
+                        "completed_batches": 0,
+                        "total_batches": 0,
+                        "completed_sections": 0,
+                        "total_sections": sum(
+                            item["section_count"] for item in chapters
+                        ),
+                        "chapters": chapters,
+                    },
+                },
+            )
+            return None, {
+                "passed": True,
+                "skeleton_only": True,
+                "actual": {
+                    "chapter_count": len(chapters),
+                    "section_count": sum(
+                        item["section_count"] for item in chapters
+                    ),
+                },
+                "issues": [],
+            }, stage
 
         batch_specs = build_outline_batch_specs(
             skeleton,

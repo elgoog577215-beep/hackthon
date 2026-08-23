@@ -16,28 +16,66 @@
       <footer><span>{{ readyStageCount }}/5</span><div><i :style="{ width: `${readyStageCount / 5 * 100}%` }" /></div></footer>
     </aside>
 
-    <main ref="workbenchCenter" class="workbench-center">
+    <main ref="workbenchCenter" class="workbench-center" :class="{ 'is-outline-editing': editingOutline }">
       <header class="center-heading">
-        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2><p>{{ activeStageDefinition.description }}</p></div>
-        <button v-if="activeStage === 'foundation' && hasOutline" type="button" @click="emit('openOutline')"><FileText :size="15" />{{ t('courseWorkbench.reviewOutline', '审阅大纲') }}</button>
+        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ editingOutline ? t('courseWorkbench.outlineEditor', '编辑课程大纲') : activeStageDefinition.label }}</h2><p>{{ editingOutline ? t('courseWorkbench.outlineEditorHelp', '直接在当前工作区调整章节、小节与学习目标') : activeStageDefinition.description }}</p></div>
+        <button v-if="editingOutline" type="button" @click="editingOutline = false"><ArrowLeft :size="15" />{{ t('courseWorkbench.backToOutline', '返回大纲') }}</button>
+        <button v-else-if="activeStage === 'foundation' && hasOutline && !outlineAwaitingReview" type="button" @click="editingOutline = true"><FileText :size="15" />{{ t('courseWorkbench.reviewOutline', '审阅大纲') }}</button>
       </header>
 
-      <section v-if="showStreaming" class="generation-surface" aria-live="polite">
+      <CourseOutlineReview
+        v-if="activeStage === 'foundation' && editingOutline"
+        class="inline-outline-review"
+        :course-id="courseId"
+        :course-name="courseTitle"
+        :nodes="courseStore.nodes"
+        :task="generationTask"
+        @confirmed="handleInlineOutlineConfirmed"
+      />
+
+      <section v-else-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
           <div><TriangleAlert v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.generationInterrupted', '生成已中断') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small>{{ generationFailed ? generationError : currentGenerationLabel }}</small></span></div>
           <button v-if="generationRunning" type="button" @click="stopGeneration"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
         </header>
         <div class="generation-progress"><i :style="{ transform: `scaleX(${generationProgress / 100})` }" /></div>
         <article class="stream-content">
-          <section v-for="node in visibleStreamNodes" :key="node.node_id">
+          <OutlineGrowthStream
+            v-if="outlineGrowth || (hasOutline && !hasStreamedBody)"
+            :growth="outlineGrowth"
+            :nodes="outlinePreviewNodes"
+          />
+          <section v-for="node in visibleStreamNodes" v-else :key="node.node_id">
             <h3>{{ node.node_name }}</h3>
             <MarkdownRenderer :content="nodeContent(node)" />
             <span v-if="node.node_id === generationStore.currentGeneratingNodeId" class="stream-caret" />
           </section>
-          <div v-if="!visibleStreamNodes.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
-          <div v-else-if="!visibleStreamNodes.length" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
+          <div v-if="!outlineGrowth && !visibleStreamNodes.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
+          <div v-else-if="!outlineGrowth && !visibleStreamNodes.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
         <p v-if="generationError" class="generation-error" role="alert">{{ generationError }} <button type="button" @click="submitFoundation">{{ t('common.retry', '重试') }}</button></p>
+      </section>
+
+      <section v-else-if="activeStage === 'foundation' && outlineShapeAwaitingReview" class="formal-surface outline-shape-review" data-testid="outline-shape-review">
+        <header>
+          <div><strong>{{ t('courseWorkbench.shapeReview.title', '大章节已生成') }}</strong><small>{{ t('courseWorkbench.shapeReview.help', '请根据真实章节内容确认每章需要展开几个小节') }}</small></div>
+        </header>
+        <article>
+          <ol class="shape-chapter-list">
+            <li v-for="(chapter, index) in outlineGrowthChapters" :key="String(chapter.chapter_number || index)">
+              <span class="shape-chapter-index">{{ String(index + 1).padStart(2, '0') }}</span>
+              <div><strong>{{ chapter.title }}</strong><small>{{ chapter.learning_focus }}</small></div>
+              <label><input v-model.number="chapterSectionCounts[index]" type="number" min="1" max="100" :aria-label="t('courseWorkbench.shapeReview.countLabel', '{chapter}的小节数').replace('{chapter}', String(chapter.title || index + 1))" /><span>{{ t('courseWorkbench.form.sectionUnit', '小节') }}</span></label>
+            </li>
+          </ol>
+          <p v-if="shapeConfirmError" class="shape-confirm-error" role="alert">{{ shapeConfirmError }}</p>
+        </article>
+        <footer><span>{{ t('courseWorkbench.shapeReview.total', '确认后将生成 {count} 个小节').replace('{count}', String(totalSectionCount)) }}</span><button class="primary" type="button" :disabled="shapeConfirming || !shapeCountsValid" @click="confirmOutlineShape"><Sparkles :size="16" />{{ shapeConfirming ? t('courseWorkbench.shapeReview.confirming', '正在继续…') : t('courseWorkbench.shapeReview.confirm', '确认并生成小章节') }}</button></footer>
+      </section>
+
+      <section v-else-if="activeStage === 'foundation' && outlineAwaitingReview && hasOutlinePreview" class="formal-surface outline-review-ready" data-testid="outline-review-ready">
+        <header><div><strong>{{ t('courseWorkbench.outlineReady', '课程大纲已生成') }}</strong><small>{{ t('courseWorkbench.outlineReadyHelp', '已保存完整章节结构，等待审阅确认') }}</small></div><button type="button" @click="editingOutline = true"><FileText :size="15" />{{ t('courseWorkbench.reviewOutline', '审阅大纲') }}</button></header>
+        <article><OutlineGrowthStream :growth="outlineGrowth" :nodes="outlinePreviewNodes" review-ready /></article>
       </section>
 
       <section v-else-if="activeStage === 'foundation' && hasOutline" class="formal-surface">
@@ -49,10 +87,10 @@
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.learningGoal', '教学目标') }} <b>*</b></span><textarea v-model.trim="foundation.goal" required rows="4" :placeholder="t('courseWorkbench.form.learningGoalPlaceholder', '学生完成课程后能够……')" /></label>
         <div class="form-grid">
           <label class="form-field"><span>{{ t('courseWorkbench.form.totalHours', '总学时') }}</span><input v-model.number="foundation.totalHours" type="number" min="1" max="1000" /></label>
-          <label class="form-field"><span>{{ t('courseWorkbench.form.sessionCount', '预计课次') }}</span><input v-model.number="foundation.sessionCount" type="number" min="1" max="1000" /></label>
+          <div class="course-shape-summary"><span>{{ t('courseWorkbench.form.generationOrder', '大纲生成顺序') }}</span><strong>{{ t('courseWorkbench.form.chapterFirst', '先生成大章节') }}</strong><small>{{ t('courseWorkbench.form.chapterFirstHelp', '看到真实章节名称后，再逐章确认小节数；学时不自动换算小节') }}</small></div>
         </div>
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：每章包含案例讨论，兼顾理论与实践')" /></label>
-        <footer><span>{{ t('courseWorkbench.form.sourceHint', '右侧资料会与这些信息一起交给 AI') }}</span><button class="primary" type="submit" :disabled="generationStarting || !foundation.goal"><Sparkles :size="16" />{{ t('courseWorkbench.generateOutline', '生成课程大纲') }}</button></footer>
+        <footer><span>{{ t('courseWorkbench.form.sourceHint', '右侧资料会与这些信息一起交给 AI') }}</span><button class="primary" type="submit" :disabled="generationStarting || !foundation.goal"><Sparkles :size="16" />{{ t('courseWorkbench.generateChapterSkeleton', '先生成大章节') }}</button></footer>
       </form>
 
       <CompanionDocumentStudio
@@ -99,34 +137,47 @@
 
 <script setup lang="ts">
 import { computed, markRaw, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowLeft, BookOpenText, Check, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
+import CourseOutlineReview from './CourseOutlineReview.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
+import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
 import http, { teacherRequestConfig } from '../utils/http'
 
 type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 type StageId = CoreStageId | 'companion'
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId }>(), { initialStage: 'foundation' })
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId; outlineEditing?: boolean }>(), { initialStage: 'foundation', outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
-  (event: 'openOutline'): void
+  (event: 'update:outlineEditing', value: boolean): void
+  (event: 'outlineConfirmed'): void
   (event: 'openTeachingPlan', lessonId: string): void
   (event: 'openScript', lessonId: string): void
 }>()
-const courseStore = useCourseStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
+const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref('')
 const workbenchCenter = ref<HTMLElement | null>(null)
+const editingOutline = computed({
+  get: () => props.outlineEditing,
+  set: value => emit('update:outlineEditing', value),
+})
 const referencesByStage = reactive<Record<StageId, CourseReferenceItem[]>>({ foundation: [], lesson: [], 'question-bank': [], script: [], ppt: [], companion: [] })
 const activeReferences = computed({ get: () => referencesByStage[activeStage.value], set: value => { referencesByStage[activeStage.value] = value } })
 const activeReferenceLessonId = computed(() => ['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
-const foundation = reactive({ goal: '', totalHours: 32, sessionCount: 16, requirements: '' })
+const foundation = reactive({ goal: '', totalHours: 32, requirements: '' })
+const chapterSectionCounts = ref<number[]>([])
+const loadedShapeRevision = ref('')
+const shapeConfirming = ref(false)
+const shapeConfirmError = ref('')
+const totalSectionCount = computed(() => chapterSectionCounts.value.reduce((total, count) => total + Math.max(1, Number(count || 1)), 0))
 const lessonRequirements = ref('')
 const lessonBusy = ref(false); const pptBusy = ref(false); const generationRequested = ref(false)
 const questionBankReady = ref(false)
@@ -148,16 +199,34 @@ const selectedLesson = computed(() => lessonStore.lessons.find(item => item.less
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
 const pptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(item => item.role === 'primary') || selectedLesson.value?.plan.ppt_assets[0])
 const generationTask = computed(() => generationStore.getTask(props.courseId))
-const taskActive = computed(() => ['pending', 'running', 'paused', 'waiting_for_review'].includes(String(generationTask.value?.status || '')))
-const generationFailed = computed(() => generationStore.generationStatus === 'error')
-const generationRunning = computed(() => taskActive.value || generationStore.generationStatus === 'generating')
-const showStreaming = computed(() => activeStage.value === 'foundation' && (generationRequested.value || taskActive.value))
+const taskStatus = computed(() => String(generationTask.value?.status || ''))
+const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.value))
+const taskPaused = computed(() => taskStatus.value === 'paused')
+const outlineShapeAwaitingReview = computed(() => taskStatus.value === 'waiting_for_review' && generationTask.value?.currentPhase === 'outline_shape_ready')
+const outlineAwaitingReview = computed(() => taskStatus.value === 'waiting_for_review' && !outlineShapeAwaitingReview.value)
+const generationFailed = computed(() => generationTask.value
+  ? ['error', 'failed', 'conflict'].includes(taskStatus.value)
+  : generationStore.generationStatus === 'error')
+const generationRunning = computed(() => taskInFlight.value)
+const showStreaming = computed(() => activeStage.value === 'foundation'
+  && !outlineShapeAwaitingReview.value
+  && !outlineAwaitingReview.value
+  && (generationRequested.value || taskInFlight.value || taskPaused.value || generationFailed.value))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
 const outlinePreviewNodes = computed(() => courseStore.nodes.filter(node => Number(node.node_level || 0) <= 2).slice(0, 24))
 const visibleStreamNodes = computed(() => courseStore.nodes.filter(node => node.node_content || generationStore.streamingContent[node.node_id]).slice(0, 20))
+const hasStreamedBody = computed(() => visibleStreamNodes.value.length > 0)
+const outlineGrowth = computed<Record<string, any> | null>(() => {
+  const value = generationTask.value?.phaseDetail?.outline_growth
+  return value && typeof value === 'object' ? value as Record<string, any> : null
+})
+const outlineGrowthChapters = computed<Record<string, any>[]>(() => Array.isArray(outlineGrowth.value?.chapters) ? outlineGrowth.value!.chapters as Record<string, any>[] : [])
+const outlineShapeRevision = computed(() => String(generationTask.value?.phaseDetail?.skeleton_revision_id || ''))
+const shapeCountsValid = computed(() => chapterSectionCounts.value.length === outlineGrowthChapters.value.length && chapterSectionCounts.value.every(count => Number.isInteger(Number(count)) && Number(count) >= 1 && Number(count) <= 100))
+const hasOutlinePreview = computed(() => hasOutline.value || Boolean((outlineGrowth.value?.chapters as unknown[])?.length))
 const generationProgress = computed(() => Math.max(2, Number(generationTask.value?.progress || generationStore.generationProgress || 0)))
-const currentGenerationLabel = computed(() => generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
-const generationError = computed(() => generationFailed.value ? String(generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
+const currentGenerationLabel = computed(() => generationTask.value?.currentStep || generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
+const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
 const lessonJob = computed(() => selectedLessonId.value ? lessonStore.latestJobByLesson(selectedLessonId.value) : undefined)
 const lessonJobLabel = computed(() => ['pending', 'running'].includes(String(lessonJob.value?.status || '')) ? `${t('courseWorkbench.generatingShort', '生成中')} ${Math.round(Number(lessonJob.value?.progress || 0))}%` : t('courseWorkbench.formalSaved', '已进入课程正式文件'))
 const lessonPlanMarkdown = computed(() => { const plan = workingLessonRevision.value?.plan || {}; return [`# ${selectedLesson.value?.title || ''}`, plan.objectives ? `## 教学目标\n${String(plan.objectives)}` : '', plan.key_points ? `## 教学重点\n${String(plan.key_points)}` : '', plan.teaching_process ? `## 教学过程\n${String(plan.teaching_process)}` : ''].filter(Boolean).join('\n\n') })
@@ -171,18 +240,21 @@ function nodeContent(node: any) { return generationStore.streamingContent[node.n
 function stopGeneration() { void generationStore.stopGeneration() }
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
-async function submitFoundation() { generationRequested.value = true; try { await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')); emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { schema_version: 'teacher_course_brief_v1', target_audience: props.generationOptions.teacher_course_brief?.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: props.generationOptions.teacher_course_brief?.lesson_duration_minutes || 45, teaching_context: props.generationOptions.teacher_course_brief?.teaching_context || 'classroom', section_count: foundation.sessionCount }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value }) } catch { generationRequested.value = false } }
+async function submitFoundation() { generationRequested.value = true; try { const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }; delete baseTeacherBrief.chapter_count; delete baseTeacherBrief.section_count; await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')); emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { ...baseTeacherBrief, schema_version: 'teacher_course_brief_v1', target_audience: baseTeacherBrief.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: baseTeacherBrief.lesson_duration_minutes || 45, teaching_context: baseTeacherBrief.teaching_context || 'classroom' }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value }) } catch { generationRequested.value = false } }
+async function confirmOutlineShape() { if (!shapeCountsValid.value || shapeConfirming.value) return; shapeConfirming.value = true; shapeConfirmError.value = ''; try { const counts = chapterSectionCounts.value.map(count => Number(count)); await courseWorkspaceStore.confirmOutlineShape(props.courseId, counts); generationRequested.value = true; await generationStore.fetchGlobalTasks() } catch (error: any) { shapeConfirmError.value = String(error?.response?.data?.detail || error?.message || t('courseWorkbench.shapeReview.failed', '无法继续生成，请稍后重试')) } finally { shapeConfirming.value = false } }
 async function generateLessonPlan() { if (!selectedLesson.value) return; lessonBusy.value = true; try { await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', selectedLesson.value.title); const primary = activeReferences.value.find(item => item.role === 'primary'); await lessonStore.generateLesson(props.courseId, selectedLessonId.value, primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined, lessonRequirements.value, activeReferences.value.map(item => item.material_asset_id)) } finally { lessonBusy.value = false } }
 async function generatePpt() { if (!selectedLesson.value) return; if (pptAsset.value) { window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`); return } const revision = workingLessonRevision.value?.revision_id; if (!revision) return; pptBusy.value = true; try { await saveRelationships(`ppt:${selectedLessonId.value}`, 'ppt', `${selectedLesson.value.title} PPT`); await lessonStore.generatePpt(props.courseId, selectedLessonId.value, revision) } finally { pptBusy.value = false } }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
+function handleInlineOutlineConfirmed() { editingOutline.value = false; emit('outlineConfirmed') }
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0 } catch { questionBankReady.value = false } }
 
-watch(() => props.generationOptions, options => { const intent = options.course_intent as any; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(options.teacher_course_brief?.total_class_hours || 32); foundation.sessionCount = Number(options.teacher_course_brief?.section_count || 16); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
+watch(() => props.generationOptions, options => { const intent = options.course_intent as any; const brief = options.teacher_course_brief; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(brief?.total_class_hours || 32); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
+watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = '' }, { immediate: true })
 watch(() => props.initialStage, stage => { activeStage.value = stage })
-watch(activeStage, () => { if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(() => lessonStore.lessons, lessons => { if (!selectedLessonId.value && lessons[0]) selectedLessonId.value = lessons[0].lesson_unit_id }, { immediate: true, deep: true })
 watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
-watch(taskActive, active => { if (!active) generationRequested.value = false })
+watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 </script>
 
 <style scoped>
@@ -193,4 +265,6 @@ watch(taskActive, active => { if (!active) generationRequested.value = false })
 @media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.stage-rail nav small{display:none}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
 .outline-list{margin:0;padding:0!important;list-style:none}.outline-list li{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 10px;border-bottom:1px solid #edf1f6;color:#334155}.outline-list li[data-level="2"]{padding-left:28px;color:#64748b}.outline-list small{color:#94a3b8;font-size:11px}
 .stream-failed{color:#b91c1c;background:#fffafa}
+.course-shape-summary{min-height:44px;display:grid;align-content:center;gap:3px;padding:8px 11px;border:1px solid #dfe5ee;border-radius:8px;background:#f8fafc}.course-shape-summary>span{color:#334155;font-size:12px;font-weight:700}.course-shape-summary>strong{color:#3730a3;font-size:14px}.course-shape-summary>small{color:#64748b;font-size:10px;line-height:1.45}.outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0;color:#b91c1c;font-size:12px}
+.workbench-center.is-outline-editing{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;padding-bottom:24px}.workbench-center>.inline-outline-review{width:100%;height:auto;min-height:0;padding:0;overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.inline-outline-review :deep(.outline-review__sheet){width:100%;max-width:none}.inline-outline-review :deep(.outline-review__body){padding-inline:24px}
 </style>

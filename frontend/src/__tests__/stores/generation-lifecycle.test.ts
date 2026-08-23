@@ -77,6 +77,89 @@ describe('course generation lifecycle reconciliation', () => {
     expect(genericToast).not.toHaveBeenCalled()
   })
 
+  it('教师大纲任务启动后立即切换到教师检查点投影', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    vi.spyOn(http, 'post').mockResolvedValue({ data: {
+      job_id: 'job-teacher-outline',
+      course_id: 'course-teacher-outline',
+      course_name: '程序设计',
+      status: 'pending',
+      phase: 'queued',
+    } })
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    const refreshPreview = vi.spyOn(courses, 'refreshGenerationPreview').mockResolvedValue(true)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+
+    const result = await generation.startSmartGeneration(
+      '程序设计',
+      {
+        target_course_id: 'course-teacher-outline',
+        teacher_authoring_mode: 'lesson_assets_v1',
+      },
+      'teacher',
+    )
+
+    expect(result?.jobId).toBe('job-teacher-outline')
+    expect(generation.getTask('course-teacher-outline')?.taskType).toBe('teacher_outline_generation')
+    expect(refreshPreview).toHaveBeenCalledWith('course-teacher-outline', 'teacher')
+  })
+
+  it('轮询能恢复在 WebSocket 订阅前快速失败的教师大纲任务', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-fast-failure'
+    const localTask = generation.createTask(
+      'job-fast-failure',
+      'course-fast-failure',
+      '热力学',
+    )
+    localTask.status = 'pending'
+    localTask.taskType = 'teacher_outline_generation'
+    generation.generationStatus = 'generating'
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-fast-failure',
+      course_id: 'course-fast-failure',
+      course_name: '热力学',
+      type: 'teacher_outline_generation',
+      status: 'failed',
+      progress: 32,
+      phase: 'outline_generation',
+      message: '正在生成轻量章节骨架',
+      error: 'AI provider unavailable: authentication_failed',
+      error_code: 'provider_auth_failed',
+    }] })
+
+    await generation.fetchGlobalTasks()
+
+    expect(localTask.status).toBe('error')
+    expect(localTask.error).toContain('authentication_failed')
+    expect(generation.generationStatus).toBe('error')
+    expect(refreshList).not.toHaveBeenCalled()
+  })
+
+  it('全局轮询发现教师大纲任务时不用学生身份覆盖课程列表', async () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-teacher-discovered'
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [{
+      id: 'job-teacher-discovered',
+      course_id: 'course-teacher-discovered',
+      course_name: '数据结构',
+      type: 'teacher_outline_generation',
+      status: 'waiting_for_review',
+      progress: 35,
+      phase: 'outline_ready',
+    }] })
+
+    await generation.fetchGlobalTasks()
+
+    expect(generation.getTask('course-teacher-discovered')?.taskType).toBe('teacher_outline_generation')
+    expect(refreshList).toHaveBeenCalledWith({ surface: 'teacher' })
+  })
+
   it('发布完成后同步正式正文、课程库摘要和当前生成状态', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()

@@ -66,8 +66,9 @@
         :generation-options="courseGenerationOptions"
         :generation-starting="generationStarting"
         :initial-stage="requestedWorkbenchStage"
+        v-model:outline-editing="outlineEditing"
         @generate-outline="startOutlineGeneration"
-        @open-outline="outlineOpen = true"
+        @outline-confirmed="handleOutlineConfirmed"
         @open-teaching-plan="openLessonPlan"
         @open-script="openScript"
       />
@@ -78,8 +79,8 @@
         :course-title="courseTitle"
         workspace-view="files"
         v-model:query="searchQuery"
-        @open-outline="outlineOpen = true"
-        @create-outline="startOutlineFromBaseline"
+        @open-outline="openOutlineEditor"
+        @create-outline="prepareOutlineGeneration"
         @open-teaching-calendar="calendarOpen = true"
         @open-teaching-plan="openLessonPlan"
         @open-tasks="openTasks"
@@ -90,16 +91,6 @@
         @readiness-change="readiness = $event"
       />
     </section>
-
-    <el-drawer v-model="outlineOpen" size="min(1040px, 92vw)" :title="t('courseFiles.outlineEditor')" destroy-on-close>
-      <CourseOutlineReview
-        :course-id="courseId"
-        :course-name="courseTitle"
-        :nodes="courseStore.nodes"
-        :task="generationTask"
-        @confirmed="handleOutlineConfirmed"
-      />
-    </el-drawer>
 
     <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
       <TeacherCourseCalendarView embedded />
@@ -139,10 +130,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from 'lucide-vue-next'
-import CourseOutlineReview from '../components/CourseOutlineReview.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
@@ -164,7 +154,7 @@ const generationStore = useGenerationStore()
 const lessonStore = useTeacherLessonAuthoringStore()
 const loading = ref(true)
 const loadError = ref('')
-const outlineOpen = ref(false)
+const outlineEditing = ref(false)
 const calendarOpen = ref(false)
 const lessonOpen = ref(false)
 const selectedLessonId = ref('')
@@ -173,20 +163,26 @@ const courseAdjustmentOpen = ref(false)
 const courseAdjustmentFocusPlanId = ref('')
 const courseAdjustmentSectionId = ref('')
 const generationStarting = ref(false)
-const autoGenerationHandled = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
+const stableCourseTitle = ref('')
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
-const courseTitle = computed(() => courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name || courseStore.currentCourse?.course_name || '')
+const courseTitle = computed(() => (
+  courseStore.courseList.find(item => item.course_id === courseId.value)?.course_name
+  || stableCourseTitle.value
+  || courseStore.currentCourse?.course_name
+  || ''
+))
 const generationTask = computed(() => generationStore.getTask(courseId.value))
 const courseState = computed(() => {
   const status = String(generationTask.value?.status || courseStore.currentCourse?.generation_status || '')
-  if (['running', 'pending', 'paused', 'waiting_for_review'].includes(status)) return 'working'
+  if (status === 'waiting_for_review') return 'review'
+  if (['running', 'pending', 'paused'].includes(status)) return 'working'
   if (['failed', 'error', 'conflict'].includes(status)) return 'attention'
   if (readiness.value.required && readiness.value.pending) return 'draft'
   return courseStore.currentDocumentRevision ? 'ready' : 'draft'
@@ -212,6 +208,7 @@ function backToSource() {
 
 async function loadWorkspace() {
   if (!courseId.value) return
+  generationStore.observeCourse(courseId.value)
   loading.value = true
   loadError.value = ''
   try {
@@ -219,6 +216,9 @@ async function loadWorkspace() {
       courseStore.fetchCourseList({ surface: 'teacher' }),
       generationStore.fetchGlobalTasks(),
     ])
+    stableCourseTitle.value = courseStore.courseList.find(
+      item => item.course_id === courseId.value,
+    )?.course_name || stableCourseTitle.value
     await courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
     await lessonStore.load(courseId.value).catch(() => undefined)
     const courseResponse = await http.get(
@@ -226,13 +226,15 @@ async function loadWorkspace() {
       teacherRequestConfig({ silentError: true }),
     ).catch(() => ({ data: {} }))
     courseGenerationOptions.value = courseResponse.data?.generation_request || {}
+    stableCourseTitle.value = String(
+      courseResponse.data?.course_name || stableCourseTitle.value,
+    )
     await nextTick()
     const requestedSection = String(route.query.section || '')
-    if (requestedSection === 'outline') outlineOpen.value = true
+    if (requestedSection === 'outline') openOutlineEditor()
     if (requestedSection === 'calendar') calendarOpen.value = true
-    if (route.query.generate === 'outline' && !autoGenerationHandled.value && !generationTask.value) {
-      autoGenerationHandled.value = true
-      void startOutlineFromBaseline()
+    if (route.query.generate === 'outline') {
+      prepareOutlineGeneration()
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
   } catch (error: any) {
@@ -245,6 +247,12 @@ async function loadWorkspace() {
 function openLessonPlan(lessonId: string) {
   selectedLessonId.value = lessonId
   lessonOpen.value = true
+}
+
+function openOutlineEditor() {
+  requestedWorkbenchStage.value = 'foundation'
+  workspaceView.value = 'categories'
+  outlineEditing.value = true
 }
 
 function openQuestionBankWorkbench() {
@@ -339,12 +347,9 @@ async function startOutlineGeneration(payload: { subject: string; options: Cours
   }
 }
 
-async function startOutlineFromBaseline() {
-  const { subject, ...options } = courseGenerationOptions.value
-  await startOutlineGeneration({
-    subject: String(subject || courseTitle.value),
-    options,
-  })
+function prepareOutlineGeneration() {
+  requestedWorkbenchStage.value = 'foundation'
+  workspaceView.value = 'categories'
 }
 
 function openCoursePreview() {
@@ -356,14 +361,19 @@ function openCoursePreview() {
 }
 
 async function handleOutlineConfirmed() {
+  outlineEditing.value = false
   await Promise.all([
     courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
     lessonStore.load(courseId.value).catch(() => undefined),
   ])
 }
 
-watch(courseId, (value, previous) => { if (value && value !== previous) void loadWorkspace() })
+watch(courseId, (value, previous) => {
+  if (previous && previous !== value) generationStore.unobserveCourse(previous)
+  if (value && value !== previous) void loadWorkspace()
+})
 onMounted(loadWorkspace)
+onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(courseId.value) })
 </script>
 
 <style scoped>
@@ -396,6 +406,7 @@ onMounted(loadWorkspace)
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }
+.workspace-state[data-state="review"] { background:#fff7ed; color:#c2410c; }
 .workspace-state[data-state="working"] { background:#eef2ff; color:#4f46e5; }
 .workspace-state[data-state="attention"] { background:#fff7ed; color:#c2410c; }
 .workspace-loading { min-height:360px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-secondary); }

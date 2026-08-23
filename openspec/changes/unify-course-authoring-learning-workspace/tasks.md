@@ -101,3 +101,12 @@
 - [x] 11.4 Pass selected material assets into outline, lesson-plan and question-bank generation while preserving web-source authority and reuse restrictions.
 - [x] 11.5 Add zh/en copy plus focused backend/frontend tests and production-build verification.
 - [x] 11.6 Enhance the existing search/select interfaces with query/domain diversity, bounded HTML/PDF deep reading, structured `web_document_v1` evidence and per-source excerpt fallback; do not add a parallel research API or source of truth.
+
+## 12. Teacher outline skeleton checkpoint and inline review
+
+- [x] 12.1 Remove pre-generation section-count inference from total hours and do not ask for per-chapter counts before chapter names exist.
+- [x] 12.2 Stop `teacher_outline_generation` after the named chapter skeleton, persist the checkpoint, and expose one teacher-only shape-confirmation command.
+- [x] 12.3 Save teacher-adjusted per-chapter section counts in the outline stage, resume the same job, and stream structured chapter/section growth from backend checkpoints.
+- [x] 12.4 Distinguish active, shape-review, full-outline-review and failure states; keep fast failures and teacher identity/course title synchronized.
+- [x] 12.5 Render full outline review/editing in the workbench center and remove the duplicate outline drawer.
+- [x] 12.6 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.
