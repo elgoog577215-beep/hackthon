@@ -153,7 +153,7 @@ import http, { teacherRequestConfig } from '../utils/http'
 
 type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 type StageId = CoreStageId | 'companion'
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId; outlineEditing?: boolean }>(), { initialStage: 'foundation', outlineEditing: false })
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
@@ -162,7 +162,7 @@ const emit = defineEmits<{
   (event: 'openScript', lessonId: string): void
 }>()
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
-const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref('')
+const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const workbenchCenter = ref<HTMLElement | null>(null)
 const editingOutline = computed({
   get: () => props.outlineEditing,
@@ -250,8 +250,15 @@ async function loadQuestionBankStatus() { if (!props.courseId) return; try { con
 watch(() => props.generationOptions, options => { const intent = options.course_intent as any; const brief = options.teacher_course_brief; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(brief?.total_class_hours || 32); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
 watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = '' }, { immediate: true })
 watch(() => props.initialStage, stage => { activeStage.value = stage })
+watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
 watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
-watch(() => lessonStore.lessons, lessons => { if (!selectedLessonId.value && lessons[0]) selectedLessonId.value = lessons[0].lesson_unit_id }, { immediate: true, deep: true })
+watch(() => lessonStore.lessons, lessons => {
+  if (props.initialLessonId && lessons.some(item => item.lesson_unit_id === props.initialLessonId)) {
+    selectedLessonId.value = props.initialLessonId
+    return
+  }
+  if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) selectedLessonId.value = lessons[0]?.lesson_unit_id || ''
+}, { immediate: true, deep: true })
 watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 </script>

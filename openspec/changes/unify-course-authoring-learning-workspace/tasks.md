@@ -110,3 +110,9 @@
 - [x] 12.4 Distinguish active, shape-review, full-outline-review and failure states; keep fast failures and teacher identity/course title synchronized.
 - [x] 12.5 Render full outline review/editing in the workbench center and remove the duplicate outline drawer.
 - [x] 12.6 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.
+
+## 13. Current-session preparation inspector
+
+- [x] 13.1 Reorganize the selected session into class logistics and one outline/lesson-plan/PPT readiness list without the former flexible blank region.
+- [x] 13.2 Read lesson-plan and PPT state from the existing lesson-authoring view, explain missing/stale/working/review/failure states, and keep the selected lesson when opening its workbench.
+- [x] 13.3 Verify focused frontend tests, production build, strict OpenSpec validation, detector output and the Chinese desktop page.

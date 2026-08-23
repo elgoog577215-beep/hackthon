@@ -4216,7 +4216,22 @@
     "courseError": "需要处理",
     "createFailed": "课程创建失败，请重试。",
     "weekdays": { "1": "周一", "2": "周二", "3": "周三", "4": "周四", "5": "周五", "6": "周六", "7": "周日" },
-    "calendarPopover": { "course": "课程", "conflict": "同一教师在此时段还有其他课程", "incomplete": "日期已填写，但时间尚未完整，暂未进入正式排期", "time": "时间", "teacher": "教师", "linked": "已关联讲次", "unlinked": "待关联", "openToCheck": "进入备课查看", "viewSchedule": "查看排期", "prepare": "进入备课", "editSession": "点击课次进入编辑" }
+    "calendarPopover": { "course": "课程", "conflict": "同一教师在此时段还有其他课程", "incomplete": "日期已填写，但时间尚未完整，暂未进入正式排期", "time": "时间", "teacher": "教师", "linked": "已关联讲次", "unlinked": "待关联", "openToCheck": "进入备课查看", "viewSchedule": "查看排期", "prepare": "进入备课", "editSession": "点击课次进入编辑" },
+    "sessionPanel": {
+      "teacher": "上课教师",
+      "teacherPending": "教师待定",
+      "hours": "{hours} 学时",
+      "group": "{group}",
+      "preparationTitle": "本讲备课",
+      "preparationProgress": "{ready}/3 已就绪",
+      "outline": "大纲关联",
+      "linkOutline": "关联大纲讲次",
+      "startLessonPlan": "开始本讲教案",
+      "reviewLessonPlan": "检查本讲教案",
+      "preparePpt": "完善本讲 PPT",
+      "states": { "linked": "已关联", "confirmed": "已确认", "generated": "已生成", "awaitingReview": "待确认", "generating": "生成中", "syncing": "同步中", "needsUpdate": "需更新", "failed": "生成失败", "readFailed": "读取失败", "notLinked": "未关联", "notCreated": "未生成" },
+      "details": { "outlineLinked": "已对应到课程大纲中的本讲", "outlineMissing": "课次尚未关联课程大纲中的讲次", "outlineStale": "关联讲次已不在当前大纲中", "statusSyncing": "正在同步本讲资产状态", "statusUnavailable": "状态暂时无法读取，进入备课后可重试", "planNeedsOutline": "关联大纲讲次后才能建立教案", "planWorking": "本讲教案正在生成", "planFailed": "本讲教案生成中断，可进入备课重试", "planMissing": "本讲教案尚未生成", "planStale": "课程大纲已变化，教案需要核对", "planDraft": "已有教案草稿，等待教师确认", "planReady": "教案已确认，可继续制作课堂资料", "pptNeedsOutline": "关联大纲讲次后才能制作 PPT", "pptNeedsPlan": "完成本讲教案后即可生成 PPT", "pptWorking": "本讲 PPT 正在生成", "pptFailed": "本讲 PPT 生成中断，可进入备课重试", "pptMissing": "本讲 PPT 尚未生成", "pptStale": "教案已变化，PPT 需要同步", "pptReady": "配套 PPT 已生成" }
+    }
   },
   "courseSpaceCreate": {
     "title": "新建课程空间",

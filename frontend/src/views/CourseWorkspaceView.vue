@@ -66,6 +66,7 @@
         :generation-options="courseGenerationOptions"
         :generation-starting="generationStarting"
         :initial-stage="requestedWorkbenchStage"
+        :initial-lesson-id="requestedLessonId"
         v-model:outline-editing="outlineEditing"
         @generate-outline="startOutlineGeneration"
         @outline-confirmed="handleOutlineConfirmed"
@@ -167,6 +168,7 @@ const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', pat
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>('categories')
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
+const requestedLessonId = ref('')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
 const stableCourseTitle = ref('')
@@ -231,6 +233,11 @@ async function loadWorkspace() {
     )
     await nextTick()
     const requestedSection = String(route.query.section || '')
+    const requestedStage = String(route.query.stage || '')
+    if (['foundation', 'lesson', 'question-bank', 'script', 'ppt', 'companion'].includes(requestedStage)) {
+      requestedWorkbenchStage.value = requestedStage as typeof requestedWorkbenchStage.value
+    }
+    requestedLessonId.value = String(route.query.lesson || '')
     if (requestedSection === 'outline') openOutlineEditor()
     if (requestedSection === 'calendar') calendarOpen.value = true
     if (route.query.generate === 'outline') {

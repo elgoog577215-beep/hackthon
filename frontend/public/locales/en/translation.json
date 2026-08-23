@@ -4168,7 +4168,22 @@
     "upcoming": "Upcoming", "noUpcoming": "No upcoming classes", "noUpcomingHelp": "Switch to My courses and open a course space to continue preparing.", "monthLabel": "{month}/{year}",
     "courseReady": "File space ready", "courseGenerating": "Generating", "courseQueued": "Queued", "coursePaused": "Paused", "courseReview": "Teacher review", "courseError": "Needs attention", "createFailed": "Could not create the course. Please retry.",
     "weekdays": { "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "7": "Sun" },
-    "calendarPopover": { "course": "Course", "conflict": "This teacher has another class in the same time slot", "incomplete": "The date is set, but the time is incomplete, so this session is not formally scheduled", "time": "Time", "teacher": "Teacher", "linked": "Session linked", "unlinked": "Not linked", "openToCheck": "Open preparation to check", "viewSchedule": "View schedule", "prepare": "Prepare", "editSession": "Click the session to edit" }
+    "calendarPopover": { "course": "Course", "conflict": "This teacher has another class in the same time slot", "incomplete": "The date is set, but the time is incomplete, so this session is not formally scheduled", "time": "Time", "teacher": "Teacher", "linked": "Session linked", "unlinked": "Not linked", "openToCheck": "Open preparation to check", "viewSchedule": "View schedule", "prepare": "Prepare", "editSession": "Click the session to edit" },
+    "sessionPanel": {
+      "teacher": "Instructor",
+      "teacherPending": "Instructor pending",
+      "hours": "{hours} hours",
+      "group": "{group}",
+      "preparationTitle": "Session preparation",
+      "preparationProgress": "{ready}/3 ready",
+      "outline": "Outline link",
+      "linkOutline": "Link outline session",
+      "startLessonPlan": "Start lesson plan",
+      "reviewLessonPlan": "Review lesson plan",
+      "preparePpt": "Complete session PPT",
+      "states": { "linked": "Linked", "confirmed": "Confirmed", "generated": "Generated", "awaitingReview": "Review", "generating": "Generating", "syncing": "Syncing", "needsUpdate": "Update", "failed": "Failed", "readFailed": "Unavailable", "notLinked": "Not linked", "notCreated": "Not generated" },
+      "details": { "outlineLinked": "Linked to this session in the course outline", "outlineMissing": "This calendar session is not linked to an outline session", "outlineStale": "The linked session is no longer in the current outline", "statusSyncing": "Syncing this session's asset status", "statusUnavailable": "Status is unavailable; open preparation to retry", "planNeedsOutline": "Link an outline session before creating a lesson plan", "planWorking": "The lesson plan is being generated", "planFailed": "Lesson-plan generation stopped; open preparation to retry", "planMissing": "No lesson plan has been generated for this session", "planStale": "The outline changed; review this lesson plan", "planDraft": "A lesson-plan draft is waiting for teacher review", "planReady": "The lesson plan is confirmed and ready for class assets", "pptNeedsOutline": "Link an outline session before creating a PPT", "pptNeedsPlan": "Complete the lesson plan before generating a PPT", "pptWorking": "The session PPT is being generated", "pptFailed": "PPT generation stopped; open preparation to retry", "pptMissing": "No PPT has been generated for this session", "pptStale": "The lesson plan changed; sync the PPT", "pptReady": "The companion PPT is generated" }
+    }
   },
   "courseSpaceCreate": {
     "title": "Create course space",

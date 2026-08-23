@@ -165,22 +165,48 @@
             <div><small>{{ t('teacherHome.selectedSession') }}</small><strong>{{ selectedSession.course_title || t('teacherHome.untitledCourse') }}</strong></div>
             <button type="button" :aria-label="t('common.close')" @click="clearSelection"><X :size="16" /></button>
           </header>
-          <section class="session-focus">
-            <span class="session-number">{{ t('teacherHome.sessionNumber').replace('{number}', String(selectedSession.sequence)) }}</span>
-            <h2>{{ selectedSession.content_summary || t('teacherHome.contentPending') }}</h2>
-            <dl>
-              <div><dt><CalendarDays :size="14" />{{ t('teacherHome.dateTime') }}</dt><dd>{{ sessionDateTime(selectedSession) }}</dd></div>
-              <div><dt><MapPin :size="14" />{{ t('teacherHome.location') }}</dt><dd>{{ selectedSession.location || t('teacherHome.locationPending') }}</dd></div>
-              <div><dt><Clock3 :size="14" />{{ t('teacherHome.classHours') }}</dt><dd>{{ selectedSession.credit_hours || 2 }}</dd></div>
-            </dl>
-          </section>
-          <section class="preparation-summary">
-            <header><strong>{{ t('teacherHome.preparation') }}</strong></header>
-            <div><span>{{ t('teacherHome.lessonPlan') }}</span><strong>{{ selectedSession.lesson_plan_status || t('teacherHome.notCreated') }}</strong></div>
-            <div><span>PPT</span><strong>{{ selectedSession.ppt_status || t('teacherHome.notCreated') }}</strong></div>
-          </section>
+          <div class="session-inspector-body">
+            <section class="session-focus">
+              <div class="session-heading">
+                <span class="session-number">{{ t('teacherHome.sessionNumber').replace('{number}', String(selectedSession.sequence)) }}</span>
+                <h2>{{ selectedSession.content_summary || t('teacherHome.contentPending') }}</h2>
+                <div v-if="sessionClassSummary.length" class="session-class-summary">
+                  <span v-for="item in sessionClassSummary" :key="item">{{ item }}</span>
+                </div>
+              </div>
+              <dl class="session-details">
+                <div><CalendarDays :size="16" /><dt>{{ t('teacherHome.dateTime') }}</dt><dd>{{ sessionDateTime(selectedSession) }}</dd></div>
+                <div><MapPin :size="16" /><dt>{{ t('teacherHome.location') }}</dt><dd>{{ selectedSession.location || t('teacherHome.locationPending') }}</dd></div>
+                <div><UserRound :size="16" /><dt>{{ t('teacherHome.sessionPanel.teacher') }}</dt><dd>{{ selectedSession.teacher_name || t('teacherHome.sessionPanel.teacherPending') }}</dd></div>
+              </dl>
+            </section>
+
+            <section class="preparation-summary" aria-labelledby="session-preparation-title">
+              <header>
+                <strong id="session-preparation-title">{{ t('teacherHome.sessionPanel.preparationTitle') }}</strong>
+                <span>{{ preparationReadyLabel }}</span>
+              </header>
+              <div class="preparation-list">
+                <article>
+                  <span class="preparation-icon" :data-tone="outlinePreparation.tone"><ListTree :size="16" /></span>
+                  <div><strong>{{ t('teacherHome.sessionPanel.outline') }}</strong><small>{{ outlinePreparation.detail }}</small></div>
+                  <span class="preparation-state" :data-tone="outlinePreparation.tone">{{ outlinePreparation.label }}</span>
+                </article>
+                <article>
+                  <span class="preparation-icon" :data-tone="lessonPlanPreparation.tone"><ClipboardCheck :size="16" /></span>
+                  <div><strong>{{ t('teacherHome.lessonPlan') }}</strong><small>{{ lessonPlanPreparation.detail }}</small></div>
+                  <span class="preparation-state" :data-tone="lessonPlanPreparation.tone">{{ lessonPlanPreparation.label }}</span>
+                </article>
+                <article>
+                  <span class="preparation-icon" :data-tone="pptPreparation.tone"><Presentation :size="16" /></span>
+                  <div><strong>PPT</strong><small>{{ pptPreparation.detail }}</small></div>
+                  <span class="preparation-state" :data-tone="pptPreparation.tone">{{ pptPreparation.label }}</span>
+                </article>
+              </div>
+            </section>
+          </div>
           <footer class="inspector-actions">
-            <button type="button" class="primary" @click="openPreparation(selectedSession)">{{ t('teacherHome.continuePreparing') }}<ArrowUpRight :size="15" /></button>
+            <button type="button" class="primary" @click="openPreparation(selectedSession)">{{ preparationPrimaryLabel }}<ArrowUpRight :size="15" /></button>
             <button type="button" @click="enterSession(selectedSession)">{{ t('teacherHome.enterSession') }}</button>
           </footer>
         </template>
@@ -226,8 +252,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowUpRight, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight,
-  Clock3, Columns3, LibraryBig, ListTodo, LoaderCircle, MapPin, Plus, RefreshCw,
-  Search, SearchX, TriangleAlert, X,
+  ClipboardCheck, Clock3, Columns3, LibraryBig, ListTodo, ListTree, LoaderCircle, MapPin,
+  Plus, Presentation, RefreshCw, Search, SearchX, TriangleAlert, UserRound, X,
 } from 'lucide-vue-next'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
@@ -240,7 +266,12 @@ import {
   TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY,
   useTeachingCalendarStore, type ClassSession,
 } from '../stores/teachingCalendar'
+import type { TeacherLessonAuthoringView, TeacherLessonJob } from '../stores/teacherLessonAuthoring'
+import http, { teacherRequestConfig } from '../utils/http'
 import { ZJU_CLASS_PERIODS, resolveZjuClassPeriodRange } from '../utils/zju-class-periods'
+
+type PreparationTone = 'ready' | 'working' | 'review' | 'warning' | 'missing' | 'error'
+type PreparationState = { label: string; detail: string; tone: PreparationTone }
 
 const router = useRouter()
 const route = useRoute()
@@ -254,6 +285,10 @@ const selectedSession = ref<ClassSession | null>(null)
 const selectedDate = ref<string | null>(null)
 const workbenchOpen = ref(false)
 const workbenchCourseId = ref('')
+const sessionAuthoringView = ref<TeacherLessonAuthoringView | null>(null)
+const sessionPreparationLoading = ref(false)
+const sessionPreparationError = ref('')
+let sessionPreparationRequest = 0
 
 const pad = (value: number) => String(value).padStart(2, '0')
 const iso = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`
@@ -328,6 +363,68 @@ const actionTaskCount = computed(() => Array.from(generationStore.tasks.values()
     && task.publicationAllowed !== true
     && task.recovery?.state !== 'completed')
 )).length)
+const sessionClassSummary = computed(() => {
+  const session = selectedSession.value
+  if (!session) return []
+  return [
+    session.teaching_type,
+    t('teacherHome.sessionPanel.hours').replace('{hours}', String(session.credit_hours || 2)),
+    session.group_code ? t('teacherHome.sessionPanel.group').replace('{group}', session.group_code) : '',
+  ].filter(Boolean)
+})
+const sessionLesson = computed(() => {
+  const session = selectedSession.value
+  const authoringView = sessionAuthoringView.value
+  if (!session?.lesson_unit_id || !authoringView || authoringView.course_id !== session.course_id) return undefined
+  return authoringView.lessons.find(item => item.lesson_unit_id === session.lesson_unit_id)
+})
+const outlinePreparation = computed<PreparationState>(() => {
+  const session = selectedSession.value
+  if (!session?.lesson_unit_id) return preparationState('missing', 'notLinked', 'outlineMissing')
+  return preparationState('ready', 'linked', 'outlineLinked')
+})
+const lessonPlanPreparation = computed<PreparationState>(() => {
+  if (!selectedSession.value?.lesson_unit_id) return preparationState('missing', 'notCreated', 'planNeedsOutline')
+  if (sessionPreparationLoading.value) return preparationState('working', 'syncing', 'statusSyncing')
+  if (sessionPreparationError.value) return preparationState('error', 'readFailed', 'statusUnavailable')
+  const lesson = sessionLesson.value
+  const job = latestSessionJob('plan')
+  if (job && ['pending', 'running'].includes(job.status)) return preparationState('working', 'generating', 'planWorking')
+  const revision = lesson?.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
+  if (!revision) {
+    if (job?.status === 'failed') return preparationState('error', 'failed', 'planFailed')
+    return preparationState('missing', 'notCreated', 'planMissing')
+  }
+  if (lesson?.plan.source_state === 'stale') return preparationState('warning', 'needsUpdate', 'planStale')
+  if (revision.status === 'confirmed' || lesson?.plan.confirmed_revision_id === revision.revision_id) return preparationState('ready', 'confirmed', 'planReady')
+  return preparationState('review', 'awaitingReview', 'planDraft')
+})
+const pptPreparation = computed<PreparationState>(() => {
+  if (!selectedSession.value?.lesson_unit_id) return preparationState('missing', 'notCreated', 'pptNeedsOutline')
+  if (sessionPreparationLoading.value) return preparationState('working', 'syncing', 'statusSyncing')
+  if (sessionPreparationError.value) return preparationState('error', 'readFailed', 'statusUnavailable')
+  const job = latestSessionJob('ppt')
+  if (job && ['pending', 'running'].includes(job.status)) return preparationState('working', 'generating', 'pptWorking')
+  const lesson = sessionLesson.value
+  const ppt = lesson?.plan.ppt_assets.find(item => item.role === 'primary') || lesson?.plan.ppt_assets[0]
+  if (!ppt?.working_revision_id) {
+    if (job?.status === 'failed') return preparationState('error', 'failed', 'pptFailed')
+    const planReady = Boolean(lesson?.plan.working_revision_id)
+    return preparationState('missing', 'notCreated', planReady ? 'pptMissing' : 'pptNeedsPlan')
+  }
+  if (ppt.source_state === 'stale') return preparationState('warning', 'needsUpdate', 'pptStale')
+  return preparationState('ready', 'generated', 'pptReady')
+})
+const preparationReadyLabel = computed(() => t('teacherHome.sessionPanel.preparationProgress')
+  .replace('{ready}', String([outlinePreparation.value, lessonPlanPreparation.value, pptPreparation.value].filter(item => item.tone === 'ready').length)))
+const preparationPrimaryLabel = computed(() => {
+  if (!selectedSession.value?.lesson_unit_id) return t('teacherHome.sessionPanel.linkOutline')
+  if (lessonPlanPreparation.value.tone === 'missing') return t('teacherHome.sessionPanel.startLessonPlan')
+  if (['review', 'warning', 'error', 'working'].includes(lessonPlanPreparation.value.tone)) return t('teacherHome.sessionPanel.reviewLessonPlan')
+  if (pptPreparation.value.tone !== 'ready') return t('teacherHome.sessionPanel.preparePpt')
+  return t('teacherHome.continuePreparing')
+})
+const preparationNextStage = computed<'lesson' | 'ppt'>(() => lessonPlanPreparation.value.tone === 'ready' && pptPreparation.value.tone !== 'ready' ? 'ppt' : 'lesson')
 
 function loadRange() {
   if (view.value === 'week') return { from: iso(weekStart.value), to: iso(weekEnd.value) }
@@ -356,7 +453,13 @@ function closeCourseCreate() {
   delete query.create
   void router.replace({ name: 'course-library', query })
 }
-function openPreparation(session: ClassSession) { if (session.course_id) void router.push({ name: 'course-workspace', params: { courseId: session.course_id, mode: 'setup' }, query: { lesson: session.lesson_unit_id || '', returnTo: '/courses?view=calendar' } }) }
+function openPreparation(session: ClassSession) {
+  if (!session.course_id) return
+  const query = session.lesson_unit_id
+    ? { stage: preparationNextStage.value, lesson: session.lesson_unit_id, returnTo: '/courses?view=calendar' }
+    : { section: 'calendar', returnTo: '/courses?view=calendar' }
+  void router.push({ name: 'course-workspace', params: { courseId: session.course_id, mode: 'setup' }, query })
+}
 function enterSession(session: ClassSession) {
   if (!session.course_id) return
   void router.push({
@@ -372,6 +475,41 @@ function sessionDateTime(session: ClassSession) {
   const end = session.end_time?.slice(0, 5)
   return `${date} · ${start}${end ? `–${end}` : ''}`
 }
+function preparationState(tone: PreparationTone, labelKey: string, detailKey: string): PreparationState {
+  return {
+    tone,
+    label: t(`teacherHome.sessionPanel.states.${labelKey}`),
+    detail: t(`teacherHome.sessionPanel.details.${detailKey}`),
+  }
+}
+function latestSessionJob(kind: 'plan' | 'ppt'): TeacherLessonJob | undefined {
+  const lessonId = selectedSession.value?.lesson_unit_id
+  if (!lessonId) return undefined
+  return [...(sessionAuthoringView.value?.jobs || [])].reverse().find(item => (
+    item.lesson_unit_id === lessonId && item.type.includes(kind)
+  ))
+}
+async function loadSessionPreparation(session: ClassSession | null) {
+  const request = ++sessionPreparationRequest
+  sessionAuthoringView.value = null
+  sessionPreparationError.value = ''
+  if (!session?.course_id || !session.lesson_unit_id) {
+    sessionPreparationLoading.value = false
+    return
+  }
+  sessionPreparationLoading.value = true
+  try {
+    const response = await http.get<TeacherLessonAuthoringView>(
+      `/api/teacher/courses/${session.course_id}/lesson-authoring`,
+      teacherRequestConfig({ silentError: true }),
+    )
+    if (request === sessionPreparationRequest) sessionAuthoringView.value = response.data
+  } catch (error: any) {
+    if (request === sessionPreparationRequest) sessionPreparationError.value = String(error?.response?.data?.detail?.message || error?.message || t('teacherHome.sessionPanel.details.statusUnavailable'))
+  } finally {
+    if (request === sessionPreparationRequest) sessionPreparationLoading.value = false
+  }
+}
 function courseStatus(courseId: string) {
   const task = generationStore.getTask(courseId)
   if (!task) return ''
@@ -382,6 +520,7 @@ function refreshAfterStorage(event: StorageEvent) { if (event.key === TEACHING_C
 function refreshWhenVisible() { if (document.visibilityState === 'visible') void loadCalendar() }
 
 watch([cursor, view], () => { void loadCalendar() })
+watch(selectedSession, session => { void loadSessionPreparation(session) })
 onMounted(async () => {
   courseStore.currentCourseId = ''
   await refresh()
@@ -391,6 +530,7 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', refreshWhenVisible)
 })
 onBeforeUnmount(() => {
+  sessionPreparationRequest += 1
   window.removeEventListener(TEACHING_CALENDAR_SAVED_EVENT, refreshAfterCalendarSave)
   window.removeEventListener('storage', refreshAfterStorage)
   window.removeEventListener('focus', refreshAfterCalendarSave)
@@ -428,8 +568,14 @@ onBeforeUnmount(() => {
 .week-session time{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:6px;color:var(--course-color);font-size:10px;font-weight:780;font-variant-numeric:tabular-nums;white-space:nowrap}.week-session time::before{width:6px;height:6px;border-radius:50%;background:var(--course-color);box-shadow:0 0 0 3px color-mix(in srgb,var(--course-color) 10%,transparent);content:""}.week-session time span{justify-self:end;color:color-mix(in srgb,var(--course-color) 70%,var(--lz-text-secondary));font-size:9px;font-weight:650}
 .week-session strong,.week-session small{overflow:visible;text-overflow:clip;white-space:normal;overflow-wrap:anywhere}.week-session strong{color:var(--lz-text-strong);font-size:11px;font-weight:740;line-height:1.45}.week-session small{color:var(--lz-text-secondary);font-size:10px;line-height:1.5}.week-session:focus-visible{z-index:4;outline:3px solid color-mix(in srgb,var(--course-color) 28%,transparent);outline-offset:-3px}
 @container(max-width:135px){.week-session time{grid-template-columns:auto minmax(0,1fr)}.week-session time span{grid-column:2;justify-self:start}}
-.day-inspector{min-width:0;min-height:0;display:grid;grid-template-rows:64px minmax(0,1fr) auto;border-left:1px solid var(--lz-border);background:var(--lz-surface)}.day-inspector>header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--lz-border)}.day-inspector>header>div{min-width:0;display:grid;gap:3px}.day-inspector>header small{color:var(--lz-text-muted);font-size:12px}.day-inspector>header strong{overflow:hidden;font-size:15px;text-overflow:ellipsis;white-space:nowrap}.day-inspector>header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.session-focus{align-content:start;display:grid;gap:14px;padding:20px 16px;border-bottom:1px solid var(--lz-border)}.session-number{width:max-content;color:var(--lz-text-muted);font-size:12px;font-weight:700}.session-focus h2{margin:0;font-size:18px;line-height:1.45}.session-focus dl{display:grid;gap:11px;margin:3px 0 0}.session-focus dl>div{display:grid;grid-template-columns:88px minmax(0,1fr);gap:8px}.session-focus dt{display:flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px}.session-focus dd{margin:0;color:var(--lz-text-secondary);font-size:13px}.preparation-summary{align-self:start;display:grid;padding:16px}.preparation-summary>header{margin-bottom:7px}.preparation-summary>header strong{font-size:14px}.preparation-summary>div{min-height:42px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--lz-border);font-size:13px}.preparation-summary>div strong{color:var(--lz-text-secondary)}.inspector-actions{display:grid;gap:8px;padding:14px 16px;border-top:1px solid var(--lz-border)}.inspector-actions button{height:40px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.inspector-actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.today-list{min-height:0;overflow:auto;padding:12px 14px}.today-list__heading{height:40px;display:flex;align-items:center;justify-content:space-between}.today-list__heading strong{font-size:14px}.today-list__heading span{color:var(--lz-text-muted);font-size:12px}.today-list>button{width:100%;min-height:64px;display:grid;grid-template-columns:48px minmax(0,1fr) 15px;align-items:center;gap:9px;padding:8px 2px;border:0;border-bottom:1px solid var(--lz-border);color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.today-list time{color:var(--lz-brand-strong);font-size:12px;line-height:1.5}.today-list button>span{min-width:0;display:grid;gap:3px}.today-list button strong,.today-list button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-list button strong{font-size:13px}.today-list button small{color:var(--lz-text-muted);font-size:12px}.today-empty{min-height:230px;display:grid;place-content:center;justify-items:center;gap:9px;color:var(--lz-text-muted);text-align:center}.today-empty strong{color:var(--lz-text-strong);font-size:14px}.spin{animation:home-spin .85s linear infinite}@keyframes home-spin{to{transform:rotate(360deg)}}
-@media(max-width:1200px){.home-layout{grid-template-columns:220px minmax(0,1fr) 260px}.session-focus,.preparation-summary{padding-left:13px;padding-right:13px}}
+.day-inspector{min-width:0;min-height:0;display:grid;grid-template-rows:64px minmax(0,1fr) auto;border-left:1px solid var(--lz-border);background:var(--lz-surface)}.day-inspector>header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--lz-border)}.day-inspector>header>div{min-width:0;display:grid;gap:3px}.day-inspector>header small{color:var(--lz-text-muted);font-size:12px}.day-inspector>header strong{overflow:hidden;font-size:15px;text-overflow:ellipsis;white-space:nowrap}.day-inspector>header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.day-inspector>header button:hover{color:var(--lz-text-strong);background:var(--lz-fill)}.day-inspector>header button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.session-inspector-body{min-height:0;overflow:auto;scrollbar-gutter:stable}.session-focus{display:grid;gap:12px;padding:16px 16px 14px;border-bottom:1px solid var(--lz-border)}.session-heading{display:grid;gap:6px}.session-number{width:max-content;color:var(--lz-brand-strong);font-size:12px;font-weight:750}.session-focus h2{margin:0;color:var(--lz-text-strong);font-size:18px;letter-spacing:-.012em;line-height:1.42}.session-class-summary{display:flex;flex-wrap:wrap;gap:5px;color:var(--lz-text-secondary);font-size:12px}.session-class-summary span+span::before{margin-right:5px;color:var(--lz-text-muted);content:"·"}.session-details{display:grid;margin:0}.session-details>div{min-height:48px;display:grid;grid-template-columns:26px minmax(0,1fr);grid-template-rows:auto auto;align-content:center;column-gap:9px;padding:7px 0;border-bottom:1px solid color-mix(in srgb,var(--lz-border) 78%,transparent)}.session-details>div:last-child{border-bottom:0}.session-details svg{grid-row:1/3;align-self:center;color:var(--lz-text-muted)}.session-details dt{color:var(--lz-text-muted);font-size:11px;line-height:1.4}.session-details dd{min-width:0;margin:2px 0 0;color:var(--lz-text-secondary);font-size:13px;font-weight:650;line-height:1.45;overflow-wrap:anywhere}.session-details>div:first-child dd{font-variant-numeric:tabular-nums}.preparation-summary{display:grid;gap:8px;padding:14px 16px}.preparation-summary>header{display:flex;align-items:center;justify-content:space-between;gap:10px}.preparation-summary>header strong{color:var(--lz-text-strong);font-size:14px}.preparation-summary>header span{color:var(--lz-text-muted);font-size:11px;font-variant-numeric:tabular-nums}.preparation-list{display:grid}.preparation-list article{min-height:56px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid color-mix(in srgb,var(--lz-border) 78%,transparent)}.preparation-list article:last-child{border-bottom:0}.preparation-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:var(--lz-text-muted);background:var(--lz-surface-muted)}.preparation-icon[data-tone="ready"]{color:var(--lz-success);background:var(--lz-success-soft)}.preparation-icon[data-tone="working"],.preparation-icon[data-tone="review"]{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.preparation-icon[data-tone="warning"],.preparation-icon[data-tone="error"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.preparation-list article>div{min-width:0;display:grid;gap:3px}.preparation-list article>div strong{color:var(--lz-text-strong);font-size:13px}.preparation-list article>div small{color:var(--lz-text-muted);font-size:11px;line-height:1.42;overflow-wrap:anywhere}.preparation-state{align-self:start;margin-top:3px;padding:3px 6px;border-radius:6px;color:var(--lz-text-secondary);background:var(--lz-surface-muted);font-size:10px;font-weight:750;white-space:nowrap}.preparation-state[data-tone="ready"]{color:var(--lz-success);background:var(--lz-success-soft)}.preparation-state[data-tone="working"],.preparation-state[data-tone="review"]{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.preparation-state[data-tone="warning"],.preparation-state[data-tone="error"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.inspector-actions{display:grid;gap:8px;padding:12px 16px;border-top:1px solid var(--lz-border);background:var(--lz-surface)}.inspector-actions button{height:40px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.inspector-actions button:hover{border-color:color-mix(in srgb,var(--lz-brand) 30%,var(--lz-border));color:var(--lz-brand-strong)}.inspector-actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.inspector-actions button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.inspector-actions button.primary:hover{border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.today-list{min-height:0;overflow:auto;padding:12px 14px}.today-list__heading{height:40px;display:flex;align-items:center;justify-content:space-between}.today-list__heading strong{font-size:14px}.today-list__heading span{color:var(--lz-text-muted);font-size:12px}.today-list>button{width:100%;min-height:64px;display:grid;grid-template-columns:48px minmax(0,1fr) 15px;align-items:center;gap:9px;padding:8px 2px;border:0;border-bottom:1px solid var(--lz-border);color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.today-list time{color:var(--lz-brand-strong);font-size:12px;line-height:1.5}.today-list button>span{min-width:0;display:grid;gap:3px}.today-list button strong,.today-list button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.today-list button strong{font-size:13px}.today-list button small{color:var(--lz-text-muted);font-size:12px}.today-empty{min-height:230px;display:grid;place-content:center;justify-items:center;gap:9px;color:var(--lz-text-muted);text-align:center}.today-empty strong{color:var(--lz-text-strong);font-size:14px}.spin{animation:home-spin .85s linear infinite}@keyframes home-spin{to{transform:rotate(360deg)}}
+.session-focus{gap:8px;padding-top:12px;padding-bottom:10px}
+.session-details>div{min-height:42px;padding-top:5px;padding-bottom:5px}
+.preparation-summary{gap:6px;padding-top:10px;padding-bottom:10px}
+.preparation-list article{min-height:50px;padding-top:5px;padding-bottom:5px}
+.inspector-actions{gap:7px;padding-top:8px;padding-bottom:8px}
+.inspector-actions button{height:38px}
+@media(max-width:1200px){.home-layout{grid-template-columns:220px minmax(0,1fr) 280px}.session-focus,.preparation-summary{padding-left:14px;padding-right:14px}}
 @media(max-width:980px){.teacher-home{overflow:auto}.home-layout{height:auto;min-height:100%;grid-template-columns:220px minmax(580px,1fr)}.course-rail,.calendar-surface{min-height:650px}.day-inspector{grid-column:1/-1;min-height:350px;border-top:1px solid var(--lz-border);border-left:0}}
 @media(max-width:820px){.home-layout{display:block}.course-rail{min-height:0;grid-template-columns:minmax(130px,.7fr) minmax(190px,1.3fr);grid-template-rows:56px 92px;border-right:0;border-bottom:1px solid var(--lz-border)}.course-rail>header{grid-column:1}.course-search{grid-column:2;margin:8px 12px}.course-list{grid-column:1/-1;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,220px);gap:4px;overflow-x:auto;overflow-y:hidden;padding:5px 12px 10px}.course-entry{min-height:72px}.course-search-empty{min-height:72px;display:flex;justify-content:start}.calendar-surface{min-height:650px}}
 @media(max-width:620px){.home-primary-tabs button{gap:6px;padding-inline:8px;font-size:12px}.home-header-actions .header-quiet{display:none}.home-header-actions .header-primary{width:38px;padding:0;justify-content:center;font-size:0}.calendar-surface{min-height:680px;grid-template-rows:auto auto minmax(0,1fr)}.calendar-toolbar{min-height:102px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:8px;padding:9px 10px}.calendar-title{grid-column:1}.view-switch{grid-column:2}.toolbar-spacer{display:none}.period-actions{grid-column:1/-1;justify-self:end}.month-canvas{padding:6px}}

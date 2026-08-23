@@ -57,6 +57,25 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).not.toContain('useTeacherCourseRuntime')
   })
 
+  it('turns the selected calendar session into a compact preparation decision panel', () => {
+    const home = source('views/TeacherTeachingCalendarView.vue')
+    const workspace = source('views/CourseWorkspaceView.vue')
+    const workbench = source('components/TeacherCourseWorkbench.vue')
+
+    expect(home).toContain('class="session-inspector-body"')
+    expect(home).toContain("t('teacherHome.sessionPanel.teacher')")
+    expect(home).toContain('selectedSession.teacher_name')
+    expect(home).toContain('outlinePreparation.detail')
+    expect(home).toContain('lessonPlanPreparation.detail')
+    expect(home).toContain('pptPreparation.detail')
+    expect(home).toContain("/lesson-authoring`")
+    expect(home).toContain('preparationPrimaryLabel')
+    expect(home).toContain("stage: preparationNextStage.value")
+    expect(workspace).toContain(':initial-lesson-id="requestedLessonId"')
+    expect(workspace).toContain('route.query.stage')
+    expect(workbench).toContain('initialLessonId?: string')
+  })
+
   it('keeps the teacher card view as the dense three-column course grid', () => {
     const library = source('views/TeacherCourseLibraryView.vue')
 
