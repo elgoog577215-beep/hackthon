@@ -98,6 +98,7 @@
           variant="inline"
           surface="teacher"
           @confirmed="handleInlineOutlineConfirmed"
+          @next="activeStage = 'lesson'"
         />
       </section>
 
@@ -147,7 +148,16 @@
             <p v-if="lessonGenerationError" class="generation-error lesson-generation-error" role="alert">{{ lessonGenerationError }}</p>
             <footer><span>{{ t('courseWorkbench.form.lessonGenerationHint', '生成本讲各小节的目标、课堂环节与时间分配') }}</span><button class="primary" type="submit" :disabled="lessonBusy || lessonGenerationActive || !selectedLessonId"><LoaderCircle v-if="lessonBusy" :size="16" class="spin" /><Sparkles v-else :size="16" />{{ lessonGenerationFailed ? t('courseWorkbench.retryLessonPlan', '重新生成本讲教案') : t('courseWorkbench.generateLessonPlan', '生成本讲教案') }}</button></footer>
           </form>
-          <section v-else-if="workingLessonRevision" class="formal-surface lesson-formal"><header><div><strong>{{ selectedLesson?.title }}</strong><small>{{ lessonJobLabel }}</small></div><div class="lesson-actions"><button type="button" @click="emit('openTeachingPlan', selectedLessonId)"><Pencil :size="15" />{{ t('courseWorkbench.reviewLessonPlan', '审阅教案') }}</button><button v-if="!lessonPlanConfirmed" class="primary" type="button" :disabled="lessonConfirming" @click="confirmLessonPlan"><LoaderCircle v-if="lessonConfirming" :size="15" class="spin" /><Check v-else :size="15" />{{ lessonConfirming ? t('courseWorkbench.confirmingLessonPlan', '正在确认…') : t('courseWorkbench.confirmLessonPlanAndContinue', '确认并进入题库') }}</button><span v-else class="confirmed-state"><Check :size="15" />{{ t('courseWorkbench.lessonPlanConfirmed', '教案已确认') }}</span></div></header><p v-if="lessonConfirmError" class="generation-error" role="alert">{{ lessonConfirmError }}</p><article class="lesson-plan-preview"><section v-for="section in lessonPlanSections" :key="section.nodeId"><header><div><h3>{{ section.title }}</h3><p v-if="section.keyPoints.length">{{ t('courseWorkbench.lessonKeyPoints', '重点') }}：{{ section.keyPoints.join('、') }}</p></div><small>{{ section.totalMinutes }} {{ t('courseWorkbench.minutes', '分钟') }}</small></header><ol><li v-for="module in section.modules" :key="module.id"><div><strong>{{ module.title }}</strong><small v-if="module.minutes">{{ module.minutes }} {{ t('courseWorkbench.minutes', '分钟') }}</small></div><p>{{ module.teacherActivity }}</p><p v-if="module.studentActivity" class="student-activity">{{ t('courseWorkbench.studentActivity', '学生') }}：{{ module.studentActivity }}</p></li></ol></section><div v-if="!lessonPlanSections.length" class="empty-asset">{{ t('courseWorkbench.lessonPlanPreparing', '教案内容正在整理，请稍后刷新。') }}</div></article></section>
+          <TeacherLessonPlanDocument
+            v-else-if="workingLessonRevision && selectedLesson"
+            :course-id="courseId"
+            :lesson="selectedLesson"
+            :confirmed="lessonPlanConfirmed"
+            :confirming="lessonConfirming"
+            :confirm-error="lessonConfirmError"
+            @confirm="confirmLessonPlan"
+            @next="activeStage = 'question-bank'"
+          />
         </template>
 
         <template v-else-if="activeStage === 'script'">
@@ -173,6 +183,7 @@ import CourseReferenceTray, { type CourseReferenceItem } from './CourseReference
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
+import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
@@ -188,7 +199,6 @@ const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
   (event: 'outlineConfirmed'): void
-  (event: 'openTeachingPlan', lessonId: string): void
   (event: 'openScript', lessonId: string): void
 }>()
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
@@ -270,41 +280,6 @@ const lessonGenerationActive = computed(() => ['pending', 'running'].includes(St
 const lessonGenerationFailed = computed(() => lessonJob.value?.status === 'failed')
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
 const lessonGenerationError = computed(() => String(lessonJob.value?.error?.message || lessonStore.error || ''))
-const lessonJobLabel = computed(() => lessonPlanConfirmed.value ? t('courseWorkbench.lessonPlanConfirmed', '教案已确认') : t('courseWorkbench.lessonPlanPendingReview', '待确认'))
-const lessonModuleLabels = computed<Record<string, string>>(() => ({
-  lesson_goal: t('courseWorkbench.lessonModules.goal', '教学目标'),
-  core_explanation: t('courseWorkbench.lessonModules.explanation', '核心讲解'),
-  learner_action: t('courseWorkbench.lessonModules.activity', '课堂活动'),
-  example_or_case: t('courseWorkbench.lessonModules.example', '案例示范'),
-  practice_and_feedback: t('courseWorkbench.lessonModules.practice', '练习反馈'),
-  feedback_check: t('courseWorkbench.lessonModules.feedback', '检查反馈'),
-  general_concept_model: t('courseWorkbench.lessonModules.concept', '概念梳理'),
-  general_comparison: t('courseWorkbench.lessonModules.comparison', '对比辨析'),
-  general_explained_example: t('courseWorkbench.lessonModules.example', '案例示范'),
-  general_application: t('courseWorkbench.lessonModules.application', '迁移应用'),
-  general_checklist: t('courseWorkbench.lessonModules.summary', '课堂小结'),
-  summary_and_transfer: t('courseWorkbench.lessonModules.transfer', '总结迁移'),
-  assessment: t('courseWorkbench.lessonModules.assessment', '学习检查'),
-}))
-const lessonPlanSections = computed(() => {
-  const lessonSectionTitles = new Map((selectedLesson.value?.sections || []).map(item => [item.section_node_id, item.title]))
-  return ((workingLessonRevision.value?.plan as any)?.sections || []).map((section: any) => {
-    const modules = (section.teaching_modules || []).map((module: any, index: number) => ({
-      id: String(module.module_id || index),
-      title: lessonModuleLabels.value[String(module.module_id || '')] || String(module.teaching_purpose || `${t('courseWorkbench.lessonModule', '环节')} ${index + 1}`),
-      minutes: Math.max(0, Number(module.planned_minutes || 0)),
-      teacherActivity: String(module.teacher_activity || module.teaching_guidance || module.teaching_purpose || '').trim(),
-      studentActivity: String(module.student_activity || '').trim(),
-    })).filter((module: any) => module.teacherActivity || module.studentActivity)
-    return {
-      nodeId: String(section.node_id || ''),
-      title: lessonSectionTitles.get(String(section.node_id || '')) || String(section.node_id || t('courseWorkbench.lessonSection', '教学小节')),
-      keyPoints: (section.key_points || []).map((item: unknown) => String(item)).filter(Boolean),
-      totalMinutes: modules.reduce((sum: number, module: any) => sum + module.minutes, 0),
-      modules,
-    }
-  })
-})
 const scriptNodes = computed(() => { const ids = new Set(selectedLesson.value?.sections.map(item => item.section_node_id) || []); return courseStore.nodes.filter(node => ids.has(node.node_id) || ids.has(String(node.parent_node_id || ''))) })
 const scriptMarkdown = computed(() => scriptNodes.value.map(node => `## ${node.node_name}\n\n${node.node_content || ''}`).join('\n\n'))
 const selectedLessonQuestionNodeIds = computed(() => selectedLesson.value?.sections.map(item => item.section_node_id).filter(Boolean) || [])
@@ -420,8 +395,7 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 @media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.stage-rail nav small{display:none}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0;color:#b91c1c;font-size:12px}
-.lesson-generation-surface{min-height:68px}.lesson-generation-error{margin:-4px 0 0;padding:10px 12px;border-radius:8px}.lesson-actions{display:flex!important;align-items:center;gap:8px}.lesson-actions .primary{min-height:36px!important;border-color:#514bdc!important;color:#fff!important;background:#514bdc!important;box-shadow:none}.confirmed-state{display:flex;align-items:center;gap:6px;color:#047857;font-size:12px;font-weight:750}
-.lesson-plan-preview{display:grid;gap:26px}.lesson-plan-preview>section{display:grid;gap:12px;margin:0!important}.lesson-plan-preview>section+section{padding-top:24px;border-top:1px solid #e8ecf2}.lesson-plan-preview>section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:16px}.lesson-plan-preview h3{margin:0!important;color:#263147;font-size:16px}.lesson-plan-preview header p{margin:5px 0 0;color:#64748b;font-size:12px}.lesson-plan-preview header>small{flex:none;color:#64748b;font-size:12px}.lesson-plan-preview ol{display:grid;gap:0;margin:0;padding:0;list-style:none}.lesson-plan-preview li{display:grid;gap:5px;padding:12px 0;border-top:1px solid #eef1f5}.lesson-plan-preview li>div{display:flex;align-items:center;justify-content:space-between;gap:12px}.lesson-plan-preview li strong{color:#334155;font-size:13px}.lesson-plan-preview li small{color:#64748b;font-size:11px}.lesson-plan-preview li p{margin:0;color:#475569;font-size:13px;line-height:1.65}.lesson-plan-preview li .student-activity{color:#64748b;font-size:12px}
+.lesson-generation-surface{min-height:68px}.lesson-generation-error{margin:-4px 0 0;padding:10px 12px;border-radius:8px}
 .workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace>header{border-bottom:1px solid #e7ebf2}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
 </style>

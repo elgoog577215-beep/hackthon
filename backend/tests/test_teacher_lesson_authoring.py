@@ -17,6 +17,7 @@ from teacher_lesson_authoring import (
     normalize_teacher_lesson_plan,
     teacher_lesson_section_content,
     teacher_lesson_v6_source,
+    validate_teacher_lesson_plan,
 )
 from course_presentation_graph import compile_course_presentation_graph
 from course_service import CourseService
@@ -44,11 +45,112 @@ def course_data():
     }
 
 
+def standard_lesson_plan():
+    return {
+        "schema_version": "course_teaching_plan_v3",
+        "source_outline_revision_id": "outline-v1",
+        "sections": [{
+            "node_id": "L2-1-1",
+            "learning_objective": "能独立解释核心概念并完成一次迁移应用。",
+            "key_points": ["核心概念"],
+            "key_difficulties": ["概念的适用边界"],
+            "in_class_checks": ["完成一道情境判断并说明依据。"],
+            "homework": ["用新场景复述概念并给出反例。"],
+            "teaching_notes": ["保留学生产出用于课后复盘。"],
+            "knowledge_structure": [{
+                "knowledge_points": [{
+                    "name": "核心概念",
+                    "statement": "核心概念由定义、条件和边界共同构成。",
+                }],
+            }],
+            "teaching_modules": [{
+                "module_id": "core_explanation",
+                "teaching_purpose": "建立概念框架",
+                "knowledge_names": ["核心概念"],
+                "planned_minutes": 20,
+                "teacher_activity": "用正例与反例对照讲解定义和边界。",
+                "student_activity": "归纳判断标准并完成情境判断。",
+            }],
+        }],
+    }
+
+
 def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     scoped = lesson_scope(course_data(), "L1-1")
     assert scoped["lesson"]["node_name"] == "第一讲"
     assert [item["node_id"] for item in scoped["sections"]] == ["L2-1-1", "L2-1-2"]
     assert scoped["chapter"]["node_id"] == "L1-1"
+
+
+def test_standard_lesson_plan_quality_gate_is_shared_by_draft_and_confirmation():
+    report = validate_teacher_lesson_plan(
+        standard_lesson_plan(),
+        expected_section_ids=["L2-1-1"],
+        expected_outline_revision_id="outline-v1",
+        source_outline_revision_id="outline-v1",
+    )
+    assert report["passed"] is True
+    assert report["pipeline_version"] == "standard_lesson_plan_v1"
+    assert report["metrics"]["planned_minutes"] == 20
+
+    incomplete = standard_lesson_plan()
+    incomplete["sections"][0]["in_class_checks"] = []
+    incomplete["sections"][0]["teaching_modules"] = []
+    blocked = validate_teacher_lesson_plan(
+        incomplete,
+        expected_section_ids=["L2-1-1"],
+    )
+    assert blocked["passed"] is False
+    assert {item["code"] for item in blocked["blocking_issues"]} >= {
+        "lesson_plan:modules",
+        "lesson_plan:checks",
+    }
+
+
+def test_canonical_outline_revision_recovers_current_state_and_blocks_weak_plan(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "blueprint-v1")
+    quality = validate_teacher_lesson_plan(
+        standard_lesson_plan(),
+        expected_section_ids=["L2-1-1"],
+        expected_outline_revision_id="knowledge-scope-v1",
+        source_outline_revision_id="knowledge-scope-v1",
+    )
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="knowledge-scope-v1",
+        quality_report=quality,
+    )
+    assert lesson["source_state"] == "stale"
+
+    repository.set_outline("course-1", "knowledge-scope-v1")
+    recovered = repository.lesson("course-1", "L1-1")
+    assert recovered["source_state"] == "current"
+    confirmed = repository.confirm_plan_revision(
+        "course-1",
+        "L1-1",
+        recovered["working_revision_id"],
+    )
+    assert confirmed["confirmed_revision_id"] == recovered["working_revision_id"]
+
+    weak = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        {"schema_version": "course_teaching_plan_v3", "sections": [{"node_id": "L2-1-1"}]},
+        source_outline_revision_id="knowledge-scope-v1",
+    )
+    try:
+        repository.confirm_plan_revision(
+            "course-1",
+            "L1-1",
+            weak["working_revision_id"],
+        )
+    except Exception as exc:
+        assert getattr(exc, "code", "") == "lesson_plan_quality_blocked"
+    else:
+        raise AssertionError("不完整教案不应该被确认")
 
 
 def test_outline_only_lesson_scope_reuses_existing_pedagogy_compiler(monkeypatch):
@@ -297,10 +399,19 @@ def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
             {
                 "node_id": "L2-1-1",
                 "learning_objective": "原目标",
+                "key_points": ["进制转换"],
                 "key_difficulties": ["原难点"],
-                "teacher_activities": ["原教师活动"],
-                "student_activities": ["原学生活动"],
+                "in_class_checks": ["完成一道转换题"],
                 "homework": ["原作业"],
+                "teaching_notes": ["原备注"],
+                "teaching_modules": [{
+                    "module_id": "core_explanation",
+                    "teaching_purpose": "讲清位权展开",
+                    "planned_minutes": 15,
+                    "teacher_activity": "原教师活动",
+                    "student_activity": "原学生活动",
+                    "knowledge_names": ["进制转换"],
+                }],
                 "knowledge_structure": [{"knowledge_points": [{"statement": "不可改写的事实"}]}],
             },
             {"node_id": "L2-1-2", "learning_objective": "兄弟小节"},
@@ -316,10 +427,18 @@ def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
                 "sections": [{
                     "node_id": "L2-1-1",
                     "learning_objective": "学生能够独立完成一次进制转换并解释步骤。",
+                    "key_points": ["进制转换", "位权展开"],
                     "key_difficulties": ["位权展开"],
-                    "teacher_activities": ["演示十进制转二进制并逐步核对余数。"],
-                    "student_activities": ["独立完成一道转换题并说明每一步。"],
+                    "in_class_checks": ["独立完成一道转换题并说明每一步。"],
                     "homework": ["完成两道相邻进制转换题。"],
+                    "teaching_notes": ["先检查位权表，再处理转换步骤。"],
+                    "teaching_modules": [{
+                        "module_id": "core_explanation",
+                        "teaching_purpose": "用演示和练习建立位权展开方法",
+                        "planned_minutes": 18,
+                        "teacher_activity": "演示十进制转二进制并逐步核对余数。",
+                        "student_activity": "独立完成一道转换题并说明每一步。",
+                    }],
                 }],
             }, ensure_ascii=False)
 
@@ -337,8 +456,11 @@ def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
 
     optimized = result["plan"]["sections"]
     assert optimized[0]["learning_objective"].startswith("学生能够独立")
+    assert optimized[0]["teaching_modules"][0]["teacher_activity"].startswith("演示十进制")
+    assert optimized[0]["teacher_activities"] == ["演示十进制转二进制并逐步核对余数。"]
     assert optimized[0]["knowledge_structure"] == plan["sections"][0]["knowledge_structure"]
-    assert optimized[1] == plan["sections"][1]
+    assert optimized[1]["node_id"] == plan["sections"][1]["node_id"]
+    assert optimized[1]["learning_objective"] == plan["sections"][1]["learning_objective"]
     assert '"schema_version"' not in fake.captured_prompt
     assert '"knowledge_context"' in fake.captured_prompt
 
@@ -572,7 +694,7 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
                 break
             time.sleep(0.01)
 
-    assert job["status"] == "completed"
+    assert job["status"] == "completed_with_warnings"
     assert FakeTaskManager.course_service.calls == ["L1-2"]
     assets = repository.view("course-1")["lessons"]
     assert set(assets) == {"L1-2"}
@@ -580,3 +702,6 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     assert generated_section["node_id"] == "L2-2-1"
     assert generated_section["teaching_modules"] == []
     assert generated_section["teacher_activities"] == []
+    generated_revision = assets["L1-2"]["revisions"][0]
+    assert generated_revision["status"] == "needs_ai_review"
+    assert generated_revision["quality_report"]["passed"] is False

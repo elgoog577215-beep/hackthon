@@ -11,6 +11,15 @@ export interface TeacherLessonPlanRevision {
   status: 'draft' | 'needs_ai_review' | 'confirmed'
   warnings: Array<Record<string, unknown>>
   source_refs?: Array<Record<string, unknown>>
+  pipeline_version?: 'standard_lesson_plan_v1'
+  quality_report?: {
+    schema_version: 'teacher_lesson_plan_quality_v1'
+    pipeline_version: 'standard_lesson_plan_v1'
+    passed: boolean
+    blocking_issues: Array<{ code: string; message: string; section_id?: string }>
+    review_issues: Array<{ code: string; message: string; section_id?: string }>
+    metrics: Record<string, number>
+  }
   plan: Record<string, any>
   actor: string
   created_at: string
@@ -118,6 +127,8 @@ export interface TeacherLessonJob {
 
 export interface TeacherLessonAuthoringView {
   schema_version: 'teacher_lesson_authoring_view_v1'
+  pipeline_version?: 'standard_lesson_plan_v1'
+  plan_schema_version?: 'course_teaching_plan_v3'
   course_id: string
   outline_revision_id: string
   lessons: TeacherLessonProjection[]

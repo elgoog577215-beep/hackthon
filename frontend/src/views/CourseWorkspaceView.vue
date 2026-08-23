@@ -70,7 +70,6 @@
         v-model:outline-editing="outlineEditing"
         @generate-outline="startOutlineGeneration"
         @outline-confirmed="handleOutlineConfirmed"
-        @open-teaching-plan="openLessonPlan"
         @open-script="openScript"
       />
       <TeacherCourseSpaceView
@@ -95,20 +94,6 @@
 
     <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
       <TeacherCourseCalendarView embedded />
-    </el-drawer>
-
-    <el-drawer v-model="lessonOpen" size="min(1120px, 94vw)" :title="selectedLessonTitle" destroy-on-close>
-      <GenerationLessonPlan
-        v-if="selectedLessonPlan"
-        :plan="selectedLessonPlan"
-        :nodes="courseStore.nodes"
-        :lesson-unit-id="selectedLessonId"
-        :course-id="courseId"
-        prefer-provided-plan
-        prefer-section-view
-        embedded
-      />
-      <div v-else class="drawer-empty">{{ t('courseFiles.lessonPlanUnavailable') }}</div>
     </el-drawer>
 
     <CourseWorkbench
@@ -136,7 +121,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from 'lucide-vue-next'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
-import GenerationLessonPlan from '../components/GenerationLessonPlan.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
@@ -157,8 +141,6 @@ const loading = ref(true)
 const loadError = ref('')
 const outlineEditing = ref(false)
 const calendarOpen = ref(false)
-const lessonOpen = ref(false)
-const selectedLessonId = ref('')
 const workbenchOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
 const courseAdjustmentFocusPlanId = ref('')
@@ -190,11 +172,6 @@ const courseState = computed(() => {
   return courseStore.currentDocumentRevision ? 'ready' : 'draft'
 })
 const courseStateLabel = computed(() => t(`courseFiles.states.${courseState.value}`))
-const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
-const selectedLessonPlan = computed(() => selectedLesson.value?.plan?.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id)?.plan as any || null)
-const selectedLessonTitle = computed(() => selectedLesson.value
-  ? t('courseFiles.lessonDrawerTitle').replace('{title}', selectedLesson.value.title)
-  : t('courseFiles.lessonPlan'))
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
@@ -252,8 +229,9 @@ async function loadWorkspace() {
 }
 
 function openLessonPlan(lessonId: string) {
-  selectedLessonId.value = lessonId
-  lessonOpen.value = true
+  requestedWorkbenchStage.value = 'lesson'
+  requestedLessonId.value = lessonId
+  workspaceView.value = 'categories'
 }
 
 function openOutlineEditor() {

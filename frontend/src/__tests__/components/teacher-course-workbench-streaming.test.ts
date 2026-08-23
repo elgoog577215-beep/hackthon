@@ -297,8 +297,8 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.text()).toContain('待确认')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
-    expect(lessonWrapper.get('.lesson-actions .primary').text()).toContain('确认并进入题库')
-    await lessonWrapper.get('.lesson-actions .primary').trigger('click')
+    expect(lessonWrapper.get('.document-actions .primary-action').text()).toContain('确认并进入题库')
+    await lessonWrapper.get('.document-actions .primary-action').trigger('click')
     expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
     expect(lessonWrapper.get('.center-heading h2').text()).toBe('题库')
 

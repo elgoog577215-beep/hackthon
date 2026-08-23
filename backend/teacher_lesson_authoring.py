@@ -25,6 +25,7 @@ from course_pedagogy import module_block_role
 
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
+LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_ppt_generation",
@@ -133,14 +134,28 @@ def teacher_lesson_section_content(section: dict[str, Any]) -> dict[str, Any]:
         *boundaries,
         *misconceptions,
     ])
-    teacher_activities = _text_list(section.get("teacher_activities")) or _unique_text([
+    module_teacher_activities = _unique_text([
+        str(module.get("teacher_activity") or "").strip()
+        for module in modules
+        if str(module.get("teacher_activity") or "").strip()
+    ])
+    module_student_activities = _unique_text([
+        str(module.get("student_activity") or "").strip()
+        for module in modules
+        if str(module.get("student_activity") or "").strip()
+    ])
+    teacher_activities = module_teacher_activities or _text_list(
+        section.get("teacher_activities")
+    ) or _unique_text([
         module_line(module)
         for module in modules
         if str(module.get("module_id") or "") not in {
             "learner_action", "math_variation", "feedback_check",
         }
     ])
-    student_activities = _text_list(section.get("student_activities")) or _unique_text([
+    student_activities = module_student_activities or _text_list(
+        section.get("student_activities")
+    ) or _unique_text([
         module_line(module)
         for module in modules
         if str(module.get("module_id") or "") in {"learner_action", "math_variation"}
@@ -172,10 +187,138 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
         for key, value in teacher_lesson_section_content(next_section).items():
             if key.startswith("knowledge_") or key == "misconceptions":
                 continue
-            if not next_section.get(key):
+            if key in {"teacher_activities", "student_activities"} and next_section.get("teaching_modules"):
+                next_section[key] = deepcopy(value)
+            elif not next_section.get(key):
                 next_section[key] = deepcopy(value)
         normalized["sections"].append(next_section)
     return normalized
+
+
+def validate_teacher_lesson_plan(
+    plan: dict[str, Any],
+    *,
+    expected_section_ids: list[str] | None = None,
+    expected_outline_revision_id: str = "",
+    source_outline_revision_id: str = "",
+) -> dict[str, Any]:
+    """Validate the one teacher-facing standard lesson-plan contract.
+
+    The V3 planner remains responsible for grounded knowledge and pedagogy.
+    This gate owns the final classroom document: complete section coverage,
+    observable objectives, executable activities, checks, timing and homework.
+    Drafts may be saved with blockers, but only a passing revision can become
+    the confirmed source for question-bank and PPT production.
+    """
+    normalized = normalize_teacher_lesson_plan(plan)
+    sections = [
+        item for item in normalized.get("sections") or []
+        if isinstance(item, dict)
+    ]
+    actual_ids = [str(item.get("node_id") or "") for item in sections]
+    blocking: list[dict[str, str]] = []
+    review: list[dict[str, str]] = []
+
+    def issue(
+        target: list[dict[str, str]],
+        code: str,
+        message: str,
+        section_id: str = "",
+    ) -> None:
+        payload = {"code": code, "message": message}
+        if section_id:
+            payload["section_id"] = section_id
+        target.append(payload)
+
+    if str(normalized.get("schema_version") or "") != "course_teaching_plan_v3":
+        issue(blocking, "lesson_plan:schema", "教案必须使用统一的 CourseTeachingPlanV3 结构。")
+    if not sections:
+        issue(blocking, "lesson_plan:sections_empty", "教案没有可用的教学小节。")
+    if any(not section_id for section_id in actual_ids):
+        issue(blocking, "lesson_plan:section_identity", "教案小节缺少稳定标识。")
+    if len(actual_ids) != len(set(actual_ids)):
+        issue(blocking, "lesson_plan:duplicate_section", "教案包含重复小节。")
+    if expected_section_ids is not None and actual_ids != expected_section_ids:
+        issue(blocking, "lesson_plan:section_scope", "教案必须按大纲顺序完整覆盖当前讲次的所有小节。")
+    if (
+        expected_outline_revision_id
+        and source_outline_revision_id
+        and expected_outline_revision_id != source_outline_revision_id
+    ):
+        issue(blocking, "lesson_plan:stale_outline", "教案对应的大纲版本已经过期。")
+
+    total_modules = 0
+    total_minutes = 0
+    knowledge_point_count = 0
+    for section in sections:
+        section_id = str(section.get("node_id") or "")
+        objective = str(section.get("learning_objective") or "").strip()
+        key_points = _text_list(section.get("key_points"))
+        difficulties = _text_list(section.get("key_difficulties"))
+        checks = _text_list(section.get("in_class_checks"))
+        homework = _text_list(section.get("homework"))
+        modules = [
+            item for item in section.get("teaching_modules") or []
+            if isinstance(item, dict)
+        ]
+        total_modules += len(modules)
+        section_minutes = sum(
+            max(0, int(item.get("planned_minutes") or 0))
+            for item in modules
+            if str(item.get("planned_minutes") or "").isdigit()
+        )
+        total_minutes += section_minutes
+
+        if not objective:
+            issue(blocking, "lesson_plan:objective", "小节缺少可观察的教学目标。", section_id)
+        if not key_points:
+            issue(blocking, "lesson_plan:key_points", "小节缺少教学重点。", section_id)
+        if not difficulties:
+            issue(blocking, "lesson_plan:difficulties", "小节缺少教学难点。", section_id)
+        if not modules:
+            issue(blocking, "lesson_plan:modules", "小节缺少可执行的教学流程。", section_id)
+        if modules and not any(str(item.get("teacher_activity") or "").strip() for item in modules):
+            issue(blocking, "lesson_plan:teacher_activity", "小节缺少具体的教师活动。", section_id)
+        if modules and not any(str(item.get("student_activity") or "").strip() for item in modules):
+            issue(blocking, "lesson_plan:student_activity", "小节缺少具体的学生活动。", section_id)
+        if modules and section_minutes <= 0:
+            issue(blocking, "lesson_plan:timing", "小节缺少有效的时间分配。", section_id)
+        elif any(item.get("planned_minutes") in (None, "") for item in modules):
+            issue(review, "lesson_plan:module_timing", "部分教学环节未单独标注时长。", section_id)
+        if not checks:
+            issue(blocking, "lesson_plan:checks", "小节缺少课堂检查或可观察产出。", section_id)
+        if not homework:
+            issue(blocking, "lesson_plan:homework", "小节缺少课后巩固或迁移任务。", section_id)
+
+        points = [
+            point
+            for group in section.get("knowledge_structure") or []
+            if isinstance(group, dict)
+            for point in group.get("knowledge_points") or []
+            if isinstance(point, dict)
+        ]
+        knowledge_point_count += len(points)
+        for point in points:
+            name = str(point.get("name") or "").strip()
+            statement = str(point.get("statement") or point.get("description") or "").strip()
+            if name and not statement:
+                issue(blocking, "lesson_plan:knowledge_statement", f"知识点「{name}」缺少准确陈述。", section_id)
+            if point.get("conflict") or point.get("needs_manual_review"):
+                issue(blocking, "lesson_plan:knowledge_conflict", f"知识点「{name or '未命名'}」存在待核实冲突。", section_id)
+
+    return {
+        "schema_version": "teacher_lesson_plan_quality_v1",
+        "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
+        "passed": not blocking,
+        "blocking_issues": blocking,
+        "review_issues": review,
+        "metrics": {
+            "section_count": len(sections),
+            "teaching_module_count": total_modules,
+            "knowledge_point_count": knowledge_point_count,
+            "planned_minutes": total_minutes,
+        },
+    }
 
 
 def extract_uploaded_pptx_evidence(
@@ -585,12 +728,24 @@ class TeacherLessonAuthoringRepository:
     def set_outline(self, course_id: str, outline_revision_id: str) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
-            previous = str(value.get("outline_revision_id") or "")
             value["outline_revision_id"] = outline_revision_id
-            if previous and previous != outline_revision_id:
-                for lesson in (value.get("lessons") or {}).values():
-                    if isinstance(lesson, dict) and lesson.get("working_revision_id"):
-                        lesson["source_state"] = "stale"
+            for lesson in (value.get("lessons") or {}).values():
+                if not isinstance(lesson, dict) or not lesson.get("working_revision_id"):
+                    continue
+                working = next(
+                    (
+                        item for item in lesson.get("revisions") or []
+                        if isinstance(item, dict)
+                        and item.get("revision_id") == lesson.get("working_revision_id")
+                    ),
+                    None,
+                )
+                lesson["source_state"] = (
+                    "current"
+                    if isinstance(working, dict)
+                    and str(working.get("source_outline_revision_id") or "") == outline_revision_id
+                    else "stale"
+                )
             return self._save(value)
 
     def create_job(
@@ -662,10 +817,15 @@ class TeacherLessonAuthoringRepository:
         generation_source: str = "model",
         warnings: list[dict[str, Any]] | None = None,
         source_refs: list[dict[str, Any]] | None = None,
+        quality_report: dict[str, Any] | None = None,
         actor: str = "teacher",
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
+            normalized_plan = normalize_teacher_lesson_plan(plan)
+            effective_quality = deepcopy(
+                quality_report or validate_teacher_lesson_plan(normalized_plan)
+            )
             lesson = value.setdefault("lessons", {}).setdefault(lesson_unit_id, {
                 "lesson_unit_id": lesson_unit_id,
                 "working_revision_id": "",
@@ -681,23 +841,35 @@ class TeacherLessonAuthoringRepository:
                 "lesson_unit_id": lesson_unit_id,
                 "source_outline_revision_id": source_outline_revision_id,
                 "generation_source": generation_source,
-                "status": "needs_ai_review" if warnings else "draft",
+                "status": (
+                    "needs_ai_review"
+                    if warnings or not effective_quality.get("passed")
+                    else "draft"
+                ),
                 "warnings": deepcopy(warnings or []),
                 "source_refs": deepcopy(source_refs or []),
-                "plan": deepcopy(plan),
+                "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
+                "quality_report": effective_quality,
+                "plan": normalized_plan,
                 "actor": actor,
                 "created_at": _now(),
             }
             lesson.setdefault("revisions", []).append(revision)
             lesson["working_revision_id"] = revision_id
-            lesson["source_state"] = "current"
+            lesson["source_state"] = (
+                "current"
+                if not value.get("outline_revision_id")
+                or str(value.get("outline_revision_id") or "") == source_outline_revision_id
+                else "stale"
+            )
             for asset in lesson.get("ppt_assets") or []:
                 if not isinstance(asset, dict):
                     continue
                 source_revision = str(asset.get("source_lesson_plan_revision_id") or "")
                 if source_revision and source_revision != revision_id:
                     asset["source_state"] = "stale"
-            value["outline_revision_id"] = source_outline_revision_id or value.get("outline_revision_id", "")
+            if source_outline_revision_id and not value.get("outline_revision_id"):
+                value["outline_revision_id"] = source_outline_revision_id
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
@@ -938,6 +1110,8 @@ class TeacherLessonAuthoringRepository:
         course_id: str,
         lesson_unit_id: str,
         revision_id: str,
+        *,
+        quality_report: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -953,6 +1127,34 @@ class TeacherLessonAuthoringRepository:
             )
             if revision is None:
                 raise TeacherLessonAuthoringError("lesson_plan_revision_not_found", "教案修订不存在。")
+            if lesson.get("working_revision_id") != revision_id:
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_revision_conflict",
+                    "只能确认当前教案工作稿。",
+                )
+            effective_quality = deepcopy(
+                quality_report
+                or revision.get("quality_report")
+                or validate_teacher_lesson_plan(revision.get("plan") or {})
+            )
+            revision["pipeline_version"] = LESSON_PLAN_PIPELINE_VERSION
+            revision["quality_report"] = effective_quality
+            if not effective_quality.get("passed"):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_quality_blocked",
+                    "教案尚未通过专业性与完整性检查。",
+                    details={
+                        "quality_report": deepcopy(effective_quality),
+                        "blocking_issues": deepcopy(
+                            effective_quality.get("blocking_issues") or []
+                        ),
+                    },
+                )
+            if lesson.get("source_state") != "current":
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_outline_conflict",
+                    "教案对应的大纲已经变化，请先更新教案。",
+                )
             lesson["confirmed_revision_id"] = revision_id
             revision["status"] = "confirmed"
             revision["confirmed_at"] = _now()
@@ -997,6 +1199,7 @@ class TeacherLessonAuthoringRepository:
         candidate_id: str,
         *,
         accept: bool,
+        quality_report: dict[str, Any] | None = None,
         actor: str = "teacher",
     ) -> dict[str, Any]:
         with self._lock:
@@ -1031,6 +1234,7 @@ class TeacherLessonAuthoringRepository:
             plan,
             source_outline_revision_id=source_outline_revision_id,
             generation_source="ai_optimization",
+            quality_report=quality_report,
             actor=actor,
         )
 
@@ -1044,6 +1248,145 @@ Planner = Callable[[dict[str, Any], str, Callable[..., Awaitable[None]]], Awaita
 class TeacherLessonAuthoringService:
     def __init__(self, repository: TeacherLessonAuthoringRepository):
         self.repository = repository
+
+    @staticmethod
+    def _quality_report(
+        course_data: dict[str, Any],
+        lesson_unit_id: str,
+        plan: dict[str, Any],
+        *,
+        expected_outline_revision_id: str,
+        source_outline_revision_id: str,
+    ) -> dict[str, Any]:
+        scope = lesson_scope(course_data, lesson_unit_id)
+        return validate_teacher_lesson_plan(
+            plan,
+            expected_section_ids=[
+                str(item.get("node_id") or "")
+                for item in scope["sections"]
+            ],
+            expected_outline_revision_id=expected_outline_revision_id,
+            source_outline_revision_id=source_outline_revision_id,
+        )
+
+    def save_plan_draft(
+        self,
+        *,
+        course_id: str,
+        lesson_unit_id: str,
+        course_data: dict[str, Any],
+        plan: dict[str, Any],
+        source_outline_revision_id: str,
+        actor: str,
+    ) -> dict[str, Any]:
+        canonical_outline_revision = str(
+            self.repository.view(course_id).get("outline_revision_id") or ""
+        )
+        effective_source_revision = (
+            source_outline_revision_id or canonical_outline_revision
+        )
+        quality_report = self._quality_report(
+            course_data,
+            lesson_unit_id,
+            plan,
+            expected_outline_revision_id=canonical_outline_revision,
+            source_outline_revision_id=effective_source_revision,
+        )
+        return self.repository.save_plan_revision(
+            course_id,
+            lesson_unit_id,
+            plan,
+            source_outline_revision_id=effective_source_revision,
+            generation_source="teacher_edit",
+            quality_report=quality_report,
+            actor=actor,
+        )
+
+    def confirm_plan(
+        self,
+        *,
+        course_id: str,
+        lesson_unit_id: str,
+        course_data: dict[str, Any],
+        revision_id: str,
+    ) -> dict[str, Any]:
+        lesson = self.repository.lesson(course_id, lesson_unit_id)
+        revision = next(
+            (
+                item for item in lesson.get("revisions") or []
+                if isinstance(item, dict) and item.get("revision_id") == revision_id
+            ),
+            None,
+        )
+        if not isinstance(revision, dict):
+            raise TeacherLessonAuthoringError(
+                "lesson_plan_revision_not_found",
+                "教案修订不存在。",
+            )
+        canonical_outline_revision = str(
+            self.repository.view(course_id).get("outline_revision_id") or ""
+        )
+        quality_report = self._quality_report(
+            course_data,
+            lesson_unit_id,
+            revision.get("plan") or {},
+            expected_outline_revision_id=canonical_outline_revision,
+            source_outline_revision_id=str(
+                revision.get("source_outline_revision_id") or ""
+            ),
+        )
+        return self.repository.confirm_plan_revision(
+            course_id,
+            lesson_unit_id,
+            revision_id,
+            quality_report=quality_report,
+        )
+
+    def resolve_ai_candidate(
+        self,
+        *,
+        course_id: str,
+        lesson_unit_id: str,
+        course_data: dict[str, Any],
+        candidate_id: str,
+        accept: bool,
+        actor: str,
+    ) -> dict[str, Any]:
+        lesson = self.repository.lesson(course_id, lesson_unit_id)
+        candidate = next(
+            (
+                item for item in lesson.get("ai_candidates") or []
+                if isinstance(item, dict)
+                and item.get("candidate_id") == candidate_id
+            ),
+            None,
+        )
+        if not isinstance(candidate, dict) or not accept:
+            return self.repository.resolve_ai_candidate(
+                course_id,
+                lesson_unit_id,
+                candidate_id,
+                accept=accept,
+                actor=actor,
+            )
+        canonical_outline_revision = str(
+            self.repository.view(course_id).get("outline_revision_id") or ""
+        )
+        quality_report = self._quality_report(
+            course_data,
+            lesson_unit_id,
+            candidate.get("plan") or {},
+            expected_outline_revision_id=canonical_outline_revision,
+            source_outline_revision_id=canonical_outline_revision,
+        )
+        return self.repository.resolve_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            candidate_id,
+            accept=True,
+            quality_report=quality_report,
+            actor=actor,
+        )
 
     async def run_plan_job(
         self,
@@ -1093,6 +1436,22 @@ class TeacherLessonAuthoringService:
                 or self.repository.get_job(course_id, job_id).get("source_outline_revision_id")
                 or ""
             )
+            quality_report = self._quality_report(
+                course_data,
+                lesson_unit_id,
+                plan,
+                expected_outline_revision_id=str(
+                    self.repository.view(course_id).get("outline_revision_id")
+                    or outline_revision
+                ),
+                source_outline_revision_id=outline_revision,
+            )
+            if not quality_report.get("passed"):
+                warnings.extend({
+                    **deepcopy(item),
+                    "severity": "blocking",
+                    "source": "standard_lesson_plan_quality",
+                } for item in quality_report.get("blocking_issues") or [])
             lesson = self.repository.save_plan_revision(
                 course_id,
                 lesson_unit_id,
@@ -1101,6 +1460,7 @@ class TeacherLessonAuthoringService:
                 generation_source=generation_source,
                 warnings=warnings,
                 source_refs=source_refs,
+                quality_report=quality_report,
             )
             status = "completed_with_warnings" if warnings else "completed"
             return self.repository.update_job(

@@ -414,7 +414,7 @@
         </div>
       </template>
 
-      <footer v-if="!isInline || requiresConfirmation || (editable && dirty) || actionError" class="outline-review__footer">
+      <footer v-if="!isInline || requiresConfirmation || (editable && dirty) || (isInline && surface === 'teacher' && !editable) || actionError" class="outline-review__footer">
         <p v-if="actionError" class="outline-review__action-error" role="alert">{{ actionError }}</p>
         <div class="outline-review__actions">
           <span
@@ -450,6 +450,15 @@
             {{ surface === 'teacher'
               ? t('courseWorkbench.confirmOutlineAndContinue', '确认大纲，进入教案')
               : t('courseGeneration.gate.confirmOutline', '确认目录并继续') }}
+          </button>
+          <button
+            v-else-if="surface === 'teacher' && !editable"
+            type="button"
+            class="primary"
+            @click="emit('next')"
+          >
+            <ArrowRight :size="15" />
+            {{ t('courseWorkbench.nextToLesson', '进入教案') }}
           </button>
         </div>
       </footer>
@@ -490,6 +499,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'confirmed'): void
+  (event: 'next'): void
 }>()
 
 const courseStore = useCourseStore()

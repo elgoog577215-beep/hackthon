@@ -20,6 +20,7 @@ from learner_context import resolve_user_id
 from material_storage import MaterialStorageError, material_repository
 from task_manager import TaskManager
 from teacher_lesson_authoring import (
+    LESSON_PLAN_PIPELINE_VERSION,
     TeacherLessonAuthoringError,
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
@@ -144,6 +145,22 @@ def _source_course(tm: TaskManager, course_id: str) -> dict[str, Any]:
     if not source.get("nodes") and isinstance(source.get("course_document"), dict):
         source = course_view_from_document(source, source["course_document"])
     return deepcopy(source)
+
+
+def _canonical_outline_revision(source: dict[str, Any]) -> str:
+    """Return the revision consumed by the V3 teaching-plan engine.
+
+    ``blueprint_revision_id`` identifies a broader course snapshot, while the
+    knowledge-scope revision is the exact frozen outline contract used by the
+    lesson planner.  Every read, generation, edit and confirmation must use the
+    latter when available or a freshly generated plan becomes stale on reload.
+    """
+    return str(
+        (source.get("course_knowledge_scope_contract") or {}).get("revision_id")
+        or (source.get("course_teaching_plan") or {}).get("source_outline_revision_id")
+        or source.get("blueprint_revision_id")
+        or ""
+    )
 
 
 def _lesson_projection(
@@ -340,15 +357,13 @@ async def get_lesson_authoring_view(
 ):
     try:
         source = _source_course(tm, course_id)
-        outline_revision = str(
-            source.get("blueprint_revision_id")
-            or (source.get("course_knowledge_scope_contract") or {}).get("revision_id")
-            or ""
-        )
+        outline_revision = _canonical_outline_revision(source)
         if outline_revision:
             repository.set_outline(course_id, outline_revision)
         return {
             "schema_version": "teacher_lesson_authoring_view_v1",
+            "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
+            "plan_schema_version": "course_teaching_plan_v3",
             "course_id": course_id,
             "outline_revision_id": outline_revision,
             "lessons": _lesson_projection(source, repository),
@@ -855,11 +870,7 @@ async def generate_lesson_plan(
                         "asset_id": material_asset_id,
                         "source_kind": "course_material",
                     })
-        outline_revision = str(
-            source.get("blueprint_revision_id")
-            or (source.get("course_knowledge_scope_contract") or {}).get("revision_id")
-            or ""
-        )
+        outline_revision = _canonical_outline_revision(source)
         repository.set_outline(course_id, outline_revision)
         job = repository.create_job(
             course_id,
@@ -965,17 +976,22 @@ async def save_lesson_plan_draft(
     lesson_unit_id: str,
     body: SaveLessonPlanDraftRequest,
     request: Request,
+    tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
     ),
 ):
     try:
-        lesson = repository.save_plan_revision(
-            course_id,
-            lesson_unit_id,
-            body.plan,
+        source = _source_course(tm, course_id)
+        canonical_outline_revision = _canonical_outline_revision(source)
+        if canonical_outline_revision:
+            repository.set_outline(course_id, canonical_outline_revision)
+        lesson = TeacherLessonAuthoringService(repository).save_plan_draft(
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            course_data=source,
+            plan=body.plan,
             source_outline_revision_id=body.source_outline_revision_id,
-            generation_source="teacher_edit",
             actor=resolve_user_id(request.headers.get("X-User-Id")),
         )
         return {"lesson": lesson}
@@ -988,16 +1004,22 @@ async def confirm_lesson_plan(
     course_id: str,
     lesson_unit_id: str,
     body: ConfirmLessonPlanRequest,
+    tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
     ),
 ):
     try:
+        source = _source_course(tm, course_id)
+        canonical_outline_revision = _canonical_outline_revision(source)
+        if canonical_outline_revision:
+            repository.set_outline(course_id, canonical_outline_revision)
         return {
-            "lesson": repository.confirm_plan_revision(
-                course_id,
-                lesson_unit_id,
-                body.revision_id,
+            "lesson": TeacherLessonAuthoringService(repository).confirm_plan(
+                course_id=course_id,
+                lesson_unit_id=lesson_unit_id,
+                course_data=source,
+                revision_id=body.revision_id,
             )
         }
     except TeacherLessonAuthoringError as exc:
@@ -1052,15 +1074,21 @@ async def resolve_lesson_plan_candidate(
     candidate_id: str,
     body: ResolveLessonPlanCandidateRequest,
     request: Request,
+    tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
     ),
 ):
     try:
-        lesson = repository.resolve_ai_candidate(
-            course_id,
-            lesson_unit_id,
-            candidate_id,
+        source = _source_course(tm, course_id)
+        canonical_outline_revision = _canonical_outline_revision(source)
+        if canonical_outline_revision:
+            repository.set_outline(course_id, canonical_outline_revision)
+        lesson = TeacherLessonAuthoringService(repository).resolve_ai_candidate(
+            course_id=course_id,
+            lesson_unit_id=lesson_unit_id,
+            course_data=source,
+            candidate_id=candidate_id,
             accept=body.accept,
             actor=resolve_user_id(request.headers.get("X-User-Id")),
         )

@@ -36,7 +36,8 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).toContain('<TeacherCourseSpaceView')
     expect(workspace).not.toContain('<CourseOutlineReview')
     expect(workbench).toContain('<CourseOutlineReview')
-    expect(workspace.match(/<GenerationLessonPlan[\s\S]*?embedded/g)).toHaveLength(1)
+    expect(workspace).not.toContain('<GenerationLessonPlan')
+    expect(workbench).toContain('<TeacherLessonPlanDocument')
     expect(workspace).toContain('<Teleport to="#app-header-route-actions">')
     expect(workspace).toContain('<Teleport to="#app-header-route-context">')
     expect(workspace).toContain('<Teleport to="#app-header-route-center">')
@@ -137,13 +138,13 @@ describe('calendar and course file-space boundary', () => {
     expect(store).toContain('generation_request?: { subject: string } & CourseGenerationOptions')
   })
 
-  it('edits the outline inline while keeping the lesson plan in its focused drawer', () => {
+  it('edits the outline and lesson plan inline without a second lesson-plan drawer', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const workbench = source('components/TeacherCourseWorkbench.vue')
-    const lessonPlan = source('components/GenerationLessonPlan.vue')
+    const lessonPlan = source('components/TeacherLessonPlanDocument.vue')
 
-    expect(workspace.match(/<GenerationLessonPlan/g)).toHaveLength(1)
-    expect(workspace).toContain(':plan="selectedLessonPlan"')
+    expect(workspace).not.toContain('<GenerationLessonPlan')
+    expect(workspace).not.toContain('lessonOpen')
     expect(workspace).toContain('v-model:outline-editing="outlineEditing"')
     expect(workspace).toContain('@open-outline="openOutlineEditor"')
     expect(workspace).not.toContain('v-model="outlineOpen"')
@@ -153,10 +154,12 @@ describe('calendar and course file-space boundary', () => {
     expect(workspace).not.toContain('<CourseGenerationDialog')
     expect(workspace).toContain("target_course_id: courseId.value")
     expect(workspace).toContain('@open-teaching-plan="openLessonPlan"')
-    expect(lessonPlan).toContain("visibleScope?: 'both' | 'overall' | 'sections'")
-    expect(lessonPlan).toContain('embedded?: boolean')
-    expect(lessonPlan).toContain('v-if="!embedded" class="generation-lesson-plan__intro"')
-    expect(lessonPlan).not.toContain('teacherLessonAuthoring')
+    expect(workspace).toContain("requestedWorkbenchStage.value = 'lesson'")
+    expect(workspace).toContain('requestedLessonId.value = lessonId')
+    expect(workbench).toContain('<TeacherLessonPlanDocument')
+    expect(workbench).not.toContain("emit('openTeachingPlan'")
+    expect(lessonPlan).toContain('lessonStore.saveDraft')
+    expect(lessonPlan).toContain('class="lesson-document"')
   })
 
   it('binds the file space to the stable course and presents one managed file tree', () => {

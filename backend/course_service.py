@@ -2228,10 +2228,31 @@ class CourseService(AIBase):
                 "node_id": str(item.get("node_id") or ""),
                 "title": str(item.get("title") or item.get("node_name") or ""),
                 "learning_objective": view["learning_objective"],
+                "key_points": [
+                    str(value).strip() for value in item.get("key_points") or []
+                    if str(value).strip()
+                ],
                 "key_difficulties": view["key_difficulties"],
-                "teacher_activities": view["teacher_activities"],
-                "student_activities": view["student_activities"],
+                "teaching_modules": [
+                    {
+                        "module_id": str(module.get("module_id") or ""),
+                        "teaching_purpose": str(module.get("teaching_purpose") or ""),
+                        "planned_minutes": int(module.get("planned_minutes") or 0),
+                        "teacher_activity": str(module.get("teacher_activity") or ""),
+                        "student_activity": str(module.get("student_activity") or ""),
+                    }
+                    for module in item.get("teaching_modules") or []
+                    if isinstance(module, dict) and str(module.get("module_id") or "")
+                ],
+                "in_class_checks": [
+                    str(value).strip() for value in item.get("in_class_checks") or []
+                    if str(value).strip()
+                ],
                 "homework": view["homework"],
+                "teaching_notes": [
+                    str(value).strip() for value in item.get("teaching_notes") or []
+                    if str(value).strip()
+                ],
                 "knowledge_context": {
                     "statements": view["knowledge_statements"],
                     "boundaries": view["knowledge_boundaries"],
@@ -2242,9 +2263,11 @@ class CourseService(AIBase):
             "请根据教师要求优化下面的教案小节，只输出 JSON。\n"
             f"教师要求：{normalized_instruction}\n"
             f"作用域：{'小节 ' + section_node_id if section_node_id else '整讲'}\n"
-            "根对象只能包含 sections；每个 section 必须保留 node_id，并完整返回以下五个可编辑字段："
-            "learning_objective 字符串、key_difficulties 字符串数组、teacher_activities 字符串数组、"
-            "student_activities 字符串数组、homework 字符串数组。"
+            "根对象只能包含 sections；每个 section 必须保留 node_id，并完整返回标准教案字段："
+            "learning_objective 字符串，key_points、key_difficulties、in_class_checks、homework、"
+            "teaching_notes 字符串数组，以及 teaching_modules 数组。"
+            "每个 teaching_module 必须保持 module_id 和原顺序，并返回 teaching_purpose、planned_minutes、"
+            "teacher_activity、student_activity。"
             "必须按教师要求产生可见修改，不得返回 knowledge_context，不得改写知识事实或生成学生课程正文。\n"
             f"当前教案与知识依据：{json.dumps({'sections': compact_sections}, ensure_ascii=False)}",
             system_prompt=(
@@ -2273,10 +2296,11 @@ class CourseService(AIBase):
             raise AIProviderRequestError("AI 教案优化改变了小节身份或顺序")
         editable_fields = {
             "learning_objective": str,
+            "key_points": list,
             "key_difficulties": list,
-            "teacher_activities": list,
-            "student_activities": list,
+            "in_class_checks": list,
             "homework": list,
+            "teaching_notes": list,
         }
         compact_by_id = {str(item["node_id"]): item for item in compact_sections}
         replacements: dict[str, dict[str, Any]] = {}
@@ -2296,9 +2320,61 @@ class CourseService(AIBase):
                     if not isinstance(value, list):
                         raise AIProviderRequestError(f"AI 教案优化字段 {field} 必须为数组")
                     value = [str(entry).strip() for entry in value if str(entry).strip()]
+                    if field != "teaching_notes" and not value:
+                        raise AIProviderRequestError(f"AI 教案优化缺少 {field}")
                 replacement[field] = value
                 if value != source_view[field]:
                     changed = True
+            candidate_modules = item.get("teaching_modules")
+            source_modules = source_view["teaching_modules"]
+            if not isinstance(candidate_modules, list):
+                raise AIProviderRequestError("AI 教案优化缺少 teaching_modules")
+            expected_module_ids = [module["module_id"] for module in source_modules]
+            actual_module_ids = [
+                str(module.get("module_id") or "")
+                for module in candidate_modules
+                if isinstance(module, dict)
+            ]
+            if actual_module_ids != expected_module_ids:
+                raise AIProviderRequestError("AI 教案优化改变了教学环节身份或顺序")
+            modules_by_id = {
+                str(module.get("module_id") or ""): module
+                for module in replacement.get("teaching_modules") or []
+                if isinstance(module, dict)
+            }
+            optimized_modules = []
+            for candidate_module, source_module in zip(candidate_modules, source_modules):
+                module_id = str(candidate_module.get("module_id") or "")
+                optimized_module = deepcopy(modules_by_id.get(module_id) or {"module_id": module_id})
+                purpose = str(candidate_module.get("teaching_purpose") or "").strip()
+                teacher_activity = str(candidate_module.get("teacher_activity") or "").strip()
+                student_activity = str(candidate_module.get("student_activity") or "").strip()
+                try:
+                    planned_minutes = max(0, int(candidate_module.get("planned_minutes") or 0))
+                except (TypeError, ValueError) as exc:
+                    raise AIProviderRequestError("AI 教案优化的环节时长必须为整数") from exc
+                if not purpose or not teacher_activity or not student_activity:
+                    raise AIProviderRequestError("AI 教案优化的教学环节不完整")
+                optimized_module.update({
+                    "teaching_purpose": purpose,
+                    "planned_minutes": planned_minutes,
+                    "teacher_activity": teacher_activity,
+                    "student_activity": student_activity,
+                })
+                optimized_modules.append(optimized_module)
+                if any(
+                    optimized_module.get(field) != source_module.get(field)
+                    for field in (
+                        "teaching_purpose",
+                        "planned_minutes",
+                        "teacher_activity",
+                        "student_activity",
+                    )
+                ):
+                    changed = True
+            replacement["teaching_modules"] = optimized_modules
+            replacement.pop("teacher_activities", None)
+            replacement.pop("student_activities", None)
             replacements[node_id] = replacement
         if not changed:
             raise AIProviderRequestError("AI 教案优化没有产生可见变化，请换一种要求后重试")
@@ -2307,8 +2383,9 @@ class CourseService(AIBase):
             deepcopy(replacements.get(str(item.get("node_id")), item))
             for item in sections
         ]
+        from teacher_lesson_authoring import normalize_teacher_lesson_plan
         return {
-            "plan": candidate,
+            "plan": normalize_teacher_lesson_plan(candidate),
             "scope_section_node_id": section_node_id,
             "instruction": normalized_instruction,
         }
