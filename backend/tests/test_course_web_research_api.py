@@ -36,6 +36,7 @@ class FakeGateway:
     async def retrieve(self, request):
         assert request.purpose == "course"
         assert request.enabled is True
+        matched_query = str(request.queries[0])
         return {
             "schema_version": "retrieval_package_v1",
             "status": "completed",
@@ -52,6 +53,7 @@ class FakeGateway:
                 "retrieved_at": "2026-08-23T00:00:00+00:00",
                 "content_hash": "hash-openstax",
                 "provider": "searxng",
+                "matched_query": matched_query,
                 "relevance": 0.94,
                 "trust_tier": "tier_a",
                 "license": "CC BY",
@@ -123,6 +125,8 @@ def _client(monkeypatch) -> tuple[TestClient, MemoryStorage]:
 
     async def _prepare(**kwargs):
         candidate = kwargs["web_search_report"]["candidates"][0]
+        assert candidate["content_status"] == "full_text"
+        assert "网页完整正文" in candidate["document_text"]
         return {
             "material_assets": [{
                 "asset_id": "mat-web-source",
@@ -144,6 +148,29 @@ def _client(monkeypatch) -> tuple[TestClient, MemoryStorage]:
             }],
         }
 
+    async def _enrich(candidates):
+        enriched = deepcopy(candidates)
+        enriched[0].update({
+            "source_type": "academic",
+            "content_status": "full_text",
+            "content_type": "text/html",
+            "document_text": "# 导数\n\n这是网页完整正文，用于验证深读内容进入原资料链。" * 20,
+            "document": {
+                "schema_version": "web_document_v1",
+                "url": enriched[0]["url"],
+                "title": enriched[0]["title"],
+                "author": "OpenStax",
+                "headings": ["导数"],
+                "content_type": "text/html",
+                "extractor": "builtin_article_html",
+                "fetched_at": "2026-08-23T00:00:01+00:00",
+                "content_hash": "full-hash",
+                "text_length": 600,
+                "warnings": [],
+            },
+        })
+        return enriched
+
     monkeypatch.setattr(courses, "get_course_or_404", _course)
     monkeypatch.setattr(
         courses,
@@ -151,6 +178,7 @@ def _client(monkeypatch) -> tuple[TestClient, MemoryStorage]:
         lambda _actor: (FakeGateway(), {"provider": "searxng", "enabled_for_user": True}),
     )
     monkeypatch.setattr(courses, "prepare_course_materials", _prepare)
+    monkeypatch.setattr(courses, "enrich_web_candidates", _enrich)
     monkeypatch.setattr(courses, "teacher_course_space_repository", FakeCourseSpace())
     monkeypatch.setattr(courses, "material_repository", FakeMaterialRepository())
 
@@ -177,6 +205,10 @@ def test_research_session_is_reviewable_and_selected_source_becomes_course_refer
     session = searched.json()
     assert session["queries"]
     assert session["results"][0]["source_id"] == "src-openstax"
+    assert session["results"][0]["content_status"] == "full_text"
+    assert session["research_summary"]["full_text_count"] == 1
+    assert session["research_summary"]["query_coverage"][0]["status"] == "covered"
+    assert session["pipeline"]["stage"] == "review"
     assert session["rejected_count"] == 1
 
     selected = client.put(

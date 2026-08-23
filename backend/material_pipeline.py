@@ -193,6 +193,8 @@ async def _ingest_web_candidates(
             "domain": candidate.get("domain") or "",
             "title": candidate.get("title") or "",
             "credibility": candidate.get("credibility") or "low",
+            "content_status": candidate.get("content_status") or "excerpt_fallback",
+            "content_type": candidate.get("content_type") or "",
             "retrieved_at": candidate.get("retrieved_at") or "",
             "reuse_policy": binding.reuse_policy,
             "rights_basis": binding.rights_basis,

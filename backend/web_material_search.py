@@ -58,8 +58,9 @@ def derive_search_queries(
 ) -> list[str]:
     """从课程主题与需求推导查询词。
 
-    查询完全由输入推导且可展示给教师审阅，不做隐式扩写。
-    网关还会再做一次 PII 脱敏，这里只负责语义构造。
+    查询完全由输入推导且可展示给教师审阅。除老师给出的知识点外，
+    只补充“权威来源 / 研究综述 / 案例”三类稳定检索角度，不让模型
+    隐式发明主题。网关还会再做一次 PII 脱敏。
 
     刻意保持查询简短：网关的 `_relevance()` 按查询词与标题/摘要的重合度打分，
     低于 0.55 直接判 `low_relevance` 落到 tier_c。实测（2026-08-06，真实
@@ -85,6 +86,18 @@ def derive_search_queries(
     candidates.append(
         f"{safe_topic} 讲义" if _contains_cjk(safe_topic) else f"{safe_topic} lecture notes"
     )
+    if _contains_cjk(safe_topic):
+        candidates.extend([
+            f"{safe_topic} 官方",
+            f"{safe_topic} 研究综述",
+            f"{safe_topic} 案例",
+        ])
+    else:
+        candidates.extend([
+            f"{safe_topic} official guide",
+            f"{safe_topic} research review",
+            f"{safe_topic} case study",
+        ])
     if audience:
         candidates.append(f"{safe_topic} {audience}")
 
@@ -385,6 +398,8 @@ def candidate_from_source(source: dict[str, Any]) -> dict[str, Any]:
         "content_hash": str(source.get("content_hash") or ""),
         "retrieved_at": str(source.get("retrieved_at") or ""),
         "provider": str(source.get("provider") or ""),
+        "matched_query": str(source.get("matched_query") or ""),
+        "provider_metadata": dict(source.get("provider_metadata") or {}),
         "relevance": source.get("relevance"),
         "sensitivity": sensitivity,
         "accepted_for_generation": accepted,
@@ -410,17 +425,32 @@ def candidate_to_markdown(candidate: dict[str, Any]) -> str:
     ]
     if candidate.get("published_date"):
         lines.append(f"- 发布时间：{candidate['published_date']}")
+    document = candidate.get("document") if isinstance(candidate.get("document"), dict) else {}
+    if document.get("author"):
+        lines.append(f"- 作者：{document['author']}")
+    if document.get("fetched_at"):
+        lines.append(f"- 正文读取时间：{document['fetched_at']}")
+    if candidate.get("content_status"):
+        lines.append(f"- 内容状态：{candidate['content_status']}")
     lines.append(f"- 许可信息：{candidate.get('license') or '未标注'}")
     lines.append(f"- 复用策略：{candidate.get('reuse_policy') or 'summary_only'}")
-    lines.extend(["", "## 摘录正文", ""])
-    body = str(candidate.get("text") or "").strip()
-    lines.extend(f"> {line}" if line.strip() else ">" for line in body.splitlines() or [""])
+    document_text = str(candidate.get("document_text") or "").strip()
+    excerpt = str(candidate.get("text") or "").strip()
+    if document_text:
+        lines.extend(["", "## 网页正文", "", document_text])
+        if excerpt and excerpt not in document_text:
+            lines.extend(["", "## 搜索摘要", ""])
+            lines.extend(f"> {line}" if line.strip() else ">" for line in excerpt.splitlines())
+    else:
+        lines.extend(["", "## 摘录正文", ""])
+        lines.extend(f"> {line}" if line.strip() else ">" for line in excerpt.splitlines() or [""])
     return "\n".join(lines) + "\n"
 
 
 def candidate_to_binding(candidate: dict[str, Any], asset_id: str) -> dict[str, Any]:
     """联网资料的绑定策略：只做参考、不逐字复用、权利状态明确。"""
     credibility = str(candidate.get("credibility") or "low")
+    document = candidate.get("document") if isinstance(candidate.get("document"), dict) else {}
     # 网关只在明确开放许可时给 verbatim_allowed，其余一律 summary_only。
     open_license = str(candidate.get("reuse_policy") or "") == "verbatim_allowed"
     return {
@@ -445,6 +475,9 @@ def candidate_to_binding(candidate: dict[str, Any], asset_id: str) -> dict[str, 
             "license": candidate.get("license") or "",
             "published_date": candidate.get("published_date") or "",
             "provider": candidate.get("provider") or "",
+            "matched_query": candidate.get("matched_query") or "",
+            "content_status": candidate.get("content_status") or "excerpt_fallback",
+            "document_content_hash": document.get("content_hash") or "",
         },
         "source_label": str(candidate.get("title") or candidate.get("domain") or "联网资料")[:200],
         "user_description": f"联网检索（{credibility} 可信度）：{candidate.get('url') or ''}"[:2000],

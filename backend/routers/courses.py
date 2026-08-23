@@ -58,6 +58,11 @@ from web_material_search import (
     derive_search_queries,
     safe_query_term,
 )
+from web_document_reader import (
+    build_research_summary,
+    diversify_retrieval_sources,
+    enrich_web_candidates,
+)
 from web_retrieval import RetrievalRequest, configured_retrieval_gateway
 
 router = APIRouter(tags=["courses"])
@@ -128,7 +133,7 @@ class CourseWebResearchSearchRequest(BaseModel):
     brief: str = Field(min_length=2, max_length=2_000)
     stage: str = Field(default="foundation", min_length=1, max_length=50)
     lesson_id: str = Field(default="", max_length=160)
-    queries: list[str] = Field(default_factory=list, max_length=4)
+    queries: list[str] = Field(default_factory=list, max_length=8)
 
 
 class CourseWebResearchSelectionRequest(BaseModel):
@@ -660,12 +665,12 @@ def _requested_research_queries(
         if len(query) >= 2 and query not in explicit:
             explicit.append(query)
     if explicit:
-        return explicit[:4]
+        return explicit[:8]
     return derive_search_queries(
         topic=_course_research_topic(course),
         requirements=body.brief,
         objectives=[],
-        max_queries=4,
+        max_queries=8,
     )
 
 
@@ -708,14 +713,29 @@ async def search_course_web_research(
         purpose="course",
         enabled=True,
         queries=queries,
-        max_queries=4,
-        max_sources=MAX_RESULTS_PER_SESSION,
+        max_queries=8,
+        # 网关先保留较宽候选池；课程层再按查询与域名做多样性重排，
+        # 对外仍维持既有每会话 16 条上限。
+        max_sources=24,
     ))
-    results = [
+    diversified_sources = diversify_retrieval_sources(
+        [source for source in package.get("sources") or [] if isinstance(source, dict)],
+        limit=MAX_RESULTS_PER_SESSION,
+    )
+    shallow_results = [
         normalize_candidate(candidate_from_source(source))
-        for source in (package.get("sources") or [])[:MAX_RESULTS_PER_SESSION]
-        if isinstance(source, dict)
+        for source in diversified_sources
     ]
+    # 正文深读是内部增强阶段，不改变 API。单页失败只回退搜索摘要，
+    # 整个检索会话仍可供教师审阅和选源。
+    results = [
+        normalize_candidate(candidate)
+        for candidate in await enrich_web_candidates(shallow_results)
+    ]
+    research_summary = build_research_summary(
+        queries=[str(item) for item in package.get("queries") or queries],
+        candidates=results,
+    )
     normalized_stage, normalized_lesson_id = normalize_scope(body.stage, body.lesson_id)
     session = {
         "session_id": f"wrs-{uuid.uuid4().hex}",
@@ -732,6 +752,20 @@ async def search_course_web_research(
         "errors": list(package.get("errors") or []),
         "rejected_count": len(package.get("rejected_sources") or []),
         "results": results,
+        "research_summary": research_summary,
+        "pipeline": {
+            "schema_version": "web_research_pipeline_v1",
+            "stage": "review",
+            "steps": [
+                {"name": "search", "status": "completed" if package.get("sources") else "degraded"},
+                {
+                    "name": "deep_read",
+                    "status": "completed" if research_summary["full_text_count"] else "degraded",
+                    "completed_count": research_summary["full_text_count"],
+                },
+                {"name": "restructure", "status": "completed"},
+            ],
+        },
         "selected_source_ids": [],
         "accepted_references": [],
     }

@@ -108,6 +108,18 @@ def test_query_fallback_matches_topic_language():
     assert not any("讲义" in query for query in en)
 
 
+def test_wide_query_plan_covers_authority_research_and_cases():
+    queries = derive_search_queries(
+        topic="人工智能通识",
+        requirements="解释生成式人工智能的基本原理",
+        max_queries=8,
+    )
+    joined = "\n".join(queries)
+    assert "官方" in joined
+    assert "研究综述" in joined
+    assert "案例" in joined
+
+
 def test_queries_stay_short_for_relevance_scoring():
     """网关按查询词与标题/摘要重合度打分，堆砌套话会把来源稀释成 tier_c。"""
     queries = derive_search_queries(

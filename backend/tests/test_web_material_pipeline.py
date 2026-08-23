@@ -31,6 +31,7 @@ def _candidate(url: str = "https://ocw.mit.edu/calc", **overrides) -> dict:
         "content_hash": "hash-a",
         "retrieved_at": "2026-08-05T00:00:00+00:00",
         "query": "微积分 教程",
+        "content_status": "excerpt_fallback",
     }
     base.update(overrides)
     return base
@@ -90,6 +91,36 @@ async def test_asset_content_retains_source_url(repository):
     text = stored if stored is not None else result["evidence_catalog"][0].get("text", "")
     # 出处必须留在内容里，生成结果才能回溯到原始网页。
     assert "ocw.mit.edu" in str(text) or "ocw.mit.edu" in str(result["material_assets"][0])
+
+
+@pytest.mark.asyncio
+async def test_full_web_document_keeps_structure_in_the_existing_material_chain(repository):
+    candidate = _candidate(
+        content_status="full_text",
+        content_type="text/html",
+        document_text=(
+            "# 导数\n\n## 定义\n\n导数描述瞬时变化率。\n\n"
+            "## 几何意义\n\n导数对应曲线切线的斜率。"
+        ),
+        document={
+            "schema_version": "web_document_v1",
+            "author": "示例大学",
+            "fetched_at": "2026-08-23T00:00:00+00:00",
+            "content_hash": "document-hash",
+        },
+    )
+    result = await prepare_course_materials(
+        course_id="course-1",
+        material_bindings=[],
+        legacy_materials=[],
+        repository=repository,
+        web_search_report=_report([candidate]),
+    )
+
+    assert result["web_search"]["sources"][0]["content_status"] == "full_text"
+    evidence = result["evidence_catalog"]
+    assert any("瞬时变化率" in item["source_text"] for item in evidence)
+    assert any(item["locator"]["section_path"][-1:] == ["定义"] for item in evidence)
 
 
 @pytest.mark.asyncio

@@ -100,3 +100,4 @@
 - [x] 11.3 Persist bounded stage/lesson research sessions and convert selected sources into ordinary course material assets through the existing parse, evidence and file-space relationship chain.
 - [x] 11.4 Pass selected material assets into outline, lesson-plan and question-bank generation while preserving web-source authority and reuse restrictions.
 - [x] 11.5 Add zh/en copy plus focused backend/frontend tests and production-build verification.
+- [x] 11.6 Enhance the existing search/select interfaces with query/domain diversity, bounded HTML/PDF deep reading, structured `web_document_v1` evidence and per-source excerpt fallback; do not add a parallel research API or source of truth.

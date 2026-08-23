@@ -20,6 +20,9 @@ describe('course workbench web research boundary', () => {
     expect(dialog).toContain('/web-research/search')
     expect(dialog).toContain('selected_source_ids: Array.from(selectedIds.value)')
     expect(dialog).toContain('source.sensitivity?.level')
+    expect(dialog).toContain("source.content_status === 'full_text'")
+    expect(dialog).toContain('research_summary?.full_text_count')
+    expect(dialog).toContain('.slice(0, 8)')
   })
 
   it('passes selected material assets into generation instead of keeping them as display-only links', () => {

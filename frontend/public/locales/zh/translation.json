@@ -305,11 +305,11 @@
       "title": "联网调研", "subtitle": "说清要查什么，再审阅检索词和来源",
       "brief": "你想查什么？", "briefPlaceholder": "例如：查找某位老师教材中对这个概念的公开讲解，同时补充大学和官方资料",
       "customQueries": "指定检索词（可选）", "customQueriesPlaceholder": "每行一条；留空则根据调研要求自动生成",
-      "search": "开始检索", "searching": "正在检索与筛选…", "queryPlan": "实际检索词",
+      "search": "开始检索", "searching": "正在检索、深读与整理…", "queryPlan": "实际检索词",
       "policy": "网页只作参考来源；未标注开放许可时不逐字复用。", "results": "来源候选",
       "loadingHistory": "正在读取调研记录…", "emptyTitle": "先描述这次要找的资料", "emptyHelp": "系统会展示真实检索词，不会将结果直接写入课程。",
       "noResults": "暂时没有可用来源", "notConfigured": "联网检索服务尚未配置", "timeout": "本次检索超时，可缩小范围后重试", "tryAgain": "可调整要求或指定更精确的检索词后重试。",
-      "resultSummary": "{count} 个可复核来源 · {rejected} 个低相关结果已过滤", "reviewRecommended": "敏感内容需复核",
+      "resultSummary": "{count} 个来源 · {full} 篇已深读 · {domains} 个网域 · {rejected} 个低相关结果已过滤", "deepRead": "正文已深读", "reviewRecommended": "敏感内容需复核",
       "highTrust": "高可信", "reviewTrust": "需确认", "lowTrust": "低可信", "selectedCount": "已选 {count} 个来源",
       "saving": "正在加入课程…", "save": "加入当前阶段", "loadFailed": "调研记录读取失败", "searchFailed": "联网检索失败", "saveFailed": "联网来源加入课程失败"
     }

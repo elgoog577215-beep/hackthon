@@ -16,6 +16,7 @@ WEB_RESEARCH_SCHEMA = "course_web_research_v1"
 MAX_RESEARCH_SESSIONS = 12
 MAX_RESULTS_PER_SESSION = 16
 MAX_CANDIDATE_TEXT_CHARS = 12_000
+MAX_DOCUMENT_HEADINGS = 40
 
 
 def normalize_scope(stage: Any, lesson_id: Any = "") -> tuple[str, str]:
@@ -26,6 +27,7 @@ def normalize_scope(stage: Any, lesson_id: Any = "") -> tuple[str, str]:
 
 def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
     """只保存网关已清洗的展示与入库字段，并限制单条大小。"""
+    document = candidate.get("document") if isinstance(candidate.get("document"), dict) else {}
     return {
         "source_id": str(candidate.get("source_id") or "")[:240],
         "url": str(candidate.get("url") or "")[:2_000],
@@ -33,6 +35,7 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "domain": str(candidate.get("domain") or "")[:240],
         "title": str(candidate.get("title") or "")[:500],
         "text": str(candidate.get("text") or "")[:MAX_CANDIDATE_TEXT_CHARS],
+        "document_text": str(candidate.get("document_text") or "")[:MAX_CANDIDATE_TEXT_CHARS],
         "published_date": str(candidate.get("published_date") or "")[:80],
         "license": str(candidate.get("license") or "")[:240],
         "reuse_policy": str(candidate.get("reuse_policy") or "summary_only")[:80],
@@ -41,6 +44,36 @@ def normalize_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
         "content_hash": str(candidate.get("content_hash") or "")[:240],
         "retrieved_at": str(candidate.get("retrieved_at") or "")[:80],
         "provider": str(candidate.get("provider") or "")[:80],
+        "matched_query": str(candidate.get("matched_query") or "")[:300],
+        "source_type": str(candidate.get("source_type") or "general")[:40],
+        "content_status": str(candidate.get("content_status") or "excerpt_fallback")[:40],
+        "content_reason": str(candidate.get("content_reason") or "")[:120],
+        "content_type": str(candidate.get("content_type") or "")[:120],
+        "document": {
+            "schema_version": "web_document_v1",
+            "url": str(document.get("url") or candidate.get("url") or "")[:2_000],
+            "title": str(document.get("title") or candidate.get("title") or "")[:500],
+            "author": str(document.get("author") or "")[:500],
+            "published_date": str(document.get("published_date") or "")[:100],
+            "headings": [
+                str(value)[:200] for value in document.get("headings") or []
+            ][:MAX_DOCUMENT_HEADINGS],
+            "content_type": str(document.get("content_type") or "")[:120],
+            "extractor": str(document.get("extractor") or "")[:120],
+            "fetched_at": str(document.get("fetched_at") or "")[:100],
+            "content_hash": str(document.get("content_hash") or "")[:100],
+            "text_length": max(0, int(document.get("text_length") or 0)),
+            "warnings": [str(value)[:300] for value in document.get("warnings") or []][:8],
+            "key_points": [
+                {
+                    "text": str(point.get("text") or "")[:500],
+                    "section": str(point.get("section") or "")[:200],
+                    "paragraph": max(0, int(point.get("paragraph") or 0)),
+                }
+                for point in document.get("key_points") or []
+                if isinstance(point, dict)
+            ][:6],
+        } if document else {},
         "relevance": candidate.get("relevance"),
         "sensitivity": deepcopy(candidate.get("sensitivity") or {}),
         "accepted_for_generation": bool(candidate.get("accepted_for_generation")),

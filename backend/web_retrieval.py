@@ -1096,6 +1096,17 @@ def _sanitize_untrusted(value: str, *, limit: int) -> str:
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
+def sanitize_untrusted_web_text(value: str, *, limit: int = 12_000) -> str:
+    """Clean one untrusted web text fragment before it reaches course evidence.
+
+    Search snippets and full-page readers share this public boundary so prompt
+    injection stripping cannot silently diverge between the shallow and deep
+    retrieval paths.
+    """
+
+    return _sanitize_untrusted(str(value or ""), limit=max(0, int(limit)))
+
+
 def _contains_injection(value: str) -> bool:
     return any(pattern.search(value) for pattern in _INJECTION_PATTERNS)
 
@@ -1164,4 +1175,5 @@ __all__ = [
     "redact_outbound_query",
     "resolve_retrieval_policy",
     "retrieval_feature_state",
+    "sanitize_untrusted_web_text",
 ]
