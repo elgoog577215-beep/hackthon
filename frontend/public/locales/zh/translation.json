@@ -303,6 +303,7 @@
     "generateOutline": "生成课程大纲",
     "generateChapterSkeleton": "生成大章节",
     "generateLessonPlan": "生成本讲教案",
+    "lessonGenerationHint": "AI 会根据课程大纲和所选资料自动组织本讲；生成后可通过 AI 助手继续调整。",
     "retryLessonPlan": "重新生成本讲教案",
     "generatingLessonPlan": "正在生成本讲教案",
     "reviewLessonPlan": "审阅教案",
@@ -341,32 +342,8 @@
     "lessonModule": "环节",
     "lessonPlanPreparing": "教案内容正在整理，请稍后刷新。",
     "arrangement": {
-      "eyebrow": "生成教案前",
-      "title": "确认本讲怎么组织",
-      "lessonType": "本讲课型",
-      "blocks": "教学块",
-      "totalMinutes": "合计",
-      "blockName": "环节名称",
-      "section": "归属小节",
-      "minutes": "分钟",
-      "summary": "这一环节做什么",
-      "summaryPlaceholder": "简要说明教师怎样组织、学生形成什么产出",
-      "moveUp": "上移",
-      "moveDown": "下移",
-      "remove": "删除",
-      "add": "添加教学块",
-      "hint": "确认后，AI 按这个顺序生成完整教案",
-      "confirmAndGenerate": "确认编排并生成教案",
-      "confirmFailed": "本讲编排确认失败，请重试。",
-      "lessonTypes": {
-        "theory": "理论讲授",
-        "practice": "实践操作",
-        "theoryPractice": "理论与实践",
-        "caseDiscussion": "案例研讨",
-        "experimentInquiry": "实验探究",
-        "projectWorkshop": "项目工作坊",
-        "reviewAssessment": "复习测评"
-      }
+      "autoPlanningUnavailable": "暂时无法准备本讲教学结构，请重新载入后再试。",
+      "confirmFailed": "本讲教学结构准备失败，请重试。"
     },
     "lessonModules": {
       "goal": "教学目标", "explanation": "核心讲解", "activity": "课堂活动",

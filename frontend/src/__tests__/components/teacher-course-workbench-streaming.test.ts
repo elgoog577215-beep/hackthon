@@ -266,7 +266,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(reload).toHaveBeenCalledWith('course-1')
   })
 
-  it('先确认本讲课型与教学块，再沿原教案引擎生成', async () => {
+  it('页面不展示教学块编辑器并自动采用本讲编排生成教案', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -290,10 +290,10 @@ describe('teacher course workbench outline streaming', () => {
     const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'job-1' } as any)
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
-    expect(wrapper.get('[data-testid="lesson-arrangement-editor"]').text()).toContain('确认本讲怎么组织')
-    expect(wrapper.get('[data-testid="lesson-type-select"]').element).toHaveProperty('value', 'theory')
+    expect(wrapper.find('[data-testid="lesson-arrangement-editor"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="lesson-generation-form"]').text()).toContain('AI 会根据课程大纲和所选资料自动组织本讲')
 
-    await wrapper.get('[data-testid="lesson-arrangement-editor"]').trigger('submit')
+    await wrapper.get('[data-testid="lesson-generation-form"]').trigger('submit')
     await flushPromises()
 
     expect(confirmArrangement).toHaveBeenCalledWith(
