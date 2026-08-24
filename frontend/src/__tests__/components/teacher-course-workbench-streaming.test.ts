@@ -120,7 +120,8 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="outline-workspace"]').text()).toContain('课程大纲已生成')
+    expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('课程大纲已生成')
+    expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('已保存完整章节结构')
     expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
     expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
     expect(wrapper.get('.center-heading>button').text()).toContain('编辑大纲')
@@ -213,6 +214,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.course-shape-summary').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('大纲生成顺序')
     expect(wrapper.text()).not.toContain('学时不自动换算小节')
+    expect(wrapper.text()).not.toContain('右侧资料会与这些信息一起交给 AI')
     expect(wrapper.get('form.stage-form button.primary').text()).toContain('生成大章节')
     await wrapper.get('.form-field input[type="number"]').setValue(12)
     await wrapper.get('form.stage-form').trigger('submit')
@@ -329,39 +331,41 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-entry button.primary').attributes('disabled')).toBeDefined()
   })
 
-  it('教案目录按章展开小节，并能整体向左收起', async () => {
+  it('大章总进度按需展开，小节在正文顶部横向切换', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}章`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
-      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', revisions: [], ppt_assets: [] },
     })) as any
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    let chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
-    let sectionGroups = wrapper.findAll('.lesson-outline-sections')
-    expect(chapterButtons[0]!.attributes('aria-expanded')).toBe('true')
-    expect(chapterButtons[1]!.attributes('aria-expanded')).toBe('false')
-    expect(sectionGroups[0]!.attributes('style') || '').not.toContain('display: none')
-    expect(sectionGroups[1]!.attributes('style')).toContain('display: none')
+    expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
+    expect(wrapper.get('.lesson-outline-handle').attributes('aria-label')).toBe('展示总进度')
+    expect(wrapper.get('.lesson-outline > nav').isVisible()).toBe(false)
+    expect(wrapper.findAll('.lesson-section-tabs button')).toHaveLength(2)
+    expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('1.1 小节1')
+    expect(wrapper.get('.lesson-navigator').text()).toContain('上一讲')
+    expect(wrapper.get('.lesson-navigator').text()).toContain('下一讲')
+
+    await wrapper.get('.lesson-outline-handle').trigger('click')
+    expect(wrapper.get('.lesson-workspace').classes()).not.toContain('is-outline-collapsed')
+    expect(wrapper.get('.lesson-outline-handle').attributes('aria-label')).toBe('收起总进度')
+    const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
+    expect(chapterButtons).toHaveLength(2)
+    expect(chapterButtons[0]!.text()).toContain('待确认')
+    expect(chapterButtons[1]!.text()).toContain('已确认')
+    expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
 
     await chapterButtons[1]!.trigger('click')
-    chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
-    sectionGroups = wrapper.findAll('.lesson-outline-sections')
-    expect(chapterButtons[0]!.attributes('aria-expanded')).toBe('false')
-    expect(chapterButtons[1]!.attributes('aria-expanded')).toBe('true')
-    expect(sectionGroups[0]!.attributes('style')).toContain('display: none')
-    expect(sectionGroups[1]!.attributes('style') || '').not.toContain('display: none')
+    expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('2.1 小节1')
+    const secondSection = wrapper.findAll('.lesson-section-tabs button')[1]!
+    await secondSection.trigger('click')
+    expect(secondSection.classes()).toContain('active')
 
-    const secondChapterSections = sectionGroups[1]!.findAll('button')
-    await secondChapterSections[1]!.trigger('click')
-    expect(secondChapterSections[1]!.classes()).toContain('active')
-
-    await wrapper.get('.lesson-outline-toggle').trigger('click')
+    await wrapper.get('.lesson-outline-handle').trigger('click')
     expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
-    expect(wrapper.find('.lesson-outline > nav').exists()).toBe(false)
-    expect(wrapper.get('.lesson-outline-toggle').attributes('aria-label')).toBe('展开教案目录')
   })
 
   it('右侧资料随当前讲次切换且不会串到其他讲次', async () => {
@@ -382,6 +386,7 @@ describe('teacher course workbench outline streaming', () => {
     tray.vm.$emit('update:modelValue', [firstReference])
     await flushPromises()
 
+    await wrapper.get('.lesson-outline-handle').trigger('click')
     await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-2')

@@ -278,7 +278,16 @@
     "lessonOutline": {
       "title": "教案目录",
       "collapse": "收起教案目录",
-      "expand": "展开教案目录"
+      "expand": "展开教案目录",
+      "showProgress": "展示总进度",
+      "hideProgress": "收起总进度",
+      "status": {
+        "pending": "未生成",
+        "generating": "生成中",
+        "review": "待确认",
+        "confirmed": "已确认",
+        "failed": "生成失败"
+      }
     },
     "previousLesson": "上一讲",
     "nextLesson": "下一讲",

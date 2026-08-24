@@ -278,7 +278,16 @@
     "lessonOutline": {
       "title": "Lesson outline",
       "collapse": "Collapse lesson outline",
-      "expand": "Expand lesson outline"
+      "expand": "Expand lesson outline",
+      "showProgress": "Show overall progress",
+      "hideProgress": "Hide overall progress",
+      "status": {
+        "pending": "Not generated",
+        "generating": "Generating",
+        "review": "Awaiting confirmation",
+        "confirmed": "Confirmed",
+        "failed": "Generation failed"
+      }
     },
     "previousLesson": "Previous lesson",
     "nextLesson": "Next lesson",
