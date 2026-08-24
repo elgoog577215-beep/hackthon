@@ -756,6 +756,18 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     assert storyboard["pages"][0]["title"] == spec.payload["content"]["pages"][0]["title"]
     assert storyboard["pages"][0]["title"]
     assert storyboard["pages"][0]["source_block_count"] == 2
+    manuscript = spec.payload["content"]["ppt_manuscript"]
+    assert manuscript["schema_version"] == "ppt_manuscript_v1"
+    assert manuscript["quality_status"] == "passed"
+    assert manuscript["page_count"] == len(spec.payload["content"]["pages"])
+    assert manuscript["manuscript_revision"].startswith("pptman_")
+    assert manuscript["pages"][0]["title"] == spec.payload["content"]["pages"][0]["title"]
+    assert manuscript["pages"][0]["visible_copy"]
+    assert manuscript["pages"][0]["layout_id"]
+    assert manuscript["pages"][0]["composition_notes"]
+    assert manuscript["pages"][0]["source_script_block_ids"] == (
+        spec.payload["content"]["pages"][0]["source_block_ids"]
+    )
     assert spec.payload["content"]["build_signature"]["signature"].startswith(
         "slidebuildv6_"
     )

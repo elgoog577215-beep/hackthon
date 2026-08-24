@@ -1,7 +1,8 @@
-"""教师讲稿的结构化真源与确定性质量门。
+"""中性课程讲稿的结构化真源与确定性质量门。
 
 讲稿不重新选择学科类型、学科细分、课型或教学模板。它把已确认教案中的教学模块
-编译为教师可讲、可逐块编辑、可继续投影到 PPT V6 的唯一内容结构。
+编译为中性、完整、可逐块编辑的课程内容正文。教案保留“怎么教”的课堂动作，
+讲稿只保留“教什么”的知识、推理、案例与练习，并作为 PPT 文书的唯一内容上游。
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ from course_pedagogy import MODULES, module_block_role
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-SCRIPT_PIPELINE_VERSION = "structured_teacher_script_v3"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v3"
+SCRIPT_PIPELINE_VERSION = "neutral_course_script_v4"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v4"
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -36,6 +37,22 @@ _ALLOWED_ROLES = {
     "transfer",
 }
 _HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+_DELIVERY_CUE_PATTERN = re.compile(
+    r"【(?:提问|板书|演示|投影|等待(?:回应)?|巡视|计时|教师活动|学生活动|课堂提示)】"
+)
+_DIRECTED_AUDIENCE_PATTERN = re.compile(
+    r"同学们好|请(?:大家|同学|学生)|"
+    r"教师(?:应|需要|可以|讲解|演示|提问|引导|巡视)|"
+    r"学生(?:应|需要|请|完成|讨论|回答|操作|提交)"
+)
+_INTERNAL_PROCESS_PATTERN = re.compile(
+    r"全链路验收|不冒充模型生成|模型生成|内部提示词|"
+    r"字数\s*[:：]|补位|重试修复|质量门"
+)
+_INCOMPLETE_END_PATTERN = re.compile(
+    r"(?:因为|所以|因此|并且|以及|那么|例如|包括|从而|"
+    r"如果|当|而|或|与|和|的|为|是|在|对|[，、：（(])$"
+)
 
 
 def _text(value: Any) -> str:
@@ -89,14 +106,14 @@ def teacher_script_artifact_contract(
         "science": "区分观察、假设、证据、模型和结论；实验写明变量、对照、测量、不确定性与安全边界。",
         "life": "先明确层级与位置，再连接结构、功能和机制；区分正常与异常，不提供个人诊疗建议。",
         "humanities": "区分材料事实、解释与主张；交代来源语境、论证链、替代解释和证据限制。",
-        "language": "提供目标语块、使用情境、教师示范、学生输出任务与可执行的反馈修正。",
+        "language": "提供目标语块、使用情境、范例、输出任务与可执行的反馈修正。",
         "business": "写清角色、目标、约束、选项、取舍、交付物和可区分质量的评价标准。",
         "general": "内容必须落到具体情境、操作、产物或可检查判断，不能停留在摘要和口号。",
     }[discipline]
     if role == "activity":
-        guidance += " 活动必须包含教师指令、学生动作、等待/巡视和收束产物。"
+        guidance += " 练习必须写清任务情境、已知条件、输出要求、参考解法或验收标准，不写课堂口令。"
     elif role == "feedback":
-        guidance += " 反馈必须包含核对标准、典型错误、回应方式和再次验证。"
+        guidance += " 辨析必须包含核对标准、典型错误、修正原因和再次验证。"
     elif role in {"reasoning", "example"}:
         guidance += " 推演必须展示关键中间步骤，不能只给结论。"
     return {
@@ -111,48 +128,39 @@ def teacher_script_length_contract(
     role: str,
     planned_minutes: Any,
 ) -> dict[str, int]:
-    """Give every module a lightweight, classroom-usable writing budget.
+    """Give every module a complete but bounded neutral-content budget.
 
-    The script is a compact speaking aid, not a second student textbook.  A
-    minute budget therefore controls density without requiring a verbatim
-    transcript.  Code-heavy engineering blocks receive a little more room so
-    complete runnable artifacts are not truncated.
+    The script is the durable course-content body, not a verbatim classroom
+    transcript and not a short cue card.  The minute budget controls depth,
+    while generous hard bounds prevent a complete reasoning chain, example,
+    formula, or runnable artifact from being truncated.
     """
     compact_roles = {
         "orientation", "prerequisite", "objective", "checkpoint", "summary",
     }
     action_roles = {"activity", "feedback", "remediation"}
     if role in compact_roles:
-        target, maximum = 220, 420
-        upper_bound = 600
+        target, maximum = 320, 700
+        upper_bound = 1000
     elif role in action_roles:
-        target, maximum = 420, 750
-        upper_bound = 900
+        target, maximum = 650, 1300
+        upper_bound = 1800
     else:
-        # Explanation and evidence blocks need enough room for one complete
-        # reasoning chain, formula, example or experiment.  The former 950
-        # character ceiling rejected concise 1,000-character science blocks;
-        # 1,200 still prevents the 4,000-6,000 character textbook expansion
-        # observed in production validation.
-        target, maximum = 650, 1200
-        upper_bound = 1600
+        target, maximum = 900, 1800
+        upper_bound = 2600
     try:
         minutes = float(planned_minutes)
     except (TypeError, ValueError):
         minutes = 0.0
     if minutes > 0:
-        target = max(160, min(int(minutes * 45), upper_bound - 180))
-        # The role default is the safety buffer for natural variation in a
-        # concise model response. A short five-minute objective should not
-        # fail for a few useful transition words, while the upper bound still
-        # prevents textbook-length expansion.
+        target = max(240, min(int(minutes * 70), upper_bound - 300))
         maximum = min(
             upper_bound,
-            max(maximum, target + 120, int(minutes * 70)),
+            max(maximum, target + 300, int(minutes * 105)),
         )
     if module_id == "engineering_minimal_run":
-        maximum = max(maximum, 1800)
-        target = max(target, 900)
+        maximum = max(maximum, 2400)
+        target = max(target, 1100)
     return {
         "target_characters": target,
         "max_characters": maximum,
@@ -218,8 +226,10 @@ def compile_teacher_script_module_contract(
             "planned_minutes": actual.get("planned_minutes"),
             "teaching_purpose": _text(actual.get("teaching_purpose")),
             "teaching_guidance": _text(actual.get("teaching_guidance")),
-            "teacher_activity": _text(actual.get("teacher_activity")),
-            "student_activity": _text(actual.get("student_activity")),
+            "source_plan_context": {
+                "teacher_activity": _text(actual.get("teacher_activity")),
+                "student_activity": _text(actual.get("student_activity")),
+            },
             "output_contract": _text(
                 frozen.get("output_contract")
                 or (registry.output_contract if registry else "")
@@ -246,6 +256,7 @@ def compile_teacher_script_module_contract(
         }
     return {
         "schema_version": SCRIPT_SCHEMA_VERSION,
+        "content_perspective": "neutral",
         "section_node_id": section_id,
         "title": _text(
             outline_section.get("node_name")
@@ -316,8 +327,7 @@ def parse_teacher_script_markdown(
             "required": bool(module.get("required", True)),
             "knowledge_names": deepcopy(module.get("knowledge_names") or []),
             "planned_minutes": module.get("planned_minutes"),
-            "teacher_activity": _text(module.get("teacher_activity")),
-            "student_activity": _text(module.get("student_activity")),
+            "source_plan_context": deepcopy(module.get("source_plan_context") or {}),
         })
     return blocks
 
@@ -360,11 +370,13 @@ def normalize_teacher_script_section(
                     raw.get("knowledge_names") or module.get("knowledge_names")
                 ),
                 "planned_minutes": raw.get("planned_minutes", module.get("planned_minutes")),
-                "teacher_activity": _text(
-                    raw.get("teacher_activity") or module.get("teacher_activity")
-                ),
-                "student_activity": _text(
-                    raw.get("student_activity") or module.get("student_activity")
+                "source_plan_context": deepcopy(
+                    raw.get("source_plan_context")
+                    or module.get("source_plan_context")
+                    or {
+                        "teacher_activity": _text(raw.get("teacher_activity")),
+                        "student_activity": _text(raw.get("student_activity")),
+                    }
                 ),
             })
     else:
@@ -382,11 +394,11 @@ def normalize_teacher_script_section(
                 "required": True,
                 "knowledge_names": [],
                 "planned_minutes": None,
-                "teacher_activity": "",
-                "student_activity": "",
+                "source_plan_context": {},
             }]
     return {
         "schema_version": SCRIPT_SCHEMA_VERSION,
+        "content_perspective": "neutral",
         "section_node_id": _text(
             value.get("section_node_id") or compiled.get("section_node_id")
         ),
@@ -469,7 +481,7 @@ def validate_teacher_script_section(
                 "teacher_script:block_too_long",
                 (
                     f"“{_text(block.get('title'))}”过长（{len(content)} 字），"
-                    f"轻量讲稿上限为 {max_characters} 字。"
+                    f"讲稿单块上限为 {max_characters} 字。"
                 ),
             )
         artifact = expected[index].get("artifact_contract") or {}
@@ -490,14 +502,14 @@ def validate_teacher_script_section(
                 f"“{_text(block.get('title'))}”缺少完整公式或形式化表达。",
             )
         role = _text(block.get("role"))
-        if role == "activity" and not (
-            re.search(r"教师|请.{0,12}(同学|学生)|分组|巡视", content)
-            and re.search(r"学生|同学|完成|讨论|操作|提交|产出", content)
+        if role == "activity" and not re.search(
+            r"任务|问题|已知|条件|要求|输出|结果|答案|解法|标准|步骤|示例",
+            content,
         ):
             add(
                 review,
-                "teacher_script:activity_not_executable",
-                f"“{_text(block.get('title'))}”尚未同时写清教师指令和学生动作。",
+                "teacher_script:practice_not_complete",
+                f"“{_text(block.get('title'))}”尚未写清练习任务、输出或检查标准。",
             )
         if role == "feedback" and not re.search(
             r"标准|核对|检查|错误|反馈|修正|再次验证|验收",
@@ -510,6 +522,31 @@ def validate_teacher_script_section(
             )
     for block in blocks:
         content = _text(block.get("content"))
+        if _DELIVERY_CUE_PATTERN.search(content):
+            add(
+                blocking,
+                "teacher_script:classroom_delivery_cue",
+                f"“{_text(block.get('title'))}”包含应属于教案的提问、板书、巡视或等待提示。",
+            )
+        if _DIRECTED_AUDIENCE_PATTERN.search(content):
+            add(
+                blocking,
+                "teacher_script:directed_perspective",
+                f"“{_text(block.get('title'))}”仍在指挥教师或学生，未保持中性课程正文视角。",
+            )
+        if _INTERNAL_PROCESS_PATTERN.search(content):
+            add(
+                blocking,
+                "teacher_script:internal_process_leakage",
+                f"“{_text(block.get('title'))}”泄露了模型、质量门或内部生成过程语言。",
+            )
+        visible_tail = re.sub(r"```\s*$", "", content).rstrip()
+        if visible_tail and _INCOMPLETE_END_PATTERN.search(visible_tail):
+            add(
+                blocking,
+                "teacher_script:incomplete_block_ending",
+                f"“{_text(block.get('title'))}”结尾似乎被截断，未形成完整语义。",
+            )
         if content.count("```") % 2:
             add(
                 blocking,
@@ -540,7 +577,7 @@ def validate_teacher_script_section(
             add(
                 review,
                 "teacher_script:block_too_short",
-                f"“{_text(block.get('title'))}”内容较短，建议确认能否直接用于课堂讲授。",
+                f"“{_text(block.get('title'))}”内容较短，建议确认是否已完整表达当前内容块。",
             )
     return {
         "schema_version": SCRIPT_QUALITY_VERSION,
@@ -559,6 +596,18 @@ def validate_teacher_script_section(
                 1
                 for block in blocks
                 if re.search(r"\$\$|\$[^$\n]+\$|\\\(|\\\[", _text(block.get("content")))
+            ),
+            "classroom_delivery_cue_count": sum(
+                len(_DELIVERY_CUE_PATTERN.findall(_text(block.get("content"))))
+                for block in blocks
+            ),
+            "directed_perspective_count": sum(
+                len(_DIRECTED_AUDIENCE_PATTERN.findall(_text(block.get("content"))))
+                for block in blocks
+            ),
+            "internal_process_leakage_count": sum(
+                len(_INTERNAL_PROCESS_PATTERN.findall(_text(block.get("content"))))
+                for block in blocks
             ),
         },
     }

@@ -104,6 +104,10 @@ export interface TeacherLessonScriptBlock {
   required?: boolean
   knowledge_names?: string[]
   planned_minutes?: number | null
+  source_plan_context?: {
+    teacher_activity?: string
+    student_activity?: string
+  }
   teacher_activity?: string
   student_activity?: string
 }
@@ -113,6 +117,7 @@ export interface TeacherLessonScriptSection {
   title: string
   content: string
   schema_version?: 'teacher_script_v2'
+  content_perspective?: 'neutral'
   lesson_archetype?: Record<string, any>
   blocks?: TeacherLessonScriptBlock[]
   pipeline_version?: string
@@ -168,6 +173,8 @@ export interface TeacherLessonPptAsset {
   working_v6_revision_id?: string
   working_representation_id?: string
   synthetic_course_id?: string
+  ppt_manuscript_revision?: string
+  ppt_manuscript_status?: 'draft' | 'confirmed'
   v6_revisions?: Array<{
     revision_id: string
     engine: 'slide_deck_v6'
@@ -176,6 +183,8 @@ export interface TeacherLessonPptAsset {
     spec_id: string
     source_lesson_plan_revision_id: string
     source_script_revision_id: string
+    ppt_manuscript_revision?: string
+    ppt_manuscript_status?: 'draft' | 'confirmed'
     candidate_status: string
     created_at: string
   }>

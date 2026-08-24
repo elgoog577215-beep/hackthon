@@ -230,13 +230,13 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
     assert [item["title"] for item in contract["modules"]] == [
         "本节任务", "概念模型", "检查与反馈",
     ]
-    assert 350 < contract["modules"][0]["max_characters"] <= 600
-    assert contract["modules"][1]["max_characters"] <= 1600
+    assert 650 <= contract["modules"][0]["max_characters"] <= 1000
+    assert 1800 <= contract["modules"][1]["max_characters"] <= 2600
 
     compiled = compile_teacher_script_section(
-        "## 本节任务\n\n今天我们先明确要解决的问题和课后可验证的成果。\n\n"
-        "## 概念模型\n\n【板书】从定义、条件与边界三个方面逐步建立概念模型，并用正反例核对。\n\n"
-        "## 检查与反馈\n\n【提问】请判断一个新情境并说明依据；随后对照标准定位典型错误。",
+        "## 本节任务\n\n本节聚焦于一个可验证的核心问题，成果是形成稳定的概念判断标准。\n\n"
+        "## 概念模型\n\n概念模型由定义、成立条件与适用边界三个部分构成，正反例共同验证这一结构。\n\n"
+        "## 检查与反馈\n\n新情境需要逐项对照定义、条件与边界。典型错误可通过缺失的条件定位并修正。",
         contract,
     )
     assert compiled["quality_report"]["passed"] is True
@@ -280,6 +280,15 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
         item["metadata"]["source_kind"] == "confirmed_teacher_script_block"
         for item in projected_blocks
     )
+    assert all(
+        item["metadata"]["content_perspective"] == "neutral"
+        for item in projected_blocks
+    )
+    assert all(
+        "teacher_activity" not in item["metadata"]
+        and "student_activity" not in item["metadata"]
+        for item in projected_blocks
+    )
     assert all(item["title"] != "讲稿正文" for item in projected_blocks)
 
     generic = compile_teacher_script_section(
@@ -310,12 +319,12 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
     [
         (
             "engineering_minimal_run",
-            "```python\nprint('hello')\n```\n\n【演示】运行后输出 hello，并核对环境版本。",
+            "```python\nprint('hello')\n```\n\n运行结果为 hello。环境版本和输出文本共同构成最小验收条件。",
             "teacher_script:required_code_artifact",
         ),
         (
             "math_formalization",
-            "【板书】定义 $f(x)=x^2$，逐一说明变量、定义域与适用边界。",
+            "定义 $f(x)=x^2$。其中 $x$ 是自变量，定义域决定表达式的适用边界。",
             "teacher_script:required_math_artifact",
         ),
     ],
@@ -378,7 +387,44 @@ def test_teacher_script_rejects_unclosed_code_and_math_delimiters():
     assert "teacher_script:unclosed_math_delimiter" in inline_codes
 
 
-def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrite(monkeypatch):
+def test_teacher_script_rejects_classroom_cues_internal_language_and_truncation():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "中性讲稿",
+        "module_plan": [{"module_id": "core_explanation", "label": "核心教学"}],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{
+            "module_id": "core_explanation",
+            "teacher_activity": "请大家观察反例。",
+            "student_activity": "完成判断。",
+        }],
+    }
+    contract = compile_teacher_script_module_contract(outline, plan)
+    assert contract["content_perspective"] == "neutral"
+    assert contract["modules"][0]["source_plan_context"] == {
+        "teacher_activity": "请大家观察反例。",
+        "student_activity": "完成判断。",
+    }
+
+    compiled = compile_teacher_script_section(
+        "## 核心教学\n\n【板书】教师应请大家观察。全链路验收完成，因为",
+        contract,
+    )
+    codes = {
+        item["code"]
+        for item in compiled["quality_report"]["blocking_issues"]
+    }
+    assert codes >= {
+        "teacher_script:classroom_delivery_cue",
+        "teacher_script:directed_perspective",
+        "teacher_script:internal_process_leakage",
+        "teacher_script:incomplete_block_ending",
+    }
+
+
+def test_teacher_script_service_generates_neutral_course_body(monkeypatch):
     service = CourseService()
     captured = {}
 
@@ -386,7 +432,7 @@ def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrit
         captured["user_prompt"] = user_prompt
         captured["system_prompt"] = system_prompt
         captured["kwargs"] = kwargs
-        return "## 核心教学\n\n【板书】围绕定义、条件和边界展开讲解，并用一个正例与反例组织课堂判断。"
+        return "## 核心教学\n\n核心概念由定义、成立条件和适用边界共同构成。正例满足全部条件，反例则显示概念边界。"
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
     result = asyncio.run(service.generate_teacher_script_section(
@@ -420,13 +466,13 @@ def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrit
     ))
 
     assert result["quality_report"]["passed"] is True
-    assert "教师生成可直接在课堂上使用的讲稿" in captured["system_prompt"]
+    assert "中性的课程讲稿正文" in captured["system_prompt"]
     assert "本节课型：概念建构" in captured["system_prompt"]
     assert "学科类型与当前教学块策略" in captured["system_prompt"]
     assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
-    assert "学生自学教材口吻" in captured["system_prompt"]
+    assert "不使用教师视角或学生视角" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
-    assert "轻量的教师讲授支架" in captured["system_prompt"]
+    assert "只属于教案" in captured["system_prompt"]
     assert "不得超过" in captured["system_prompt"]
     assert "自学课程的完整小节" not in captured["system_prompt"]
     assert captured["kwargs"]["use_fast_model"] is True
@@ -472,8 +518,8 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
             return "## 核心教学\n\n" + "重复讲解。" * 400
         return (
             "## 核心教学\n\n"
-            "【板书】简明说明定义、成立条件与适用边界，"
-            "再用一个正例检查学生是否能独立判断。"
+            "概念的完整表达包含定义、成立条件与适用边界。"
+            "一个正例用于验证三者是否被同时满足。"
         )
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
@@ -497,7 +543,7 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
     ))
 
     assert len(calls) == 3
-    assert "请压缩下面的教师讲稿" in calls[-1]
+    assert "请压缩下面的中性课程讲稿" in calls[-1]
     assert result["quality_report"]["passed"] is True
 
 
@@ -511,7 +557,7 @@ def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypa
             raise AIProviderUnavailable("fast_pool_exhausted")
         return (
             "## 核心教学\n\n"
-            "【板书】简明说明定义、条件和边界，并用一个新情境核对。"
+            "概念必须同时说明定义、成立条件和适用边界，新情境可用于核对这三项标准。"
         )
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
@@ -575,7 +621,7 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
     async def first_generator(_outline, _plan, module, _completed):
         if module["module_id"] == "feedback_check":
             raise RuntimeError("provider interrupted")
-        return "【板书】从定义、条件与边界讲清核心概念，并用正反例形成判断标准。"
+        return "核心概念由定义、成立条件与适用边界构成，正反例共同界定可检查的判断标准。"
 
     failed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -604,7 +650,7 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
     async def resume_generator(_outline, _plan, module, completed):
         resumed_modules.append(module["module_id"])
         assert [item["module_id"] for item in completed] == ["core_explanation"]
-        return "【提问】请判断一个新情境并说明依据，再对照标准纠正常见错误。"
+        return "新情境的判断需要逐项核对定义、成立条件和边界；常见错误可通过这三项标准定位并修正。"
 
     completed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -657,7 +703,7 @@ def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
 
     async def generator(_outline, _plan, module, _completed):
         generated.append(module["module_id"])
-        return "【板书】完整公式 $F_x=6-3=3$\uff0c并核对方向。"
+        return "完整计算为 $F_x=6-3=3$，结果还需与方向规定一起核对。"
 
     completed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -1400,6 +1446,58 @@ def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
     assert view["teacher_lesson_source"]["script_revision_id"] == "legacy-script-v1"
     assert view["nodes"][1]["content_blocks"][0]["content"] == "这是一段已确认的一手讲稿正文。"
     assert str(source) == source_before
+
+
+def test_v6_ppt_manuscript_requires_matching_confirmation_before_formal_export(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    lesson = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [{"section_node_id": "L2-1-1", "title": "1.1", "content": "中性讲稿正文。"}],
+        source_lesson_plan_revision_id=plan_revision,
+    )
+    script_revision = lesson["working_script_revision_id"]
+    repository.confirm_script_revision("course-1", "L1-1", script_revision)
+    asset = repository.bind_v6_ppt_revision(
+        "course-1",
+        "L1-1",
+        source_lesson_plan_revision_id=plan_revision,
+        source_script_revision_id=script_revision,
+        synthetic_course_id="teacher-lesson-1",
+        representation_id="representation-1",
+        spec_id="spec-1",
+        candidate_status="v6_ready",
+        ppt_manuscript_revision="pptman-1",
+        ppt_manuscript_status="draft",
+    )
+    assert asset["ppt_manuscript_status"] == "draft"
+
+    with pytest.raises(TeacherLessonAuthoringError) as conflict:
+        repository.confirm_v6_ppt_manuscript(
+            "course-1",
+            "L1-1",
+            representation_id="representation-1",
+            manuscript_revision="pptman-old",
+        )
+    assert conflict.value.code == "lesson_ppt_manuscript_revision_conflict"
+
+    confirmed = repository.confirm_v6_ppt_manuscript(
+        "course-1",
+        "L1-1",
+        representation_id="representation-1",
+        manuscript_revision="pptman-1",
+    )
+    assert confirmed["ppt_manuscript_status"] == "confirmed"
+    assert confirmed["v6_revisions"][0]["ppt_manuscript_status"] == "confirmed"
 
 
 def test_script_confirmation_versions_the_body_and_stales_bound_v6_ppt(tmp_path):

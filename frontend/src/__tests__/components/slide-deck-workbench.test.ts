@@ -61,13 +61,12 @@ describe('SlideDeckWorkbench', () => {
             ai_busy_duration_ms: 12500,
           },
         },
-        storyboard: {
+        pptManuscript: {
+          schema_version: 'ppt_manuscript_v1',
           page_count: 2,
-          teaching_unit_count: 1,
-          layout_count: 2,
           pages: [
-            { page_id: 'page-1', page_ordinal: 0, title: '建立问题', source_block_count: 2 },
-            { page_id: 'page-2', page_ordinal: 1, title: '验证结论', source_block_count: 3 },
+            { page_id: 'page-1', page_number: 1, title: '建立问题', source_script_block_ids: ['b1', 'b2'] },
+            { page_id: 'page-2', page_number: 2, title: '验证结论', source_script_block_ids: ['b3', 'b4', 'b5'] },
           ],
         },
       },
@@ -81,7 +80,7 @@ describe('SlideDeckWorkbench', () => {
     expect(details.get('[data-testid="ppt-planning-cost"]').text()).toContain('12.5 秒')
     expect(details.get('[data-testid="ppt-storyboard-status"]').text()).toContain('2 页')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('建立问题')
-    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个来源块')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个讲稿来源块')
     expect(details.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
     expect(details.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
     expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)
@@ -125,6 +124,80 @@ describe('SlideDeckWorkbench', () => {
     await button.trigger('click')
 
     expect(repair).toHaveBeenCalledWith('generic-course', 'slides-v6')
+  })
+
+  it('requires explicit PPT manuscript confirmation before formal export', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-v6',
+        deckTitle: '数据结构',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        standalone: true,
+        quality: { passed: true },
+        manuscriptConfirmationRequired: true,
+        manuscriptStatus: 'draft',
+        pptManuscript: {
+          schema_version: 'ppt_manuscript_v1',
+          page_count: 1,
+          pages: [{
+            page_id: 'page-1',
+            page_number: 1,
+            title: '向量的定义',
+            source_script_block_ids: ['block-a'],
+          }],
+        },
+      },
+    })
+
+    const confirm = wrapper.get('[data-testid="ppt-confirm-manuscript"]')
+    expect(confirm.text()).toContain('确认 PPT 文书')
+    expect(wrapper.get('.slide-workbench__export').attributes('disabled')).toBeDefined()
+    await confirm.trigger('click')
+    expect(wrapper.emitted('confirm-manuscript')).toHaveLength(1)
+
+    await wrapper.setProps({ manuscriptStatus: 'confirmed' })
+    expect(confirm.text()).toContain('PPT 文书已确认')
+    expect(wrapper.get('.slide-workbench__export').attributes('disabled')).toBeUndefined()
+  })
+
+  it('keeps a legacy storyboard separate from a formal PPT manuscript', async () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-v6-legacy',
+        deckTitle: '旧版课件',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        standalone: true,
+        quality: { passed: true },
+        manuscriptConfirmationRequired: false,
+        storyboard: {
+          page_count: 1,
+          pages: [{
+            page_id: 'legacy-page-1',
+            page_ordinal: 0,
+            title: '旧版规划',
+            source_block_count: 2,
+          }],
+        },
+      },
+    })
+
+    const details = wrapper.get('[data-testid="ppt-build-details"]')
+    expect(details.get('[data-testid="ppt-legacy-storyboard-status"]').text()).toContain('旧版页面规划')
+    expect(details.get('[data-testid="ppt-legacy-storyboard-pages"]').text()).toContain('2 个内容来源块')
+    expect(wrapper.find('[data-testid="ppt-confirm-manuscript"]').exists()).toBe(false)
+    expect(wrapper.get('.slide-workbench__export').attributes('disabled')).toBeUndefined()
   })
 
   it('shows a ten-step build progress panel with specific page, image, and render phases', async () => {

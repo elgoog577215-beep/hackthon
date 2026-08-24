@@ -75,32 +75,49 @@
               v-if="planningStatus?.story_ai?.status === 'completed'"
               class="slide-workbench__manual-status"
               data-testid="ppt-story-ai-status"
-            >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
+            >{{ resolvedPptManuscript ? t('pptWorkspace.manuscriptPlanningComplete', 'PPT 文书规划已完成') : t('pptWorkspace.legacyPlanningComplete', '旧版内容规划已完成') }} · {{ planningStatus.story_ai.batch_count || 0 }} {{ t('pptWorkspace.batchUnit', '批') }}</small>
             <small
               v-if="planningStatus?.cost?.model_call_count"
               data-testid="ppt-planning-cost"
             >模型调用 {{ planningStatus.cost.model_call_count }} 次 · 输入 {{ formatTokenCount(planningStatus.cost.input_tokens) }} · 输出 {{ formatTokenCount(planningStatus.cost.output_tokens) }} · AI 耗时 {{ formatDuration(planningStatus.cost.ai_busy_duration_ms) }}</small>
             <small
-              v-if="storyboard?.page_count"
+              v-if="resolvedPptManuscript?.page_count"
               class="slide-workbench__manual-status"
               data-testid="ppt-storyboard-status"
-            >故事板 · {{ storyboard.page_count }} 页 · {{ storyboard.teaching_unit_count || 0 }} 个教学单元 · {{ storyboard.layout_count || 0 }} 种版式</small>
+            >{{ t('pptWorkspace.manuscriptLabel', 'PPT 文书') }} · {{ resolvedPptManuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ t('pptWorkspace.manuscriptBound', '已绑定讲稿与版式') }}</small>
+            <small v-if="manuscriptConfirmError" class="slide-workbench__manual-status" data-testid="ppt-manuscript-confirm-error">{{ manuscriptConfirmError }}</small>
             <ol
-              v-if="storyboard?.pages?.length"
+              v-if="resolvedPptManuscript?.pages?.length"
               class="slide-workbench__storyboard"
               data-testid="ppt-storyboard-pages"
             >
-              <li v-for="page in storyboard.pages" :key="page.page_id">
+              <li v-for="page in resolvedPptManuscript.pages" :key="page.page_id">
+                <b>{{ Number(page.page_number || 0) || Number(page.page_ordinal || 0) + 1 }}</b>
+                <span>{{ page.title }}</span>
+                <small>{{ page.source_script_block_ids?.length || page.source_block_count || 0 }} {{ t('pptWorkspace.scriptSourceBlockUnit', '个讲稿来源块') }}</small>
+              </li>
+            </ol>
+            <small
+              v-if="resolvedLegacyStoryboard?.page_count"
+              class="slide-workbench__manual-status"
+              data-testid="ppt-legacy-storyboard-status"
+            >{{ t('pptWorkspace.legacyStoryboardLabel', '旧版页面规划') }} · {{ resolvedLegacyStoryboard.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ t('pptWorkspace.legacyStoryboardUpgrade', '重新生成后升级为 PPT 文书') }}</small>
+            <ol
+              v-if="resolvedLegacyStoryboard?.pages?.length"
+              class="slide-workbench__storyboard"
+              data-testid="ppt-legacy-storyboard-pages"
+            >
+              <li v-for="page in resolvedLegacyStoryboard.pages" :key="page.page_id">
                 <b>{{ Number(page.page_ordinal || 0) + 1 }}</b>
                 <span>{{ page.title }}</span>
-                <small>{{ page.source_block_count || 0 }} 个来源块</small>
+                <small>{{ page.source_block_count || 0 }} {{ t('pptWorkspace.contentSourceBlockUnit', '个内容来源块') }}</small>
               </li>
             </ol>
             <small
               v-if="planningStatus?.visual_ai?.status"
               class="slide-workbench__manual-status"
               data-testid="ppt-visual-ai-status"
-            >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `视觉 AI 部分降级 · ${planningStatus.visual_ai.degraded_page_count || 0} 页需检查` : '视觉 AI 已完成' }}</small>
+            >{{ planningStatus.visual_ai.status === 'partial_degraded' ? `${t('pptWorkspace.layoutPlanningDegraded', '版式规划部分降级')} · ${planningStatus.visual_ai.degraded_page_count || 0} ${t('pptWorkspace.pagesNeedReview', '页需检查')}` : t('pptWorkspace.layoutPlanningComplete', '版式规划已完成') }}</small>
             <ul
               v-if="planningStatus?.visual_ai?.degraded_pages?.length"
               class="slide-workbench__degraded-visuals"
@@ -146,6 +163,18 @@
         </button>
         <button type="button" :disabled="!activeSlide || building" :title="t('pptWorkspace.present', '全屏演示')" @click="openPresentation">
           <Play :size="16" /><span>{{ t('pptWorkspace.present', '全屏演示') }}</span>
+        </button>
+        <button
+          v-if="standalone && manuscriptConfirmationRequired && resolvedPptManuscript?.page_count"
+          type="button"
+          data-testid="ppt-confirm-manuscript"
+          :disabled="building || manuscriptConfirming || manuscriptStatus === 'confirmed'"
+          :title="manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmedExportHint', '已确认，可导出正式 PPTX') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
+          @click="emit('confirm-manuscript')"
+        >
+          <LoaderCircle v-if="manuscriptConfirming" :size="16" class="spinning" />
+          <CircleCheck v-else :size="16" />
+          <span>{{ manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmed', 'PPT 文书已确认') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}</span>
         </button>
         <button type="button" class="slide-workbench__export" :disabled="exportDisabled" :title="exportTitle" @click="downloadSlides">
           <LoaderCircle v-if="exportBusy" :size="16" class="spinning" />
@@ -580,7 +609,12 @@ const props = withDefaults(defineProps<{
   publishedSchema?: string
   candidateStatus?: string
   planningStatus?: Record<string, any> | null
+  pptManuscript?: Record<string, any> | null
   storyboard?: Record<string, any> | null
+  manuscriptStatus?: '' | 'draft' | 'confirmed'
+  manuscriptConfirming?: boolean
+  manuscriptConfirmationRequired?: boolean
+  manuscriptConfirmError?: string
   templatePack?: Record<string, any> | null
 }>(), {
   standalone: false,
@@ -596,7 +630,12 @@ const props = withDefaults(defineProps<{
   publishedSchema: '',
   candidateStatus: '',
   planningStatus: null,
+  pptManuscript: null,
   storyboard: null,
+  manuscriptStatus: '',
+  manuscriptConfirming: false,
+  manuscriptConfirmationRequired: false,
+  manuscriptConfirmError: '',
   templatePack: null,
   buildFailure: null,
   buildResumable: false,
@@ -611,10 +650,16 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
   (event: 'back' | 'rebuild' | 'configure' | 'open-materials' | 'upgrade-course-logic'): void
+  (event: 'confirm-manuscript'): void
   (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
   (event: 'bundle-part-change', representationId: string): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void
 }>()
+
+const resolvedPptManuscript = computed(() => props.pptManuscript || null)
+const resolvedLegacyStoryboard = computed(() => (
+  props.pptManuscript ? null : props.storyboard || null
+))
 
 const store = useTeachingRepresentationsStore()
 const changeProposalsStore = useChangeProposalsStore()
@@ -722,10 +767,22 @@ const previewSource = computed<SlideDeckPreviewSource>(() => (
   props.previewSource || (props.error ? 'draft' : 'published')
 ))
 const exportDisabled = computed(() => (
-  props.building || exportBusy.value || !props.representationId || previewSource.value === 'draft'
+  props.building
+  || exportBusy.value
+  || !props.representationId
+  || previewSource.value === 'draft'
+  || Boolean(
+    props.manuscriptConfirmationRequired
+    && resolvedPptManuscript.value?.page_count
+    && props.manuscriptStatus !== 'confirmed',
+  )
 ))
 const exportTitle = computed(() => (
-  previewSource.value === 'draft'
+  props.manuscriptConfirmationRequired
+  && resolvedPptManuscript.value?.page_count
+  && props.manuscriptStatus !== 'confirmed'
+    ? t('pptWorkspace.manuscriptExportBlocked', '请先确认 PPT 文书，再导出正式 PPTX')
+    : previewSource.value === 'draft'
     ? t('pptWorkspace.draftExportDisabled', '问题草稿不可导出；同步成功后可导出 PPTX')
     : t('teachingRepresentations.exportPptx', '导出 PPTX')
 ))

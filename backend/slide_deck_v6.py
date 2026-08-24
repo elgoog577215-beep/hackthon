@@ -399,6 +399,160 @@ class SlideDeckV6(_StrictModel):
     quality: SlideDeckV6Quality
 
 
+PptManuscriptPageType = Literal[
+    "cover",
+    "agenda",
+    "concept",
+    "reasoning",
+    "example",
+    "practice",
+    "comparison",
+    "code",
+    "formula",
+    "table",
+    "data",
+    "diagram",
+    "summary",
+    "content",
+]
+
+
+class PptManuscriptPageV1(_StrictModel):
+    """一页可审阅的 PPT 文书：拥有台上可见内容，不拥有新知识。"""
+
+    page_id: str
+    page_number: int = Field(ge=1)
+    teaching_unit_id: str
+    course_block_types: list[str] = Field(default_factory=list)
+    page_type: PptManuscriptPageType
+    title: str
+    visible_copy: list[str] = Field(default_factory=list)
+    layout_id: str
+    composition_notes: str
+    visual_kind: VisualDecisionKind
+    source_script_block_ids: list[str] = Field(default_factory=list)
+    source_section_ids: list[str] = Field(default_factory=list)
+    speaker_note_source_block_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def require_source_binding(self) -> PptManuscriptPageV1:
+        if not self.source_script_block_ids and not self.source_section_ids:
+            raise ValueError("ppt_manuscript_source_binding_missing")
+        return self
+
+
+class PptManuscriptV1(_StrictModel):
+    """讲稿与模板渲染之间的唯一逐页内容合同。"""
+
+    schema_version: Literal["ppt_manuscript_v1"] = "ppt_manuscript_v1"
+    manuscript_revision: str
+    source_document_revision: str
+    source_lesson_plan_revision_id: str = ""
+    source_script_revision_id: str = ""
+    template_id: str
+    template_version: str
+    template_digest: str
+    page_count: int = Field(ge=1)
+    pages: list[PptManuscriptPageV1] = Field(min_length=1)
+    quality_status: Literal["passed"] = "passed"
+
+
+def _ppt_manuscript_page_type(page: SlidePageV6) -> PptManuscriptPageType:
+    layout = page.resolved_layout.casefold()
+    roles = {
+        note.source_kind.casefold()
+        for note in page.speaker_notes.source_blocks
+        if note.source_kind
+    }
+    visual = page.visual_decision.decision
+    if "cover" in layout:
+        return "cover"
+    if "agenda" in layout:
+        return "agenda"
+    if visual in {"code", "formula", "table", "data", "diagram"}:
+        return visual
+    if "comparison" in layout or "compare" in layout or "counterexample" in roles:
+        return "comparison"
+    if roles.intersection({"summary", "transfer"}) or "recap" in layout:
+        return "summary"
+    if roles.intersection({"activity", "checkpoint", "feedback", "remediation"}):
+        return "practice"
+    if roles.intersection({"example", "application"}):
+        return "example"
+    if "reasoning" in roles:
+        return "reasoning"
+    if "concept" in roles:
+        return "concept"
+    return "content"
+
+
+def compile_ppt_manuscript_v1(
+    deck: SlideDeckV6,
+    *,
+    source_lesson_plan_revision_id: str = "",
+    source_script_revision_id: str = "",
+) -> PptManuscriptV1:
+    """把已通过内容门的页面规格固化为 PPT 文书。
+
+    此投影只整理已绑定的讲稿内容、页型、版式和构图决策，
+    不会在渲染前再生成、摘要或改写知识。
+    """
+
+    pages: list[PptManuscriptPageV1] = []
+    for page in sorted(deck.pages, key=lambda item: item.page_ordinal):
+        visible_copy = list(dict.fromkeys(
+            region.content.strip()
+            for region in page.regions
+            if region.content_kind != "notes" and region.content.strip()
+        ))
+        course_block_types = list(dict.fromkeys(
+            note.source_kind
+            for note in page.speaker_notes.source_blocks
+            if note.source_kind
+        ))
+        region_order = [
+            region.slot_id
+            for region in page.regions
+            if region.content_kind != "notes"
+        ]
+        pages.append(PptManuscriptPageV1(
+            page_id=page.page_id,
+            page_number=page.page_ordinal + 1,
+            teaching_unit_id=page.teaching_unit_id,
+            course_block_types=course_block_types,
+            page_type=_ppt_manuscript_page_type(page),
+            title=page.title,
+            visible_copy=visible_copy,
+            layout_id=page.resolved_layout,
+            composition_notes=(
+                f"使用 {page.resolved_layout} 版式，"
+                f"按 {' → '.join(region_order) or '默认区域'} 排列，"
+                f"视觉类型为 {page.visual_decision.decision}。"
+            ),
+            visual_kind=page.visual_decision.decision,
+            source_script_block_ids=list(page.source_block_ids),
+            source_section_ids=list(page.source_section_ids),
+            speaker_note_source_block_ids=[
+                note.block_id for note in page.speaker_notes.source_blocks
+            ],
+        ))
+    payload = {
+        "source_document_revision": deck.source_document_revision,
+        "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+        "source_script_revision_id": source_script_revision_id,
+        "template_id": deck.template_id,
+        "template_version": deck.template_version,
+        "template_digest": deck.template_digest,
+        "page_count": len(pages),
+        "pages": [page.model_dump(mode="json") for page in pages],
+        "quality_status": "passed",
+    }
+    return PptManuscriptV1(
+        manuscript_revision=stable_hash(payload, prefix="pptman_"),
+        **payload,
+    )
+
+
 def _formal_blocks(document: CourseDocument) -> list[CourseBlock]:
     section_order = {section.section_id: index for index, section in enumerate(sorted(document.sections, key=lambda item: (item.position, item.level)))}
     return sorted(
@@ -6485,6 +6639,8 @@ __all__ = [
     "AIBatchDiagnosticV1",
     "AIProviderAttemptDiagnosticV1",
     "SLIDE_DECK_V6_COMPILER_VERSION",
+    "PptManuscriptPageV1",
+    "PptManuscriptV1",
     "PptSourceContractV2",
     "SlideDeckV6",
     "SlideStoryBatchV3",
@@ -6499,6 +6655,7 @@ __all__ = [
     "build_signature_v6",
     "classify_v6_failure",
     "compile_ppt_source_contract_v2",
+    "compile_ppt_manuscript_v1",
     "compile_shadow_chapter_document",
     "compile_slide_deck_v6",
     "graph_page_source_blocks",

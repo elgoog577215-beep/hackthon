@@ -16,7 +16,12 @@ from slide_deck_renderer import (
     _render_slide,
     validate_theme,
 )
-from slide_deck_v6 import SlideDeckV6, SlidePageV6
+from slide_deck_v6 import (
+    PptManuscriptV1,
+    SlideDeckV6,
+    SlidePageV6,
+    compile_ppt_manuscript_v1,
+)
 
 _LAYOUT_ADAPTER_PATH = (
     Path(__file__).resolve().parents[1]
@@ -571,6 +576,7 @@ _V6_PUBLICATION_METADATA_FIELDS = frozenset({
     "build_signature",
     "course_presentation_graph",
     "planning_status",
+    "ppt_manuscript",
     "source_contract",
     "story_plan",
     "storyboard",
@@ -607,8 +613,36 @@ def export_slide_deck_v6_pptx(
     *,
     asset_repository: SlideAssetRepository | None = None,
 ) -> Path:
+    manuscript_payload = (
+        content.get("ppt_manuscript")
+        if isinstance(content, dict)
+        else None
+    )
     deck = _validated_export_deck(content)
     _validate_deck_for_export(deck)
+    if isinstance(manuscript_payload, dict):
+        manuscript = PptManuscriptV1.model_validate(manuscript_payload)
+        current = compile_ppt_manuscript_v1(
+            deck,
+            source_lesson_plan_revision_id=(
+                manuscript.source_lesson_plan_revision_id
+            ),
+            source_script_revision_id=manuscript.source_script_revision_id,
+        )
+        if current.manuscript_revision != manuscript.manuscript_revision:
+            raise SlideDeckQualityError({
+                "passed": False,
+                "score": 0,
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "ppt_manuscript_render_contract_mismatch",
+                    "message": (
+                        "PPT manuscript no longer matches the frozen page spec; "
+                        "confirm or rebuild the manuscript before export"
+                    ),
+                }],
+                "warnings": [],
+            })
 
     from pptx import Presentation
     from pptx.util import Inches

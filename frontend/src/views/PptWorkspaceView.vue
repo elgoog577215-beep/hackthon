@@ -105,7 +105,12 @@
         :published-schema="store.slidePublishedSchema || String(content?.schema_version || '')"
         :candidate-status="store.slideCandidateStatus || String(content?.candidate_status || '')"
         :planning-status="content?.planning_status || null"
+        :ppt-manuscript="content?.ppt_manuscript || null"
         :storyboard="content?.storyboard || null"
+        :manuscript-status="pptManuscriptState?.status || ''"
+        :manuscript-confirming="pptManuscriptConfirming"
+        :manuscript-confirmation-required="isTeacherSurface && Boolean(content?.ppt_manuscript)"
+        :manuscript-confirm-error="pptManuscriptConfirmError"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"
@@ -115,6 +120,7 @@
         @open-materials="openMaterials"
         @ask-ai="openAiForSlide"
         @open-course="openSameSourceCourse"
+        @confirm-manuscript="confirmPptManuscript"
       />
 
       <TeachingRepresentationsOverlay
@@ -299,6 +305,14 @@ const pptAiPageId = ref('')
 const pptAiMessages = ref<TeacherProductionAiMessage[]>([])
 const pptAiPhase = ref<TeacherProductionAiPhase>('ready')
 const pptAiLastInstruction = ref('')
+const pptManuscriptState = ref<{
+  revision: string
+  status: 'draft' | 'confirmed'
+  source_state: string
+  confirmable: boolean
+} | null>(null)
+const pptManuscriptConfirming = ref(false)
+const pptManuscriptConfirmError = ref('')
 let pptAiCandidateAttempt = 0
 let pptAiMessageSequence = 0
 
@@ -946,6 +960,7 @@ async function loadPptAiCandidate() {
       `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/spec`,
     )
     if (attempt !== pptAiCandidateAttempt || store.selectedId !== representationId) return
+    pptManuscriptState.value = response.data.ppt_manuscript_state || null
     const candidate = (response.data.ai_candidate || null) as TeacherV6AiCandidate | null
     const previousCandidateId = pptAiCandidate.value?.candidate_id
     pptAiCandidate.value = candidate
@@ -958,7 +973,42 @@ async function loadPptAiCandidate() {
     }
     applyPptAiEvent('CANDIDATE_RESTORED')
   } catch {
-    if (attempt === pptAiCandidateAttempt) pptAiCandidate.value = null
+    if (attempt === pptAiCandidateAttempt) {
+      pptAiCandidate.value = null
+      pptManuscriptState.value = null
+    }
+  }
+}
+
+async function confirmPptManuscript() {
+  const state = pptManuscriptState.value
+  const representationId = store.selectedId
+  if (
+    !isTeacherSurface.value
+    || !courseId.value
+    || !teacherLessonId.value
+    || !representationId
+    || !state?.revision
+    || !state.confirmable
+    || state.status === 'confirmed'
+    || pptManuscriptConfirming.value
+  ) return
+  pptManuscriptConfirming.value = true
+  pptManuscriptConfirmError.value = ''
+  try {
+    const response = await http.post(
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/manuscript/confirm`,
+      { manuscript_revision: state.revision },
+    )
+    pptManuscriptState.value = response.data.ppt_manuscript_state
+  } catch (error: any) {
+    pptManuscriptConfirmError.value = String(
+      error?.response?.data?.detail?.message
+      || error?.response?.data?.detail
+      || t('pptWorkspace.manuscriptConfirmFailed', '确认失败，请刷新后重试。'),
+    )
+  } finally {
+    pptManuscriptConfirming.value = false
   }
 }
 

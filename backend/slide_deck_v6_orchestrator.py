@@ -31,6 +31,7 @@ from slide_deck_v6 import (
     V6BuildError,
     build_signature_v6,
     classify_v6_failure,
+    compile_ppt_manuscript_v1,
     compile_ppt_source_contract_v2,
     compile_slide_deck_v6,
     prepare_story_plan_for_final_compilation,
@@ -46,7 +47,7 @@ from teaching_representations import (
 from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
-SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v24"
+SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v25"
 
 
 def _utc_now() -> str:
@@ -604,6 +605,7 @@ class SlideDeckV6Orchestrator:
         graph = None
         story = None
         visual = None
+        ppt_manuscript = None
         finalize_item_id = "publish" if publish_result else "finalize-shadow"
         checkpoint: dict[str, Any] = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
@@ -880,7 +882,7 @@ class SlideDeckV6Orchestrator:
                     )
 
             tracker.add_work([
-                SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译课程忠实型页面"),
+                SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译 PPT 文书与课程忠实型页面"),
                 SlideWorkItemV2(item_id="quality", kind="local", stage="quality", label="执行忠实度与渲染门禁"),
                 SlideWorkItemV2(
                     item_id=finalize_item_id,
@@ -910,6 +912,21 @@ class SlideDeckV6Orchestrator:
                 ),
                 tracker=tracker,
                 callback=progress_callback,
+            )
+            teacher_lesson_source = dict(
+                course_data.get("teacher_lesson_source") or {}
+            )
+            ppt_manuscript = compile_ppt_manuscript_v1(
+                deck,
+                source_lesson_plan_revision_id=str(
+                    teacher_lesson_source.get("lesson_plan_revision_id") or ""
+                ),
+                source_script_revision_id=str(
+                    teacher_lesson_source.get("script_revision_id") or ""
+                ),
+            )
+            save_checkpoint(
+                ppt_manuscript=ppt_manuscript.model_dump(mode="json")
             )
             tracker.add_work([
                 SlideWorkItemV2(
@@ -1081,6 +1098,7 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "storyboard": _storyboard_summary(story),
+                "ppt_manuscript": ppt_manuscript.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
                 "template_contract": template.model_dump(mode="json"),
                 "ai_batch_diagnostics": planning_diagnostics,
@@ -1161,7 +1179,10 @@ class SlideDeckV6Orchestrator:
                 source_bindings=bindings,
                 spec_id=spec_id,
                 semantic_fingerprint=stable_hash(
-                    {"graph": graph.graph_digest, "story": story.model_dump(mode="json")},
+                    {
+                        "graph": graph.graph_digest,
+                        "ppt_manuscript_revision": ppt_manuscript.manuscript_revision,
+                    },
                     prefix="sem_",
                 ),
                 render_fingerprint=stable_hash(
@@ -1185,6 +1206,7 @@ class SlideDeckV6Orchestrator:
                 "source_contract": source_contract.model_dump(mode="json"),
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
+                "ppt_manuscript": ppt_manuscript.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
                 "ai_batch_diagnostics": planning_diagnostics,
                 "planning_status": planning_status,
@@ -1216,6 +1238,7 @@ class SlideDeckV6Orchestrator:
                 "representation_id": representation_id,
                 "spec_id": spec_id,
                 "quality": deck.quality.model_dump(mode="json"),
+                "ppt_manuscript_revision": ppt_manuscript.manuscript_revision,
                 "registry": registry_payload,
                 "progress": progress,
             }
@@ -1241,6 +1264,11 @@ class SlideDeckV6Orchestrator:
                 "source_contract": source_contract.model_dump(mode="json") if source_contract else None,
                 "course_presentation_graph": graph.model_dump(mode="json") if graph else None,
                 "story_plan": story.model_dump(mode="json") if story else None,
+                "ppt_manuscript": (
+                    ppt_manuscript.model_dump(mode="json")
+                    if ppt_manuscript
+                    else checkpoint.get("ppt_manuscript")
+                ),
                 "visual_plan": visual.model_dump(mode="json") if visual else None,
                 "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
                 "visual_repair": dict(checkpoint.get("visual_repair") or {}) or None,

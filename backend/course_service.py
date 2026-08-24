@@ -6509,11 +6509,12 @@ class CourseService(AIBase):
         requirements: str = "",
         user_id: str = DEFAULT_USER_ID,
     ) -> dict[str, Any]:
-        """Generate one teacher-facing script from the confirmed module contract.
+        """Generate one neutral course script from the confirmed module contract.
 
         The outline/plan pipeline has already selected subject mode, lesson
-        archetype and modules. This stage only verbalizes that frozen structure;
-        it must not choose a second generic teaching template.
+        archetype and modules. This stage writes the durable course-content body;
+        it must not choose a second generic template or copy classroom delivery
+        actions from the lesson plan into the script.
         """
         contract = compile_teacher_script_module_contract(
             outline_section,
@@ -6548,11 +6549,7 @@ class CourseService(AIBase):
                 if module.get("teaching_purpose") else "",
                 f"知识范围：{'、'.join(module.get('knowledge_names') or [])}"
                 if module.get("knowledge_names") else "",
-                f"教师活动：{module.get('teacher_activity')}"
-                if module.get("teacher_activity") else "",
-                f"学生活动：{module.get('student_activity')}"
-                if module.get("student_activity") else "",
-                f"预计时间：{module.get('planned_minutes')} 分钟"
+                f"内容深度参考：对应约 {module.get('planned_minutes')} 分钟的教学内容"
                 if module.get("planned_minutes") is not None else "",
                 str(module.get("output_contract") or ""),
                 str(module.get("prompt_instruction") or ""),
@@ -6575,8 +6572,9 @@ class CourseService(AIBase):
 
         archetype = contract.get("lesson_archetype") or {}
         system_prompt = "\n".join([
-            "你正在为教师生成可直接在课堂上使用的讲稿，不是在写学生自学教材。",
-            "讲稿结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成可讲内容，不能重新套用跨学科通用模板。",
+            "你正在生成中性的课程讲稿正文。它是详细、严谨、可持续编辑的课程内容本体，而不是教师逐字口播稿、学生任务单或课堂执行脚本。",
+            "讲稿必须同时可作为教师组织自己语言的内容依据，也可作为学生课后复习的详细总结；因此不使用教师视角或学生视角。",
+            "讲稿结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成内容块，不能重新套用跨学科通用模板。",
             f"本节课型：{archetype.get('label') or '沿用已确认教案'}。",
             f"课型目的：{archetype.get('purpose') or '完成本节已确认教学目标'}。",
             f"本节目标：{contract.get('learning_objective') or '见已确认教案'}。",
@@ -6586,11 +6584,12 @@ class CourseService(AIBase):
             "必须严格按下面的顺序和标题输出，每个标题恰好出现一次，不得增加、删除、合并或改名：",
             *module_lines,
             "",
-            "每个教学块都要写成教师真正会说或会做的内容，而不是教案摘要。可在正文中自然使用【提问】【板书】【演示】【等待回应】【巡视】等轻量课堂提示。",
-            "讲稿是轻量的教师讲授支架，不是另一份学生教材，也不是必须逐字照读的长文。只保留当前教学块完成其职责所需的讲解、指令、例子和核对标准。",
+            "每个内容块都要形成独立完整的书面表达：概念有定义与边界，推理有中间步骤，例题有条件与解法，辨析有错因与修正，总结有知识关系。",
+            "不得出现“同学们好”“请大家”等面向学生的口令，不得出现“教师应”“学生完成”等教案动作，不得使用【提问】【板书】【演示】【等待回应】【巡视】等舞台提示。这些信息只属于教案。",
+            "已确认教案中的教师活动、学生活动和时间分配只用于判断内容深度与顺序，不得复制进讲稿正文。",
             "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
-            "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和推演；活动块要说明教师指令、学生动作、等待与收束；反馈块要给出核对标准、典型错误和回应方式。",
-            "沿用旧正文链已经验证的学科讲解、知识边界、前后连贯和产物完整性要求，但必须改写为教师课堂表达，不得保留学生自学教材口吻。",
+            "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
+            "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；不复制学生个性化、课堂调度或旧整课流程。",
             "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式必须使用成对闭合的 `$...$`、`$$...$$`、`\\(...\\)` 或 `\\[...\\]`，不得把公式拆断。",
             "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
             "资料只用于支持课堂内容。必须区分资料事实、学科通识和教学情境；不能编造资料未给出的来源、数据或结论。",
@@ -6612,7 +6611,7 @@ class CourseService(AIBase):
             "课程、讲次与选定资料上下文：",
             json.dumps(lesson_context or {}, ensure_ascii=False),
         ])
-        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》的教师讲稿。"
+        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》的中性课程讲稿正文。"
         async def call_script_model(
             prompt: str,
             instructions: str,
@@ -6693,12 +6692,12 @@ class CourseService(AIBase):
             )
             compacted_response = await call_script_model(
                 (
-                    "请压缩下面的教师讲稿。保留正确事实、公式或实验链、"
-                    "必要的课堂指令与核对标准；删掉重复开场、同义反复和教材式展开。\n\n"
+                    "请压缩下面的中性课程讲稿。保留正确事实、定义、推理、公式、例题或实验链与核对标准；"
+                    "删掉重复开场、同义反复和旁支扩写，不得加入教师或学生视角。\n\n"
                     + last_text
                 ),
                 (
-                    "你是教师讲稿编辑。只输出压缩后的 Markdown，"
+                    "你是中性课程讲稿编辑。只输出压缩后的 Markdown，"
                     "标题、顺序和教学事实不得改变，严格执行字数上限。\n"
                     + length_rules
                 ),

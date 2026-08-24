@@ -522,8 +522,6 @@ def teacher_lesson_script_sections_revision(
                     "content": str(block.get("content") or ""),
                     "knowledge_names": list(block.get("knowledge_names") or []),
                     "planned_minutes": block.get("planned_minutes"),
-                    "teacher_activity": str(block.get("teacher_activity") or ""),
-                    "student_activity": str(block.get("student_activity") or ""),
                 }
                 for block in blocks
             ]
@@ -680,8 +678,7 @@ def teacher_lesson_v6_source(
                     ),
                     "concept_refs": knowledge_names,
                     "planned_minutes": script_block.get("planned_minutes"),
-                    "teacher_activity": str(script_block.get("teacher_activity") or ""),
-                    "student_activity": str(script_block.get("student_activity") or ""),
+                    "content_perspective": "neutral",
                     "source_kind": "confirmed_teacher_script_block",
                     "legacy_adapter": module_id == "legacy_script",
                 },
@@ -723,6 +720,7 @@ def teacher_lesson_v6_source(
             "lesson_unit_id": lesson_unit_id,
             "lesson_plan_revision_id": str(plan_revision.get("revision_id") or ""),
             "script_revision_id": script_revision_id,
+            "script_content_perspective": "neutral",
         },
     }
     document = document_from_generation_draft(synthetic)
@@ -1142,6 +1140,8 @@ class TeacherLessonAuthoringRepository:
         representation_id: str,
         spec_id: str,
         candidate_status: str,
+        ppt_manuscript_revision: str = "",
+        ppt_manuscript_status: str = "draft",
     ) -> dict[str, Any]:
         """Register one real V6 representation without copying it into student data."""
         with self._lock:
@@ -1179,6 +1179,8 @@ class TeacherLessonAuthoringRepository:
                 "spec_id": spec_id,
                 "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
                 "source_script_revision_id": source_script_revision_id,
+                "ppt_manuscript_revision": ppt_manuscript_revision,
+                "ppt_manuscript_status": ppt_manuscript_status,
                 "candidate_status": candidate_status,
                 "created_at": _now(),
             }
@@ -1189,9 +1191,66 @@ class TeacherLessonAuthoringRepository:
             asset["synthetic_course_id"] = synthetic_course_id
             asset["source_lesson_plan_revision_id"] = source_lesson_plan_revision_id
             asset["source_script_revision_id"] = source_script_revision_id
+            if ppt_manuscript_revision:
+                asset["ppt_manuscript_revision"] = ppt_manuscript_revision
+                asset["ppt_manuscript_status"] = ppt_manuscript_status
             asset["source_state"] = "current"
             saved = self._save(value)
             return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
+
+    def confirm_v6_ppt_manuscript(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        representation_id: str,
+        manuscript_revision: str,
+    ) -> dict[str, Any]:
+        """确认逐页 PPT 文书，作为正式导出的显式门。"""
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_not_found", "请先生成本讲教案。"
+                )
+            asset = next(
+                (
+                    item
+                    for item in lesson.get("ppt_assets") or []
+                    if isinstance(item, dict)
+                    and item.get("working_representation_id") == representation_id
+                ),
+                None,
+            )
+            if not isinstance(asset, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_not_found", "本讲 PPT 文书不存在。"
+                )
+            if asset.get("source_state") != "current":
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_source_stale", "讲稿或教案已更新，请先重新生成 PPT 文书。"
+                )
+            if str(asset.get("ppt_manuscript_revision") or "") != manuscript_revision:
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_revision_conflict",
+                    "PPT 文书已更新，请刷新后再确认。",
+                )
+            asset["ppt_manuscript_status"] = "confirmed"
+            for revision in asset.get("v6_revisions") or []:
+                if (
+                    isinstance(revision, dict)
+                    and revision.get("representation_id") == representation_id
+                    and revision.get("ppt_manuscript_revision") == manuscript_revision
+                ):
+                    revision["ppt_manuscript_status"] = "confirmed"
+                    revision["ppt_manuscript_confirmed_at"] = _now()
+            saved = self._save(value)
+            return deepcopy(next(
+                item
+                for item in saved["lessons"][lesson_unit_id]["ppt_assets"]
+                if item["asset_id"] == asset["asset_id"]
+            ))
 
     def save_v6_ppt_ai_candidate(
         self,
