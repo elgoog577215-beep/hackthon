@@ -56,6 +56,7 @@ from routers import (
     learning_snapshots, learning_progress, learning_records, learning_continuation, learning_runtime, practice, diagnostics,
     learning_governance,
     question_bank,
+    question_bank_imports,
     course_acceptance, block_regeneration, learner_model, change_proposals,
     knowledge_libraries, teaching_representations, course_evolution,
     teaching_plan_workbench,
@@ -198,6 +199,7 @@ app.include_router(learner_model.router, prefix="/api")
 app.include_router(learning_governance.router, prefix="/api")
 app.include_router(practice.router, prefix="/api")
 app.include_router(question_bank.router, prefix="/api")
+app.include_router(question_bank_imports.router, prefix="/api")
 app.include_router(diagnostics.router, prefix="/api")
 app.include_router(course_acceptance.router, prefix="/api")
 app.include_router(ppt_template_packs.router, prefix="/api")

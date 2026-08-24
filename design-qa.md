@@ -50,6 +50,52 @@ final result: passed
 
 ---
 
+# Design QA — 题库外部文件导入工作区（2026-08-24）
+
+## Comparison target
+
+- Source visual truth: `/Users/yq/.codex/generated_images/01a0342a-0fe8-7aa3-99ed-b33c7ae910fd/exec-cfa1d530-c7e2-4eef-84a9-9e8f620d1b1b.png` (`1488 × 1058`).
+- Rendered implementation: `http://127.0.0.1:5173/course/6d9e2eec-2e95-468c-ad5c-c02dc8f63543/workspace/build?stage=question-bank`.
+- Implementation screenshot: `/tmp/lingzhi-question-bank-import-qa-20260824.png` (`1440 × 1024`).
+- Full-view comparison: `/tmp/lingzhi-question-bank-import-comparison-20260824.png` (`2880 × 1024`).
+- Focused editor/footer comparison: `/tmp/lingzhi-question-bank-import-comparison-focused-20260824.png` (`1400 × 774`).
+- State: Chinese, light theme, real three-question DOCX import restored after refresh; all questions confirmed, formal import intentionally not executed.
+
+## Viewport and density normalization
+
+- Browser CSS viewport and implementation screenshot are both `1440 × 1024` at density `1`.
+- The source was normalized from `1488 × 1058` to `1440 × 1024` with Lanczos resampling before the side-by-side comparison. Its aspect ratio differs by less than `0.1%`, so layout proportions remain comparable without crop drift.
+
+## Full-view and focused comparison evidence
+
+- The full-view comparison confirms the intended hierarchy: retained global course-stage rail, secondary AI action, four-step import progress, source file bar, left original document, right structured editor, and a single formal-import footer. The redundant right information-source rail is absent in this mode.
+- The focused comparison covers question navigation, warning/success status, type selection, prompt, options, answer controls, explanation, per-question confirmation and the final import gate. The implementation integrates the correct-answer radio with each option instead of duplicating a second answer row; this is an intentional density reduction and preserves the same task.
+- The source uses a PDF page image and 32-question pending state; the implementation evidence uses a parsed DOCX and three-question confirmed state. These content/state differences are expected and were not judged as visual drift.
+
+## Findings
+
+- No actionable P0, P1 or P2 mismatch remains.
+- Fonts and typography: the existing Chinese system sans stack and compact label hierarchy match the source direction; the document preview intentionally uses the product's serif reading stack. No clipping or broken wrapping was observed.
+- Spacing and layout rhythm: the left rail and split work area preserve the source proportions. The final revision constrains the review surface to the available viewport and keeps the import footer visible at `1440 × 1024`.
+- Colors and visual tokens: existing white/cool-gray/violet tokens match the source; green success and orange warning remain semantic and restrained.
+- Image quality and asset fidelity: the target contains no decorative raster imagery. The implementation uses the existing Lucide icon family and parsed document text; no placeholder image, handcrafted SVG, CSS drawing or emoji was introduced.
+- Copy and content: file status, question count, pending count, warning reason and import consequence are concise and task-specific. AI generation is visibly secondary.
+- Interaction and accessibility: verified refresh recovery, automatic selection of the pending question, answer selection, per-question confirmation, disabled-to-enabled formal-import gate, semantic form controls and zero browser console warnings/errors. The final import was not clicked to avoid adding test questions to the formal course bank.
+
+## Comparison history
+
+- Pass 1 found P2 viewport overflow: the editor's natural content height expanded the split view to about `789px`, placing the persistent formal-import action below the initial viewport.
+- Fix: constrained the desktop review surface to `max(480px, calc(100vh - 442px))`, retained internal scrolling for source/editor content, and kept stacked narrow-screen behavior automatic.
+- Pass 2 evidence: the review surface measured `582px` and the formal-import footer ended at `1023.6px` in the `1440 × 1024` viewport. The post-fix full and focused comparisons show the complete task hierarchy with no remaining P0/P1/P2 finding.
+
+## Follow-up polish
+
+- P3: a future scanned-PDF/OCR iteration can add page-region highlighting after the parser exposes bounding boxes; the current text-layer preview correctly avoids inventing unavailable coordinates.
+
+final result: passed
+
+---
+
 # Design QA — 课程生产工作台（2026-08-22）
 
 ## Comparison target

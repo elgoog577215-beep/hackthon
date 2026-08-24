@@ -177,7 +177,7 @@ describe('QuestionBankReviewPanel', () => {
     })
 
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-timeout' },
+      props: { courseId: 'course-timeout', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -187,7 +187,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('展示覆盖矩阵并允许浏览全部题目', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -251,7 +251,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -364,7 +364,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -401,7 +401,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('携带题库版本批准高风险题并保留在浏览列表', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
     await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
@@ -459,7 +459,7 @@ describe('QuestionBankReviewPanel', () => {
     })
 
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -508,7 +508,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -542,7 +542,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('支持按节点异步重建并展示真实阶段', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -570,6 +570,7 @@ describe('QuestionBankReviewPanel', () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: {
         courseId: 'course-1',
+        initialWorkspaceMode: 'generate',
         initialNodeIds: ['section-1', 'section-2'],
         initialScopeLabel: '1. 内存管理',
         materialAssetIds: ['mat-primary', 'mat-reference'],
@@ -601,7 +602,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('通过智能出题工作台生成整门课程题目并展示真实进度', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -637,7 +638,7 @@ describe('QuestionBankReviewPanel', () => {
       response: { status: 404 },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -692,7 +693,7 @@ describe('QuestionBankReviewPanel', () => {
       },
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -748,7 +749,7 @@ describe('QuestionBankReviewPanel', () => {
       return new Promise(() => {})
     })
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -791,7 +792,7 @@ describe('QuestionBankReviewPanel', () => {
     )
     runQuestionBankRebuild.mockRejectedValueOnce(failure)
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -816,7 +817,7 @@ describe('QuestionBankReviewPanel', () => {
 
   it('教师可按需读取私有答案与独立验证差异', async () => {
     const wrapper = mount(QuestionBankReviewPanel, {
-      props: { courseId: 'course-1' },
+      props: { courseId: 'course-1', initialWorkspaceMode: 'generate' },
     })
     await flushPromises()
 
@@ -846,6 +847,7 @@ describe('QuestionBankReviewPanel', () => {
     const wrapper = mount(QuestionBankReviewPanel, {
       props: {
         courseId: 'course-1',
+        initialWorkspaceMode: 'generate',
         initialNodeIds: ['section-1'],
         materialAssetIds: ['material-1'],
       },

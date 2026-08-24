@@ -2,7 +2,10 @@
   <section
     ref="workbenchRoot"
     class="teacher-workbench"
-    :class="{ 'is-ai-collaboration': aiCollaborationOpen }"
+    :class="{
+      'is-ai-collaboration': aiCollaborationOpen,
+      'is-question-bank-import': activeStage === 'question-bank' && questionBankImportMode,
+    }"
     :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
   >
     <aside v-show="!aiCollaborationOpen" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
@@ -228,8 +231,9 @@
             @ai-resolving="handleAiResolving"
             @ai-resolved="handleAiResolved"
             @ai-error="handleAiError"
+            @import-mode-change="questionBankImportMode = $event"
           />
-          <footer class="stage-next-bar"><span /><button class="primary" type="button" @click="activeStage = 'script'"><ChevronRight :size="15" />{{ t('courseWorkbench.nextToScript', '进入讲稿') }}</button></footer>
+          <footer v-if="!questionBankImportMode" class="stage-next-bar"><span /><button class="primary" type="button" @click="activeStage = 'script'"><ChevronRight :size="15" />{{ t('courseWorkbench.nextToScript', '进入讲稿') }}</button></footer>
         </template>
 
         <template v-else-if="activeStage === 'lesson'">
@@ -383,7 +387,7 @@
     />
 
     <CourseReferenceTray
-      v-if="!aiCollaborationOpen || aiSourcesOpen"
+      v-if="(activeStage !== 'question-bank' || !questionBankImportMode) && (!aiCollaborationOpen || aiSourcesOpen)"
       v-model="activeReferences"
       :class="{ 'ai-source-drawer': aiCollaborationOpen }"
       :course-id="courseId"
@@ -529,6 +533,7 @@ const lessonRequirements = ref('')
 const lessonBusy = ref(false); const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
+const questionBankImportMode = ref(false)
 const stages = computed(() => [
   { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '课程基础'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
@@ -1490,6 +1495,10 @@ onBeforeUnmount(() => {
 .is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto}
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
+.teacher-workbench.is-question-bank-import:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
+.is-question-bank-import>.workbench-center{padding-inline:30px}
+.is-question-bank-import>.workbench-center>.center-heading,.is-question-bank-import .lesson-stage,.is-question-bank-import .question-workbench-surface{width:100%;max-width:none}
+.is-question-bank-import .lesson-navigator{display:none}
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
 
 .teacher-workbench{position:relative;background:transparent}

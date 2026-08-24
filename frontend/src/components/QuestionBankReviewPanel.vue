@@ -1,6 +1,21 @@
 <template>
   <section class="question-bank-panel" :aria-label="t('courseWorkbench.stages.questionBank', '题库')">
-    <section class="question-generation-studio" data-testid="question-generation-studio">
+    <QuestionBankImportWorkspace
+      v-if="workspaceMode === 'import'"
+      :course-id="courseId"
+      :initial-node-ids="initialNodeIds"
+      :has-question-bank="!questionBankMissing && Boolean(items.length)"
+      @show-ai="workspaceMode = 'generate'"
+      @show-bank="workspaceMode = 'bank'"
+      @imported="handleFileImport"
+    />
+    <template v-else>
+    <nav class="question-bank-modebar" :aria-label="t('questionBank.importFlow.modeNavigation', '题库方式')">
+      <button type="button" @click="workspaceMode = 'import'"><FileUp :size="15" />{{ t('questionBank.importFlow.importFile', '导入题目文件') }}</button>
+      <button v-if="workspaceMode === 'bank'" type="button" @click="workspaceMode = 'generate'"><WandSparkles :size="15" />{{ t('questionBank.importFlow.aiGenerate', 'AI 生成题目') }}</button>
+      <button v-else type="button" @click="workspaceMode = 'bank'"><LibraryBig :size="15" />{{ t('questionBank.importFlow.existingBank', '已有题库') }}</button>
+    </nav>
+    <section v-if="workspaceMode === 'generate'" class="question-generation-studio" data-testid="question-generation-studio">
       <header class="question-generation-studio__header">
         <div v-if="publishedCount" class="question-generation-studio__published">
           <CircleCheck :size="15" />
@@ -797,6 +812,7 @@
       @close="paperComposerOpen = false"
       @created="handlePaperCreated"
     />
+    </template>
   </section>
 </template>
 
@@ -817,7 +833,9 @@ import {
   Ellipsis,
   Eye,
   FileCheck2,
+  FileUp,
   FilePlus2,
+  LibraryBig,
   LoaderCircle,
   RefreshCw,
   Search,
@@ -829,6 +847,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import ExamPaperComposer from './ExamPaperComposer.vue'
+import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
@@ -914,11 +933,13 @@ const props = withDefaults(defineProps<{
   initialScopeLabel?: string
   materialAssetIds?: string[]
   assistantOpen?: boolean
+  initialWorkspaceMode?: 'import' | 'bank' | 'generate'
 }>(), {
   initialNodeIds: () => [],
   initialScopeLabel: '',
   materialAssetIds: () => [],
   assistantOpen: false,
+  initialWorkspaceMode: 'import',
 })
 interface QuestionBankAiCandidate {
   candidate_id: string
@@ -938,7 +959,9 @@ const emit = defineEmits<{
   'ai-resolving': [result: { accept: boolean }]
   'ai-resolved': [result: { accept: boolean }]
   'ai-error': [message: string]
+  'import-mode-change': [active: boolean]
 }>()
+const workspaceMode = ref<'import' | 'bank' | 'generate'>(props.initialWorkspaceMode)
 const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
@@ -1231,14 +1254,17 @@ const webRetrievalError = computed(() => {
 })
 
 onMounted(() => {
+  emit('import-mode-change', true)
   void load().then(restoreAiCandidate)
   void loadExamPapers()
   void recoverActiveRebuild()
 })
 onBeforeUnmount(() => {
+  emit('import-mode-change', false)
   rebuildAbortController?.abort()
 })
 watch(() => props.courseId, () => {
+  workspaceMode.value = 'import'
   rebuildAbortController?.abort()
   rebuildAbortController = null
   rebuildJob.value = null
@@ -1255,6 +1281,9 @@ watch(() => props.courseId, () => {
   void load().then(restoreAiCandidate)
   void loadExamPapers()
   void recoverActiveRebuild()
+})
+watch(workspaceMode, mode => {
+  emit('import-mode-change', mode === 'import')
 })
 watch(() => props.initialNodeIds, value => {
   generationScope.value = value.length ? 'lesson' : 'course'
@@ -1297,6 +1326,12 @@ function toggleQuestionDetails(item: QuestionBankItem) {
   expandedQuestionRevision.value = isQuestionExpanded(item)
     ? ''
     : item.revision_id
+}
+
+async function handleFileImport(bundleRevision: string) {
+  await load()
+  workspaceMode.value = 'bank'
+  emit('updated', bundleRevision)
 }
 
 function toggleCoveredObjectives() {
@@ -1833,6 +1868,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate })
 
 <style scoped>
 .question-bank-panel { display:grid; gap:12px; padding:0; background:transparent; }
+.question-bank-modebar{min-height:40px;display:flex;align-items:center;justify-content:flex-end;gap:8px}.question-bank-modebar button{min-height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.question-bank-modebar button:hover{border-color:#a5b4fc;color:#4338ca;background:#fafaff}
 .question-generation-studio { overflow:hidden; border:1px solid #dfe4ec; border-radius:14px; background:#fff; }
 .question-generation-studio__header { min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 20px; }
 .question-generation-studio__ai{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.question-generation-studio__ai:hover:not(:disabled){border-color:#a5b4fc;background:#f8f9ff}.question-generation-studio__ai:focus-visible{outline:2px solid #6366f1;outline-offset:2px}.question-generation-studio__ai:disabled{opacity:.45;cursor:not-allowed}.question-ai-candidate{min-height:44px;display:flex;align-items:center;gap:8px;padding:0 20px;border-block:1px solid #dfe2f5;color:#4f46e5;background:#f8f8ff;outline:0}.question-ai-candidate strong{color:#3730a3;font-size:12px}.question-ai-candidate span{margin-left:auto;color:#6b7280;font-size:11px}

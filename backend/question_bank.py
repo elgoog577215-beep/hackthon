@@ -1825,6 +1825,172 @@ def _imported_item(
     return item
 
 
+def merge_teacher_imported_questions(
+    course_data: dict[str, Any],
+    drafts: Iterable[dict[str, Any]],
+    *,
+    asset_id: str,
+    document_id: str,
+    source_label: str,
+    repository: QuestionBankRepository | None = None,
+) -> dict[str, Any]:
+    """Compile reviewed file-import drafts into the canonical question bank.
+
+    File import is additive: it never invokes the AI generation pipeline and
+    never replaces a question revision that a teacher already reviewed.
+    """
+    course_id = str(course_data.get("course_id") or "").strip()
+    if not course_id:
+        raise ValueError("course_id is required to import questions")
+    active_repository = repository or question_bank_repository
+    nodes = [
+        deepcopy(node)
+        for node in course_data.get("nodes") or []
+        if int(node.get("node_level") or 1) == 2
+    ]
+    node_by_id = {
+        str(node.get("node_id") or ""): node
+        for node in nodes
+        if node.get("node_id")
+    }
+    bindings = {
+        asset_id: {
+            "asset_id": asset_id,
+            "source_label": source_label,
+            "rights_basis": "teacher_asserted",
+            "reuse_policy": "verbatim_allowed",
+        },
+    }
+    imported: list[dict[str, Any]] = []
+    for draft in drafts:
+        if not draft.get("confirmed"):
+            raise ValueError("all imported questions must be confirmed")
+        prompt = str(draft.get("prompt") or "").strip()
+        if not prompt:
+            raise ValueError("imported question prompt is required")
+        option_lines = [
+            f"{str(option.get('id') or '').upper()}. {str(option.get('text') or '').strip()}"
+            for option in draft.get("options") or []
+            if str(option.get("id") or "").strip()
+            and str(option.get("text") or "").strip()
+        ]
+        source_parts = [f"题目：{prompt}", *option_lines]
+        answer = str(draft.get("answer") or "").strip()
+        explanation = str(draft.get("explanation") or "").strip()
+        score = draft.get("score")
+        if answer:
+            source_parts.append(f"答案：{answer}")
+        if explanation:
+            source_parts.append(f"解析：{explanation}")
+        if isinstance(score, (int, float)) and score > 0:
+            source_parts.append(f"分值：{int(score)}")
+        source_text = "\n".join(source_parts)
+        node_id = str(draft.get("node_id") or "")
+        node = node_by_id.get(node_id) or (nodes[0] if nodes else None)
+        evidence_id = str(draft.get("draft_id") or "") or stable_hash(
+            {"asset_id": asset_id, "prompt": prompt},
+            prefix="qie_",
+        )
+        evidence = {
+            "evidence_id": evidence_id,
+            "asset_id": asset_id,
+            "document_id": document_id,
+            "kind": "question",
+            "purpose": "question_source",
+            "source_text": source_text,
+            "summary": prompt,
+            "block_ids": deepcopy(draft.get("block_ids") or []),
+            "locator": {
+                "page": draft.get("source_page"),
+                "section_path": deepcopy(draft.get("section_path") or []),
+            },
+            "content_hash": stable_hash(
+                {"asset_id": asset_id, "draft_id": evidence_id, "source": source_text},
+                prefix="qic_",
+            ),
+            "confidence": str(draft.get("confidence") or "medium"),
+        }
+        item = _imported_item(course_data, node, evidence, bindings)
+        question_type = str(draft.get("question_type") or "").strip()
+        if question_type:
+            item["question_type"] = question_type
+        item["import_session_id"] = str(draft.get("import_id") or "")
+        item["teacher_import_confirmed"] = True
+        item["revision_id"] = _item_revision_id(item)
+        item["formal_task"] = _stored_formal_task_from_item(item)
+        item["formal_task_revision_id"] = item["formal_task"]["revision_id"]
+        imported.append(item)
+
+    imported = _deduplicate_imported_items(imported)
+    profile = compile_course_assessment_profile(course_data)
+    _stamp_question_forms(imported)
+    _apply_tiered_review_policy(imported, profile)
+    previous = load_active_question_bank(
+        course_data,
+        repository=active_repository,
+    )
+    if previous:
+        bundle = deepcopy(previous)
+    else:
+        objectives = compile_assessment_objectives(course_data, profile)
+        blueprint = compile_course_assessment_blueprint(
+            course_data,
+            profile=profile,
+            objectives=objectives,
+        )
+        bundle = {
+            "schema_version": QUESTION_BANK_SCHEMA,
+            "course_id": course_id,
+            "course_scope": {
+                "course_id": course_id,
+                "cross_course_access": False,
+            },
+            "source_priority": [
+                "teacher_question_bank",
+                "course_materials",
+                "trusted_web_reference",
+                "general_model_knowledge",
+            ],
+            "assessment_profile": profile,
+            "assessment_objectives": objectives,
+            "assessment_blueprint": blueprint,
+            "reference_package": {},
+            "solution_envelopes": {},
+            "items": [],
+            "coverage": {},
+            "generation_audit": {},
+            "review_policy": deepcopy(profile.get("review_policy") or {}),
+            "web_enrichment": {
+                "enabled": False,
+                "mode": "off",
+                "status": "not_started",
+                "query_count": 0,
+                "source_count": 0,
+            },
+        }
+    existing_by_id = {
+        str(item.get("item_id") or ""): deepcopy(item)
+        for item in bundle.get("items") or []
+        if item.get("item_id")
+    }
+    for item in imported:
+        existing_by_id.setdefault(str(item.get("item_id") or ""), item)
+    bundle["items"] = list(existing_by_id.values())
+    audit = deepcopy(bundle.get("generation_audit") or {})
+    import_history = list(audit.get("teacher_imports") or [])
+    import_history.append({
+        "asset_id": asset_id,
+        "document_id": document_id,
+        "source_label": source_label,
+        "question_count": len(imported),
+        "imported_at": _now(),
+    })
+    audit["teacher_imports"] = import_history[-50:]
+    bundle["generation_audit"] = audit
+    bundle = recalculate_question_bank_coverage(course_data, bundle)
+    return active_repository.save_bundle(course_id, bundle)
+
+
 def _generated_course_items(
     course_data: dict[str, Any],
     nodes: list[dict[str, Any]],
@@ -4792,6 +4958,7 @@ __all__ = [
     "formal_task_from_question_bank_item",
     "is_generic_generated_prompt",
     "load_active_question_bank",
+    "merge_teacher_imported_questions",
     "migrate_question_bank_review_policy",
     "question_bank_repository",
     "reconcile_item_question_bank",
