@@ -1458,6 +1458,16 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */
+.teacher-workbench{
+  --teacher-component-surface:#fff;
+  --teacher-component-tint:#f7f7ff;
+  --teacher-component-active:#f0efff;
+}
+.lesson-navigator,.stage-next-bar{background:var(--teacher-component-tint)}
+.lesson-generation-step,.lesson-generation-entry>textarea{background:var(--teacher-component-surface)}
+.lesson-selector select:hover,.lesson-title-trigger:hover,.lesson-title-trigger[aria-expanded="true"]{background:var(--teacher-component-tint)}
+.lesson-outline-chapter-button:hover:not(:disabled){background:var(--teacher-component-tint)}
+.lesson-outline-chapter-button.active{background:var(--teacher-component-active)}
 .has-lesson-outline .lesson-workspace{display:block}
 .has-lesson-outline .lesson-stage-content{overflow:visible}
 .lesson-navigator{position:relative;z-index:5;grid-template-columns:auto minmax(0,1fr) auto;overflow:visible;border-radius:13px 13px 0 0}

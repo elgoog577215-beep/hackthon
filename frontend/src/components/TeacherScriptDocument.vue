@@ -479,4 +479,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, selectA
 .script-document>:deep(.app-error-notice){margin:12px 28px 0}
 @media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.script-footer{padding-inline:18px}}
 .script-content[data-state="candidate"]{border:1px solid #c8c7f2;background:#f8f8ff;outline:0}.script-content[data-state="candidate"]:focus{box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-tabs button:disabled{opacity:.45;cursor:not-allowed}
+.script-document,.script-generation-panel{background:var(--teacher-component-surface,#fff)}
+.script-ai,.script-footer{background:var(--teacher-component-tint,#f7f7ff)}
+.script-actions button:hover,.script-generate textarea:disabled{background:var(--teacher-component-tint,#f7f7ff)}
 </style>
