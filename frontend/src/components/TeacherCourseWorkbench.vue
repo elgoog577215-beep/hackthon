@@ -282,6 +282,7 @@
       :scope-target-type="lessonReferenceTargetId ? 'lesson_plan' : ''"
       :scope-target-label="selectedLesson?.title || ''"
       :previous-scope-target-id="previousLessonReferenceTargetId"
+      @open-course-information="emit('open-course-information')"
     />
   </section>
 </template>
@@ -312,6 +313,7 @@ const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
   (event: 'outlineConfirmed'): void
+  (event: 'open-course-information'): void
 }>()
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)

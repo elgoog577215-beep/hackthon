@@ -142,6 +142,23 @@ TeacherCourseBriefV1
 
 **替代方案：**继续使用一个“额外要求”输入。该方案不可验证、不可稳定迁移，也不能确定性检查课时，因此拒绝。
 
+#### 3.1 课程基础信息面板聚合现有两类元数据
+
+面板只是同一门课程基础信息的聚合投影，不建立第二份课程信息。`course_profile` 继续保存编号、类别、学分、专业、课程简介等教务档案，`generation_request + TeacherCourseBriefV1` 继续保存教学类型、学科类型、难度与课时。学科细分由教学画像持有；内容编排由教学类型、学科类型、学科细分与本节课型确定性派生。旧 `teaching_context`、`grounding_strategy` 与 `composition_style` 字段只保留读取和历史请求兼容，不再作为教师独立输入。
+
+修改时由一个课程信息命令同时更新两者，并强制同步以下重复字段：
+
+- `course_profile.total_hours` 与 `teacher_course_brief.total_class_hours`；
+- `course_profile.target_grade`、`generation_request.target_audience` 与 `teacher_course_brief.target_audience`；
+- `academic_year + term` 与 `teacher_course_brief.academic_term`；
+- 课程目标与当前 `course_intent` 的类型化目标字段。
+
+课程名称在本面板中只读。修改课程名称同时涉及 `CourseDocument.title` 与文件空间名称，应由独立课程重命名命令承担，不得在元数据面板中只改一处。
+
+每次修订保存完整的上一版基础信息快照。查看历史和恢复只操作这些基础信息，不嵌入大纲、课次、教案、讲稿、PPT 或资料引用。修订成功后只更新后续生产所读取的基线，不自动重生成现有产物。
+
+**替代方案：**把“课程上下文”做成下游产物总览。这会混淆课程基础约束与生成结果，并重复文件视图的职责，因此拒绝。
+
 ### 4. 目录结构变化使用领域操作，不直接覆盖整份蓝图
 
 目录草稿增加以下白名单操作：

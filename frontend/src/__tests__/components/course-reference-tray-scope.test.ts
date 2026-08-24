@@ -45,6 +45,9 @@ describe('CourseReferenceTray lesson scope', () => {
     await flushPromises()
 
     expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
+    expect(wrapper.get('.system-context').text()).toContain('课时、课型与教学设置')
+    await wrapper.get('.system-context').trigger('click')
+    expect(wrapper.emitted('open-course-information')).toHaveLength(1)
     expect(wrapper.get('.drop-zone').text()).toContain('第一讲案例.docx')
     expect(wrapper.get('.reference-list').text()).not.toContain('第二讲练习.pdf')
 

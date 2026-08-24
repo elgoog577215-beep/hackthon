@@ -21,6 +21,8 @@ describe('course workbench authoring boundary', () => {
     expect(workbench).toContain("'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'")
     expect(workbench).toContain('<QuestionBankReviewPanel')
     expect(references).toContain('class="drop-zone"')
+    expect(references).toContain("emit('open-course-information')")
+    expect(workspace).toContain('<CourseBaselineDialog')
     expect(references).toContain("data.append('course_id', props.courseId)")
     expect(references).toContain("role: 'primary' | 'reference'")
   })

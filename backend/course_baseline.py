@@ -26,12 +26,205 @@ PEDAGOGY_MODES = {
 }
 PRODUCTION_MODES = {"manual", "automatic"}
 
+COURSE_PROFILE_FIELDS = (
+    "course_code",
+    "course_goal",
+    "default_location",
+    "target_grade",
+    "course_category",
+    "target_major",
+    "credits",
+    "total_hours",
+    "assessment_method",
+    "course_intro",
+    "teaching_goals",
+)
+
 
 def baseline_revision(course: dict[str, Any]) -> int:
     try:
         return max(0, int(course.get("generation_request_revision") or 0))
     except (TypeError, ValueError):
         return 0
+
+
+def course_information_revision(course: dict[str, Any]) -> int:
+    """Return the aggregate course-information revision.
+
+    Existing courses only have ``generation_request_revision``. Reusing that
+    value as the first aggregate revision preserves optimistic concurrency
+    without silently migrating data on read.
+    """
+    try:
+        value = course.get("course_information_revision")
+        return max(0, int(value if value is not None else baseline_revision(course)))
+    except (TypeError, ValueError):
+        return baseline_revision(course)
+
+
+def course_information_snapshot(course: dict[str, Any]) -> dict[str, Any]:
+    profile = course.get("course_profile")
+    if not isinstance(profile, dict):
+        profile = {}
+    request = course.get("generation_request")
+    if not isinstance(request, dict):
+        request = {}
+    snapshot = {
+        "course_name": str(course.get("course_name") or ""),
+        "academic_year": str(course.get("academic_year") or ""),
+        "term": str(course.get("term") or ""),
+        "course_profile": {
+            field: (
+                deepcopy(profile.get(field))
+                if field in {"credits", "total_hours"}
+                else str(profile.get(field) or "")
+            )
+            for field in COURSE_PROFILE_FIELDS
+        },
+        "generation_request": deepcopy(request),
+    }
+    return normalize_course_information(course, snapshot)
+
+
+def normalize_course_information(
+    course: dict[str, Any],
+    information: dict[str, Any],
+) -> dict[str, Any]:
+    """Synchronize duplicate creation/profile fields at the command boundary."""
+    normalized = deepcopy(information)
+    normalized["course_name"] = str(course.get("course_name") or "")
+    normalized["academic_year"] = str(normalized.get("academic_year") or "").strip()
+    normalized["term"] = str(normalized.get("term") or "").strip()
+
+    profile = normalized.get("course_profile")
+    if not isinstance(profile, dict):
+        profile = {}
+    profile = {
+        field: deepcopy(profile.get(field))
+        for field in COURSE_PROFILE_FIELDS
+    }
+    request = normalized.get("generation_request")
+    if not isinstance(request, dict):
+        request = {}
+    request = deepcopy(request)
+    brief = request.get("teacher_course_brief")
+    if not isinstance(brief, dict):
+        brief = {}
+    brief = deepcopy(brief)
+
+    brief.setdefault("schema_version", "teacher_course_brief_v1")
+    brief.setdefault("total_class_hours", profile.get("total_hours") or 32)
+    brief.setdefault("lesson_duration_minutes", 45)
+    brief.setdefault("teaching_context", "classroom")
+
+    total_hours = brief.get("total_class_hours")
+    if total_hours is not None:
+        profile["total_hours"] = total_hours
+
+    audience = str(
+        profile.get("target_grade")
+        or brief.get("target_audience")
+        or request.get("target_audience")
+        or ""
+    ).strip()
+    if audience:
+        profile["target_grade"] = audience
+        brief["target_audience"] = audience
+        request["target_audience"] = audience
+    else:
+        profile["target_grade"] = "大学生"
+        brief["target_audience"] = "大学生"
+        request["target_audience"] = "大学生"
+
+    brief["academic_term"] = " ".join(
+        item
+        for item in (normalized["academic_year"], normalized["term"])
+        if item
+    )
+
+    goal = _goal(request).strip()
+    if goal:
+        profile["course_goal"] = goal
+        profile["teaching_goals"] = goal
+
+    request["teacher_course_brief"] = brief
+    normalized["course_profile"] = profile
+    normalized["generation_request"] = request
+    return normalized
+
+
+def course_information_changed_fields(
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> list[str]:
+    changed: list[str] = []
+    for field in ("academic_year", "term"):
+        if before.get(field) != after.get(field):
+            changed.append(field)
+    before_profile = before.get("course_profile") or {}
+    after_profile = after.get("course_profile") or {}
+    for field in COURSE_PROFILE_FIELDS:
+        if before_profile.get(field) != after_profile.get(field):
+            changed.append(f"course_profile.{field}")
+    changed.extend(
+        field
+        for field in baseline_changed_fields(
+            before.get("generation_request") or {},
+            after.get("generation_request") or {},
+        )
+        if field not in changed
+    )
+    before_request = before.get("generation_request") or {}
+    after_request = after.get("generation_request") or {}
+    for field in ("secondary_mode", "requirements", "grounding_strategy"):
+        if before_request.get(field) != after_request.get(field):
+            changed.append(field)
+    before_brief = before_request.get("teacher_course_brief") or {}
+    after_brief = after_request.get("teacher_course_brief") or {}
+    for field in (
+        "lesson_duration_minutes",
+        "teaching_context",
+        "class_size",
+        "class_profile",
+        "chapter_count",
+        "section_count",
+        "additional_requirements",
+    ):
+        if before_brief.get(field) != after_brief.get(field):
+            changed.append(f"teacher_course_brief.{field}")
+    return changed
+
+
+def course_information_versions(course: dict[str, Any]) -> list[dict[str, Any]]:
+    versions = [{
+        "revision": course_information_revision(course),
+        "current": True,
+        "source": "current",
+        "committed_at": str(course.get("updated_at") or ""),
+        "changed_fields": [],
+        "information": course_information_snapshot(course),
+    }]
+    history = course.get("course_information_history")
+    if not isinstance(history, list):
+        return versions
+    seen = {versions[0]["revision"]}
+    for entry in reversed(history):
+        if not isinstance(entry, dict):
+            continue
+        revision = entry.get("previous_revision")
+        information = entry.get("previous_information")
+        if not isinstance(revision, int) or revision in seen or not isinstance(information, dict):
+            continue
+        seen.add(revision)
+        versions.append({
+            "revision": revision,
+            "current": False,
+            "source": str(entry.get("source") or "manual"),
+            "committed_at": str(entry.get("committed_at") or ""),
+            "changed_fields": list(entry.get("changed_fields") or []),
+            "information": deepcopy(information),
+        })
+    return versions
 
 
 def confirmed_generation_request(value: CourseGenerationRequest) -> dict[str, Any]:
@@ -93,6 +286,64 @@ def build_baseline_mutation(
         raw["generation_request"] = deepcopy(generation_request)
         raw["generation_request_revision"] = next_revision
         raw["generation_request_history"] = history[-20:]
+        raw["updated_at"] = now
+
+    return mutate
+
+
+def build_course_information_mutation(
+    *,
+    expected_revision: int,
+    information: dict[str, Any],
+    source: str,
+    restore_revision: int | None,
+):
+    """Build the aggregate profile + generation-request metadata command."""
+
+    def mutate(raw: dict[str, Any]) -> None:
+        current_revision = course_information_revision(raw)
+        if current_revision != expected_revision:
+            raise ValueError("course_information_revision_changed")
+        previous = course_information_snapshot(raw)
+        next_revision = current_revision + 1
+        changed_fields = course_information_changed_fields(previous, information)
+        now = datetime.now(timezone.utc).isoformat()
+
+        history = list(raw.get("course_information_history") or [])
+        history.append({
+            "schema_version": "course_information_history_v1",
+            "revision": next_revision,
+            "previous_revision": current_revision,
+            "source": source,
+            "restore_revision": restore_revision,
+            "changed_fields": changed_fields,
+            "previous_information": previous,
+            "committed_at": now,
+        })
+
+        generation_history = list(raw.get("generation_request_history") or [])
+        generation_history.append({
+            "schema_version": "generation_request_history_v1",
+            "revision": next_revision,
+            "previous_revision": current_revision,
+            "source": source,
+            "draft_id": "",
+            "changed_fields": baseline_changed_fields(
+                previous.get("generation_request") or {},
+                information.get("generation_request") or {},
+            ),
+            "previous": deepcopy(previous.get("generation_request") or {}),
+            "committed_at": now,
+        })
+
+        raw["academic_year"] = information.get("academic_year") or ""
+        raw["term"] = information.get("term") or ""
+        raw["course_profile"] = deepcopy(information.get("course_profile") or {})
+        raw["generation_request"] = deepcopy(information.get("generation_request") or {})
+        raw["course_information_revision"] = next_revision
+        raw["generation_request_revision"] = next_revision
+        raw["course_information_history"] = history[-20:]
+        raw["generation_request_history"] = generation_history[-20:]
         raw["updated_at"] = now
 
     return mutate
@@ -302,6 +553,12 @@ __all__ = [
     "baseline_revision",
     "build_ai_baseline_prompt",
     "build_baseline_mutation",
+    "build_course_information_mutation",
     "confirmed_generation_request",
+    "course_information_changed_fields",
+    "course_information_revision",
+    "course_information_snapshot",
+    "course_information_versions",
     "merge_ai_baseline_draft",
+    "normalize_course_information",
 ]

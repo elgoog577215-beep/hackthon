@@ -92,6 +92,90 @@ async def test_confirmed_baseline_update_changes_metadata_without_regenerating_c
     assert len(repository.load_course_view("course-1")["generation_request_history"]) == 1
 
 
+@pytest.mark.asyncio
+async def test_course_information_update_syncs_profile_and_supports_restore(tmp_path):
+    storage = Storage(str(tmp_path / "data"))
+    repository = CourseDocumentRepository(storage)
+    await repository.create_teacher_draft(
+        "course-1",
+        title="人工智能通识课",
+        metadata={
+            "owner_id": "teacher-a",
+            "academic_year": "2026-2027",
+            "term": "秋冬",
+            "course_profile": {
+                "course_code": "AI101",
+                "target_grade": "大学生",
+                "course_category": "通识必修课",
+                "target_major": "",
+                "credits": 2,
+                "total_hours": 16,
+                "assessment_method": "过程考核",
+                "course_intro": "理解 AI 的基本原理。",
+                "teaching_goals": "理解人工智能的基本原理",
+            },
+            "generation_request": _generation_request(),
+            "generation_request_revision": 0,
+        },
+    )
+    request = SimpleNamespace(headers={"X-User-Id": "teacher-a"})
+    before = await course_baseline.get_course_information(
+        "course-1",
+        request,
+        repository,
+    )
+    edited = before["information"]
+    edited["term"] = "春夏"
+    edited["generation_request"]["teacher_course_brief"]["total_class_hours"] = 64
+    edited["generation_request"]["teacher_course_brief"]["teaching_context"] = "blended"
+    edited["generation_request"]["pedagogy_mode"] = "natural_science"
+
+    response = await course_baseline.update_course_information(
+        "course-1",
+        course_baseline.CourseInformationUpdateRequest.model_validate({
+            "information": edited,
+            "expected_revision": before["revision"],
+            "expected_document_revision": before["document_revision"],
+            "idempotency_key": "course-information-command-1",
+            "source": "manual",
+        }),
+        request,
+        repository,
+    )
+
+    after = repository.load_course_view("course-1")
+    assert response["revision"] == 1
+    assert response["downstream_action"] == "none"
+    assert after["course_profile"]["total_hours"] == 64
+    assert after["generation_request"]["teacher_course_brief"]["total_class_hours"] == 64
+    assert after["generation_request"]["teacher_course_brief"]["academic_term"] == "2026-2027 春夏"
+    assert after["generation_request"]["pedagogy_mode"] == "natural_science"
+    assert after["course_document_revision"] == before["document_revision"]
+    assert response["versions"][1]["revision"] == 0
+
+    restore_information = response["versions"][1]["information"]
+    restored = await course_baseline.update_course_information(
+        "course-1",
+        course_baseline.CourseInformationUpdateRequest.model_validate({
+            "information": restore_information,
+            "expected_revision": response["revision"],
+            "expected_document_revision": response["document_revision"],
+            "idempotency_key": "course-information-command-2",
+            "source": "restore",
+            "restore_revision": 0,
+        }),
+        request,
+        repository,
+    )
+
+    current = repository.load_course_view("course-1")
+    assert restored["revision"] == 2
+    assert current["course_profile"]["total_hours"] == 16
+    assert current["generation_request"]["teacher_course_brief"]["total_class_hours"] == 16
+    assert current["course_information_history"][-1]["restore_revision"] == 0
+    assert len(restored["versions"]) == 3
+
+
 def test_ai_draft_only_changes_supported_fields_and_preserves_unmentioned_baseline():
     course = {
         "course_id": "course-1",

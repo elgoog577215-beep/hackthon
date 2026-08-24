@@ -70,6 +70,7 @@
         v-model:outline-editing="outlineEditing"
         @generate-outline="startOutlineGeneration"
         @outline-confirmed="handleOutlineConfirmed"
+        @open-course-information="courseInformationOpen = true"
       />
       <TeacherCourseSpaceView
         v-else
@@ -90,8 +91,15 @@
         @open-companion-documents="openCompanionDocuments"
         @context-change="selectedContext = $event"
         @readiness-change="readiness = $event"
+        @edit-baseline="courseInformationOpen = true"
       />
     </section>
+
+    <CourseBaselineDialog
+      v-model="courseInformationOpen"
+      :course-id="courseId"
+      @updated="handleCourseInformationUpdated"
+    />
 
     <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
       <TeacherCourseCalendarView embedded />
@@ -121,6 +129,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from 'lucide-vue-next'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
+import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
@@ -144,6 +153,7 @@ const outlineEditing = ref(false)
 const calendarOpen = ref(false)
 const workbenchOpen = ref(false)
 const courseAdjustmentOpen = ref(false)
+const courseInformationOpen = ref(false)
 const courseAdjustmentFocusPlanId = ref('')
 const courseAdjustmentSectionId = ref('')
 const generationStarting = ref(false)
@@ -176,6 +186,11 @@ const courseStateLabel = computed(() => t(`courseFiles.states.${courseState.valu
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
+
+function handleCourseInformationUpdated(payload: any) {
+  courseGenerationOptions.value = payload.information?.generation_request || courseGenerationOptions.value
+  void courseStore.fetchCourseList({ surface: 'teacher' })
+}
 
 function backToSource() {
   const returnTo = String(route.query.returnTo || '')
