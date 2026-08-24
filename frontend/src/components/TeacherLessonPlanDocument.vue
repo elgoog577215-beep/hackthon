@@ -4,8 +4,11 @@
       <div class="document-title">
         <h3>{{ lesson.title }}</h3>
       </div>
-      <div class="document-actions">
+      <div v-if="!pendingCandidate || !assistantOpen" class="document-actions">
         <template v-if="pendingCandidate">
+          <button type="button" :disabled="aiBusy" @click="emit('open-ai')">
+            <Sparkles :size="15" />{{ tr('courseWorkbench.lessonDocument.aiCandidate') }}
+          </button>
           <button type="button" :disabled="aiBusy" @click="resolveAiCandidate(false)">
             <X :size="15" />{{ tr('courseWorkbench.lessonDocument.discardAi') }}
           </button>
@@ -244,11 +247,13 @@ const props = withDefaults(defineProps<{
   courseId: string
   lesson: TeacherLessonProjection
   confirmed?: boolean
+  assistantOpen?: boolean
   confirming?: boolean
   confirmError?: string
   activeSectionId?: string
 }>(), {
   confirmed: false,
+  assistantOpen: false,
   confirming: false,
   confirmError: '',
   activeSectionId: '',
@@ -261,6 +266,7 @@ const emit = defineEmits<{
   (event: 'open-ai'): void
   (event: 'ai-candidate-change', value: TeacherLessonPlanCandidate | null): void
   (event: 'ai-busy-change', value: boolean): void
+  (event: 'ai-resolving', value: { accept: boolean }): void
   (event: 'ai-resolved', value: { accept: boolean }): void
   (event: 'ai-error', value: string): void
   (event: 'update:activeSectionId', value: string): void
@@ -281,10 +287,6 @@ const documentError = computed(() => {
   if (saveError.value) return toAppError(saveError.value, {
     title: tr('courseWorkbench.lessonDocument.saveFailed').replace(/，?请重试。?$/, ''),
     fallback: tr('courseWorkbench.lessonDocument.saveFailed'),
-  })
-  if (aiError.value) return toAppError(aiError.value, {
-    title: tr('courseWorkbench.lessonDocument.aiFailed').replace(/，?请重试。?$/, ''),
-    fallback: tr('courseWorkbench.lessonDocument.aiFailed'),
   })
   if (props.confirmError) return toAppError(props.confirmError, {
     title: tr('courseWorkbench.lessonDocument.confirmFailed'),
@@ -489,6 +491,7 @@ async function requestAiCandidate(instructionValue: string): Promise<TeacherLess
 
 async function resolveAiCandidate(accept: boolean): Promise<boolean> {
   if (!pendingCandidate.value || aiBusy.value) return false
+  emit('ai-resolving', { accept })
   aiBusy.value = true
   aiError.value = null
   try {
@@ -538,12 +541,25 @@ async function saveDraft() {
   }
 }
 
-watch(() => props.lesson.lesson_unit_id, () => {
+watch(() => [
+  props.lesson.lesson_unit_id,
+  props.lesson.plan.working_revision_id,
+  props.lesson.plan.ai_candidates,
+], () => {
   cancelEditing()
-  pendingCandidate.value = null
   aiError.value = null
-  selectedSectionId.value = String(planSections.value[0]?.node_id || '')
-}, { immediate: true })
+  pendingCandidate.value = [...(props.lesson.plan.ai_candidates || [])]
+    .reverse()
+    .find(candidate => (
+      candidate.status === 'pending'
+      && candidate.base_revision_id === props.lesson.plan.working_revision_id
+    )) || null
+  selectedSectionId.value = String(
+    pendingCandidate.value?.section_node_id
+    || planSections.value[0]?.node_id
+    || '',
+  )
+}, { immediate: true, deep: true })
 
 watch(planSections, sections => {
   if (!sections.some(section => String(section.node_id || '') === selectedSectionId.value)) {
@@ -551,7 +567,7 @@ watch(planSections, sections => {
   }
 }, { deep: true })
 
-watch(pendingCandidate, candidate => emit('ai-candidate-change', candidate))
+watch(pendingCandidate, candidate => emit('ai-candidate-change', candidate), { immediate: true })
 watch(aiBusy, busy => emit('ai-busy-change', busy))
 watch(aiError, error => emit('ai-error', error ? toAppError(error, {
   title: tr('courseWorkbench.lessonDocument.aiFailed'),

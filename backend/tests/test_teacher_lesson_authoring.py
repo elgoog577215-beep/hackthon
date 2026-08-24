@@ -700,6 +700,8 @@ def test_ai_optimizer_uses_compact_editable_contract_and_merges_one_section():
     assert optimized[1]["learning_objective"] == plan["sections"][1]["learning_objective"]
     assert '"schema_version"' not in fake.captured_prompt
     assert '"knowledge_context"' in fake.captured_prompt
+    assert "只修改实现要求所必需的字段" in fake.captured_prompt
+    assert "保持原有总时长" in fake.captured_prompt
 
 
 def test_lesson_ppt_binds_exact_plan_revision_and_becomes_stale(tmp_path):

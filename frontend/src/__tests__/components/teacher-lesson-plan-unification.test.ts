@@ -139,7 +139,7 @@ describe('统一教案页面', () => {
     }).requestAiCandidate('增加可观察目标')
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain('AI 方案')
+    expect(wrapper.text()).toContain('AI 方案')
     expect(wrapper.text()).toContain('AI 候选正在左侧画布预览')
     expect(wrapper.text()).toContain('AI 优化后的可观察目标')
     expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')

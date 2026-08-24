@@ -2278,11 +2278,14 @@ class CourseService(AIBase):
             "teaching_notes 字符串数组，以及 teaching_modules 数组。"
             "每个 teaching_module 必须保持 module_id 和原顺序，并返回 teaching_purpose、planned_minutes、"
             "teacher_activity、student_activity。"
-            "必须按教师要求产生可见修改，不得返回 knowledge_context，不得改写知识事实或生成学生课程正文。\n"
+            "必须按教师要求产生可见修改，但只修改实现要求所必需的字段，其余字段逐字保持输入值。"
+            "教学目标要可观察，课堂活动与检查要对应目标；除非教师明确要求调整节奏，否则保持原有总时长。"
+            "不得返回 knowledge_context，不得改写知识事实或生成学生课程正文。\n"
             f"当前教案与知识依据：{json.dumps({'sections': compact_sections}, ensure_ascii=False)}",
             system_prompt=(
                 "你是高校教师教案优化助手。输出一个 JSON 对象，根键为 sections。"
                 "sections 中的 node_id、数量和顺序必须与输入完全一致；修改必须具体、可执行、可对比。"
+                "遵循最小充分修改原则，不得为了显得全面而改写未被教师要求的字段。"
             ),
             use_fast_model=True,
             retry_count=1,

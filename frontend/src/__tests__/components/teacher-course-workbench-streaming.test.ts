@@ -345,16 +345,16 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
     expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
-    expect(wrapper.get('.lesson-outline-handle').attributes('aria-label')).toBe('展示总进度')
-    expect(wrapper.get('.lesson-outline > nav').isVisible()).toBe(false)
+    expect(wrapper.get('.lesson-outline-toggle').attributes('title')).toBe('展示总进度')
+    expect(wrapper.get('.lesson-outline').isVisible()).toBe(false)
     expect(wrapper.findAll('.lesson-section-tabs button')).toHaveLength(2)
     expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('1.1 小节1')
     expect(wrapper.get('.lesson-navigator').text()).toContain('上一讲')
     expect(wrapper.get('.lesson-navigator').text()).toContain('下一讲')
 
-    await wrapper.get('.lesson-outline-handle').trigger('click')
+    await wrapper.get('.lesson-outline-toggle').trigger('click')
     expect(wrapper.get('.lesson-workspace').classes()).not.toContain('is-outline-collapsed')
-    expect(wrapper.get('.lesson-outline-handle').attributes('aria-label')).toBe('收起总进度')
+    expect(wrapper.get('.lesson-outline-toggle').attributes('title')).toBe('收起总进度')
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons).toHaveLength(2)
     expect(chapterButtons[0]!.text()).toContain('待确认')
@@ -367,7 +367,7 @@ describe('teacher course workbench outline streaming', () => {
     await secondSection.trigger('click')
     expect(secondSection.classes()).toContain('active')
 
-    await wrapper.get('.lesson-outline-handle').trigger('click')
+    await wrapper.get('.lesson-outline-toggle').trigger('click')
     expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
   })
 
@@ -389,7 +389,7 @@ describe('teacher course workbench outline streaming', () => {
     tray.vm.$emit('update:modelValue', [firstReference])
     await flushPromises()
 
-    await wrapper.get('.lesson-outline-handle').trigger('click')
+    await wrapper.get('.lesson-outline-toggle').trigger('click')
     await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-2')
