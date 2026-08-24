@@ -1,53 +1,68 @@
-## 1. Contract and regression baseline
+## 1. 冻结产品合同
 
-1.1 Freeze teacher task types, lesson/section identifiers, asset revision fields and zero student-write boundary.
+- [x] 1.1 冻结 `课程 → 章 → 讲 → 讲内小节` 层级和讲次边界。
+- [x] 1.2 冻结 `教学类型 → 学科类型 → 学科细分 → 本讲课型 → 教学块` 教师语言及内部策略边界。
+- [x] 1.3 冻结 `大纲 → 教案 → 讲稿 → PPT` 正式资产图、确认门和题库/日历/配套文档旁支。
+- [x] 1.4 冻结原文件吸收、主来源优先、正式修订和导出文件的关系。
 
-1.2 Add failing backend and frontend tests for teacher hard lesson count, lesson-scoped tasks, usable fallback completion, section navigation and student lifecycle preservation.
+## 2. 建立能力复用矩阵
 
-## 2. Teacher outline stop point
+- [x] 2.1 首轮定位旧整课编排、新工作台、大纲、教案、正文、PPT、任务和质量门的主要代码所有者。
+- [ ] 2.2 逐项盘点旧链提示词、模板、并发策略、检查点、降级和测试，记录保留/迁移/废弃结论。
+- [ ] 2.3 审计真实数据、前后端调用和历史课程依赖，形成旧教师入口退场清单。
+- [ ] 2.4 为共享能力建立唯一领域服务与写入所有者，禁止新工作台复制同等实现。
 
-2.1 Map teacher `expectedSessions` to explicit lesson-unit count and preserve default lesson duration separately from total section count.
+## 3. 统一大纲与本讲编排
 
-2.2 Add teacher outline task/orchestration that reuses current outline planning but completes after teacher outline confirmation without teaching-plan/content continuation.
+- [ ] 3.1 让教师大纲任务复用成熟规划能力，并在确认大纲后停止，不自动进入整课生成。
+- [ ] 3.2 将课程级教学类型、学科类型和学科细分投影到每讲推荐，不增加独立必填页。
+- [ ] 3.3 在同一中间内容面展示并允许调整本讲课型、教学块名称、作用、摘要、时间、活动和产出。
+- [ ] 3.4 教学块确认后才启动本讲教案流式生成；刷新和断线可恢复已保存工作片段。
 
-2.3 Project the confirmed outline and frozen lesson knowledge scope into the teacher workspace without exposing it as a student generation preview.
+## 4. 吸收原教案与收束教案真源
 
-## 3. Lesson-scoped teaching-plan assets
+- [ ] 4.1 解析教师选择的原教案，保留分块、顺序、字段和原文位置，建立来源关系。
+- [ ] 4.2 原教案作为主来源时默认忠实吸收，只对缺失项补齐；冲突形成可审阅候选。
+- [ ] 4.3 有机复用 `CourseTeachingPlanV3`、知识锚点和 `standard_lesson_plan_v1` 质量门，不覆盖成熟大纲与教案能力。
+- [ ] 4.4 完成按讲手工编辑、自动保存、AI 候选、采用/放弃、确认、版本和失败恢复。
 
-3.1 Implement atomic `TeacherLessonAuthoringRepository` with per-course/per-lesson working and confirmed revision pointers.
+## 5. 迁移旧正文能力到教师讲稿
 
-3.2 Implement `teacher_lesson_plan_generation` creation, idempotency, stable scoped checkpoints and task projection.
+- [ ] 5.1 盘点并迁移旧正文中的学科模板、背景引入、概念讲解、推导、案例、练习、互动、总结和降级策略。
+- [ ] 5.2 建立已确认教学块到稳定讲稿块的映射，讲稿块绑定角色、知识、时间和来源。
+- [ ] 5.3 讲稿只从已确认教案启动，支持逐块流式生成、编辑、AI 候选、确认和恢复。
+- [ ] 5.4 提供旧正文单向适配读取；新教师正式写入不得再产生平行正文真源。
 
-3.3 Reuse current teaching-plan planning for one lesson and all its child sections; accept schema-valid deterministic fallback as `completed_with_warnings`.
+## 6. 收束 V6 PPT 来源
 
-3.4 Implement lesson-plan read, manual draft patch, confirm, whole-lesson/section AI candidate, accept and reject contracts.
+- [ ] 6.1 让 `SlideDeckV6` 只消费已确认讲稿块，并记录教案与讲稿精确修订。
+- [ ] 6.2 复用旧课件规划、模板、渲染和导出能力，删除重复的“教案模块 + 整段讲稿”语义输入。
+- [ ] 6.3 补齐来源过期、受影响页面定位、定向重建、最后可用版本和失败回退。
+- [ ] 6.4 验证视觉模板只影响容量和版式，不反向改变本讲课型、教学块或知识语义。
 
-3.5 Implement lesson-filtered knowledge evidence projection.
+## 7. 统一任务、质量和恢复
 
-## 4. Teacher lesson production UI
+- [ ] 7.1 统一教师大纲、教案、讲稿和 PPT 的任务 ID、幂等、阶段、心跳、检查点、取消和恢复合同。
+- [ ] 7.2 明确 SSE 只投影持久任务，断线、刷新或局部失败不清空工作片段和最后确认版本。
+- [ ] 7.3 为每个确认门增加结构质量、来源完整性和下游可生成条件；降级工作稿明确标记。
+- [ ] 7.4 对同一讲次并发生成、重复点击、跨讲切换和恢复建立后端与前端回归测试。
 
-4.1 Add a teacher lesson-authoring Store/adapter that observes only teacher outline/lesson/PPT tasks.
+## 8. 保持旁支独立
 
-4.2 Separate `lessonUnitId` and `sectionNodeId` in production routing and component props.
+- [ ] 8.1 题库按课程或讲次范围生成，可跳过且不阻断讲稿与 PPT。
+- [ ] 8.2 教学日历作为正式文件类型使用学校模板生成并进入文件空间。
+- [ ] 8.3 评分细则、自查清单等配套文档继续通过二级模板库快捷生成。
 
-4.3 Expand the selected lesson's child sections in the left rail; implement section/lesson views and truthful previous/next navigation.
+## 9. 旧教师整课入口退场
 
-4.4 Show per-lesson state, generate/retry/edit/AI/confirm actions, warning details and knowledge-evidence drawer.
+- [ ] 9.1 通过 G2：新工作台不再向旧教师整课真源新增正式写入。
+- [ ] 9.2 通过 G3：历史教师资产迁移对账完成，旧入口只读且回滚演练通过。
+- [ ] 9.3 通过 G4：生产调用为零后删除旧教师 UI、API、路由和专属写入。
+- [ ] 9.4 回归学生 `CourseDocument`、学习、练习、笔记、AI 老师与必要共享能力未被误删。
 
-## 5. Lesson-scoped PPT
+## 10. 验收与交接
 
-5.1 Define a teacher lesson-plan authoring source adapter for V6 without writing student CourseDocument content.
-
-5.2 Implement `teacher_lesson_ppt_generation` and per-lesson primary deck revision/source pointers.
-
-5.3 Connect the teacher PPT route/workbench to exact lesson and lesson-plan revision; preserve old deck when source becomes stale.
-
-5.4 Add independent whole-deck/page-range AI candidate actions through existing PPT editing contracts.
-
-## 6. Verification and handoff
-
-6.1 Run focused backend and frontend tests, student regression tests, type/build and OpenSpec validation.
-
-6.2 Run real browser flows for exact lesson count, selective lesson generation, section navigation, edit/AI, PPT, reload and current-lesson-only failure.
-
-6.3 Review console/network, confirm zero teacher content-generation and zero student task/data mutation, and record remaining deferred scope.
+- [ ] 10.1 通过 OpenSpec 严格校验、后端聚焦测试、前端类型/构建和学生兼容回归。
+- [ ] 10.2 用从零生成、上传原教案吸收、已有教案继续三条真实模型路径验证同一工作台。
+- [ ] 10.3 用浏览器验证课型/教学块确认、流式生成、编辑确认、下一步、断线恢复和版本回退。
+- [ ] 10.4 记录迁移证据、遗留兼容、灰度、告警和回滚结果后再关闭本变更。

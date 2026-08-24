@@ -1,14 +1,33 @@
 ## ADDED Requirements
 
-### Requirement: 表达来源支持教师讲次教案作用域
-系统 MUST 支持以教师讲次教案修订和讲次知识快照构建 `slide_deck` 来源合同，并将作用域限制在一个 `LessonUnit`。现有学生 CourseDocument 来源合同保持兼容。
+### Requirement: 教师表达必须形成精确修订图
+系统 MUST 记录 `confirmed lesson plan revision → confirmed script revision → slide deck revision` 的精确派生关系，并把作用域限制在一个 `LessonUnit`。上传原件、Markdown 投影和导出文件不得成为平行正式真源。
 
-#### Scenario: 构建第二讲主课件
-- **WHEN** 教师选择基于第二讲教案修订生成主课件
-- **THEN** 来源合同只包含第二讲小节、教案模块和知识依据
-- **AND** 生成结果登记在第二讲 PPT 资产下
+#### Scenario: 查询第二讲PPT来源
+- **WHEN** 系统读取第二讲 PPT 修订
+- **THEN** 可以追溯到精确讲稿修订、教案修订及其原文件来源
+- **AND** 导出的 PPTX 不被反向登记为新的内容真源
 
-#### Scenario: 学生构建原课程PPT
-- **WHEN** 学生端或原课程工作台使用现有 CourseDocument 构建PPT
-- **THEN** 系统继续使用原来源合同与接口语义
-- **AND** 不要求教师讲次资产存在
+### Requirement: 来源变化必须精确标记下游状态
+上游确认修订变化时，系统 MUST 只标记受影响的讲稿块、PPT 教学单元或页面为过期，保留最后可用版本并提供定向重建。系统 MUST NOT 因单块变化清空整门课资产。
+
+#### Scenario: 修改第二讲操作示范块
+- **WHEN** 教师确认了第二讲教案中“操作示范”教学块的新版本
+- **THEN** 系统标记对应讲稿块及其 PPT 页面需要更新
+- **AND** 其他教学块、讲次和最后可用 PPT 保持可用
+
+### Requirement: 视觉修订不得修改语义真源
+教师只调整 PPT 布局、主题或视觉资产时，系统 MUST 新建视觉修订，不得修改讲稿、教案、教学块或知识语义。
+
+#### Scenario: 教师移动图片
+- **WHEN** 教师只移动第二讲第5页图片并保存
+- **THEN** 新 PPT 修订继续引用相同教案和讲稿修订
+- **AND** 上游正式资产不产生新修订
+
+### Requirement: 学生表达来源合同必须保持兼容
+系统 MUST 保持现有学生 CourseDocument 来源、学习和课程级表达读取兼容；旧教师入口退场不得删除学生仍在使用的共享能力。
+
+#### Scenario: 学生打开历史课程
+- **WHEN** 学生课程仍使用现有 CourseDocument 和历史课件
+- **THEN** 系统继续按原来源合同展示课程与课件
+- **AND** 不要求教师讲次资产已经迁移
