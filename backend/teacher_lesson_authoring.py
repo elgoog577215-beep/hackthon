@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
 import threading
 import uuid
@@ -71,6 +72,7 @@ def _empty_lesson_asset(lesson_unit_id: str) -> dict[str, Any]:
         "script_revisions": [],
         "script_confirmation": {},
         "ppt_assets": [],
+        "imported_ppt_reviews": [],
     }
 
 
@@ -406,6 +408,208 @@ def extract_uploaded_pptx_evidence(
             "旧课件中没有可用于生成教案的文字内容。",
         )
     return evidence
+
+
+def extract_uploaded_pptx_review(
+    path: Path,
+    *,
+    asset_id: str,
+    filename: str = "",
+) -> dict[str, Any]:
+    """Build an editable text index while keeping the uploaded PPTX immutable."""
+    if path.suffix.lower() != ".pptx":
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_format_unsupported",
+            "PPT 审阅目前仅支持 PPTX 文件。",
+        )
+    try:
+        from pptx import Presentation
+
+        presentation = Presentation(path)
+    except Exception as exc:
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_parse_failed",
+            "PPT 无法解析，请确认文件未损坏。",
+        ) from exc
+
+    slides: list[dict[str, Any]] = []
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        blocks: list[dict[str, Any]] = []
+        for shape_index, shape in enumerate(slide.shapes):
+            raw_text = ""
+            kind = "text"
+            editable = False
+            if getattr(shape, "has_text_frame", False):
+                raw_text = str(getattr(shape, "text", "") or "")
+                editable = True
+                shape_name = str(getattr(shape, "name", "") or "").lower()
+                if "title" in shape_name or "标题" in shape_name:
+                    kind = "title"
+            elif getattr(shape, "has_table", False):
+                raw_text = "\n".join(
+                    str(cell.text or "")
+                    for row in shape.table.rows
+                    for cell in row.cells
+                )
+                kind = "table"
+            text = "\n".join(line.strip() for line in raw_text.splitlines() if line.strip())
+            if not text:
+                continue
+            blocks.append({
+                "block_id": f"uploaded-ppt-{asset_id}-s{slide_number}-b{shape_index}",
+                "shape_index": shape_index,
+                "kind": kind,
+                "text": text,
+                "original_text": text,
+                "editable": editable,
+            })
+        if blocks and not any(item.get("kind") == "title" for item in blocks):
+            blocks[0]["kind"] = "title"
+        title_block = next(
+            (item for item in blocks if item.get("kind") == "title"),
+            None,
+        )
+        content_hash = hashlib.sha256(
+            json.dumps(blocks, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:24]
+        slides.append({
+            "slide_id": f"uploaded-ppt-{asset_id}-slide-{slide_number}",
+            "slide_number": slide_number,
+            "title": str((title_block or {}).get("text") or ""),
+            "blocks": blocks,
+            "content_hash": content_hash,
+        })
+    if not slides:
+        raise TeacherLessonAuthoringError(
+            "uploaded_ppt_empty",
+            "PPT 中没有可审阅的页面。",
+        )
+    return {
+        "source_asset_id": asset_id,
+        "source_filename": filename or path.name,
+        "slides": slides,
+    }
+
+
+def _review_terms(text: str) -> set[str]:
+    words = re.findall(r"[a-z0-9_]{3,}|[\u4e00-\u9fff]{2,}", text.lower())
+    terms: set[str] = set()
+    for word in words:
+        terms.add(word)
+        if re.fullmatch(r"[\u4e00-\u9fff]{2,}", word):
+            terms.update(word[index:index + 2] for index in range(len(word) - 1))
+    return terms
+
+
+def build_uploaded_ppt_review_report(
+    slides: list[dict[str, Any]],
+    *,
+    sources: list[dict[str, Any]],
+    reference_units: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return explainable review findings; indexes assist but never publish edits."""
+    findings: list[dict[str, Any]] = []
+    confirmed_sources = [item for item in sources if item.get("status") == "confirmed"]
+    confidence = "high" if len(confirmed_sources) >= 2 else "medium" if sources else "low"
+
+    def add_finding(
+        code: str,
+        title: str,
+        detail: str,
+        *,
+        slide_id: str = "",
+        slide_number: int | None = None,
+        severity: str = "suggestion",
+        evidence: list[dict[str, Any]] | None = None,
+    ) -> None:
+        target = slide_id or "deck"
+        digest = hashlib.sha256(f"{code}:{target}".encode("utf-8")).hexdigest()[:12]
+        findings.append({
+            "finding_id": f"ppt-review-{digest}",
+            "code": code,
+            "title": title,
+            "detail": detail,
+            "severity": severity,
+            "confidence": confidence,
+            "slide_id": slide_id,
+            "slide_number": slide_number,
+            "status": "open",
+            "evidence": deepcopy(evidence or []),
+        })
+
+    reference_terms = set().union(*(
+        _review_terms(str(item.get("text") or "")) for item in reference_units
+    )) if reference_units else set()
+    slide_terms: dict[str, set[str]] = {}
+    for slide in slides:
+        slide_id = str(slide.get("slide_id") or "")
+        blocks = [item for item in slide.get("blocks") or [] if isinstance(item, dict)]
+        text = "\n".join(str(item.get("text") or "") for item in blocks).strip()
+        terms = _review_terms(text)
+        slide_terms[slide_id] = terms
+        slide_number = int(slide.get("slide_number") or 0)
+        title = str(slide.get("title") or "").strip()
+        if not blocks:
+            add_finding(
+                "visual_only_slide",
+                "该页未识别到可审阅文字",
+                "当前只检查到视觉内容，请确认该页是否需要讲解文字或备注。",
+                slide_id=slide_id,
+                slide_number=slide_number,
+            )
+        elif not title:
+            add_finding(
+                "slide_title_missing",
+                "该页缺少明确标题",
+                "补充页面标题可以让教学进度和学习目标更容易被识别。",
+                slide_id=slide_id,
+                slide_number=slide_number,
+            )
+        if len(text) > 260 or len(blocks) > 8:
+            add_finding(
+                "slide_content_dense",
+                "该页文字较密",
+                f"已识别 {len(text)} 个字符、{len(blocks)} 个文字块，建议拆分或保留一个主结论。",
+                slide_id=slide_id,
+                slide_number=slide_number,
+            )
+        if reference_terms and terms and len(reference_terms & terms) < 2:
+            add_finding(
+                "slide_alignment_unresolved",
+                "与已确认教学内容的对应关系不明确",
+                "索引未找到该页与当前教案或讲稿的明确对应，请确认是补充材料还是需要调整。",
+                slide_id=slide_id,
+                slide_number=slide_number,
+                evidence=[{"kind": item.get("kind"), "label": item.get("label"), "revision_id": item.get("revision_id")} for item in confirmed_sources],
+            )
+
+    for unit in reference_units:
+        unit_terms = _review_terms(str(unit.get("text") or ""))
+        if not unit_terms or any(len(unit_terms & terms) >= 2 for terms in slide_terms.values()):
+            continue
+        label = str(unit.get("label") or "教学内容")
+        add_finding(
+            "source_unit_not_covered",
+            f"未找到“{label}”的明确对应页",
+            "已确认的教案或讲稿中包含该内容，但 PPT 索引未找到足够相关的页面。",
+            evidence=[{
+                "kind": unit.get("kind"),
+                "label": label,
+                "revision_id": unit.get("revision_id"),
+            }],
+        )
+
+    return {
+        "schema_version": "uploaded_ppt_review_report_v1",
+        "generated_at": _now(),
+        "sources": deepcopy(sources),
+        "findings": findings,
+        "summary": {
+            "slide_count": len(slides),
+            "finding_count": len(findings),
+            "high_confidence_count": sum(item.get("confidence") == "high" for item in findings),
+        },
+    }
 
 
 def _default_root() -> Path:
@@ -822,6 +1026,12 @@ class TeacherLessonAuthoringRepository:
                     and str(working.get("source_outline_revision_id") or "") == outline_revision_id
                     else "stale"
                 )
+                for review in lesson.get("imported_ppt_reviews") or []:
+                    if not isinstance(review, dict):
+                        continue
+                    source_revision = str(review.get("source_outline_revision_id") or "")
+                    if source_revision and source_revision != outline_revision_id:
+                        review["source_state"] = "stale"
             return self._save(value)
 
     def save_arrangement_revision(
@@ -1124,6 +1334,12 @@ class TeacherLessonAuthoringRepository:
                 source_revision = str(asset.get("source_lesson_plan_revision_id") or "")
                 if source_revision and source_revision != revision_id:
                     asset["source_state"] = "stale"
+            for review in lesson.get("imported_ppt_reviews") or []:
+                if not isinstance(review, dict):
+                    continue
+                source_revision = str(review.get("source_lesson_plan_revision_id") or "")
+                if source_revision and source_revision != revision_id:
+                    review["source_state"] = "stale"
             if source_outline_revision_id and not value.get("outline_revision_id"):
                 value["outline_revision_id"] = source_outline_revision_id
             saved = self._save(value)
@@ -1251,6 +1467,213 @@ class TeacherLessonAuthoringRepository:
                 for item in saved["lessons"][lesson_unit_id]["ppt_assets"]
                 if item["asset_id"] == asset["asset_id"]
             ))
+
+    def save_imported_ppt_review(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        package_id: str,
+        source_asset_id: str,
+        source_filename: str,
+        slides: list[dict[str, Any]],
+        report: dict[str, Any],
+        source_outline_revision_id: str,
+        source_lesson_plan_revision_id: str,
+        source_script_revision_id: str,
+        actor: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = value.setdefault("lessons", {}).setdefault(
+                lesson_unit_id, _empty_lesson_asset(lesson_unit_id)
+            )
+            for item in lesson.setdefault("imported_ppt_reviews", []):
+                if isinstance(item, dict) and item.get("status") == "reviewing":
+                    item["status"] = "superseded"
+            review_id = f"tlpir-{uuid.uuid4().hex}"
+            revision_id = f"tlpivr-{uuid.uuid4().hex}"
+            review = {
+                "review_id": review_id,
+                "lesson_unit_id": lesson_unit_id,
+                "package_id": package_id,
+                "source_asset_id": source_asset_id,
+                "source_filename": source_filename,
+                "status": "reviewing",
+                "source_state": "current",
+                "revision_id": revision_id,
+                "source_outline_revision_id": source_outline_revision_id,
+                "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                "source_script_revision_id": source_script_revision_id,
+                "slides": deepcopy(slides),
+                "report": deepcopy(report),
+                "ai_candidates": [],
+                "revision_history": [{
+                    "revision_id": revision_id,
+                    "slides": deepcopy(slides),
+                    "actor": actor,
+                    "created_at": _now(),
+                }],
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+            lesson["imported_ppt_reviews"].append(review)
+            saved = self._save(value)
+            return deepcopy(saved["lessons"][lesson_unit_id]["imported_ppt_reviews"][-1])
+
+    def current_imported_ppt_review(
+        self, course_id: str, lesson_unit_id: str
+    ) -> dict[str, Any] | None:
+        lesson = self.lesson(course_id, lesson_unit_id)
+        reviews = [
+            item for item in lesson.get("imported_ppt_reviews") or []
+            if isinstance(item, dict) and item.get("status") in {"reviewing", "confirmed"}
+        ]
+        return deepcopy(reviews[-1]) if reviews else None
+
+    def replace_imported_ppt_review(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        review_id: str,
+        base_revision_id: str,
+        slides: list[dict[str, Any]],
+        report: dict[str, Any],
+        actor: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            review = next(
+                (item for item in (lesson or {}).get("imported_ppt_reviews") or []
+                 if isinstance(item, dict) and item.get("review_id") == review_id),
+                None,
+            )
+            if not isinstance(review, dict):
+                raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
+            if review.get("revision_id") != base_revision_id:
+                raise TeacherLessonAuthoringError("uploaded_ppt_revision_conflict", "PPT 工作稿已更新，请刷新后再修改。")
+            revision_id = f"tlpivr-{uuid.uuid4().hex}"
+            review["slides"] = deepcopy(slides)
+            review["report"] = deepcopy(report)
+            review["revision_id"] = revision_id
+            review["status"] = "reviewing"
+            review["updated_at"] = _now()
+            review.setdefault("revision_history", []).append({
+                "revision_id": revision_id,
+                "slides": deepcopy(slides),
+                "actor": actor,
+                "created_at": _now(),
+            })
+            saved = self._save(value)
+            return deepcopy(next(
+                item for item in saved["lessons"][lesson_unit_id]["imported_ppt_reviews"]
+                if item.get("review_id") == review_id
+            ))
+
+    def save_imported_ppt_ai_candidate(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        review_id: str,
+        base_revision_id: str,
+        slide_id: str,
+        instruction: str,
+        proposed_blocks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            review = next((item for item in (lesson or {}).get("imported_ppt_reviews") or [] if isinstance(item, dict) and item.get("review_id") == review_id), None)
+            if not isinstance(review, dict):
+                raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
+            if review.get("revision_id") != base_revision_id:
+                raise TeacherLessonAuthoringError("uploaded_ppt_revision_conflict", "PPT 工作稿已更新，请重新生成 AI 候选。")
+            for item in review.get("ai_candidates") or []:
+                if isinstance(item, dict) and item.get("status") == "pending":
+                    item["status"] = "superseded"
+            candidate = {
+                "candidate_id": f"tlpiac-{uuid.uuid4().hex}",
+                "base_revision_id": base_revision_id,
+                "slide_id": slide_id,
+                "instruction": instruction,
+                "proposed_blocks": deepcopy(proposed_blocks),
+                "status": "pending",
+                "created_at": _now(),
+            }
+            review.setdefault("ai_candidates", []).append(candidate)
+            self._save(value)
+            return deepcopy(candidate)
+
+    def mark_imported_ppt_ai_candidate(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        review_id: str,
+        candidate_id: str,
+        status: str,
+    ) -> dict[str, Any]:
+        if status not in {"accepted", "rejected", "superseded"}:
+            raise ValueError("unsupported imported PPT candidate status")
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            review = next((item for item in (lesson or {}).get("imported_ppt_reviews") or [] if isinstance(item, dict) and item.get("review_id") == review_id), None)
+            candidate = next((item for item in (review or {}).get("ai_candidates") or [] if isinstance(item, dict) and item.get("candidate_id") == candidate_id), None)
+            if not isinstance(candidate, dict):
+                raise TeacherLessonAuthoringError("uploaded_ppt_candidate_not_found", "AI PPT 修改候选不存在。")
+            if candidate.get("status") == "pending":
+                candidate["status"] = status
+                candidate["resolved_at"] = _now()
+                self._save(value)
+            return deepcopy(candidate)
+
+    def confirm_imported_ppt_review(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        review_id: str,
+        revision_id: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            review = next((item for item in (lesson or {}).get("imported_ppt_reviews") or [] if isinstance(item, dict) and item.get("review_id") == review_id), None)
+            if not isinstance(review, dict):
+                raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
+            if review.get("revision_id") != revision_id:
+                raise TeacherLessonAuthoringError("uploaded_ppt_revision_conflict", "PPT 工作稿已更新，请刷新后再确认。")
+            if review.get("source_state") != "current":
+                raise TeacherLessonAuthoringError("uploaded_ppt_source_stale", "上游教学内容已更新，请先重新审阅。")
+            review["status"] = "confirmed"
+            review["confirmed_revision_id"] = revision_id
+            review["confirmed_at"] = _now()
+            assets = lesson.setdefault("ppt_assets", [])
+            for asset in assets:
+                if isinstance(asset, dict) and asset.get("role") == "primary":
+                    asset["role"] = "supplemental"
+            assets.append({
+                "asset_id": f"tlpa-{uuid.uuid4().hex}",
+                "lesson_unit_id": lesson_unit_id,
+                "role": "primary",
+                "engine": "uploaded_pptx",
+                "working_revision_id": revision_id,
+                "source_lesson_plan_revision_id": str(review.get("source_lesson_plan_revision_id") or ""),
+                "source_script_revision_id": str(review.get("source_script_revision_id") or ""),
+                "source_state": "current",
+                "package_id": str(review.get("package_id") or ""),
+                "source_asset_id": str(review.get("source_asset_id") or ""),
+                "review_id": review_id,
+                "confirmed_at": review["confirmed_at"],
+                "revisions": [],
+                "ai_candidates": [],
+            })
+            saved = self._save(value)
+            return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["imported_ppt_reviews"] if item.get("review_id") == review_id))
 
     def save_v6_ppt_ai_candidate(
         self,
@@ -1646,6 +2069,12 @@ class TeacherLessonAuthoringRepository:
                     continue
                 if asset.get("source_script_revision_id") != revision_id:
                     asset["source_state"] = "stale"
+            for review in lesson.get("imported_ppt_reviews") or []:
+                if not isinstance(review, dict):
+                    continue
+                source_revision = str(review.get("source_script_revision_id") or "")
+                if source_revision and source_revision != revision_id:
+                    review["source_state"] = "stale"
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 

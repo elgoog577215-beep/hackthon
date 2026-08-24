@@ -351,7 +351,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('button[type="submit"]').text()).toContain('重新生成本讲教案')
   })
 
-  it('教案工作稿需要显式确认且未确认前不能生成 PPT', async () => {
+  it('教案未确认时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -374,7 +374,9 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.get('.center-heading h2').text()).toBe('题库')
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
-    expect(pptWrapper.get('.ppt-entry button.primary').attributes('disabled')).toBeDefined()
+    await flushPromises()
+    expect(pptWrapper.get('.ppt-upload-primary').attributes('disabled')).toBeUndefined()
+    expect(pptWrapper.get('.ppt-generate-secondary').attributes('disabled')).toBeDefined()
   })
 
   it('讲稿确认成功后原位进入 PPT，不要求老师再次寻找下一步', async () => {

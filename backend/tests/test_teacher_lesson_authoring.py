@@ -15,7 +15,9 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringError,
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
+    build_uploaded_ppt_review_report,
     extract_uploaded_pptx_evidence,
+    extract_uploaded_pptx_review,
     lesson_scope,
     normalize_teacher_lesson_plan,
     teacher_lesson_script_revision,
@@ -912,6 +914,102 @@ def test_uploaded_pptx_is_extracted_as_immutable_lesson_evidence(tmp_path):
     assert evidence[0]["evidence_id"] == "uploaded-ppt-asset-1-slide-1"
     assert "DeepSeek 4" in evidence[0]["source_text"]
     assert source.is_file()
+
+
+def test_uploaded_pptx_review_indexes_editable_blocks_and_keeps_original(tmp_path):
+    from pptx import Presentation
+
+    source = tmp_path / "老师原稿.pptx"
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[1])
+    slide.shapes.title.text = "核心概念"
+    slide.placeholders[1].text = "定义、条件与边界"
+    presentation.save(source)
+    original = source.read_bytes()
+
+    parsed = extract_uploaded_pptx_review(
+        source,
+        asset_id="asset-1",
+        filename="老师原稿.pptx",
+    )
+
+    assert parsed["source_filename"] == "老师原稿.pptx"
+    assert parsed["slides"][0]["title"] == "核心概念"
+    assert all("shape_index" in block for block in parsed["slides"][0]["blocks"])
+    assert any(block["editable"] for block in parsed["slides"][0]["blocks"])
+    assert source.read_bytes() == original
+
+
+def test_uploaded_ppt_review_report_names_sources_without_fake_score():
+    slides = [{
+        "slide_id": "slide-1",
+        "slide_number": 1,
+        "title": "另一个话题",
+        "blocks": [{"block_id": "b1", "kind": "title", "text": "另一个话题", "editable": True}],
+    }]
+    report = build_uploaded_ppt_review_report(
+        slides,
+        sources=[
+            {"kind": "lesson_plan", "label": "已确认教案", "revision_id": "plan-1", "status": "confirmed"},
+            {"kind": "script", "label": "已确认讲稿", "revision_id": "script-1", "status": "confirmed"},
+        ],
+        reference_units=[{
+            "kind": "script",
+            "label": "核心概念",
+            "revision_id": "script-1",
+            "text": "核心概念的定义、条件与适用边界",
+        }],
+    )
+
+    assert report["summary"]["finding_count"] >= 1
+    assert report["findings"][0]["confidence"] == "high"
+    assert "score" not in report["summary"]
+    assert {item["label"] for item in report["sources"]} == {"已确认教案", "已确认讲稿"}
+
+
+def test_imported_ppt_review_requires_revision_and_confirmation(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    review = repository.save_imported_ppt_review(
+        "course-1",
+        "L1-1",
+        package_id="package-1",
+        source_asset_id="asset-1",
+        source_filename="老师原稿.pptx",
+        slides=[{"slide_id": "slide-1", "slide_number": 1, "title": "原标题", "blocks": []}],
+        report={"findings": [], "sources": []},
+        source_outline_revision_id="outline-v1",
+        source_lesson_plan_revision_id="",
+        source_script_revision_id="",
+        actor="teacher-1",
+    )
+    updated = repository.replace_imported_ppt_review(
+        "course-1",
+        "L1-1",
+        review_id=review["review_id"],
+        base_revision_id=review["revision_id"],
+        slides=[{"slide_id": "slide-1", "slide_number": 1, "title": "新标题", "blocks": []}],
+        report={"findings": [], "sources": []},
+        actor="teacher-1",
+    )
+
+    with pytest.raises(TeacherLessonAuthoringError, match="已更新"):
+        repository.confirm_imported_ppt_review(
+            "course-1",
+            "L1-1",
+            review_id=review["review_id"],
+            revision_id=review["revision_id"],
+        )
+    confirmed = repository.confirm_imported_ppt_review(
+        "course-1",
+        "L1-1",
+        review_id=review["review_id"],
+        revision_id=updated["revision_id"],
+    )
+    lesson = repository.lesson("course-1", "L1-1")
+    assert confirmed["status"] == "confirmed"
+    assert lesson["ppt_assets"][-1]["engine"] == "uploaded_pptx"
+    assert len(confirmed["revision_history"]) == 2
 
 
 def test_repository_keeps_sibling_lesson_assets_independent(tmp_path):

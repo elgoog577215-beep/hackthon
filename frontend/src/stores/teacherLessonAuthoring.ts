@@ -169,7 +169,7 @@ export interface TeacherLessonPptAsset {
   source_state: 'current' | 'stale'
   revisions: TeacherLessonPptRevision[]
   ai_candidates: TeacherLessonPptCandidate[]
-  engine?: 'slide_deck_v6'
+  engine?: 'slide_deck_v6' | 'uploaded_pptx'
   working_v6_revision_id?: string
   working_representation_id?: string
   synthetic_course_id?: string

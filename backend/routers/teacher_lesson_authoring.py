@@ -31,12 +31,15 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringError,
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
+    build_uploaded_ppt_review_report,
     extract_uploaded_pptx_evidence,
+    extract_uploaded_pptx_review,
     lesson_scope,
     teacher_lesson_deck_to_structured_slide_deck,
     teacher_lesson_script_revision,
     teacher_lesson_v6_source,
 )
+from question_bank import question_bank_repository
 from teacher_script import (
     compile_teacher_script_module_contract,
     normalize_teacher_script_section,
@@ -164,6 +167,30 @@ class CreateTeacherLessonV6CandidateRequest(BaseModel):
 
 class ResolveTeacherLessonV6CandidateRequest(BaseModel):
     accept: bool
+
+
+class CreateImportedPptReviewRequest(BaseModel):
+    package_id: str = Field(min_length=1, max_length=200)
+    asset_id: str = Field(min_length=1, max_length=200)
+
+
+class UpdateImportedPptSlideRequest(BaseModel):
+    base_revision_id: str = Field(min_length=1, max_length=200)
+    blocks: list[dict[str, Any]] = Field(default_factory=list, max_length=80)
+
+
+class CreateImportedPptCandidateRequest(BaseModel):
+    base_revision_id: str = Field(min_length=1, max_length=200)
+    slide_id: str = Field(min_length=1, max_length=240)
+    instruction: str = Field(min_length=1, max_length=2000)
+
+
+class ResolveImportedPptCandidateRequest(BaseModel):
+    accept: bool
+
+
+class ConfirmImportedPptReviewRequest(BaseModel):
+    revision_id: str = Field(min_length=1, max_length=200)
 
 
 def _raise(exc: TeacherLessonAuthoringError) -> None:
@@ -604,6 +631,142 @@ def _script_revision(
     return revision
 
 
+def _imported_ppt_review_context(
+    source: dict[str, Any],
+    repository: TeacherLessonAuthoringRepository,
+    course_id: str,
+    lesson_unit_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
+    """Compile the exact upstream revisions used by one imported-deck review."""
+    scoped = lesson_scope(source, lesson_unit_id)
+    lesson = repository.lesson(course_id, lesson_unit_id)
+    sources: list[dict[str, Any]] = []
+    units: list[dict[str, Any]] = []
+    revisions = {
+        "outline": _canonical_outline_revision(source),
+        "plan": str(lesson.get("confirmed_revision_id") or ""),
+        "script": "",
+        "question_bank": "",
+    }
+
+    if revisions["outline"]:
+        sources.append({
+            "kind": "outline",
+            "label": "课程大纲",
+            "revision_id": revisions["outline"],
+            "status": "current",
+        })
+    for section in scoped["sections"]:
+        units.append({
+            "kind": "outline",
+            "label": str(section.get("node_name") or "未命名小节"),
+            "revision_id": revisions["outline"],
+            "text": "\n".join(filter(None, [
+                str(section.get("node_name") or ""),
+                str(section.get("learning_objective") or ""),
+                str(section.get("node_content") or "")[:1600],
+            ])),
+        })
+
+    if revisions["plan"]:
+        plan_revision = _plan_revision(repository, course_id, lesson_unit_id, revisions["plan"])
+        sources.append({
+            "kind": "lesson_plan",
+            "label": "已确认教案",
+            "revision_id": revisions["plan"],
+            "status": "confirmed",
+        })
+        for section in (plan_revision.get("plan") or {}).get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            units.append({
+                "kind": "lesson_plan",
+                "label": str(section.get("title") or section.get("node_name") or section.get("node_id") or "教案小节"),
+                "revision_id": revisions["plan"],
+                "text": json.dumps(section, ensure_ascii=False)[:4000],
+            })
+
+    confirmation = lesson.get("script_confirmation") or {}
+    confirmed_script = str(confirmation.get("confirmed_revision_id") or "")
+    if confirmed_script and confirmation.get("source_state", "current") == "current":
+        script_revision = _script_revision(repository, course_id, lesson_unit_id, confirmed_script)
+        revisions["script"] = confirmed_script
+        sources.append({
+            "kind": "script",
+            "label": "已确认讲稿",
+            "revision_id": confirmed_script,
+            "status": "confirmed",
+        })
+        for section in script_revision.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            units.append({
+                "kind": "script",
+                "label": str(section.get("title") or section.get("section_node_id") or "讲稿小节"),
+                "revision_id": confirmed_script,
+                "text": str(section.get("content") or "") or json.dumps(section.get("blocks") or [], ensure_ascii=False),
+            })
+
+    bundle = question_bank_repository.load_bundle(course_id)
+    if isinstance(bundle, dict):
+        section_ids = {str(item.get("node_id") or "") for item in scoped["sections"]}
+        items = [
+            item for item in bundle.get("items") or []
+            if isinstance(item, dict)
+            and (
+                str(item.get("node_id") or "") in section_ids
+                or section_ids.intersection(str(value or "") for value in item.get("node_ids") or [])
+            )
+        ]
+        if items:
+            revisions["question_bank"] = str(bundle.get("bundle_revision_id") or "")
+            sources.append({
+                "kind": "question_bank",
+                "label": f"题库（{len(items)} 题）",
+                "revision_id": revisions["question_bank"],
+                "status": "current",
+            })
+            units.append({
+                "kind": "question_bank",
+                "label": "题库考查内容",
+                "revision_id": revisions["question_bank"],
+                "text": "\n".join(
+                    str(item.get("stem") or item.get("prompt") or item.get("question") or "")
+                    for item in items[:30]
+                ),
+            })
+    return sources, units, revisions
+
+
+def _updated_imported_ppt_slides(
+    review: dict[str, Any],
+    slide_id: str,
+    blocks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    slides = deepcopy(review.get("slides") or [])
+    slide = next((item for item in slides if item.get("slide_id") == slide_id), None)
+    if not isinstance(slide, dict):
+        raise TeacherLessonAuthoringError("uploaded_ppt_slide_not_found", "PPT 页面不存在。")
+    existing = {
+        str(item.get("block_id") or ""): item
+        for item in slide.get("blocks") or []
+        if isinstance(item, dict)
+    }
+    for patch in blocks:
+        block_id = str(patch.get("block_id") or "")
+        block = existing.get(block_id)
+        if not isinstance(block, dict) or not block.get("editable"):
+            raise TeacherLessonAuthoringError("uploaded_ppt_block_not_editable", "该文字块不支持在线编辑。")
+        text = str(patch.get("text") or "").strip()
+        if len(text) > 6000:
+            raise TeacherLessonAuthoringError("uploaded_ppt_block_too_long", "单个 PPT 文字块不能超过 6000 字符。")
+        block["text"] = text
+    title_block = next((item for item in existing.values() if item.get("kind") == "title"), None)
+    slide["title"] = str((title_block or {}).get("text") or "")
+    slide["content_hash"] = stable_hash(slide.get("blocks") or [])[:24]
+    return slides
+
+
 def _ppt_asset_revision(
     repository: TeacherLessonAuthoringRepository,
     course_id: str,
@@ -773,6 +936,266 @@ async def confirm_lesson_arrangement(
             if item["lesson_unit_id"] == lesson_unit_id
         )
         return {"lesson": lesson, "lesson_types": LESSON_TYPES}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews")
+async def create_imported_ppt_review(
+    course_id: str,
+    lesson_unit_id: str,
+    body: CreateImportedPptReviewRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    try:
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        package = teacher_course_space_repository.load_owned(body.package_id, actor)
+        if str(package.get("course_id") or "") != course_id:
+            raise TeacherLessonAuthoringError("uploaded_ppt_course_mismatch", "上传的 PPT 不属于当前课程。")
+        asset, path = teacher_course_space_repository.source_file(package, body.asset_id)
+        parsed = await run_in_threadpool(
+            extract_uploaded_pptx_review,
+            path,
+            asset_id=body.asset_id,
+            filename=str(asset.get("filename") or path.name),
+        )
+        source = _source_course(tm, course_id)
+        sources, units, revisions = _imported_ppt_review_context(
+            source, repository, course_id, lesson_unit_id
+        )
+        report = build_uploaded_ppt_review_report(
+            parsed["slides"], sources=sources, reference_units=units
+        )
+        review = repository.save_imported_ppt_review(
+            course_id,
+            lesson_unit_id,
+            package_id=body.package_id,
+            source_asset_id=body.asset_id,
+            source_filename=parsed["source_filename"],
+            slides=parsed["slides"],
+            report=report,
+            source_outline_revision_id=revisions["outline"],
+            source_lesson_plan_revision_id=revisions["plan"],
+            source_script_revision_id=revisions["script"],
+            actor=actor,
+        )
+        return {"review": review}
+    except (FileNotFoundError, MaterialStorageError) as exc:
+        _raise(TeacherLessonAuthoringError("uploaded_ppt_asset_not_found", "上传的 PPT 原文件不存在。"))
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.get("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/current")
+async def get_current_imported_ppt_review(
+    course_id: str,
+    lesson_unit_id: str,
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    return {"review": repository.current_imported_ppt_review(course_id, lesson_unit_id)}
+
+
+@router.patch("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/{review_id}/slides/{slide_id}")
+async def update_imported_ppt_slide(
+    course_id: str,
+    lesson_unit_id: str,
+    review_id: str,
+    slide_id: str,
+    body: UpdateImportedPptSlideRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    try:
+        review = repository.current_imported_ppt_review(course_id, lesson_unit_id)
+        if not isinstance(review, dict) or review.get("review_id") != review_id:
+            raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
+        slides = _updated_imported_ppt_slides(review, slide_id, body.blocks)
+        source = _source_course(tm, course_id)
+        sources, units, _revisions = _imported_ppt_review_context(source, repository, course_id, lesson_unit_id)
+        report = build_uploaded_ppt_review_report(slides, sources=sources, reference_units=units)
+        updated = repository.replace_imported_ppt_review(
+            course_id,
+            lesson_unit_id,
+            review_id=review_id,
+            base_revision_id=body.base_revision_id,
+            slides=slides,
+            report=report,
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+        )
+        return {"review": updated}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/{review_id}/ai-candidates")
+async def create_imported_ppt_ai_candidate(
+    course_id: str,
+    lesson_unit_id: str,
+    review_id: str,
+    body: CreateImportedPptCandidateRequest,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    try:
+        review = repository.current_imported_ppt_review(course_id, lesson_unit_id)
+        if not isinstance(review, dict) or review.get("review_id") != review_id:
+            raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
+        if review.get("revision_id") != body.base_revision_id:
+            raise TeacherLessonAuthoringError("uploaded_ppt_revision_conflict", "PPT 工作稿已更新，请重新生成 AI 候选。")
+        slide = next((item for item in review.get("slides") or [] if item.get("slide_id") == body.slide_id), None)
+        if not isinstance(slide, dict):
+            raise TeacherLessonAuthoringError("uploaded_ppt_slide_not_found", "PPT 页面不存在。")
+        blocks = [item for item in slide.get("blocks") or [] if isinstance(item, dict)]
+        title_block = next((item for item in blocks if item.get("kind") == "title" and item.get("editable")), None)
+        body_block = next((item for item in blocks if item.get("kind") != "title" and item.get("editable")), None)
+        page = {
+            "page_id": body.slide_id,
+            "title": str((title_block or {}).get("text") or slide.get("title") or "未命名页面"),
+            "regions": ([{
+                "region_id": str((body_block or {}).get("block_id") or "body"),
+                "slot_id": "body",
+                "content": str((body_block or {}).get("text") or ""),
+            }] if body_block else []),
+            "speaker_notes": "",
+            "source_block_ids": [str(item.get("block_id") or "") for item in blocks],
+        }
+        optimized = await tm.course_service.optimize_teacher_lesson_v6_page(
+            page=page,
+            instruction=body.instruction,
+        )
+        proposed_blocks = deepcopy(blocks)
+        proposed_by_id = {str(item.get("block_id") or ""): item for item in proposed_blocks}
+        if title_block:
+            proposed_by_id[str(title_block.get("block_id") or "")]["text"] = str(optimized["page"].get("title") or title_block.get("text") or "")
+        if body_block and optimized["page"].get("key_message"):
+            proposed_by_id[str(body_block.get("block_id") or "")]["text"] = str(optimized["page"]["key_message"])
+        candidate = repository.save_imported_ppt_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            review_id=review_id,
+            base_revision_id=body.base_revision_id,
+            slide_id=body.slide_id,
+            instruction=body.instruction.strip(),
+            proposed_blocks=proposed_blocks,
+        )
+        return {"candidate": candidate}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/{review_id}/ai-candidates/{candidate_id}/resolve")
+async def resolve_imported_ppt_ai_candidate(
+    course_id: str,
+    lesson_unit_id: str,
+    review_id: str,
+    candidate_id: str,
+    body: ResolveImportedPptCandidateRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    try:
+        review = repository.current_imported_ppt_review(course_id, lesson_unit_id)
+        candidate = next((item for item in (review or {}).get("ai_candidates") or [] if isinstance(item, dict) and item.get("candidate_id") == candidate_id), None)
+        if not isinstance(review, dict) or review.get("review_id") != review_id or not isinstance(candidate, dict):
+            raise TeacherLessonAuthoringError("uploaded_ppt_candidate_not_found", "AI PPT 修改候选不存在。")
+        if candidate.get("status") != "pending":
+            return {"review": review}
+        if body.accept:
+            editable = [item for item in candidate.get("proposed_blocks") or [] if isinstance(item, dict) and item.get("editable")]
+            slides = _updated_imported_ppt_slides(review, str(candidate.get("slide_id") or ""), editable)
+            source = _source_course(tm, course_id)
+            sources, units, _revisions = _imported_ppt_review_context(source, repository, course_id, lesson_unit_id)
+            report = build_uploaded_ppt_review_report(slides, sources=sources, reference_units=units)
+            repository.replace_imported_ppt_review(
+                course_id,
+                lesson_unit_id,
+                review_id=review_id,
+                base_revision_id=str(candidate.get("base_revision_id") or ""),
+                slides=slides,
+                report=report,
+                actor=resolve_user_id(request.headers.get("X-User-Id")),
+            )
+        repository.mark_imported_ppt_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            review_id=review_id,
+            candidate_id=candidate_id,
+            status="accepted" if body.accept else "rejected",
+        )
+        return {"review": repository.current_imported_ppt_review(course_id, lesson_unit_id)}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/{review_id}/confirm")
+async def confirm_imported_ppt_review(
+    course_id: str,
+    lesson_unit_id: str,
+    review_id: str,
+    body: ConfirmImportedPptReviewRequest,
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    try:
+        return {"review": repository.confirm_imported_ppt_review(
+            course_id,
+            lesson_unit_id,
+            review_id=review_id,
+            revision_id=body.revision_id,
+        )}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.get("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/{review_id}/export.pptx")
+async def export_imported_ppt_review(
+    course_id: str,
+    lesson_unit_id: str,
+    review_id: str,
+    request: Request,
+    repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
+):
+    try:
+        review = repository.current_imported_ppt_review(course_id, lesson_unit_id)
+        if not isinstance(review, dict) or review.get("review_id") != review_id:
+            raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        package = teacher_course_space_repository.load_owned(str(review.get("package_id") or ""), actor)
+        asset, source_path = teacher_course_space_repository.source_file(package, str(review.get("source_asset_id") or ""))
+        export_dir = repository.root / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        output = export_dir / f"imported-{uuid.uuid4().hex}.pptx"
+
+        def render() -> None:
+            from pptx import Presentation
+
+            presentation = Presentation(source_path)
+            for slide_state in review.get("slides") or []:
+                slide_index = int(slide_state.get("slide_number") or 0) - 1
+                if slide_index < 0 or slide_index >= len(presentation.slides):
+                    continue
+                slide = presentation.slides[slide_index]
+                for block in slide_state.get("blocks") or []:
+                    shape_index = int(block.get("shape_index") or 0)
+                    if not block.get("editable") or shape_index >= len(slide.shapes):
+                        continue
+                    shape = slide.shapes[shape_index]
+                    if getattr(shape, "has_text_frame", False):
+                        shape.text = str(block.get("text") or "")
+            presentation.save(output)
+
+        await run_in_threadpool(render)
+        filename = f"{str(asset.get('filename') or 'PPT').rsplit('.', 1)[0]}-已审阅.pptx"
+        return FileResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            filename=filename,
+        )
+    except (FileNotFoundError, MaterialStorageError) as exc:
+        _raise(TeacherLessonAuthoringError("uploaded_ppt_asset_not_found", "上传的 PPT 原文件不存在。"))
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 

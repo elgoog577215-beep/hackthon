@@ -5,6 +5,7 @@
     :class="{
       'is-ai-collaboration': aiCollaborationOpen,
       'is-question-bank-import': activeStage === 'question-bank' && questionBankImportMode,
+      'is-ppt-stage': activeStage === 'ppt',
     }"
     :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
   >
@@ -327,11 +328,16 @@
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
-          <section class="ppt-entry">
-            <Presentation :size="24" />
-            <div><strong>{{ selectedLesson?.title }}</strong></div>
-            <button class="primary" type="button" :disabled="!confirmedLessonRevision || !scriptConfirmed" @click="openPptWorkspace"><Presentation :size="15" />{{ t('courseWorkbench.openPptWorkbench', '进入 PPT 工作台') }}</button>
-          </section>
+          <UploadedPptReviewWorkspace
+            v-if="selectedLesson"
+            :course-id="courseId"
+            :course-title="courseTitle"
+            :lesson-id="selectedLesson.lesson_unit_id"
+            :lesson-title="selectedLesson.title"
+            :can-generate="Boolean(confirmedLessonRevision && scriptConfirmed)"
+            @generate="openPptWorkspace"
+            @confirmed="lessonStore.load(courseId)"
+          />
         </template>
           </div>
         </div>
@@ -388,7 +394,7 @@
     />
 
     <CourseReferenceTray
-      v-if="(activeStage !== 'question-bank' || !questionBankImportMode) && (!aiCollaborationOpen || aiSourcesOpen)"
+      v-if="activeStage !== 'ppt' && (activeStage !== 'question-bank' || !questionBankImportMode) && (!aiCollaborationOpen || aiSourcesOpen)"
       v-model="activeReferences"
       :class="{ 'ai-source-drawer': aiCollaborationOpen }"
       :course-id="courseId"
@@ -419,6 +425,7 @@ import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
+import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import {
   assessTeacherProductionRequest,
   buildTeacherProductionAiInstruction,
@@ -887,7 +894,7 @@ const shapeConfirmErrorPresentation = computed(() => shapeConfirmError.value ? t
   fallback: t('courseWorkbench.shapeReview.failed', '无法继续生成，请稍后重试'),
 }) : null)
 
-function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => asset.engine === 'slide_deck_v6' && asset.source_state === 'current')) }
+function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current')) }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
 function appendAiMessage(role: TeacherProductionAiMessage['role'], kind: TeacherProductionAiMessage['kind'], text: string) {
@@ -1505,6 +1512,11 @@ onBeforeUnmount(() => {
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 .teacher-workbench.is-question-bank-import:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
+.teacher-workbench.is-ppt-stage:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
+.is-ppt-stage>.workbench-center{padding:24px 30px 0}
+.is-ppt-stage>.workbench-center>.center-heading,.is-ppt-stage .lesson-stage{width:100%;max-width:none}
+.is-ppt-stage .lesson-stage{overflow:hidden;border-radius:14px}
+.is-ppt-stage .lesson-navigator{display:none}
 .is-question-bank-import>.workbench-center{padding:24px 30px 0}
 .is-question-bank-import>.workbench-center>.center-heading,.is-question-bank-import .lesson-stage,.is-question-bank-import .question-workbench-surface{width:100%;max-width:none}
 .is-question-bank-import>.workbench-center>.center-heading{margin-bottom:14px}
