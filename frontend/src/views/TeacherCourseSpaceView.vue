@@ -121,29 +121,39 @@
             <span><i />{{ statusLabel(inspectedNode) }}</span>
           </section>
           <section class="inspector-overview">
-            <h3>{{ inspectedNode.kind === 'folder' ? t('courseFiles.inspector.folderInfo') : t('courseFiles.inspector.fileInfo') }}</h3>
             <dl>
               <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.items') }}</dt><dd>{{ folderSummary(inspectedNode) }}</dd></div>
               <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ folderUpdatedLabel(inspectedNode) }}</dd></div>
               <div v-if="inspectedNode.lessonId"><dt>{{ t('courseFiles.meta.lesson') }}</dt><dd>{{ lessonLabel(inspectedNode.lessonId) }}</dd></div>
-              <div v-if="inspectedNode.kind !== 'folder'"><dt>{{ t('courseFiles.inspector.source') }}</dt><dd>{{ inspectorSource(inspectedNode) }}</dd></div>
-              <div v-if="inspectedNode.kind !== 'folder'"><dt>{{ t('courseFiles.inspector.usedFor') }}</dt><dd>{{ inspectorUse(inspectedNode) }}</dd></div>
               <div v-if="inspectedNode.revision"><dt>{{ t('courseFiles.meta.version') }}</dt><dd :title="inspectedNode.revision">{{ shortRevision(inspectedNode.revision) }}</dd></div>
               <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ displayPath(inspectedNode.path) }}</dd></div>
             </dl>
-            <section v-if="inspectedRelationships.length" class="relationship-list">
-              <h3>{{ selectedNode?.asset ? t('courseFiles.inspector.referencedBy', '被以下正式文件引用') : t('courseFiles.inspector.referenceFiles', '引用文件') }}</h3>
-              <div v-for="link in inspectedRelationships" :key="link.link_id">
+            <section v-if="inspectedNode.kind === 'managed'" class="relationship-list">
+              <h3>{{ t('courseFiles.inspector.sourceMaterials', '来源资料') }}</h3>
+              <div v-for="link in inspectedSourceLinks" :key="link.link_id">
                 <Link2 :size="14" />
-                <span><strong>{{ selectedNode?.asset ? link.target_label : link.source_label }}</strong><small>{{ selectedNode?.asset ? formalTypeLabel(link.target_type) : relationshipRoleLabel(link.role) }}</small></span>
+                <span><strong>{{ link.source_label }}</strong><small>{{ relationshipRoleLabel(link.role) }}</small></span>
               </div>
+              <span v-if="!inspectedSourceLinks.length" class="relationship-empty">—</span>
+            </section>
+            <section v-if="inspectedNode.kind === 'managed'" class="relationship-list">
+              <h3>{{ t('courseFiles.inspector.generatedFiles', '生成文件') }}</h3>
+              <button v-for="output in inspectedOutputs" :key="output.id" type="button" @click="revealNode(output.node)">
+                <component :is="nodeIcon(output.node)" :size="14" />
+                <span><strong>{{ output.label }}</strong><small>{{ t(`courseFiles.status.${output.status}`) }}</small></span>
+              </button>
+              <span v-if="!inspectedOutputs.length" class="relationship-empty">—</span>
+            </section>
+            <section v-if="inspectedNode.asset" class="relationship-list">
+              <h3>{{ t('courseFiles.inspector.usedBy', '用于') }}</h3>
+              <button v-for="link in inspectedUsageLinks" :key="link.link_id" type="button" @click="revealRelationshipTarget(link)">
+                <Link2 :size="14" />
+                <span><strong>{{ link.target_label }}</strong><small>{{ formalTypeLabel(link.target_type) }}</small></span>
+              </button>
+              <span v-if="!inspectedUsageLinks.length" class="relationship-empty">—</span>
             </section>
           </section>
           <footer v-if="inspectorHasActions(inspectedNode)" class="inspector-actions">
-            <div class="inspector-actions__heading">
-              <strong>{{ t('courseFiles.inspector.actionsTitle') }}</strong>
-              <span>{{ inspectorActionHint(inspectedNode) }}</span>
-            </div>
             <button v-if="selectedNode" class="primary" type="button" :disabled="busy || primaryDisabled(selectedNode)" @click="primaryAction(selectedNode)">
               <LoaderCircle v-if="busy" :size="15" class="spin" /><component :is="primaryIcon(selectedNode)" v-else :size="15" />{{ primaryLabel(selectedNode) }}
             </button>
@@ -384,11 +394,11 @@ type FileRelationship = { link_id: string; source_asset_id: string; source_label
 type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; relationships?: FileRelationship[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
 type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; rendered_markdown: string; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
-type NodeType = 'root' | 'reference' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
+type NodeType = 'root' | 'foundation' | 'teaching_content' | 'assessment' | 'course_documents' | 'library' | 'exam_papers' | 'reference' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
 type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
-  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'
+  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number
 }
 type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
@@ -407,6 +417,7 @@ type CategoryGroup = {
   working: number
   attention: number
 }
+type InspectorOutput = { id: string; label: string; status: NodeStatus; node: WorkspaceNode }
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -510,8 +521,8 @@ const textSize = (value: string) => new TextEncoder().encode(value).byteLength |
 const displayPath = (value: string) => {
   if (!value) return t('courseFiles.rootName')
   const labels = activeLocale.value === 'en'
-    ? { 教学日历: 'Teaching calendar', 配套文档: 'Companion documents', 课次: 'Sessions', 教案: 'Lesson plan', 讲稿: 'Script', 资料: 'Materials', 练习: 'Practice', 题库: 'Question bank', 试卷: 'Exam papers', 参考资料: 'References' }
-    : { 教学日历: '教学日历', 配套文档: '配套文档', 课次: '课次', 教案: '教案', 讲稿: '讲稿', 资料: '资料', 练习: '练习', 题库: '题库', 试卷: '试卷', 参考资料: '参考资料' }
+    ? { 课程基础: 'Course foundation', 教学内容: 'Teaching content', 考核与考试: 'Assessment & exams', 课程文档: 'Course documents', 资料库: 'Materials library', 教学日历: 'Teaching calendar', 配套文档: 'Companion documents', 课次: 'Sessions', 教案: 'Lesson plan', 讲稿: 'Script', 资料: 'Materials', 本讲资料: 'Session materials', 练习: 'Practice', 本讲练习: 'Session practice', 题目: 'Questions', 题库: 'Question bank', 试卷: 'Exam papers', 参考资料: 'References' }
+    : { 课程基础: '课程基础', 教学内容: '教学内容', 考核与考试: '考核与考试', 课程文档: '课程文档', 资料库: '资料库', 教学日历: '教学日历', 配套文档: '配套文档', 课次: '课次', 教案: '教案', 讲稿: '讲稿', 资料: '资料', 本讲资料: '本讲资料', 练习: '练习', 本讲练习: '本讲练习', 题目: '题目', 题库: '题库', 试卷: '试卷', 参考资料: '参考资料' }
   return value.split('/').filter(Boolean).map(part => (labels as Record<string, string>)[part] || part.replace(/^(\d+)_/, '$1 ')).join(' / ')
 }
 
@@ -573,13 +584,6 @@ function physicalChildren(basePath: string, parentId: string): WorkspaceNode[] {
   return [...result.values()].map(node => node.kind === 'folder' ? { ...node, children: physicalChildren(node.path, node.id) } : node)
 }
 
-const managedPaths = computed(() => new Set([
-  '教学日历',
-  '配套文档',
-  '参考资料',
-  '题库',
-  ...lessons.value.flatMap(lesson => [lessonPath(lesson), `${lessonPath(lesson)}/资料`]),
-]))
 function uploadedPptAssets(base: string) {
   const prefix = `${base}/PPT/`
   return (selected.value?.assets || []).filter(asset => asset.relative_path.startsWith(prefix) && ['ppt', 'pptx'].includes(asset.extension.toLowerCase().replace(/^\./, '')))
@@ -596,7 +600,55 @@ function practiceStatus(lesson: TeacherLessonProjection): NodeStatus {
     ? 'ready'
     : 'missing'
 }
-const otherRootChildren = computed(() => physicalChildren('', 'folder:other').filter(node => ![...managedPaths.value].some(path => node.path === path || path.startsWith(`${node.path}/`) || node.path.startsWith(`${path}/`))))
+function assetIdsIn(nodes: WorkspaceNode[]) {
+  const ids = new Set<string>()
+  const visit = (node: WorkspaceNode) => { if (node.asset) ids.add(node.asset.asset_id); node.children?.forEach(visit) }
+  nodes.forEach(visit)
+  return ids
+}
+
+function libraryPhysicalChildren(parentId: string) {
+  const preferred = [
+    ...physicalChildren('资料库', parentId),
+    ...physicalChildren('参考资料', parentId),
+  ]
+  const seen = assetIdsIn(preferred)
+  const remaining = (selected.value?.assets || [])
+    .filter(asset => !seen.has(asset.asset_id))
+    .map<WorkspaceNode>(asset => ({
+      id: `asset:${asset.asset_id}`,
+      label: asset.filename,
+      kind: 'asset',
+      type: 'file',
+      path: asset.relative_path,
+      status: 'uploaded',
+      updatedAt: asset.updated_at || asset.uploaded_at || selected.value?.updated_at,
+      asset,
+      parentId,
+    }))
+  return [...preferred, ...remaining]
+}
+
+function lessonMaterialChildren(lessonId: string, parentId: string, legacyPath: string) {
+  const lessonTargets = new Set([`lesson-plan:${lessonId}`, `script:${lessonId}`, `ppt:${lessonId}`, `question-bank:${lessonId}`])
+  const links = (selected.value?.relationships || []).filter(link => lessonTargets.has(link.target_id))
+  const linked = links.flatMap(link => {
+    const asset = selected.value?.assets.find(item => item.asset_id === link.source_asset_id)
+    return asset ? [{
+      id: `lesson-material:${lessonId}:${asset.asset_id}`,
+      label: asset.filename,
+      kind: 'asset' as const,
+      type: 'file' as const,
+      path: asset.relative_path,
+      status: 'uploaded' as const,
+      updatedAt: asset.updated_at || asset.uploaded_at || selected.value?.updated_at,
+      asset,
+      parentId,
+    }] : []
+  })
+  const seen = new Set(linked.map(node => node.asset.asset_id))
+  return [...linked, ...physicalChildren(legacyPath, parentId).filter(node => !node.asset || !seen.has(node.asset.asset_id))]
+}
 
 const treeData = computed<WorkspaceNode[]>(() => {
   const outline: WorkspaceNode = {
@@ -614,47 +666,36 @@ const treeData = computed<WorkspaceNode[]>(() => {
       : 'draft'
   const teachingCalendar: WorkspaceNode = {
     id: 'managed:teaching-calendar', label: t('courseFiles.names.teachingCalendar'), kind: 'managed', type: 'teaching_calendar', path: '教学日历',
-    status: calendarStore.loading && !calendar ? 'working' : calendarStatus, revision: calendar?.revision ? `r${calendar.revision}` : '', updatedAt: calendar?.updated_at, parentId: 'root',
+    status: calendarStore.loading && !calendar ? 'working' : calendarStatus, revision: calendar?.revision ? `r${calendar.revision}` : '', updatedAt: calendar?.updated_at, parentId: 'folder:foundation',
     sizeBytes: calendarSessions.length ? textSize(JSON.stringify(calendarSessions)) : undefined,
   }
-  const referenceChildren = physicalChildren('参考资料', 'folder:reference')
-  const reference: WorkspaceNode = { id: 'folder:reference', label: t('courseFiles.names.reference'), kind: 'folder', type: 'reference', path: '参考资料', status: referenceChildren.length ? 'ready' : 'empty', parentId: 'root', children: referenceChildren }
+  outline.parentId = 'folder:foundation'
   const formalQuestionBank: WorkspaceNode = {
-    id: 'managed:question-bank', label: t('courseFiles.names.questionBank'), kind: 'managed', type: 'question_bank', path: '题库/课程题库',
-    status: questionBankItems.value.length ? 'ready' : 'missing', revision: questionBankRevisionId.value, parentId: 'folder:question-bank',
+    id: 'managed:question-bank', label: t('courseFiles.names.questionBank'), kind: 'managed', type: 'question_bank', path: '考核与考试/课程题库',
+    status: questionBankItems.value.length ? 'ready' : 'missing', revision: questionBankRevisionId.value, parentId: 'folder:assessment',
     sizeBytes: questionBankItems.value.length ? textSize(JSON.stringify(questionBankItems.value)) : undefined,
   }
   const examPaperNodes: WorkspaceNode[] = examPapers.value.map(paper => ({
-    id: `exam-paper:${paper.paper_id}`, label: paper.title, kind: 'managed', type: 'exam_paper', path: `题库/试卷/${safePart(paper.title)}`,
-    status: 'ready', revision: paper.revision_id, updatedAt: paper.updated_at, parentId: 'folder:question-bank', sizeBytes: textSize(JSON.stringify(paper)),
+    id: `exam-paper:${paper.paper_id}`, label: paper.title, kind: 'managed', type: 'exam_paper', path: `考核与考试/试卷/${safePart(paper.title)}`,
+    status: 'ready', revision: paper.revision_id, updatedAt: paper.updated_at, parentId: 'folder:exam-papers', sizeBytes: textSize(JSON.stringify(paper)),
   }))
-  const questionBankFolder: WorkspaceNode = {
-    id: 'folder:question-bank', label: t('courseFiles.names.questionBankAndPapers'), kind: 'folder', type: 'question_bank', path: '题库',
-    status: questionBankItems.value.length || examPaperNodes.length ? 'ready' : 'empty', parentId: 'root', children: [formalQuestionBank, ...examPaperNodes],
+  const examPapersFolder: WorkspaceNode = {
+    id: 'folder:exam-papers', label: t('courseFiles.names.examPapers', '试卷'), kind: 'folder', type: 'exam_papers', path: '考核与考试/试卷',
+    status: examPaperNodes.length ? 'ready' : 'empty', parentId: 'folder:assessment', children: examPaperNodes,
   }
   const companionDocumentNodes: WorkspaceNode[] = companionDocuments.value.map(document => ({
     id: `companion-document:${document.document_id}`,
     label: document.title,
     kind: 'managed',
     type: 'companion_document',
-    path: `配套文档/${safePart(document.title)}`,
+    path: `课程文档/${safePart(document.title)}`,
     status: document.status === 'ready' ? 'ready' : 'draft',
     revision: document.revision_id,
     updatedAt: document.updated_at,
     sizeBytes: textSize(document.rendered_markdown || ''),
-    parentId: 'folder:companion-documents',
+    parentId: 'folder:course-documents',
     companionDocument: document,
   }))
-  const companionDocumentsFolder: WorkspaceNode = {
-    id: 'folder:companion-documents',
-    label: t('courseFiles.names.companionDocuments', '配套文档'),
-    kind: 'folder',
-    type: 'companion_documents',
-    path: '配套文档',
-    status: companionDocumentNodes.length ? 'ready' : 'empty',
-    parentId: 'root',
-    children: companionDocumentNodes,
-  }
   const lessonNodes: WorkspaceNode[] = lessons.value.map(lesson => {
     const working = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
     const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
@@ -663,14 +704,14 @@ const treeData = computed<WorkspaceNode[]>(() => {
     const uploadedPpts = uploadedPptAssets(base)
     const contentNodes = lessonContentNodes(lesson)
     const contentReady = contentNodes.some(hasUsableContent)
-    const materialChildren = physicalChildren(`${base}/资料`, `material:${lesson.lesson_unit_id}`)
+    const materialChildren = lessonMaterialChildren(lesson.lesson_unit_id, `material:${lesson.lesson_unit_id}`, `${base}/资料`)
     const children: WorkspaceNode[] = [
-        { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined },
-        { id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `${base}/讲稿`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined },
-        { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.practice'), kind: 'managed', type: 'practice', path: `${base}/练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: practiceStatus(lesson) },
-        { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined },
+        { id: `plan:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPlan'), kind: 'managed', type: 'lesson_plan', path: `教学内容/${base}/教案`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing', revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined },
+        { id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `教学内容/${base}/讲稿`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing', revision: courseStore.currentDocumentRevision, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined },
+        { id: `practice:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonPractice', '本讲练习'), kind: 'managed', type: 'practice', path: `教学内容/${base}/本讲练习`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: practiceStatus(lesson) },
+        { id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `教学内容/${base}/PPT`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing', revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined },
         ...uploadedPpts.map(asset => ({ id: `ppt-upload:${asset.asset_id}`, label: asset.filename, kind: 'asset' as const, type: 'ppt' as const, path: asset.relative_path, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: 'uploaded' as const, updatedAt: asset.updated_at || asset.uploaded_at, asset, origin: 'uploaded' as const })),
-        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.material'), kind: 'folder', type: 'material', path: `${base}/资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: materialChildren.length ? 'ready' : 'empty', children: materialChildren },
+        { id: `material:${lesson.lesson_unit_id}`, label: t('courseFiles.names.lessonMaterials', '本讲资料'), kind: 'folder', type: 'material', path: `教学内容/${base}/本讲资料`, lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: materialChildren.length ? 'ready' : 'empty', children: materialChildren },
       ]
     const requiredStates = children.filter(item => ['lesson_plan', 'content', 'practice'].includes(item.type)).map(item => item.status)
     const lessonStatus: NodeStatus = requiredStates.includes('working') ? 'working'
@@ -678,14 +719,19 @@ const treeData = computed<WorkspaceNode[]>(() => {
         : requiredStates.every(state => state === 'ready') ? 'ready'
           : requiredStates.some(state => state === 'ready' || state === 'draft') ? 'draft' : 'missing'
     return {
-      id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: base, status: lessonStatus, lessonId: lesson.lesson_unit_id, parentId: 'root',
+      id: `lesson:${lesson.lesson_unit_id}`, label: `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`, kind: 'folder', type: 'lesson', path: `教学内容/${base}`, status: lessonStatus, lessonId: lesson.lesson_unit_id, parentId: 'folder:teaching-content',
       children,
     }
   })
-  const other: WorkspaceNode | null = otherRootChildren.value.length ? { id: 'folder:other', label: t('courseFiles.names.other'), kind: 'folder', type: 'folder', path: '', status: 'ready', parentId: 'root', children: otherRootChildren.value } : null
+  const foundation: WorkspaceNode = { id: 'folder:foundation', label: t('courseFiles.names.foundation', '课程基础'), kind: 'folder', type: 'foundation', path: '课程基础', status: outline.status === 'ready' && teachingCalendar.status === 'ready' ? 'ready' : 'draft', parentId: 'root', order: 1, children: [outline, teachingCalendar] }
+  const teachingContent: WorkspaceNode = { id: 'folder:teaching-content', label: t('courseFiles.names.teachingContent', '教学内容'), kind: 'folder', type: 'teaching_content', path: '教学内容', status: lessonNodes.length && lessonNodes.every(item => item.status === 'ready') ? 'ready' : lessonNodes.length ? 'draft' : 'empty', parentId: 'root', order: 2, children: lessonNodes }
+  const assessment: WorkspaceNode = { id: 'folder:assessment', label: t('courseFiles.names.assessment', '考核与考试'), kind: 'folder', type: 'assessment', path: '考核与考试', status: formalQuestionBank.status === 'ready' || examPaperNodes.length ? 'ready' : 'empty', parentId: 'root', order: 3, children: [formalQuestionBank, examPapersFolder] }
+  const courseDocuments: WorkspaceNode = { id: 'folder:course-documents', label: t('courseFiles.names.courseDocuments', '课程文档'), kind: 'folder', type: 'course_documents', path: '课程文档', status: companionDocumentNodes.length ? 'ready' : 'empty', parentId: 'root', order: 4, children: companionDocumentNodes }
+  const libraryChildren = libraryPhysicalChildren('folder:library')
+  const library: WorkspaceNode = { id: 'folder:library', label: t('courseFiles.names.library', '资料库'), kind: 'folder', type: 'library', path: '资料库', status: libraryChildren.length ? 'ready' : 'empty', parentId: 'root', order: 5, children: libraryChildren }
   const courseRoot: WorkspaceNode = {
     id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: outline.status === 'ready' && lessonNodes.every(item => item.status === 'ready') ? 'ready' : 'draft',
-    children: [outline, teachingCalendar, questionBankFolder, companionDocumentsFolder, reference, ...lessonNodes, ...(other ? [other] : [])],
+    children: [foundation, teachingContent, assessment, courseDocuments, library],
   }
   return [courseRoot]
 })
@@ -816,16 +862,53 @@ function formalTargetId(node: WorkspaceNode) {
   if (node.type === 'content') return `script:${node.lessonId || ''}`
   if (node.type === 'ppt') return `ppt:${node.lessonId || ''}`
   if (node.type === 'practice') return `question-bank:${node.lessonId || ''}`
+  if (node.type === 'question_bank') return 'managed:question-bank'
+  if (node.type === 'exam_paper') return node.id
   if (node.type === 'companion_document') return node.id
   return ''
 }
-const inspectedRelationships = computed(() => {
+const inspectedSourceLinks = computed(() => {
   const node = selectedNode.value
-  if (!node) return []
-  const links = selected.value?.relationships || []
-  if (node.asset) return links.filter(link => link.source_asset_id === node.asset?.asset_id)
+  if (!node || node.kind !== 'managed') return []
   const targetId = formalTargetId(node)
-  return targetId ? links.filter(link => link.target_id === targetId) : []
+  return targetId ? (selected.value?.relationships || []).filter(link => link.target_id === targetId) : []
+})
+const inspectedUsageLinks = computed(() => {
+  const assetId = selectedNode.value?.asset?.asset_id
+  return assetId ? (selected.value?.relationships || []).filter(link => link.source_asset_id === assetId) : []
+})
+function aggregateStatus(nodes: WorkspaceNode[]): NodeStatus {
+  const states = nodes.map(node => node.status)
+  if (states.includes('working')) return 'working'
+  if (states.includes('stale')) return 'stale'
+  if (states.length && states.every(state => state === 'ready')) return 'ready'
+  if (states.some(state => state === 'ready' || state === 'draft')) return 'draft'
+  return states.length ? 'missing' : 'empty'
+}
+const inspectedOutputs = computed<InspectorOutput[]>(() => {
+  const node = selectedNode.value
+  if (!node || node.kind !== 'managed') return []
+  const all = [...flatNodes.value.values()]
+  if (node.type === 'outline') {
+    const calendar = flatNodes.value.get('managed:teaching-calendar')
+    const lessonPlans = all.filter(item => item.type === 'lesson_plan')
+    const teachingFolder = flatNodes.value.get('folder:teaching-content')
+    return [
+      ...(calendar ? [{ id: calendar.id, label: calendar.label, status: calendar.status, node: calendar }] : []),
+      ...(teachingFolder && lessonPlans.length ? [{ id: 'output:lesson-plans', label: t('courseFiles.inspector.lessonPlansCount', '教案 · {count} 讲').replace('{count}', String(lessonPlans.length)), status: aggregateStatus(lessonPlans), node: teachingFolder }] : []),
+    ]
+  }
+  if (node.type === 'lesson_plan') return all.filter(item => item.lessonId === node.lessonId && ['content', 'practice', 'ppt'].includes(item.type)).map(item => ({ id: item.id, label: item.label, status: item.status, node: item }))
+  if (node.type === 'question_bank') {
+    const practices = all.filter(item => item.type === 'practice')
+    const teachingFolder = flatNodes.value.get('folder:teaching-content')
+    const papersFolder = flatNodes.value.get('folder:exam-papers')
+    return [
+      ...(teachingFolder && practices.length ? [{ id: 'output:practices', label: t('courseFiles.inspector.practicesCount', '本讲练习 · {count} 讲').replace('{count}', String(practices.length)), status: aggregateStatus(practices), node: teachingFolder }] : []),
+      ...(papersFolder ? [{ id: papersFolder.id, label: papersFolder.label, status: papersFolder.status, node: papersFolder }] : []),
+    ]
+  }
+  return []
 })
 function relationshipRoleLabel(role: string) { return role === 'primary' ? t('courseFiles.inspector.primarySource', '主来源') : t('courseFiles.inspector.referenceSource', '参考资料') }
 function formalTypeLabel(type: string) { return t(`courseFiles.formalTypes.${type}`, type) }
@@ -856,8 +939,8 @@ const breadcrumbs = computed(() => {
   return values
 })
 const createTargetFolder = computed(() => flatNodes.value.get(createTargetFolderId.value) || currentFolder.value)
-const canAddTeacherFiles = computed(() => Boolean(currentFolder.value && ['reference', 'material', 'folder'].includes(currentFolder.value.type)))
-const emptyFolderTitle = computed(() => currentFolder.value?.type === 'material' || currentFolder.value?.type === 'reference' ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
+const canAddTeacherFiles = computed(() => Boolean(currentFolder.value && ['library', 'reference', 'material', 'folder'].includes(currentFolder.value.type)))
+const emptyFolderTitle = computed(() => ['library', 'material', 'reference'].includes(currentFolder.value?.type || '') ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
 
 function setWorkspaceView(value: WorkspaceView) {
   if (props.workspaceView === undefined) localWorkspaceView.value = value
@@ -937,6 +1020,8 @@ function compareNodes(left: WorkspaceNode, right: WorkspaceNode) {
     result = (leftSize || 0) - (rightSize || 0)
   } else if (sortKey.value === 'status') {
     result = collator.value.compare(statusLabel(left), statusLabel(right))
+  } else if (left.order !== undefined && right.order !== undefined) {
+    result = left.order - right.order
   } else {
     result = collator.value.compare(left.label, right.label)
   }
@@ -980,20 +1065,13 @@ const folderUpdatedLabel = (node: WorkspaceNode) => dateLabel(latestUpdatedAt(no
 
 function inspectorMaterialFolder(node: WorkspaceNode): WorkspaceNode | null {
   if (node.kind !== 'folder') return null
-  if (['reference', 'material', 'folder'].includes(node.type)) return node
+  if (['library', 'reference', 'material', 'folder'].includes(node.type)) return node
   if (node.type === 'lesson') return node.children?.find(child => child.kind === 'folder' && child.type === 'material') || null
   return null
 }
 
 function inspectorHasActions(node: WorkspaceNode) {
   return Boolean(selectedNode.value || node.type === 'root' || inspectorMaterialFolder(node))
-}
-
-function inspectorActionHint(node: WorkspaceNode) {
-  if (selectedNode.value?.asset) return t('courseFiles.inspector.actionHints.uploaded')
-  if (selectedNode.value?.kind === 'managed') return t('courseFiles.inspector.actionHints.managed')
-  if (node.type === 'root') return t('courseFiles.inspector.actionHints.course')
-  return t('courseFiles.inspector.actionHints.folder')
 }
 
 function openInspectorCreate(node: WorkspaceNode, type: 'material' | 'folder') {
@@ -1004,45 +1082,6 @@ function openInspectorCreate(node: WorkspaceNode, type: 'material' | 'folder') {
 
 function shortRevision(revision: string) {
   return revision.length > 14 ? `${revision.slice(0, 8)}…${revision.slice(-5)}` : revision
-}
-
-function inspectorSource(node: WorkspaceNode) {
-  if (node.type === 'outline') return t('courseFiles.inspector.sources.courseStructure')
-  if (node.type === 'teaching_calendar') return t('courseFiles.inspector.sources.outlineSchedule')
-  if (node.type === 'lesson_plan') return t('courseFiles.inspector.sources.outlineAndMaterials')
-  if (node.type === 'content') {
-    const lesson = lessons.value.find(item => item.lesson_unit_id === node.lessonId)
-    const count = lesson ? lessonContentNodes(lesson).filter(hasUsableContent).length : 0
-    return t('courseFiles.inspector.sources.contentBlocks').replace('{count}', String(count))
-  }
-  if (node.type === 'practice') {
-    const lesson = lessons.value.find(item => item.lesson_unit_id === node.lessonId)
-    const ids = new Set(lesson ? practiceNodeIds(lesson) : [])
-    const count = questionBankItems.value.filter(item => item.lifecycle_status !== 'retired' && item.node_id && ids.has(item.node_id)).length
-    return t('courseFiles.inspector.sources.questionBank').replace('{count}', String(count))
-  }
-  if (node.type === 'question_bank') return t('courseFiles.inspector.sources.questionBank').replace('{count}', String(questionBankItems.value.length))
-  if (node.type === 'exam_paper') return t('courseFiles.inspector.sources.pinnedQuestionRevisions')
-  if (node.type === 'companion_document') return t('courseFiles.inspector.sources.schoolTemplate', '学校模板与已填写课程信息')
-  if (node.type === 'ppt') {
-    if (node.origin === 'uploaded') return t('courseFiles.inspector.sources.uploadedDeck')
-    if (node.origin === 'generated') return t('courseFiles.inspector.sources.generatedDeck')
-    return t('courseFiles.inspector.sources.notSelected')
-  }
-  return t('courseFiles.inspector.sources.teacherFile')
-}
-
-function inspectorUse(node: WorkspaceNode) {
-  if (node.type === 'outline') return t('courseFiles.inspector.uses.outline')
-  if (node.type === 'teaching_calendar') return t('courseFiles.inspector.uses.teachingCalendar')
-  if (node.type === 'lesson_plan') return t('courseFiles.inspector.uses.lessonPlan')
-  if (node.type === 'content') return t('courseFiles.inspector.uses.content')
-  if (node.type === 'practice') return t('courseFiles.inspector.uses.practice')
-  if (node.type === 'question_bank') return t('courseFiles.inspector.uses.questionBank')
-  if (node.type === 'exam_paper') return t('courseFiles.inspector.uses.examPaper')
-  if (node.type === 'companion_document') return t('courseFiles.inspector.uses.companionDocument', '学校提交、学生说明与课程归档')
-  if (node.type === 'ppt') return t('courseFiles.inspector.uses.ppt')
-  return t('courseFiles.inspector.uses.material')
 }
 
 function folderPath(id: string) {
@@ -1073,6 +1112,24 @@ function openFolder(id: string) {
 function selectNode(node: WorkspaceNode) {
   selectedNode.value = node
   emit('contextChange', { lessonId: node.lessonId || '', nodeId: node.id, label: node.label, type: node.type, path: node.path })
+}
+function revealNode(node: WorkspaceNode) {
+  if (node.parentId) openFolder(node.parentId)
+  selectNode(node)
+}
+function relationshipTargetNode(link: FileRelationship) {
+  if (link.target_id === 'managed:outline') return flatNodes.value.get('managed:outline')
+  if (link.target_id === 'managed:teaching-calendar') return flatNodes.value.get('managed:teaching-calendar')
+  if (link.target_id === 'managed:question-bank') return flatNodes.value.get('managed:question-bank')
+  if (link.target_id.startsWith('lesson-plan:')) return flatNodes.value.get(`plan:${link.target_id.slice('lesson-plan:'.length)}`)
+  if (link.target_id.startsWith('script:')) return flatNodes.value.get(`content:${link.target_id.slice('script:'.length)}`)
+  if (link.target_id.startsWith('ppt:')) return flatNodes.value.get(`ppt:${link.target_id.slice('ppt:'.length)}`)
+  if (link.target_id.startsWith('question-bank:')) return flatNodes.value.get(`practice:${link.target_id.slice('question-bank:'.length)}`)
+  return flatNodes.value.get(link.target_id)
+}
+function revealRelationshipTarget(link: FileRelationship) {
+  const node = relationshipTargetNode(link)
+  if (node) revealNode(node)
 }
 function handleNodeClick(node: WorkspaceNode) {
   if (node.kind === 'folder') { openFolder(node.id); return }
@@ -1412,15 +1469,18 @@ function createLessonPlanFirst() {
 }
 
 function targetPath(type: CreateType, lessonId: string) {
-  const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
   const folder = createTargetFolder.value
-  if (type === 'material') {
-    if (folder?.type === 'lesson') return `${folder.path}/资料`
-    if (folder && (folder.type === 'reference' || folder.type === 'material' || folder.type === 'folder')) return folder.path
-    return lesson ? `${lessonPath(lesson)}/资料` : '参考资料'
+  if (type === 'folder') {
+    if (folder && ['library', 'folder'].includes(folder.type) && folder.path.startsWith('资料库')) return folder.path
+    return '资料库'
   }
+  if (type === 'material') {
+    if (folder && ['library', 'folder'].includes(folder.type) && folder.path.startsWith('资料库')) return folder.path
+    return '资料库'
+  }
+  const lesson = lessons.value.find(item => item.lesson_unit_id === lessonId)
   if (type === 'lesson_plan') return lesson ? `${lessonPath(lesson)}/教案` : '教案'
-  if (type === 'ppt') return lesson ? `${lessonPath(lesson)}/PPT` : 'PPT'
+  if (type === 'ppt') return '资料库'
   if (type === 'practice') return lesson ? `${lessonPath(lesson)}/练习` : '练习'
   return folder?.path || ''
 }
@@ -1434,6 +1494,19 @@ async function uploadFile(file: File, path: string): Promise<Asset | null> {
   if (outcome?.outcome === 'rejected') throw new Error(outcome.error || t('courseFiles.errors.createFailed'))
   return outcome?.asset_id ? outcome : selected.value?.assets.find(item => item.relative_path === relativePath) || null
 }
+async function attachAssetToFormal(asset: Asset, targetId: string, targetType: string, targetLabel: string, role: 'primary' | 'reference') {
+  if (!selected.value || !targetId) return
+  const sources = (selected.value.relationships || [])
+    .filter(link => link.target_id === targetId && link.source_asset_id !== asset.asset_id)
+    .map(link => ({ source_asset_id: link.source_asset_id, role: link.role }))
+  const response = await http.put(`/api/teacher-course-spaces/${selected.value.package_id}/relationships`, {
+    target_id: targetId,
+    target_type: targetType,
+    target_label: targetLabel,
+    sources: [...sources, { source_asset_id: asset.asset_id, role }],
+  }, teacherRequestConfig({ silentError: true }))
+  if (response.data?.package) selected.value = response.data.package
+}
 async function submitCreate() {
   if (!selected.value) return
   busy.value = true
@@ -1446,16 +1519,25 @@ async function submitCreate() {
         if (!createForm.value.file) throw new Error(t('courseFiles.errors.selectOldDeck'))
         const uploaded = await uploadFile(createForm.value.file, targetPath('ppt', createForm.value.lessonId))
         if (createForm.value.pptImportAction === 'derive_plan' && uploaded) {
+          const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
+          await attachAssetToFormal(uploaded, `lesson-plan:${createForm.value.lessonId}`, 'lesson_plan', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.lessonPlan')}`, 'primary')
           await lessonStore.generateLesson(props.courseId, createForm.value.lessonId, {
             packageId: selected.value.package_id,
             assetId: uploaded.asset_id,
           })
+        } else if (uploaded) {
+          const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
+          await attachAssetToFormal(uploaded, `ppt:${createForm.value.lessonId}`, 'ppt', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.ppt')}`, 'primary')
         }
       } else {
         const revision = lessonPlanRevision(createForm.value.lessonId)
         if (!revision) throw new Error(t('courseFiles.errors.createLessonFirst'))
         if (createForm.value.style === 'template' && createForm.value.file) {
-          await uploadFile(createForm.value.file, `${targetPath('ppt', createForm.value.lessonId)}/风格参考`)
+          const uploaded = await uploadFile(createForm.value.file, targetPath('ppt', createForm.value.lessonId))
+          if (uploaded) {
+            const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
+            await attachAssetToFormal(uploaded, `ppt:${createForm.value.lessonId}`, 'ppt', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.ppt')}`, 'reference')
+          }
         }
         const lessonId = createForm.value.lessonId
         closeCreateDialog()
@@ -1463,7 +1545,14 @@ async function submitCreate() {
         return
       }
     } else if (createForm.value.file) {
-      await uploadFile(createForm.value.file, targetPath(createType.value, createForm.value.lessonId))
+      const uploaded = await uploadFile(createForm.value.file, targetPath(createType.value, createForm.value.lessonId))
+      if (uploaded && createForm.value.lessonId && createType.value === 'lesson_plan') {
+        const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
+        await attachAssetToFormal(uploaded, `lesson-plan:${createForm.value.lessonId}`, 'lesson_plan', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.lessonPlan')}`, 'primary')
+      } else if (uploaded && createForm.value.lessonId && createType.value === 'material') {
+        const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
+        await attachAssetToFormal(uploaded, `lesson-plan:${createForm.value.lessonId}`, 'lesson_plan', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.lessonPlan')}`, 'reference')
+      }
     } else if (createType.value === 'outline') {
       emit('openOutline')
     } else if (createType.value === 'lesson_plan') {
@@ -1478,7 +1567,11 @@ async function submitCreate() {
       return
     } else if (createType.value === 'material') {
       const name = `${safePart(createForm.value.title || t('courseFiles.names.newMaterial'))}.md`
-      await uploadFile(new File([`# ${createForm.value.title}\n\n${createForm.value.requirements}\n`], name, { type: 'text/markdown' }), targetPath('material', createForm.value.lessonId))
+      const uploaded = await uploadFile(new File([`# ${createForm.value.title}\n\n${createForm.value.requirements}\n`], name, { type: 'text/markdown' }), targetPath('material', createForm.value.lessonId))
+      if (uploaded && createForm.value.lessonId) {
+        const lesson = lessons.value.find(item => item.lesson_unit_id === createForm.value.lessonId)
+        await attachAssetToFormal(uploaded, `lesson-plan:${createForm.value.lessonId}`, 'lesson_plan', `${lesson?.title || createForm.value.lessonId} · ${t('courseFiles.names.lessonPlan')}`, 'reference')
+      }
     }
     await reloadPackage()
     await lessonStore.load(props.courseId).catch(() => undefined)
@@ -1534,8 +1627,8 @@ onMounted(refresh)
 .folder-title{min-height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 18px}.folder-title h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.folder-title__actions{flex:none;display:flex;align-items:center;gap:7px}.folder-title__actions>span{margin-right:3px;color:var(--lz-text-muted);font-size:13px}.folder-title__actions button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:700;cursor:pointer}.folder-title__actions button:hover{border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.add-material-button{padding:0 12px}.add-folder-button{width:36px;padding:0}
 .file-table{min-height:0;flex:1;overflow:auto;padding:0 12px 20px}.file-table__head,.file-row{display:grid;grid-template-columns:minmax(230px,1.65fr) 126px 88px 76px 98px;align-items:center;gap:10px}.file-table__head{min-height:42px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px;font-weight:700}.sort-button{height:40px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.sort-button svg{opacity:.55}.sort-button:hover,.sort-button.active{color:var(--lz-text-secondary)}.sort-button.active svg{opacity:1}.sort-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-table__head span:nth-child(4) .sort-button{width:100%;justify-content:flex-end}.file-row{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid #edf1f6;background:transparent;color:var(--lz-text-secondary);text-align:left;font-size:13px;cursor:pointer}.file-row:hover,.file-row:focus-visible{outline:0;background:#f7f9fc}.file-row.selected{background:#e9eeff}.file-name{min-width:0;display:flex;align-items:center;gap:10px}.file-name strong{overflow:hidden;color:var(--lz-text-strong);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.file-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f1f5f9;color:#64748b}.file-icon[data-type="outline"],.file-icon[data-type="teaching_calendar"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"]{background:#eef2ff;color:#4f46e5}.status-dot{width:7px;height:7px;display:inline-block;margin-right:6px;border-radius:50%;background:#94a3b8}.status-dot[data-state="ready"],.status-dot[data-state="uploaded"]{background:#10b981}.status-dot[data-state="working"]{background:#6366f1}.status-dot[data-state="stale"]{background:#f97316}.status-dot[data-state="missing"],.status-dot[data-state="empty"]{background:#cbd5e1}
 .file-empty{min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);text-align:center}.file-empty strong{color:var(--lz-text-secondary);font-size:15px}.file-empty span{max-width:320px;font-size:13px;line-height:1.55}.file-empty button{display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:#4f46e5;font-size:13px;cursor:pointer}.file-empty button:hover{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.runtime-note{margin:0;padding:9px 18px;border-top:1px solid var(--lz-border);color:#9a3412;background:#fff7ed;font-size:13px}
-.file-inspector{display:flex;flex-direction:column;border-left:1px solid var(--lz-border);background:#fbfcfe}.file-inspector>header{display:grid;grid-template-columns:44px minmax(0,1fr) auto;align-items:center;gap:11px;padding:17px 16px 15px;border-bottom:1px solid var(--lz-border)}.inspector-icon{width:44px;height:44px;display:grid;place-items:center;border-radius:11px;background:#eef2ff;color:#4f46e5}.file-inspector header div{min-width:0;display:grid;gap:3px}.file-inspector header small{color:var(--lz-text-muted);font-size:12px}.file-inspector header strong{overflow:hidden;font-size:16px;text-overflow:ellipsis;white-space:nowrap}.inspector-status{padding:13px 16px;border-bottom:1px solid #e8edf4}.inspector-status>span{display:flex;align-items:center;gap:7px;color:var(--lz-text-secondary);font-size:13px;font-weight:700}.inspector-status i{width:8px;height:8px;border-radius:50%;background:#94a3b8}.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i{background:#10b981}.inspector-status[data-state="working"] i{background:#6366f1}.inspector-status[data-state="stale"] i{background:#f97316}.inspector-status[data-state="empty"] i{background:#cbd5e1}.inspector-overview{min-height:0;overflow:auto;padding:18px 16px}.inspector-overview h3{margin:0 0 8px;color:var(--lz-text-secondary);font-size:14px}.inspector-overview dl{margin:0}.inspector-overview dl>div{display:grid;grid-template-columns:72px minmax(0,1fr);gap:10px;padding:12px 0;border-bottom:1px solid #e8edf4}.inspector-overview dt{color:var(--lz-text-muted);font-size:12px}.inspector-overview dd{margin:0;overflow-wrap:anywhere;color:var(--lz-text-secondary);font-size:13px;line-height:1.5}.inspector-actions{display:grid;gap:9px;margin-top:auto;padding:16px;border-top:1px solid var(--lz-border);background:#fff}.inspector-actions__heading{display:grid;gap:4px;margin-bottom:3px}.inspector-actions__heading strong{color:var(--lz-text-secondary);font-size:13px}.inspector-actions__heading span{color:var(--lz-text-muted);font-size:11px;line-height:1.5}.inspector-actions__secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.inspector-actions__secondary>button:only-child{grid-column:1/-1}.inspector-actions button{min-height:40px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid var(--lz-border);border-radius:9px;background:#fff;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}.inspector-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.inspector-actions button.primary{min-height:44px;border-color:#4f46e5;background:#4f46e5;color:#fff;box-shadow:0 8px 18px rgba(79,70,229,.16)}.inspector-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.inspector-actions button.danger{border-color:transparent;color:#b91c1c;background:transparent}.inspector-actions button.danger:hover:not(:disabled){border-color:#fecaca;color:#991b1b;background:#fff1f2}.inspector-actions button:disabled{opacity:.45;cursor:not-allowed}.inspector-actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
-.relationship-list{display:grid;gap:7px;margin-top:20px}.relationship-list>div{display:grid;grid-template-columns:18px minmax(0,1fr);gap:7px;align-items:start;padding:9px;border:1px solid #e2e7ef;border-radius:8px;background:#fff;color:#6366f1}.relationship-list>div>span{min-width:0;display:grid;gap:3px}.relationship-list strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.relationship-list small{color:#64748b;font-size:11px}
+.file-inspector{display:flex;flex-direction:column;border-left:1px solid var(--lz-border);background:#fff}.file-inspector>header{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:10px;padding:15px 14px;border-bottom:1px solid var(--lz-border)}.inspector-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:9px;background:#eef2ff;color:#4f46e5}.file-inspector header div{min-width:0;display:grid;gap:2px}.file-inspector header small{color:var(--lz-text-muted);font-size:11px}.file-inspector header strong{overflow:hidden;font-size:15px;text-overflow:ellipsis;white-space:nowrap}.inspector-status{padding:10px 14px;border-bottom:1px solid #edf1f5}.inspector-status>span{display:flex;align-items:center;gap:7px;color:var(--lz-text-secondary);font-size:12px;font-weight:700}.inspector-status i{width:7px;height:7px;border-radius:50%;background:#94a3b8}.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i{background:#10b981}.inspector-status[data-state="working"] i{background:#6366f1}.inspector-status[data-state="stale"] i{background:#f97316}.inspector-status[data-state="empty"] i{background:#cbd5e1}.inspector-overview{min-height:0;overflow:auto;padding:4px 14px 18px}.inspector-overview h3{margin:0;color:var(--lz-text-secondary);font-size:12px;font-weight:750}.inspector-overview dl{margin:0}.inspector-overview dl>div{display:grid;grid-template-columns:64px minmax(0,1fr);gap:9px;padding:10px 0;border-bottom:1px solid #edf1f5}.inspector-overview dt{color:var(--lz-text-muted);font-size:12px}.inspector-overview dd{margin:0;overflow-wrap:anywhere;color:var(--lz-text-secondary);font-size:12px;line-height:1.45}.inspector-actions{display:grid;gap:8px;margin-top:auto;padding:13px 14px;border-top:1px solid var(--lz-border);background:#fff}.inspector-actions__secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.inspector-actions__secondary>button:only-child{grid-column:1/-1}.inspector-actions button{min-height:38px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:var(--lz-text-secondary);font-size:12px;font-weight:700;cursor:pointer}.inspector-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.inspector-actions button.primary{min-height:40px;border-color:#4f46e5;background:#4f46e5;color:#fff}.inspector-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.inspector-actions button.danger{border-color:transparent;color:#b91c1c;background:transparent}.inspector-actions button.danger:hover:not(:disabled){border-color:#fecaca;color:#991b1b;background:#fff1f2}.inspector-actions button:disabled{opacity:.45;cursor:not-allowed}.inspector-actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
+.relationship-list{display:grid;gap:0;padding-top:16px}.relationship-list h3{padding-bottom:7px}.relationship-list>div,.relationship-list>button{width:100%;display:grid;grid-template-columns:18px minmax(0,1fr);gap:7px;align-items:start;padding:9px 0;border:0;border-top:1px solid #edf1f5;background:transparent;color:#6366f1;text-align:left}.relationship-list>button{cursor:pointer}.relationship-list>button:hover{color:var(--lz-brand-strong)}.relationship-list>div>span,.relationship-list>button>span{min-width:0;display:grid;gap:2px}.relationship-list strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.relationship-list small{color:#64748b;font-size:11px}.relationship-empty{padding:7px 0;color:#94a3b8;font-size:12px}
 .space-state{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center;font-size:13px}.space-state strong{color:var(--lz-text-secondary);font-size:15px}.space-state span{max-width:240px;font-size:13px;line-height:1.5}.space-state button{padding:8px 13px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;font-size:13px}
 .asset-create-overlay{position:fixed;inset:0;z-index:2600;display:grid;place-items:center;padding:14px;background:rgba(15,23,42,.38);backdrop-filter:blur(2px)}.asset-create-dialog{width:min(580px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;padding:0 20px 20px;border:1px solid rgba(255,255,255,.65);border-radius:14px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.22)}.asset-create-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;min-height:54px;margin:0 -20px 15px;padding:0 20px;border-bottom:1px solid #eef2f7;background:rgba(255,255,255,.96)}.asset-create-header strong{font-size:16px}.asset-create-header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.asset-create-header button:hover{background:#f1f5f9;color:var(--lz-text-strong)}.asset-create-help{margin:0 0 15px;color:var(--lz-text-secondary);font-size:13px;line-height:1.55}.create-location{min-height:40px;display:grid;grid-template-columns:18px auto minmax(0,1fr);align-items:center;gap:7px;padding:0 11px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;background:#f8fafc;font-size:12px}.create-location strong{overflow:hidden;color:#334155;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.asset-form{display:grid;gap:14px;padding-top:16px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form-field{display:grid;gap:7px}.form-field>span,.source-picker>div>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.form-field>small{color:var(--lz-text-muted);font-size:12px;line-height:1.5}.form-field input,.form-field select,.form-field textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid var(--lz-border);border-radius:8px;outline:0;color:var(--lz-text-strong);background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical}.form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1)}.source-picker{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px dashed #cbd5e1;border-radius:9px}.source-picker>div{display:grid;gap:4px}.source-picker small{color:var(--lz-text-muted);font-size:12px}.source-picker button{max-width:220px;display:flex;align-items:center;gap:6px;overflow:hidden;padding:8px 10px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;color:#4f46e5;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-origin-picker{display:grid;gap:8px}.ppt-origin-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}.ppt-origin-picker button{min-width:0;display:grid;grid-template-columns:20px minmax(0,1fr);gap:2px 8px;padding:11px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;text-align:left;cursor:pointer}.ppt-origin-picker button svg{grid-row:1/3;align-self:center;color:#64748b}.ppt-origin-picker button strong{font-size:13px}.ppt-origin-picker button small{overflow:hidden;color:var(--lz-text-muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-origin-picker button.active{border-color:var(--lz-brand);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.ppt-origin-picker button.active svg{color:var(--lz-brand)}.ppt-origin-note{display:flex;align-items:flex-start;gap:7px;margin:0;padding:10px 11px;border:1px solid #e0e7ff;border-radius:8px;color:#4f46e5;background:#f8faff;font-size:12px;line-height:1.5}.ppt-origin-note[data-mode="import"]{border-color:#e2e8f0;color:#475569;background:#f8fafc}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:5px}.dialog-actions button{min-height:38px;padding:0 14px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}.dialog-actions button.primary{border-color:#4f46e5;background:#4f46e5;color:#fff}.dialog-actions button:disabled{opacity:.45;cursor:not-allowed}.practice-create-note,.create-prerequisite{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:9px;padding:12px;border:1px solid #e2e8f0;border-radius:9px;color:#475569;background:#f8fafc}.practice-create-note>div,.create-prerequisite>div{display:grid;gap:4px}.practice-create-note strong,.create-prerequisite strong{font-size:13px}.practice-create-note small,.create-prerequisite small{color:var(--lz-text-muted);font-size:12px;line-height:1.5}.create-prerequisite{grid-template-columns:20px minmax(0,1fr) auto;border-color:#fed7aa;color:#9a3412;background:#fff7ed}.create-prerequisite button{align-self:center;padding:7px 9px;border:1px solid #fdba74;border-radius:7px;color:#9a3412;background:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .source-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker button{align-items:center;gap:8px}.ppt-origin-picker button svg{grid-row:auto}.practice-create-note,.create-prerequisite{align-items:center}

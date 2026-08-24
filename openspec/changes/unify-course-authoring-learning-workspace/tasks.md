@@ -14,6 +14,8 @@
 - [x] 2.5 Split PPT creation into AI-generated and teacher-uploaded flows, preserving uploaded originals and optionally deriving a reviewable lesson-plan draft from PPTX evidence.
 - [x] 2.6 Create an empty course space before generation; keep outline, lesson plan, content, practice and companion PPT visible as direct asset entries with `Not generated` states, while materials use explicit add-file and add-folder actions.
 - [x] 2.7 Restore the course-level teaching calendar as a fixed managed file type, reuse the existing outline-derived editor and exports, and route legacy calendar links into the unified workspace.
+- [x] 2.8 Fix the file-space root to course foundation, teaching content, assessment and exams, course documents, and one materials library; keep session materials as relationship projections instead of duplicate storage.
+- [x] 2.9 Restore the always-visible file inspector and reduce it to direct status, metadata, source materials, generated files, downstream usages and actions without explanatory copy.
 
 ## 3. Formal course and teacher agent
 
@@ -45,6 +47,7 @@
 - [x] 5.8 Restore the teacher course library inside the home, including card/list switching and a single-row global header.
 - [x] 5.9 Route new-course entry to the detailed creation flow, persist its production baseline on an empty course shell, and enter the default four-stage workbench without starting generation.
 - [x] 5.10 Verify the two home tabs, empty-shell creation, zh/en copy and desktop/mobile layouts; then update product docs and release evidence.
+- [x] 5.11 Verify the five-folder file space, bidirectional inspector relationships, Chinese desktop rendering, focused tests, production build and design detector; then update canonical docs and release evidence.
 
 ## 6. Staged course-development workbench
 
