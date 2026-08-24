@@ -615,22 +615,6 @@
             />
             <strong v-else>{{ classroomPlan.lesson_duration_minutes ? `${classroomPlan.lesson_duration_minutes} ${t('courseGeneration.lessonPlan.minutesUnit', '分钟')}` : t('courseGeneration.lessonPlan.classroomUnset', '待补充') }}</strong>
           </label>
-          <label>
-            <span>{{ t('courseGeneration.lessonPlan.teachingContextLabel', '授课场景') }}</span>
-            <select
-              v-if="editing"
-              class="generation-lesson-plan__inline-input"
-              :value="draftText('overall/teaching_context', classroomPlan.teaching_context)"
-              :aria-label="t('courseGeneration.lessonPlan.teachingContextLabel', '授课场景')"
-              @change="queueTextPatch('overall/teaching_context', classroomPlan.teaching_context, $event)"
-            >
-              <option value="classroom">{{ t('courseGeneration.lessonPlan.contextClassroom', '线下课堂') }}</option>
-              <option value="online">{{ t('courseGeneration.lessonPlan.contextOnline', '在线授课') }}</option>
-              <option value="blended">{{ t('courseGeneration.lessonPlan.contextBlended', '混合式授课') }}</option>
-              <option value="self_study">{{ t('courseGeneration.lessonPlan.contextSelfStudy', '自主学习') }}</option>
-            </select>
-            <strong v-else>{{ teachingContextLabel(classroomPlan.teaching_context) }}</strong>
-          </label>
         </div>
         <details v-if="editing || hasClassroomDetails" class="generation-lesson-plan__classroom-details" :open="editing">
           <summary>
@@ -2203,16 +2187,6 @@ function teachingModeLabel(value: string): string {
     discussion: t('courseGeneration.lessonPlan.teachingModes.discussion', '讨论辨析'),
   }
   return labels[value] || ''
-}
-
-function teachingContextLabel(value?: string): string {
-  const labels: Record<string, string> = {
-    classroom: t('courseGeneration.lessonPlan.contextClassroom', '线下课堂'),
-    online: t('courseGeneration.lessonPlan.contextOnline', '在线授课'),
-    blended: t('courseGeneration.lessonPlan.contextBlended', '混合式授课'),
-    self_study: t('courseGeneration.lessonPlan.contextSelfStudy', '自主学习'),
-  }
-  return value ? (labels[value] || value) : t('courseGeneration.lessonPlan.classroomUnset', '待补充')
 }
 
 function openKnowledge(knowledgeId: string): void {

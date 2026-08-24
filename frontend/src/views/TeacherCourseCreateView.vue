@@ -102,13 +102,13 @@ async function createCourse() {
       teaching_goals: form.teachingGoals,
       generation_request: {
         subject: form.courseName, target_audience: form.targetGrade || '大学生', difficulty: 'intermediate',
-        composition_style: 'balanced', course_type: 'systematic',
+        course_type: 'systematic',
         course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: learningGoal },
         requirements: [form.courseIntro, form.assessmentMethod].filter(Boolean).join('\n'),
         production_mode: 'manual', teacher_course_brief: {
           schema_version: 'teacher_course_brief_v1', academic_term: [form.academicYear, form.term].filter(Boolean).join(' '),
           target_audience: form.targetGrade || '大学生', total_class_hours: totalHours,
-          lesson_duration_minutes: 45, teaching_context: 'classroom',
+          lesson_duration_minutes: 45,
           additional_requirements: form.assessmentMethod,
         }, teacher_authoring_mode: 'lesson_assets_v1',
       },

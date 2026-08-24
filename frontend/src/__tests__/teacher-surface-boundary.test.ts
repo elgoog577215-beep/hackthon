@@ -131,6 +131,8 @@ describe('calendar and course file-space boundary', () => {
     expect(create).not.toContain('localStorage')
     expect(create).toContain("courseStore.createTeacherCourseSpace")
     expect(create).toContain('generation_request:')
+    expect(create).not.toContain("composition_style: 'balanced'")
+    expect(create).not.toContain("teaching_context: 'classroom'")
     expect(create).toContain("name: 'course-workspace'")
     expect(create).not.toContain("generate: 'outline'")
     expect(create).not.toContain('section_count: Math.max')

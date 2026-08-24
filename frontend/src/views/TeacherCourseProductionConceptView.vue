@@ -321,15 +321,6 @@
                 </fieldset>
 
                 <label>
-                  <span>资料使用方式</span>
-                  <select v-model="generationForm.grounding">
-                    <option>以大纲为准，资料辅助</option>
-                    <option>仅依据选中资料</option>
-                    <option>允许补充通用知识</option>
-                  </select>
-                </label>
-
-                <label>
                   <span>本次要求</span>
                   <textarea v-model="generationForm.instruction" rows="4" placeholder="例如：加强课堂案例，控制在2学时内" />
                 </label>
@@ -431,7 +422,6 @@ const blankName = ref('第06讲教案')
 const generationForm = ref({
   primarySource: '教学大纲 v3',
   materials: ['教材', '旧教案'],
-  grounding: '以大纲为准，资料辅助',
   instruction: '保持课堂节奏清晰，补充一个真实案例。',
 })
 

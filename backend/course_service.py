@@ -932,7 +932,7 @@ class CourseService(AIBase):
 重构已有章节时优先复用、移动或更新原有小节；如果新增小节覆盖了原有小节的职责，必须同时合并或删除被替代的小节。
 同一章节内不得保留标题不同但学习目标重复的两个小节，尤其不得重复安排打包、调试、发布和交付等收尾职责。
 所有前置依赖必须指向最终顺序中的前序小节，不能删除仍被依赖的节点，不能成环。
-不得改变 immutable_course_contract 中的课程类型、用途、难度、材料边界或锁定规则。
+不得改变 immutable_course_contract 中的教学类型、用途、难度、材料边界或锁定规则。
 不要生成课程正文、教案、course_plan、course_outline 或 course_blueprint。
 """.strip()
         response = await self._call_llm(
@@ -6541,7 +6541,7 @@ class CourseService(AIBase):
             if profile.secondary_mode else ""
         )
         return "\n".join([
-            f"- 主教学模式：{profile.primary_mode.value}{secondary}",
+            f"- 学科类型：{profile.primary_mode.value}{secondary}",
             "- 当前节点必须履行的教学模块：",
             *(module_lines or ["  - 沿用原文结构和当前小节契约"]),
         ])

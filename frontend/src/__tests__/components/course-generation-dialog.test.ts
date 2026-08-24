@@ -70,11 +70,13 @@ describe('CourseGenerationDialog', () => {
           target_audience: '大学生',
           total_class_hours: 16,
           lesson_duration_minutes: 45,
-          teaching_context: 'classroom',
           additional_requirements: '保留完整推导，并提供独立练习',
         }),
       }),
     })
+    const generatedOptions = (wrapper.emitted('generate')?.[0]?.[0] as any).options
+    expect(generatedOptions.grounding_strategy).toBeUndefined()
+    expect(generatedOptions.teacher_course_brief.teaching_context).toBeUndefined()
   })
 
   it('课程默认不生成题目，但允许教师显式开启', async () => {
@@ -114,7 +116,7 @@ describe('CourseGenerationDialog', () => {
     ).toBeUndefined()
   })
 
-  it('把课堂约束写入生成请求，并阻止不合理的章节规模', async () => {
+  it('把必要课堂约束写入生成请求，并阻止不合理的章节规模', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
@@ -124,7 +126,6 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('#teacher-target-audience').setValue('初中二年级学生')
     await wrapper.get('#teacher-total-hours').setValue('12')
     await wrapper.get('#teacher-lesson-minutes').setValue('40')
-    await wrapper.get('#teacher-context').setValue('blended')
     await wrapper.get('#teacher-chapter-count').setValue('6')
     await wrapper.get('#teacher-section-count').setValue('4')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
@@ -138,11 +139,11 @@ describe('CourseGenerationDialog', () => {
       target_audience: '初中二年级学生',
       total_class_hours: 12,
       lesson_duration_minutes: 40,
-      teaching_context: 'blended',
       chapter_count: 6,
       section_count: 18,
       class_profile: '有基础差异，需要分层讨论',
     })
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief.teaching_context).toBeUndefined()
   })
 
   it('把教师确定的讲次数带入真实生成一级讲次约束', async () => {
@@ -258,7 +259,7 @@ describe('CourseGenerationDialog', () => {
     expect(advanced.attributes('open')).toBeUndefined()
     expect(advanced.text()).toContain('更多课堂设置')
     expect(advanced.find('#teacher-lesson-minutes').exists()).toBe(true)
-    expect(advanced.find('#teacher-context').exists()).toBe(true)
+    expect(advanced.find('#teacher-context').exists()).toBe(false)
     expect(advanced.find('#teacher-chapter-count').exists()).toBe(true)
     expect(advanced.find('#teacher-class-profile').exists()).toBe(true)
   })
@@ -298,7 +299,7 @@ describe('CourseGenerationDialog', () => {
     expect(reopenedId).not.toBe(changedId)
   })
 
-  it('将重复策略收敛为四种可用课程类型', () => {
+  it('将重复策略收敛为四种可用教学类型', () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -312,14 +313,14 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.findAll('.difficulty-options .difficulty-option')).toHaveLength(3)
     expect(wrapper.findAll('.course-type-option')).toHaveLength(4)
     expect(wrapper.findAll('.course-type-option:disabled')).toHaveLength(0)
-    expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(3)
+    expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(2)
     expect(wrapper.find('[data-testid="web-retrieval"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
     expect(wrapper.find('.course-type-summary').exists()).toBe(false)
     expect(wrapper.find('.difficulty-summary').exists()).toBe(false)
     expect(wrapper.get('[data-course-type="systematic"]').attributes('aria-label')).toContain('由基础逐步进阶')
-    expect(wrapper.text()).not.toContain('课程类型决定学习过程如何组织')
+    expect(wrapper.text()).not.toContain('教学类型决定学习过程如何组织')
     expect(wrapper.text()).not.toContain('即将开放')
   })
 
@@ -456,7 +457,7 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
-  it('英文模式完整解释四种课程类型，不泄漏中文或翻译键', async () => {
+  it('英文模式完整解释四种教学类型，不泄漏中文或翻译键', async () => {
     await setLocale('en')
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
@@ -468,7 +469,7 @@ describe('CourseGenerationDialog', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Course type')
+    expect(wrapper.text()).toContain('Teaching type')
     expect(wrapper.text()).toContain('Systematic learning')
     expect(wrapper.text()).toContain('Project practice')
     expect(wrapper.text()).toContain('Inquiry learning')

@@ -25,7 +25,7 @@ export type CourseCompositionStyle =
   | 'project_driven'
   | 'inquiry_driven';
 
-/** 课程的学习组织协议；与具体学科教学结构相互独立。 */
+/** 教学类型：回答课程按什么目标组织；与具体学科教法相互独立。 */
 export type CourseType = 'systematic' | 'project' | 'inquiry' | 'exam';
 
 export interface SystematicCourseIntent {
@@ -70,7 +70,7 @@ export type CourseIntent =
   | InquiryCourseIntent
   | ExamCourseIntent;
 
-/** 课程教学结构模式 */
+/** 学科类型：回答这门课主要通过什么学科行为来教学。 */
 export type PedagogyMode =
   | 'general'
   | 'math_formal'
@@ -278,7 +278,8 @@ export interface TeacherCourseBriefV1 {
   target_audience: string;
   total_class_hours: number;
   lesson_duration_minutes: number;
-  teaching_context: 'classroom' | 'online' | 'blended' | 'self_study';
+  /** 旧课程兼容字段；新教师工作台不再要求用户选择授课场景。 */
+  teaching_context?: 'classroom' | 'online' | 'blended' | 'self_study';
   class_size?: number;
   class_profile?: string;
   chapter_count?: number;

@@ -34,7 +34,7 @@
             <fieldset class="choice-group">
               <legend class="choice-group__title">
                 <span class="field-icon field-icon--rose"><Route :size="14" /></span>
-                <span>{{ t('courseGeneration.courseTypes.label', '课程类型') }}</span>
+                <span>{{ t('courseGeneration.courseTypes.label', '教学类型') }}</span>
               </legend>
               <div class="course-type-options">
                 <button
@@ -306,15 +306,6 @@
                     <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
                     <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
                   </label>
-                  <label for="teacher-context">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.context', '授课场景') }}</span>
-                    <select id="teacher-context" v-model="form.teachingContext" class="select-input" :disabled="busy">
-                      <option value="classroom">{{ t('courseGeneration.teacherBrief.contextClassroom', '线下课堂') }}</option>
-                      <option value="online">{{ t('courseGeneration.teacherBrief.contextOnline', '在线授课') }}</option>
-                      <option value="blended">{{ t('courseGeneration.teacherBrief.contextBlended', '混合式授课') }}</option>
-                      <option value="self_study">{{ t('courseGeneration.teacherBrief.contextSelfStudy', '自主学习') }}</option>
-                    </select>
-                  </label>
                   <label for="teacher-academic-term">
                     <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
                     <input id="teacher-academic-term" v-model="form.academicTerm" class="text-input" type="text" maxlength="100" :placeholder="t('courseGeneration.teacherBrief.academicTermPlaceholder', '例如：2026-2027 学年第一学期')" :disabled="busy" />
@@ -371,27 +362,19 @@
 
               <div class="strategy-settings">
               <div class="strategy-settings__heading">
-                <strong>{{ t('courseFiles.workbench.knowledgeStructure', '知识结构') }}</strong>
+                <strong>{{ t('courseFiles.workbench.subjectType', '学科类型') }}</strong>
               </div>
               <div class="compact-grid" :class="{ 'compact-grid--course-space': props.courseSpaceMode }">
               <label>
-                <span class="field-label"><Route :size="13" />{{ t('courseGeneration.pedagogy.label', '主学科结构') }}</span>
+                <span class="field-label"><Route :size="13" />{{ t('courseGeneration.pedagogy.label', '学科类型') }}</span>
                 <select v-model="form.pedagogyMode" class="select-input" :disabled="busy">
                   <option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
               <label v-if="!props.courseSpaceMode">
-                <span class="field-label"><Network :size="13" />{{ t('courseGeneration.pedagogy.secondaryLabel', '辅助学科') }}</span>
+                <span class="field-label"><Network :size="13" />{{ t('courseGeneration.pedagogy.secondaryLabel', '辅助学科类型') }}</span>
                 <select v-model="form.secondaryMode" data-testid="secondary-pedagogy-mode" class="select-input" :disabled="busy">
                   <option v-for="item in secondaryPedagogyOptions" :key="item.value || 'none'" :value="item.value">{{ item.label }}</option>
-                </select>
-              </label>
-              <label v-if="!props.courseSpaceMode">
-                <span class="field-label"><BookMarked :size="13" />{{ t('courseGeneration.grounding.label', '资料使用边界') }}</span>
-                <select v-model="form.groundingStrategy" class="select-input" :disabled="busy">
-                  <option value="material_first">{{ t('courseGeneration.grounding.materialFirst', '资料优先') }}</option>
-                  <option value="strict_grounded">{{ t('courseGeneration.grounding.strict', '仅依据资料') }}</option>
-                  <option value="general_assisted">{{ t('courseGeneration.grounding.general', '资料与通用知识结合') }}</option>
                 </select>
               </label>
               </div>
@@ -503,7 +486,6 @@
 <script setup lang="ts">
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import {
-  BookMarked,
   BookOpen,
   Hammer,
   LoaderCircle,
@@ -601,7 +583,6 @@ const form = reactive({
   difficulty: 'intermediate' as DifficultyLevel,
   pedagogyMode: 'auto' as PedagogyModeSelection,
   secondaryMode: '' as '' | PedagogyMode,
-  groundingStrategy: 'material_first' as 'material_first' | 'strict_grounded' | 'general_assisted',
   retrievalEnabled: false,
   generateQuestions: false,
   webMaterialIngest: true,
@@ -610,7 +591,6 @@ const form = reactive({
   academicTerm: '',
   totalClassHours: 16,
   lessonDurationMinutes: 45,
-  teachingContext: 'classroom' as 'classroom' | 'online' | 'blended' | 'self_study',
   classSize: undefined as number | undefined,
   classProfile: '',
   chapterCount: undefined as number | undefined,
@@ -694,7 +674,6 @@ function resetFormForOpen() {
     difficulty: 'intermediate' as DifficultyLevel,
     pedagogyMode: 'auto' as PedagogyModeSelection,
     secondaryMode: '' as '' | PedagogyMode,
-    groundingStrategy: 'material_first' as const,
     retrievalEnabled: false,
     generateQuestions: false,
     webMaterialIngest: true,
@@ -703,7 +682,6 @@ function resetFormForOpen() {
     academicTerm: '',
     totalClassHours: 16,
     lessonDurationMinutes: 45,
-    teachingContext: 'classroom' as const,
     classSize: undefined,
     classProfile: '',
     chapterCount: undefined,
@@ -720,7 +698,6 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
   if (['beginner', 'intermediate', 'advanced'].includes(String(options.difficulty || ''))) form.difficulty = options.difficulty as DifficultyLevel
   if (options.pedagogy_mode) form.pedagogyMode = options.pedagogy_mode
   if (options.secondary_mode) form.secondaryMode = options.secondary_mode
-  if (options.grounding_strategy) form.groundingStrategy = options.grounding_strategy
   form.retrievalEnabled = Boolean(options.retrieval?.enabled)
   form.webMaterialIngest = !options.web_material_ingest?.skip_ingest
   form.generateQuestions = Boolean(options.asset_preferences?.questions || options.asset_preferences?.final_assessment)
@@ -732,7 +709,6 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
     if (brief.academic_term) form.academicTerm = brief.academic_term
     if (brief.total_class_hours) form.totalClassHours = brief.total_class_hours
     if (brief.lesson_duration_minutes) form.lessonDurationMinutes = brief.lesson_duration_minutes
-    form.teachingContext = brief.teaching_context || form.teachingContext
     form.classSize = brief.class_size
     form.classProfile = brief.class_profile || ''
     form.chapterCount = brief.chapter_count
@@ -861,7 +837,6 @@ async function submit() {
                 learning_goal: subject,
                 desired_outcome: form.requirements.trim(),
               },
-      grounding_strategy: form.groundingStrategy,
       asset_preferences: {
         questions: form.generateQuestions,
         final_assessment: form.generateQuestions,
@@ -878,7 +853,6 @@ async function submit() {
         target_audience: form.targetAudience.trim(),
         total_class_hours: form.totalClassHours,
         lesson_duration_minutes: form.lessonDurationMinutes,
-        teaching_context: form.teachingContext,
         ...(form.classSize ? { class_size: form.classSize } : {}),
         ...(form.classProfile.trim() ? { class_profile: form.classProfile.trim() } : {}),
         ...(form.chapterCount ? { chapter_count: form.chapterCount } : {}),

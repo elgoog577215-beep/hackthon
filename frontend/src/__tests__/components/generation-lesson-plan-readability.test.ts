@@ -122,7 +122,8 @@ describe('课程教案阅读尺度', () => {
     expect(wrapper.text()).toContain('课堂条件')
     expect(wrapper.text()).toContain('2026-2027 学年第一学期')
     expect(wrapper.text()).toContain('准备坐标纸')
-    expect(wrapper.findAll('.generation-lesson-plan__classroom-grid > label')).toHaveLength(4)
+    expect(wrapper.findAll('.generation-lesson-plan__classroom-grid > label')).toHaveLength(3)
+    expect(wrapper.text()).not.toContain('授课场景')
 
     const classroomDetails = wrapper.get('.generation-lesson-plan__classroom-details')
     expect(classroomDetails.attributes('open')).toBeUndefined()

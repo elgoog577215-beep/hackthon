@@ -955,7 +955,7 @@ function phaseLabel(phase: string | undefined, status: Task['status'], taskType?
     exporting: t('taskObservability.export', '导出与发布'),
     requirement_analysis: t('courseTasks.phases.requirementAnalysis', '整理课程需求'),
     material_processing: t('courseTasks.phases.materialProcessing', '解析资料与证据'),
-    pedagogy_resolution: t('courseTasks.phases.pedagogyResolution', '确定教学结构与难度'),
+    pedagogy_resolution: t('courseTasks.phases.pedagogyResolution', '确定学科类型与难度'),
     outline_generation: t('courseTasks.phases.outlineGeneration', '生成轻量课程目录'),
     outline_validation: t('courseTasks.phases.outlineValidation', '检查课程目录'),
     outline_ready: t('courseTasks.phases.outlineReady', '等待确认课程目录'),

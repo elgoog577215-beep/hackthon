@@ -166,8 +166,8 @@ class CoursePromptComposer:
 - 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
 - 完整课程最低小节总数：{shape.get('minimum_section_count') or '按用户明确数量'}
 
-## 课程类型契约
-- 课程类型：{brief.get('course_type_label') or brief.get('course_type') or '系统学习'}
+## 教学类型契约
+- 教学类型：{brief.get('course_type_label') or brief.get('course_type') or '系统学习'}
 - 类型组织方式：{json.dumps(course_type_contract, ensure_ascii=False)}
 - 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
 - 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
@@ -193,7 +193,7 @@ class CoursePromptComposer:
 6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
 7. 教学画像中的学科分型、质量底线和最终考核是章节推进的设计依据：课程必须为最终
    可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
-8. 必须遵守课程类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
+8. 必须遵守教学类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
 {coverage_rules}
 {planning_rules}
