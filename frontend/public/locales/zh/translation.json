@@ -4343,6 +4343,8 @@
       "importFile": "导入题目文件",
       "modeNavigation": "题库方式",
       "workspaceTitle": "导入题目",
+      "reviewTitle": "题目审阅",
+      "questionFiles": "题库文件",
       "uploading": "正在读取并识别题目",
       "dropTitle": "批量导入 PDF 或 Word 试题",
       "dropHint": "一次选择多份文件，系统会分别识别并保留原文。",

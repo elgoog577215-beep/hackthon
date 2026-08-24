@@ -14,7 +14,7 @@
         <div class="question-import__identity">
           <FileText v-if="session" :size="18" />
           <div>
-            <strong>{{ session?.filename || t('questionBank.importFlow.workspaceTitle', '导入题目') }}</strong>
+            <strong>{{ session?.filename || t('questionBank.importFlow.reviewTitle', '题目审阅') }}</strong>
             <small v-if="session">
               {{ t('questionBank.importFlow.recognized', '已识别 {count} 道').replace('{count}', String(session.question_count)) }}
               <template v-if="session.pending_count"> · {{ t('questionBank.importFlow.pending', '{count} 道待确认').replace('{count}', String(session.pending_count)) }}</template>
@@ -38,45 +38,16 @@
         <button type="button" @click="errorMessage = ''">{{ t('common.close', '关闭') }}</button>
       </div>
 
-      <section
-        v-if="!session"
-        class="question-import__dropzone"
-        :class="{ 'is-dragging': dragging, 'is-uploading': uploading }"
-        @dragenter.prevent="dragging = true"
-        @dragover.prevent="dragging = true"
-        @dragleave.prevent="dragging = false"
-        @drop.prevent="handleDrop"
-      >
-        <FileUp :size="32" />
-        <strong>{{ t('questionBank.importFlow.dropTitle', '批量导入 PDF 或 Word 试题') }}</strong>
+      <section v-if="!session" class="question-import__empty-review">
+        <FileText :size="28" />
+        <strong>{{ t('questionBank.importFlow.reviewTitle', '题目审阅') }}</strong>
         <span>{{ t('questionBank.importFlow.dropHint', '一次选择多份文件，系统会分别识别并保留原文。') }}</span>
-        <button type="button" class="primary-action" data-testid="choose-question-file" :disabled="uploading" @click="openFileDialog">
-          <LoaderCircle v-if="uploading" :size="16" class="spin" />
-          <Upload v-else :size="16" />
-          {{ uploading ? `${uploadProgress}%` : t('questionBank.importFlow.chooseFiles', '选择多份文件') }}
-        </button>
-        <small>{{ t('questionBank.importFlow.supported', '支持 PDF、DOCX，单文件最大 50 MB') }}</small>
-        <i v-if="uploading"><span :style="{ width: `${uploadProgress}%` }" /></i>
       </section>
 
       <section v-else-if="selectedQuestion" class="question-import__review">
-        <article class="source-preview">
-          <header>
-            <strong>{{ t('questionBank.importFlow.source', '原文') }}</strong>
-            <nav>
-              <button type="button" :disabled="sourcePageIndex === 0" @click="sourcePageIndex -= 1"><ChevronLeft :size="16" /></button>
-              <span>{{ t('questionBank.importFlow.page', '第 {page} / {total} 页').replace('{page}', String(activeSourcePage?.page || 1)).replace('{total}', String(session.source_pages.length || 1)) }}</span>
-              <button type="button" :disabled="sourcePageIndex >= session.source_pages.length - 1" @click="sourcePageIndex += 1"><ChevronRight :size="16" /></button>
-            </nav>
-          </header>
-          <div class="source-preview__paper">
-            <pre>{{ activeSourcePage?.text || t('questionBank.importFlow.noSourceText', '本页没有可显示的文字') }}</pre>
-          </div>
-        </article>
-
         <article class="question-editor">
           <header>
-            <strong>{{ t('questionBank.importFlow.result', '识别结果') }}</strong>
+            <strong>{{ editing ? t('common.edit', '编辑') : t('questionBank.importFlow.result', '识别结果') }}</strong>
             <nav>
               <button type="button" :disabled="selectedIndex === 0" @click="selectQuestion(selectedIndex - 1)"><ChevronLeft :size="15" /></button>
               <span>{{ t('questionBank.importFlow.questionPosition', '第 {current} / {total} 题').replace('{current}', String(selectedIndex + 1)).replace('{total}', String(session.question_count)) }}</span>
@@ -89,10 +60,39 @@
             <span>{{ warningLabel(selectedQuestion.warnings[0] || '') }}</span>
           </div>
 
-          <form @submit.prevent="saveQuestion(false)">
+          <section v-if="!editing" class="question-view">
+            <header>
+              <span>{{ questionTypeLabel(selectedQuestion.question_type) }}</span>
+              <button v-if="!sessionCommitted" type="button" class="quiet-button" data-testid="edit-import-question" @click="startEditing">
+                <Pencil :size="15" />{{ t('common.edit', '编辑') }}
+              </button>
+            </header>
+            <h3>{{ selectedQuestion.prompt }}</h3>
+            <ol v-if="isChoiceQuestion" class="question-view__options">
+              <li v-for="option in selectedQuestion.options" :key="option.id" :class="{ 'is-answer': selectedAnswers.includes(option.id) }">
+                <b>{{ option.id }}</b><span>{{ option.text }}</span><Check v-if="selectedAnswers.includes(option.id)" :size="15" />
+              </li>
+            </ol>
+            <section v-else class="question-view__answer">
+              <strong>{{ t('questionBank.importFlow.answer', '参考答案') }}</strong>
+              <p>{{ selectedQuestion.answer || '—' }}</p>
+            </section>
+            <section class="question-view__answer">
+              <strong>{{ t('questionBank.importFlow.explanation', '答案解析') }}</strong>
+              <p>{{ selectedQuestion.explanation || '—' }}</p>
+            </section>
+            <footer v-if="!sessionCommitted && !selectedQuestion.confirmed">
+              <button type="button" class="primary-action" data-testid="confirm-import-question" :disabled="saving" @click="saveQuestion(true)">
+                <LoaderCircle v-if="saving" :size="15" class="spin" />
+                <Check v-else :size="15" />{{ t('questionBank.importFlow.confirmQuestion', '确认本题') }}
+              </button>
+            </footer>
+          </section>
+
+          <form v-else-if="editDraft" @submit.prevent="saveQuestion(false)">
             <label class="field-row field-row--compact">
               <span>{{ t('questionBank.importFlow.type', '题型') }}</span>
-              <select v-model="selectedQuestion.question_type" :disabled="sessionCommitted">
+              <select v-model="editDraft.question_type">
                 <option value="single_choice">{{ t('questionBank.importFlow.types.singleChoice', '单选题') }}</option>
                 <option value="multiple_choice">{{ t('questionBank.importFlow.types.multipleChoice', '多选题') }}</option>
                 <option value="true_false">{{ t('questionBank.importFlow.types.trueFalse', '判断题') }}</option>
@@ -104,36 +104,36 @@
             </label>
             <label class="field-row">
               <span>{{ t('questionBank.importFlow.prompt', '题目') }}</span>
-              <textarea v-model="selectedQuestion.prompt" rows="3" maxlength="12000" :readonly="sessionCommitted" />
+              <textarea v-model="editDraft.prompt" rows="3" maxlength="12000" />
             </label>
 
-            <fieldset v-if="isChoiceQuestion" class="option-editor">
+            <fieldset v-if="editIsChoiceQuestion" class="option-editor">
               <legend>{{ t('questionBank.importFlow.options', '选项') }}</legend>
-              <label v-for="option in selectedQuestion.options" :key="option.id">
+              <label v-for="option in editDraft.options" :key="option.id">
                 <input
-                  v-if="selectedQuestion.question_type === 'multiple_choice'"
+                  v-if="editDraft.question_type === 'multiple_choice'"
                   type="checkbox"
-                  :checked="multipleAnswers.includes(option.id)"
-                  :disabled="sessionCommitted"
+                  :checked="editMultipleAnswers.includes(option.id)"
                   @change="toggleMultipleAnswer(option.id)"
                 />
-                <input v-else v-model="selectedQuestion.answer" type="radio" :value="option.id" :disabled="sessionCommitted" />
+                <input v-else v-model="editDraft.answer" type="radio" :value="option.id" />
                 <b>{{ option.id }}</b>
-                <input v-model="option.text" type="text" :readonly="sessionCommitted" />
-                <button v-if="!sessionCommitted" type="button" :aria-label="t('questionBank.importFlow.removeOption', '删除选项')" @click="removeOption(option.id)"><MinusCircle :size="16" /></button>
+                <input v-model="option.text" type="text" />
+                <button type="button" :aria-label="t('questionBank.importFlow.removeOption', '删除选项')" @click="removeOption(option.id)"><MinusCircle :size="16" /></button>
               </label>
-              <button v-if="!sessionCommitted && selectedQuestion.options.length < 8" type="button" @click="addOption"><Plus :size="15" />{{ t('questionBank.importFlow.addOption', '添加选项') }}</button>
+              <button v-if="editDraft.options.length < 8" type="button" @click="addOption"><Plus :size="15" />{{ t('questionBank.importFlow.addOption', '添加选项') }}</button>
             </fieldset>
 
             <label v-else class="field-row">
               <span>{{ t('questionBank.importFlow.answer', '参考答案') }}</span>
-              <textarea v-model="selectedQuestion.answer" rows="2" :readonly="sessionCommitted" />
+              <textarea v-model="editDraft.answer" rows="2" />
             </label>
             <label class="field-row">
               <span>{{ t('questionBank.importFlow.explanation', '答案解析') }}</span>
-              <textarea v-model="selectedQuestion.explanation" rows="3" :readonly="sessionCommitted" />
+              <textarea v-model="editDraft.explanation" rows="3" />
             </label>
-            <footer v-if="!sessionCommitted">
+            <footer>
+              <button type="button" class="quiet-button" @click="cancelEditing">{{ t('common.cancel', '取消') }}</button>
               <button type="submit" class="quiet-button" :disabled="saving">{{ t('questionBank.importFlow.saveDraft', '保存修改') }}</button>
               <button type="button" class="primary-action" data-testid="confirm-import-question" :disabled="saving" @click="saveQuestion(true)">
                 <LoaderCircle v-if="saving" :size="15" class="spin" />
@@ -164,45 +164,81 @@
       </footer>
     </main>
 
-    <aside class="question-import__documents" :aria-label="t('questionBank.importFlow.documents', '导入文档')">
+    <aside class="question-import__sources" :aria-label="t('courseWorkbench.references.title', '信息来源')">
       <header>
-        <div>
-          <strong>{{ t('questionBank.importFlow.documents', '导入文档') }}</strong>
-          <small>{{ recentImports.length }}</small>
-        </div>
-        <button type="button" data-testid="add-question-files" :aria-label="t('questionBank.importFlow.addFiles', '继续导入')" :disabled="uploading" @click="openFileDialog">
-          <Plus :size="17" />
-        </button>
+        <strong>{{ t('courseWorkbench.references.title', '信息来源') }}</strong>
       </header>
-
-      <div v-if="uploading" class="question-import__uploading" aria-live="polite">
-        <LoaderCircle :size="15" class="spin" />
-        <span>
-          <strong>{{ t('questionBank.importFlow.importingBatch', '正在识别 {current}/{total}').replace('{current}', String(uploadFileIndex)).replace('{total}', String(uploadFileTotal)) }}</strong>
-          <small>{{ uploadFileName }}</small>
-        </span>
-        <i><span :style="{ width: `${uploadProgress}%` }" /></i>
-      </div>
-      <p v-else-if="batchResultMessage" class="question-import__batch-result">{{ batchResultMessage }}</p>
-
-      <nav v-if="recentImports.length">
-        <button
-          v-for="item in recentImports"
-          :key="item.import_id"
-          type="button"
-          :class="{ active: session?.import_id === item.import_id }"
-          @click="resumeImport(item.import_id)"
+      <div class="question-import__sources-scroll">
+        <section
+          class="question-import__documents"
+          :class="{ 'is-dragging': dragging }"
+          @dragenter.prevent="dragging = true"
+          @dragover.prevent="dragging = true"
+          @dragleave.prevent="dragging = false"
+          @drop.prevent="handleDrop"
         >
-          <FileText :size="17" />
-          <strong>{{ item.filename }}</strong>
-          <span class="question-import__document-status" :data-state="documentState(item)">
-            {{ documentStateLabel(item) }}
-          </span>
-        </button>
-      </nav>
-      <div v-else class="question-import__documents-empty">
-        <Files :size="21" />
-        <span>{{ t('questionBank.importFlow.noDocuments', '还没有导入文档') }}</span>
+          <div class="question-import__source-heading">
+            <strong>{{ t('questionBank.importFlow.questionFiles', '题库文件') }}</strong>
+            <small>{{ recentImports.length }}</small>
+          </div>
+          <button type="button" class="question-import__upload" data-testid="add-question-files" :disabled="uploading" @click="openFileDialog">
+            <LoaderCircle v-if="uploading" :size="16" class="spin" />
+            <Upload v-else :size="16" />
+            {{ uploading ? `${uploadProgress}%` : t('questionBank.importFlow.chooseFiles', '选择多份文件') }}
+          </button>
+          <small class="question-import__supported">{{ t('questionBank.importFlow.supported', '支持 PDF、DOCX，单文件最大 50 MB') }}</small>
+
+          <div v-if="uploading" class="question-import__uploading" aria-live="polite">
+            <span>
+              <strong>{{ t('questionBank.importFlow.importingBatch', '正在识别 {current}/{total}').replace('{current}', String(uploadFileIndex)).replace('{total}', String(uploadFileTotal)) }}</strong>
+              <small>{{ uploadFileName }}</small>
+            </span>
+            <i><span :style="{ width: `${uploadProgress}%` }" /></i>
+          </div>
+          <p v-else-if="batchResultMessage" class="question-import__batch-result">{{ batchResultMessage }}</p>
+
+          <nav v-if="recentImports.length">
+            <button
+              v-for="item in recentImports"
+              :key="item.import_id"
+              type="button"
+              :class="{ active: session?.import_id === item.import_id }"
+              @click="resumeImport(item.import_id)"
+            >
+              <FileText :size="17" />
+              <strong>{{ item.filename }}</strong>
+              <span class="question-import__document-status" :data-state="documentState(item)">{{ documentStateLabel(item) }}</span>
+            </button>
+          </nav>
+          <div v-else class="question-import__documents-empty">
+            <Files :size="20" />
+            <span>{{ t('questionBank.importFlow.noDocuments', '还没有导入文档') }}</span>
+          </div>
+        </section>
+
+        <section v-if="session" class="source-preview">
+          <header>
+            <strong>{{ t('questionBank.importFlow.source', '原文') }}</strong>
+            <nav>
+              <button type="button" :disabled="sourcePageIndex === 0" @click="sourcePageIndex -= 1"><ChevronLeft :size="15" /></button>
+              <span>{{ t('questionBank.importFlow.page', '第 {page} / {total} 页').replace('{page}', String(activeSourcePage?.page || 1)).replace('{total}', String(session.source_pages.length || 1)) }}</span>
+              <button type="button" :disabled="sourcePageIndex >= session.source_pages.length - 1" @click="sourcePageIndex += 1"><ChevronRight :size="15" /></button>
+            </nav>
+          </header>
+          <div class="source-preview__paper">
+            <pre>{{ activeSourcePage?.text || t('questionBank.importFlow.noSourceText', '本页没有可显示的文字') }}</pre>
+          </div>
+        </section>
+
+        <CourseReferenceTray
+          v-model="questionReferences"
+          variant="question-bank"
+          :course-id="courseId"
+          stage="question-bank"
+          scope-target-id="managed:question-bank"
+          scope-target-type="question_bank"
+          :scope-target-label="t('courseWorkbench.stages.questionBank', '题库')"
+        />
       </div>
     </aside>
   </section>
@@ -216,16 +252,17 @@ import {
   ChevronRight,
   CircleAlert,
   FileText,
-  FileUp,
   Files,
   LibraryBig,
   LoaderCircle,
   MinusCircle,
+  Pencil,
   Plus,
   TriangleAlert,
   Upload,
   WandSparkles,
 } from 'lucide-vue-next'
+import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import http, { teacherRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 
@@ -269,6 +306,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'show-ai': []
   'show-bank': []
+  'references-change': [materialAssetIds: string[]]
   imported: [bundleRevisionId: string]
 }>()
 
@@ -287,11 +325,16 @@ const uploadFileIndex = ref(0)
 const uploadFileTotal = ref(0)
 const batchResultMessage = ref('')
 const errorMessage = ref('')
+const editing = ref(false)
+const editDraft = ref<ImportQuestion | null>(null)
+const questionReferences = ref<CourseReferenceItem[]>([])
 
 const selectedQuestion = computed(() => session.value?.questions[selectedIndex.value] || null)
 const activeSourcePage = computed(() => session.value?.source_pages[sourcePageIndex.value] || null)
 const isChoiceQuestion = computed(() => ['single_choice', 'multiple_choice'].includes(selectedQuestion.value?.question_type || ''))
-const multipleAnswers = computed<string[]>(() => (selectedQuestion.value?.answer || '').toUpperCase().match(/[A-H]/g) || [])
+const selectedAnswers = computed<string[]>(() => (selectedQuestion.value?.answer || '').toUpperCase().match(/[A-H]/g) || [])
+const editIsChoiceQuestion = computed(() => ['single_choice', 'multiple_choice'].includes(editDraft.value?.question_type || ''))
+const editMultipleAnswers = computed<string[]>(() => (editDraft.value?.answer || '').toUpperCase().match(/[A-H]/g) || [])
 const sessionCommitted = computed(() => session.value?.status === 'committed')
 
 onMounted(() => { void loadWorkspace() })
@@ -302,6 +345,9 @@ watch(() => props.courseId, () => {
   void loadWorkspace()
 })
 watch(selectedIndex, () => syncSourcePage())
+watch(questionReferences, value => {
+  emit('references-change', value.map(item => item.material_asset_id).filter(Boolean))
+}, { deep: true })
 
 function apiError(error: any, fallback: string) {
   const detail = error?.response?.data?.detail
@@ -344,6 +390,7 @@ function rememberImport(importId: string) {
 function applySession(value: ImportSession | null) {
   session.value = value
   selectedIndex.value = Math.max(0, value?.questions.findIndex(item => !item.confirmed) ?? 0)
+  cancelEditing()
   syncSourcePage()
   rememberImport(value?.import_id || '')
 }
@@ -450,6 +497,7 @@ async function resumeImport(importId: string, silent = false) {
 }
 
 function selectQuestion(index: number) {
+  cancelEditing()
   selectedIndex.value = Math.max(0, Math.min((session.value?.questions.length || 1) - 1, index))
 }
 
@@ -464,22 +512,24 @@ async function saveQuestion(confirm: boolean) {
   saving.value = true
   errorMessage.value = ''
   const currentId = selectedQuestion.value.draft_id
+  const draft = editDraft.value || selectedQuestion.value
   try {
     const response = await http.patch(
       `/api/courses/${props.courseId}/question-bank/imports/${session.value.import_id}/items/${currentId}`,
       {
-        prompt: selectedQuestion.value.prompt,
-        question_type: selectedQuestion.value.question_type,
-        options: selectedQuestion.value.options,
-        answer: selectedQuestion.value.answer,
-        explanation: selectedQuestion.value.explanation,
-        score: selectedQuestion.value.score,
-        node_id: selectedQuestion.value.node_id,
+        prompt: draft.prompt,
+        question_type: draft.question_type,
+        options: draft.options,
+        answer: draft.answer,
+        explanation: draft.explanation,
+        score: draft.score,
+        node_id: draft.node_id,
         ...(confirm ? { confirmed: true } : {}),
       },
       teacherRequestConfig({ silentError: true }),
     )
     session.value = response.data
+    cancelEditing()
     upsertRecentImport(response.data)
     if (confirm) {
       const nextPending = session.value!.questions.findIndex((item, index) => index > selectedIndex.value && !item.confirmed)
@@ -515,22 +565,46 @@ async function commitImport() {
 }
 
 function addOption() {
-  if (!selectedQuestion.value) return
-  const id = String.fromCharCode(65 + selectedQuestion.value.options.length)
-  selectedQuestion.value.options.push({ id, text: '' })
+  if (!editDraft.value) return
+  const id = String.fromCharCode(65 + editDraft.value.options.length)
+  editDraft.value.options.push({ id, text: '' })
 }
 function removeOption(id: string) {
-  if (!selectedQuestion.value) return
-  selectedQuestion.value.options = selectedQuestion.value.options.filter(option => option.id !== id)
-  if (multipleAnswers.value.includes(id)) toggleMultipleAnswer(id)
-  if (selectedQuestion.value.answer === id) selectedQuestion.value.answer = ''
+  if (!editDraft.value) return
+  editDraft.value.options = editDraft.value.options.filter(option => option.id !== id)
+  if (editMultipleAnswers.value.includes(id)) toggleMultipleAnswer(id)
+  if (editDraft.value.answer === id) editDraft.value.answer = ''
 }
 function toggleMultipleAnswer(id: string) {
-  if (!selectedQuestion.value) return
-  const current = new Set(multipleAnswers.value)
+  if (!editDraft.value) return
+  const current = new Set(editMultipleAnswers.value)
   if (current.has(id)) current.delete(id)
   else current.add(id)
-  selectedQuestion.value.answer = [...current].sort().join(',')
+  editDraft.value.answer = [...current].sort().join(',')
+}
+
+function startEditing() {
+  if (!selectedQuestion.value || sessionCommitted.value) return
+  editDraft.value = JSON.parse(JSON.stringify(selectedQuestion.value)) as ImportQuestion
+  editing.value = true
+}
+
+function cancelEditing() {
+  editing.value = false
+  editDraft.value = null
+}
+
+function questionTypeLabel(value: string) {
+  const labels: Record<string, string> = {
+    single_choice: t('questionBank.importFlow.types.singleChoice', '单选题'),
+    multiple_choice: t('questionBank.importFlow.types.multipleChoice', '多选题'),
+    true_false: t('questionBank.importFlow.types.trueFalse', '判断题'),
+    fill_blank: t('questionBank.importFlow.types.fillBlank', '填空题'),
+    short_answer: t('questionBank.importFlow.types.shortAnswer', '简答题'),
+    calculation: t('questionBank.importFlow.types.calculation', '计算题'),
+    essay: t('questionBank.importFlow.types.essay', '论述题'),
+  }
+  return labels[value] || value
 }
 
 function warningLabel(code: string) {
@@ -1145,13 +1219,87 @@ function documentStateLabel(item: ImportSummary) {
 }
 @media (max-width: 1180px) {
   .question-import {
-    grid-template-columns: minmax(0, 1fr) 232px;
+    grid-template-columns: minmax(0, 1fr) 286px;
   }
   .question-import__actions .quiet-button {
     padding-inline: 8px;
   }
-  .question-import__review {
-    grid-template-columns: minmax(0, .4fr) minmax(0, .6fr);
-  }
+}
+
+/* Keep the same mental model as the other production stages: result in the center, sources on the right. */
+.question-import {
+  grid-template-columns: minmax(0, 1fr) 310px;
+  border-color: #dfe5ee;
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(30, 41, 59, .045);
+}
+.question-import__empty-review {
+  grid-row: 3;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  color: #8a95a5;
+}
+.question-import__empty-review > svg { color: #7773dd; }
+.question-import__empty-review > strong { color: #334155; font-size: 15px; }
+.question-import__empty-review > span { max-width: 440px; color: #738095; font-size: 11px; line-height: 1.55; text-align: center; }
+.question-import__review { display: block; overflow: hidden; }
+.question-editor { height: 100%; }
+.question-editor > header { padding-inline: 20px; }
+.question-view {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  padding: 26px 34px 36px;
+}
+.question-view > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.question-view > header > span { color: #5b57d9; font-size: 11px; font-weight: 750; }
+.question-view h3 { max-width: 760px; margin: 0; color: #202a3d; font-size: 17px; font-weight: 700; line-height: 1.7; }
+.question-view__options { display: grid; gap: 10px; max-width: 760px; margin: 0; padding: 0; list-style: none; }
+.question-view__options li { min-height: 46px; display: grid; grid-template-columns: 30px minmax(0, 1fr) 18px; align-items: center; gap: 10px; padding: 7px 12px; border: 1px solid #e2e7ef; border-radius: 9px; color: #475569; background: #fff; }
+.question-view__options li b { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 7px; color: #5b6474; background: #f1f3f7; font-size: 11px; }
+.question-view__options li span { font-size: 12px; line-height: 1.6; }
+.question-view__options li.is-answer { border-color: #c9c7f4; color: #37348c; background: #f8f8ff; }
+.question-view__options li.is-answer b { color: #fff; background: #625dd7; }
+.question-view__options li > svg { color: #625dd7; }
+.question-view__answer { display: grid; gap: 7px; max-width: 760px; padding-top: 2px; }
+.question-view__answer strong { color: #475569; font-size: 11px; }
+.question-view__answer p { margin: 0; color: #344054; font-size: 12px; line-height: 1.75; white-space: pre-wrap; }
+.question-view > footer { display: flex; justify-content: flex-end; max-width: 760px; padding-top: 4px; }
+.question-editor form { padding: 22px 30px 30px; }
+.question-import__sources { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-left: 1px solid #e4e9f1; background: #fbfcfe; }
+.question-import__sources > header { min-height: 58px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid #e7ebf2; background: #fff; }
+.question-import__sources > header strong { color: #243047; font-size: 14px; }
+.question-import__sources-scroll { min-height: 0; overflow: auto; }
+.question-import__documents { min-height: 0; display: grid; gap: 9px; padding: 17px 16px 18px; border: 0; border-bottom: 1px solid #e7ebf2; background: transparent; transition: background-color .16s ease; }
+.question-import__documents.is-dragging { background: #f3f3ff; }
+.question-import__source-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.question-import__source-heading strong { color: #334155; font-size: 12px; }
+.question-import__source-heading small { color: #64748b; font-size: 11px; }
+.question-import__upload { min-height: 50px; display: flex; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #b9c3d2; border-radius: 9px; color: #4f46e5; background: #fff; font: inherit; font-size: 12px; font-weight: 750; cursor: pointer; }
+.question-import__upload:hover:not(:disabled) { border-color: #8d8ae4; background: #f9f9ff; }
+.question-import__upload:focus-visible { outline: 2px solid #5b57e8; outline-offset: 2px; }
+.question-import__upload:disabled { opacity: .5; cursor: not-allowed; }
+.question-import__supported { color: #7b8798; font-size: 10px; line-height: 1.4; text-align: center; }
+.question-import__documents > nav { display: grid; gap: 6px; overflow: visible; padding-top: 2px; }
+.question-import__documents > nav > button { min-height: 54px; border: 1px solid #e2e7ef; border-radius: 9px; }
+.question-import__documents > nav > button.active::before { display: none; }
+.question-import__documents-empty { min-height: 72px; border: 1px dashed #d3dae5; border-radius: 9px; }
+.question-import__uploading { padding: 2px 0 4px; border-bottom: 0; }
+.question-import__batch-result { padding: 2px 0; border-bottom: 0; }
+.source-preview { display: grid; grid-template-rows: auto auto; border-right: 0; border-bottom: 1px solid #e7ebf2; background: #fff; }
+.source-preview > header { min-height: 44px; padding: 0 16px; }
+.source-preview__paper { max-height: 250px; overflow: auto; padding: 12px 16px 18px; background: #f7f8fa; }
+.source-preview__paper pre { min-height: 0; padding: 15px 14px; box-shadow: none; font-size: 10.5px; line-height: 1.75; }
+.question-import__sources :deep(.reference-tray.is-question-bank) { min-height: auto; }
+@media (max-width: 1180px) {
+  .question-import { grid-template-columns: minmax(0, 1fr) 286px; }
+  .question-view { padding-inline: 26px; }
 }
 </style>

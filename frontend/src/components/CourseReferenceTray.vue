@@ -1,18 +1,18 @@
 <template>
-  <aside class="reference-tray" :class="{ 'is-compact': compact }" :aria-label="t('courseWorkbench.references.title', '信息来源')">
-    <header class="reference-tray__header">
+  <aside class="reference-tray" :class="{ 'is-compact': compact, 'is-question-bank': variant === 'question-bank' }" :aria-label="t('courseWorkbench.references.title', '信息来源')">
+    <header v-if="variant === 'default'" class="reference-tray__header">
       <strong>{{ t('courseWorkbench.references.title', '信息来源') }}</strong>
       <button v-if="showClose" type="button" :title="t('common.close', '关闭')" :aria-label="t('common.close', '关闭')" @click="emit('close')"><X :size="16" /></button>
     </header>
 
-    <button type="button" class="system-context" @click="emit('open-course-information')">
+    <button v-if="variant === 'default'" type="button" class="system-context" @click="emit('open-course-information')">
       <span><Database :size="16" /></span>
       <div><strong>{{ t('courseWorkbench.references.systemContext', '课程上下文') }}</strong><small>{{ t('courseWorkbench.references.systemContextHelp', '课时、课型与教学设置') }}</small></div>
       <ChevronRight :size="15" />
     </button>
 
     <button
-      v-if="previousAvailableSources.length"
+      v-if="variant === 'default' && previousAvailableSources.length"
       type="button"
       class="reuse-previous"
       :disabled="loading || saving"
@@ -23,7 +23,7 @@
       <small>{{ previousAvailableSources.length }}</small>
     </button>
 
-    <section class="source-group">
+    <section v-if="variant === 'default'" class="source-group">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.primary', '主来源') }}</strong><small>{{ t('courseWorkbench.references.primaryLimit', '最多 1 份') }}</small></div>
       <div
         class="drop-zone"
@@ -42,7 +42,7 @@
       <input ref="primaryInput" class="visually-hidden" type="file" @change="handleInput($event, 'primary')" />
     </section>
 
-    <section class="source-group source-group--references">
+    <section v-if="variant === 'default'" class="source-group source-group--references">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.supporting', '参考资料') }}</strong><small>{{ referenceSources.length }}</small></div>
       <div class="reference-list">
         <div v-for="item in referenceSources" :key="item.asset_id" class="reference-item">
@@ -73,7 +73,7 @@
       </div>
     </section>
 
-    <section v-if="materials.length" class="material-library">
+    <section v-if="variant === 'default' && materials.length" class="material-library">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料') }}</strong><small>{{ materials.length }}</small></div>
       <button v-for="item in availableMaterials" :key="item.asset_id" type="button" @click="addExisting(item)">
         <FileText :size="16" /><span>{{ item.filename }}</span><Plus :size="14" />
@@ -126,6 +126,7 @@ const props = withDefaults(defineProps<{
   previousScopeTargetId?: string
   showClose?: boolean
   compact?: boolean
+  variant?: 'default' | 'question-bank'
 }>(), {
   stage: 'foundation',
   lessonId: '',
@@ -135,6 +136,7 @@ const props = withDefaults(defineProps<{
   previousScopeTargetId: '',
   showClose: false,
   compact: false,
+  variant: 'default',
 })
 const emit = defineEmits<{
   (event: 'update:modelValue', value: CourseReferenceItem[]): void
@@ -299,4 +301,5 @@ onMounted(loadAll)
 <style scoped>
 .reference-tray{min-width:0;min-height:0;overflow:auto;border-left:1px solid #e4e9f1;background:#fbfcfe}.reference-tray__header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px 0 16px;border-bottom:1px solid #e7ebf2;background:#fff}.reference-tray__header strong{color:#243047;font-size:14px}.reference-tray__header button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.reference-tray__header button:hover{color:#334155;background:#f3f5f8}.reference-tray__header button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.system-context{width:calc(100% - 32px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;margin:16px 16px 4px;padding:11px 12px;border:1px solid #e2e7ef;border-radius:10px;color:inherit;background:#fff;text-align:left;font:inherit;cursor:pointer}.system-context:hover{border-color:#c9c8f7;background:#fafaff}.system-context:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.system-context>span{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.system-context>div{min-width:0;display:grid;gap:2px}.system-context strong{color:#334155;font-size:12px}.system-context small{overflow-wrap:anywhere;color:#64748b;font-size:11px;line-height:1.35}.system-context>svg{color:#7b8798}.reference-tray.is-compact .system-context{min-height:46px}.reference-tray.is-compact .system-context small{display:none}.reuse-previous{min-height:34px;display:flex;align-items:center;gap:7px;margin:8px 16px 0;padding:0;border:0;color:#4f46e5;background:transparent;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.reuse-previous small{min-width:20px;height:20px;display:grid;place-items:center;border-radius:10px;color:#4338ca;background:#eef2ff;font-size:11px}.reuse-previous:hover:not(:disabled){color:#3730a3}.reuse-previous:focus-visible{outline:2px solid #6366f1;outline-offset:3px}.reuse-previous:disabled{opacity:.5;cursor:not-allowed}.source-group,.material-library{display:grid;gap:8px;padding:16px 16px 0}.group-heading{display:flex;align-items:center;justify-content:space-between;color:#334155;font-size:12px}.group-heading small{color:#64748b}.drop-zone{min-height:78px;display:flex;align-items:center;gap:10px;padding:10px;border:1px dashed #b9c3d2;border-radius:10px;color:#64748b;background:#fff}.drop-zone.dragging,.reference-add.dragging{border-color:#5b57e8;background:#f4f4ff}.drop-zone.has-file{border-style:solid}.drop-zone>div,.reference-item>div{min-width:0;display:grid;gap:3px;flex:1}.drop-zone strong,.reference-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.drop-zone small,.reference-item small{color:#64748b;font-size:11px}.drop-zone>button:not(.empty-drop),.reference-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.empty-drop{width:100%;min-height:58px;display:flex;align-items:center;justify-content:center;gap:7px;border:0;color:#4f46e5;background:transparent;font-size:12px;font-weight:700;cursor:pointer}.reference-list{display:grid;gap:7px}.reference-item{min-height:54px;display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.reference-item>svg{color:#6366f1}.reference-add{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #b9c3d2;border-radius:9px;color:#4f46e5;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.material-library{padding-bottom:18px}.material-library>button{min-height:38px;display:grid;grid-template-columns:18px minmax(0,1fr) 16px;align-items:center;gap:7px;padding:0 9px;border:0;border-radius:7px;color:#475569;background:transparent;text-align:left;cursor:pointer}.material-library>button:hover{background:#eef2ff;color:#4338ca}.material-library>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.material-library>p{margin:3px 0;color:#64748b;font-size:12px}.tray-error{margin:12px 16px;padding:9px 10px;border-radius:8px;color:#b91c1c;background:#fff1f2;font-size:12px}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .source-group--web{padding-top:18px}.web-source-list{display:grid;gap:7px}.web-source-item{min-height:56px;display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:9px;padding:8px 9px;border:1px solid #dce5f0;border-radius:9px;background:#fff}.web-source-item>svg{color:#0f766e}.web-source-item>div{min-width:0;display:grid;gap:3px}.web-source-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.web-source-item a{display:flex;align-items:center;gap:4px;overflow:hidden;color:#0f766e;font-size:12px;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.web-source-item small{color:#64748b;font-size:12px}.web-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.web-research-open{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #8fbab5;border-radius:9px;color:#0f766e;background:#f4fbfa;font-size:12px;font-weight:750;cursor:pointer}
+.reference-tray.is-question-bank{overflow:visible;border-left:0;background:transparent}.reference-tray.is-question-bank .source-group--web{padding:18px 16px 20px;border-top:1px solid #e7ebf2}.reference-tray.is-question-bank .web-research-open{min-height:48px}
 </style>

@@ -13,6 +13,13 @@ vi.mock('@/utils/http', () => ({
   default: { get, post, patch },
   teacherRequestConfig: (config = {}) => config,
 }))
+vi.mock('@/components/CourseReferenceTray.vue', () => ({
+  default: {
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    template: '<aside class="reference-tray is-question-bank">联网来源</aside>',
+  },
+}))
 
 const session = {
   import_id: 'qimp-1',
@@ -58,16 +65,18 @@ describe('QuestionBankImportWorkspace', () => {
     patch.mockReset()
   })
 
-  it('默认在中间批量导入，右侧独立显示导入文档，AI 生成保持次要', async () => {
+  it('中间保持题目审阅，上传与资料入口统一放在右侧', async () => {
     get.mockResolvedValueOnce({ data: { imports: [] } })
     const wrapper = mount(QuestionBankImportWorkspace, {
       props: { courseId: 'course-http' },
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('批量导入 PDF 或 Word 试题')
-    expect(wrapper.text()).toContain('导入文档')
+    expect(wrapper.get('.question-import__main').text()).toContain('题目审阅')
+    expect(wrapper.text()).toContain('题库文件')
     expect(wrapper.text()).toContain('还没有导入文档')
+    expect(wrapper.get('.question-import__sources [data-testid="add-question-files"]').text()).toContain('选择多份文件')
+    expect(wrapper.get('.question-import__sources').text()).toContain('联网来源')
     expect(wrapper.get('[data-testid="question-import-file"]').attributes('multiple')).toBeDefined()
     await wrapper.get('.quiet-button--ai').trigger('click')
     expect(wrapper.emitted('show-ai')).toHaveLength(1)
@@ -172,7 +181,9 @@ describe('QuestionBankImportWorkspace', () => {
     expect(wrapper.get('.question-import__documents nav button').text()).toBe('HTTP 测试题.docx正在处理')
     expect(wrapper.text()).toContain('原文')
     expect(wrapper.text()).toContain('未识别到答案')
+    expect(wrapper.find('input[type="radio"]').exists()).toBe(false)
 
+    await wrapper.get('[data-testid="edit-import-question"]').trigger('click')
     await wrapper.get('input[type="radio"][value="B"]').setValue(true)
     await wrapper.get('[data-testid="confirm-import-question"]').trigger('click')
     await flushPromises()

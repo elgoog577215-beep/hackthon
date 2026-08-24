@@ -7,6 +7,7 @@
       :has-question-bank="!questionBankMissing && Boolean(items.length)"
       @show-ai="workspaceMode = 'generate'"
       @show-bank="workspaceMode = 'bank'"
+      @references-change="importMaterialAssetIds = $event"
       @imported="handleFileImport"
     />
     <template v-else>
@@ -962,6 +963,8 @@ const emit = defineEmits<{
   'import-mode-change': [active: boolean]
 }>()
 const workspaceMode = ref<'import' | 'bank' | 'generate'>(props.initialWorkspaceMode)
+const importMaterialAssetIds = ref<string[]>([])
+const effectiveMaterialAssetIds = computed(() => [...new Set([...props.materialAssetIds, ...importMaterialAssetIds.value])])
 const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
@@ -1545,7 +1548,7 @@ async function requestAiCandidate(value: string) {
     base_bundle_revision_id: bundleRevisionId.value,
     scope,
     node_ids: scope === 'nodes' ? [...props.initialNodeIds] : [],
-    material_asset_ids: [...props.materialAssetIds],
+    material_asset_ids: [...effectiveMaterialAssetIds.value],
     teacher_instruction: instruction,
     mode: keepPublished.value ? 'incremental' : 'full',
     retrieval_enabled: retrievalEnabled.value,
@@ -1620,7 +1623,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
         node_ids: scopedNodeIds,
         mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
         retrieval_enabled: retrievalEnabled.value,
-        material_asset_ids: props.materialAssetIds,
+        material_asset_ids: effectiveMaterialAssetIds.value,
         teacher_instruction: '',
         ...(!scopedNodeIds.length ? { resume_existing: resumeExisting } : {}),
       },
@@ -1713,7 +1716,7 @@ async function rework(item: QuestionBankItem) {
         revision_ids: [item.revision_id],
         mode: 'incremental',
         retrieval_enabled: retrievalEnabled.value,
-        material_asset_ids: props.materialAssetIds,
+        material_asset_ids: effectiveMaterialAssetIds.value,
         teacher_instruction: reviewNotes[item.revision_id] || '',
       },
       {

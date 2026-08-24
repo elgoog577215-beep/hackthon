@@ -4343,6 +4343,8 @@
       "importFile": "Import question file",
       "modeNavigation": "Question bank mode",
       "workspaceTitle": "Import questions",
+      "reviewTitle": "Question review",
+      "questionFiles": "Question files",
       "uploading": "Reading and recognizing questions",
       "dropTitle": "Import PDF or Word exams in batches",
       "dropHint": "Choose multiple files. Each is recognized separately with its source preserved.",
