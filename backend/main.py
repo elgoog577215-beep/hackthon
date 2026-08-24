@@ -84,6 +84,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+try:
+    from application_errors import install_application_error_contract
+except ImportError:
+    from backend.application_errors import install_application_error_contract
+
+install_application_error_contract(app, logger=logger)
+
 # 初始化 Task Manager
 try:
     ws_service = WebSocketService()
@@ -134,6 +141,7 @@ app.add_middleware(
         "Content-Type", "Authorization", "X-Requested-With", "X-User-Id",
         "X-Analytics-Admin-Token",
     ],
+    expose_headers=["X-Request-Id"],
 )
 
 

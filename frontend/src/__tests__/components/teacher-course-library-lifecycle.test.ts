@@ -112,7 +112,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
   })
 
-  it('把新建空课程显示为尚未开始，并给出建立大纲的下一步', async () => {
+  it('把新建空课程归入正在备课，并给出建立大纲的下一步', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -134,17 +134,18 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.course-status').text()).toContain('尚未开始')
+    expect(wrapper.get('.course-status').text()).toContain('正在备课')
     expect(wrapper.get('.teacher-asset-summary').text()).toContain('尚无教学大纲')
     expect(wrapper.get('.teacher-asset-summary').text()).toContain('下一步建立课程大纲')
     expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
     const statusFilters = wrapper.findAll('.library-status-filters button')
-    expect(statusFilters[1]!.text()).toContain('未开始')
+    expect(statusFilters).toHaveLength(3)
+    expect(statusFilters[1]!.text()).toContain('正在备课')
     expect(statusFilters[1]!.get('strong').text()).toBe('1')
-    expect(statusFilters[4]!.text()).toContain('备课完成')
-    expect(statusFilters[4]!.get('strong').text()).toBe('0')
+    expect(statusFilters[2]!.text()).toContain('备课完成')
+    expect(statusFilters[2]!.get('strong').text()).toBe('0')
 
-    await statusFilters[4]!.trigger('click')
+    await statusFilters[2]!.trigger('click')
     expect(wrapper.find('.course-item').exists()).toBe(false)
     expect(wrapper.get('.library-state').text()).toContain('调整搜索词或备课状态')
   })
@@ -219,7 +220,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('有优化建议')
+    expect(wrapper.text()).toContain('备课完成')
     expect(wrapper.text()).not.toContain('20 个学习节点')
     expect(wrapper.find('.action-count').exists()).toBe(false)
     expect(wrapper.find('.generation-progress').exists()).toBe(false)

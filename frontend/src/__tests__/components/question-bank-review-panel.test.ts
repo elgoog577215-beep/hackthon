@@ -576,6 +576,8 @@ describe('QuestionBankReviewPanel', () => {
 
     expect(wrapper.get('[data-testid="question-generation-studio"]').text())
       .toContain('1. 内存管理')
+    expect(wrapper.get('[data-testid="question-generation-studio"]').text())
+      .not.toContain('覆盖 2 个小节')
     await wrapper.get('[data-testid="generate-question-bank"]').trigger('click')
     await flushPromises()
 
@@ -635,7 +637,8 @@ describe('QuestionBankReviewPanel', () => {
     await flushPromises()
 
     const studio = wrapper.get('[data-testid="question-generation-studio"]')
-    expect(studio.text()).toContain('首次生成后，合格题目会自动进入课程题库')
+    expect(studio.text()).not.toContain('首次生成后，合格题目会自动进入课程题库')
+    expect(studio.text()).not.toContain('选择范围，系统会结合课程资料和已有题目自动编排')
     expect(wrapper.find('.question-bank-panel__state--error').exists()).toBe(false)
     expect(wrapper.find('.question-quality-details').exists()).toBe(false)
     expect(wrapper.find('.question-browser').exists()).toBe(false)

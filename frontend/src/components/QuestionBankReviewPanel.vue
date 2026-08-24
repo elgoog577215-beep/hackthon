@@ -1,12 +1,8 @@
 <template>
-  <section class="question-bank-panel" aria-labelledby="question-bank-title">
+  <section class="question-bank-panel" :aria-label="t('courseWorkbench.stages.questionBank', '题库')">
     <section class="question-generation-studio" data-testid="question-generation-studio">
-      <header class="question-generation-studio__header">
-        <div>
-          <h3 id="question-bank-title">{{ t('questionBank.studio.title', '生成题目') }}</h3>
-          <p>{{ t('questionBank.studio.description', '选择范围，系统会结合课程资料和已有题目自动编排。') }}</p>
-        </div>
-        <div v-if="publishedCount" class="question-generation-studio__published">
+      <header v-if="publishedCount" class="question-generation-studio__header">
+        <div class="question-generation-studio__published">
           <CircleCheck :size="15" />
           <span>{{ t('questionBank.studio.published', '已发布 {count} 道').replace('{count}', String(publishedCount)) }}</span>
         </div>
@@ -24,14 +20,12 @@
               <input v-model="generationScope" type="radio" value="lesson" />
               <span>
                 <strong>{{ props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前课次') }}</strong>
-                <small>{{ t('questionBank.studio.sectionCount', '覆盖 {count} 个小节').replace('{count}', String(props.initialNodeIds.length)) }}</small>
               </span>
             </label>
             <label :class="{ active: generationScope === 'course' }">
               <input v-model="generationScope" type="radio" value="course" />
               <span>
                 <strong>{{ t('questionBank.studio.wholeCourse', '整门课程') }}</strong>
-                <small>{{ t('questionBank.studio.wholeCourseHint', '覆盖全部正式测评目标') }}</small>
               </span>
             </label>
           </div>
@@ -44,7 +38,6 @@
               <SlidersHorizontal :size="16" />
               <span>
                 <strong>{{ t('questionBank.studio.difficulty', '智能难度') }}</strong>
-                <small>{{ t('questionBank.studio.difficultyHint', '依据学习目标自动形成梯度') }}</small>
               </span>
               <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
             </article>
@@ -82,8 +75,7 @@
 
       <footer>
         <div class="question-bank-panel__header-action">
-          <div class="question-bank-panel__header-copy">
-            <small>{{ generationActionHelp }}</small>
+          <div v-if="canContinueGeneration" class="question-bank-panel__header-copy">
             <span v-if="canContinueGeneration" data-testid="chapter-generation-checkpoint">
               已发布新版章节 {{ completedChapters }}/{{ totalChapters }}
             </span>
@@ -987,21 +979,6 @@ const canContinueGeneration = computed(() => Boolean(
   && completedChapters.value > 0
   && remainingChapters.value > 0,
 ))
-const generationActionHelp = computed(() => {
-  if (canContinueGeneration.value) {
-    return `已完成的 ${completedChapters.value} 章不会重做；每完成一章立即替换该章旧题`
-  }
-  if (questionBankMissing.value) {
-    return t(
-      'questionBank.studio.firstGenerationHelp',
-      '首次生成后，合格题目会自动进入课程题库',
-    )
-  }
-  return t(
-    'questionBank.regenerateHelp',
-    '新题通过质量检查后才会替换当前题库',
-  )
-})
 const browseItems = computed(() => {
   const keyword = browserQuery.value.trim().toLocaleLowerCase()
   return activeItems.value.filter(item => {
@@ -1717,10 +1694,7 @@ function formatValue(value: unknown) {
 <style scoped>
 .question-bank-panel { display:grid; gap:12px; padding:0; background:transparent; }
 .question-generation-studio { overflow:hidden; border:1px solid #dfe4ec; border-radius:14px; background:#fff; }
-.question-generation-studio__header { min-height:72px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:16px 20px; }
-.question-generation-studio__header>div:first-child { min-width:0; display:grid; gap:4px; }
-.question-generation-studio__header h3 { margin:0; color:#1f2937; font-size:16px; line-height:1.35; letter-spacing:-.01em; }
-.question-generation-studio__header p { max-width:68ch; margin:0; color:#64748b; font-size:12px; line-height:1.55; }
+.question-generation-studio__header { min-height:52px; display:flex; align-items:center; justify-content:flex-end; padding:10px 20px; }
 .question-generation-studio__published { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; color:#047857; font-size:11px; font-weight:700; }
 .question-generation-flow { padding:0 20px; }
 .question-generation-step { min-width:0; display:grid; grid-template-columns:132px minmax(0,1fr); align-items:start; gap:24px; margin:0; padding:18px 0; border:0; border-top:1px solid #edf0f4; }

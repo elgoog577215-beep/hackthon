@@ -87,9 +87,9 @@
           </div>
         </header>
 
-        <div v-if="calendarStore.error" class="calendar-issue" role="alert">
-          <TriangleAlert :size="16" /><span>{{ calendarStore.error }}</span><button type="button" @click="loadCalendar">{{ t('common.retry') }}</button>
-        </div>
+        <AppErrorNotice v-if="calendarError" class="calendar-issue" :presentation="calendarError" compact>
+          <template #action><button type="button" @click="loadCalendar">{{ t('common.retry') }}</button></template>
+        </AppErrorNotice>
 
         <div v-if="calendarStore.loading && !calendarStore.totalSessions.length" class="calendar-loading" role="status">
           <LoaderCircle class="spin" :size="22" />{{ t('teacherHome.loadingCalendar') }}
@@ -256,8 +256,9 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowUpRight, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight,
   ClipboardCheck, Clock3, Columns3, LibraryBig, ListTodo, ListTree, LoaderCircle, MapPin,
-  Plus, Presentation, RefreshCw, Search, SearchX, TriangleAlert, UserRound, X,
+  Plus, Presentation, RefreshCw, Search, SearchX, UserRound, X,
 } from 'lucide-vue-next'
+import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.vue'
 import TeacherCourseCreateView from './TeacherCourseCreateView.vue'
@@ -270,6 +271,8 @@ import {
   useTeachingCalendarStore, type ClassSession,
 } from '../stores/teachingCalendar'
 import type { TeacherLessonAuthoringView, TeacherLessonJob } from '../stores/teacherLessonAuthoring'
+import { toAppError } from '../utils/app-error'
+import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
 import http, { teacherRequestConfig } from '../utils/http'
 import { ZJU_CLASS_PERIODS, resolveZjuClassPeriodRange } from '../utils/zju-class-periods'
 
@@ -309,6 +312,10 @@ const periodLabel = computed(() => view.value === 'week' ? `${iso(weekStart.valu
 const todayLabel = computed(() => new Intl.DateTimeFormat(document.documentElement.lang || 'zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()))
 const weekdayNames = computed(() => [1, 2, 3, 4, 5, 6, 7].map(index => t(`teacherHome.weekdays.${index}`)))
 const activeHomeTab = computed<'calendar' | 'courses'>(() => route.query.view === 'courses' ? 'courses' : 'calendar')
+const calendarError = computed(() => calendarStore.error ? toAppError(calendarStore.error, {
+  title: t('teacherHome.calendarLoadFailed', '教学日历读取失败'),
+  fallback: t('teacherHome.calendarLoadFailed', '教学日历读取失败'),
+}) : null)
 const courseCreateOpen = computed(() => route.query.create === 'course')
 const filteredCourses = computed(() => {
   const keyword = courseQuery.value.trim().toLocaleLowerCase()
@@ -515,8 +522,8 @@ async function loadSessionPreparation(session: ClassSession | null) {
 }
 function courseStatus(courseId: string) {
   const task = generationStore.getTask(courseId)
-  if (!task) return ''
-  return ({ running: t('teacherHome.courseGenerating'), pending: t('teacherHome.courseQueued'), paused: t('teacherHome.coursePaused'), waiting_for_review: t('teacherHome.courseReview'), error: t('teacherHome.courseError') } as Record<string, string>)[task.status] || ''
+  const course = courseStore.courseList.find(item => item.course_id === courseId)
+  return coursePreparationLabel(coursePreparationState(course, task))
 }
 function refreshAfterCalendarSave() { void loadCalendar() }
 function refreshAfterStorage(event: StorageEvent) { if (event.key === TEACHING_CALENDAR_SAVED_STORAGE_KEY) void loadCalendar() }
@@ -549,7 +556,7 @@ onBeforeUnmount(() => {
 .calendar-title{min-width:0;display:flex;align-items:center;gap:9px}.calendar-title>svg{color:var(--lz-brand)}.calendar-title strong{font-size:16px}.toolbar-spacer{flex:1}
 .view-switch{display:flex;border-bottom:1px solid var(--lz-border)}.view-switch button{height:38px;display:flex;align-items:center;gap:6px;padding:0 12px;border:0;border-bottom:2px solid transparent;color:var(--lz-text-secondary);background:transparent;font-size:13px;cursor:pointer}.view-switch button.active{border-bottom-color:var(--lz-brand);color:var(--lz-brand-strong)}
 .period-actions{display:flex;align-items:center;gap:6px}.period-actions button{height:36px;min-width:36px;display:grid;place-items:center;padding:0 10px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;cursor:pointer;transition:border-color .16s ease,color .16s ease,background-color .16s ease}.period-actions button:hover{border-color:color-mix(in srgb,var(--lz-brand) 34%,var(--lz-border));color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.period-actions button:focus-visible{outline:2px solid color-mix(in srgb,var(--lz-brand) 45%,transparent);outline-offset:2px}
-.calendar-issue{min-height:40px;display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-warning);background:var(--lz-warning-soft);font-size:13px}.calendar-issue span{flex:1}.calendar-issue button{height:28px;border:1px solid var(--lz-warning-border);border-radius:6px;background:var(--lz-surface)}
+.calendar-issue{margin:10px 12px 0}
 .calendar-loading{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:13px}
 .month-canvas{position:relative;min-width:0;min-height:0;overflow:auto;padding:10px}.month-canvas :deep(.month-grid){min-height:100%;overflow:hidden}
 .week-unmatched{min-height:38px;display:flex;align-items:center;gap:7px;padding:7px 12px;border:0;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-text-secondary);background:var(--lz-warning-soft);font-size:12px;text-align:left;cursor:pointer}.week-unmatched svg{color:var(--lz-warning)}.week-unmatched span{flex:1}.week-unmatched strong{color:var(--lz-warning);font-size:12px}

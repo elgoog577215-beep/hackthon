@@ -99,6 +99,7 @@
       <router-view />
     </main>
 
+    <AppErrorCenter />
     <KnowledgeLibrary v-if="!isPublicConceptRoute" />
   </div>
 </template>
@@ -107,6 +108,7 @@
 import { computed, onBeforeUnmount, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
+import AppErrorCenter from './components/AppErrorCenter.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'

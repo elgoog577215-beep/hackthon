@@ -81,7 +81,10 @@ describe('统一教案页面', () => {
       props: { courseId: 'course-1', lesson, confirmed: true },
     })
 
-    expect(wrapper.get('.lesson-document').text()).toContain('标准教案')
+    expect(wrapper.get('.document-title h3').text()).toBe('第1讲 爬虫概述与HTTP基础')
+    expect(wrapper.find('.document-state').exists()).toBe(false)
+    expect(wrapper.get('.lesson-document').text()).not.toContain('标准教案')
+    expect(wrapper.find('.document-saved').exists()).toBe(false)
     expect(wrapper.text()).toContain('教学目标')
     expect(wrapper.text()).toContain('教学重点')
     expect(wrapper.text()).toContain('教学流程')
@@ -136,7 +139,7 @@ describe('统一教案页面', () => {
     }).requestAiCandidate('增加可观察目标')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('AI 方案')
+    expect(wrapper.text()).not.toContain('AI 方案')
     expect(wrapper.text()).toContain('AI 候选正在左侧画布预览')
     expect(wrapper.text()).toContain('AI 优化后的可观察目标')
     expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')

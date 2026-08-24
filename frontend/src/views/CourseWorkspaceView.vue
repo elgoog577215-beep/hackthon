@@ -54,9 +54,10 @@
     <section v-if="loading" class="workspace-loading" role="status">
       <LoaderCircle :size="22" class="spin" />{{ t('courseFiles.loading') }}
     </section>
-    <section v-else-if="loadError" class="workspace-loading is-error" role="alert">
-      <TriangleAlert :size="22" /><strong>{{ t('courseFiles.loadFailed') }}</strong><span>{{ loadError }}</span>
-      <button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button>
+    <section v-else-if="loadError" class="workspace-error">
+      <AppErrorNotice :presentation="loadError">
+        <template #action><button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button></template>
+      </AppErrorNotice>
     </section>
     <section v-else class="workspace-operating-shell">
       <TeacherCourseWorkbench
@@ -127,7 +128,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, TriangleAlert, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, X } from 'lucide-vue-next'
+import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
@@ -139,6 +141,8 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
+import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
+import { toAppError, type AppErrorPresentation } from '../utils/app-error'
 import http, { teacherRequestConfig } from '../utils/http'
 
 const props = defineProps<{ courseId: string; mode?: string }>()
@@ -148,7 +152,7 @@ const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const lessonStore = useTeacherLessonAuthoringStore()
 const loading = ref(true)
-const loadError = ref('')
+const loadError = ref<AppErrorPresentation | null>(null)
 const outlineEditing = ref(false)
 const calendarOpen = ref(false)
 const workbenchOpen = ref(false)
@@ -174,15 +178,11 @@ const courseTitle = computed(() => (
   || ''
 ))
 const generationTask = computed(() => generationStore.getTask(courseId.value))
-const courseState = computed(() => {
-  const status = String(generationTask.value?.status || courseStore.currentCourse?.generation_status || '')
-  if (status === 'waiting_for_review') return 'review'
-  if (['running', 'pending', 'paused'].includes(status)) return 'working'
-  if (['failed', 'error', 'conflict'].includes(status)) return 'attention'
-  if (readiness.value.required && readiness.value.pending) return 'draft'
-  return courseStore.currentDocumentRevision ? 'ready' : 'draft'
-})
-const courseStateLabel = computed(() => t(`courseFiles.states.${courseState.value}`))
+const courseState = computed(() => coursePreparationState(
+  courseStore.courseList.find(item => item.course_id === courseId.value) || courseStore.currentCourse,
+  generationTask.value,
+))
+const courseStateLabel = computed(() => coursePreparationLabel(courseState.value))
 const courseAdjustmentSectionTitle = computed(() => (
   courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
 ))
@@ -205,7 +205,7 @@ async function loadWorkspace() {
   if (!courseId.value) return
   generationStore.observeCourse(courseId.value)
   loading.value = true
-  loadError.value = ''
+  loadError.value = null
   try {
     await Promise.all([
       courseStore.fetchCourseList({ surface: 'teacher' }),
@@ -238,7 +238,10 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
   } catch (error: any) {
-    loadError.value = String(error?.response?.data?.detail || error?.message || t('courseFiles.loadFailed'))
+    loadError.value = toAppError(error, {
+      title: t('courseFiles.loadFailed', '课程读取失败'),
+      fallback: t('courseFiles.loadFailed', '课程读取失败'),
+    })
   } finally {
     loading.value = false
   }
@@ -407,13 +410,11 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-route-actions .adjustment-action:hover { border-color:#8580f5; background:#f0f0ff; }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
-.workspace-state[data-state="ready"] { background:#ecfdf5; color:#047857; }
-.workspace-state[data-state="review"] { background:#fff7ed; color:#c2410c; }
-.workspace-state[data-state="working"] { background:#eef2ff; color:#4f46e5; }
-.workspace-state[data-state="attention"] { background:#fff7ed; color:#c2410c; }
+.workspace-state[data-state="prepared"] { background:#ecfdf5; color:#047857; }
+.workspace-state[data-state="preparing"] { background:#eef2ff; color:#4f46e5; }
 .workspace-loading { min-height:360px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-secondary); }
-.workspace-loading.is-error { flex-direction:column; color:#b91c1c; }
-.workspace-loading button { padding:7px 12px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; }
+.workspace-error { min-height:360px; display:grid; place-items:center; padding:28px; }
+.workspace-error :deep(.app-error-notice) { width:min(620px,100%); }
 .drawer-empty { min-height:240px; display:grid; place-items:center; color:var(--lz-text-muted); }
 :global(.teaching-calendar-drawer .el-drawer__body) { min-height:0; overflow:hidden; padding:0; }
 .spin { animation:spin 1s linear infinite; }

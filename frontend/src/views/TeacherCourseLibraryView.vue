@@ -69,10 +69,10 @@
             <span class="course-status" :class="`course-status--${status.tone}`">
               <span class="course-status__dot" aria-hidden="true"></span>
               <span>{{ status.label }}</span>
-              <strong v-if="status.active">{{ Math.round(status.progress) }}%</strong>
+              <strong v-if="status.inProgress">{{ Math.round(status.progress) }}%</strong>
             </span>
             <span
-              v-if="status.active"
+              v-if="status.inProgress"
               class="generation-progress"
               role="progressbar"
               :aria-label="status.detail"
@@ -238,6 +238,7 @@ import CourseWorkbench from '../components/CourseWorkbench.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { activeLocale, t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
+import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
 import { formatCourseTitle } from '../utils/course-presentation'
 import type { Course } from '../stores/course'
 
@@ -245,7 +246,7 @@ const router = useRouter()
 const { embedded = false } = defineProps<{ embedded?: boolean }>()
 const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
-type CourseStatusFilter = 'all' | 'not_started' | 'preparing' | 'attention' | 'prepared'
+type CourseStatusFilter = 'all' | 'preparing' | 'prepared'
 const query = ref('')
 const statusFilter = ref<CourseStatusFilter>('all')
 const displayMode = ref<'grid' | 'list'>(localStorage.getItem('teacher_course_library_view') === 'list' ? 'list' : 'grid')
@@ -272,17 +273,13 @@ const filteredCourses = computed(() => statusFilter.value === 'all'
 const statusFilterOptions = computed<Array<{ value: CourseStatusFilter; label: string; count: number }>>(() => {
   const counts: Record<CourseStatusFilter, number> = {
     all: searchedCourses.value.length,
-    not_started: 0,
     preparing: 0,
-    attention: 0,
     prepared: 0,
   }
   searchedCourses.value.forEach(course => { counts[courseFilterKey(course)] += 1 })
   return [
     { value: 'all', label: t('teacherCourseLibrary.allCourses'), count: counts.all },
-    { value: 'not_started', label: t('teacherCourseLibrary.notStartedCourses'), count: counts.not_started },
     { value: 'preparing', label: t('teacherCourseLibrary.preparingCourses'), count: counts.preparing },
-    { value: 'attention', label: t('teacherCourseLibrary.attentionCourses'), count: counts.attention },
     { value: 'prepared', label: t('teacherCourseLibrary.preparedCourses'), count: counts.prepared },
   ]
 })
@@ -370,36 +367,16 @@ function jumpToPage() {
 
 function courseStatus(course: Course) {
   const task = generationStore.getTask(course.course_id)
-  const emptyDraft = course.course_status === 'draft' && !task
-  const publishedWarning = Boolean(task && isPublishedWarning(task))
-  const active = Boolean(task && taskNeedsAttention(task))
-  const labels: Record<string, string> = {
-    pending: t('teacherCourseLibrary.status.preparing'),
-    running: t('teacherCourseLibrary.status.preparing'),
-    paused: t('teacherCourseLibrary.status.needsAction'),
-    waiting_for_review: t('teacherCourseLibrary.status.waitingReview'),
-    conflict: t('teacherCourseLibrary.status.needsAction'),
-    error: t('teacherCourseLibrary.status.needsAction'),
-    completed_with_warnings: t('teacherCourseLibrary.status.needsAction'),
-    completed: t('teacherCourseLibrary.status.ready'),
-  }
+  const preparation = coursePreparationState(course, task)
+  const inProgress = Boolean(task && ['pending', 'running'].includes(task.status))
+  const needsAction = Boolean(task && taskRequiresAction(task))
   return {
-    active,
+    active: inProgress || needsAction,
+    inProgress,
+    needsAction,
     retryable: task?.status === 'error',
-    tone: emptyDraft
-      ? 'draft'
-      : task?.status === 'error'
-      ? 'danger'
-      : active
-        ? 'processing'
-        : publishedWarning
-          ? 'warning'
-          : 'ready',
-    label: emptyDraft
-      ? t('teacherCourseLibrary.status.draft')
-      : publishedWarning
-      ? t('teacherCourseLibrary.status.readyWithSuggestions')
-      : labels[task?.status || 'completed'] || t('teacherCourseLibrary.status.ready'),
+    tone: preparation === 'prepared' ? 'ready' : 'processing',
+    label: coursePreparationLabel(preparation),
     detail: courseProductionTaskDetail(task)
       || (task?.currentPhase ? t(`courseGeneration.phases.${task.currentPhase}`, task.currentPhase) : '')
       || t('courseLibrary.status.preparing', '正在准备课程'),
@@ -409,29 +386,17 @@ function courseStatus(course: Course) {
 
 function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> {
   const task = generationStore.getTask(course.course_id)
-  if (course.course_status === 'draft' && !task) return 'not_started'
-  if (task && taskRequiresAction(task)) return 'attention'
-  if (task && ['pending', 'running'].includes(task.status)) return 'preparing'
-  return 'prepared'
-}
-
-function isPublishedWarning(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
-  return task.status === 'completed_with_warnings'
-    && (task.publicationAllowed === true || task.recovery?.state === 'completed')
-}
-
-function taskNeedsAttention(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
-  if (isPublishedWarning(task)) return false
-  return ['pending', 'running', 'paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
+  return coursePreparationState(course, task)
 }
 
 function taskRequiresAction(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
-  if (isPublishedWarning(task)) return false
+  if (task.status === 'completed_with_warnings'
+    && (task.publicationAllowed === true || task.recovery?.state === 'completed')) return false
   return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
 function teacherAssetSummary(course: Course, status: ReturnType<typeof courseStatus>) {
-  if (status.active) {
+  if (status.inProgress) {
     return t('teacherCourseLibrary.teacherSummary.generating')
       .replace('{progress}', String(Math.round(status.progress)))
   }
@@ -459,15 +424,12 @@ function teacherAssetSummary(course: Course, status: ReturnType<typeof courseSta
 }
 
 function recommendedAction(course: Course, status: ReturnType<typeof courseStatus>) {
-  if (status.active && ['danger', 'warning'].includes(status.tone)) {
+  if (status.needsAction) {
     return { label: t('teacherCourseLibrary.actions.resolve') }
   }
   if (status.active) return { label: t('teacherCourseLibrary.actions.viewProgress') }
   if (course.course_status === 'draft' && !course.is_published) {
     return { label: t('teacherCourseLibrary.actions.start') }
-  }
-  if (status.tone === 'warning') {
-    return { label: t('teacherCourseLibrary.actions.reviewSuggestions') }
   }
   if (course.next_session) return { label: t('teacherCourseLibrary.actions.prepareNext') }
   return { label: t('teacherCourseLibrary.actions.continue') }

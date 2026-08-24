@@ -258,8 +258,11 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.prerequisite').text()).toContain('分讲教案状态读取失败')
-    await wrapper.get('.prerequisite button').trigger('click')
+    const notice = wrapper.get('.prerequisite-error')
+    expect(notice.text()).toContain('课次读取失败')
+    expect(notice.text()).toContain('分讲教案状态读取失败')
+    expect(notice.get('details code').text()).toContain('原始反馈')
+    await notice.get('button').trigger('click')
     expect(reload).toHaveBeenCalledWith('course-1')
   })
 

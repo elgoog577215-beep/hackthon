@@ -4,7 +4,7 @@ import './styles/design-system.css'
 import './styles/learning-shell.css'
 import './styles/resource-workspace.css'
 import App from './App.vue'
-import ElementPlus from 'element-plus'
+import ElementPlus, { ElMessage, ElNotification } from 'element-plus'
 import 'element-plus/dist/index.css'
 import 'katex/dist/katex.min.css'
 import { createPinia } from 'pinia'
@@ -21,6 +21,7 @@ import {
   trackPageView,
   type UsageSurface,
 } from './utils/usage-tracker'
+import { installElementErrorBridge } from './utils/element-error-bridge'
 
 const usageSurface = (route: typeof router.currentRoute.value): UsageSurface => (
   route.meta.identityScope === 'teacher' || route.query.teacherPreview === '1'
@@ -39,6 +40,7 @@ const currentUsageContext = () => {
 
 const bootstrap = async () => {
   await initializeI18n()
+  installElementErrorBridge(ElMessage, ElNotification)
 
   try {
     const app = createApp(App)

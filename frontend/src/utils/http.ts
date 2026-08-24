@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
-import { ElMessage } from 'element-plus';
 import { trackApiAction } from './usage-tracker';
+import { publishAppError, toAppError } from './app-error';
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
@@ -165,12 +165,16 @@ declare module 'axios' {
     silentError?: boolean;
     usageStartedAt?: number;
     identityScope?: RequestIdentityScope;
+    errorTitle?: string;
+    errorSummary?: string;
   }
 
   export interface InternalAxiosRequestConfig {
     silentError?: boolean;
     usageStartedAt?: number;
     identityScope?: RequestIdentityScope;
+    errorTitle?: string;
+    errorSummary?: string;
   }
 }
 
@@ -225,41 +229,31 @@ export const handleHttpError = (
   error: AxiosError,
   config: ErrorConfig = DEFAULT_ERROR_CONFIG
 ): string => {
-  let message = '请求失败，请稍后重试';
-
-  if (error.response) {
-    // 服务器返回了错误响应
-    message = getErrorMessageByStatus(error.response.status);
-    const detail = extractErrorDetail(error);
-    if (detail) {
-      message = detail;
-    }
-  } else if (error.request) {
-    // 请求已发出但没有收到响应
-    message = '网络连接失败，请检查网络设置';
-  } else {
-    // 请求配置出错
-    message = error.message || '请求配置错误';
-  }
+  const fallback = error.response
+    ? extractErrorDetail(error) || getErrorMessageByStatus(error.response.status)
+    : error.request
+      ? '网络连接失败，请检查网络设置'
+      : error.message || '请求配置错误';
+  const presentation = toAppError(error, { fallback });
 
   // 执行自定义错误处理器
   if (config.customHandler) {
     config.customHandler(error);
   }
 
-  // 显示错误消息
+  // 普通用户操作统一进入结构化错误反馈层；后台静默请求继续由所属区域处理。
   if (config.showMessage) {
     const isNetworkError = !error.response && Boolean(error.request);
     const now = Date.now();
     if (!isNetworkError || now - lastNetworkErrorMessageAt >= NETWORK_ERROR_MESSAGE_COOLDOWN_MS) {
-      ElMessage.error(message);
+      publishAppError(error, { fallback });
       if (isNetworkError) lastNetworkErrorMessageAt = now;
     }
   }
 
   if (error && typeof error === 'object') handledErrors.add(error);
 
-  return message;
+  return presentation.summary;
 };
 
 /**

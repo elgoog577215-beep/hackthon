@@ -34,6 +34,11 @@ describe('统一讲稿页面', () => {
     const save = vi.spyOn(store, 'saveScriptDraft').mockResolvedValue(lesson as any)
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
 
+    expect(wrapper.get('.script-title h3').text()).toBe('第1讲 爬虫概述')
+    expect(wrapper.find('.script-state').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('课程讲稿')
+    expect(wrapper.text()).not.toContain('1 个小节')
+
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲稿'))!.trigger('click')
     await wrapper.get('.script-body textarea').setValue('老师修改后的讲稿')
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('完成编辑'))!.trigger('click')
@@ -110,6 +115,8 @@ describe('统一讲稿页面', () => {
     expect(wrapper.emitted('confirm')).toHaveLength(1)
 
     await wrapper.setProps({ confirmed: true })
+    expect(wrapper.find('.script-state').exists()).toBe(false)
+    expect(wrapper.find('.script-saved').exists()).toBe(false)
     expect(wrapper.get('.script-footer button').text()).toContain('进入 PPT')
     await wrapper.get('.script-footer button').trigger('click')
     expect(wrapper.emitted('next')).toHaveLength(1)
