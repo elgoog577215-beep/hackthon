@@ -40,66 +40,149 @@ const session = {
   }],
 }
 
+function summary(value: Record<string, any> = session) {
+  const { questions: _questions, source_pages: _pages, ...result } = value
+  return result
+}
+
 describe('QuestionBankImportWorkspace', () => {
   beforeEach(async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: true,
       json: async () => zhMessages,
     })))
+    window.sessionStorage.clear()
     await setLocale('zh')
     get.mockReset()
     post.mockReset()
     patch.mockReset()
   })
 
-  it('以文件导入作为默认入口，AI 生成是次要选择', async () => {
-    get
-      .mockResolvedValueOnce({ data: { session: null } })
-      .mockResolvedValueOnce({ data: { imports: [] } })
+  it('默认在中间批量导入，右侧独立显示导入文档，AI 生成保持次要', async () => {
+    get.mockResolvedValueOnce({ data: { imports: [] } })
     const wrapper = mount(QuestionBankImportWorkspace, {
       props: { courseId: 'course-http' },
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('上传 PDF 或 Word 试题')
-    expect(wrapper.get('[data-testid="choose-question-file"]')).toBeTruthy()
+    expect(wrapper.text()).toContain('批量导入 PDF 或 Word 试题')
+    expect(wrapper.text()).toContain('导入文档')
+    expect(wrapper.text()).toContain('还没有导入文档')
+    expect(wrapper.get('[data-testid="question-import-file"]').attributes('multiple')).toBeDefined()
     await wrapper.get('.quiet-button--ai').trigger('click')
     expect(wrapper.emitted('show-ai')).toHaveLength(1)
   })
 
-  it('对照原文校对待确认题目并解锁入库', async () => {
+  it('一次选择多份文件并逐份建立可恢复导入记录', async () => {
+    const secondSession = {
+      ...session,
+      import_id: 'qimp-2',
+      filename: '第二套试题.pdf',
+      status: 'ready',
+      pending_count: 0,
+      questions: [{ ...session.questions[0], confirmed: true, warnings: [], answer: 'B' }],
+    }
     get
-      .mockResolvedValueOnce({ data: { session } })
       .mockResolvedValueOnce({ data: { imports: [] } })
-    patch.mockResolvedValue({
-      data: {
-        ...session,
-        status: 'ready',
-        pending_count: 0,
-        questions: [{ ...session.questions[0], answer: 'B', confirmed: true }],
-      },
-    })
-    post.mockResolvedValue({ data: { bundle_revision_id: 'qbb-imported' } })
+      .mockResolvedValueOnce({ data: { imports: [summary(secondSession), summary(session)] } })
+    post
+      .mockResolvedValueOnce({ data: session })
+      .mockResolvedValueOnce({ data: secondSession })
+
     const wrapper = mount(QuestionBankImportWorkspace, {
       props: { courseId: 'course-http' },
     })
     await flushPromises()
 
+    const input = wrapper.get('[data-testid="question-import-file"]').element as HTMLInputElement
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [
+        new File(['docx'], 'HTTP 测试题.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+        new File(['pdf'], '第二套试题.pdf', { type: 'application/pdf' }),
+      ],
+    })
+    await wrapper.get('[data-testid="question-import-file"]').trigger('change')
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('HTTP 测试题.docx')
+    expect(wrapper.text()).toContain('第二套试题.pdf')
+    expect(wrapper.findAll('.question-import__documents nav button')).toHaveLength(2)
+    expect(window.sessionStorage.getItem('lingzhi:question-import:course-http')).toBe('qimp-1')
+  })
+
+  it('批量处理中单份失败不会清除已经识别的文档', async () => {
+    get
+      .mockResolvedValueOnce({ data: { imports: [] } })
+      .mockResolvedValueOnce({ data: { imports: [summary(session)] } })
+    post
+      .mockResolvedValueOnce({ data: session })
+      .mockRejectedValueOnce({ response: { data: { detail: '文件无法解析' } } })
+
+    const wrapper = mount(QuestionBankImportWorkspace, {
+      props: { courseId: 'course-http' },
+    })
+    await flushPromises()
+
+    const input = wrapper.get('[data-testid="question-import-file"]').element as HTMLInputElement
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [
+        new File(['docx'], 'HTTP 测试题.docx', { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+        new File(['pdf'], '损坏试题.pdf', { type: 'application/pdf' }),
+      ],
+    })
+    await wrapper.get('[data-testid="question-import-file"]').trigger('change')
+    await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(2))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('HTTP 测试题.docx')
+    expect(wrapper.text()).toContain('损坏试题.pdf：文件无法解析')
+    expect(wrapper.findAll('.question-import__documents nav button')).toHaveLength(1)
+  })
+
+  it('从右侧选择文档校对，入库后仍停留在文档工作区', async () => {
+    const confirmed = {
+      ...session,
+      status: 'ready',
+      pending_count: 0,
+      questions: [{ ...session.questions[0], answer: 'B', confirmed: true, warnings: [] }],
+    }
+    const committed = { ...confirmed, status: 'committed', step: 'complete' }
+    get
+      .mockResolvedValueOnce({ data: { imports: [summary(session)] } })
+      .mockResolvedValueOnce({ data: session })
+      .mockResolvedValueOnce({ data: { imports: [summary(committed)] } })
+    patch.mockResolvedValue({ data: confirmed })
+    post.mockResolvedValue({ data: { session: committed, bundle_revision_id: 'qbb-imported' } })
+
+    const wrapper = mount(QuestionBankImportWorkspace, {
+      props: { courseId: 'course-http' },
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="confirm-import-question"]').exists()).toBe(false)
+
+    await wrapper.get('.question-import__documents nav button').trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain('原文')
     expect(wrapper.text()).toContain('未识别到答案')
+
     await wrapper.get('input[type="radio"][value="B"]').setValue(true)
     await wrapper.get('[data-testid="confirm-import-question"]').trigger('click')
     await flushPromises()
-
-    expect(patch).toHaveBeenCalledWith(
-      '/api/courses/course-http/question-bank/imports/qimp-1/items/qid-1',
-      expect.objectContaining({ answer: 'B', confirmed: true }),
-      expect.any(Object),
-    )
     expect(wrapper.get('[data-testid="commit-question-import"]').attributes('disabled')).toBeUndefined()
+
     await wrapper.get('[data-testid="commit-question-import"]').trigger('click')
     await flushPromises()
     expect(wrapper.emitted('imported')).toEqual([['qbb-imported']])
+    expect(wrapper.emitted('show-bank')).toBeUndefined()
+    expect(wrapper.text()).toContain('原文与题目来源已经保留')
+    expect(wrapper.find('[data-testid="commit-question-import"]').exists()).toBe(false)
+
+    const viewBank = wrapper.findAll('button').find(button => button.text().includes('查看题库'))
+    expect(viewBank).toBeTruthy()
+    await viewBank!.trigger('click')
     expect(wrapper.emitted('show-bank')).toHaveLength(1)
   })
 })

@@ -77,8 +77,9 @@
 - [x] 8.3 Add course-owned formal exam papers composed from approved immutable question revisions inside the question-bank studio.
 - [x] 8.4 Show question banks and exam papers as managed formal assets in the file view without duplicating question truth.
 - [x] 8.5 Make PDF/DOCX import the primary question-bank entry; persist recognition/review sessions, preserve source pages, require teacher confirmation for uncertain items, and compile accepted items into the existing immutable bank.
-- [x] 8.6 Keep the left production-stage navigation during import review, hide the redundant right reference tray, and retain AI generation as a secondary entry.
-- [x] 8.5 Add zh/en copy, focused backend/frontend tests, canonical documentation and Chinese desktop real-page verification.
+- [x] 8.6 Keep the left production-stage navigation, replace the generic reference tray with a dedicated imported-document rail, flatten the review surface, and retain AI generation as a secondary entry.
+- [x] 8.7 Support multi-file PDF/DOCX selection, create independent recoverable sessions per file, and preserve successful imports when another file fails.
+- [x] 8.8 Add zh/en copy, focused backend/frontend tests, canonical documentation and Chinese desktop real-page verification.
 
 ## 9. Explicit identity and ownership boundary
 

@@ -1515,8 +1515,10 @@ onBeforeUnmount(() => {
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 .teacher-workbench.is-question-bank-import:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
-.is-question-bank-import>.workbench-center{padding-inline:30px}
+.is-question-bank-import>.workbench-center{padding:24px 30px 0}
 .is-question-bank-import>.workbench-center>.center-heading,.is-question-bank-import .lesson-stage,.is-question-bank-import .question-workbench-surface{width:100%;max-width:none}
+.is-question-bank-import>.workbench-center>.center-heading{margin-bottom:14px}
+.is-question-bank-import .lesson-stage,.is-question-bank-import .lesson-stage-content{overflow:visible;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .is-question-bank-import .lesson-navigator{display:none}
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
 
