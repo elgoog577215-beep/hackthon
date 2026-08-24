@@ -1,12 +1,25 @@
 <template>
   <section class="question-bank-panel" :aria-label="t('courseWorkbench.stages.questionBank', '题库')">
     <section class="question-generation-studio" data-testid="question-generation-studio">
-      <header v-if="publishedCount" class="question-generation-studio__header">
-        <div class="question-generation-studio__published">
+      <header class="question-generation-studio__header">
+        <div v-if="publishedCount" class="question-generation-studio__published">
           <CircleCheck :size="15" />
           <span>{{ t('questionBank.studio.published', '已发布 {count} 道').replace('{count}', String(publishedCount)) }}</span>
         </div>
+        <button
+          v-if="!assistantOpen"
+          type="button"
+          class="question-generation-studio__ai"
+          :disabled="loading || rebuilding"
+          @click="emit('open-ai')"
+        ><WandSparkles :size="15" />{{ t('questionBank.aiEdit', 'AI 调整') }}</button>
       </header>
+
+      <div v-if="pendingAiCandidate" ref="candidateRef" class="question-ai-candidate" tabindex="-1">
+        <WandSparkles :size="15" />
+        <strong>{{ t('questionBank.aiTask', 'AI 出题任务') }}</strong>
+        <span>{{ pendingAiCandidate.scope === 'nodes' ? (props.initialScopeLabel || t('questionBank.studio.currentLesson', '当前课次')) : t('questionBank.studio.wholeCourse', '整门课程') }}</span>
+      </div>
 
       <div class="question-generation-flow">
         <section
@@ -900,12 +913,32 @@ const props = withDefaults(defineProps<{
   initialNodeIds?: string[]
   initialScopeLabel?: string
   materialAssetIds?: string[]
+  assistantOpen?: boolean
 }>(), {
   initialNodeIds: () => [],
   initialScopeLabel: '',
   materialAssetIds: () => [],
+  assistantOpen: false,
 })
-const emit = defineEmits<{ updated: [bundleRevisionId: string] }>()
+interface QuestionBankAiCandidate {
+  candidate_id: string
+  base_bundle_revision_id: string
+  scope: 'course' | 'nodes'
+  node_ids: string[]
+  material_asset_ids: string[]
+  teacher_instruction: string
+  mode: 'incremental' | 'full'
+  retrieval_enabled: boolean
+  created_at: string
+}
+const emit = defineEmits<{
+  updated: [bundleRevisionId: string]
+  'open-ai': []
+  'ai-candidate-change': [candidate: QuestionBankAiCandidate | null]
+  'ai-resolving': [result: { accept: boolean }]
+  'ai-resolved': [result: { accept: boolean }]
+  'ai-error': [message: string]
+}>()
 const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
@@ -939,6 +972,8 @@ const coveredObjectivePageInput = ref('1')
 const generationScope = ref<'lesson' | 'course'>(props.initialNodeIds.length ? 'lesson' : 'course')
 const retrievalEnabled = ref(false)
 const keepPublished = ref(true)
+const pendingAiCandidate = ref<QuestionBankAiCandidate | null>(null)
+const candidateRef = ref<HTMLElement | null>(null)
 let rebuildAbortController: AbortController | null = null
 const QUESTION_PAGE_SIZE = 10
 const COVERED_OBJECTIVE_PAGE_SIZE = 10
@@ -1196,7 +1231,7 @@ const webRetrievalError = computed(() => {
 })
 
 onMounted(() => {
-  void load()
+  void load().then(restoreAiCandidate)
   void loadExamPapers()
   void recoverActiveRebuild()
 })
@@ -1215,8 +1250,9 @@ watch(() => props.courseId, () => {
   coveredObjectivesExpanded.value = false
   selectedQuestionRevisions.value = []
   paperComposerOpen.value = false
+  pendingAiCandidate.value = null
   setCoveredObjectivePage(1)
-  void load()
+  void load().then(restoreAiCandidate)
   void loadExamPapers()
   void recoverActiveRebuild()
 })
@@ -1428,6 +1464,106 @@ function startGeneration() {
   )
 }
 
+function aiCandidateStorageKey() {
+  return `question-bank-ai-candidate:${props.courseId}`
+}
+
+function persistAiCandidate() {
+  try {
+    if (pendingAiCandidate.value) {
+      window.localStorage.setItem(
+        aiCandidateStorageKey(),
+        JSON.stringify(pendingAiCandidate.value),
+      )
+    } else {
+      window.localStorage.removeItem(aiCandidateStorageKey())
+    }
+  } catch { /* local recovery is best effort */ }
+}
+
+function restoreAiCandidate() {
+  try {
+    const raw = window.localStorage.getItem(aiCandidateStorageKey())
+    if (!raw) return
+    const candidate = JSON.parse(raw) as QuestionBankAiCandidate
+    if (
+      candidate?.teacher_instruction
+      && (!candidate.base_bundle_revision_id
+        || candidate.base_bundle_revision_id === bundleRevisionId.value)
+    ) {
+      pendingAiCandidate.value = candidate
+      emit('ai-candidate-change', candidate)
+    } else {
+      window.localStorage.removeItem(aiCandidateStorageKey())
+    }
+  } catch { /* ignore malformed recovery state */ }
+}
+
+async function requestAiCandidate(value: string) {
+  const instruction = value.trim()
+  if (!instruction || rebuilding.value) return null
+  const scope = generationScope.value === 'lesson' && props.initialNodeIds.length
+    ? 'nodes'
+    : 'course'
+  pendingAiCandidate.value = {
+    candidate_id: crypto.randomUUID(),
+    base_bundle_revision_id: bundleRevisionId.value,
+    scope,
+    node_ids: scope === 'nodes' ? [...props.initialNodeIds] : [],
+    material_asset_ids: [...props.materialAssetIds],
+    teacher_instruction: instruction,
+    mode: keepPublished.value ? 'incremental' : 'full',
+    retrieval_enabled: retrievalEnabled.value,
+    created_at: new Date().toISOString(),
+  }
+  persistAiCandidate()
+  emit('ai-candidate-change', pendingAiCandidate.value)
+  return pendingAiCandidate.value
+}
+
+async function resolveAiCandidate(accept: boolean) {
+  const candidate = pendingAiCandidate.value
+  if (!candidate || rebuilding.value) return false
+  emit('ai-resolving', { accept })
+  try {
+    if (accept) {
+      const response = await http.post(
+        `/api/courses/${props.courseId}/question-bank/rebuild`,
+        {
+          request_id: crypto.randomUUID(),
+          scope: candidate.scope,
+          node_ids: candidate.node_ids,
+          material_asset_ids: candidate.material_asset_ids,
+          mode: candidate.mode,
+          resume_existing: true,
+          retrieval_enabled: candidate.retrieval_enabled,
+          teacher_instruction: candidate.teacher_instruction,
+        },
+      )
+      rebuildJob.value = response.data as QuestionBankRebuildJob
+      rebuilding.value = true
+      void recoverActiveRebuild()
+    }
+    pendingAiCandidate.value = null
+    persistAiCandidate()
+    emit('ai-candidate-change', null)
+    emit('ai-resolved', { accept })
+    return true
+  } catch (error: any) {
+    emit(
+      'ai-error',
+      error?.response?.data?.detail?.message
+        || t('questionBank.rebuildFailed', '题库任务创建失败'),
+    )
+    return false
+  }
+}
+
+function focusAiCandidate() {
+  candidateRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  candidateRef.value?.focus({ preventScroll: true })
+}
+
 async function rebuild(nodeId?: string | string[], resumeExisting = true) {
   if (!props.courseId || rebuilding.value) return
   rebuildAbortController?.abort()
@@ -1450,6 +1586,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
         mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
         retrieval_enabled: retrievalEnabled.value,
         material_asset_ids: props.materialAssetIds,
+        teacher_instruction: '',
         ...(!scopedNodeIds.length ? { resume_existing: resumeExisting } : {}),
       },
       {
@@ -1542,6 +1679,7 @@ async function rework(item: QuestionBankItem) {
         mode: 'incremental',
         retrieval_enabled: retrievalEnabled.value,
         material_asset_ids: props.materialAssetIds,
+        teacher_instruction: reviewNotes[item.revision_id] || '',
       },
       {
         onUpdate: job => {
@@ -1689,12 +1827,15 @@ function formatValue(value: unknown) {
   if (typeof value === 'string') return value
   return JSON.stringify(value, null, 2)
 }
+
+defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate })
 </script>
 
 <style scoped>
 .question-bank-panel { display:grid; gap:12px; padding:0; background:transparent; }
 .question-generation-studio { overflow:hidden; border:1px solid #dfe4ec; border-radius:14px; background:#fff; }
-.question-generation-studio__header { min-height:52px; display:flex; align-items:center; justify-content:flex-end; padding:10px 20px; }
+.question-generation-studio__header { min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 20px; }
+.question-generation-studio__ai{min-height:34px;display:inline-flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.question-generation-studio__ai:hover:not(:disabled){border-color:#a5b4fc;background:#f8f9ff}.question-generation-studio__ai:focus-visible{outline:2px solid #6366f1;outline-offset:2px}.question-generation-studio__ai:disabled{opacity:.45;cursor:not-allowed}.question-ai-candidate{min-height:44px;display:flex;align-items:center;gap:8px;padding:0 20px;border-block:1px solid #dfe2f5;color:#4f46e5;background:#f8f8ff;outline:0}.question-ai-candidate strong{color:#3730a3;font-size:12px}.question-ai-candidate span{margin-left:auto;color:#6b7280;font-size:11px}
 .question-generation-studio__published { flex:0 0 auto; display:inline-flex; align-items:center; gap:6px; color:#047857; font-size:11px; font-weight:700; }
 .question-generation-flow { padding:0 20px; }
 .question-generation-step { min-width:0; display:grid; grid-template-columns:132px minmax(0,1fr); align-items:start; gap:24px; margin:0; padding:18px 0; border:0; border-top:1px solid #edf0f4; }

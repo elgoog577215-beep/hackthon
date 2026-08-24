@@ -1,5 +1,10 @@
 <template>
-  <section class="ppt-workspace-view">
+  <section
+    ref="workspaceRoot"
+    class="ppt-workspace-view"
+    :class="{ 'is-ai-open': aiVisible }"
+    :style="{ '--ppt-ai-width': `${pptAiPaneWidth}px` }"
+  >
     <div v-if="initializing || (!slideRepresentation && store.building && !store.liveSlides.length)" class="ppt-workspace-state">
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
       <h1>{{ courseTitle }}</h1>
@@ -121,9 +126,53 @@
         @ppt="closeMaterials"
       />
 
+      <div
+        v-if="aiVisible && isTeacherSurface"
+        class="ppt-workspace-view__ai-resizer"
+        :class="{ 'is-resizing': pptAiResizing }"
+        role="separator"
+        tabindex="0"
+        aria-orientation="vertical"
+        :aria-label="t('pptWorkspace.resizeAi', '调整 AI 助手宽度')"
+        :aria-valuemin="PPT_AI_MIN_WIDTH"
+        :aria-valuemax="pptAiMaxWidth"
+        :aria-valuenow="pptAiPaneWidth"
+        @pointerdown="startPptAiResize"
+        @keydown="resizePptAiWithKeyboard"
+      ><GripVertical :size="14" /></div>
+
+      <Transition name="ppt-ai">
+        <TeacherLessonAiWorkspace
+          v-if="aiVisible && isTeacherSurface"
+          class="ppt-workspace-view__ai"
+          domain="ppt"
+          :scope-title="pptAiScopeTitle"
+          :scope-detail="pptAiScopeDetail"
+          :reference-count="pptAiReferences.length"
+          :reference-labels="pptAiReferenceLabels"
+          :messages="pptAiMessages"
+          :phase="pptAiPhase"
+          :busy="pptAiBusy"
+          :candidate-pending="Boolean(pptAiCandidate)"
+          :candidate-fields="pptAiCandidateFields"
+          :candidate-impacts="pptAiCandidate ? [t('pptWorkspace.aiCurrentPageOnly', '仅当前页'), t('pptWorkspace.aiSourceSafe', '课程源不变')] : []"
+          :quick-actions="pptAiQuickActions"
+          :placeholder="t('pptWorkspace.aiPlaceholder', '描述这一页想怎么改…')"
+          :can-retry="Boolean(pptAiLastInstruction)"
+          @close="closePptAi"
+          @open-sources="openMaterials"
+          @send="requestPptAiCandidate"
+          @clarify="requestPptAiCandidate"
+          @retry="retryPptAiCandidate"
+          @accept="resolvePptAiCandidate(true)"
+          @reject="resolvePptAiCandidate(false)"
+          @focus-candidate="focusPptAiCandidate"
+        />
+      </Transition>
+
       <Transition name="ppt-ai">
         <SideAIPanel
-          v-if="aiVisible"
+          v-if="aiVisible && !isTeacherSurface"
           class="ppt-workspace-view__ai"
           :visible="aiVisible"
           :quote-text="aiQuote"
@@ -163,8 +212,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Presentation, Sparkles } from 'lucide-vue-next'
+import { ArrowLeft, GripVertical, Presentation, Sparkles } from 'lucide-vue-next'
 import SideAIPanel from '../components/SideAIPanel.vue'
+import TeacherLessonAiWorkspace, { type TeacherAiQuickAction } from '../components/TeacherLessonAiWorkspace.vue'
 import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
@@ -186,6 +236,14 @@ import type {
 import type { CourseDocumentEnvelope } from '../stores/types'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
+import {
+  assessTeacherProductionRequest,
+  buildTeacherProductionAiInstruction,
+  teacherProductionAiBusy,
+  transitionTeacherProductionAiPhase,
+  type TeacherProductionAiMessage,
+  type TeacherProductionAiPhase,
+} from '../composables/useTeacherProductionAiCollaboration'
 import http from '../utils/http'
 
 const route = useRoute()
@@ -194,6 +252,7 @@ const courseStore = useCourseStore()
 const templatePacksStore = usePptTemplatePacksStore()
 const store = useTeachingRepresentationsStore()
 const templateStore = templatePacksStore
+const workspaceRoot = ref<HTMLElement | null>(null)
 const initializing = ref(true)
 const aiVisible = ref(false)
 const materialsVisible = ref(false)
@@ -216,6 +275,31 @@ const selectedWebImageRetrieval = ref(false)
 const selectedTemplatePackId = ref('')
 const selectedTemplatePackVersion = ref<number | undefined>(undefined)
 let workspaceAttempt = 0
+
+interface TeacherV6AiCandidate {
+  candidate_id: string
+  representation_id: string
+  page_id: string
+  base_spec_id: string
+  base_spec_revision: string
+  candidate_page: Record<string, any>
+  changed_fields: string[]
+  status: string
+}
+
+const PPT_AI_WIDTH_KEY = 'teacher-ppt-workspace:ai-pane-width'
+const PPT_AI_MIN_WIDTH = 360
+const PPT_AI_MAX_WIDTH = 680
+const PPT_CANVAS_MIN_WIDTH = 620
+const pptAiPaneWidth = ref(460)
+const pptAiResizing = ref(false)
+const pptAiCandidate = ref<TeacherV6AiCandidate | null>(null)
+const pptAiPageId = ref('')
+const pptAiMessages = ref<TeacherProductionAiMessage[]>([])
+const pptAiPhase = ref<TeacherProductionAiPhase>('ready')
+const pptAiLastInstruction = ref('')
+let pptAiCandidateAttempt = 0
+let pptAiMessageSequence = 0
 
 type V3Theme = Exclude<SlideDeckTheme, 'qingfeng-classroom' | 'academic-bluegray'>
 
@@ -272,6 +356,49 @@ const slideRepresentation = computed(() => (
   || null
 ))
 const content = computed(() => store.selectedSpec?.payload?.content || null)
+const pptAiPage = computed<Record<string, any> | null>(() => {
+  const pages = Array.isArray(content.value?.pages) ? content.value.pages : []
+  return pages.find((page: Record<string, any>) => String(page.page_id || '') === pptAiPageId.value)
+    || pages[0]
+    || null
+})
+const pptAiScopeTitle = computed(() => (
+  pptAiPage.value?.title
+  || t('pptWorkspace.aiCurrentPage', '当前页面')
+))
+const pptAiScopeDetail = computed(() => {
+  const ordinal = Number(pptAiPage.value?.page_ordinal ?? 0) + 1
+  return t('pptWorkspace.aiPageNumber', '第 {number} 页').replace('{number}', String(ordinal))
+})
+const pptAiReferences = computed<Array<{
+  id: string
+  label: string
+  role: 'primary' | 'reference'
+}>>(() => (
+  (pptAiPage.value?.source_block_ids || []).map((id: string, index: number) => ({
+    id: String(id),
+    label: `${t('pptWorkspace.aiSource', '课程源')} ${index + 1}`,
+    role: index === 0 ? 'primary' as const : 'reference' as const,
+  }))
+))
+const pptAiReferenceLabels = computed(() => pptAiReferences.value.map(item => item.label))
+const pptAiBusy = computed(() => teacherProductionAiBusy(pptAiPhase.value))
+const pptAiCandidateFields = computed(() => {
+  const labels: Record<string, string> = {
+    title: t('pptWorkspace.aiFieldTitle', '标题'),
+    subtitle: t('pptWorkspace.aiFieldSubtitle', '副标题'),
+    key_message: t('pptWorkspace.aiFieldKeyMessage', '关键内容'),
+  }
+  return (pptAiCandidate.value?.changed_fields || []).map(field => labels[field] || field)
+})
+const pptAiQuickActions = computed<TeacherAiQuickAction[]>(() => [
+  { id: 'title', label: t('pptWorkspace.aiQuickTitle', '聚焦标题'), prompt: '压缩当前页标题，让课堂上一眼能抓住重点。', icon: 'target' },
+  { id: 'message', label: t('pptWorkspace.aiQuickMessage', '强化重点'), prompt: '强化当前页的关键内容，保持原意不变。', icon: 'focus' },
+  { id: 'compress', label: t('pptWorkspace.aiQuickCompress', '精简表达'), prompt: '精简当前页表达，保留完整的教学信息。', icon: 'compress' },
+  { id: 'classroom', label: t('pptWorkspace.aiQuickClassroom', '课堂化'), prompt: '把当前页改成更适合教师现场讲解的表达。', icon: 'voice' },
+  { id: 'transition', label: t('pptWorkspace.aiQuickTransition', '补足衔接'), prompt: '补足当前页与本讲内容的衔接，不新增知识事实。', icon: 'transition' },
+  { id: 'objective', label: t('pptWorkspace.aiQuickObjective', '对齐目标'), prompt: '让当前页表达更直接服务本讲教学目标。', icon: 'check' },
+])
 const activeTemplateAssetUrls = ref<Record<string, string>>({})
 const activeTemplatePackSnapshot = computed(() => {
   const contentPack = content.value?.template_pack
@@ -375,12 +502,35 @@ function representationMatchesTargetEngine(item: TeachingRepresentation) {
   )
   return schema === target
 }
+const displayContent = computed(() => {
+  const source = content.value
+  const candidate = pptAiCandidate.value
+  if (!source || !candidate || source.schema_version !== 'slide_deck_v6') return source
+  const preview = JSON.parse(JSON.stringify(source))
+  const page = (preview.pages || []).find(
+    (item: Record<string, any>) => String(item.page_id || '') === candidate.page_id,
+  )
+  if (!page) return source
+  const candidatePage = candidate.candidate_page || {}
+  for (const field of candidate.changed_fields || []) {
+    if (field === 'title') {
+      page.title = candidatePage.title
+      continue
+    }
+    const regionId = String(candidatePage[`${field}_region_id`] || '')
+    const region = (page.regions || []).find(
+      (item: Record<string, any>) => String(item.region_id || '') === regionId,
+    )
+    if (region) region.content = candidatePage[field]
+  }
+  return preview
+})
 const displaySlides = computed(() => (
   store.liveSlides.length && store.slidePreviewSource === 'draft'
     ? store.liveSlides
-    : content.value?.schema_version === 'slide_deck_v6'
-      ? adaptSlideDeckV6ForWeb(content.value)
-      : (content.value?.slides || [])
+    : displayContent.value?.schema_version === 'slide_deck_v6'
+      ? adaptSlideDeckV6ForWeb(displayContent.value)
+      : (displayContent.value?.slides || [])
 ))
 const estimatedFragmentCount = computed(() => (
   Number(content.value?.fragment_manifest?.length)
@@ -766,19 +916,208 @@ function openSameSourceCourse(state: PptSameSourceHighlightState) {
   })
 }
 
+function applyPptAiEvent(type: Parameters<typeof transitionTeacherProductionAiPhase>[1]['type']) {
+  pptAiPhase.value = transitionTeacherProductionAiPhase(pptAiPhase.value, { type } as any)
+}
+
+function addPptAiMessage(
+  role: TeacherProductionAiMessage['role'],
+  kind: TeacherProductionAiMessage['kind'],
+  text: string,
+) {
+  pptAiMessages.value.push({
+    id: `ppt-ai-${Date.now()}-${++pptAiMessageSequence}`,
+    role,
+    kind,
+    text,
+  })
+}
+
+async function loadPptAiCandidate() {
+  if (!isTeacherSurface.value || !courseId.value || !teacherLessonId.value || !store.selectedId) {
+    pptAiCandidate.value = null
+    return
+  }
+  const representationId = store.selectedId
+  const attempt = ++pptAiCandidateAttempt
+  try {
+    const response = await http.get(
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/spec`,
+    )
+    if (attempt !== pptAiCandidateAttempt || store.selectedId !== representationId) return
+    const candidate = (response.data.ai_candidate || null) as TeacherV6AiCandidate | null
+    const previousCandidateId = pptAiCandidate.value?.candidate_id
+    pptAiCandidate.value = candidate
+    if (!candidate) return
+    pptAiPageId.value = candidate.page_id
+    aiVisible.value = true
+    if (previousCandidateId !== candidate.candidate_id) {
+      pptAiMessages.value = []
+      addPptAiMessage('assistant', 'candidate', t('pptWorkspace.aiCandidateRestored', '已恢复待确认修改。'))
+    }
+    applyPptAiEvent('CANDIDATE_RESTORED')
+  } catch {
+    if (attempt === pptAiCandidateAttempt) pptAiCandidate.value = null
+  }
+}
+
+function pptAiErrorMessage(error: any) {
+  return String(
+    error?.response?.data?.detail?.message
+    || error?.response?.data?.detail
+    || t('pptWorkspace.aiFailed', 'AI 修改失败，请重试。'),
+  )
+}
+
+async function requestPptAiCandidate(value: string) {
+  const instruction = String(value || '').trim()
+  const page = pptAiPage.value
+  const spec = store.selectedSpec
+  const representationId = store.selectedId
+  if (!instruction || !page || !spec || !representationId || pptAiBusy.value) return
+  pptAiLastInstruction.value = instruction
+  addPptAiMessage('user', 'text', instruction)
+  if (assessTeacherProductionRequest('ppt', instruction) === 'clarify') {
+    applyPptAiEvent('ASK_CLARIFICATION')
+    addPptAiMessage('assistant', 'text', t('pptWorkspace.aiClarify', '请指定标题、副标题或关键内容。'))
+    return
+  }
+  applyPptAiEvent('GENERATE')
+  try {
+    const prompt = buildTeacherProductionAiInstruction(pptAiMessages.value, {
+      domain: 'ppt',
+      courseTitle: courseTitle.value,
+      primaryTitle: String(page.title || pptAiScopeTitle.value),
+      secondaryTitle: pptAiScopeDetail.value,
+      referenceCount: pptAiReferences.value.length,
+      references: pptAiReferences.value,
+    })
+    const response = await http.post(
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/ai-candidates`,
+      {
+        page_id: String(page.page_id || ''),
+        instruction: prompt,
+        base_spec_id: spec.spec_id,
+        base_spec_revision: spec.revision,
+      },
+    )
+    pptAiCandidate.value = response.data.candidate as TeacherV6AiCandidate
+    pptAiPageId.value = pptAiCandidate.value.page_id
+    applyPptAiEvent('CANDIDATE_READY')
+    addPptAiMessage('assistant', 'candidate', t('pptWorkspace.aiCandidateReady', '修改已显示在左侧。'))
+  } catch (error: any) {
+    applyPptAiEvent('FAIL')
+    addPptAiMessage('assistant', 'error', pptAiErrorMessage(error))
+  }
+}
+
+async function retryPptAiCandidate() {
+  if (pptAiLastInstruction.value) await requestPptAiCandidate(pptAiLastInstruction.value)
+}
+
+async function resolvePptAiCandidate(accept: boolean) {
+  const candidate = pptAiCandidate.value
+  if (!candidate || pptAiBusy.value) return
+  applyPptAiEvent(accept ? 'ACCEPT' : 'REJECT')
+  try {
+    const response = await http.post(
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${candidate.representation_id}/ai-candidates/${candidate.candidate_id}/resolve`,
+      { accept },
+    )
+    if (accept && response.data.registry) store.registry = response.data.registry
+    if (accept && response.data.spec) store.selectedSpec = response.data.spec
+    pptAiCandidate.value = null
+    applyPptAiEvent('RESOLVED')
+    addPptAiMessage(
+      'assistant',
+      'receipt',
+      accept
+        ? t('pptWorkspace.aiAccepted', '已形成新的 PPT 修订。')
+        : t('pptWorkspace.aiRejected', '已放弃这次修改。'),
+    )
+  } catch (error: any) {
+    applyPptAiEvent('FAIL')
+    addPptAiMessage('assistant', 'error', pptAiErrorMessage(error))
+  }
+}
+
+function focusPptAiCandidate() {
+  if (!pptAiCandidate.value) return
+  pptAiPageId.value = pptAiCandidate.value.page_id
+}
+
+function closePptAi() {
+  aiVisible.value = false
+}
+
+function clampPptAiWidth(value: number) {
+  return Math.round(Math.min(pptAiMaxWidth.value, Math.max(PPT_AI_MIN_WIDTH, value)))
+}
+
+const pptAiMaxWidth = computed(() => {
+  const width = workspaceRoot.value?.clientWidth || window.innerWidth
+  return Math.max(PPT_AI_MIN_WIDTH, Math.min(PPT_AI_MAX_WIDTH, width - PPT_CANVAS_MIN_WIDTH))
+})
+
+function persistPptAiWidth() {
+  localStorage.setItem(PPT_AI_WIDTH_KEY, String(pptAiPaneWidth.value))
+}
+
+function stopPptAiResize() {
+  pptAiResizing.value = false
+  window.removeEventListener('pointermove', movePptAiResize)
+  window.removeEventListener('pointerup', stopPptAiResize)
+  persistPptAiWidth()
+}
+
+function movePptAiResize(event: PointerEvent) {
+  const rect = workspaceRoot.value?.getBoundingClientRect()
+  if (!rect) return
+  pptAiPaneWidth.value = clampPptAiWidth(rect.right - event.clientX)
+}
+
+function startPptAiResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  event.preventDefault()
+  pptAiResizing.value = true
+  window.addEventListener('pointermove', movePptAiResize)
+  window.addEventListener('pointerup', stopPptAiResize, { once: true })
+}
+
+function resizePptAiWithKeyboard(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+  event.preventDefault()
+  pptAiPaneWidth.value = clampPptAiWidth(
+    pptAiPaneWidth.value + (event.key === 'ArrowLeft' ? 24 : -24),
+  )
+  persistPptAiWidth()
+}
+
 function openAiForSlide(payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }) {
   aiQuote.value = payload.text
   aiNodeId.value = payload.nodeId
   aiAnchor.value = payload.anchor
   aiPrefill.value = payload.prefill
+  pptAiPageId.value = String(payload.anchor?.slide_unit_id || '')
   aiVisible.value = true
+  if (isTeacherSurface.value && !pptAiCandidate.value) {
+    pptAiPhase.value = 'ready'
+  }
 }
 
 watch([courseId, teacherLessonId], loadWorkspace)
+watch(
+  () => [store.selectedId, store.selectedSpec?.revision],
+  () => { void loadPptAiCandidate() },
+)
 onMounted(() => {
+  const savedWidth = Number(localStorage.getItem(PPT_AI_WIDTH_KEY) || 0)
+  if (Number.isFinite(savedWidth) && savedWidth > 0) pptAiPaneWidth.value = clampPptAiWidth(savedWidth)
   void loadWorkspace()
 })
 onUnmounted(() => {
+  stopPptAiResize()
+  pptAiCandidateAttempt += 1
   store.setTeacherLessonScope('')
   templateAssetAttempt += 1
   templateStore.releaseAllAssets()
@@ -788,7 +1127,8 @@ onUnmounted(() => {
 <style scoped>
 .ppt-workspace-view { position:relative; width:100%; height:100%; display:flex; min-width:0; min-height:0; overflow:hidden; border-radius:var(--lz-radius-surface); background:#e9edf3; }
 .ppt-workspace-view__deck { min-width:0; flex:1 1 auto; }
-.ppt-workspace-view__ai { width:min(380px,34vw); flex:0 0 min(380px,34vw); border-left:1px solid #d5dce6; background:#fff; }
+.ppt-workspace-view__ai-resizer{position:relative;z-index:4;width:8px;flex:0 0 8px;display:grid;place-items:center;border:0;border-left:1px solid #e0e5ed;color:transparent;background:#f8f9fb;cursor:col-resize;outline:0}.ppt-workspace-view__ai-resizer::before{content:"";position:absolute;inset:0 -4px}.ppt-workspace-view__ai-resizer:hover,.ppt-workspace-view__ai-resizer.is-resizing,.ppt-workspace-view__ai-resizer:focus-visible{color:#716ce1;background:#eeefff}.ppt-workspace-view__ai-resizer:focus-visible{box-shadow:inset 2px 0 #716ce1}.ppt-workspace-view.is-ai-open:has(.ppt-workspace-view__ai-resizer.is-resizing){user-select:none;cursor:col-resize}
+.ppt-workspace-view__ai { width:var(--ppt-ai-width); flex:0 0 var(--ppt-ai-width); border-left:0; background:#fff; }
 .ppt-workspace-state {
   position:relative;
   width:100%;
@@ -823,6 +1163,7 @@ onUnmounted(() => {
 .ppt-ai-enter-active,.ppt-ai-leave-active { transition:transform .22s ease,opacity .22s ease; }
 .ppt-ai-enter-from,.ppt-ai-leave-to { opacity:0; transform:translateX(20px); }
 @media (max-width:860px) {
+  .ppt-workspace-view__ai-resizer{display:none}
   .ppt-workspace-view__ai { position:absolute; inset:0 0 0 auto; z-index:20; width:min(420px,92vw); box-shadow:-18px 0 44px rgba(20,31,52,.18); }
 }
 @media (max-width:600px) {

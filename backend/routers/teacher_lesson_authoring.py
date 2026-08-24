@@ -150,12 +150,100 @@ class TeacherLessonApplyRepresentationEditRequest(TeacherLessonRepresentationEdi
     decision: str = "representation_only"
 
 
+class CreateTeacherLessonV6CandidateRequest(BaseModel):
+    page_id: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=2000)
+    base_spec_id: str = Field(min_length=1, max_length=200)
+    base_spec_revision: str = Field(min_length=1, max_length=200)
+
+
+class ResolveTeacherLessonV6CandidateRequest(BaseModel):
+    accept: bool
+
+
 def _raise(exc: TeacherLessonAuthoringError) -> None:
     status = 404 if exc.code.endswith("not_found") else 409
     raise HTTPException(
         status_code=status,
         detail={"code": exc.code, "message": str(exc), **exc.details},
     ) from exc
+
+
+_V6_KEY_REGION_SLOTS = (
+    "interpretation",
+    "conclusion",
+    "takeaway",
+    "body",
+    "content",
+    "task",
+    "steps",
+    "items",
+)
+
+
+def _v6_page_expression(page: dict[str, Any]) -> dict[str, str]:
+    regions = [item for item in page.get("regions") or [] if isinstance(item, dict)]
+    subtitle_region = next(
+        (item for item in regions if str(item.get("slot_id") or "") == "subtitle"),
+        None,
+    )
+    key_region = next(
+        (
+            item
+            for slot_id in _V6_KEY_REGION_SLOTS
+            for item in regions
+            if str(item.get("slot_id") or "") == slot_id
+        ),
+        next(
+            (
+                item
+                for item in regions
+                if str(item.get("slot_id") or "") not in {"eyebrow", "subtitle"}
+                and str(item.get("content") or "").strip()
+            ),
+            None,
+        ),
+    )
+    return {
+        "page_id": str(page.get("page_id") or ""),
+        "title": str(page.get("title") or "").strip(),
+        "subtitle": str((subtitle_region or {}).get("content") or "").strip(),
+        "key_message": str((key_region or {}).get("content") or "").strip(),
+        "subtitle_region_id": str((subtitle_region or {}).get("region_id") or ""),
+        "key_region_id": str((key_region or {}).get("region_id") or ""),
+    }
+
+
+def _apply_v6_page_expression(
+    page: dict[str, Any],
+    *,
+    field: str,
+    value: Any,
+    target_region_id: str = "",
+) -> None:
+    if field == "title":
+        page["title"] = str(value or "").strip()
+        return
+    expression = _v6_page_expression(page)
+    if field == "subtitle":
+        region_id = target_region_id or expression["subtitle_region_id"]
+    elif field == "key_message":
+        region_id = target_region_id or expression["key_region_id"]
+    else:
+        raise ValueError(f"v6_expression_field_unsupported:{field}")
+    if not region_id:
+        raise ValueError(f"v6_expression_region_missing:{field}")
+    region = next(
+        (
+            item
+            for item in page.get("regions") or []
+            if isinstance(item, dict) and str(item.get("region_id") or "") == region_id
+        ),
+        None,
+    )
+    if region is None:
+        raise ValueError(f"v6_expression_region_missing:{field}")
+    region["content"] = str(value or "").strip()
 
 
 def _has_teaching_structure(source: Any) -> bool:
@@ -757,9 +845,209 @@ async def get_teacher_lesson_v6_spec(
         return {
             "representation": representation.model_dump(mode="json"),
             "spec": spec.model_dump(mode="json"),
+            "ai_candidate": repository.pending_v6_ppt_ai_candidate(
+                course_id,
+                lesson_unit_id,
+                representation_id=representation_id,
+                spec_id=spec.spec_id,
+                spec_revision=spec.revision,
+            ),
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
+
+
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/{representation_id}/ai-candidates"
+)
+async def create_teacher_lesson_v6_ai_candidate(
+    course_id: str,
+    lesson_unit_id: str,
+    representation_id: str,
+    body: CreateTeacherLessonV6CandidateRequest,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        _document, _course_view, synthetic_id, _lesson, _revision = _teacher_v6_source(
+            tm, repository, course_id, lesson_unit_id
+        )
+        registry = teaching_representation_repository.load(synthetic_id)
+        representation = next(
+            (item for item in registry.representations if item.representation_id == representation_id),
+            None,
+        )
+        spec = next(
+            (item for item in registry.specs if representation and item.spec_id == representation.spec_id),
+            None,
+        )
+        if representation is None or spec is None:
+            raise TeacherLessonAuthoringError("lesson_ppt_not_found", "本讲 V6 PPT 不存在。")
+        if spec.spec_id != body.base_spec_id or spec.revision != body.base_spec_revision:
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_revision_conflict", "PPT 已经变化，请基于当前页面重新优化。"
+            )
+        content = spec.payload.get("content") or {}
+        pages = content.get("pages") if isinstance(content.get("pages"), list) else []
+        page = next(
+            (item for item in pages if str(item.get("page_id") or "") == body.page_id),
+            None,
+        )
+        if not isinstance(page, dict):
+            raise TeacherLessonAuthoringError("lesson_ppt_page_not_found", "当前 PPT 页面不存在。")
+        optimized = await tm.course_service.optimize_teacher_lesson_v6_page(
+            page=page,
+            instruction=body.instruction,
+        )
+        candidate = repository.save_v6_ppt_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            representation_id=representation_id,
+            base_spec_id=spec.spec_id,
+            base_spec_revision=spec.revision,
+            page_id=body.page_id,
+            instruction=body.instruction.strip(),
+            candidate_page=optimized["page"],
+            changed_fields=list(optimized.get("changed_fields") or []),
+        )
+        return {"candidate": candidate}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/{representation_id}/ai-candidates/{candidate_id}/resolve"
+)
+async def resolve_teacher_lesson_v6_ai_candidate(
+    course_id: str,
+    lesson_unit_id: str,
+    representation_id: str,
+    candidate_id: str,
+    body: ResolveTeacherLessonV6CandidateRequest,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        _document, course_view, synthetic_id, _lesson, plan_revision = _teacher_v6_source(
+            tm, repository, course_id, lesson_unit_id
+        )
+        registry = teaching_representation_repository.load(synthetic_id)
+        representation = next(
+            (item for item in registry.representations if item.representation_id == representation_id),
+            None,
+        )
+        spec = next(
+            (item for item in registry.specs if representation and item.spec_id == representation.spec_id),
+            None,
+        )
+        candidate = repository.pending_v6_ppt_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            representation_id=representation_id,
+            spec_id=str(spec.spec_id if spec else ""),
+            spec_revision=str(spec.revision if spec else ""),
+        )
+        if not isinstance(candidate, dict) or candidate.get("candidate_id") != candidate_id:
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_candidate_not_found", "AI PPT 候选不存在或已过期。"
+            )
+        if not body.accept:
+            resolved = repository.mark_v6_ppt_ai_candidate(
+                course_id, lesson_unit_id, candidate_id, status="rejected"
+            )
+            return {"candidate": resolved, "status": "rejected"}
+        if representation is None or spec is None:
+            raise TeacherLessonAuthoringError("lesson_ppt_not_found", "本讲 V6 PPT 不存在。")
+        payload = deepcopy(spec.payload)
+        content = payload.get("content") or {}
+        pages = content.get("pages") if isinstance(content.get("pages"), list) else []
+        page = next(
+            (item for item in pages if str(item.get("page_id") or "") == candidate.get("page_id")),
+            None,
+        )
+        if not isinstance(page, dict):
+            raise TeacherLessonAuthoringError("lesson_ppt_page_not_found", "当前 PPT 页面不存在。")
+        candidate_page = candidate.get("candidate_page") or {}
+        for field in candidate.get("changed_fields") or []:
+            if field in {"title", "subtitle", "key_message"}:
+                _apply_v6_page_expression(
+                    page,
+                    field=field,
+                    value=deepcopy(candidate_page.get(field)),
+                    target_region_id=str(candidate_page.get(f"{field}_region_id") or ""),
+                )
+        SlideDeckV6.model_validate({
+            key: content[key] for key in SlideDeckV6.model_fields if key in content
+        })
+        now = datetime.now(timezone.utc).isoformat()
+        spec_revision = stable_hash(payload, prefix="tsr_")
+        edited_spec = TeachingRepresentationSpec(
+            spec_id=stable_hash({
+                "course_id": spec.course_id,
+                "representation_type": spec.representation_type,
+                "source_bindings": [item.model_dump(mode="json") for item in spec.source_bindings],
+                "payload": payload,
+            }, prefix="trs_"),
+            course_id=spec.course_id,
+            representation_type=spec.representation_type,
+            source_bindings=spec.source_bindings,
+            unit_bindings=spec.unit_bindings,
+            payload=payload,
+            revision=spec_revision,
+            created_at=now,
+            updated_at=now,
+        )
+        teaching_representation_repository.register_spec(edited_spec)
+        edited_representation = representation.model_copy(deep=True)
+        edited_representation.spec_id = edited_spec.spec_id
+        edited_representation.semantic_fingerprint = stable_hash(content, prefix="sem_")
+        edited_representation.render_fingerprint = stable_hash(
+            {"spec_revision": spec_revision, "renderer": "slide_deck_v6"}, prefix="rnd_"
+        )
+        edited_representation.revision = stable_hash({
+            "spec_revision": spec_revision,
+            "source_revision_vector": edited_representation.source_revision_vector,
+        }, prefix="rpr_")
+        edited_representation.updated_at = now
+        updated_registry = teaching_representation_repository.register_representation(
+            edited_representation
+        )
+        repository.bind_v6_ppt_revision(
+            course_id,
+            lesson_unit_id,
+            source_lesson_plan_revision_id=str(plan_revision.get("revision_id") or ""),
+            source_script_revision_id=str(
+                (course_view.get("teacher_lesson_source") or {}).get("script_revision_id") or ""
+            ),
+            synthetic_course_id=synthetic_id,
+            representation_id=edited_representation.representation_id,
+            spec_id=edited_spec.spec_id,
+            candidate_status=str(content.get("status") or content.get("candidate_status") or "v6_ready"),
+        )
+        resolved = repository.mark_v6_ppt_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            candidate_id,
+            status="accepted",
+            result_spec_id=edited_spec.spec_id,
+        )
+        return {
+            "candidate": resolved,
+            "status": "accepted",
+            "registry": updated_registry.model_dump(mode="json"),
+            "spec": edited_spec.model_dump(mode="json"),
+        }
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "teacher_v6_edit_quality_blocked", "message": str(exc)},
+        ) from exc
 
 
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/build/stream")
@@ -1010,7 +1298,11 @@ async def apply_teacher_lesson_v6_edit(
                 status_code=422,
                 detail={"code": "teacher_v6_edit_field_unsupported", "message": "当前字段请通过原 V6 专用编辑器处理。"},
             )
-        page[body.field] = deepcopy(body.after)
+        _apply_v6_page_expression(
+            page,
+            field=body.field,
+            value=deepcopy(body.after),
+        )
         SlideDeckV6.model_validate({
             key: content[key]
             for key in SlideDeckV6.model_fields

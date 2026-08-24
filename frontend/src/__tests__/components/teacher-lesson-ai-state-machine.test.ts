@@ -63,14 +63,18 @@ describe('教师教案 AI 协作状态机', () => {
 })
 
 describe('教师课程生产 AI 领域适配', () => {
-  it('在共享状态机前使用大纲和讲稿各自的意图边界', () => {
+  it('在共享状态机前使用各生产对象自己的意图边界', () => {
     expect(assessTeacherProductionRequest('outline', '优化一下')).toBe('clarify')
     expect(assessTeacherProductionRequest('outline', '把网络安全章前移到工程实践之前')).toBe('generate')
     expect(assessTeacherProductionRequest('script', '这段不太好')).toBe('clarify')
     expect(assessTeacherProductionRequest('script', '压缩重复表达，加入一个课堂案例')).toBe('generate')
+    expect(assessTeacherProductionRequest('question-bank', '重新弄一下')).toBe('clarify')
+    expect(assessTeacherProductionRequest('question-bank', '增加两道应用题并保持原难度')).toBe('generate')
+    expect(assessTeacherProductionRequest('ppt', '这页不好')).toBe('clarify')
+    expect(assessTeacherProductionRequest('ppt', '压缩当前页标题并强化关键内容')).toBe('generate')
   })
 
-  it('为大纲和讲稿构建不同的后端候选约束', () => {
+  it('为不同生产对象构建各自的后端候选约束和精确资料范围', () => {
     const messages = [{ id: '1', role: 'user' as const, kind: 'text' as const, text: '合并两个重复小节' }]
     const outlinePrompt = buildTeacherProductionAiInstruction(messages, {
       domain: 'outline', courseTitle: '测试课程', primaryTitle: '测试课程', secondaryTitle: '课程大纲', referenceCount: 2,
@@ -78,10 +82,24 @@ describe('教师课程生产 AI 领域适配', () => {
     const scriptPrompt = buildTeacherProductionAiInstruction(messages, {
       domain: 'script', courseTitle: '测试课程', primaryTitle: '第一讲', secondaryTitle: '导入', referenceCount: 1,
     })
+    const questionPrompt = buildTeacherProductionAiInstruction(messages, {
+      domain: 'question-bank', courseTitle: '测试课程', primaryTitle: '第一讲', secondaryTitle: '题库', referenceCount: 1,
+      references: [{ id: 'material-1', label: '课程讲义', role: 'primary', origin: 'material' }],
+    })
+    const pptPrompt = buildTeacherProductionAiInstruction(messages, {
+      domain: 'ppt', courseTitle: '测试课程', primaryTitle: '并发的基本概念', secondaryTitle: '第 3 页', referenceCount: 1,
+      references: [{ id: 'block-7', label: '课程源 1', role: 'primary' }],
+    })
     expect(outlinePrompt).toContain('结构调整候选')
     expect(outlinePrompt).toContain('章节增删、顺序')
     expect(scriptPrompt).toContain('表达修改候选')
     expect(scriptPrompt).toContain('保持已确认教案')
     expect(scriptPrompt).toContain('不确认、不发布')
+    expect(questionPrompt).toContain('重建任务候选')
+    expect(questionPrompt).toContain('答案事实、验证器和质量门')
+    expect(questionPrompt).toContain('课程讲义 (material-1)')
+    expect(pptPrompt).toContain('V6 PPT 页面')
+    expect(pptPrompt).toContain('课程源 1 (block-7)')
+    expect(pptPrompt).toContain('保持页面身份、顺序、来源绑定')
   })
 })

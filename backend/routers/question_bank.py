@@ -91,6 +91,7 @@ class QuestionBankRebuildRequest(BaseModel):
     resume_existing: bool = True
     retrieval_enabled: bool = False
     assessment_generation_profile: Literal["complete"] = "complete"
+    teacher_instruction: str = Field(default="", max_length=2000)
 
     @field_validator("assessment_generation_profile", mode="before")
     @classmethod
@@ -99,6 +100,9 @@ class QuestionBankRebuildRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_scope(self):
+        self.teacher_instruction = " ".join(
+            str(self.teacher_instruction or "").split()
+        )
         self.node_ids = sorted({
             str(value).strip()
             for value in self.node_ids
@@ -766,6 +770,7 @@ async def rebuild_question_bank(
             assessment_generation_profile=(
                 payload.assessment_generation_profile
             ),
+            teacher_instruction=payload.teacher_instruction,
         )
     )
     if created:
@@ -806,6 +811,8 @@ def _same_rebuild_request(
         and str(
             job.get("assessment_generation_profile") or "complete"
         ) == payload.assessment_generation_profile
+        and str(job.get("teacher_instruction") or "")
+        == payload.teacher_instruction
     )
 
 
@@ -1159,6 +1166,9 @@ async def _execute_question_bank_rebuild(
         "enabled": payload.retrieval_enabled,
     }
     course_for_bank["generation_request"] = generation_request
+    course_for_bank["teacher_question_instruction"] = (
+        payload.teacher_instruction
+    )
     selected_bindings = _selected_material_bindings(
         course.get("material_bindings") or [],
         payload.material_asset_ids,
@@ -1351,6 +1361,8 @@ async def _execute_question_bank_rebuild(
             str(value)
             for value in checkpoint.get("material_asset_ids") or []
         ) == selected_material_asset_ids
+        and str(checkpoint.get("teacher_instruction") or "")
+        == payload.teacher_instruction
     )
     checkpoint_node_ids = {
         str(node_id)
@@ -1617,6 +1629,7 @@ async def _execute_question_bank_rebuild(
                     ASSESSMENT_PROMPT_TEMPLATE_VERSION
                 ),
                 "material_asset_ids": selected_material_asset_ids,
+                "teacher_instruction": payload.teacher_instruction,
                 "blueprint_revision_id": (
                     assessment_blueprint.get(
                         "blueprint_revision_id"

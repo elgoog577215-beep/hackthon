@@ -168,7 +168,11 @@
 - [x] 19.2 Connect the outline blueprint proposal, structured lesson-plan candidate and script rewrite candidate through separate domain adapters while keeping review in the left document surface.
 - [x] 19.3 Contain wide lesson-plan tables inside the left canvas, cap the assistant width, remove the second inline script prompt and move quick actions out of the bottom composer.
 - [x] 19.4 Lock the current asset while a candidate is pending and keep accept/reject tied to the corresponding working revision.
-- [ ] 19.5 Add a question-bank adapter only after teacher instructions are part of its rebuild/review contract; do not expose a fake generic editor before then.
-- [ ] 19.6 Replace the generic PPT chat panel with a V6-specific slide candidate adapter before presenting the shared production AI entry in the PPT workspace.
+- [x] 19.5 Add a question-bank adapter only after teacher instructions are part of its rebuild/review contract; do not expose a fake generic editor before then.
+- [x] 19.6 Replace the generic PPT chat panel with a V6-specific slide candidate adapter before presenting the shared production AI entry in the PPT workspace.
 - [x] 19.7 Add focused state/prompt tests, strict OpenSpec validation, production build, detector output and Chinese desktop verification.
 - [x] 19.8 Make the production AI pane visibly resizable and persistent, and expose six domain-safe quick candidate commands for each supported asset.
+- [x] 19.9 Freeze exact selected material IDs, labels and roles for every production-AI request; make lesson-plan optimization load only that evidence.
+- [x] 19.10 Persist script and V6 slide candidates with base revisions so refresh recovery and revision conflicts share the same safety boundary.
+- [x] 19.11 Show downstream script, question-bank and PPT impact before a teacher confirms an upstream AI candidate; never auto-apply downstream changes.
+- [x] 19.12 Replace fixed-only clarification choices with content-aware domain recommendations while keeping the visible interface compact.

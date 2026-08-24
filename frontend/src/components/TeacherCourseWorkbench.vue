@@ -215,12 +215,19 @@
 
         <template v-else-if="activeStage === 'question-bank'">
           <QuestionBankReviewPanel
+            ref="questionBankPanel"
             class="question-workbench-surface"
             :course-id="courseId"
             :initial-node-ids="selectedLessonQuestionNodeIds"
             :initial-scope-label="selectedLesson?.title || ''"
             :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
+            :assistant-open="aiCollaborationOpen && aiDomain === 'question-bank'"
             @updated="questionBankReady = true"
+            @open-ai="openAiCollaboration('question-bank')"
+            @ai-candidate-change="handleAiCandidateChange"
+            @ai-resolving="handleAiResolving"
+            @ai-resolved="handleAiResolved"
+            @ai-error="handleAiError"
           />
           <footer class="stage-next-bar"><span /><button class="primary" type="button" @click="activeStage = 'script'"><ChevronRight :size="15" />{{ t('courseWorkbench.nextToScript', '进入讲稿') }}</button></footer>
         </template>
@@ -351,12 +358,14 @@
       :scope-options="aiScopeOptions"
       :scope-value="currentAiScopeId"
       :reference-count="activeReferences.length"
+      :reference-labels="activeReferences.map(item => item.source_label || item.filename)"
       :sources-open="aiSourcesOpen"
       :messages="aiMessages"
       :phase="aiPhase"
       :busy="aiCollaborationBusy"
       :candidate-pending="aiCandidatePending"
       :candidate-fields="aiCandidateFieldLabels"
+      :candidate-impacts="aiCandidateImpacts"
       :clarification-options="aiClarificationOptions"
       :quick-actions="aiQuickActions"
       :placeholder="aiPlaceholder"
@@ -472,6 +481,7 @@ const workbenchRoot = ref<HTMLElement | null>(null)
 const workbenchCenter = ref<HTMLElement | null>(null)
 const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
 const scriptDocument = ref<ProductionAiDocumentHandle | null>(null)
+const questionBankPanel = ref<ProductionAiDocumentHandle | null>(null)
 const aiCollaborationOpen = ref(false)
 const aiSourcesOpen = ref(false)
 const aiDomain = ref<TeacherProductionAiDomain>('lesson')
@@ -499,7 +509,7 @@ const editingOutline = computed({
 })
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const activeReferenceScope = computed(() => (
-  ['lesson', 'script'].includes(activeStage.value) && selectedLessonId.value
+  ['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
     ? `lesson:${selectedLessonId.value}`
     : activeStage.value
 ))
@@ -544,6 +554,7 @@ const aiScriptSectionTitle = ref('')
 const aiScopeTitle = computed(() => aiDomain.value === 'outline' ? props.courseTitle : selectedLesson.value?.title || props.courseTitle)
 const aiScopeDetail = computed(() => {
   if (aiDomain.value === 'outline') return t('courseWorkbench.aiCollaboration.outlineScope', '课程大纲')
+  if (aiDomain.value === 'question-bank') return t('courseWorkbench.aiCollaboration.questionBankScope', '当前讲次题库')
   if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲稿小节')
   return selectedLessonSectionTitle.value || t('courseWorkbench.aiCollaboration.lessonScope', '整讲教案')
 })
@@ -558,26 +569,71 @@ const aiScopeOptions = computed<TeacherAiScopeOption[]>(() => {
 })
 const currentAiScopeId = computed(() => {
   if (aiDomain.value === 'outline') return 'outline'
+  if (aiDomain.value === 'question-bank') return selectedLessonId.value || 'question-bank'
   if (aiDomain.value === 'script') return aiScriptSectionId.value || aiScopeOptions.value[0]?.id || 'script'
   return selectedLessonSectionId.value || aiScopeOptions.value[0]?.id || 'lesson'
 })
+function prioritizeAiActions(actions: TeacherAiQuickAction[], priorities: string[]) {
+  const uniquePriorities = [...new Set(priorities)]
+  return uniquePriorities
+    .map(id => actions.find(action => action.id === id))
+    .filter((action): action is TeacherAiQuickAction => Boolean(action))
+    .concat(actions.filter(action => !uniquePriorities.includes(action.id)))
+}
 const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
-  if (aiDomain.value === 'outline') return [
+  if (aiDomain.value === 'outline') {
+    const actions: TeacherAiQuickAction[] = [
     { id: 'outline-diagnose', icon: 'diagnose', label: t('courseWorkbench.aiCollaboration.quickOutlineDiagnose', '检查结构问题'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineDiagnosePrompt', '检查当前大纲的章节顺序、学习路径和重复内容，只调整确有必要的部分') },
     { id: 'outline-sequence', icon: 'sequence', label: t('courseWorkbench.aiCollaboration.quickOutlineSequence', '调整章节顺序'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineSequencePrompt', '调整章节顺序，让知识难度与前置关系更合理') },
     { id: 'outline-path', icon: 'path', label: t('courseWorkbench.aiCollaboration.quickOutlinePath', '补齐学习路径'), prompt: t('courseWorkbench.aiCollaboration.quickOutlinePathPrompt', '补齐缺失的学习路径和前置衔接') },
     { id: 'outline-merge', icon: 'merge', label: t('courseWorkbench.aiCollaboration.quickOutlineMerge', '合并重复内容'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineMergePrompt', '合并重复的小节，同时保留必要的知识覆盖') },
     { id: 'outline-objective', icon: 'target', label: t('courseWorkbench.aiCollaboration.quickOutlineObjective', '细化学习目标'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineObjectivePrompt', '细化各小节学习目标，使其具体、可观察且与内容对应') },
     { id: 'outline-split', icon: 'split', label: t('courseWorkbench.aiCollaboration.quickOutlineSplit', '拆分过大小节'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineSplitPrompt', '拆分范围过大的小节，使每节课的学习任务更聚焦') },
-  ]
-  if (aiDomain.value === 'script') return [
+    ]
+    const nodes = courseStore.nodes as Array<Record<string, any>>
+    const titles = nodes.map(node => String(node.node_name || '').trim()).filter(Boolean)
+    const priorities: string[] = ['outline-diagnose']
+    if (new Set(titles).size < titles.length) priorities.unshift('outline-merge')
+    if (nodes.some(node => !String(node.learning_objective || '').trim())) priorities.unshift('outline-objective')
+    if (nodes.some(node => String(node.node_content || '').length > 1800)) priorities.unshift('outline-split')
+    return prioritizeAiActions(actions, priorities)
+  }
+  if (aiDomain.value === 'script') {
+    const actions: TeacherAiQuickAction[] = [
     { id: 'script-voice', icon: 'voice', label: t('courseWorkbench.aiCollaboration.quickScriptVoice', '改得更适合口语'), prompt: t('courseWorkbench.aiCollaboration.quickScriptVoicePrompt', '改得更适合老师在课堂上自然讲解，保留知识事实和教学结构') },
     { id: 'script-compress', icon: 'compress', label: t('courseWorkbench.aiCollaboration.quickScriptCompress', '压缩重复表达'), prompt: t('courseWorkbench.aiCollaboration.quickScriptCompressPrompt', '压缩重复表达，保留关键解释和必要例子') },
     { id: 'script-example', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickScriptExample', '加入课堂案例'), prompt: t('courseWorkbench.aiCollaboration.quickScriptExamplePrompt', '加入一个贴合当前知识点、适合课堂讲解的具体案例') },
     { id: 'script-question', icon: 'question', label: t('courseWorkbench.aiCollaboration.quickScriptQuestion', '增加引导提问'), prompt: t('courseWorkbench.aiCollaboration.quickScriptQuestionPrompt', '增加能引导学生思考的课堂提问，并自然衔接讲解') },
     { id: 'script-transition', icon: 'transition', label: t('courseWorkbench.aiCollaboration.quickScriptTransition', '优化段落过渡'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTransitionPrompt', '优化段落之间的过渡，让讲解推进更自然') },
     { id: 'script-timing', icon: 'timing', label: t('courseWorkbench.aiCollaboration.quickScriptTiming', '适配授课时长'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTimingPrompt', '在不改变教学目标的前提下调整内容密度，使讲稿适配当前授课时长') },
-  ]
+    ]
+    const scriptSection = (selectedLesson.value?.script.sections || []).find(
+      section => section.section_node_id === currentAiScopeId.value,
+    )
+    const scriptText = String(scriptSection?.content || '')
+    const priorities: string[] = []
+    if (scriptText.length > 1400) priorities.push('script-compress')
+    if (!/[？?]/.test(scriptText)) priorities.push('script-question')
+    if (!/(例如|案例|示例|举个例子)/.test(scriptText)) priorities.push('script-example')
+    if (!/(接下来|因此|由此|回到|总结)/.test(scriptText)) priorities.push('script-transition')
+    return prioritizeAiActions(actions, priorities.length ? priorities : ['script-voice'])
+  }
+  if (aiDomain.value === 'question-bank') {
+    const actions: TeacherAiQuickAction[] = [
+    { id: 'question-application', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickQuestionApplication', '补应用题'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionApplicationPrompt', '为当前讲次补充能检查知识迁移的应用题') },
+    { id: 'question-diagnosis', icon: 'diagnose', label: t('courseWorkbench.aiCollaboration.quickQuestionDiagnosis', '强化错因诊断'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionDiagnosisPrompt', '增加能区分典型错因的诊断性题目和干扰项') },
+    { id: 'question-coverage', icon: 'check', label: t('courseWorkbench.aiCollaboration.quickQuestionCoverage', '补齐目标覆盖'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionCoveragePrompt', '补齐当前讲次尚未覆盖的必需学习目标') },
+    { id: 'question-difficulty', icon: 'timing', label: t('courseWorkbench.aiCollaboration.quickQuestionDifficulty', '拉开难度梯度'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionDifficultyPrompt', '调整题组，使基础、应用与迁移难度形成清晰梯度') },
+    { id: 'question-diversity', icon: 'split', label: t('courseWorkbench.aiCollaboration.quickQuestionDiversity', '增加题组多样性'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionDiversityPrompt', '增加题型、材料和推理路径多样性，避免仅换措辞或数字') },
+    { id: 'question-explanation', icon: 'focus', label: t('courseWorkbench.aiCollaboration.quickQuestionExplanation', '完善教学解析'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionExplanationPrompt', '完善标准答案、逐步解析、错误选项说明和结果检查') },
+    ]
+    return prioritizeAiActions(
+      actions,
+      questionBankReady.value
+        ? ['question-diagnosis', 'question-diversity', 'question-explanation']
+        : ['question-coverage', 'question-application', 'question-difficulty'],
+    )
+  }
   const actions: TeacherAiQuickAction[] = [
     { id: 'lesson-objective', icon: 'target', label: t('courseWorkbench.aiCollaboration.quickObjective', '让目标可观察'), prompt: t('courseWorkbench.aiCollaboration.quickObjectivePrompt', '把教学目标改成具体、可观察、可检查的学习行为') },
     { id: 'lesson-interaction', icon: 'interaction', label: t('courseWorkbench.aiCollaboration.quickInteraction', '增加课堂互动'), prompt: t('courseWorkbench.aiCollaboration.quickInteractionPrompt', '增加与当前教学目标对应的课堂互动活动') },
@@ -604,6 +660,8 @@ const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
 })
 const aiPlaceholder = computed(() => aiDomain.value === 'outline'
   ? '说说你想怎么调整大纲…'
+  : aiDomain.value === 'question-bank'
+    ? '说说你想怎么调整题库…'
   : aiDomain.value === 'script'
     ? '说说你想怎么改这段讲稿…'
     : '说说你想怎么调整教案…')
@@ -625,6 +683,7 @@ const workingLessonRevision = computed(() => selectedLesson.value?.plan.revision
 const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const currentAiBaseRevision = computed(() => {
   if (aiDomain.value === 'lesson') return String(workingLessonRevision.value?.revision_id || '')
+  if (aiDomain.value === 'question-bank') return String(aiCandidate.value?.base_bundle_revision_id || selectedLessonId.value || '')
   if (aiDomain.value === 'script') return String(selectedLesson.value?.script?.current_revision_id || '')
   return String(generationTask.value?.phaseDetail?.skeleton_revision_id || '')
 })
@@ -632,6 +691,7 @@ const aiCollaborationBusy = computed(() => teacherProductionAiBusy(aiPhase.value
 const aiCandidatePending = computed(() => Boolean(aiCandidate.value))
 const activeAiDocument = computed<ProductionAiDocumentHandle | null>(() => {
   if (aiDomain.value === 'outline') return outlineEditor.value
+  if (aiDomain.value === 'question-bank') return questionBankPanel.value
   if (aiDomain.value === 'script') return scriptDocument.value
   return lessonPlanDocument.value as ProductionAiDocumentHandle | null
 })
@@ -646,6 +706,11 @@ const aiCandidateFieldLabels = computed(() => {
     ].filter(Boolean)
   }
   if (aiDomain.value === 'script') return [t('courseWorkbench.aiCollaboration.scriptBody', '讲稿正文')]
+  if (aiDomain.value === 'question-bank') return [
+    t('courseWorkbench.aiCollaboration.questionScopeField', '出题范围'),
+    t('courseWorkbench.aiCollaboration.questionInstructionField', '教师要求'),
+    t('courseWorkbench.aiCollaboration.questionSourcesField', '资料范围'),
+  ]
   const labels: Record<string, string> = {
     learning_objective: t('courseWorkbench.lessonDocument.objective', '教学目标'),
     key_points: t('courseWorkbench.lessonDocument.keyPoints', '教学重点'),
@@ -660,6 +725,34 @@ const aiCandidateFieldLabels = computed(() => {
     aiCandidate.value?.plan,
     selectedLessonSectionId.value,
   ).map(field => labels[field] || field)
+})
+const aiCandidateImpacts = computed(() => {
+  if (!aiCandidatePending.value) return []
+  if (aiDomain.value === 'outline') {
+    return lessonStore.lessons.length
+      ? [t('courseWorkbench.aiCollaboration.impactLessons', '教案需重新核对')]
+      : []
+  }
+  if (aiDomain.value === 'lesson') {
+    return [
+      selectedLesson.value?.script?.ready
+        ? t('courseWorkbench.aiCollaboration.impactScript', '讲稿需更新')
+        : '',
+      questionBankReady.value
+        ? t('courseWorkbench.aiCollaboration.impactQuestionBank', '题库需核对')
+        : '',
+      selectedLesson.value?.plan?.ppt_assets?.length
+        ? t('courseWorkbench.aiCollaboration.impactPpt', 'PPT 需更新')
+        : '',
+    ].filter(Boolean)
+  }
+  if (aiDomain.value === 'question-bank') {
+    return [t('courseWorkbench.aiCollaboration.impactQuestionTask', '旧题库继续生效')]
+  }
+  if (aiDomain.value === 'script' && selectedLesson.value?.plan?.ppt_assets?.length) {
+    return [t('courseWorkbench.aiCollaboration.impactPpt', 'PPT 需更新')]
+  }
+  return []
 })
 const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.confirmed))
@@ -919,6 +1012,12 @@ function buildAiInstruction(): string {
     primaryTitle: aiScopeTitle.value,
     secondaryTitle: aiScopeDetail.value,
     referenceCount: activeReferences.value.length,
+    references: activeReferences.value.map(item => ({
+      id: item.material_asset_id,
+      label: item.source_label || item.filename,
+      role: item.role,
+      origin: item.origin,
+    })),
   })
 }
 function replacePreviousCandidateMessage() {
@@ -952,6 +1051,8 @@ async function generateAiCandidateFromConversation() {
     'candidate',
     aiDomain.value === 'outline'
       ? '大纲调整已在左侧展开，请核对整套差异。'
+      : aiDomain.value === 'question-bank'
+        ? '出题任务已在左侧展示，请核对范围与资料。'
       : aiDomain.value === 'script'
         ? '讲稿候选已在左侧高亮，请核对表达和事实。'
         : t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
@@ -971,6 +1072,8 @@ async function handleAiRequest(instruction: string) {
       'text',
       aiDomain.value === 'outline'
         ? '你希望先调整章节顺序、学习路径，还是合并重复内容？'
+        : aiDomain.value === 'question-bank'
+          ? '你希望先补齐目标覆盖、增加应用题，还是强化错因诊断？'
         : aiDomain.value === 'script'
           ? '你希望先调整口语表达、课堂案例，还是讲解节奏？'
           : t('courseWorkbench.aiCollaboration.clarificationQuestion', '为了避免整段重写，你希望优先调整哪一部分？'),
@@ -1001,7 +1104,13 @@ function handleAiResolved(result: { accept: boolean }) {
   if (replacingAiCandidate.value) return
   transitionAi({ type: 'RESOLVED' })
   lastAiOperation.value = ''
-  const objectName = aiDomain.value === 'outline' ? '大纲' : aiDomain.value === 'script' ? '讲稿' : '教案'
+  const objectName = aiDomain.value === 'outline'
+    ? '大纲'
+    : aiDomain.value === 'question-bank'
+      ? '题库任务'
+      : aiDomain.value === 'script'
+        ? '讲稿'
+        : '教案'
   const receipt = result.accept
     ? `候选已采用，并形成新的${objectName}工作修订。`
     : `候选已放弃，当前${objectName}保持不变。`

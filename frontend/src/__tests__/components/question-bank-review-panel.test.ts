@@ -29,6 +29,7 @@ describe('QuestionBankReviewPanel', () => {
     })))
     await setLocale('zh')
     vi.stubGlobal('confirm', vi.fn(() => false))
+    localStorage.clear()
     get.mockReset()
     post.mockReset()
     resumeQuestionBankRebuild.mockReset()
@@ -533,6 +534,7 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: [],
+        teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -556,6 +558,7 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: [],
+        teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -590,6 +593,7 @@ describe('QuestionBankReviewPanel', () => {
         mode: 'incremental',
         retrieval_enabled: false,
         material_asset_ids: ['mat-primary', 'mat-reference'],
+        teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -618,6 +622,7 @@ describe('QuestionBankReviewPanel', () => {
         resume_existing: true,
         retrieval_enabled: false,
         material_asset_ids: [],
+        teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -659,6 +664,7 @@ describe('QuestionBankReviewPanel', () => {
         resume_existing: false,
         retrieval_enabled: false,
         material_asset_ids: [],
+        teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -710,6 +716,7 @@ describe('QuestionBankReviewPanel', () => {
         resume_existing: true,
         retrieval_enabled: false,
         material_asset_ids: [],
+        teacher_instruction: '',
       },
       expect.objectContaining({ onUpdate: expect.any(Function) }),
     )
@@ -825,5 +832,45 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('用第二章证据验证结论')
     expect(wrapper.text()).toContain('只罗列结论')
     expect(wrapper.text()).toContain('独立求解结果')
+  })
+
+  it('AI 候选冻结当前范围并在教师采用后创建正式任务', async () => {
+    post.mockResolvedValueOnce({
+      data: {
+        job_id: 'job-ai',
+        status: 'queued',
+        progress: 0,
+        current_stage: 'queued',
+      },
+    })
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: {
+        courseId: 'course-1',
+        initialNodeIds: ['section-1'],
+        materialAssetIds: ['material-1'],
+      },
+    })
+    await flushPromises()
+
+    const candidate = await (wrapper.vm as any).requestAiCandidate('增加一道应用题')
+    expect(candidate).toMatchObject({
+      base_bundle_revision_id: 'qbb-1',
+      scope: 'nodes',
+      node_ids: ['section-1'],
+      material_asset_ids: ['material-1'],
+      teacher_instruction: '增加一道应用题',
+    })
+    expect(post).not.toHaveBeenCalled()
+
+    await (wrapper.vm as any).resolveAiCandidate(true)
+    expect(post).toHaveBeenCalledWith(
+      '/api/courses/course-1/question-bank/rebuild',
+      expect.objectContaining({
+        scope: 'nodes',
+        node_ids: ['section-1'],
+        material_asset_ids: ['material-1'],
+        teacher_instruction: '增加一道应用题',
+      }),
+    )
   })
 })

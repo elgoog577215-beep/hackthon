@@ -60,6 +60,7 @@ class QuestionBankRebuildJobRepository:
         worker_id: str = "",
         retrieval_enabled: bool = False,
         assessment_generation_profile: str = "complete",
+        teacher_instruction: str = "",
     ) -> tuple[dict[str, Any], bool]:
         normalized_course_id = _storage_id(course_id)
         normalized_scope = str(scope or "course")
@@ -83,6 +84,9 @@ class QuestionBankRebuildJobRepository:
             if str(value).strip()
         })
         material_scope_explicit = material_asset_ids is not None
+        normalized_teacher_instruction = " ".join(
+            str(teacher_instruction or "").split()
+        )[:2000]
         if normalized_scope not in {"course", "nodes", "items"}:
             raise ValueError("scope must be course, nodes, or items")
         if normalized_mode not in {"incremental", "full"}:
@@ -113,6 +117,7 @@ class QuestionBankRebuildJobRepository:
                 "mode": normalized_mode,
                 "retrieval_enabled": bool(retrieval_enabled),
                 "assessment_generation_profile": normalized_profile,
+                "teacher_instruction": normalized_teacher_instruction,
             },
             prefix="qbr_",
         )
@@ -132,6 +137,7 @@ class QuestionBankRebuildJobRepository:
                         actor_id=normalized_actor_id,
                         retrieval_enabled=bool(retrieval_enabled),
                         assessment_generation_profile=normalized_profile,
+                        teacher_instruction=normalized_teacher_instruction,
                     ):
                         continue
                     active_worker_id = str(
@@ -163,6 +169,7 @@ class QuestionBankRebuildJobRepository:
                 "mode": normalized_mode,
                 "retrieval_enabled": bool(retrieval_enabled),
                 "assessment_generation_profile": normalized_profile,
+                "teacher_instruction": normalized_teacher_instruction,
                 "assessment_generation_policy_version": (
                     ASSESSMENT_GENERATION_POLICY_VERSION
                 ),
@@ -506,6 +513,7 @@ def _same_active_scope(
     actor_id: str,
     retrieval_enabled: bool,
     assessment_generation_profile: str,
+    teacher_instruction: str,
 ) -> bool:
     return (
         str(job.get("status") or "") in {"queued", "running"}
@@ -528,6 +536,8 @@ def _same_active_scope(
         and normalize_assessment_generation_profile(
             job.get("assessment_generation_profile")
         ) == assessment_generation_profile
+        and str(job.get("teacher_instruction") or "")
+        == teacher_instruction
     )
 
 

@@ -1,4 +1,4 @@
-export type TeacherProductionAiDomain = 'outline' | 'lesson' | 'script'
+export type TeacherProductionAiDomain = 'outline' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 
 export type TeacherProductionAiPhase =
   | 'ready'
@@ -35,6 +35,12 @@ export interface TeacherProductionAiScope {
   primaryTitle: string
   secondaryTitle: string
   referenceCount: number
+  references?: Array<{
+    id: string
+    label: string
+    role: 'primary' | 'reference'
+    origin?: 'material' | 'web_search'
+  }>
 }
 
 const GENERATION_START_PHASES = new Set<TeacherProductionAiPhase>([
@@ -80,6 +86,8 @@ const DOMAIN_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
   outline: /(章节|小节|目录|大纲|顺序|结构|学习路径|学习目标|前置|依赖|合并|拆分)/,
   lesson: /(目标|重点|难点|知识|概念|案例|互动|活动|检查|评价|提问|练习|节奏|时间|讲授|作业|备注|教师|学生|导入|总结|迁移)/,
   script: /(讲稿|口语|表达|讲解|案例|提问|过渡|开场|总结|节奏|时间|互动|课堂|学生|教师|重复|段落)/,
+  'question-bank': /(题|题库|练习|选择|判断|填空|应用|难度|错因|能力|检查|测评|作答|答案|解析)/,
+  ppt: /(PPT|课件|幻灯|页面|标题|副标题|结论|措辞|压缩|展示|表达|课堂)/i,
 }
 
 export function assessTeacherProductionRequest(
@@ -126,9 +134,13 @@ export function buildTeacherProductionAiInstruction(
 ): string {
   const turns = compactTeacherTurns(messages)
   const requirements = turns.map((turn, index) => `${index + 1}. ${turn}`).join('\n')
-  const scopeLine = `范围：课程“${scope.courseTitle}”；当前对象“${scope.primaryTitle}”；局部范围“${scope.secondaryTitle}”；当前纳入 ${scope.referenceCount} 份资料。`
+  const sourceList = (scope.references || [])
+    .map((item, index) => `${index + 1}. [${item.role}] ${item.label} (${item.id})`)
+    .join('\n')
+  const scopeLine = `范围：课程“${scope.courseTitle}”；当前对象“${scope.primaryTitle}”；局部范围“${scope.secondaryTitle}”。`
   const common = [
     scopeLine,
+    `资料范围（只能使用下列精确资料）：\n${sourceList || '无额外资料'}`,
     `教师对话（越靠后优先级越高）：\n${requirements}`,
     '输出边界：只生成候选，不确认、不发布，也不自动改写下游正式内容。',
   ]
@@ -146,6 +158,22 @@ export function buildTeacherProductionAiInstruction(
       '任务：依据教师对话，为当前讲稿小节生成一份可审阅的表达修改候选。',
       ...common,
       '修改原则：保持已确认教案的教学目标、模块身份、知识事实与时间约束；只调整教师明确提出的讲解表达。',
+    ].join('\n')
+  }
+
+  if (scope.domain === 'question-bank') {
+    return [
+      '任务：依据教师对话，为当前讲次题库生成一份可确认的重建任务候选。',
+      ...common,
+      '修改原则：冻结当前节点和题库基线；教师指令不得改变学习目标、题型合同、答案事实、验证器和质量门。',
+    ].join('\n')
+  }
+
+  if (scope.domain === 'ppt') {
+    return [
+      '任务：依据教师对话，为当前 V6 PPT 页面生成一份可审阅的表达修改候选。',
+      ...common,
+      '修改原则：只调整标题、副标题和关键结论；保持页面身份、顺序、来源绑定、教学语义和其他页面不变。',
     ].join('\n')
   }
 

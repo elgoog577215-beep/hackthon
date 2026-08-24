@@ -16,6 +16,7 @@ export interface QuestionBankRebuildRequest {
   mode: 'incremental' | 'full'
   resume_existing?: boolean
   retrieval_enabled?: boolean
+  teacher_instruction?: string
 }
 
 export interface QuestionBankRebuildJob {
