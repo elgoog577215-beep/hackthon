@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import uuid
 from datetime import datetime, timezone
 from copy import deepcopy
@@ -55,6 +54,10 @@ from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
     V6BuildError,
+)
+from slide_ai_planning_v6 import (
+    build_ai_base_story_planner_v6,
+    build_ai_base_visual_planner_v2,
 )
 from teaching_representations import (
     TeachingRepresentationSpec,
@@ -650,147 +653,6 @@ def _teacher_v6_registry_payload(synthetic_id: str) -> dict[str, Any]:
     return payload
 
 
-async def _teacher_v6_story_planner(request: dict[str, Any]) -> dict[str, Any]:
-    """Produce a source-faithful V6 story batch for teacher lesson plans.
-
-    The shared V6 validator still owns every layout/capacity/fidelity gate. This
-    adapter only avoids asking the provider to invent audience copy for content
-    that already exists as a structured teacher plan.
-    """
-    pages: list[dict[str, Any]] = []
-    for index, unit in enumerate(request.get("teaching_units") or [], start=1):
-        allowed = [str(item) for item in unit.get("allowed_template_layout_ids") or []]
-        preferred_suffixes = (
-            ["/practice-feedback", "/content-stack"]
-            if str(unit.get("teaching_intent") or "") == "practice_feedback"
-            else ["/content-stack", "/practice-feedback", "/chapter-entry"]
-        )
-        layout = next(
-            (
-                item for suffix in preferred_suffixes for item in allowed
-                if item.endswith(suffix)
-            ),
-            allowed[0] if allowed else "",
-        )
-        source_text = " ".join(str(unit.get("source_text") or "").split())
-        purposes = (unit.get("teaching_plan_context") or {}).get("teaching_purposes") or []
-        title_source = str(
-            (purposes[0] if purposes else "") or source_text or f"教学环节 {index}"
-        )
-        title = title_source[:34]
-        pages.append({
-            "page_id": f"{request.get('chapter_id')}-teacher-{index}",
-            "teaching_unit_id": str(unit.get("teaching_unit_id") or ""),
-            "template_layout_id": layout,
-            "title": title,
-            # Empty means "materialize the complete bound source blocks" in
-            # the V6 compiler; it is not an empty page or a quality bypass.
-            "summary": "",
-            "source_block_ids": list(unit.get("primary_block_ids") or []),
-        })
-    return {
-        "schema_version": "slide_story_batch_response_v3",
-        "chapter_id": str(request.get("chapter_id") or ""),
-        "provider": "teacher-plan-adapter",
-        "model": "source-faithful-deterministic",
-        "attempts": 1,
-        "pages": pages,
-    }
-
-
-async def _teacher_v6_visual_planner(request: dict[str, Any]) -> dict[str, Any]:
-    """Choose a source-native base visual without making publication depend on AI.
-
-    The teacher workbench already freezes page ownership and hard artifacts from
-    the confirmed script.  Selecting ``text_native`` for prose and the matching
-    compiler-owned renderer for tables/formulas/code is deterministic; a later
-    AI edit may still enhance the published deck through the normal candidate
-    workflow.
-    """
-    artifact_priority = (
-        "table",
-        "formula",
-        "code",
-        "data",
-        "source_excerpt",
-        "experiment",
-        "image",
-        "text_native",
-        "diagram",
-    )
-    decisions: list[dict[str, Any]] = []
-    for page in request.get("pages") or []:
-        if not isinstance(page, dict):
-            continue
-        allowed = [str(item) for item in page.get("allowed_decisions") or []]
-        if not bool(page.get("layout_requires_artifact")) and "text_native" in allowed:
-            decision = "text_native"
-        else:
-            decision = next(
-                (item for item in artifact_priority if item in allowed),
-                allowed[0] if allowed else "text_native",
-            )
-        value: dict[str, Any] = {
-            "page_id": str(page.get("page_id") or ""),
-            "decision": decision,
-            "source_block_ids": list(page.get("source_block_ids") or []),
-            "resolved_template_layout_id": str(
-                page.get("template_layout_id") or ""
-            ),
-        }
-        if decision in {"image", "experiment"}:
-            value["source_asset_ids"] = list(page.get("source_asset_ids") or [])
-        if decision == "diagram":
-            labels: list[tuple[str, str]] = []
-            for source in page.get("source_blocks") or []:
-                if not isinstance(source, dict):
-                    continue
-                source_id = str(source.get("block_id") or "")
-                text = " ".join(str(source.get("source_text") or "").split())
-                segments = [
-                    item.strip(" #*-:|")
-                    for item in re.split(r"[\n。！？；]", text)
-                    if item.strip(" #*-:|")
-                ]
-                if len(segments) < 2 and len(text) >= 4:
-                    midpoint = max(2, len(text) // 2)
-                    segments = [text[:midpoint], text[midpoint:]]
-                labels.extend(
-                    (segment[:28], source_id)
-                    for segment in segments
-                    if segment and source_id
-                )
-            labels = labels[:6]
-            if len(labels) >= 2:
-                nodes = [
-                    {
-                        "node_id": f"source-node-{index}",
-                        "label": label,
-                        "source_block_ids": [source_id],
-                    }
-                    for index, (label, source_id) in enumerate(labels, start=1)
-                ]
-                value["visual_payload"] = {
-                    "direction": "vertical",
-                    "nodes": nodes,
-                    "edges": [
-                        {
-                            "source": nodes[index]["node_id"],
-                            "target": nodes[index + 1]["node_id"],
-                        }
-                        for index in range(len(nodes) - 1)
-                    ],
-                }
-        decisions.append(value)
-    return {
-        "schema_version": "slide_visual_batch_response_v2",
-        "provider": "teacher-plan-adapter",
-        "model": "source-native-deterministic",
-        "attempts": 1,
-        "decisions": decisions,
-    }
-
-
 @router.get("/courses/{course_id}/lesson-authoring")
 async def get_lesson_authoring_view(
     course_id: str,
@@ -1172,6 +1034,8 @@ async def build_teacher_lesson_v6(
         candidate_repository=SlideDeckV6CandidateRepository(repository.root / "v6_candidates"),
         progress_root=repository.root / "v6_progress",
     )
+    story_planner = build_ai_base_story_planner_v6()
+    visual_planner = build_ai_base_visual_planner_v2()
 
     async def event_stream():
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
@@ -1182,7 +1046,7 @@ async def build_teacher_lesson_v6(
                 "event": "slide_build_progress_v2",
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
-                "message": "正在使用原 V6 引擎生成本讲 PPT",
+                "message": "正在由 PPT Agent 梳理本讲故事线与页面表达",
                 "slide_build_progress_v2": deepcopy(payload),
                 "target_schema": "slide_deck_v6",
             })
@@ -1207,8 +1071,8 @@ async def build_teacher_lesson_v6(
                     course_data=course_view,
                     mode=body.mode,
                     theme=body.theme,
-                    story_planner=_teacher_v6_story_planner,
-                    visual_planner=_teacher_v6_visual_planner,
+                    story_planner=story_planner,
+                    visual_planner=visual_planner,
                     source_revision_provider=source_revision_provider,
                     template_contract=template,
                     template_digest_provider=lambda: template.template_digest,

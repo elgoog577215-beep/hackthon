@@ -55,12 +55,24 @@ describe('SlideDeckWorkbench', () => {
           story_ai: { status: 'completed', batch_count: 2 },
           visual_ai: { status: 'partial_degraded', degraded_page_count: 1 },
         },
+        storyboard: {
+          page_count: 2,
+          teaching_unit_count: 1,
+          layout_count: 2,
+          pages: [
+            { page_id: 'page-1', page_ordinal: 0, title: '建立问题', source_block_count: 2 },
+            { page_id: 'page-2', page_ordinal: 1, title: '验证结论', source_block_count: 3 },
+          ],
+        },
       },
     })
 
     const details = wrapper.get('[data-testid="ppt-build-details"]')
     expect(details.get('summary').text()).toContain('生成详情')
     expect(details.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
+    expect(details.get('[data-testid="ppt-storyboard-status"]').text()).toContain('2 页')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('建立问题')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个来源块')
     expect(details.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
     expect(details.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
     expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)

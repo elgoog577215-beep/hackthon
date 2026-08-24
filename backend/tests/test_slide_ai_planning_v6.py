@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import slide_ai_planning_v6 as planning_module
+from ai_base import AIProviderUnavailable
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import (
     compile_course_presentation_graph,
@@ -48,6 +49,30 @@ def test_v6_planners_use_the_dedicated_ppt_provider_profile(monkeypatch):
     planning_module.build_ai_base_visual_planner_v2()
 
     assert profiles == ["ppt", "ppt"]
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "stage"),
+    [
+        ("teacher-plan-adapter", "provider-selected", "story"),
+        ("shared-ai-pool", "source-faithful-deterministic", "story"),
+        ("shared-ai-pool", "source-native-deterministic", "visual"),
+    ],
+)
+def test_v6_rejects_retired_deterministic_teacher_planner_provenance(
+    provider: str,
+    model: str,
+    stage: str,
+) -> None:
+    with pytest.raises(
+        V6BuildError,
+        match=f"{stage}_deterministic_adapter_forbidden",
+    ):
+        planning_module._require_ai_planner_provenance(
+            provider=provider,
+            model=model,
+            stage=stage,
+        )
 
 
 @pytest.mark.asyncio
@@ -1697,6 +1722,41 @@ async def test_story_balance_failure_is_not_misreported_as_rate_limiting() -> No
 
     assert captured.value.failure.code == "story_ai_batch_balance_unavailable"
     assert captured.value.failure.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_story_primary_rate_limit_is_not_masked_by_fallback_authentication() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(_request):
+        raise AIPlannerInvocationError(
+            AIProviderUnavailable("authentication_failed"),
+            telemetry=[
+                {
+                    "provider_route": "shared-ai-pool",
+                    "model_id": "generic-primary-model",
+                    "provider_attempt": 1,
+                    "status": "failed",
+                    "error_code": "RateLimitError",
+                },
+                {
+                    "provider_route": "modelscope_fallback",
+                    "model_id": "generic-fallback-model",
+                    "provider_attempt": 1,
+                    "status": "failed",
+                    "error_code": "AuthenticationError",
+                },
+            ],
+        )
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert captured.value.failure.code == "story_ai_batch_rate_limited"
+    assert captured.value.failure.retryable is True
+    assert "last published deck was preserved" in captured.value.failure.message
 
 
 @pytest.mark.asyncio

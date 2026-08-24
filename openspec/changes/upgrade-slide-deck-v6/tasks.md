@@ -52,3 +52,11 @@
 - [ ] 6.3 Run one shadow chapter through the official website chain for Unity, linear algebra and machine learning.
 - [ ] 6.4 Enable V6 as the default for new builds only after all three shadow gates pass; keep V5 readable/exportable and document rollback/metrics.
 - [x] 6.5 Compare the full-course V6 output against the published Qizhi sample for agenda hierarchy, source-region visibility and code readability, then render every page and run overflow/export audits.
+
+## 7. Teacher PPT Agent convergence
+
+- [x] 7.1 Audit PPTAgent/DeepPresenter, Presenton and PptxGenJS for planning, editing, rendering and license boundaries.
+- [x] 7.2 Remove the deterministic teacher story/visual adapter and route the teacher workbench through the shared V6 AI planners.
+- [x] 7.3 Reject the retired deterministic planner identities if they are ever reported as completed AI planning.
+- [x] 7.4 Persist and display a compact source-bound storyboard summary for teacher inspection.
+- [ ] 7.5 Regenerate the accepted teacher test lesson with the live provider and compare page rhythm, title uniqueness, layout diversity and visual decisions against the 41-page baseline. The 2026-08-24 live attempt reached the shared story planner, then returned the retryable `story_ai_batch_rate_limited` boundary; the published 41-page baseline remained intact.

@@ -165,6 +165,43 @@ class _VisualBatchResponse(_StrictModel):
     decisions: list[SlideVisualDecisionV2] = Field(min_length=1)
 
 
+_FORBIDDEN_DETERMINISTIC_PLANNER_IDENTITIES = frozenset({
+    "teacher-plan-adapter",
+    "source-faithful-deterministic",
+    "source-native-deterministic",
+})
+
+
+def _require_ai_planner_provenance(
+    *,
+    provider: str,
+    model: str,
+    stage: str,
+) -> None:
+    """Reject the retired teacher adapter if it is ever wired back in.
+
+    Unit-test fixtures may still use local fake providers, but the known
+    deterministic teacher identities can never be published as completed AI
+    planning. This protects the single V6 route from regressing into one-page-
+    per-block slicing while claiming that story or visual AI ran.
+    """
+
+    identities = {
+        str(provider or "").strip().casefold(),
+        str(model or "").strip().casefold(),
+    }
+    if identities.intersection(_FORBIDDEN_DETERMINISTIC_PLANNER_IDENTITIES):
+        raise V6BuildError(
+            stage=stage,
+            code=f"{stage}_deterministic_adapter_forbidden",
+            message=(
+                "The retired deterministic teacher PPT adapter cannot be "
+                "reported or published as completed AI planning"
+            ),
+            retryable=False,
+        )
+
+
 def _normalize_versioned_response(
     raw: dict[str, Any],
     *,
@@ -1118,9 +1155,27 @@ def _failure_category(error: BaseException, *, prefix: str) -> tuple[str, bool]:
         else error
     )
     message = str(original).lower()
+    attempt_records = (
+        list(error.telemetry)
+        if isinstance(error, AIPlannerInvocationError)
+        else []
+    )
+    primary_rate_limited = any(
+        "ratelimit" in str(record.get("error_code") or "").casefold()
+        and str(record.get("provider") or "").casefold()
+        != "modelscope_fallback"
+        for record in attempt_records
+        if isinstance(record, dict)
+    )
     if isinstance(original, (TimeoutError, asyncio.TimeoutError)) or "timeout" in message:
         return f"{prefix}_timeout", True
     if any(token in message for token in ("401", "403", "authentication", "api key")):
+        # A broken last-resort credential must not turn a temporary primary
+        # pool rate limit into a permanent, non-retryable story failure. Keep
+        # both attempts in diagnostics, but classify the user-facing recovery
+        # path by the still-valid primary route.
+        if primary_rate_limited:
+            return f"{prefix}_rate_limited", True
         return f"{prefix}_authentication", False
     if any(token in message for token in ("balance", "quota", "credit")):
         return f"{prefix}_balance_unavailable", False
@@ -2539,6 +2594,11 @@ async def plan_slide_story_v3(
                     response = _StoryBatchResponse.model_validate(
                         previous_response_payload
                     )
+                    _require_ai_planner_provenance(
+                        provider=response.provider,
+                        model=response.model,
+                        stage="story",
+                    )
                     reported_provider = response.provider or reported_provider
                     reported_model = response.model or reported_model
                     reported_attempts = max(
@@ -2725,7 +2785,12 @@ async def plan_slide_story_v3(
             raise V6BuildError(
                 stage="story",
                 code=code,
-                message=str(error) or "Story AI batch failed",
+                message=(
+                    "PPT planning models are temporarily rate limited; the "
+                    "last published deck was preserved and this build can be retried"
+                    if code == "story_ai_batch_rate_limited"
+                    else str(error) or "Story AI batch failed"
+                ),
                 retryable=retryable,
                 chapter_id=str(request["chapter_id"]),
                 batch_id=batch_id,
@@ -3438,6 +3503,11 @@ async def plan_slide_visuals_v2(
                     attempt_records.extend(_provider_attempts_from(raw))
                     response = _VisualBatchResponse.model_validate(
                         _normalize_visual_batch_response(raw, attempt_request)
+                    )
+                    _require_ai_planner_provenance(
+                        provider=response.provider,
+                        model=response.model,
+                        stage="visual",
                     )
                     reported_provider = response.provider or reported_provider
                     reported_model = response.model or reported_model

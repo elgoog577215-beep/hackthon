@@ -1775,45 +1775,15 @@ def test_teacher_can_save_first_script_draft_without_model_revision(tmp_path):
     assert stored["script_revisions"][-1]["generation_source"] == "teacher_edit"
 
 
-def test_teacher_v6_visual_planner_keeps_base_ppt_available_without_ai():
-    result = asyncio.run(teacher_lesson_router._teacher_v6_visual_planner({
-        "pages": [
-            {
-                "page_id": "page-prose",
-                "template_layout_id": "layout-content",
-                "source_block_ids": ["block-1"],
-                "allowed_decisions": ["diagram", "text_native"],
-                "layout_requires_artifact": False,
-            },
-            {
-                "page_id": "page-table",
-                "template_layout_id": "layout-table",
-                "source_block_ids": ["block-2"],
-                "allowed_decisions": ["data", "table"],
-                "layout_requires_artifact": True,
-            },
-            {
-                "page_id": "page-diagram",
-                "template_layout_id": "layout-diagram",
-                "source_block_ids": ["block-3"],
-                "source_blocks": [{
-                    "block_id": "block-3",
-                    "source_text": "观察现象。建立模型。验证结论。",
-                }],
-                "allowed_decisions": ["diagram"],
-                "layout_requires_artifact": True,
-            },
-        ],
-    }))
-
-    assert result["model"] == "source-native-deterministic"
-    assert [item["decision"] for item in result["decisions"]] == [
-        "text_native", "table", "diagram",
-    ]
-    assert result["decisions"][1]["source_block_ids"] == ["block-2"]
-    diagram = result["decisions"][2]["visual_payload"]
-    assert len(diagram["nodes"]) == 3
-    assert len(diagram["edges"]) == 2
+def test_teacher_v6_route_uses_shared_ai_planner_factories():
+    assert teacher_lesson_router.build_ai_base_story_planner_v6.__module__ == (
+        "slide_ai_planning_v6"
+    )
+    assert teacher_lesson_router.build_ai_base_visual_planner_v2.__module__ == (
+        "slide_ai_planning_v6"
+    )
+    assert not hasattr(teacher_lesson_router, "_teacher_v6_story_planner")
+    assert not hasattr(teacher_lesson_router, "_teacher_v6_visual_planner")
 
 
 def test_legacy_lightweight_ppt_write_chain_is_retired(tmp_path):

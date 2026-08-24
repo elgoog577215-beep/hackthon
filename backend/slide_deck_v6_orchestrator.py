@@ -231,6 +231,32 @@ async def _await_with_heartbeats(
     return await task
 
 
+def _storyboard_summary(story: SlideStoryPlanV3) -> dict[str, Any]:
+    """Expose the approved planning contract without duplicating slide truth."""
+
+    pages = list(story.pages)
+    return {
+        "schema_version": "teacher_ppt_storyboard_v1",
+        "page_count": len(pages),
+        "teaching_unit_count": len({page.teaching_unit_id for page in pages}),
+        "layout_count": len({page.template_layout_id for page in pages}),
+        "multi_source_page_count": sum(
+            len(page.source_block_ids) > 1 for page in pages
+        ),
+        "pages": [
+            {
+                "page_id": page.page_id,
+                "page_ordinal": page.page_ordinal,
+                "teaching_unit_id": page.teaching_unit_id,
+                "title": page.title,
+                "template_layout_id": page.template_layout_id,
+                "source_block_count": len(page.source_block_ids),
+            }
+            for page in pages
+        ],
+    }
+
+
 def _source_binding_with_course_logic(
     document: CourseDocument,
     course_data: dict[str, Any],
@@ -977,6 +1003,7 @@ class SlideDeckV6Orchestrator:
                 "source_contract": source_contract.model_dump(mode="json"),
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
+                "storyboard": _storyboard_summary(story),
                 "visual_plan": visual.model_dump(mode="json"),
                 "template_contract": template.model_dump(mode="json"),
                 "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),

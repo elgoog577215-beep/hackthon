@@ -105,6 +105,7 @@
         :published-schema="store.slidePublishedSchema || String(content?.schema_version || '')"
         :candidate-status="store.slideCandidateStatus || String(content?.candidate_status || '')"
         :planning-status="content?.planning_status || null"
+        :storyboard="content?.storyboard || null"
         @back="backToCourse"
         @rebuild="rebuild"
         @configure="openGenerator(false)"

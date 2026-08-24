@@ -687,6 +687,15 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
             "providers": ["fixture-pool"],
         },
     }
+    storyboard = spec.payload["content"]["storyboard"]
+    assert storyboard["schema_version"] == "teacher_ppt_storyboard_v1"
+    assert storyboard["page_count"] == 1
+    assert storyboard["teaching_unit_count"] == 1
+    assert storyboard["layout_count"] == 1
+    assert storyboard["multi_source_page_count"] == 1
+    assert storyboard["pages"][0]["title"] == spec.payload["content"]["pages"][0]["title"]
+    assert storyboard["pages"][0]["title"]
+    assert storyboard["pages"][0]["source_block_count"] == 2
     assert spec.payload["content"]["build_signature"]["signature"].startswith(
         "slidebuildv6_"
     )

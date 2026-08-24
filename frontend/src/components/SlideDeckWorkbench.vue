@@ -77,6 +77,22 @@
               data-testid="ppt-story-ai-status"
             >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
             <small
+              v-if="storyboard?.page_count"
+              class="slide-workbench__manual-status"
+              data-testid="ppt-storyboard-status"
+            >故事板 · {{ storyboard.page_count }} 页 · {{ storyboard.teaching_unit_count || 0 }} 个教学单元 · {{ storyboard.layout_count || 0 }} 种版式</small>
+            <ol
+              v-if="storyboard?.pages?.length"
+              class="slide-workbench__storyboard"
+              data-testid="ppt-storyboard-pages"
+            >
+              <li v-for="page in storyboard.pages" :key="page.page_id">
+                <b>{{ Number(page.page_ordinal || 0) + 1 }}</b>
+                <span>{{ page.title }}</span>
+                <small>{{ page.source_block_count || 0 }} 个来源块</small>
+              </li>
+            </ol>
+            <small
               v-if="planningStatus?.visual_ai?.status"
               class="slide-workbench__manual-status"
               data-testid="ppt-visual-ai-status"
@@ -560,6 +576,7 @@ const props = withDefaults(defineProps<{
   publishedSchema?: string
   candidateStatus?: string
   planningStatus?: Record<string, any> | null
+  storyboard?: Record<string, any> | null
   templatePack?: Record<string, any> | null
 }>(), {
   standalone: false,
@@ -575,6 +592,7 @@ const props = withDefaults(defineProps<{
   publishedSchema: '',
   candidateStatus: '',
   planningStatus: null,
+  storyboard: null,
   templatePack: null,
   buildFailure: null,
   buildResumable: false,
@@ -1299,6 +1317,11 @@ function classificationLabel(value: string) {
 .slide-workbench__degraded-visuals li { min-width:0; display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:7px; align-items:center; color:#7c4a0d; font-size:9px; line-height:1.35; }
 .slide-workbench__degraded-visuals code,.slide-workbench__degraded-visuals span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .slide-workbench__degraded-visuals code { color:#475467; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+.slide-workbench__storyboard { max-height:180px; display:grid; gap:3px; margin:0; padding:6px; overflow:auto; border:1px solid #e4e7ec; border-radius:8px; background:#f8fafc; list-style:none; }
+.slide-workbench__storyboard li { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr) auto; gap:7px; align-items:center; padding:5px 6px; border-radius:6px; color:#475467; background:#fff; font-size:9px; }
+.slide-workbench__storyboard b { color:#4f46e5; text-align:center; }
+.slide-workbench__storyboard span { overflow:hidden; color:#344054; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
+.slide-workbench__storyboard small { color:#98a2b3; font-size:8px; white-space:nowrap; }
 .slide-workbench__secondary-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding-top:4px; border-top:1px solid #eef1f5; }
 .slide-workbench__commands .slide-workbench__secondary-actions button { width:100%; justify-content:center; color:#475467; background:#fff; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }
