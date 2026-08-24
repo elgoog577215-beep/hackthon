@@ -127,14 +127,20 @@ describe('统一教案页面', () => {
       props: { courseId: 'course-1', lesson, confirmed: true },
     })
 
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 优化'))!.trigger('click')
-    await wrapper.get('.ai-command textarea').setValue('增加可观察目标')
-    await wrapper.get('.ai-command').trigger('submit')
+    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    expect(wrapper.emitted('open-ai')).toHaveLength(1)
+
+    await (wrapper.vm as unknown as {
+      requestAiCandidate: (instruction: string) => Promise<unknown>
+      resolveAiCandidate: (accept: boolean) => Promise<boolean>
+    }).requestAiCandidate('增加可观察目标')
     await flushPromises()
 
     expect(wrapper.text()).toContain('AI 方案')
+    expect(wrapper.text()).toContain('AI 候选正在左侧画布预览')
     expect(wrapper.text()).toContain('AI 优化后的可观察目标')
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('采用'))!.trigger('click')
+    expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
+    await (wrapper.vm as unknown as { resolveAiCandidate: (accept: boolean) => Promise<boolean> }).resolveAiCandidate(true)
     await flushPromises()
 
     expect(resolveCandidate).toHaveBeenCalledWith('course-1', 'lesson-1', 'candidate-1', true)

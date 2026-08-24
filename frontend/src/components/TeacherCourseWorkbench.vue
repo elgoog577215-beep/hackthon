@@ -1,6 +1,11 @@
 <template>
-  <section class="teacher-workbench">
-    <aside class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
+  <section
+    ref="workbenchRoot"
+    class="teacher-workbench"
+    :class="{ 'is-ai-collaboration': aiCollaborationOpen }"
+    :style="{ '--ai-pane-width': `${aiPanePercent}%` }"
+  >
+    <aside v-show="!aiCollaborationOpen" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
       <header><strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong></header>
       <nav>
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" @click="activeStage = stage.id">
@@ -231,6 +236,7 @@
           </form>
           <TeacherLessonPlanDocument
             v-else-if="workingLessonRevision && selectedLesson"
+            ref="lessonPlanDocument"
             :course-id="courseId"
             :lesson="selectedLesson"
             :confirmed="lessonPlanConfirmed"
@@ -240,6 +246,11 @@
             @update:active-section-id="selectedLessonSectionId = $event"
             @confirm="confirmLessonPlan"
             @next="activeStage = 'question-bank'"
+            @open-ai="openLessonAiCollaboration"
+            @ai-candidate-change="handleAiCandidateChange"
+            @ai-busy-change="aiCollaborationBusy = $event"
+            @ai-resolved="handleAiResolved"
+            @ai-error="handleAiError"
           />
         </template>
 
@@ -273,7 +284,38 @@
       </section>
     </main>
 
+    <div
+      v-if="aiCollaborationOpen"
+      class="ai-workspace-resizer"
+      role="separator"
+      tabindex="0"
+      aria-orientation="vertical"
+      :aria-label="t('courseWorkbench.aiCollaboration.resize', '调整 AI 助手宽度')"
+      aria-valuemin="32"
+      aria-valuemax="46"
+      :aria-valuenow="aiPanePercent"
+      @pointerdown="startAiPaneResize"
+      @keydown="resizeAiPaneWithKeyboard"
+    ><i /></div>
+
+    <TeacherLessonAiWorkspace
+      v-if="aiCollaborationOpen && selectedLesson"
+      :course-title="courseTitle"
+      :lesson-title="selectedLesson.title"
+      :section-title="selectedLessonSectionTitle"
+      :reference-count="activeReferences.length"
+      :messages="aiMessages"
+      :busy="aiCollaborationBusy"
+      :candidate-pending="aiCandidatePending"
+      @close="closeLessonAiCollaboration"
+      @send="handleAiRequest"
+      @accept="resolveAiCandidate(true)"
+      @reject="resolveAiCandidate(false)"
+      @focus-candidate="focusAiCandidate"
+    />
+
     <CourseReferenceTray
+      v-else
       v-model="activeReferences"
       :course-id="courseId"
       :stage="activeStage"
@@ -288,7 +330,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, markRaw, reactive, ref, watch } from 'vue'
+import { computed, markRaw, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -296,6 +338,7 @@ import CourseReferenceTray, { type CourseReferenceItem } from './CourseReference
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
+import TeacherLessonAiWorkspace, { type TeacherLessonAiMessage } from './TeacherLessonAiWorkspace.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import { t } from '../shared/i18n'
@@ -303,11 +346,16 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
-import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
+import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
 import http, { teacherRequestConfig } from '../utils/http'
 
 type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 type StageId = CoreStageId | 'companion'
+type LessonPlanDocumentHandle = {
+  requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
+  resolveAiCandidate: (accept: boolean) => Promise<boolean>
+  focusCandidate: () => void
+}
 const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
@@ -320,7 +368,17 @@ const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = r
 const selectedLessonSectionId = ref('')
 const expandedLessonId = ref(props.initialLessonId)
 const lessonOutlineCollapsed = ref(false)
+const workbenchRoot = ref<HTMLElement | null>(null)
 const workbenchCenter = ref<HTMLElement | null>(null)
+const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
+const aiCollaborationOpen = ref(false)
+const aiPanePercent = ref(38)
+const aiCollaborationBusy = ref(false)
+const aiCandidatePending = ref(false)
+const aiMessages = ref<TeacherLessonAiMessage[]>([])
+const aiSessionScopeKey = ref('')
+const aiMessageSequence = ref(0)
+const replacingAiCandidate = ref(false)
 const outlineEditor = ref<{ finishEditing: () => Promise<boolean> } | null>(null)
 const finishingOutline = ref(false)
 const editingOutline = computed({
@@ -362,6 +420,10 @@ const activeStageDefinition = computed(() => stages.value.find(item => item.id =
   icon: markRaw(FileCheck2),
 })
 const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
+const selectedLessonSectionTitle = computed(() => selectedLesson.value?.sections.find(
+  item => item.section_node_id === selectedLessonSectionId.value,
+)?.title || '')
+const currentAiScopeKey = computed(() => [props.courseId, selectedLessonId.value, selectedLessonSectionId.value].join(':'))
 const lessonReferenceTargetId = computed(() => (
   activeStage.value === 'lesson' && selectedLessonId.value
     ? `lesson-plan:${selectedLessonId.value}`
@@ -467,6 +529,111 @@ const lessonPrerequisiteState = computed(() => {
 function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => asset.engine === 'slide_deck_v6' && asset.source_state === 'current')) }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
+function appendAiMessage(role: TeacherLessonAiMessage['role'], kind: TeacherLessonAiMessage['kind'], text: string) {
+  aiMessageSequence.value += 1
+  aiMessages.value.push({ id: `lesson-ai-${aiMessageSequence.value}`, role, kind, text })
+}
+function resetAiSession() {
+  aiMessages.value = []
+  aiCandidatePending.value = false
+  aiSessionScopeKey.value = currentAiScopeKey.value
+  appendAiMessage(
+    'assistant',
+    'text',
+    t('courseWorkbench.aiCollaboration.welcome', '我已进入当前教案小节。告诉我你想调整什么，我会把结构化候选直接呈现在左侧画布。'),
+  )
+}
+function openLessonAiCollaboration() {
+  if (!selectedLesson.value || !workingLessonRevision.value) return
+  if (aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) resetAiSession()
+  aiCollaborationOpen.value = true
+}
+function closeLessonAiCollaboration() {
+  aiCollaborationOpen.value = false
+}
+function buildAiInstruction(): string {
+  const requirements = aiMessages.value
+    .filter(message => message.role === 'user')
+    .slice(-6)
+    .map((message, index) => `${index + 1}. ${message.text}`)
+    .join('\n')
+  return t(
+    'courseWorkbench.aiCollaboration.compoundInstruction',
+    '教师围绕当前小节连续提出以下修改要求。请综合全部要求，以最新一条为最高优先级，生成结构化教案候选：\n{requirements}',
+  ).replace('{requirements}', requirements)
+}
+async function handleAiRequest(instruction: string) {
+  if (!instruction.trim() || aiCollaborationBusy.value || !lessonPlanDocument.value) return
+  appendAiMessage('user', 'text', instruction.trim())
+  if (aiCandidatePending.value) {
+    replacingAiCandidate.value = true
+    const discarded = await lessonPlanDocument.value.resolveAiCandidate(false)
+    replacingAiCandidate.value = false
+    if (!discarded) return
+    const previousCandidate = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
+    if (previousCandidate) {
+      previousCandidate.kind = 'receipt'
+      previousCandidate.text = t('courseWorkbench.aiCollaboration.replacedReceipt', '上一版候选已被本轮补充要求替换。')
+    }
+  }
+  const candidate = await lessonPlanDocument.value.requestAiCandidate(buildAiInstruction())
+  if (!candidate) return
+  appendAiMessage(
+    'assistant',
+    'candidate',
+    t('courseWorkbench.aiCollaboration.candidateSummary', '已综合本轮对话生成修改候选。请在左侧核对高亮内容，再决定是否采用。'),
+  )
+  lessonPlanDocument.value.focusCandidate()
+}
+function handleAiCandidateChange(candidate: TeacherLessonPlanCandidate | null) {
+  aiCandidatePending.value = Boolean(candidate)
+}
+function handleAiResolved(result: { accept: boolean }) {
+  aiCandidatePending.value = false
+  if (replacingAiCandidate.value) return
+  const receipt = result.accept
+    ? t('courseWorkbench.aiCollaboration.acceptedReceipt', '候选已采用，并形成新的教案工作修订。')
+    : t('courseWorkbench.aiCollaboration.rejectedReceipt', '候选已放弃，当前教案保持不变。')
+  const candidateMessage = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
+  if (candidateMessage) {
+    candidateMessage.kind = 'receipt'
+    candidateMessage.text = receipt
+  } else {
+    appendAiMessage('assistant', 'receipt', receipt)
+  }
+}
+function handleAiError(error: string) {
+  if (!error || aiMessages.value.at(-1)?.text === error) return
+  appendAiMessage('assistant', 'error', error)
+}
+async function resolveAiCandidate(accept: boolean) {
+  await lessonPlanDocument.value?.resolveAiCandidate(accept)
+}
+function focusAiCandidate() {
+  lessonPlanDocument.value?.focusCandidate()
+}
+function clampAiPanePercent(value: number) {
+  aiPanePercent.value = Math.min(46, Math.max(32, Math.round(value)))
+}
+function handleAiPanePointerMove(event: PointerEvent) {
+  const bounds = workbenchRoot.value?.getBoundingClientRect()
+  if (!bounds?.width) return
+  clampAiPanePercent((bounds.right - event.clientX) / bounds.width * 100)
+}
+function stopAiPaneResize() {
+  window.removeEventListener('pointermove', handleAiPanePointerMove)
+  window.removeEventListener('pointerup', stopAiPaneResize)
+}
+function startAiPaneResize(event: PointerEvent) {
+  event.preventDefault()
+  window.addEventListener('pointermove', handleAiPanePointerMove)
+  window.addEventListener('pointerup', stopAiPaneResize)
+}
+function resizeAiPaneWithKeyboard(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return
+  event.preventDefault()
+  clampAiPanePercent(aiPanePercent.value + (event.key === 'ArrowLeft' ? 2 : -2))
+}
 async function toggleOutlineEditing() {
   if (!editingOutline.value) {
     editingOutline.value = true
@@ -570,7 +737,7 @@ watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (va
 watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
 watch(() => props.initialStage, stage => { activeStage.value = stage })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
-watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; if (stage !== 'lesson') closeLessonAiCollaboration(); if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(() => lessonStore.lessons, lessons => {
   if (props.initialLessonId && lessons.some(item => item.lesson_unit_id === props.initialLessonId)) {
     selectedLessonId.value = props.initialLessonId
@@ -586,6 +753,7 @@ watch(() => lessonStore.lessons, lessons => {
   if (!expandedLessonId.value && !hadSectionSelection) expandedLessonId.value = lesson.lesson_unit_id
 }, { immediate: true, deep: true })
 watch(selectedLessonId, (lessonId, previousLessonId) => {
+  if (previousLessonId && lessonId !== previousLessonId) closeLessonAiCollaboration()
   lessonConfirmError.value = ''
   scriptGenerationError.value = ''
   scriptConfirmError.value = ''
@@ -601,10 +769,12 @@ watch(selectedLessonId, (lessonId, previousLessonId) => {
 }, { immediate: true })
 watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
+onBeforeUnmount(stopAiPaneResize)
 </script>
 
 <style scoped>
 .teacher-workbench{height:100%;min-height:0;display:grid;grid-template-columns:238px minmax(520px,1fr) 310px;overflow:hidden;background:#f3f5f9}.stage-rail{min-height:0;display:flex;flex-direction:column;border-right:1px solid #e4e9f1;background:#fff}.stage-rail>header{display:grid;gap:4px;padding:21px 18px 16px}.stage-rail>header strong{color:#1f2a40;font-size:15px}.stage-rail>header small{color:#64748b;font-size:12px}.stage-rail nav{display:grid;gap:4px;padding:4px 9px}.stage-rail nav button{min-height:54px;display:grid;grid-template-columns:26px 22px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.stage-rail nav button:hover{background:#f6f7fb}.stage-rail nav button.active{color:#4338ca;background:#eef0ff}.stage-rail nav button>span{font-size:15px;font-weight:800}.stage-rail nav strong{min-width:0;color:#334155;font-size:13px}.stage-rail nav button.active strong{color:#3730a3}.stage-rail nav button>svg:last-child{color:#16a34a}.stage-rail>footer{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:9px;margin-top:auto;padding:16px 18px;color:#64748b;font-size:12px}.stage-rail>footer>div{height:4px;overflow:hidden;border-radius:2px;background:#e8ecf3}.stage-rail>footer i{height:100%;display:block;background:#5b57e8}.workbench-center{min-width:0;min-height:0;overflow:auto;padding:24px 26px 52px}.center-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;max-width:860px;margin:0 auto 18px}.center-heading>div{display:grid;gap:4px}.center-heading small{color:#6366f1;font-size:11px;font-weight:800}.center-heading h2{margin:0;color:#172033;font-size:24px;letter-spacing:-.018em}.center-heading>button,.formal-surface>header button,.generation-surface>header button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.stage-form,.formal-surface,.generation-surface,.lesson-stage{max-width:860px;margin:0 auto;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.stage-form{display:grid;gap:20px;padding:26px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form-field{display:grid;gap:8px}.form-field>span,.lesson-selector>span{color:#334155;font-size:13px;font-weight:700}.form-field b{color:#dc2626}.form-field input,.form-field select,.form-field textarea,.lesson-selector select{width:100%;min-height:44px;padding:10px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical;line-height:1.6}.form-field input:focus,.form-field select:focus,.form-field textarea:focus,.lesson-selector select:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.stage-form>footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px}.stage-form>footer>span{color:#64748b;font-size:12px}.primary{min-height:42px;display:flex;align-items:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:13px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}.primary:disabled{opacity:.48;cursor:not-allowed}.generation-surface{overflow:hidden}.generation-surface>header,.formal-surface>header{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid #e7ebf2}.generation-surface>header>div{display:flex;align-items:center;gap:10px;color:#4f46e5}.generation-surface>header span,.formal-surface>header>div{display:grid;gap:3px}.generation-surface>header strong,.formal-surface>header strong{color:#263147;font-size:13px}.generation-surface>header small,.formal-surface>header small{color:#64748b;font-size:11px}.generation-progress{height:3px;background:#e8ebf5}.generation-progress i{width:100%;height:100%;display:block;transform-origin:left;background:#5b57e8;transition:transform .25s ease-out}.stream-content,.formal-surface>article{max-height:calc(100vh - 260px);overflow:auto;padding:22px 28px 42px}.stream-content section,.formal-surface article section{margin-bottom:26px}.stream-content h3,.formal-surface h3{margin:0 0 10px;color:#202b40;font-size:17px}.stream-waiting{min-height:260px;display:flex;align-items:center;justify-content:center;gap:9px;color:#64748b;font-size:13px}.stream-caret{width:2px;height:18px;display:inline-block;background:#5b57e8;animation:blink .8s steps(1) infinite}.generation-error{margin:0;padding:12px 20px;color:#b91c1c;background:#fff1f2;font-size:12px}.generation-error button{border:0;color:inherit;background:transparent;font-weight:750;text-decoration:underline;cursor:pointer}.lesson-stage{padding:0 0 24px}.lesson-selector{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #e7ebf2}.stage-form--lesson{border:0;box-shadow:none}.prerequisite,.empty-asset{min-height:260px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#64748b;font-size:13px}.prerequisite strong{color:#334155}.prerequisite button{padding:7px 10px;border:1px solid #d7dde7;border-radius:7px;color:#4f46e5;background:#fff;font-weight:700;cursor:pointer}.lesson-formal{margin:20px 20px 0;border-radius:10px;box-shadow:none}.lesson-formal>article{max-height:calc(100vh - 360px)}.formal-surface ol{display:grid;gap:8px;padding-left:22px;color:#475569;font-size:13px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes blink{50%{opacity:0}}
+.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(560px,1fr) 7px minmax(360px,var(--ai-pane-width));background:#eef1f6}.is-ai-collaboration>.workbench-center{padding:0;overflow:auto;background:#f3f5f9}.is-ai-collaboration>.workbench-center>.center-heading{display:none}.is-ai-collaboration :deep(.lesson-stage){max-width:none;min-height:100%;margin:0;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration :deep(.lesson-outline){display:none}.is-ai-collaboration :deep(.has-lesson-outline .lesson-workspace){display:block}.is-ai-collaboration :deep(.has-lesson-outline .lesson-stage-content){overflow:visible;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration :deep(.lesson-document){min-height:100vh}.ai-workspace-resizer{position:relative;z-index:4;display:grid;place-items:center;min-height:0;cursor:col-resize;background:#e4e8ef;touch-action:none}.ai-workspace-resizer i{width:2px;height:42px;border-radius:2px;background:#aeb7c5}.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible{outline:0;background:#d9def0}.ai-workspace-resizer:hover i,.ai-workspace-resizer:focus-visible i{background:#5b57e8}
 .stage-rail>header{display:block;padding:22px 18px 18px}.stage-rail>header .stage-rail-title{color:#1f2a40;font-size:18px;line-height:1.25}
 .companion-entry{display:grid;gap:7px;margin:10px 9px 0;padding-top:14px;border-top:1px solid #e7ebf2}.companion-entry>small{padding:0 10px;color:#64748b;font-size:11px;font-weight:700}.companion-entry>button{min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.companion-entry>button:hover{background:#f6f7fb}.companion-entry>button.active{color:#4338ca;background:#eef0ff}.companion-entry strong{min-width:0;color:#334155;font-size:13px}.companion-entry>button.active strong{color:#3730a3}
 .question-workbench-surface{max-width:860px;margin:0 auto;padding:0}
