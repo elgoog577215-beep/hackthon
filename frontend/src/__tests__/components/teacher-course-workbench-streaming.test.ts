@@ -322,7 +322,8 @@ describe('teacher course workbench outline streaming', () => {
     const confirm = vi.spyOn(lessonStore, 'confirm').mockResolvedValue({} as any)
     const lessonWrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(lessonWrapper.text()).toContain('待确认')
+    await lessonWrapper.get('.lesson-outline-trigger').trigger('click')
+    expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待确认')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.get('.document-footer button').text()).toContain('确认并进入题库')
@@ -334,7 +335,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-entry button.primary').attributes('disabled')).toBeDefined()
   })
 
-  it('大章总进度按需展开，小节在正文顶部横向切换', async () => {
+  it('大章目录以浮层按需展开，小节在正文顶部横向切换', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
       lesson_unit_id: `L1-${number}`, number, title: `第${number}章`, duration_minutes: 45,
@@ -344,31 +345,34 @@ describe('teacher course workbench outline streaming', () => {
     })) as any
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
-    expect(wrapper.get('.lesson-outline-toggle').attributes('title')).toBe('展示总进度')
-    expect(wrapper.get('.lesson-outline').isVisible()).toBe(false)
+    expect(wrapper.get('.lesson-outline-trigger').text()).toContain('目录')
+    expect(wrapper.get('.lesson-outline-trigger').text()).toContain('1/2')
+    expect(wrapper.get('.lesson-outline-trigger').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('.lesson-outline-popover').exists()).toBe(false)
     expect(wrapper.findAll('.lesson-section-tabs button')).toHaveLength(2)
     expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('1.1 小节1')
     expect(wrapper.get('.lesson-navigator').text()).toContain('上一讲')
     expect(wrapper.get('.lesson-navigator').text()).toContain('下一讲')
 
-    await wrapper.get('.lesson-outline-toggle').trigger('click')
-    expect(wrapper.get('.lesson-workspace').classes()).not.toContain('is-outline-collapsed')
-    expect(wrapper.get('.lesson-outline-toggle').attributes('title')).toBe('收起总进度')
+    await wrapper.get('.lesson-outline-trigger').trigger('click')
+    expect(wrapper.get('.lesson-outline-trigger').attributes('aria-expanded')).toBe('true')
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons).toHaveLength(2)
-    expect(chapterButtons[0]!.text()).toContain('待确认')
-    expect(chapterButtons[1]!.text()).toContain('已确认')
+    expect(chapterButtons[0]!.text()).toContain('01第1章')
+    expect(chapterButtons[0]!.attributes('aria-label')).toContain('待确认')
+    expect(chapterButtons[1]!.attributes('aria-label')).toContain('已确认')
     expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
 
     await chapterButtons[1]!.trigger('click')
+    expect(wrapper.find('.lesson-outline-popover').exists()).toBe(false)
+    expect(wrapper.get('.lesson-outline-trigger').text()).toContain('2/2')
     expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('2.1 小节1')
     const secondSection = wrapper.findAll('.lesson-section-tabs button')[1]!
     await secondSection.trigger('click')
     expect(secondSection.classes()).toContain('active')
 
-    await wrapper.get('.lesson-outline-toggle').trigger('click')
-    expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
+    await wrapper.get('.lesson-outline-trigger').trigger('click')
+    expect(wrapper.get('.lesson-outline-trigger').attributes('aria-expanded')).toBe('true')
   })
 
   it('右侧资料随当前讲次切换且不会串到其他讲次', async () => {
@@ -389,7 +393,7 @@ describe('teacher course workbench outline streaming', () => {
     tray.vm.$emit('update:modelValue', [firstReference])
     await flushPromises()
 
-    await wrapper.get('.lesson-outline-toggle').trigger('click')
+    await wrapper.get('.lesson-outline-trigger').trigger('click')
     await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-2')
@@ -398,6 +402,7 @@ describe('teacher course workbench outline streaming', () => {
     tray.vm.$emit('update:modelValue', [secondReference])
     await flushPromises()
 
+    await wrapper.get('.lesson-outline-trigger').trigger('click')
     await wrapper.findAll('.lesson-outline-chapter-button')[0]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-1')
