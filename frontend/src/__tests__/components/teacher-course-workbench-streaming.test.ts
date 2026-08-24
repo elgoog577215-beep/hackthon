@@ -292,7 +292,7 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const generationForm = wrapper.get('[data-testid="lesson-generation-form"]')
     expect(wrapper.find('[data-testid="lesson-arrangement-editor"]').exists()).toBe(false)
-    expect(generationForm.find('label').exists()).toBe(false)
+    expect(generationForm.get('label').text()).toBe('请补充本讲的重难点、教学方法或课堂活动要求（选填）。')
     expect(generationForm.find('.lesson-generation-copy').exists()).toBe(false)
     expect(generationForm.get('textarea').attributes('placeholder')).toBeUndefined()
     expect(generationForm.get('textarea').attributes('aria-label')).toBe('教案生成要求')
