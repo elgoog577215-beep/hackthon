@@ -122,6 +122,63 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(true)
   })
 
+  it('新增章和小节后滚动并聚焦标题，避免长大纲看起来没有响应', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    })
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-1',
+        courseName: 'Unity 游戏编程',
+        editable: true,
+        variant: 'inline',
+        surface: 'teacher',
+      },
+      attachTo: document.body,
+    })
+
+    try {
+      await flushPromises()
+      await wrapper.get('[data-testid="add-outline-chapter"]').trigger('click')
+      await flushPromises()
+
+      const chapterInputs = wrapper.findAll('.outline-review__chapter-heading input')
+      const addedInput = chapterInputs.at(-1)!
+      expect((addedInput.element as HTMLInputElement).value).toBe('新章节 2')
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+      expect(document.activeElement).toBe(addedInput.element)
+      expect((addedInput.element as HTMLInputElement).selectionStart).toBe(0)
+      expect((addedInput.element as HTMLInputElement).selectionEnd).toBe('新章节 2'.length)
+
+      scrollIntoView.mockClear()
+      const addedChapter = wrapper.findAll('.outline-review__chapter').at(-1)!
+      await addedChapter.get('button[title="新增小节"]').trigger('click')
+      await flushPromises()
+
+      const addedSectionInput = addedChapter.get('.outline-review__section input')
+      expect((addedSectionInput.element as HTMLInputElement).value).toBe('新小节 1')
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'center' })
+      expect(document.activeElement).toBe(addedSectionInput.element)
+      expect((addedSectionInput.element as HTMLInputElement).selectionStart).toBe(0)
+      expect((addedSectionInput.element as HTMLInputElement).selectionEnd).toBe('新小节 1'.length)
+    } finally {
+      wrapper.unmount()
+      if (originalScrollIntoView) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+          configurable: true,
+          value: originalScrollIntoView,
+        })
+      } else {
+        delete (HTMLElement.prototype as { scrollIntoView?: typeof HTMLElement.prototype.scrollIntoView }).scrollIntoView
+      }
+    }
+  })
+
   it('完成编辑时保存当前修改并留在同一大纲页', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)

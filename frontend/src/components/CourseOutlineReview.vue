@@ -302,7 +302,7 @@
           </section>
           </div>
 
-          <div class="outline-review__chapters" data-testid="outline-chapter-list">
+          <div ref="chaptersRef" class="outline-review__chapters" data-testid="outline-chapter-list">
             <div v-if="!isInline || editable" class="outline-review__list-toolbar">
               <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
               <div class="outline-review__toolbar-actions">
@@ -315,7 +315,7 @@
                 >
                   <Sparkles :size="14" />{{ t('courseWorkbench.aiAdjustOutline', 'AI 调整') }}
                 </button>
-                <button type="button" :disabled="adjustmentBusy" @click="addChapter">
+                <button data-testid="add-outline-chapter" type="button" :disabled="adjustmentBusy" @click="addChapter">
                   <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
                 </button>
               </div>
@@ -337,6 +337,7 @@
                 <div class="outline-review__node-fields">
                   <input
                     v-model="group.chapter.node.node_name"
+                    :data-outline-node-id="String(group.chapter.node.node_id || '')"
                     type="text"
                     :disabled="adjustmentBusy"
                     :readonly="isInline && !editable"
@@ -378,9 +379,10 @@
                     <p v-if="item.node.path_reason">{{ item.node.path_reason }}</p>
                   </div>
                   <div class="outline-review__node-fields">
-                    <input
-                      v-model="item.node.node_name"
-                      type="text"
+                  <input
+                    v-model="item.node.node_name"
+                    :data-outline-node-id="String(item.node.node_id || '')"
+                    type="text"
                       :disabled="adjustmentBusy"
                       :readonly="isInline && !editable"
                       :tabindex="isInline && !editable ? -1 : undefined"
@@ -552,6 +554,7 @@ const retryingRetrieval = ref(false)
 const proposalNotice = ref('')
 const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
+const chaptersRef = ref<HTMLElement | null>(null)
 const adjustmentRequestId = ref('')
 const inlineToolsOpen = ref(false)
 
@@ -837,10 +840,24 @@ function markManualChange(message: string) {
   liveStatus.value = message
 }
 
-function addChapter() {
+async function focusOutlineNode(nodeId: string) {
+  await nextTick()
+  const chapterInput = Array.from(
+    chaptersRef.value?.querySelectorAll<HTMLInputElement>('[data-outline-node-id]') || [],
+  ).find(input => input.dataset.outlineNodeId === nodeId)
+  if (!chapterInput) return
+  if (typeof chapterInput.scrollIntoView === 'function') {
+    chapterInput.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  chapterInput.focus({ preventScroll: true })
+  chapterInput.select()
+}
+
+async function addChapter() {
   const chapterCount = blueprintNodes.value.filter(node => Number(node.node_level || 2) === 1).length
+  const nodeId = outlineNodeId('chapter')
   blueprintNodes.value.push({
-    node_id: outlineNodeId('chapter'),
+    node_id: nodeId,
     parent_node_id: 'root',
     node_name: t('courseGeneration.outlineReview.newChapterName', '新章节 {number}').replace('{number}', String(chapterCount + 1)),
     node_level: 1,
@@ -848,17 +865,19 @@ function addChapter() {
     prerequisite_node_ids: [],
   })
   markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
+  await focusOutlineNode(nodeId)
 }
 
-function addSection(chapter: any) {
+async function addSection(chapter: any) {
   const parentId = String(chapter?.node_id || '')
   if (!parentId) return
   const siblings = blueprintNodes.value.filter(node => String(node.parent_node_id || '') === parentId)
   const chapterIndex = blueprintNodes.value.indexOf(chapter)
   let insertAt = chapterIndex + 1
   while (insertAt < blueprintNodes.value.length && Number(blueprintNodes.value[insertAt]?.node_level || 2) !== 1) insertAt += 1
+  const nodeId = outlineNodeId('section')
   blueprintNodes.value.splice(insertAt, 0, {
-    node_id: outlineNodeId('section'),
+    node_id: nodeId,
     parent_node_id: parentId,
     node_name: t('courseGeneration.outlineReview.newSectionName', '新小节 {number}').replace('{number}', String(siblings.length + 1)),
     node_level: 2,
@@ -866,6 +885,7 @@ function addSection(chapter: any) {
     prerequisite_node_ids: [],
   })
   markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
+  await focusOutlineNode(nodeId)
 }
 
 function siblingNodes(node: any) {
