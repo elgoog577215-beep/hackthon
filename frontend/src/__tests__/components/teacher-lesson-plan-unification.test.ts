@@ -86,6 +86,7 @@ describe('统一教案页面', () => {
     expect(wrapper.text()).toContain('教学重点')
     expect(wrapper.text()).toContain('教学流程')
     expect(wrapper.text()).toContain('课后作业')
+    expect(wrapper.find('.document-title p').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('理论型')
     expect(wrapper.text()).not.toContain('实战型')
 

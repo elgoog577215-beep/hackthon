@@ -7,11 +7,6 @@
           <i :data-state="documentState">{{ documentStateLabel }}</i>
         </div>
         <h3>{{ lesson.title }}</h3>
-        <p>
-          {{ sectionCountLabel }}
-          <span aria-hidden="true">·</span>
-          {{ totalMinutesLabel }}
-        </p>
       </div>
       <div class="document-actions">
         <template v-if="pendingCandidate">
@@ -294,8 +289,6 @@ const pendingCandidate = ref<TeacherLessonPlanCandidate | null>(null)
 
 const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.title': '标准教案',
-  'courseWorkbench.lessonDocument.sectionCount': '{count} 个小节',
-  'courseWorkbench.lessonDocument.totalMinutes': '{count} 分钟',
   'courseWorkbench.lessonDocument.edit': '编辑教案',
   'courseWorkbench.lessonDocument.editing': '编辑中',
   'courseWorkbench.lessonDocument.cancel': '取消',
@@ -379,13 +372,6 @@ const selectedSectionMinutes = computed(() => teachingModules.value.reduce(
   (total, module) => total + normalizedMinutes(module.planned_minutes),
   0,
 ))
-const totalMinutes = computed(() => planSections.value.reduce((total, section) => {
-  const modules = Array.isArray(section.teaching_modules) ? section.teaching_modules : []
-  const moduleMinutes = modules.reduce((sum: number, module: any) => sum + normalizedMinutes(module.planned_minutes), 0)
-  return total + (moduleMinutes || normalizedMinutes(section.planned_minutes))
-}, 0))
-const sectionCountLabel = computed(() => tr('courseWorkbench.lessonDocument.sectionCount').replace('{count}', String(planSections.value.length)))
-const totalMinutesLabel = computed(() => tr('courseWorkbench.lessonDocument.totalMinutes').replace('{count}', String(totalMinutes.value)))
 const qualityBlocked = computed(() => workingRevision.value?.quality_report?.passed === false)
 const qualityBlockMessage = computed(() => String(
   workingRevision.value?.quality_report?.blocking_issues?.[0]?.message || '',
@@ -559,7 +545,7 @@ watch(planSections, sections => {
 <style scoped>
 .lesson-document{background:#fff}
 .document-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}
-.document-title{min-width:0;display:grid;gap:5px}.document-kicker{display:flex;align-items:center;gap:9px;color:#6366f1;font-size:11px;font-weight:800}.document-kicker i{padding:3px 7px;border-radius:999px;color:#92400e;background:#fff7ed;font-style:normal;font-weight:750}.document-kicker i[data-state="confirmed"]{color:#047857;background:#ecfdf5}.document-kicker i[data-state="editing"],.document-kicker i[data-state="candidate"]{color:#4338ca;background:#eef2ff}.document-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.document-title p{display:flex;align-items:center;gap:7px;margin:0;color:#7a8699;font-size:12px}
+.document-title{min-width:0;display:grid;gap:5px}.document-kicker{display:flex;align-items:center;gap:9px;color:#6366f1;font-size:11px;font-weight:800}.document-kicker i{padding:3px 7px;border-radius:999px;color:#92400e;background:#fff7ed;font-style:normal;font-weight:750}.document-kicker i[data-state="confirmed"]{color:#047857;background:#ecfdf5}.document-kicker i[data-state="editing"],.document-kicker i[data-state="candidate"]{color:#4338ca;background:#eef2ff}.document-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}
 .document-actions{flex:none;display:flex;align-items:center;gap:2px}.document-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.document-actions button:hover{color:#3730a3;background:#f2f3fa}.document-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.document-actions button:disabled{opacity:.5;cursor:not-allowed}.document-actions .primary-action{margin-left:4px;border-color:#d7ddea;color:#3730a3;background:#fff}.document-actions .primary-action:hover{border-color:#c6cbe0;background:#f7f7ff}
 .ai-command{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.ai-command textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.5;resize:vertical}.ai-command textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.ai-command button{min-width:108px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:0;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.ai-command button:disabled{opacity:.5;cursor:not-allowed}.document-error{margin:0;padding:10px 28px;color:#b91c1c;background:#fff1f2;font-size:12px}.section-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.section-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:12px;white-space:nowrap;cursor:pointer}.section-tabs button span{color:#94a3b8;font-size:10px;font-weight:800}.section-tabs button:hover{color:#3730a3}.section-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.section-tabs button.active span{color:#6366f1}
 .document-body{display:grid;padding:12px 28px 34px}.section-title{display:flex;align-items:center;gap:10px;padding:17px 0 2px}.section-title span{color:#6366f1;font-size:11px;font-weight:850}.section-title h4{margin:0;color:#172033;font-size:16px}.document-section{padding:22px 0;border-bottom:1px solid #e8ecf2}.document-section:last-child{border-bottom:0}.document-section h4{margin:0 0 12px;color:#263147;font-size:13px}.document-section p{margin:0;color:#536176;font-size:13px;line-height:1.7}.document-section ul,.document-section ol{display:grid;gap:7px;margin:0;padding-left:18px;color:#536176;font-size:13px;line-height:1.6}.document-section textarea,.flow-row input{width:100%;box-sizing:border-box;border:1px solid #cbd4e1;border-radius:7px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.55}.document-section textarea{min-height:74px;padding:9px 10px;resize:vertical}.document-section textarea:focus,.flow-row input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}

@@ -71,6 +71,13 @@ describe('teacher course workbench outline streaming', () => {
     vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'resumed' } })
   })
 
+  it('侧栏只保留放大的工作台标题，不再展示解释性副标题', () => {
+    const wrapper = mountWorkbench()
+
+    expect(wrapper.get('.stage-rail-title').text()).toBe('课程工作台')
+    expect(wrapper.find('.stage-rail > header small').exists()).toBe(false)
+  })
+
   it('能从尚未闭合的 JSON 增量中提前显示教案正文', () => {
     expect(lessonPlanStreamSegments({
       'TP-B01': '{"sections":[{"learning_objective":"学生能够解释爬虫的工作流程',
