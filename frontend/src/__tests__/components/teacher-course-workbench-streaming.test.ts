@@ -373,6 +373,37 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-entry button.primary').attributes('disabled')).toBeDefined()
   })
 
+  it('讲稿确认成功后原位进入 PPT，不要求老师再次寻找下一步', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45,
+      sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程' }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+      },
+      script: {
+        current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: true, confirmed: false, confirmed_at: '',
+        sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程', content: '讲稿正文' }],
+      },
+      plan: {
+        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ppt_assets: [],
+        revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'confirmed', warnings: [], plan: {}, actor: 'teacher', created_at: '' }],
+      },
+    }] as any
+    const confirmScript = vi.spyOn(lessonStore, 'confirmScript').mockResolvedValue({} as any)
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+
+    wrapper.findComponent({ name: 'TeacherScriptDocument' }).vm.$emit('confirm')
+    await flushPromises()
+
+    expect(confirmScript).toHaveBeenCalledWith('course-1', 'L1-1', 'script-1')
+    expect(wrapper.get('.center-heading h2').text()).toBe('PPT')
+  })
+
   it('大章目录以浮层按需展开，小节在正文顶部横向切换', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({

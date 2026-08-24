@@ -1869,6 +1869,50 @@ def test_teacher_lesson_api_projects_sessions_from_canonical_course_document(tmp
     assert [item["section_node_id"] for item in view.json()["lessons"][0]["sections"]] == ["L2-1-1", "L2-1-2"]
 
 
+def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="request-orphaned-view",
+        source_outline_revision_id="outline-v1",
+        job_type="teacher_lesson_script_generation",
+    )
+    stored_path = tmp_path / "course-1.json"
+    stored = json.loads(stored_path.read_text(encoding="utf-8"))
+    stored["jobs"][job["id"]]["status"] = "running"
+    stored["jobs"][job["id"]]["updated_at"] = "2020-01-01T00:00:00+00:00"
+    stored_path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(_course_id):
+            return course_data()
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.get("/api/teacher/courses/course-1/lesson-authoring")
+
+    returned = next(item for item in response.json()["jobs"] if item["id"] == job["id"])
+    assert returned["status"] == "failed"
+    assert returned["error"]["code"] == "lesson_script_generation_interrupted"
+
+
 def test_teacher_lesson_api_ignores_empty_persisted_shell_and_uses_workspace(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     empty_shell = {

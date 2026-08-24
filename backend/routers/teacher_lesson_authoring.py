@@ -804,6 +804,10 @@ async def get_lesson_authoring_view(
         outline_revision = _canonical_outline_revision(source)
         if outline_revision:
             repository.set_outline(course_id, outline_revision)
+        jobs = repository.view(course_id).get("jobs") or {}
+        for job_id, job in list(jobs.items()):
+            if str((job or {}).get("status") or "") in {"pending", "running"}:
+                repository.expire_stale_job(course_id, str(job_id))
         return {
             "schema_version": "teacher_lesson_authoring_view_v1",
             "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,

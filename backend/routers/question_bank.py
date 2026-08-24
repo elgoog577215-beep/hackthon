@@ -1167,6 +1167,35 @@ async def _run_rebuild_job(
         )
 
 
+def _failed_chapters_message(failed_chapters: list[dict[str, Any]]) -> str:
+    codes = {
+        str(item.get("error_code") or "")
+        for item in failed_chapters
+        if isinstance(item, dict)
+    }
+    provider_codes = {
+        "ai_provider_quota_exhausted",
+        "ai_provider_rate_limited",
+        "ai_provider_authentication_failed",
+        "ai_provider_empty_response",
+        "ai_provider_processing_failed",
+    }
+    if codes and codes.issubset(provider_codes):
+        return (
+            "模型服务当前不可用，本轮未形成可发布题目；"
+            "已有题库保持不变，可以稍后继续生成"
+        )
+    if codes & provider_codes:
+        return (
+            "部分章节因模型服务或质量检查未完成；"
+            "已发布章节保持生效，失败章节继续使用旧题"
+        )
+    return (
+        "部分章节未通过质量门；已发布章节保持生效，"
+        "失败章节继续使用旧题"
+    )
+
+
 async def _execute_question_bank_rebuild(
     *,
     course_id: str,
@@ -1775,10 +1804,7 @@ async def _execute_question_bank_rebuild(
                 status_code=422,
                 detail={
                     "code": "chapter_question_generation_failed",
-                    "message": (
-                        "部分章节未通过质量门；已发布章节保持生效，"
-                        "失败章节继续使用旧题"
-                    ),
+                    "message": _failed_chapters_message(failed_chapters),
                     "failed_chapters": deepcopy(
                         failed_chapters
                     ),

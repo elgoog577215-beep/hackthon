@@ -765,6 +765,8 @@ async def test_provider_quota_fallback_is_not_auto_published():
     assert audit["fallback_count"] == 1
     assert audit["items"][0]["final_decision"] == "discard"
     assert chapter_events[0]["passed"] is False
+    assert chapter_events[0]["error_code"] == "ai_provider_quota_exhausted"
+    assert "额度不足" in chapter_events[0]["error_message"]
     bank = build_question_bank(prepared)
     assert not any(
         item.get("generation_status") == "published"

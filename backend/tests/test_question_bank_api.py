@@ -827,6 +827,20 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
     assert repository.course_storage.save_count == 2
 
 
+def test_failed_chapter_message_distinguishes_provider_failure():
+    assert "模型服务当前不可用" in question_bank._failed_chapters_message([
+        {"error_code": "ai_provider_rate_limited"},
+        {"error_code": "ai_provider_quota_exhausted"},
+    ])
+    assert "模型服务或质量检查" in question_bank._failed_chapters_message([
+        {"error_code": "ai_provider_rate_limited"},
+        {"error_code": "chapter_quality_failed"},
+    ])
+    assert "未通过质量门" in question_bank._failed_chapters_message([
+        {"error_code": "chapter_quality_failed"},
+    ])
+
+
 def test_resume_restarts_campaign_when_prompt_contract_changed(
     monkeypatch,
     tmp_path,

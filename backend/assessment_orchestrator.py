@@ -2164,6 +2164,80 @@ class AssessmentGenerationOrchestrator:
                         for item in node_audit_items
                     )
                 )
+                chapter_error_code = ""
+                chapter_error_message = ""
+                if not chapter_passed and not fatal_errors:
+                    discarded_items = [
+                        item
+                        for item in node_audit_items
+                        if str(item.get("final_decision") or "") == "discard"
+                    ]
+                    failure_text = " ".join(
+                        str(item.get("error_message") or "")
+                        for item in discarded_items
+                    ).lower()
+                    failure_code_text = " ".join(
+                        str(item.get("error_code") or "")
+                        for item in discarded_items
+                    ).lower()
+                    if any(
+                        token in failure_text
+                        for token in (
+                            "insufficient balance",
+                            "insufficient_quota",
+                            "quota exhausted",
+                            "额度不足",
+                        )
+                    ):
+                        chapter_error_code = "ai_provider_quota_exhausted"
+                        chapter_error_message = (
+                            "模型服务额度不足，未能完成本章题目的生成与验证"
+                        )
+                    elif any(
+                        token in failure_text
+                        for token in ("rate limit", "rate_limit", "429", "限流")
+                    ):
+                        chapter_error_code = "ai_provider_rate_limited"
+                        chapter_error_message = (
+                            "模型服务当前限流，未能完成本章题目的生成与验证"
+                        )
+                    elif any(
+                        token in failure_text
+                        for token in (
+                            "authentication",
+                            "invalid api key",
+                            "unauthorized",
+                            "401",
+                            "鉴权",
+                        )
+                    ):
+                        chapter_error_code = "ai_provider_authentication_failed"
+                        chapter_error_message = (
+                            "模型服务鉴权失败，未能完成本章题目的生成与验证"
+                        )
+                    elif any(
+                        token in failure_text
+                        for token in ("empty_response", "empty response", "空响应")
+                    ):
+                        chapter_error_code = "ai_provider_empty_response"
+                        chapter_error_message = (
+                            "模型服务没有返回有效内容，未能完成本章题目的生成与验证"
+                        )
+                    elif any(
+                        token in failure_code_text
+                        for token in (
+                            "aiprovider",
+                            "ratelimit",
+                            "authentication",
+                            "modelcapacity",
+                            "airesponse",
+                            "badrequesterror",
+                        )
+                    ):
+                        chapter_error_code = "ai_provider_processing_failed"
+                        chapter_error_message = (
+                            "模型生成或验证未完成，本章未形成可发布题目"
+                        )
                 async with chapter_callback_lock:
                     await _notify_progress(
                         on_chapter_complete,
@@ -2182,12 +2256,12 @@ class AssessmentGenerationOrchestrator:
                             "error_code": (
                                 type(fatal_errors[0]).__name__
                                 if fatal_errors
-                                else ""
+                                else chapter_error_code
                             ),
                             "error_message": (
                                 str(fatal_errors[0])[:500]
                                 if fatal_errors
-                                else ""
+                                else chapter_error_message
                             ),
                         },
                     )
