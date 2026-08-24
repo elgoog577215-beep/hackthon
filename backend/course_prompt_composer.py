@@ -563,10 +563,21 @@ class CoursePromptComposer:
                 "evidence": [
                     {
                         "evidence_id": str(item.get("evidence_id") or ""),
+                        "source_kind": str(item.get("source_kind") or ""),
                         "kind": str(item.get("kind") or ""),
                         "summary": clip_text(
                             str(item.get("summary") or ""),
-                            summary_chars,
+                            (
+                                4000
+                                if detail_level == "full"
+                                and item.get("source_kind") == "uploaded_lesson_plan"
+                                else summary_chars
+                            ),
+                        ),
+                        "source_order_start": item.get("source_order_start"),
+                        "source_order_end": item.get("source_order_end"),
+                        "fidelity_contract": str(
+                            item.get("fidelity_contract") or ""
                         ),
                     }
                     for item in hints
@@ -722,6 +733,11 @@ class CoursePromptComposer:
    易错点与掌握标准时**必须优先依据这些证据**，不得与证据冲突；证据未覆盖的部分
    照常用学科通识补足，但不得把通识伪装成资料结论，也不得编造证据里没有的来源、
    数据或结论。该段为空时说明本节无可用证据，据实按通识展开即可。
+9. 证据中 `source_kind=uploaded_lesson_plan` 表示老师明确选中的原教案主来源。
+   必须按照 `source_order_start/source_order_end` 和原分块顺序忠实吸收：已有字段、
+   教学环节、师生活动和原文表述优先保留，只补齐缺失项；不得为了套系统模板而重排、
+   改写或删去原教案已有结构。原教案与课程大纲或冻结知识边界冲突时，不得静默覆盖，
+   应保留可兼容内容，并把冲突写入备注或审核提示。
 
 ## JSON Schema
 {{

@@ -24,6 +24,7 @@ from lesson_arrangement import (
     validate_lesson_arrangement,
 )
 from material_storage import MaterialStorageError, material_repository
+from material_parser import parse_document_path, parse_material_asset
 from task_manager import TaskManager
 from teacher_lesson_authoring import (
     LESSON_PLAN_PIPELINE_VERSION,
@@ -42,6 +43,7 @@ from teacher_script import (
     validate_teacher_script_section,
 )
 from teacher_course_space import teacher_course_space_repository
+from teacher_lesson_source import compile_original_lesson_plan_evidence
 from slide_deck_renderer import export_structured_slide_deck
 from representation_compiler import export_slide_deck_pptx
 from representation_edits import (
@@ -71,6 +73,7 @@ _background_jobs: set[asyncio.Task] = set()
 
 class GenerateLessonPlanRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
+    resume_job_id: str = Field(default="", max_length=160)
     source_package_id: str = Field(default="", max_length=160)
     source_asset_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
@@ -111,12 +114,18 @@ class RewriteLessonScriptRequest(BaseModel):
     base_revision_id: str
     section_node_id: str
     instruction: str = Field(min_length=1, max_length=2000)
+    material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
+
+
+class ResolveLessonScriptCandidateRequest(BaseModel):
+    accept: bool
 
 
 class CreateLessonPlanCandidateRequest(BaseModel):
     instruction: str = Field(min_length=1, max_length=2000)
     section_node_id: str = ""
     base_revision_id: str
+    material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
 
 
 class ResolveLessonPlanCandidateRequest(BaseModel):
@@ -404,6 +413,16 @@ def _lesson_projection(
                 "confirmed": script_confirmed,
                 "confirmed_at": str(script_confirmation.get("confirmed_at") or ""),
                 "sections": script_sections,
+                "ai_candidate": next(
+                    (
+                        deepcopy(candidate)
+                        for candidate in reversed(plan_asset.get("script_ai_candidates") or [])
+                        if isinstance(candidate, dict)
+                        and candidate.get("status") == "pending"
+                        and candidate.get("base_revision_id") == current_script_revision
+                    ),
+                    None,
+                ),
             },
             "plan": plan_asset,
         })
@@ -1107,14 +1126,16 @@ async def generate_lesson_plan(
 ):
     try:
         source = _source_course(tm, course_id)
-        lesson_scope(source, lesson_unit_id)
+        scope = lesson_scope(source, lesson_unit_id)
         source_evidence: list[dict[str, Any]] = []
         source_filename = ""
+        primary_source_kind = ""
+        primary_material_asset_id = ""
         actor = resolve_user_id(request.headers.get("X-User-Id"))
         if bool(body.source_package_id) != bool(body.source_asset_id):
             raise TeacherLessonAuthoringError(
-                "uploaded_ppt_source_incomplete",
-                "旧课件来源信息不完整。",
+                "lesson_primary_source_incomplete",
+                "主来源信息不完整。",
             )
         if body.source_package_id and body.source_asset_id:
             try:
@@ -1128,20 +1149,68 @@ async def generate_lesson_plan(
                 )
             except (FileNotFoundError, MaterialStorageError) as exc:
                 raise TeacherLessonAuthoringError(
-                    "uploaded_ppt_source_not_found",
-                    "旧课件来源不存在或无权访问。",
+                    "lesson_primary_source_not_found",
+                    "主来源不存在或无权访问。",
                 ) from exc
             if str(package.get("course_id") or "") != course_id:
                 raise TeacherLessonAuthoringError(
-                    "uploaded_ppt_course_mismatch",
-                    "旧课件不属于当前课程。",
+                    "lesson_primary_source_course_mismatch",
+                    "主来源不属于当前课程。",
                 )
             source_filename = str(source_asset.get("filename") or "")
-            source_evidence = await run_in_threadpool(
-                extract_uploaded_pptx_evidence,
-                source_path,
-                asset_id=body.source_asset_id,
-            )
+            extension = str(
+                source_asset.get("extension") or source_path.suffix or ""
+            ).lower()
+            if not extension.startswith(".") and extension:
+                extension = f".{extension}"
+            if extension == ".pptx":
+                primary_source_kind = "uploaded_ppt"
+                source_evidence = await run_in_threadpool(
+                    extract_uploaded_pptx_evidence,
+                    source_path,
+                    asset_id=body.source_asset_id,
+                )
+            elif extension in {".docx", ".pdf", ".md", ".markdown", ".txt"}:
+                primary_source_kind = "uploaded_lesson_plan"
+                primary_material_asset_id = str(
+                    source_asset.get("material_asset_id") or ""
+                )
+                try:
+                    material = (
+                        material_repository.get_asset(primary_material_asset_id)
+                        if primary_material_asset_id
+                        else None
+                    )
+                    document = (
+                        await parse_material_asset(material_repository, material)
+                        if material is not None
+                        else await parse_document_path(
+                            source_path,
+                            asset_id=body.source_asset_id,
+                            filename=source_filename or source_path.name,
+                        )
+                    )
+                except Exception as exc:
+                    raise TeacherLessonAuthoringError(
+                        "lesson_primary_source_parse_failed",
+                        "原教案解析失败，请检查文件后重试。",
+                    ) from exc
+                if document.parse_status not in {"parsed", "degraded"} or not document.blocks:
+                    raise TeacherLessonAuthoringError(
+                        "lesson_primary_source_parse_failed",
+                        "原教案没有提取到可用于生成的内容。",
+                    )
+                source_evidence = compile_original_lesson_plan_evidence(
+                    document,
+                    asset_id=(primary_material_asset_id or body.source_asset_id),
+                    filename=source_filename or source_path.name,
+                    sections=scope["sections"],
+                )
+            else:
+                raise TeacherLessonAuthoringError(
+                    "lesson_primary_source_unsupported",
+                    "主来源暂时支持 DOCX、PDF、Markdown、TXT 或 PPTX。",
+                )
         selected_material_ids, selected_evidence = _course_material_evidence(
             course_id, actor, body.material_asset_ids
         )
@@ -1154,17 +1223,43 @@ async def generate_lesson_plan(
                 "lesson_arrangement_not_confirmed",
                 "请先确认本讲课型与教学块，再生成教案。",
             )
+        input_fingerprint = stable_hash({
+            "lesson_unit_id": lesson_unit_id,
+            "source_outline_revision_id": outline_revision,
+            "source_package_id": body.source_package_id,
+            "source_asset_id": body.source_asset_id,
+            "requirements": body.requirements.strip(),
+            "material_asset_ids": sorted(selected_material_ids),
+            "arrangement": arrangement,
+        }, prefix="teacher-lesson-plan-input")
+        resume_checkpoint: dict[str, Any] = {}
+        if body.resume_job_id:
+            previous = repository.get_job(course_id, body.resume_job_id)
+            if (
+                previous.get("lesson_unit_id") == lesson_unit_id
+                and previous.get("type") == "teacher_lesson_plan_generation"
+                and previous.get("input_fingerprint") == input_fingerprint
+            ):
+                resume_checkpoint = deepcopy(previous.get("checkpoint") or {})
         job = repository.create_job(
             course_id,
             lesson_unit_id,
             request_id=body.request_id,
             source_outline_revision_id=outline_revision,
         )
+        job = repository.update_job(
+            course_id,
+            str(job["id"]),
+            input_fingerprint=input_fingerprint,
+            resume_from_job_id=(body.resume_job_id if resume_checkpoint else ""),
+            requirements=body.requirements,
+            material_asset_ids=selected_material_ids,
+        )
         if source_evidence:
             job_source_kind = (
                 "mixed_course_sources"
                 if body.source_asset_id and selected_material_ids
-                else "uploaded_ppt"
+                else primary_source_kind
                 if body.source_asset_id
                 else "course_materials"
             )
@@ -1178,6 +1273,7 @@ async def generate_lesson_plan(
                     or f"{len(selected_material_ids)} 份课程资料"
                 ),
                 source_kind=job_source_kind,
+                source_material_asset_id=primary_material_asset_id,
             )
         if job.get("status") in {"running", "completed", "completed_with_warnings"}:
             return {"job": job}
@@ -1220,6 +1316,12 @@ async def generate_lesson_plan(
                 on_phase=on_progress,
                 source_evidence=source_evidence,
                 lesson_arrangement=arrangement,
+                resume_checkpoint=resume_checkpoint,
+                on_checkpoint=lambda checkpoint: repository.update_job(
+                    course_id,
+                    str(job["id"]),
+                    checkpoint=checkpoint,
+                ),
             )
 
         async def run() -> None:
@@ -1255,6 +1357,21 @@ async def get_lesson_job(
                 course_id,
                 job_id,
             )
+        return {"job": job}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.delete("/courses/{course_id}/lesson-jobs/{job_id}")
+async def cancel_lesson_job(
+    course_id: str,
+    job_id: str,
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        job = await run_in_threadpool(repository.cancel_job, course_id, job_id)
         return {"job": job}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
@@ -1308,6 +1425,7 @@ async def stream_lesson_job(
                 "completed",
                 "completed_with_warnings",
                 "failed",
+                "cancelled",
             }
             if sequence > last_sequence or updated_at != last_updated_at:
                 last_sequence = sequence
@@ -1316,12 +1434,16 @@ async def stream_lesson_job(
                 event = (
                     "lesson_script_complete"
                     if script_job and status in {"completed", "completed_with_warnings"}
+                    else "lesson_script_cancelled"
+                    if script_job and status == "cancelled"
                     else "lesson_script_failed"
                     if script_job and status == "failed"
                     else "lesson_script_stream"
                     if script_job
                     else "lesson_plan_complete"
                     if status in {"completed", "completed_with_warnings"}
+                    else "lesson_plan_cancelled"
+                    if status == "cancelled"
                     else "lesson_plan_failed"
                     if status == "failed"
                     else "lesson_plan_stream"
@@ -1330,6 +1452,7 @@ async def stream_lesson_job(
                     "event": event,
                     "job": {
                         "id": job_id,
+                        "schema_version": str(job.get("schema_version") or ""),
                         "course_id": course_id,
                         "lesson_unit_id": str(job.get("lesson_unit_id") or ""),
                         "type": str(job.get("type") or ""),
@@ -1343,6 +1466,10 @@ async def stream_lesson_job(
                         "stream_sequence": sequence,
                         "stream_batches": deepcopy(job.get("stream_batches") or {}),
                         "stream_complete": bool(job.get("stream_complete")),
+                        "checkpoint": deepcopy(job.get("checkpoint") or {}),
+                        "cancel_requested": bool(job.get("cancel_requested")),
+                        "retryable": bool(job.get("retryable")),
+                        "heartbeat_at": str(job.get("heartbeat_at") or ""),
                         "requirements": str(job.get("requirements") or ""),
                         "total_blocks": int(job.get("total_blocks") or 0),
                         "completed_blocks": int(job.get("completed_blocks") or 0),
@@ -1795,7 +1922,7 @@ async def rewrite_lesson_script_candidate(
         selected_material_ids, source_evidence = _course_material_evidence(
             course_id,
             resolve_user_id(request.headers.get("X-User-Id")),
-            list(revision.get("material_asset_ids") or []),
+            body.material_asset_ids,
         )
         plan_revision = _plan_revision(
             repository,
@@ -1841,11 +1968,143 @@ async def rewrite_lesson_script_candidate(
             }, ensure_ascii=False),
             user_id=resolve_user_id(request.headers.get("X-User-Id")),
         )
-        return {
-            "base_revision_id": body.base_revision_id,
-            "section_node_id": body.section_node_id,
-            "replacement_text": str(result.get("replacement_text") or "").strip(),
+        replacement_text = str(result.get("replacement_text") or "").strip()
+        if not replacement_text:
+            raise TeacherLessonAuthoringError(
+                "lesson_script_candidate_empty",
+                "AI 没有生成可审阅的讲稿修改。",
+            )
+        candidate = repository.save_script_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            base_revision_id=body.base_revision_id,
+            section_node_id=body.section_node_id,
+            instruction=body.instruction.strip(),
+            replacement_text=replacement_text,
+            source_lesson_plan_revision_id=str(
+                revision.get("source_lesson_plan_revision_id") or ""
+            ),
+            material_asset_ids=selected_material_ids,
+        )
+        return {"candidate": candidate}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_unit_id}/script/ai-candidates/{candidate_id}/resolve"
+)
+async def resolve_lesson_script_candidate(
+    course_id: str,
+    lesson_unit_id: str,
+    candidate_id: str,
+    body: ResolveLessonScriptCandidateRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        source = _source_course(tm, course_id)
+        scope = lesson_scope(source, lesson_unit_id)
+        lesson = repository.lesson(course_id, lesson_unit_id)
+        candidate = repository.script_ai_candidate(
+            course_id, lesson_unit_id, candidate_id
+        )
+        if candidate.get("status") != "pending":
+            projected = next(
+                item for item in _lesson_projection(source, repository)
+                if item["lesson_unit_id"] == lesson_unit_id
+            )
+            return {"lesson": projected, "candidate": candidate}
+        base_revision_id = str(candidate.get("base_revision_id") or "")
+        if lesson.get("working_script_revision_id") != base_revision_id:
+            raise TeacherLessonAuthoringError(
+                "lesson_script_revision_conflict",
+                "讲稿工作稿已经变化，不能覆盖新修改。",
+            )
+        if not body.accept:
+            resolved = repository.mark_script_ai_candidate(
+                course_id,
+                lesson_unit_id,
+                candidate_id,
+                status="rejected",
+            )
+            projected = next(
+                item for item in _lesson_projection(source, repository)
+                if item["lesson_unit_id"] == lesson_unit_id
+            )
+            return {"lesson": projected, "candidate": resolved}
+
+        base_revision = _script_revision(
+            repository, course_id, lesson_unit_id, base_revision_id
+        )
+        plan_revision_id = str(candidate.get("source_lesson_plan_revision_id") or "")
+        plan_revision = _plan_revision(
+            repository, course_id, lesson_unit_id, plan_revision_id
+        )
+        plan_sections = {
+            str(item.get("node_id") or ""): item
+            for item in (plan_revision.get("plan") or {}).get("sections") or []
+            if isinstance(item, dict) and item.get("node_id")
         }
+        outline_sections = {
+            str(item.get("node_id") or ""): item for item in scope["sections"]
+        }
+        target_section_id = str(candidate.get("section_node_id") or "")
+        normalized_sections: list[dict[str, Any]] = []
+        for section in base_revision.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            section_id = str(section.get("section_node_id") or "")
+            candidate_section = deepcopy(section)
+            if section_id == target_section_id:
+                candidate_section.pop("blocks", None)
+                candidate_section["content"] = str(
+                    candidate.get("replacement_text") or ""
+                ).strip()
+            contract = compile_teacher_script_module_contract(
+                outline_sections.get(section_id) or {},
+                plan_sections.get(section_id) or {},
+            )
+            normalized = normalize_teacher_script_section(
+                candidate_section,
+                contract,
+            )
+            normalized["quality_report"] = validate_teacher_script_section(
+                normalized,
+                contract,
+            )
+            normalized_sections.append(normalized)
+        saved = repository.save_script_revision(
+            course_id,
+            lesson_unit_id,
+            normalized_sections,
+            source_lesson_plan_revision_id=plan_revision_id,
+            generation_source="ai_optimization",
+            requirements=str(base_revision.get("requirements") or ""),
+            material_asset_ids=list(
+                candidate.get("material_asset_ids")
+                or base_revision.get("material_asset_ids")
+                or []
+            ),
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+            expected_working_revision_id=base_revision_id,
+        )
+        accepted_revision_id = str(saved.get("working_script_revision_id") or "")
+        resolved = repository.mark_script_ai_candidate(
+            course_id,
+            lesson_unit_id,
+            candidate_id,
+            status="accepted",
+            result_revision_id=accepted_revision_id,
+        )
+        projected = next(
+            item for item in _lesson_projection(source, repository)
+            if item["lesson_unit_id"] == lesson_unit_id
+        )
+        return {"lesson": projected, "candidate": resolved}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -1855,12 +2114,19 @@ async def create_lesson_plan_candidate(
     course_id: str,
     lesson_unit_id: str,
     body: CreateLessonPlanCandidateRequest,
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
     ),
 ):
     try:
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        selected_material_ids, source_evidence = _course_material_evidence(
+            course_id,
+            actor,
+            body.material_asset_ids,
+        )
         lesson = repository.lesson(course_id, lesson_unit_id)
         if lesson.get("working_revision_id") != body.base_revision_id:
             raise TeacherLessonAuthoringError("lesson_plan_revision_conflict", "教案草稿已经变化，请重新打开后再优化。")
@@ -1877,6 +2143,7 @@ async def create_lesson_plan_candidate(
             plan=deepcopy(revision.get("plan") or {}),
             instruction=body.instruction,
             section_node_id=body.section_node_id,
+            material_evidence=_prompt_material_evidence(source_evidence),
         )
         candidate = repository.save_ai_candidate(
             course_id,
@@ -1885,6 +2152,7 @@ async def create_lesson_plan_candidate(
             instruction=body.instruction,
             section_node_id=body.section_node_id,
             plan=optimized["plan"],
+            material_asset_ids=selected_material_ids,
         )
         return {"candidate": candidate}
     except TeacherLessonAuthoringError as exc:

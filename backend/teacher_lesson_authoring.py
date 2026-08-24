@@ -34,6 +34,7 @@ from teacher_script import (
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
 LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
+TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
 LESSON_JOB_STALE_SECONDS = 300
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
@@ -538,33 +539,6 @@ def teacher_lesson_script_sections_revision(
     return f"tlsr-{digest}"
 
 
-def lesson_plan_ppt_source(
-    plan: dict[str, Any],
-    *,
-    lesson_unit_id: str,
-    source_revision_id: str,
-) -> dict[str, Any]:
-    """Compile the teacher-only source contract for one lesson deck."""
-    normalized_plan = normalize_teacher_lesson_plan(plan)
-    sections = [
-        deepcopy(item)
-        for item in normalized_plan.get("sections") or []
-        if isinstance(item, dict) and item.get("node_id")
-    ]
-    if not sections:
-        raise TeacherLessonAuthoringError(
-            "lesson_plan_empty",
-            "本讲教案没有可用于生成 PPT 的小节。",
-        )
-    return {
-        "schema_version": "teacher_lesson_ppt_source_v1",
-        "lesson_unit_id": lesson_unit_id,
-        "source_lesson_plan_revision_id": source_revision_id,
-        "title": str(plan.get("lesson_title") or plan.get("course_title") or "本讲课件"),
-        "sections": sections,
-    }
-
-
 def teacher_lesson_deck_to_structured_slide_deck(
     deck: dict[str, Any],
     *,
@@ -609,9 +583,9 @@ def teacher_lesson_v6_source(
     *,
     lesson_unit_id: str,
     plan_revision: dict[str, Any],
-    script_revision: dict[str, Any] | None = None,
+    script_revision: dict[str, Any],
 ) -> tuple[Any, dict[str, Any], str]:
-    """Adapt one teacher plan revision to the existing V6 source contracts.
+    """Adapt one confirmed teacher script revision to the V6 source contracts.
 
     The returned synthetic course id is stable for one real course + lesson,
     while the CourseDocument revision changes with the teacher plan. Nothing is
@@ -629,14 +603,31 @@ def teacher_lesson_v6_source(
     ).hexdigest()[:20]
     synthetic_course_id = f"teacher-lesson-{digest}"
     lesson_title = str(scope["lesson"].get("node_name") or "本讲课件")
+    script_revision_id = str(script_revision.get("revision_id") or "")
+    if not script_revision_id:
+        raise TeacherLessonAuthoringError(
+            "lesson_script_source_missing",
+            "PPT 必须使用已确认讲稿，当前讲稿修订标识缺失。",
+        )
     script_sections = {
-        str(item.get("section_node_id") or ""): deepcopy(item)
-        for item in (script_revision or {}).get("sections") or []
+        str(item.get("section_node_id") or ""): normalize_teacher_script_section(item)
+        for item in script_revision.get("sections") or []
         if isinstance(item, dict) and item.get("section_node_id")
     }
-    script_revision_id = str((script_revision or {}).get("revision_id") or "")
-    if not script_revision_id:
-        script_revision_id = teacher_lesson_script_revision(course_data, lesson_unit_id)
+    required_section_ids = [
+        str(item.get("node_id") or "") for item in scope["sections"]
+    ]
+    missing_sections = [
+        section_id
+        for section_id in required_section_ids
+        if section_id not in script_sections
+    ]
+    if missing_sections:
+        raise TeacherLessonAuthoringError(
+            "lesson_script_source_incomplete",
+            "已确认讲稿没有完整覆盖本讲全部小节，不能生成 PPT。",
+            details={"missing_section_node_ids": missing_sections},
+        )
     lesson_node = deepcopy(scope["lesson"])
     lesson_node.update({
         "node_id": lesson_unit_id,
@@ -651,26 +642,19 @@ def teacher_lesson_v6_source(
         section_id = str(outline_section.get("node_id") or "")
         planned = plan_sections.get(section_id) or {}
         section_content = teacher_lesson_section_content(planned)
-        modules = [
-            item for item in planned.get("teaching_modules") or []
-            if isinstance(item, dict)
-        ]
         blocks: list[dict[str, Any]] = []
         script_section = script_sections.get(section_id) or {}
         all_script_blocks = [
             item for item in script_section.get("blocks") or []
             if isinstance(item, dict) and str(item.get("content") or "").strip()
         ]
-        legacy_script_blocks = [
-            item for item in all_script_blocks
-            if str(item.get("module_id") or "") == "legacy_script"
-        ]
-        structured_script_blocks = (
-            []
-            if all_script_blocks and len(legacy_script_blocks) == len(all_script_blocks)
-            else all_script_blocks
-        )
-        for script_block in structured_script_blocks:
+        if not all_script_blocks:
+            raise TeacherLessonAuthoringError(
+                "lesson_script_source_incomplete",
+                "已确认讲稿仍有空白小节，不能生成 PPT。",
+                details={"section_node_id": section_id},
+            )
+        for script_block in all_script_blocks:
             module_id = str(script_block.get("module_id") or "core_explanation")
             role = str(script_block.get("role") or module_block_role(module_id))
             if role not in {
@@ -699,105 +683,9 @@ def teacher_lesson_v6_source(
                     "teacher_activity": str(script_block.get("teacher_activity") or ""),
                     "student_activity": str(script_block.get("student_activity") or ""),
                     "source_kind": "confirmed_teacher_script_block",
+                    "legacy_adapter": module_id == "legacy_script",
                 },
             })
-        script_content = str(
-            (legacy_script_blocks[0].get("content") if legacy_script_blocks else "")
-            or script_section.get("content")
-            or outline_section.get("node_content")
-            or ""
-        ).strip()
-        if script_content and not structured_script_blocks:
-            blocks.append({
-                "block_id": f"{section_id}-teacher-script",
-                "type": "concept",
-                "title": "讲稿正文",
-                "content": script_content,
-                "metadata": {
-                    "role": "concept",
-                    "source_kind": "confirmed_teacher_script",
-                },
-            })
-        for module_index, module in enumerate(
-            [] if structured_script_blocks else modules,
-            start=1,
-        ):
-            module_id = str(module.get("module_id") or "core_explanation")
-            role = module_block_role(module_id)
-            if role not in {
-                "orientation", "prerequisite", "objective", "concept", "reasoning",
-                "example", "counterexample", "application", "activity", "feedback",
-                "misconception", "checkpoint", "remediation", "summary", "transfer",
-            }:
-                role = "concept"
-            knowledge_names = [
-                str(item) for item in module.get("knowledge_names") or []
-                if str(item).strip()
-            ]
-            labels = {
-                "lesson_goal": "本节目标",
-                "core_explanation": "核心讲解",
-                "math_problem_strategy": "策略选择",
-                "math_worked_example": "例题推演",
-                "math_intuition": "直觉导入",
-                "math_representation": "多重表征",
-                "math_formalization": "正式定义",
-                "math_variation": "变式练习",
-                "learner_action": "学习者行动",
-                "feedback_check": "检查与反馈",
-            }
-            purpose = str(module.get("teaching_purpose") or "").strip()
-            if purpose.startswith("按模板完成"):
-                purpose = ""
-            guidance = str(module.get("teaching_guidance") or "").strip()
-            if guidance.startswith("按模板完成"):
-                guidance = ""
-            if module_id == "lesson_goal":
-                concrete = [section_content["learning_objective"]]
-            elif module_id in {"learner_action", "math_variation"}:
-                concrete = section_content["student_activities"]
-            elif module_id == "feedback_check":
-                concrete = [
-                    *section_content["homework"],
-                    *section_content["misconceptions"],
-                ]
-            else:
-                concrete = [
-                    *section_content["knowledge_statements"],
-                    *section_content["key_difficulties"],
-                ]
-            paragraphs = _unique_text([
-                *[str(item) for item in concrete if str(item).strip()],
-                purpose,
-                guidance,
-                f"教师活动：{module.get('teacher_activity')}" if module.get("teacher_activity") else "",
-                f"学生活动：{module.get('student_activity')}" if module.get("student_activity") else "",
-                f"知识要点：{'、'.join(knowledge_names)}" if knowledge_names else "",
-            ])
-            blocks.append({
-                "block_id": f"{section_id}-teacher-{module_index}",
-                "type": role,
-                "title": str(module.get("label") or labels.get(module_id) or module_id),
-                "content": "\n\n".join(item for item in paragraphs if item),
-                "metadata": {
-                    "role": role,
-                    "module_id": module_id,
-                    "module_instance_id": f"{section_id}:{module_id}:{module_index}",
-                    "concept_refs": knowledge_names,
-                },
-            })
-        if not blocks:
-            key_points = [str(item) for item in planned.get("key_points") or [] if str(item).strip()]
-            blocks = [{
-                "block_id": f"{section_id}-teacher-concept",
-                "type": "concept",
-                "title": str(outline_section.get("node_name") or "核心教学"),
-                "content": "\n\n".join(filter(None, [
-                    str(section_content.get("learning_objective") or outline_section.get("learning_objective") or ""),
-                    f"知识要点：{'、'.join(key_points)}" if key_points else "",
-                ])),
-                "metadata": {"role": "concept", "concept_refs": key_points},
-            }]
         node = deepcopy(outline_section)
         node.update({
             "node_id": section_id,
@@ -1041,11 +929,19 @@ class TeacherLessonAuthoringRepository:
                 else "等待生成本讲教案"
             )
             job = {
+                "schema_version": TEACHER_ASSET_JOB_SCHEMA_VERSION,
                 "id": job_id,
                 "course_id": course_id,
                 "lesson_unit_id": lesson_unit_id,
                 "type": job_type,
+                "asset_type": (
+                    "script"
+                    if job_type == "teacher_lesson_script_generation"
+                    else "lesson_plan"
+                ),
+                "state_owner": "teacher_lesson_authoring",
                 "request_id": request_id,
+                "idempotency_key": request_id,
                 "source_outline_revision_id": source_outline_revision_id,
                 "status": "pending",
                 "progress": 0,
@@ -1054,9 +950,13 @@ class TeacherLessonAuthoringRepository:
                 "stream_sequence": 0,
                 "stream_batches": {},
                 "stream_complete": False,
+                "checkpoint": {},
+                "cancel_requested": False,
+                "retryable": True,
                 "warnings": [],
                 "error": None,
                 "created_at": _now(),
+                "heartbeat_at": _now(),
                 "updated_at": _now(),
             }
             value.setdefault("jobs", {})[job_id] = job
@@ -1070,7 +970,26 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             job.update(deepcopy(changes))
-            job["updated_at"] = _now()
+            timestamp = _now()
+            job["updated_at"] = timestamp
+            if str(job.get("status") or "") in {"pending", "running"}:
+                job["heartbeat_at"] = timestamp
+            if "result_sections" in changes:
+                job["checkpoint"] = {
+                    "result_sections": deepcopy(changes.get("result_sections") or []),
+                    "completed_blocks": int(changes.get("completed_blocks") or 0),
+                    "current_block_id": str(changes.get("current_block_id") or ""),
+                    "saved_at": timestamp,
+                }
+            if str(job.get("status") or "") in {
+                "completed", "completed_with_warnings", "failed", "cancelled"
+            }:
+                job["completed_at"] = timestamp
+                job["retryable"] = bool(
+                    (job.get("error") or {}).get("retryable")
+                    if isinstance(job.get("error"), dict)
+                    else False
+                )
             value["jobs"][job_id] = job
             self._save(value)
             return deepcopy(job)
@@ -1107,7 +1026,43 @@ class TeacherLessonAuthoringRepository:
                 "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
                 "stream_batches": batches,
                 "stream_complete": False,
+                "heartbeat_at": _now(),
                 "updated_at": _now(),
+            })
+            value["jobs"][job_id] = job
+            self._save(value)
+            return deepcopy(job)
+
+    def cancel_job(self, course_id: str, job_id: str) -> dict[str, Any]:
+        """Cancel one durable teacher job while preserving its last checkpoint."""
+        with self._lock:
+            value = self.load(course_id)
+            job = (value.get("jobs") or {}).get(job_id)
+            if not isinstance(job, dict):
+                raise TeacherLessonAuthoringError(
+                    "teacher_job_not_found",
+                    "教师讲次任务不存在。",
+                )
+            if str(job.get("status") or "") in {
+                "completed", "completed_with_warnings", "failed", "cancelled"
+            }:
+                return deepcopy(job)
+            timestamp = _now()
+            job.update({
+                "status": "cancelled",
+                "phase": "teacher_asset_job_cancelled",
+                "message": "已停止生成，已完成的内容仍然保留",
+                "cancel_requested": True,
+                "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
+                "stream_complete": True,
+                "retryable": True,
+                "error": {
+                    "code": "teacher_asset_job_cancelled",
+                    "message": "生成已由教师停止，可以从已保存进度继续。",
+                    "retryable": True,
+                },
+                "completed_at": timestamp,
+                "updated_at": timestamp,
             })
             value["jobs"][job_id] = job
             self._save(value)
@@ -1174,68 +1129,6 @@ class TeacherLessonAuthoringRepository:
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
-    def save_ppt_revision(
-        self,
-        course_id: str,
-        lesson_unit_id: str,
-        deck: dict[str, Any],
-        *,
-        source_lesson_plan_revision_id: str,
-        generation_source: str = "model",
-        warnings: list[dict[str, Any]] | None = None,
-        actor: str = "teacher",
-        asset_role: str = "primary",
-    ) -> dict[str, Any]:
-        with self._lock:
-            value = self.load(course_id)
-            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
-            if not isinstance(lesson, dict):
-                raise TeacherLessonAuthoringError("lesson_plan_not_found", "请先生成本讲教案。")
-            if lesson.get("working_revision_id") != source_lesson_plan_revision_id:
-                raise TeacherLessonAuthoringError(
-                    "lesson_plan_revision_conflict",
-                    "教案草稿已经变化，请基于最新版本生成 PPT。",
-                )
-            assets = lesson.setdefault("ppt_assets", [])
-            asset = next(
-                (
-                    item for item in assets
-                    if isinstance(item, dict) and item.get("role") == asset_role
-                ),
-                None,
-            )
-            if asset is None:
-                asset = {
-                    "asset_id": f"tlpa-{uuid.uuid4().hex}",
-                    "lesson_unit_id": lesson_unit_id,
-                    "role": asset_role,
-                    "working_revision_id": "",
-                    "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
-                    "source_state": "current",
-                    "revisions": [],
-                    "ai_candidates": [],
-                }
-                assets.append(asset)
-            revision_id = f"tlpv-{uuid.uuid4().hex}"
-            revision = {
-                "revision_id": revision_id,
-                "lesson_unit_id": lesson_unit_id,
-                "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
-                "generation_source": generation_source,
-                "status": "needs_ai_review" if warnings else "draft",
-                "warnings": deepcopy(warnings or []),
-                "deck": deepcopy(deck),
-                "actor": actor,
-                "created_at": _now(),
-            }
-            asset.setdefault("revisions", []).append(revision)
-            asset["working_revision_id"] = revision_id
-            asset["source_lesson_plan_revision_id"] = source_lesson_plan_revision_id
-            asset["source_state"] = "current"
-            saved = self._save(value)
-            saved_lesson = saved["lessons"][lesson_unit_id]
-            return deepcopy(next(item for item in saved_lesson["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
-
     def bind_v6_ppt_revision(
         self,
         course_id: str,
@@ -1298,16 +1191,18 @@ class TeacherLessonAuthoringRepository:
             saved = self._save(value)
             return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
 
-    def save_ppt_ai_candidate(
+    def save_v6_ppt_ai_candidate(
         self,
         course_id: str,
         lesson_unit_id: str,
         *,
-        asset_id: str,
-        base_revision_id: str,
+        representation_id: str,
+        base_spec_id: str,
+        base_spec_revision: str,
+        page_id: str,
         instruction: str,
-        deck: dict[str, Any],
-        slide_indexes: list[int] | None = None,
+        candidate_page: dict[str, Any],
+        changed_fields: list[str],
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -1315,77 +1210,109 @@ class TeacherLessonAuthoringRepository:
             asset = next(
                 (
                     item for item in (lesson or {}).get("ppt_assets") or []
-                    if isinstance(item, dict) and item.get("asset_id") == asset_id
+                    if isinstance(item, dict)
+                    and item.get("role") == "primary"
+                    and item.get("engine") == "slide_deck_v6"
                 ),
                 None,
             )
             if not isinstance(asset, dict):
-                raise TeacherLessonAuthoringError("lesson_ppt_not_found", "本讲还没有可优化的 PPT。")
-            if asset.get("working_revision_id") != base_revision_id:
-                raise TeacherLessonAuthoringError("lesson_ppt_revision_conflict", "PPT 草稿已经变化，请重新优化。")
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_not_found", "本讲还没有可优化的 V6 PPT。"
+                )
+            if (
+                asset.get("working_representation_id") != representation_id
+                or not any(
+                    isinstance(item, dict)
+                    and item.get("spec_id") == base_spec_id
+                    and item.get("representation_id") == representation_id
+                    for item in asset.get("v6_revisions") or []
+                )
+            ):
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_revision_conflict",
+                    "PPT 工作稿已经变化，请重新生成 AI 候选。",
+                )
+            for item in asset.get("v6_ai_candidates") or []:
+                if isinstance(item, dict) and item.get("status") == "pending":
+                    item["status"] = "superseded"
+                    item["resolved_at"] = _now()
             candidate = {
-                "candidate_id": f"tlpac-{uuid.uuid4().hex}",
-                "asset_id": asset_id,
-                "base_revision_id": base_revision_id,
+                "candidate_id": f"tlv6ac-{uuid.uuid4().hex}",
+                "representation_id": representation_id,
+                "base_spec_id": base_spec_id,
+                "base_spec_revision": base_spec_revision,
+                "page_id": page_id,
                 "instruction": instruction,
-                "slide_indexes": list(slide_indexes or []),
-                "deck": deepcopy(deck),
+                "candidate_page": deepcopy(candidate_page),
+                "changed_fields": list(changed_fields),
                 "status": "pending",
                 "created_at": _now(),
             }
-            asset.setdefault("ai_candidates", []).append(candidate)
+            asset.setdefault("v6_ai_candidates", []).append(candidate)
             self._save(value)
             return deepcopy(candidate)
 
-    def resolve_ppt_ai_candidate(
+    def pending_v6_ppt_ai_candidate(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        representation_id: str,
+        spec_id: str,
+        spec_revision: str,
+    ) -> dict[str, Any] | None:
+        lesson = self.lesson(course_id, lesson_unit_id)
+        for asset in lesson.get("ppt_assets") or []:
+            if not isinstance(asset, dict) or asset.get("role") != "primary":
+                continue
+            for candidate in reversed(asset.get("v6_ai_candidates") or []):
+                if (
+                    isinstance(candidate, dict)
+                    and candidate.get("status") == "pending"
+                    and candidate.get("representation_id") == representation_id
+                    and candidate.get("base_spec_id") == spec_id
+                    and candidate.get("base_spec_revision") == spec_revision
+                ):
+                    return deepcopy(candidate)
+        return None
+
+    def mark_v6_ppt_ai_candidate(
         self,
         course_id: str,
         lesson_unit_id: str,
         candidate_id: str,
         *,
-        accept: bool,
-        actor: str = "teacher",
+        status: str,
+        result_spec_id: str = "",
     ) -> dict[str, Any]:
+        if status not in {"accepted", "rejected", "superseded"}:
+            raise ValueError("unsupported V6 candidate status")
         with self._lock:
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
-            assets = (lesson or {}).get("ppt_assets") or []
-            asset = next(
+            candidate = next(
                 (
-                    item for item in assets
-                    if isinstance(item, dict)
-                    and any(
-                        isinstance(candidate, dict) and candidate.get("candidate_id") == candidate_id
-                        for candidate in item.get("ai_candidates") or []
-                    )
+                    candidate
+                    for asset in (lesson or {}).get("ppt_assets") or []
+                    if isinstance(asset, dict)
+                    for candidate in asset.get("v6_ai_candidates") or []
+                    if isinstance(candidate, dict)
+                    and candidate.get("candidate_id") == candidate_id
                 ),
                 None,
             )
-            if not isinstance(asset, dict):
-                raise TeacherLessonAuthoringError("lesson_ppt_candidate_not_found", "AI PPT 候选不存在。")
-            candidate = next(item for item in asset["ai_candidates"] if item.get("candidate_id") == candidate_id)
-            if candidate.get("status") != "pending":
-                return deepcopy(asset)
-            if asset.get("working_revision_id") != candidate.get("base_revision_id"):
-                raise TeacherLessonAuthoringError("lesson_ppt_revision_conflict", "PPT 草稿已经变化，不能覆盖新修改。")
-            candidate["status"] = "accepted" if accept else "rejected"
-            candidate["resolved_at"] = _now()
-            if not accept:
-                saved = self._save(value)
-                return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
-            deck = deepcopy(candidate.get("deck") or {})
-            source_revision = str(asset.get("source_lesson_plan_revision_id") or "")
-            asset_role = str(asset.get("role") or "primary")
-            self._save(value)
-        return self.save_ppt_revision(
-            course_id,
-            lesson_unit_id,
-            deck,
-            source_lesson_plan_revision_id=source_revision,
-            generation_source="ai_optimization",
-            actor=actor,
-            asset_role=asset_role,
-        )
+            if not isinstance(candidate, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_candidate_not_found", "AI PPT 候选不存在。"
+                )
+            if candidate.get("status") == "pending":
+                candidate["status"] = status
+                candidate["resolved_at"] = _now()
+                if result_spec_id:
+                    candidate["result_spec_id"] = result_spec_id
+                self._save(value)
+            return deepcopy(candidate)
 
     def get_job(self, course_id: str, job_id: str) -> dict[str, Any]:
         value = self.load(course_id)
@@ -1532,6 +1459,7 @@ class TeacherLessonAuthoringRepository:
         requirements: str = "",
         material_asset_ids: list[str] | None = None,
         actor: str = "teacher",
+        expected_working_revision_id: str | None = None,
     ) -> dict[str, Any]:
         normalized_sections = []
         for item in sections:
@@ -1608,6 +1536,15 @@ class TeacherLessonAuthoringRepository:
                     "lesson_plan_not_found",
                     "请先生成并确认本讲教案。",
                 )
+            if (
+                expected_working_revision_id is not None
+                and lesson.get("working_script_revision_id")
+                != expected_working_revision_id
+            ):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_revision_conflict",
+                    "讲稿工作稿已经变化，请基于当前版本重新修改。",
+                )
             if lesson.get("confirmed_revision_id") != source_lesson_plan_revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_plan_revision_conflict",
@@ -1650,6 +1587,110 @@ class TeacherLessonAuthoringRepository:
                     asset["source_state"] = "stale"
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
+
+    def save_script_ai_candidate(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        base_revision_id: str,
+        section_node_id: str,
+        instruction: str,
+        replacement_text: str,
+        source_lesson_plan_revision_id: str,
+        material_asset_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_not_found",
+                    "请先生成并确认本讲教案。",
+                )
+            if lesson.get("working_script_revision_id") != base_revision_id:
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_revision_conflict",
+                    "讲稿工作稿已经变化，请重新生成 AI 候选。",
+                )
+            for item in lesson.get("script_ai_candidates") or []:
+                if isinstance(item, dict) and item.get("status") == "pending":
+                    item["status"] = "superseded"
+                    item["resolved_at"] = _now()
+            candidate = {
+                "candidate_id": f"tlsac-{uuid.uuid4().hex}",
+                "lesson_unit_id": lesson_unit_id,
+                "base_revision_id": base_revision_id,
+                "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                "section_node_id": section_node_id,
+                "instruction": instruction,
+                "replacement_text": replacement_text,
+                "material_asset_ids": list(dict.fromkeys(
+                    str(item).strip()
+                    for item in material_asset_ids or []
+                    if str(item).strip()
+                )),
+                "status": "pending",
+                "created_at": _now(),
+            }
+            lesson.setdefault("script_ai_candidates", []).append(candidate)
+            self._save(value)
+            return deepcopy(candidate)
+
+    def script_ai_candidate(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        candidate_id: str,
+    ) -> dict[str, Any]:
+        lesson = self.lesson(course_id, lesson_unit_id)
+        candidate = next(
+            (
+                item for item in lesson.get("script_ai_candidates") or []
+                if isinstance(item, dict) and item.get("candidate_id") == candidate_id
+            ),
+            None,
+        )
+        if not isinstance(candidate, dict):
+            raise TeacherLessonAuthoringError(
+                "lesson_script_candidate_not_found",
+                "AI 讲稿候选不存在。",
+            )
+        return deepcopy(candidate)
+
+    def mark_script_ai_candidate(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        candidate_id: str,
+        *,
+        status: str,
+        result_revision_id: str = "",
+    ) -> dict[str, Any]:
+        if status not in {"accepted", "rejected", "superseded"}:
+            raise ValueError("unsupported script candidate status")
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            candidate = next(
+                (
+                    item for item in (lesson or {}).get("script_ai_candidates") or []
+                    if isinstance(item, dict) and item.get("candidate_id") == candidate_id
+                ),
+                None,
+            )
+            if not isinstance(candidate, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_candidate_not_found",
+                    "AI 讲稿候选不存在。",
+                )
+            if candidate.get("status") == "pending":
+                candidate["status"] = status
+                candidate["resolved_at"] = _now()
+                if result_revision_id:
+                    candidate["result_revision_id"] = result_revision_id
+                self._save(value)
+            return deepcopy(candidate)
 
     def confirm_script_revision(
         self,
@@ -1726,6 +1767,7 @@ class TeacherLessonAuthoringRepository:
         instruction: str,
         plan: dict[str, Any],
         section_node_id: str = "",
+        material_asset_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -1740,6 +1782,11 @@ class TeacherLessonAuthoringRepository:
                 "base_revision_id": base_revision_id,
                 "instruction": instruction,
                 "section_node_id": section_node_id,
+                "material_asset_ids": sorted({
+                    str(value).strip()
+                    for value in (material_asset_ids or [])
+                    if str(value).strip()
+                }),
                 "plan": deepcopy(plan),
                 "status": "pending",
                 "created_at": _now(),
@@ -1969,6 +2016,8 @@ class TeacherLessonAuthoringService:
             _phase_progress: int = 0,
             phase_detail: dict[str, Any] | None = None,
         ) -> None:
+            if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+                raise asyncio.CancelledError
             changes: dict[str, Any] = {
                 "phase": phase,
                 "progress": max(5, min(95, int(progress))),
@@ -1997,6 +2046,8 @@ class TeacherLessonAuthoringService:
 
         try:
             result = await planner(course_data, lesson_unit_id, on_progress)
+            if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+                raise asyncio.CancelledError
             plan = result.get("plan") if isinstance(result, dict) else None
             if not isinstance(plan, dict) or not plan.get("sections"):
                 raise TeacherLessonAuthoringError(
@@ -2205,6 +2256,8 @@ class TeacherLessonAuthoringService:
                     current_block_title = str(module.get("title") or "教学块")
                     if current_block_id in completed_ids:
                         continue
+                    if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+                        raise asyncio.CancelledError
                     block_states[current_block_id] = "running"
                     current_job = self.repository.get_job(course_id, job_id)
                     self.repository.update_job(
@@ -2223,6 +2276,8 @@ class TeacherLessonAuthoringService:
                         module,
                         deepcopy(completed),
                     ) or "").strip()
+                    if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+                        raise asyncio.CancelledError
                     if not content:
                         raise TeacherLessonAuthoringError(
                             "lesson_script_block_empty",
@@ -2329,72 +2384,4 @@ class TeacherLessonAuthoringService:
                     "message": str(exc),
                     "retryable": True,
                 },
-            )
-
-    async def run_ppt_job(
-        self,
-        *,
-        course_id: str,
-        lesson_unit_id: str,
-        job_id: str,
-        source_revision_id: str,
-        source: dict[str, Any],
-        generator: Callable[[dict[str, Any], Callable[..., Awaitable[None]]], Awaitable[dict[str, Any]]],
-    ) -> dict[str, Any]:
-        self.repository.update_job(
-            course_id,
-            job_id,
-            status="running",
-            phase="lesson_ppt_generation",
-            progress=5,
-            message="正在生成本讲 PPT",
-        )
-
-        async def on_progress(phase: str, progress: int, message: str) -> None:
-            self.repository.update_job(
-                course_id,
-                job_id,
-                phase=phase,
-                progress=max(5, min(95, int(progress))),
-                message=message,
-            )
-
-        try:
-            result = await generator(source, on_progress)
-            deck = result.get("deck") if isinstance(result, dict) else None
-            if not isinstance(deck, dict) or not deck.get("slides"):
-                raise TeacherLessonAuthoringError("lesson_ppt_empty", "本讲 PPT 生成结果为空。")
-            warnings = list(result.get("warnings") or [])
-            asset = self.repository.save_ppt_revision(
-                course_id,
-                lesson_unit_id,
-                deck,
-                source_lesson_plan_revision_id=source_revision_id,
-                generation_source=str(result.get("generation_source") or "model"),
-                warnings=warnings,
-            )
-            status = "completed_with_warnings" if warnings else "completed"
-            return self.repository.update_job(
-                course_id,
-                job_id,
-                status=status,
-                phase="lesson_ppt_ready",
-                progress=100,
-                message="本讲 PPT 已生成" if not warnings else "本讲基础 PPT 已生成，建议继续 AI 优化",
-                warnings=warnings,
-                result_revision_id=asset.get("working_revision_id"),
-                result_asset_id=asset.get("asset_id"),
-                error=None,
-            )
-        except Exception as exc:
-            if isinstance(exc, asyncio.CancelledError):
-                raise
-            code = exc.code if isinstance(exc, TeacherLessonAuthoringError) else "lesson_ppt_generation_failed"
-            return self.repository.update_job(
-                course_id,
-                job_id,
-                status="failed",
-                phase="lesson_ppt_failed",
-                message="本讲 PPT 生成失败",
-                error={"code": code, "message": str(exc), "retryable": True},
             )

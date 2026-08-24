@@ -91,8 +91,12 @@ describe('统一讲稿页面', () => {
 
   it('把用户要求生成成页面内候选，采用后才写入正式正文', async () => {
     const store = useTeacherLessonAuthoringStore()
-    const rewrite = vi.spyOn(store, 'rewriteScriptSection').mockResolvedValue({ replacement_text: 'AI 候选讲稿' } as any)
-    const save = vi.spyOn(store, 'saveScriptDraft').mockResolvedValue(lesson as any)
+    const rewrite = vi.spyOn(store, 'rewriteScriptSection').mockResolvedValue({
+      candidate_id: 'script-candidate-1',
+      section_node_id: 'section-1',
+      replacement_text: 'AI 候选讲稿',
+    } as any)
+    const resolve = vi.spyOn(store, 'resolveScriptAiCandidate').mockResolvedValue(lesson as any)
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
 
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('AI 优化'))!.trigger('click')
@@ -100,16 +104,14 @@ describe('统一讲稿页面', () => {
     await (wrapper.vm as any).requestAiCandidate('增加一个真实课堂案例')
     await flushPromises()
 
-    expect(rewrite).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-1', 'section-1', '增加一个真实课堂案例')
+    expect(rewrite).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-1', 'section-1', '增加一个真实课堂案例', [])
     expect(wrapper.get('.script-content').attributes('data-state')).toBe('candidate')
     expect(wrapper.findComponent(MarkdownRenderer).props('content')).toBe('AI 候选讲稿')
-    expect(save).not.toHaveBeenCalled()
+    expect(resolve).not.toHaveBeenCalled()
 
     await (wrapper.vm as any).resolveAiCandidate(true)
     await flushPromises()
-    expect(save).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-1', [
-      { section_node_id: 'section-1', title: '1.1 爬虫基础', content: 'AI 候选讲稿' },
-    ])
+    expect(resolve).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-candidate-1', true)
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
@@ -194,5 +196,13 @@ describe('统一讲稿页面', () => {
     })
     expect(wrapper.find('.script-generate').exists()).toBe(false)
     expect(wrapper.get('.script-generation-progress').text()).toContain('正在生成：核心教学')
+    await wrapper.get('.script-generation-progress button').trigger('click')
+    expect(wrapper.emitted('cancel-generation')).toHaveLength(1)
+
+    await wrapper.setProps({
+      generating: false,
+      generationJob: { ...generationJob, status: 'cancelled', message: '已停止生成，已完成内容仍然保留' },
+    })
+    expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
   })
 })

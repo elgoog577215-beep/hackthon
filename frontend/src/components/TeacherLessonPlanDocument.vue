@@ -251,12 +251,14 @@ const props = withDefaults(defineProps<{
   confirming?: boolean
   confirmError?: string
   activeSectionId?: string
+  materialAssetIds?: string[]
 }>(), {
   confirmed: false,
   assistantOpen: false,
   confirming: false,
   confirmError: '',
   activeSectionId: '',
+  materialAssetIds: () => [],
 })
 
 const emit = defineEmits<{
@@ -479,6 +481,7 @@ async function requestAiCandidate(instructionValue: string): Promise<TeacherLess
       workingRevision.value.revision_id,
       instruction,
       selectedSectionId.value,
+      props.materialAssetIds,
     )
     return pendingCandidate.value
   } catch (error: any) {

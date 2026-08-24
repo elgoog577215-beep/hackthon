@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity, withApiBase } from '../utils/http'
 
-export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed'
+export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
 export interface TeacherLessonPlanRevision {
   revision_id: string
@@ -80,6 +80,19 @@ export interface TeacherLessonScriptState {
   confirmed: boolean
   confirmed_at: string
   sections: TeacherLessonScriptSection[]
+  ai_candidate?: TeacherLessonScriptCandidate | null
+}
+
+export interface TeacherLessonScriptCandidate {
+  candidate_id: string
+  base_revision_id: string
+  source_lesson_plan_revision_id: string
+  section_node_id: string
+  instruction: string
+  replacement_text: string
+  material_asset_ids: string[]
+  status: 'pending' | 'accepted' | 'rejected' | 'superseded'
+  created_at: string
 }
 
 export interface TeacherLessonScriptBlock {
@@ -217,7 +230,8 @@ export interface TeacherLessonJob {
 
 export interface TeacherLessonJobStreamEvent {
   event: 'lesson_plan_stream' | 'lesson_plan_complete' | 'lesson_plan_failed'
-    | 'lesson_script_stream' | 'lesson_script_complete' | 'lesson_script_failed' | 'error'
+    | 'lesson_plan_cancelled' | 'lesson_script_stream' | 'lesson_script_complete'
+    | 'lesson_script_failed' | 'lesson_script_cancelled' | 'error'
   job?: TeacherLessonJob
   job_id?: string
   message?: string
@@ -428,6 +442,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       source?: { packageId: string; assetId: string },
       requirements = '',
       materialAssetIds: string[] = [],
+      resumeJobId = '',
     ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -436,6 +451,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/generate`,
           {
             request_id: crypto.randomUUID(),
+            resume_job_id: resumeJobId,
             source_package_id: source?.packageId || '',
             source_asset_id: source?.assetId || '',
             requirements,
@@ -494,7 +510,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         )
         const job = response.data.job
         this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
-        if (['completed', 'completed_with_warnings', 'failed'].includes(job.status)) {
+        if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(job.status)) {
           await this.load(courseId)
           return job
         }
@@ -523,13 +539,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             return
           }
           this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
-          terminal = ['completed', 'completed_with_warnings', 'failed'].includes(job.status)
+          terminal = ['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(job.status)
         })
         if (terminal) await this.load(courseId)
         return this.jobs.find(item => item.id === jobId)
       } catch {
         const current = this.jobs.find(item => item.id === jobId)
-        if (current && !['completed', 'completed_with_warnings', 'failed'].includes(current.status)) {
+        if (current && !['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(current.status)) {
           return this.pollJob(courseId, jobId)
         }
         return current
@@ -538,6 +554,15 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         delete next[jobId]
         this.streamingJobIds = next
       }
+    },
+    async cancelJob(courseId: string, jobId: string) {
+      const response = await http.delete<{ job: TeacherLessonJob }>(
+        `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}`,
+        requestConfig(),
+      )
+      const job = response.data.job
+      this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
+      return job
     },
     async saveDraft(courseId: string, lessonUnitId: string, plan: Record<string, any>) {
       const response = await http.patch<{ lesson: TeacherLessonPlanAsset }>(
@@ -643,27 +668,42 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       baseRevisionId: string,
       sectionNodeId: string,
       instruction: string,
+      materialAssetIds: string[] = [],
     ) {
       this.error = ''
       try {
-        const response = await http.post<{
-          base_revision_id: string
-          section_node_id: string
-          replacement_text: string
-        }>(
+        const response = await http.post<{ candidate: TeacherLessonScriptCandidate }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/rewrite-candidate`,
           {
             base_revision_id: baseRevisionId,
             section_node_id: sectionNodeId,
             instruction,
+            material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
           requestConfig(),
         )
-        return response.data
+        return response.data.candidate
       } catch (error) {
         this.error = errorMessage(error, 'AI 优化讲稿失败')
         throw error
       }
+    },
+    async resolveScriptAiCandidate(
+      courseId: string,
+      lessonUnitId: string,
+      candidateId: string,
+      accept: boolean,
+    ) {
+      const response = await http.post<{
+        lesson: TeacherLessonProjection
+        candidate: TeacherLessonScriptCandidate
+      }>(
+        `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/ai-candidates/${candidateId}/resolve`,
+        { accept },
+        requestConfig(),
+      )
+      this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+      return response.data
     },
     async createAiCandidate(
       courseId: string,
@@ -671,6 +711,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       baseRevisionId: string,
       instruction: string,
       sectionNodeId = '',
+      materialAssetIds: string[] = [],
     ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -681,6 +722,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             instruction,
             section_node_id: sectionNodeId,
             base_revision_id: baseRevisionId,
+            material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
           requestConfig(),
         )

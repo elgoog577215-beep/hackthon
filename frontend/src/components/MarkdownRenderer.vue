@@ -190,6 +190,7 @@ watch(renderedContent, () => {
  * chunks; no text is withheld or revealed on a timer.
  */
 let pendingFrame = 0
+let lastContent = ''
 
 const scheduleUpdate = () => {
     if (pendingFrame) return
@@ -204,7 +205,23 @@ const scheduleUpdate = () => {
 }
 
 watch(() => [props.content, props.searchWords], () => {
-    scheduleUpdate()
+    const nextContent = props.content || ''
+    const isStreamingAppend = Boolean(
+        lastContent
+        && nextContent.length > lastContent.length
+        && nextContent.startsWith(lastContent),
+    )
+    lastContent = nextContent
+    // Token-by-token append stays frame-batched. Switching lesson/script scope
+    // is a replacement, so render it immediately instead of leaving the newly
+    // selected document blank until a later animation frame.
+    if (isStreamingAppend) {
+        scheduleUpdate()
+        return
+    }
+    if (pendingFrame) cancelAnimationFrame(pendingFrame)
+    pendingFrame = 0
+    updateContent()
 }, { immediate: true, flush: 'sync' })
 
 onBeforeUnmount(() => {

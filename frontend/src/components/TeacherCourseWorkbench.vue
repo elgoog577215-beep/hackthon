@@ -227,7 +227,10 @@
 
         <template v-else-if="activeStage === 'lesson'">
           <section v-if="lessonGenerationActive" class="generation-surface lesson-generation-surface" aria-live="polite">
-            <header><div><LoaderCircle :size="18" class="spin" /><span><strong>{{ t('courseWorkbench.generatingLessonPlan', '正在生成本讲教案') }}</strong><small>{{ lessonJob?.message || selectedLesson?.title }}</small></span></div></header>
+            <header>
+              <div><LoaderCircle :size="18" class="spin" /><span><strong>{{ t('courseWorkbench.generatingLessonPlan', '正在生成本讲教案') }}</strong><small>{{ lessonJob?.message || selectedLesson?.title }}</small></span></div>
+              <button type="button" @click="cancelLessonGeneration">{{ t('courseWorkbench.stopGeneration', '停止') }}</button>
+            </header>
             <div class="generation-progress"><i :style="{ transform: `scaleX(${lessonGenerationProgress / 100})` }" /></div>
             <article v-if="lessonStreamSegments.length" class="lesson-stream-document" :aria-label="t('courseWorkbench.lessonStreamDraft', 'AI 工作稿')">
               <small>{{ t('courseWorkbench.lessonStreamDraft', 'AI 工作稿') }}</small>
@@ -251,7 +254,11 @@
               <button class="primary" type="submit" :disabled="lessonBusy || lessonGenerationActive || !selectedLessonId">
                 <LoaderCircle v-if="lessonBusy" :size="16" class="spin" />
                 <Sparkles v-else :size="16" />
-                {{ lessonGenerationFailed ? t('courseWorkbench.retryLessonPlan', '重新生成本讲教案') : t('courseWorkbench.generateLessonPlan', '生成本讲教案') }}
+                {{ lessonJob?.status === 'cancelled'
+                  ? t('courseWorkbench.continueLessonPlan', '继续生成本讲教案')
+                  : lessonGenerationFailed
+                    ? t('courseWorkbench.retryLessonPlan', '重新生成本讲教案')
+                    : t('courseWorkbench.generateLessonPlan', '生成本讲教案') }}
               </button>
             </form>
             <AppErrorNotice v-if="lessonGenerationErrorPresentation" class="lesson-generation-error" :presentation="lessonGenerationErrorPresentation" compact />
@@ -266,6 +273,7 @@
             :confirming="lessonConfirming"
             :confirm-error="lessonConfirmError"
             :active-section-id="selectedLessonSectionId"
+            :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
             @update:active-section-id="selectLessonSection(selectedLesson.lesson_unit_id, $event)"
             @confirm="confirmLessonPlan"
             @next="activeStage = 'question-bank'"
@@ -284,6 +292,7 @@
             :course-id="courseId"
             :lesson="selectedLesson"
             :assistant-open="aiCollaborationOpen && aiDomain === 'script'"
+            :material-asset-ids="activeReferences.map(item => item.asset_id)"
             :confirmed="scriptConfirmed"
             :confirming="scriptConfirming"
             :confirm-error="scriptConfirmError"
@@ -292,6 +301,7 @@
             :generation-error="effectiveScriptGenerationError"
             :can-generate="Boolean(confirmedLessonRevision)"
             @generate="generateScript"
+            @cancel-generation="cancelScriptGeneration"
             @saved="handleScriptSaved"
             @confirm="confirmScript"
             @next="activeStage = 'ppt'"
@@ -694,9 +704,11 @@ const generationErrorPresentation = computed(() => generationError.value ? toApp
 }) : null)
 const lessonJob = computed(() => selectedLessonId.value ? lessonStore.latestJobByLesson(selectedLessonId.value) : undefined)
 const lessonGenerationActive = computed(() => ['pending', 'running'].includes(String(lessonJob.value?.status || '')))
-const lessonGenerationFailed = computed(() => lessonJob.value?.status === 'failed')
+const lessonGenerationFailed = computed(() => ['failed', 'cancelled'].includes(String(lessonJob.value?.status || '')))
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
-const lessonGenerationError = computed(() => String(lessonJob.value?.error?.message || lessonConfirmError.value || lessonStore.error || ''))
+const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancelled'
+  ? ''
+  : String(lessonJob.value?.error?.message || lessonConfirmError.value || lessonStore.error || ''))
 const lessonGenerationErrorPresentation = computed(() => lessonGenerationError.value ? toAppError(
   lessonJob.value?.error || lessonGenerationError.value,
   {
@@ -711,7 +723,9 @@ const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScri
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
 const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptGenerationActive.value)
 const effectiveScriptGenerationError = computed(() => String(
-  scriptJob.value?.status === 'failed'
+  scriptJob.value?.status === 'cancelled'
+    ? ''
+    : scriptJob.value?.status === 'failed'
     ? scriptJob.value.error?.message || scriptGenerationError.value
     : scriptGenerationError.value,
 ))
@@ -1118,18 +1132,27 @@ async function generateLessonPlan() {
     }
     await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', lesson.title)
     const primary = activeReferences.value.find(item => item.role === 'primary')
-    await lessonStore.generateLesson(
+    const generationArgs = [
       props.courseId,
       selectedLessonId.value,
       primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined,
       lessonRequirements.value,
       activeReferences.value.map(item => item.material_asset_id),
-    )
+    ] as const
+    if (lessonGenerationFailed.value && lessonJob.value?.id) {
+      await lessonStore.generateLesson(...generationArgs, lessonJob.value.id)
+    } else {
+      await lessonStore.generateLesson(...generationArgs)
+    }
   } catch {
     lessonConfirmError.value = lessonStore.error || t('courseWorkbench.arrangement.confirmFailed', '本讲教学结构准备失败，请重试。')
   } finally {
     lessonBusy.value = false
   }
+}
+async function cancelLessonGeneration() {
+  if (!lessonJob.value || !lessonGenerationActive.value) return
+  await lessonStore.cancelJob(props.courseId, lessonJob.value.id).catch(() => undefined)
 }
 async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision); activeStage.value = 'question-bank' } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
 function selectLesson(lessonId?: string) {
@@ -1195,13 +1218,18 @@ async function generateScript(requirements: string) {
       selectedLessonId.value,
       requirements,
       activeReferences.value.map(item => item.material_asset_id),
-      scriptJob.value?.status === 'failed' ? scriptJob.value.id : '',
+      ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) ? scriptJob.value?.id || '' : '',
     )
   } catch {
     scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed', '本讲讲稿生成失败，请重试。')
   } finally {
     scriptGenerating.value = false
   }
+}
+async function cancelScriptGeneration() {
+  if (!scriptJob.value || !scriptGenerationActive.value) return
+  scriptGenerationError.value = ''
+  await lessonStore.cancelJob(props.courseId, scriptJob.value.id).catch(() => undefined)
 }
 async function confirmScript() {
   const revision = selectedLesson.value?.script.current_revision_id

@@ -15,8 +15,8 @@ from course_pedagogy import MODULES, module_block_role
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-SCRIPT_PIPELINE_VERSION = "structured_teacher_script_v1"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v1"
+SCRIPT_PIPELINE_VERSION = "structured_teacher_script_v2"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v2"
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -55,6 +55,55 @@ def _stable_block_id(section_id: str, module_id: str, index: int) -> str:
         f"{section_id}:{module_id}:{index}".encode("utf-8")
     ).hexdigest()[:12]
     return f"tsb-{digest}"
+
+
+def teacher_script_artifact_contract(
+    module_id: str,
+    role: str,
+) -> dict[str, Any]:
+    """Translate the shared pedagogy module into a teacher-script artifact rule.
+
+    This deliberately derives from ``MODULES`` instead of adding a second
+    discipline registry.  The lesson plan decides the module; the script stage
+    only makes its concrete classroom artifact and integrity checks explicit.
+    """
+    module = _text(module_id)
+    discipline = (
+        "math" if module.startswith("math_")
+        else "engineering" if module.startswith("engineering_")
+        else "science" if module.startswith("science_")
+        else "life" if module.startswith("life_")
+        else "humanities" if module.startswith("humanities_")
+        else "language" if module.startswith("language_")
+        else "business" if module.startswith("business_")
+        else "general"
+    )
+    hard_artifact = ""
+    if module == "engineering_minimal_run":
+        hard_artifact = "fenced_code"
+    elif module in {"math_formalization", "math_worked_example", "math_proof"}:
+        hard_artifact = "formula"
+    guidance = {
+        "math": "公式、定义、推导步骤与结论必须成对完整；逐步说明前提、依据、边界和结果核验。",
+        "engineering": "代码、命令或配置使用完整 Markdown 围栏；写明环境前提、输入、运行方式、预期输出和排错检查。",
+        "science": "区分观察、假设、证据、模型和结论；实验写明变量、对照、测量、不确定性与安全边界。",
+        "life": "先明确层级与位置，再连接结构、功能和机制；区分正常与异常，不提供个人诊疗建议。",
+        "humanities": "区分材料事实、解释与主张；交代来源语境、论证链、替代解释和证据限制。",
+        "language": "提供目标语块、使用情境、教师示范、学生输出任务与可执行的反馈修正。",
+        "business": "写清角色、目标、约束、选项、取舍、交付物和可区分质量的评价标准。",
+        "general": "内容必须落到具体情境、操作、产物或可检查判断，不能停留在摘要和口号。",
+    }[discipline]
+    if role == "activity":
+        guidance += " 活动必须包含教师指令、学生动作、等待/巡视和收束产物。"
+    elif role == "feedback":
+        guidance += " 反馈必须包含核对标准、典型错误、回应方式和再次验证。"
+    elif role in {"reasoning", "example"}:
+        guidance += " 推演必须展示关键中间步骤，不能只给结论。"
+    return {
+        "discipline": discipline,
+        "hard_artifact": hard_artifact,
+        "guidance": guidance,
+    }
 
 
 def compile_teacher_script_module_contract(
@@ -120,6 +169,10 @@ def compile_teacher_script_module_contract(
             "prompt_instruction": _text(
                 frozen.get("prompt_instruction")
                 or (registry.prompt_instruction if registry else "")
+            ),
+            "artifact_contract": teacher_script_artifact_contract(
+                module_id,
+                role,
             ),
         })
     archetype = deepcopy(
@@ -349,8 +402,71 @@ def validate_teacher_script_section(
                 "teacher_script:knowledge_scope",
                 f"“{_text(block.get('title'))}”引用了当前教案范围外的知识。",
             )
+        content = _text(block.get("content"))
+        artifact = expected[index].get("artifact_contract") or {}
+        hard_artifact = _text(artifact.get("hard_artifact"))
+        if hard_artifact == "fenced_code" and "```" not in content:
+            add(
+                blocking,
+                "teacher_script:required_code_artifact",
+                f"“{_text(block.get('title'))}”缺少可直接运行的完整代码围栏。",
+            )
+        if hard_artifact == "formula" and not re.search(
+            r"\$\$|\$[^$\n]+\$|\\\(|\\\[",
+            content,
+        ):
+            add(
+                blocking,
+                "teacher_script:required_math_artifact",
+                f"“{_text(block.get('title'))}”缺少完整公式或形式化表达。",
+            )
+        role = _text(block.get("role"))
+        if role == "activity" and not (
+            re.search(r"教师|请.{0,12}(同学|学生)|分组|巡视", content)
+            and re.search(r"学生|同学|完成|讨论|操作|提交|产出", content)
+        ):
+            add(
+                review,
+                "teacher_script:activity_not_executable",
+                f"“{_text(block.get('title'))}”尚未同时写清教师指令和学生动作。",
+            )
+        if role == "feedback" and not re.search(
+            r"标准|核对|检查|错误|反馈|修正|再次验证|验收",
+            content,
+        ):
+            add(
+                review,
+                "teacher_script:feedback_not_checkable",
+                f"“{_text(block.get('title'))}”缺少可执行的核对或反馈标准。",
+            )
     for block in blocks:
-        if len(_text(block.get("content"))) < 20:
+        content = _text(block.get("content"))
+        if content.count("```") % 2:
+            add(
+                blocking,
+                "teacher_script:unclosed_code_fence",
+                f"“{_text(block.get('title'))}”存在未闭合的代码围栏。",
+            )
+        if (
+            content.count("$$") % 2
+            or content.count(r"\[") != content.count(r"\]")
+            or content.count(r"\(") != content.count(r"\)")
+        ):
+            add(
+                blocking,
+                "teacher_script:unclosed_math_delimiter",
+                f"“{_text(block.get('title'))}”存在未闭合的公式定界符。",
+            )
+        table_lines = [line for line in content.splitlines() if "|" in line]
+        if table_lines and not any(
+            re.match(r"^\s*\|?\s*:?-{3,}", line) for line in table_lines
+        ):
+            add(
+                review,
+                "teacher_script:table_not_structured",
+                f"“{_text(block.get('title'))}”包含表格式内容，但缺少完整表头分隔行。",
+            )
+        if len(content) < 20:
             add(
                 review,
                 "teacher_script:block_too_short",
@@ -366,6 +482,14 @@ def validate_teacher_script_section(
             "block_count": len(blocks),
             "module_count": len(expected),
             "character_count": sum(len(_text(block.get("content"))) for block in blocks),
+            "code_fence_count": sum(
+                _text(block.get("content")).count("```") for block in blocks
+            ),
+            "formula_block_count": sum(
+                1
+                for block in blocks
+                if re.search(r"\$\$|\$[^$\n]+\$|\\\(|\\\[", _text(block.get("content")))
+            ),
         },
     }
 

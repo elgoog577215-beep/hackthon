@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import importlib.metadata
+import mimetypes
 import re
 import uuid
 from datetime import datetime, timezone
@@ -335,6 +336,52 @@ async def parse_material_asset(
     return failed
 
 
+async def parse_document_path(
+    source_path: Path,
+    *,
+    asset_id: str,
+    filename: str,
+) -> ParsedDocument:
+    """Parse a course-space source without creating a second material asset.
+
+    Course-space uploads may be stored either as a reference to ``mat-*`` or as
+    package-owned bytes.  The latter still needs the same mature parser chain;
+    this adapter deliberately returns a transient ``ParsedDocument`` instead
+    of copying the file into ``material_storage`` and creating a parallel
+    source of truth.
+    """
+    path = Path(source_path)
+    extension = path.suffix.lower()
+    detected_mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    asset = MaterialAsset(
+        asset_id=asset_id,
+        filename=filename or path.name,
+        extension=extension,
+        mime_type=detected_mime,
+        detected_mime=detected_mime,
+        size_bytes=path.stat().st_size,
+        sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        source_name=path.name,
+        uploaded_at=_now(),
+        updated_at=_now(),
+    )
+    if extension in TEXT_EXTENSIONS:
+        parsers: list[DocumentParser] = [TextDocumentParser()]
+    elif extension in IMAGE_EXTENSIONS:
+        parsers = [ImageOcrParser()]
+    else:
+        parsers = [DoclingDocumentParser(), MarkItDownFallbackParser()]
+    errors: list[str] = []
+    for parser in parsers:
+        if not parser.supports(extension):
+            continue
+        try:
+            return await asyncio.to_thread(parser.parse, asset, path)
+        except Exception as exc:
+            errors.append(f"{parser.name}: {exc}")
+    raise RuntimeError("；".join(errors) or f"不支持解析 {extension or '未知格式'}")
+
+
 def _blocks_from_docling(data: dict[str, Any], extension: str) -> list[DocumentBlock]:
     blocks: list[DocumentBlock] = []
     visited: set[str] = set()
@@ -508,5 +555,6 @@ __all__ = [
     "MarkItDownFallbackParser",
     "ImageOcrParser",
     "TextDocumentParser",
+    "parse_document_path",
     "parse_material_asset",
 ]
