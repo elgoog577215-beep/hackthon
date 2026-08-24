@@ -352,6 +352,7 @@
 
     <TeacherLessonAiWorkspace
       v-if="aiCollaborationOpen"
+      class="ai-workspace-panel"
       :domain="aiDomain"
       :scope-title="aiScopeTitle"
       :scope-detail="aiScopeDetail"
@@ -1492,14 +1493,19 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
 
 .teacher-workbench{position:relative}
-.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px var(--ai-pane-width);background:#f4f6f9}
-.ai-workspace-resizer{z-index:6;display:grid;place-items:center;background:#f4f6f9}
-.ai-workspace-resizer::after{background:#dfe4ec}
+.teacher-workbench.is-ai-collaboration{box-sizing:border-box;grid-template-columns:minmax(0,1fr) 14px var(--ai-pane-width);padding:12px;background:#eef2f6}
+.is-ai-collaboration>.workbench-center{overflow:auto;background:transparent}
+.is-ai-collaboration .outline-workspace,.is-ai-collaboration .lesson-stage,.ai-workspace-panel{border:1px solid #dfe5ee;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.045)}
+.is-ai-collaboration>.workbench-center.is-lesson-workspace>.lesson-stage{width:100%;max-width:none;margin:0}
+.is-ai-collaboration .lesson-stage{min-height:100%;overflow:hidden}
+.ai-workspace-panel{min-height:0;overflow:hidden}
+.ai-workspace-resizer{z-index:6;display:grid;place-items:center;background:transparent}
+.ai-workspace-resizer::after{inset-block:14px;background:#d9e0e9}
 .ai-workspace-resizer>svg{position:relative;z-index:1;width:20px;height:32px;padding:8px 3px;border-radius:7px;color:#9aa6b6;background:#fff;box-shadow:0 0 0 1px #dfe4ec;opacity:0;transition:color .16s ease,opacity .16s ease,box-shadow .16s ease}
 .ai-workspace-resizer:hover>svg,.ai-workspace-resizer:focus-visible>svg,.ai-workspace-resizer.is-resizing>svg{color:#5b57d9;box-shadow:0 0 0 1px #c8c6f1;opacity:1}
-.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:#f4f6f9}
-.ai-source-drawer{position:absolute;z-index:10;top:0;right:calc(var(--ai-pane-width) + 8px);bottom:0;width:min(340px,calc(100% - var(--ai-pane-width) - 72px));border-left:0;box-shadow:0 18px 50px rgba(30,41,59,.14);animation:ai-source-drawer-in .18s cubic-bezier(.16,1,.3,1)}
+.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:transparent}
+.ai-source-drawer{position:absolute;z-index:10;top:12px;right:calc(var(--ai-pane-width) + 26px);bottom:12px;width:min(340px,calc(100% - var(--ai-pane-width) - 92px));overflow:hidden;border:1px solid #dfe5ee;border-left:1px solid #dfe5ee;border-radius:14px;background:#fff;box-shadow:0 18px 50px rgba(30,41,59,.14);animation:ai-source-drawer-in .18s cubic-bezier(.16,1,.3,1)}
 @keyframes ai-source-drawer-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
-@media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px 340px}.ai-source-drawer{right:348px;width:min(320px,calc(100% - 420px))}}
+@media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 10px 340px;padding:8px}.ai-workspace-resizer::after{inset-block:10px}.ai-source-drawer{top:8px;right:358px;bottom:8px;width:min(320px,calc(100% - 430px))}}
 @media(prefers-reduced-motion:reduce){.ai-workspace-resizer>svg{transition:none}.ai-source-drawer{animation:none}}
 </style>
