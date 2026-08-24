@@ -26,6 +26,7 @@ from course_pedagogy import module_block_role
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
 LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
+LESSON_JOB_STALE_SECONDS = 300
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
 }
@@ -1200,6 +1201,49 @@ class TeacherLessonAuthoringRepository:
         if not isinstance(job, dict):
             raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
         return deepcopy(job)
+
+    def expire_stale_job(
+        self,
+        course_id: str,
+        job_id: str,
+        *,
+        stale_after_seconds: int = LESSON_JOB_STALE_SECONDS,
+    ) -> dict[str, Any]:
+        """Close an orphaned generation job left behind by a process reload."""
+        with self._lock:
+            value = self.load(course_id)
+            job = (value.get("jobs") or {}).get(job_id)
+            if not isinstance(job, dict):
+                raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
+            if str(job.get("status") or "") not in {"pending", "running"}:
+                return deepcopy(job)
+            try:
+                updated_at = datetime.fromisoformat(
+                    str(job.get("updated_at") or "").replace("Z", "+00:00")
+                )
+                if updated_at.tzinfo is None:
+                    updated_at = updated_at.replace(tzinfo=timezone.utc)
+            except ValueError:
+                updated_at = datetime.fromtimestamp(0, tz=timezone.utc)
+            age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
+            if age_seconds < max(1, int(stale_after_seconds)):
+                return deepcopy(job)
+            job.update({
+                "status": "failed",
+                "phase": "lesson_plan_interrupted",
+                "message": "教案生成进程已中断",
+                "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
+                "stream_complete": True,
+                "error": {
+                    "code": "lesson_plan_generation_interrupted",
+                    "message": "生成进程已中断，请重新生成本讲教案。",
+                    "retryable": True,
+                },
+                "updated_at": _now(),
+            })
+            value["jobs"][job_id] = job
+            saved = self._save(value)
+            return deepcopy(saved["jobs"][job_id])
 
     def lesson(self, course_id: str, lesson_unit_id: str) -> dict[str, Any]:
         value = self.load(course_id)

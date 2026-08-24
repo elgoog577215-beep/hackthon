@@ -310,6 +310,37 @@ def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
     assert "第二批已生成" in failed["stream_batches"]["TP-B02"]
 
 
+def test_orphaned_lesson_job_expires_and_keeps_partial_stream(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="request-orphaned",
+        source_outline_revision_id="outline-v1",
+    )
+    repository.update_job_stream(
+        "course-1",
+        job["id"],
+        phase="course_teaching_plan_batch",
+        progress=42,
+        message="正在生成",
+        batch_id="TP-B01",
+        event="delta",
+        delta='{"learning_objective":"已生成部分目标"',
+    )
+    path = tmp_path / "course-1.json"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    stored["jobs"][job["id"]]["updated_at"] = "2020-01-01T00:00:00+00:00"
+    path.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+
+    expired = repository.expire_stale_job("course-1", job["id"])
+
+    assert expired["status"] == "failed"
+    assert expired["phase"] == "lesson_plan_interrupted"
+    assert expired["error"]["retryable"] is True
+    assert "已生成部分目标" in expired["stream_batches"]["TP-B01"]
+
+
 def test_plan_v3_projection_is_editable_and_never_serializes_module_json():
     section = {
         "node_id": "L2-1-1",

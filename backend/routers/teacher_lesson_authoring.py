@@ -1147,7 +1147,14 @@ async def get_lesson_job(
     ),
 ):
     try:
-        return {"job": repository.get_job(course_id, job_id)}
+        job = await run_in_threadpool(repository.get_job, course_id, job_id)
+        if str(job.get("status") or "") in {"pending", "running"}:
+            job = await run_in_threadpool(
+                repository.expire_stale_job,
+                course_id,
+                job_id,
+            )
+        return {"job": job}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -1163,7 +1170,7 @@ async def stream_lesson_job(
 ):
     """Stream the durable lesson-plan candidate while final save stays atomic."""
     try:
-        repository.get_job(course_id, job_id)
+        await run_in_threadpool(repository.get_job, course_id, job_id)
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -1174,7 +1181,17 @@ async def stream_lesson_job(
             if await request.is_disconnected():
                 return
             try:
-                job = repository.get_job(course_id, job_id)
+                job = await run_in_threadpool(
+                    repository.get_job,
+                    course_id,
+                    job_id,
+                )
+                if str(job.get("status") or "") in {"pending", "running"}:
+                    job = await run_in_threadpool(
+                        repository.expire_stale_job,
+                        course_id,
+                        job_id,
+                    )
             except TeacherLessonAuthoringError:
                 payload = {
                     "event": "error",
@@ -1227,7 +1244,7 @@ async def stream_lesson_job(
                 )
             if terminal:
                 return
-            await asyncio.sleep(0.12)
+            await asyncio.sleep(0.35)
 
     return StreamingResponse(
         event_stream(),
