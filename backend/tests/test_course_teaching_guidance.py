@@ -231,6 +231,9 @@ def test_formal_course_baseline_guides_outline_without_becoming_a_second_plan():
     )
 
     assert "## 正式教学大纲模板契约" in prompt
+    assert "其余生成约束" in prompt
+    assert '"formal_course_profile"' not in prompt
+    assert '"teacher_course_brief"' not in prompt
     assert "CS-201" in prompt
     assert "过程任务与综合项目" in prompt
     assert "当前模型只规划课程定位、目标和目录" in prompt

@@ -66,46 +66,38 @@
 
             <form v-else-if="mode === 'edit'" class="information-form" @submit.prevent="reviewChanges">
               <section class="form-section">
-                <header><BookOpen :size="17" /><h3>{{ t('courseFiles.workbench.identityAndSchedule', '课程身份与排课') }}</h3></header>
+                <header><BookOpen :size="17" /><h3>{{ t('courseFiles.workbench.identityAndSchedule', '课程基本信息') }}</h3></header>
                 <div class="field-grid field-grid--three">
                   <label><span>{{ t('teacherCourseCreate.courseCode', '课程代码') }}</span><input v-model.trim="draft.course_profile.course_code" maxlength="64" /></label>
                   <label><span>{{ t('teacherCourseCreate.courseCategory', '课程类别') }}</span><input v-model.trim="draft.course_profile.course_category" maxlength="100" /></label>
                   <label><span>{{ t('teacherCourseCreate.credits', '学分') }}</span><input v-model.number="draft.course_profile.credits" type="number" min="0" max="100" step="0.5" /></label>
                   <label><span>{{ t('teacherCourseCreate.targetMajor', '面向专业') }}</span><input v-model.trim="draft.course_profile.target_major" maxlength="200" /></label>
                   <label><span>{{ t('courseGeneration.teacherBrief.targetAudience', '教学对象') }} <b>*</b></span><input v-model.trim="draft.course_profile.target_grade" required maxlength="500" /></label>
-                  <label><span>{{ t('teacherCourseCreate.defaultLocation', '常用地点') }}</span><input v-model.trim="draft.course_profile.default_location" maxlength="200" /></label>
                   <label><span>{{ t('teacherCourseCreate.academicYear', '学年') }}</span><input v-model.trim="draft.academic_year" maxlength="30" placeholder="2026-2027" /></label>
                   <label><span>{{ t('teacherCourseCreate.term', '学期') }}</span><input v-model.trim="draft.term" maxlength="30" placeholder="秋冬" /></label>
                 </div>
               </section>
 
               <section class="form-section">
-                <header><Clock3 :size="17" /><h3>{{ t('courseFiles.workbench.teachingArrangement', '授课安排') }}</h3></header>
+                <header><Clock3 :size="17" /><h3>{{ t('courseFiles.workbench.teachingArrangement', '教学实施条件') }}</h3></header>
                 <div class="field-grid field-grid--three">
                   <label><span>{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }} <b>*</b></span><input v-model.number="draft.generation_request.teacher_course_brief.total_class_hours" required type="number" min="1" max="1000" step="1" /></label>
                   <label><span>{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }} <b>*</b></span><input v-model.number="draft.generation_request.teacher_course_brief.lesson_duration_minutes" required type="number" min="20" max="240" step="1" /></label>
-                  <label><span>{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span><input v-model.number="draft.generation_request.teacher_course_brief.class_size" type="number" min="1" max="1000" step="1" /></label>
-                  <label><span>{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span><input v-model.number="draft.generation_request.teacher_course_brief.chapter_count" type="number" min="1" max="100" step="1" /></label>
-                  <label><span>{{ t('courseGeneration.teacherBrief.sectionCount', '预计课次') }}</span><input v-model.number="draft.generation_request.teacher_course_brief.section_count" type="number" min="1" max="1000" step="1" /></label>
+                  <label><span>{{ t('courseFiles.workbench.classSize', '班级规模') }}</span><input v-model.number="draft.generation_request.teacher_course_brief.class_size" type="number" min="1" max="1000" step="1" /></label>
+                  <label><span>{{ t('courseFiles.workbench.plannedLessonCount', '计划讲数') }}</span><input v-model.number="draft.generation_request.teacher_course_brief.section_count" type="number" min="1" max="1000" step="1" /></label>
+                  <label><span>{{ t('teacherCourseCreate.defaultLocation', '常用地点') }}</span><input v-model.trim="draft.course_profile.default_location" maxlength="200" /></label>
                   <label class="wide"><span>{{ t('courseGeneration.teacherBrief.classProfile', '班级与学情特点') }}</span><textarea v-model.trim="draft.generation_request.teacher_course_brief.class_profile" maxlength="2000" rows="3" /></label>
                 </div>
               </section>
 
               <section class="form-section">
-                <header><SlidersHorizontal :size="17" /><h3>{{ t('courseFiles.workbench.courseDesignSettings', '课程设计设置') }}</h3></header>
+                <header><FileText :size="17" /><h3>{{ t('courseFiles.workbench.courseDesignSettings', '教学设计') }}</h3></header>
                 <fieldset class="course-type-field">
                   <legend>{{ t('courseGeneration.courseTypes.label', '教学类型') }}</legend>
                   <div class="course-type-options">
                     <button v-for="item in courseTypeOptions" :key="item.value" type="button" :class="{ active: courseType === item.value }" :aria-pressed="courseType === item.value" @click="selectCourseType(item.value)"><component :is="item.icon" :size="16" /><span>{{ item.label }}</span></button>
                   </div>
                 </fieldset>
-                <div class="field-grid field-grid--three">
-                  <label><span>{{ t('courseGeneration.pedagogy.label', '学科类型') }}</span><select v-model="draft.generation_request.pedagogy_mode"><option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-                  <label><span>{{ t('courseGeneration.pedagogy.secondaryLabel', '辅助学科类型') }}</span><select v-model="draft.generation_request.secondary_mode"><option value="">{{ t('courseGeneration.pedagogy.secondaryNone', '无辅助学科类型') }}</option><option v-for="item in secondaryPedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-                  <label><span>{{ t('courseFiles.workbench.difficulty', '难度') }}</span><select v-model="draft.generation_request.difficulty"><option v-for="item in difficultyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-                  <label><span>{{ t('courseFiles.workbench.productionMode', '生产模式') }}</span><select v-model="draft.generation_request.production_mode"><option v-for="item in productionModeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
-                </div>
-
                 <div class="intent-fields">
                   <label v-if="courseType === 'systematic'"><span>{{ t('courseFiles.workbench.learningGoal', '课程目标') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.learning_goal" required maxlength="5000" rows="3" /></label>
                   <template v-else-if="courseType === 'project'">
@@ -123,15 +115,18 @@
                     </div>
                     <label><span>{{ t('courseGeneration.exam.scopeLabel', '考试范围') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.exam_scope" required maxlength="5000" rows="3" /></label>
                   </template>
+                  <label><span>{{ t('teacherCourseCreate.courseIntro', '课程简介') }}</span><textarea v-model.trim="draft.course_profile.course_intro" maxlength="3000" rows="3" /></label>
+                  <label><span>{{ t('teacherCourseCreate.assessmentMethod', '考核方式') }}</span><textarea v-model.trim="draft.course_profile.assessment_method" maxlength="500" rows="2" /></label>
+                  <label><span>{{ t('courseGeneration.teacherBrief.additionalRequirements', '其他教学要求') }}</span><textarea v-model.trim="draft.generation_request.teacher_course_brief.additional_requirements" maxlength="10000" rows="3" /></label>
                 </div>
               </section>
 
               <section class="form-section">
-                <header><FileText :size="17" /><h3>{{ t('courseFiles.workbench.additionalCourseInformation', '其他课程信息') }}</h3></header>
-                <div class="intent-fields">
-                  <label><span>{{ t('teacherCourseCreate.courseIntro', '课程简介') }}</span><textarea v-model.trim="draft.course_profile.course_intro" maxlength="3000" rows="3" /></label>
-                  <label><span>{{ t('teacherCourseCreate.assessmentMethod', '考核方式') }}</span><textarea v-model.trim="draft.course_profile.assessment_method" maxlength="500" rows="2" /></label>
-                  <label><span>{{ t('courseGeneration.teacherBrief.additionalRequirements', '其他教学要求') }}</span><textarea v-model.trim="draft.generation_request.teacher_course_brief.additional_requirements" maxlength="10000" rows="3" /></label>
+                <header><SlidersHorizontal :size="17" /><h3>{{ t('courseFiles.workbench.additionalCourseInformation', '生成设置') }}</h3></header>
+                <div class="field-grid field-grid--three">
+                  <label><span>{{ t('courseGeneration.pedagogy.label', '学科类型') }}</span><select v-model="draft.generation_request.pedagogy_mode"><option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+                  <label><span>{{ t('courseFiles.workbench.difficulty', '难度') }}</span><select v-model="draft.generation_request.difficulty"><option v-for="item in difficultyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+                  <label><span>{{ t('courseFiles.workbench.generationFlow', '生成流程') }}</span><select v-model="draft.generation_request.production_mode"><option v-for="item in productionModeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
                 </div>
               </section>
             </form>
@@ -274,7 +269,6 @@ const courseTypeOptions = computed(() => ([
 ]))
 const difficultyOptions = computed(() => ['beginner', 'intermediate', 'advanced'].map(value => ({ value, label: t(`courseGeneration.difficulty.${value}.label`, value) })))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
-const secondaryPedagogyOptions = computed(() => pedagogyOptions.value.filter(item => item.value !== 'auto' && item.value !== draft.value.generation_request.pedagogy_mode))
 const productionModeOptions = computed(() => ([
   { value: 'manual', label: t('teacherCourseCreate.productionModeManual', '分步确认') },
   { value: 'automatic', label: t('teacherCourseCreate.productionModeAutomatic', '自动衔接') },
@@ -287,9 +281,9 @@ const viewGroups = computed(() => {
   const profile = info.course_profile
   const request = info.generation_request
   const brief = request.teacher_course_brief || {}
-  return [
+  const groups = [
     {
-      title: t('courseFiles.workbench.identityAndSchedule', '课程身份与排课'), icon: BookOpen, items: [
+      title: t('courseFiles.workbench.identityAndSchedule', '课程基本信息'), icon: BookOpen, items: [
         item(t('teacherCourseCreate.courseCode', '课程代码'), profile.course_code),
         item(t('teacherCourseCreate.courseCategory', '课程类别'), profile.course_category),
         item(t('teacherCourseCreate.credits', '学分'), profile.credits),
@@ -297,37 +291,38 @@ const viewGroups = computed(() => {
         item(t('courseGeneration.teacherBrief.targetAudience', '教学对象'), profile.target_grade || brief.target_audience),
         item(t('teacherCourseCreate.academicYear', '学年'), info.academic_year),
         item(t('teacherCourseCreate.term', '学期'), info.term),
-        item(t('teacherCourseCreate.defaultLocation', '常用地点'), profile.default_location),
       ],
     },
     {
-      title: t('courseFiles.workbench.teachingArrangement', '授课安排'), icon: Clock3, items: [
+      title: t('courseFiles.workbench.teachingArrangement', '教学实施条件'), icon: Clock3, items: [
         item(t('courseGeneration.teacherBrief.totalHours', '总课时'), brief.total_class_hours, t('courseFiles.workbench.hoursUnit', '{value} 学时')),
-        item(t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长'), brief.lesson_duration_minutes, t('courseFiles.workbench.minutesUnit', '{value} 分钟')),
-        item(t('courseGeneration.teacherBrief.classSize', '预计班级人数'), brief.class_size),
-        item(t('courseGeneration.teacherBrief.chapterCount', '预计章节数'), brief.chapter_count),
-        item(t('courseGeneration.teacherBrief.sectionCount', '预计课次'), brief.section_count),
+        item(t('courseFiles.workbench.lessonDuration', '每次课时长'), brief.lesson_duration_minutes, t('courseFiles.workbench.minutesUnit', '{value} 分钟')),
+        item(t('courseFiles.workbench.classSize', '班级规模'), brief.class_size),
+        item(t('courseFiles.workbench.plannedLessonCount', '计划讲数'), brief.section_count),
+        item(t('teacherCourseCreate.defaultLocation', '常用地点'), profile.default_location),
         item(t('courseGeneration.teacherBrief.classProfile', '班级与学情特点'), brief.class_profile, undefined, true),
       ],
     },
     {
-      title: t('courseFiles.workbench.courseDesignSettings', '课程设计设置'), icon: SlidersHorizontal, items: [
+      title: t('courseFiles.workbench.courseDesignSettings', '教学设计'), icon: FileText, items: [
         item(t('courseGeneration.courseTypes.label', '教学类型'), optionLabel(courseTypeOptions.value, request.course_type)),
-        item(t('courseGeneration.pedagogy.label', '学科类型'), optionLabel(pedagogyOptions.value, request.pedagogy_mode)),
-        item(t('courseGeneration.pedagogy.secondaryLabel', '辅助学科类型'), optionLabel(pedagogyOptions.value, request.secondary_mode)),
-        item(t('courseFiles.workbench.difficulty', '难度'), optionLabel(difficultyOptions.value, request.difficulty)),
-        item(t('courseFiles.workbench.productionMode', '生产模式'), optionLabel(productionModeOptions.value, request.production_mode)),
         item(t('courseFiles.workbench.learningGoal', '课程目标'), intentSummary(request), undefined, true),
-      ],
-    },
-    {
-      title: t('courseFiles.workbench.additionalCourseInformation', '其他课程信息'), icon: FileText, items: [
         item(t('teacherCourseCreate.courseIntro', '课程简介'), profile.course_intro, undefined, true),
         item(t('teacherCourseCreate.assessmentMethod', '考核方式'), profile.assessment_method, undefined, true),
         item(t('courseGeneration.teacherBrief.additionalRequirements', '其他教学要求'), brief.additional_requirements, undefined, true),
       ],
     },
+    {
+      title: t('courseFiles.workbench.additionalCourseInformation', '生成设置'), icon: SlidersHorizontal, items: [
+        item(t('courseGeneration.pedagogy.label', '学科类型'), optionLabel(pedagogyOptions.value, request.pedagogy_mode)),
+        item(t('courseFiles.workbench.difficulty', '难度'), optionLabel(difficultyOptions.value, request.difficulty)),
+        item(t('courseFiles.workbench.generationFlow', '生成流程'), optionLabel(productionModeOptions.value, request.production_mode)),
+      ],
+    },
   ]
+  return groups
+    .map(group => ({ ...group, items: group.items.filter(entry => !entry.empty) }))
+    .filter(group => group.items.length > 0)
 })
 
 const changes = computed<ChangeItem[]>(() => {
@@ -443,16 +438,16 @@ function comparisonDescriptors(before: CourseInformation, after: CourseInformati
     descriptor('term', t('teacherCourseCreate.term', '学期'), before.term, after.term),
     descriptor('default_location', t('teacherCourseCreate.defaultLocation', '常用地点'), bp.default_location, ap.default_location),
     descriptor('total_hours', t('courseGeneration.teacherBrief.totalHours', '总课时'), bb.total_class_hours, ab.total_class_hours),
-    descriptor('lesson_minutes', t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长'), bb.lesson_duration_minutes, ab.lesson_duration_minutes),
-    descriptor('class_size', t('courseGeneration.teacherBrief.classSize', '预计班级人数'), bb.class_size, ab.class_size),
+    descriptor('lesson_minutes', t('courseFiles.workbench.lessonDuration', '每次课时长'), bb.lesson_duration_minutes, ab.lesson_duration_minutes),
+    descriptor('class_size', t('courseFiles.workbench.classSize', '班级规模'), bb.class_size, ab.class_size),
     descriptor('chapter_count', t('courseGeneration.teacherBrief.chapterCount', '预计章节数'), bb.chapter_count, ab.chapter_count),
-    descriptor('section_count', t('courseGeneration.teacherBrief.sectionCount', '预计课次'), bb.section_count, ab.section_count),
+    descriptor('section_count', t('courseFiles.workbench.plannedLessonCount', '计划讲数'), bb.section_count, ab.section_count),
     descriptor('class_profile', t('courseGeneration.teacherBrief.classProfile', '班级与学情特点'), bb.class_profile, ab.class_profile),
     descriptor('course_type', t('courseGeneration.courseTypes.label', '教学类型'), optionLabel(courseTypeOptions.value, br.course_type), optionLabel(courseTypeOptions.value, ar.course_type)),
     descriptor('pedagogy_mode', t('courseGeneration.pedagogy.label', '学科类型'), optionLabel(pedagogyOptions.value, br.pedagogy_mode), optionLabel(pedagogyOptions.value, ar.pedagogy_mode)),
     descriptor('secondary_mode', t('courseGeneration.pedagogy.secondaryLabel', '辅助学科类型'), optionLabel(pedagogyOptions.value, br.secondary_mode), optionLabel(pedagogyOptions.value, ar.secondary_mode)),
     descriptor('difficulty', t('courseFiles.workbench.difficulty', '难度'), optionLabel(difficultyOptions.value, br.difficulty), optionLabel(difficultyOptions.value, ar.difficulty)),
-    descriptor('production_mode', t('courseFiles.workbench.productionMode', '生产模式'), optionLabel(productionModeOptions.value, br.production_mode), optionLabel(productionModeOptions.value, ar.production_mode)),
+    descriptor('production_mode', t('courseFiles.workbench.generationFlow', '生成流程'), optionLabel(productionModeOptions.value, br.production_mode), optionLabel(productionModeOptions.value, ar.production_mode)),
     descriptor('course_intent', t('courseFiles.workbench.learningGoal', '课程目标与课型要求'), intentSummary(br), intentSummary(ar)),
     descriptor('course_intro', t('teacherCourseCreate.courseIntro', '课程简介'), bp.course_intro, ap.course_intro),
     descriptor('assessment_method', t('teacherCourseCreate.assessmentMethod', '考核方式'), bp.assessment_method, ap.assessment_method),

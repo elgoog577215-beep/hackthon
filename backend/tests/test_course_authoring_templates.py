@@ -13,6 +13,7 @@ def test_formal_profile_is_a_bounded_generation_snapshot():
         "course_code": "MATH-202",
         "credits": 4,
         "course_intro": "  建立向量空间与线性变换的结构观  ",
+        "course_goal": "能使用线性变换解决典型问题",
         "default_location": "不进入生成模板的排课字段",
     })
 
@@ -20,6 +21,7 @@ def test_formal_profile_is_a_bounded_generation_snapshot():
         "course_code": "MATH-202",
         "credits": 4,
         "course_intro": "建立向量空间与线性变换的结构观",
+        "teaching_goals": "能使用线性变换解决典型问题",
     }
 
 
@@ -52,6 +54,12 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
             "target_grade": "大学一年级",
             "assessment_method": "实验与期末设计",
         },
+        "teacher_course_brief": {
+            "lesson_duration_minutes": 90,
+            "class_size": 48,
+            "class_profile": "学生已修完电路基础，但工程验证经验不足。",
+            "additional_requirements": "实验与期末设计",
+        },
         "course_plan": {
             "positioning": "从布尔代数进入数字系统设计",
             "learning_objectives": ["能设计并验证基本组合逻辑电路"],
@@ -60,6 +68,12 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     })
 
     assert context["course_information"]["教学对象"] == "大学一年级"
+    assert context["schema_version"] == "formal_course_authoring_v2"
+    assert "课程名称" not in context["course_information"]
+    assert context["course_information"]["每次课时长"] == "90 分钟"
+    assert context["course_information"]["班级规模"] == "48 人"
+    assert context["student_profile"] == "学生已修完电路基础，但工程验证经验不足。"
     assert context["assessment_methods"] == ["实验与期末设计"]
+    assert context["teaching_requirements"] == []
     assert context["references"] == []
     assert "不编造" in context["reference_policy"]

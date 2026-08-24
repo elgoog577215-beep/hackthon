@@ -171,9 +171,15 @@ def _render_outline(course_data: dict[str, Any]) -> str:
     lines += ["## 二、课程定位与简介", ""]
     if context["course_intro"]:
         lines += ["### 课程简介", context["course_intro"], ""]
-    if context["positioning"]:
+    if context["positioning"] and context["positioning"] != context["course_intro"]:
         lines += ["### 课程定位", context["positioning"], ""]
-    if not context["course_intro"] and not context["positioning"]:
+    if context["student_profile"]:
+        lines += ["### 教学对象与学情", context["student_profile"], ""]
+    if (
+        not context["course_intro"]
+        and not context["positioning"]
+        and not context["student_profile"]
+    ):
         lines += ["尚未确认课程定位与简介。", ""]
 
     objectives = context["learning_objectives"]
@@ -187,17 +193,18 @@ def _render_outline(course_data: dict[str, Any]) -> str:
 
     lines += ["## 四、课程要求", ""]
     prerequisites = context["prerequisites"]
-    lines.append(
-        f"- 预修要求：{'；'.join(prerequisites)}"
-        if prerequisites
-        else "- 预修要求：未设置额外预修要求"
-    )
-    lines.extend(
+    coverage = _coverage_section(course_data)
+    requirement_lines = []
+    if prerequisites:
+        requirement_lines.append(f"- 预修要求：{'；'.join(prerequisites)}")
+    requirement_lines.extend(
         f"- {item}" for item in context["teaching_requirements"]
     )
+    lines.extend(requirement_lines)
+    if not requirement_lines and not coverage:
+        lines.append("暂无额外课程要求。")
     lines.append("")
 
-    coverage = _coverage_section(course_data)
     if coverage:
         # Coverage is a requirement boundary, not another parallel outline
         # section. Keep the existing honesty verdict under the formal template.

@@ -91,7 +91,7 @@ function closeCourseCreate() {
 async function createCourse() {
   if (creating.value || !form.courseName.trim()) return
   creating.value = true
-  const learningGoal = form.teachingGoals || form.courseIntro || form.courseName
+  const learningGoal = form.teachingGoals.trim()
   const totalHours = Number(form.totalHours || 32)
   try {
     const result = await courseStore.createTeacherCourseSpace({
@@ -104,12 +104,12 @@ async function createCourse() {
         subject: form.courseName, target_audience: form.targetGrade || '大学生', difficulty: 'intermediate',
         course_type: 'systematic',
         course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: learningGoal },
-        requirements: [form.courseIntro, form.assessmentMethod].filter(Boolean).join('\n'),
+        requirements: '',
         production_mode: 'manual', teacher_course_brief: {
           schema_version: 'teacher_course_brief_v1', academic_term: [form.academicYear, form.term].filter(Boolean).join(' '),
           target_audience: form.targetGrade || '大学生', total_class_hours: totalHours,
           lesson_duration_minutes: 45,
-          additional_requirements: form.assessmentMethod,
+          additional_requirements: '',
         }, teacher_authoring_mode: 'lesson_assets_v1',
       },
     })

@@ -49,6 +49,9 @@ def _course() -> dict:
             "target_audience": "大学一年级",
             "lesson_duration_minutes": 45,
             "teaching_context": "classroom",
+            "class_size": 48,
+            "class_profile": "学生已完成初等函数学习，但形式化论证经验不足。",
+            "additional_requirements": "平时任务 40%，期末综合任务 60%",
         },
         "material_cards": [{"filename": "微积分教材.pdf"}],
         "course_outline": {
@@ -163,8 +166,14 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
 
     assert "## 一、课程基本信息" in outline
     assert "MATH-101" in outline
+    assert "| 课程名称 |" not in outline
+    assert "| 每次课时长 | 45 分钟 |" in outline
+    assert "| 班级规模 | 48 人 |" in outline
+    assert "### 教学对象与学情" in outline
+    assert "形式化论证经验不足" in outline
     assert "## 五、考核与成绩构成" in outline
     assert "平时任务 40%" in outline
+    assert outline.count("平时任务 40%") == 1
     assert "## 七、参考资料" in outline
     assert "微积分教材.pdf" in outline
 

@@ -223,6 +223,10 @@ def compile_overall_teaching_guidance(
             "schema_version": formal_context["schema_version"],
             "course_information": formal_context["course_information"],
             "course_intro": formal_context["course_intro"],
+            "student_profile": formal_context["student_profile"],
+            "teaching_requirements": formal_context[
+                "teaching_requirements"
+            ],
             "lesson_plan_sections": formal_context[
                 "lesson_plan_document_sections"
             ],

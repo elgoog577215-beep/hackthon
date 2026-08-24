@@ -13,7 +13,7 @@ from copy import deepcopy
 from typing import Any
 
 
-FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v1"
+FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v2"
 
 OUTLINE_DOCUMENT_SECTIONS = (
     "课程基本信息",
@@ -63,7 +63,6 @@ _PROFILE_FIELDS = (
     "target_grade",
     "course_intro",
     "assessment_method",
-    "course_goal",
     "teaching_goals",
 )
 
@@ -107,6 +106,13 @@ def snapshot_formal_course_profile(profile: Any) -> dict[str, Any]:
             value = _text(value)
         if value not in (None, "", [], {}):
             snapshot[field] = value
+    # ``course_goal`` is a historical alias of ``teaching_goals``. Keep one
+    # canonical value so prompts and fingerprints do not carry the same
+    # teacher intent twice.
+    if "teaching_goals" not in snapshot:
+        fallback_goal = _text(source.get("course_goal"))
+        if fallback_goal:
+            snapshot["teaching_goals"] = fallback_goal
     return snapshot
 
 
@@ -196,10 +202,6 @@ def compile_formal_course_context(
     effective_plan = effective_plan if isinstance(effective_plan, dict) else {}
     profile = _course_profile(course_data)
     classroom = _teacher_brief(course_data)
-    course_name = _text(
-        course_data.get("course_name")
-        or effective_plan.get("course_title")
-    )
     audience = _text(
         profile.get("target_grade")
         or classroom.get("target_audience")
@@ -211,14 +213,25 @@ def compile_formal_course_context(
         else classroom.get("total_class_hours")
     )
     teaching_context = _text(classroom.get("teaching_context"))
+    lesson_minutes = classroom.get("lesson_duration_minutes")
+    class_size = classroom.get("class_size")
     information = {
-        "课程名称": course_name,
         "课程代码": _text(profile.get("course_code")),
         "课程类别": _text(profile.get("course_category")),
         "学分": profile.get("credits"),
         "总学时": total_hours,
+        "每次课时长": (
+            f"{lesson_minutes} 分钟"
+            if lesson_minutes not in (None, "")
+            else ""
+        ),
         "面向专业": _text(profile.get("target_major")),
         "教学对象": audience,
+        "班级规模": (
+            f"{class_size} 人"
+            if class_size not in (None, "")
+            else ""
+        ),
         "学期": _text(classroom.get("academic_term")),
         "授课方式": _TEACHING_CONTEXT_LABELS.get(
             teaching_context,
@@ -234,19 +247,20 @@ def compile_formal_course_context(
         item for item in _text_list(classroom.get("course_assessment_plan"))
         if item not in assessment_methods
     )
-    requirements = _text_list(classroom.get("additional_requirements"))
     class_profile = _text(classroom.get("class_profile"))
-    if class_profile:
-        requirements.insert(0, f"学情特点：{class_profile}")
-    lesson_minutes = classroom.get("lesson_duration_minutes")
-    if lesson_minutes not in (None, ""):
-        requirements.append(f"单次课时长：{lesson_minutes} 分钟")
+    requirements = [
+        item for item in _text_list(classroom.get("additional_requirements"))
+        if item not in assessment_methods
+        and item != class_profile
+        and item != f"学情特点：{class_profile}"
+    ]
 
     return {
         "schema_version": FORMAL_AUTHORING_TEMPLATE_VERSION,
         "course_information": information,
         "course_intro": _text(profile.get("course_intro")),
         "positioning": _text(effective_plan.get("positioning")),
+        "student_profile": class_profile,
         "learning_objectives": _text_list(
             effective_plan.get("learning_objectives")
             or profile.get("teaching_goals")
@@ -294,6 +308,8 @@ def compile_outline_prompt_contract(
         "schema_version": context["schema_version"],
         "confirmed_course_information": context["course_information"],
         "course_intro": context["course_intro"],
+        "student_profile": context["student_profile"],
+        "teaching_requirements": context["teaching_requirements"],
         "assessment_methods": context["assessment_methods"],
         "required_document_sections": context["outline_document_sections"],
         "objective_dimensions": context["objective_dimensions"],

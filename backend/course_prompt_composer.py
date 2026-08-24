@@ -28,7 +28,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v27"
+PROMPT_CONTRACT_VERSION = "course_prompt_v28"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -157,6 +157,23 @@ class CoursePromptComposer:
             audience=audience,
             brief=brief,
         )
+        # These values already have dedicated, typed sections below. Avoid
+        # repeating them inside the generic brief where duplication increases
+        # prompt noise and makes one fact look like several instructions.
+        outline_input_brief = {
+            key: value for key, value in brief.items()
+            if key not in {
+                "subject",
+                "audience",
+                "course_shape_constraints",
+                "course_type_contract",
+                "course_intent",
+                "learner_starting_profile",
+                "personalization_rationale",
+                "formal_course_profile",
+                "teacher_course_brief",
+            }
+        }
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -166,7 +183,7 @@ class CoursePromptComposer:
 ## 课程输入
 - 主题：{subject}
 - 学习对象：{audience}
-- 结构化 brief：{json.dumps(brief, ensure_ascii=False)}
+- 其余生成约束：{json.dumps(outline_input_brief, ensure_ascii=False)}
 - 用户指定章数：{shape.get('chapter_count') or '未指定'}
 - 用户指定小节总数：{shape.get('section_count') or '未指定'}
 - 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
