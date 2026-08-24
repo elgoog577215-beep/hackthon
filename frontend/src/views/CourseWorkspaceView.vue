@@ -382,8 +382,8 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 </script>
 
 <style scoped>
-.course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); background:#f3f5f9; }
-.workspace-operating-shell { position:relative; width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:#f3f5f9; }
+.course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); background:transparent; }
+.workspace-operating-shell { position:relative; width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:transparent; }
 .workspace-operating-shell > :deep(.file-space) { min-width:0; min-height:0; }
 .workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
 .workspace-route-context>svg { flex:none; color:var(--lz-brand); }

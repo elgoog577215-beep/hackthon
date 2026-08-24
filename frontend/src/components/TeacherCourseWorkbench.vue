@@ -1492,8 +1492,8 @@ onBeforeUnmount(() => {
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
 
-.teacher-workbench{position:relative}
-.teacher-workbench.is-ai-collaboration{box-sizing:border-box;grid-template-columns:minmax(0,1fr) 18px var(--ai-pane-width);padding:16px;background:#eef2f6}
+.teacher-workbench{position:relative;background:transparent}
+.teacher-workbench.is-ai-collaboration{box-sizing:border-box;grid-template-columns:minmax(0,1fr) 18px var(--ai-pane-width);padding:16px;background:transparent}
 .is-ai-collaboration>.workbench-center{overflow:auto;background:transparent}
 .is-ai-collaboration .outline-workspace,.is-ai-collaboration .lesson-stage,.ai-workspace-panel{border:1px solid #dfe5ee;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.045)}
 .is-ai-collaboration>.workbench-center.is-lesson-workspace>.lesson-stage{width:100%;max-width:none;margin:0}
