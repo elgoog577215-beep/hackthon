@@ -511,6 +511,8 @@
       "generationPlaceholder": "例如：增加一个贴近学生的课堂案例，保留教案时间安排",
       "generate": "生成本讲讲稿",
       "generating": "正在生成…",
+      "continueGenerating": "继续生成剩余内容",
+      "waitingForNextBlock": "正在准备下一个教学块",
       "planRequired": "请先确认本讲教案",
       "minutes": "分钟",
       "roles": {

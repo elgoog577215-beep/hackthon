@@ -205,11 +205,19 @@ export interface TeacherLessonJob {
   stream_sequence?: number
   stream_batches?: Record<string, string>
   stream_complete?: boolean
+  requirements?: string
+  total_blocks?: number
+  completed_blocks?: number
+  current_block_id?: string
+  current_block_title?: string
+  block_states?: Record<string, 'pending' | 'running' | 'completed' | 'failed'>
+  result_sections?: TeacherLessonScriptSection[]
   updated_at?: string
 }
 
 export interface TeacherLessonJobStreamEvent {
-  event: 'lesson_plan_stream' | 'lesson_plan_complete' | 'lesson_plan_failed' | 'error'
+  event: 'lesson_plan_stream' | 'lesson_plan_complete' | 'lesson_plan_failed'
+    | 'lesson_script_stream' | 'lesson_script_complete' | 'lesson_script_failed' | 'error'
   job?: TeacherLessonJob
   job_id?: string
   message?: string
@@ -373,11 +381,15 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     lessonById: state => (lessonUnitId: string) => state.lessons.find(item => item.lesson_unit_id === lessonUnitId),
     activeJobByLesson: state => (lessonUnitId: string) => state.jobs.find(item => (
       item.lesson_unit_id === lessonUnitId
+      && item.type === 'teacher_lesson_plan_generation'
       && ['pending', 'running'].includes(item.status)
     )),
     latestJobByLesson: state => (lessonUnitId: string) => [...state.jobs]
       .reverse()
-      .find(item => item.lesson_unit_id === lessonUnitId),
+      .find(item => item.lesson_unit_id === lessonUnitId && item.type === 'teacher_lesson_plan_generation'),
+    latestScriptJobByLesson: state => (lessonUnitId: string) => [...state.jobs]
+      .reverse()
+      .find(item => item.lesson_unit_id === lessonUnitId && item.type === 'teacher_lesson_script_generation'),
   },
   actions: {
     async load(courseId: string) {
@@ -507,7 +519,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         await consumeLessonPlanStream(response, event => {
           const job = event.job
           if (!job) {
-            if (event.event === 'error') this.error = event.message || '教案生成流已中断'
+            if (event.event === 'error') this.error = event.message || '本讲生成流已中断'
             return
           }
           this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
@@ -578,18 +590,25 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       lessonUnitId: string,
       requirements = '',
       materialAssetIds: string[] = [],
+      resumeJobId = '',
     ) {
       this.actionLessonId = lessonUnitId
       this.error = ''
       try {
-        const response = await http.post<{ lesson: TeacherLessonProjection }>(
+        const response = await http.post<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/generate`,
-          { requirements, material_asset_ids: materialAssetIds },
+          {
+            request_id: crypto.randomUUID(),
+            resume_job_id: resumeJobId,
+            requirements,
+            material_asset_ids: materialAssetIds,
+          },
           requestConfig(),
         )
-        const index = this.lessons.findIndex(item => item.lesson_unit_id === lessonUnitId)
-        if (index >= 0) this.lessons[index] = response.data.lesson
-        return response.data.lesson
+        const job = response.data.job
+        this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
+        void this.streamJob(courseId, job.id)
+        return job
       } catch (error) {
         this.error = errorMessage(error, '本讲讲稿生成失败')
         throw error

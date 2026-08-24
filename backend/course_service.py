@@ -36,6 +36,7 @@ from content_blocks import (
 )
 from course_coherence import (
     compile_course_coherence_contract,
+    course_coherence_prompt_context,
     evaluate_course_coherence,
     remove_incorrect_next_section_claim,
 )
@@ -142,7 +143,10 @@ from course_prompt_composer import (
 )
 from course_quality import evaluate_node_content, validate_blueprint
 from course_retrieval import build_course_source_context
-from course_teaching_guidance import compile_overall_teaching_guidance
+from course_teaching_guidance import (
+    compile_overall_teaching_guidance,
+    format_generation_teaching_guidance,
+)
 from course_teaching_plan_v3 import (
     assemble_course_teaching_plan_v3,
     build_knowledge_detail_repair_prompt,
@@ -6586,6 +6590,22 @@ class CourseService(AIBase):
         if not modules:
             raise AIProviderRequestError("已确认教案没有可编译为讲稿的教学模块")
 
+        generation_metadata = self._course_generation_artifacts.get(course_id) or {}
+        pedagogy_context = self._pedagogy_contract(course_id, outline_section)
+        persisted_context = self._build_persisted_generation_context(
+            generation_metadata,
+            outline_section,
+        )
+        teaching_guidance = format_generation_teaching_guidance(
+            generation_metadata,
+            outline_section,
+            compact=True,
+        )
+        coherence_context = course_coherence_prompt_context(
+            generation_metadata,
+            str(outline_section.get("node_id") or ""),
+        )
+
         module_lines = []
         for index, module in enumerate(modules, start=1):
             constraints = [
@@ -6622,8 +6642,21 @@ class CourseService(AIBase):
             "",
             "每个教学块都要写成教师真正会说或会做的内容，而不是教案摘要。可在正文中自然使用【提问】【板书】【演示】【等待回应】【巡视】等轻量课堂提示。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和推演；活动块要说明教师指令、学生动作、等待与收束；反馈块要给出核对标准、典型错误和回应方式。",
+            "沿用旧正文链已经验证的学科讲解、知识边界、前后连贯和产物完整性要求，但必须改写为教师课堂表达，不得保留学生自学教材口吻。",
             "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",
             f"教师补充要求：{requirements.strip() or '无'}",
+            "",
+            "学科类型与当前教学块策略：",
+            clip_text(pedagogy_context, 2400),
+            "",
+            "已确认教案对本节的教学引领：",
+            clip_text(teaching_guidance, 2400),
+            "",
+            "前后小节连贯与课程总编约束：",
+            clip_text(coherence_context, 2200),
+            "",
+            "旧正文链的持久化资料与前序责任上下文：",
+            clip_text(persisted_context, 3200),
             "",
             "课程、讲次与选定资料上下文：",
             json.dumps(lesson_context or {}, ensure_ascii=False),

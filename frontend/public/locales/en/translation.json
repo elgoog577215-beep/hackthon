@@ -511,6 +511,8 @@
       "generationPlaceholder": "For example: add one classroom example while preserving the confirmed lesson timing",
       "generate": "Generate this script",
       "generating": "Generating…",
+      "continueGenerating": "Continue remaining blocks",
+      "waitingForNextBlock": "Preparing the next teaching block",
       "planRequired": "Confirm this lesson plan first",
       "minutes": "min",
       "roles": {

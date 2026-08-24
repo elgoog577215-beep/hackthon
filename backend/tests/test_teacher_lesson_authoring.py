@@ -331,8 +331,102 @@ def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrit
     assert result["quality_report"]["passed"] is True
     assert "教师生成可直接在课堂上使用的讲稿" in captured["system_prompt"]
     assert "本节课型：概念建构" in captured["system_prompt"]
+    assert "学科类型与当前教学块策略" in captured["system_prompt"]
+    assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
+    assert "学生自学教材口吻" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
     assert "自学课程的完整小节" not in captured["system_prompt"]
+
+
+def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"].append({
+        "module_id": "feedback_check",
+        "teaching_purpose": "检查学生是否掌握判断标准",
+        "knowledge_names": ["核心概念"],
+        "planned_minutes": 8,
+        "teacher_activity": "给出新情境并追问判断依据。",
+        "student_activity": "独立判断并说明理由。",
+    })
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(plan),
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": "core_explanation", "label": "核心教学"},
+            {"module_id": "feedback_check", "label": "检查与反馈"},
+        ],
+    }
+
+    first_job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-fail-on-second-block",
+    )
+
+    async def first_generator(_outline, _plan, module, _completed):
+        if module["module_id"] == "feedback_check":
+            raise RuntimeError("provider interrupted")
+        return "【板书】从定义、条件与边界讲清核心概念，并用正反例形成判断标准。"
+
+    failed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=first_job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=first_generator,
+    ))
+
+    assert failed["status"] == "failed"
+    assert failed["completed_blocks"] == 1
+    assert failed["total_blocks"] == 2
+    assert failed["result_sections"][0]["blocks"][0]["module_id"] == "core_explanation"
+    assert repository.lesson("course-1", "L1-1")["working_script_revision_id"] == ""
+
+    second_job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-resume",
+    )
+    resumed_modules = []
+
+    async def resume_generator(_outline, _plan, module, completed):
+        resumed_modules.append(module["module_id"])
+        assert [item["module_id"] for item in completed] == ["core_explanation"]
+        return "【提问】请判断一个新情境并说明依据，再对照标准纠正常见错误。"
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=second_job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=resume_generator,
+        seed_sections=failed["result_sections"],
+    ))
+
+    assert completed["status"] == "completed"
+    assert resumed_modules == ["feedback_check"]
+    revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
+    assert [item["module_id"] for item in revision["sections"][0]["blocks"]] == [
+        "core_explanation",
+        "feedback_check",
+    ]
 
 
 def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
@@ -1089,11 +1183,31 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
     with TestClient(app) as client:
         generated = client.post(
             "/api/teacher/courses/course-1/lessons/L1-1/script/generate",
-            json={"requirements": "增加案例", "material_asset_ids": ["material-1"]},
+            json={
+                "request_id": "script-first",
+                "requirements": "增加案例",
+                "material_asset_ids": ["material-1"],
+            },
             headers={"X-User-Id": "teacher-1"},
         )
-        assert generated.status_code == 200
-        first_script = generated.json()["lesson"]["script"]
+        assert generated.status_code == 202
+        job_id = generated.json()["job"]["id"]
+        for _ in range(100):
+            job = client.get(
+                f"/api/teacher/courses/course-1/lesson-jobs/{job_id}"
+            ).json()["job"]
+            if job["status"] in {"completed", "completed_with_warnings", "failed"}:
+                break
+            time.sleep(0.01)
+        assert job["status"] == "completed"
+        assert job["completed_blocks"] == job["total_blocks"] == 2
+        view = client.get(
+            "/api/teacher/courses/course-1/lesson-authoring"
+        ).json()
+        first_script = next(
+            item for item in view["lessons"]
+            if item["lesson_unit_id"] == "L1-1"
+        )["script"]
         assert first_script["ready"] is True
         assert len(first_script["sections"]) == 2
         first_revision = first_script["current_revision_id"]

@@ -26,7 +26,9 @@ from lesson_arrangement import normalize_lesson_arrangement
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,
+    compile_teacher_script_module_contract,
     normalize_teacher_script_section,
+    validate_teacher_script_section,
 )
 
 
@@ -35,6 +37,7 @@ LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
 LESSON_JOB_STALE_SECONDS = 300
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
+    "teacher_lesson_script_generation",
 }
 
 
@@ -1032,6 +1035,11 @@ class TeacherLessonAuthoringRepository:
                 if existing:
                     return deepcopy(existing)
             job_id = f"tlj-{uuid.uuid4().hex}"
+            initial_message = (
+                "等待生成本讲讲稿"
+                if job_type == "teacher_lesson_script_generation"
+                else "等待生成本讲教案"
+            )
             job = {
                 "id": job_id,
                 "course_id": course_id,
@@ -1042,7 +1050,7 @@ class TeacherLessonAuthoringRepository:
                 "status": "pending",
                 "progress": 0,
                 "phase": "queued",
-                "message": "等待生成本讲教案",
+                "message": initial_message,
                 "stream_sequence": 0,
                 "stream_batches": {},
                 "stream_complete": False,
@@ -1412,15 +1420,32 @@ class TeacherLessonAuthoringRepository:
             age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
             if age_seconds < max(1, int(stale_after_seconds)):
                 return deepcopy(job)
+            script_job = str(job.get("type") or "") == "teacher_lesson_script_generation"
             job.update({
                 "status": "failed",
-                "phase": "lesson_plan_interrupted",
-                "message": "教案生成进程已中断",
+                "phase": (
+                    "lesson_script_interrupted"
+                    if script_job
+                    else "lesson_plan_interrupted"
+                ),
+                "message": (
+                    "讲稿生成进程已中断"
+                    if script_job
+                    else "教案生成进程已中断"
+                ),
                 "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
                 "stream_complete": True,
                 "error": {
-                    "code": "lesson_plan_generation_interrupted",
-                    "message": "生成进程已中断，请重新生成本讲教案。",
+                    "code": (
+                        "lesson_script_generation_interrupted"
+                        if script_job
+                        else "lesson_plan_generation_interrupted"
+                    ),
+                    "message": (
+                        "生成进程已中断，已完成的讲稿块仍然保留，可以继续生成。"
+                        if script_job
+                        else "生成进程已中断，请重新生成本讲教案。"
+                    ),
                     "retryable": True,
                 },
                 "updated_at": _now(),
@@ -2050,6 +2075,260 @@ class TeacherLessonAuthoringService:
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
                 stream_complete=True,
                 error={"code": code, "message": str(exc), "retryable": True},
+            )
+
+    async def run_script_job(
+        self,
+        *,
+        course_id: str,
+        lesson_unit_id: str,
+        job_id: str,
+        source_plan_revision_id: str,
+        outline_sections: list[dict[str, Any]],
+        plan_sections: dict[str, dict[str, Any]],
+        generator: Callable[
+            [dict[str, Any], dict[str, Any], dict[str, Any], list[dict[str, Any]]],
+            Awaitable[str],
+        ],
+        seed_sections: list[dict[str, Any]] | None = None,
+        requirements: str = "",
+        material_asset_ids: list[str] | None = None,
+        actor: str = "teacher",
+    ) -> dict[str, Any]:
+        """Generate and persist one teacher script block at a time.
+
+        Partial blocks live in the durable job until every confirmed-plan block is
+        complete. A retry can seed a new job from that checkpoint without turning
+        an incomplete script into a formal revision.
+        """
+        contracts: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+        for outline_section in outline_sections:
+            section_id = str(outline_section.get("node_id") or "")
+            plan_section = plan_sections.get(section_id) or {}
+            contract = compile_teacher_script_module_contract(
+                outline_section,
+                plan_section,
+            )
+            if not contract.get("modules"):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_contract_empty",
+                    f"{contract.get('title') or section_id} 没有可生成的教学块。",
+                )
+            contracts.append((outline_section, plan_section, contract))
+
+        total_blocks = sum(
+            len(contract.get("modules") or [])
+            for _outline, _plan, contract in contracts
+        )
+        seed_by_section = {
+            str(item.get("section_node_id") or ""): item
+            for item in seed_sections or []
+            if isinstance(item, dict) and item.get("section_node_id")
+        }
+        completed_by_section: dict[str, list[dict[str, Any]]] = {}
+        block_states: dict[str, str] = {}
+        for _outline, _plan, contract in contracts:
+            section_id = str(contract.get("section_node_id") or "")
+            expected = [
+                item for item in contract.get("modules") or [] if isinstance(item, dict)
+            ]
+            existing = {
+                str(item.get("block_id") or ""): item
+                for item in (seed_by_section.get(section_id) or {}).get("blocks") or []
+                if isinstance(item, dict)
+                and item.get("block_id")
+                and str(item.get("content") or "").strip()
+            }
+            completed: list[dict[str, Any]] = []
+            for module in expected:
+                block_id = str(module.get("block_id") or "")
+                previous = existing.get(block_id)
+                if previous:
+                    completed.append({
+                        **deepcopy(module),
+                        "content": str(previous.get("content") or "").strip(),
+                    })
+                    block_states[block_id] = "completed"
+                else:
+                    block_states[block_id] = "pending"
+            completed_by_section[section_id] = completed
+
+        def checkpoint_sections() -> list[dict[str, Any]]:
+            result: list[dict[str, Any]] = []
+            for _outline, _plan, contract in contracts:
+                section_id = str(contract.get("section_node_id") or "")
+                blocks = completed_by_section.get(section_id) or []
+                if not blocks:
+                    continue
+                result.append(normalize_teacher_script_section({
+                    "section_node_id": section_id,
+                    "title": contract.get("title"),
+                    "blocks": blocks,
+                }, contract))
+            return result
+
+        completed_count = sum(
+            1 for state in block_states.values() if state == "completed"
+        )
+        self.repository.update_job(
+            course_id,
+            job_id,
+            status="running",
+            phase="lesson_script_generation",
+            progress=max(5, int(90 * completed_count / max(1, total_blocks))),
+            message=(
+                f"继续生成本讲讲稿，已保留 {completed_count}/{total_blocks} 个教学块"
+                if completed_count
+                else "正在按已确认教案生成本讲讲稿"
+            ),
+            total_blocks=total_blocks,
+            completed_blocks=completed_count,
+            block_states=block_states,
+            result_sections=checkpoint_sections(),
+            stream_complete=False,
+            error=None,
+        )
+
+        current_block_id = ""
+        current_block_title = ""
+        try:
+            for outline_section, plan_section, contract in contracts:
+                section_id = str(contract.get("section_node_id") or "")
+                completed = completed_by_section[section_id]
+                completed_ids = {
+                    str(item.get("block_id") or "") for item in completed
+                }
+                for module in contract.get("modules") or []:
+                    if not isinstance(module, dict):
+                        continue
+                    current_block_id = str(module.get("block_id") or "")
+                    current_block_title = str(module.get("title") or "教学块")
+                    if current_block_id in completed_ids:
+                        continue
+                    block_states[current_block_id] = "running"
+                    current_job = self.repository.get_job(course_id, job_id)
+                    self.repository.update_job(
+                        course_id,
+                        job_id,
+                        phase="lesson_script_block_generation",
+                        message=f"正在生成：{current_block_title}",
+                        current_block_id=current_block_id,
+                        current_block_title=current_block_title,
+                        block_states=block_states,
+                        stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
+                    )
+                    content = str(await generator(
+                        outline_section,
+                        plan_section,
+                        module,
+                        deepcopy(completed),
+                    ) or "").strip()
+                    if not content:
+                        raise TeacherLessonAuthoringError(
+                            "lesson_script_block_empty",
+                            f"{current_block_title} 没有生成有效内容。",
+                        )
+                    completed.append({**deepcopy(module), "content": content})
+                    completed_ids.add(current_block_id)
+                    block_states[current_block_id] = "completed"
+                    completed_count += 1
+                    current_job = self.repository.get_job(course_id, job_id)
+                    self.repository.update_job(
+                        course_id,
+                        job_id,
+                        phase="lesson_script_block_saved",
+                        progress=max(5, min(95, int(95 * completed_count / max(1, total_blocks)))),
+                        message=f"已生成 {completed_count}/{total_blocks} 个教学块",
+                        completed_blocks=completed_count,
+                        current_block_id="",
+                        current_block_title="",
+                        block_states=block_states,
+                        result_sections=checkpoint_sections(),
+                        stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
+                    )
+
+            final_sections: list[dict[str, Any]] = []
+            for _outline, _plan, contract in contracts:
+                section_id = str(contract.get("section_node_id") or "")
+                section = normalize_teacher_script_section({
+                    "section_node_id": section_id,
+                    "title": contract.get("title"),
+                    "blocks": completed_by_section.get(section_id) or [],
+                }, contract)
+                section["quality_report"] = validate_teacher_script_section(
+                    section,
+                    contract,
+                )
+                section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
+                if not section["quality_report"].get("passed"):
+                    issues = "；".join(
+                        str(item.get("message") or "")
+                        for item in section["quality_report"].get("blocking_issues") or []
+                        if isinstance(item, dict)
+                    )
+                    raise TeacherLessonAuthoringError(
+                        "lesson_script_quality_blocked",
+                        issues or "讲稿没有完整覆盖已确认教学块。",
+                    )
+                final_sections.append(section)
+
+            lesson = self.repository.save_script_revision(
+                course_id,
+                lesson_unit_id,
+                final_sections,
+                source_lesson_plan_revision_id=source_plan_revision_id,
+                generation_source="model_block_pipeline",
+                requirements=requirements,
+                material_asset_ids=material_asset_ids or [],
+                actor=actor,
+            )
+            current_job = self.repository.get_job(course_id, job_id)
+            return self.repository.update_job(
+                course_id,
+                job_id,
+                status="completed",
+                phase="lesson_script_ready",
+                progress=100,
+                message="本讲讲稿已生成，等待确认",
+                completed_blocks=total_blocks,
+                result_sections=final_sections,
+                result_revision_id=str(lesson.get("working_script_revision_id") or ""),
+                current_block_id="",
+                current_block_title="",
+                stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
+                stream_complete=True,
+                error=None,
+            )
+        except Exception as exc:
+            if isinstance(exc, asyncio.CancelledError):
+                raise
+            if current_block_id:
+                block_states[current_block_id] = "failed"
+            code = (
+                exc.code
+                if isinstance(exc, TeacherLessonAuthoringError)
+                else "lesson_script_generation_failed"
+            )
+            current_job = self.repository.get_job(course_id, job_id)
+            return self.repository.update_job(
+                course_id,
+                job_id,
+                status="failed",
+                phase="lesson_script_failed",
+                progress=max(5, int(95 * completed_count / max(1, total_blocks))),
+                message=f"讲稿生成暂停，已保留 {completed_count}/{total_blocks} 个教学块",
+                completed_blocks=completed_count,
+                current_block_id=current_block_id,
+                current_block_title=current_block_title,
+                block_states=block_states,
+                result_sections=checkpoint_sections(),
+                stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
+                stream_complete=True,
+                error={
+                    "code": code,
+                    "message": str(exc),
+                    "retryable": True,
+                },
             )
 
     async def run_ppt_job(

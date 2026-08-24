@@ -5,7 +5,7 @@ import TeacherScriptDocument from '@/components/TeacherScriptDocument.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { setLocale } from '@/shared/i18n'
 import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
-import type { TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
+import type { TeacherLessonJob, TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
 const lesson: TeacherLessonProjection = {
@@ -140,5 +140,43 @@ describe('统一讲稿页面', () => {
 
     expect(wrapper.emitted('generate')).toEqual([['增加课堂案例']])
     expect(wrapper.find('.script-footer').exists()).toBe(false)
+  })
+
+  it('生成中展示已完成教学块，失败后只提供继续剩余内容', async () => {
+    const emptyLesson = structuredClone(lesson)
+    emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }
+    const generationJob: TeacherLessonJob = {
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'failed', progress: 50,
+      phase: 'lesson_script_interrupted', message: '核心教学生成中断，已保留完成内容。',
+      warnings: [], total_blocks: 2, completed_blocks: 1,
+      current_block_id: 'block-2', current_block_title: '核心教学',
+      block_states: { 'block-1': 'completed', 'block-2': 'failed' },
+      result_sections: [{
+        section_node_id: 'section-1', title: '1.1 爬虫基础',
+        content: '## 本节任务\n\n先说明目标。', schema_version: 'teacher_script_v2' as const,
+        blocks: [{
+          block_id: 'block-1', module_id: 'lesson_goal', role: 'objective',
+          title: '本节任务', content: '先说明目标。', planned_minutes: 3,
+        }],
+      }],
+    }
+    const wrapper = mount(TeacherScriptDocument, {
+      props: { courseId: 'course-1', lesson: emptyLesson, canGenerate: true, generationJob },
+    })
+
+    expect(wrapper.get('.script-generation-progress').text()).toContain('1/2')
+    expect(wrapper.findComponent(MarkdownRenderer).props('content')).toBe('先说明目标。')
+    expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
+
+    await wrapper.get('.script-generate').trigger('submit')
+    expect(wrapper.emitted('generate')).toEqual([['']])
+
+    await wrapper.setProps({
+      generating: true,
+      generationJob: { ...generationJob, status: 'running', message: '正在生成：核心教学' },
+    })
+    expect(wrapper.find('.script-generate').exists()).toBe(false)
+    expect(wrapper.get('.script-generation-progress').text()).toContain('正在生成：核心教学')
   })
 })

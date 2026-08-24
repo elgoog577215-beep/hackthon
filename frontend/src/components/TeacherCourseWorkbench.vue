@@ -286,8 +286,9 @@
             :confirmed="scriptConfirmed"
             :confirming="scriptConfirming"
             :confirm-error="scriptConfirmError"
-            :generating="scriptGenerating"
-            :generation-error="scriptGenerationError"
+            :generating="scriptGenerationBusy"
+            :generation-job="scriptJob"
+            :generation-error="effectiveScriptGenerationError"
             :can-generate="Boolean(confirmedLessonRevision)"
             @generate="generateScript"
             @saved="handleScriptSaved"
@@ -657,6 +658,14 @@ const lessonGenerationErrorPresentation = computed(() => lessonGenerationError.v
   },
 ) : null)
 const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.value?.stream_batches))
+const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
+const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
+const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptGenerationActive.value)
+const effectiveScriptGenerationError = computed(() => String(
+  scriptJob.value?.status === 'failed'
+    ? scriptJob.value.error?.message || scriptGenerationError.value
+    : scriptGenerationError.value,
+))
 const selectedLessonQuestionNodeIds = computed(() => selectedLesson.value?.sections.map(item => item.section_node_id).filter(Boolean) || [])
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
@@ -1106,7 +1115,7 @@ function lessonGenerationStateLabel(lesson: any): string {
 }
 async function handleScriptSaved() { scriptConfirmError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements: string) {
-  if (!selectedLesson.value || !confirmedLessonRevision.value || scriptGenerating.value) return
+  if (!selectedLesson.value || !confirmedLessonRevision.value || scriptGenerationBusy.value) return
   scriptGenerating.value = true
   scriptGenerationError.value = ''
   scriptConfirmError.value = ''
@@ -1117,6 +1126,7 @@ async function generateScript(requirements: string) {
       selectedLessonId.value,
       requirements,
       activeReferences.value.map(item => item.material_asset_id),
+      scriptJob.value?.status === 'failed' ? scriptJob.value.id : '',
     )
   } catch {
     scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed', '本讲讲稿生成失败，请重试。')

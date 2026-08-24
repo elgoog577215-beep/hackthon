@@ -96,6 +96,8 @@ class ConfirmLessonScriptRequest(BaseModel):
 
 
 class GenerateLessonScriptRequest(BaseModel):
+    request_id: str = Field(default="", max_length=160)
+    resume_job_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
 
@@ -1295,7 +1297,7 @@ async def stream_lesson_job(
                 payload = {
                     "event": "error",
                     "job_id": job_id,
-                    "message": "教案生成任务不存在或已被清理。",
+                    "message": "本讲生成任务不存在或已被清理。",
                 }
                 yield f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 return
@@ -1310,8 +1312,15 @@ async def stream_lesson_job(
             if sequence > last_sequence or updated_at != last_updated_at:
                 last_sequence = sequence
                 last_updated_at = updated_at
+                script_job = str(job.get("type") or "") == "teacher_lesson_script_generation"
                 event = (
-                    "lesson_plan_complete"
+                    "lesson_script_complete"
+                    if script_job and status in {"completed", "completed_with_warnings"}
+                    else "lesson_script_failed"
+                    if script_job and status == "failed"
+                    else "lesson_script_stream"
+                    if script_job
+                    else "lesson_plan_complete"
                     if status in {"completed", "completed_with_warnings"}
                     else "lesson_plan_failed"
                     if status == "failed"
@@ -1323,6 +1332,7 @@ async def stream_lesson_job(
                         "id": job_id,
                         "course_id": course_id,
                         "lesson_unit_id": str(job.get("lesson_unit_id") or ""),
+                        "type": str(job.get("type") or ""),
                         "status": status,
                         "phase": str(job.get("phase") or ""),
                         "progress": int(job.get("progress") or 0),
@@ -1333,6 +1343,13 @@ async def stream_lesson_job(
                         "stream_sequence": sequence,
                         "stream_batches": deepcopy(job.get("stream_batches") or {}),
                         "stream_complete": bool(job.get("stream_complete")),
+                        "requirements": str(job.get("requirements") or ""),
+                        "total_blocks": int(job.get("total_blocks") or 0),
+                        "completed_blocks": int(job.get("completed_blocks") or 0),
+                        "current_block_id": str(job.get("current_block_id") or ""),
+                        "current_block_title": str(job.get("current_block_title") or ""),
+                        "block_states": deepcopy(job.get("block_states") or {}),
+                        "result_sections": deepcopy(job.get("result_sections") or []),
                         "updated_at": updated_at,
                     },
                 }
@@ -1461,7 +1478,10 @@ async def confirm_lesson_script(
         _raise(exc)
 
 
-@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/script/generate")
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_unit_id}/script/generate",
+    status_code=202,
+)
 async def generate_lesson_script(
     course_id: str,
     lesson_unit_id: str,
@@ -1498,20 +1518,88 @@ async def generate_lesson_script(
         register = getattr(tm.course_service, "register_course_generation_metadata", None)
         if callable(register):
             register(course_id, source)
-        async def generate_section(section: dict[str, Any]) -> dict[str, Any]:
-            section_id = str(section.get("node_id") or "")
-            section_title = str(section.get("node_name") or "")
-            confirmed_plan = plan_sections.get(section_id) or {}
+        input_fingerprint = stable_hash({
+            "lesson_unit_id": lesson_unit_id,
+            "source_lesson_plan_revision_id": plan_revision_id,
+            "requirements": body.requirements.strip(),
+            "material_asset_ids": selected_material_ids,
+        }, prefix="teacher-script-input")
+        seed_sections: list[dict[str, Any]] = []
+        if body.resume_job_id:
+            previous = repository.get_job(course_id, body.resume_job_id)
+            if (
+                previous.get("lesson_unit_id") == lesson_unit_id
+                and previous.get("type") == "teacher_lesson_script_generation"
+                and previous.get("input_fingerprint") == input_fingerprint
+                and previous.get("source_lesson_plan_revision_id") == plan_revision_id
+            ):
+                seed_sections = [
+                    deepcopy(item)
+                    for item in previous.get("result_sections") or []
+                    if isinstance(item, dict)
+                ]
+
+        job = repository.create_job(
+            course_id,
+            lesson_unit_id,
+            job_type="teacher_lesson_script_generation",
+            request_id=body.request_id,
+            source_outline_revision_id=_canonical_outline_revision(source),
+        )
+        job = repository.update_job(
+            course_id,
+            str(job["id"]),
+            source_lesson_plan_revision_id=plan_revision_id,
+            input_fingerprint=input_fingerprint,
+            requirements=body.requirements,
+            material_asset_ids=selected_material_ids,
+            actor=actor,
+        )
+        if job.get("status") in {"running", "completed", "completed_with_warnings"}:
+            return {"job": job}
+
+        lesson_title = str(scope["lesson"].get("node_name") or "")
+        lesson_section_titles = [
+            str(item.get("node_name") or "") for item in scope["sections"]
+        ]
+
+        async def generate_block(
+            outline_section: dict[str, Any],
+            confirmed_plan: dict[str, Any],
+            module: dict[str, Any],
+            completed_blocks: list[dict[str, Any]],
+        ) -> str:
+            module_id = str(module.get("module_id") or "")
+            single_outline = deepcopy(outline_section)
+            single_outline["module_plan"] = [{
+                **deepcopy(module),
+                "label": str(module.get("title") or module_id),
+            }]
+            single_plan = deepcopy(confirmed_plan)
+            single_plan["teaching_modules"] = [{
+                **deepcopy(module),
+                "label": str(module.get("title") or module_id),
+            }]
             generated = await asyncio.wait_for(
                 tm.course_service.generate_teacher_script_section(
                     course_id=course_id,
-                    outline_section=section,
-                    confirmed_plan_section=confirmed_plan,
+                    outline_section=single_outline,
+                    confirmed_plan_section=single_plan,
                     lesson_context={
-                        "lesson_title": str(scope["lesson"].get("node_name") or ""),
-                        "lesson_sections": [
-                            str(item.get("node_name") or "")
-                            for item in scope["sections"]
+                        "lesson_title": lesson_title,
+                        "lesson_sections": lesson_section_titles,
+                        "current_block": {
+                            "block_id": module.get("block_id"),
+                            "module_id": module_id,
+                            "title": module.get("title"),
+                            "role": module.get("role"),
+                        },
+                        "previous_script_blocks": [
+                            {
+                                "title": item.get("title"),
+                                "content": item.get("content"),
+                            }
+                            for item in completed_blocks[-3:]
                         ],
                         "material_asset_ids": selected_material_ids,
                         "selected_material_evidence": prompt_evidence,
@@ -1521,49 +1609,60 @@ async def generate_lesson_script(
                 ),
                 timeout=150,
             )
-            if not generated.get("content") or not generated.get("blocks"):
+            blocks = [
+                item for item in generated.get("blocks") or [] if isinstance(item, dict)
+            ]
+            content = str((blocks[0] if blocks else {}).get("content") or "").strip()
+            if not content:
                 raise TeacherLessonAuthoringError(
-                    "lesson_script_generation_failed",
-                    f"{section_title} 的讲稿没有生成有效内容，请重试。",
+                    "lesson_script_block_empty",
+                    f"{module.get('title') or module_id} 没有生成有效内容，请重试。",
                 )
-            return generated
+            return content
 
-        generated_sections = await asyncio.gather(*(
-            generate_section(section) for section in scope["sections"]
-        ))
-        repository.save_script_revision(
-            course_id,
-            lesson_unit_id,
-            generated_sections,
-            source_lesson_plan_revision_id=plan_revision_id,
-            generation_source="model",
-            requirements=body.requirements,
-            material_asset_ids=selected_material_ids,
-            actor=actor,
-        )
-        projected = next(
-            item for item in _lesson_projection(source, repository)
-            if item["lesson_unit_id"] == lesson_unit_id
-        )
-        return {"lesson": projected}
+        async def run() -> None:
+            try:
+                await TeacherLessonAuthoringService(repository).run_script_job(
+                    course_id=course_id,
+                    lesson_unit_id=lesson_unit_id,
+                    job_id=str(job["id"]),
+                    source_plan_revision_id=plan_revision_id,
+                    outline_sections=scope["sections"],
+                    plan_sections=plan_sections,
+                    generator=generate_block,
+                    seed_sections=seed_sections,
+                    requirements=body.requirements,
+                    material_asset_ids=selected_material_ids,
+                    actor=actor,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                current = repository.get_job(course_id, str(job["id"]))
+                if current.get("status") not in {
+                    "completed", "completed_with_warnings", "failed",
+                }:
+                    repository.update_job(
+                        course_id,
+                        str(job["id"]),
+                        status="failed",
+                        phase="lesson_script_failed",
+                        message="本讲讲稿生成失败",
+                        stream_sequence=int(current.get("stream_sequence") or 0) + 1,
+                        stream_complete=True,
+                        error={
+                            "code": "lesson_script_generation_failed",
+                            "message": str(exc),
+                            "retryable": True,
+                        },
+                    )
+
+        task = asyncio.create_task(run())
+        _background_jobs.add(task)
+        task.add_done_callback(_background_jobs.discard)
+        return {"job": job}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
-    except asyncio.TimeoutError as exc:
-        raise HTTPException(
-            status_code=504,
-            detail={
-                "code": "lesson_script_generation_timeout",
-                "message": "讲稿生成超时，未保存任何半成品，可以直接重试。",
-            },
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "code": "lesson_script_generation_failed",
-                "message": f"本讲讲稿生成失败：{exc}",
-            },
-        ) from exc
 
 
 @router.put("/courses/{course_id}/lessons/{lesson_unit_id}/script/draft")
