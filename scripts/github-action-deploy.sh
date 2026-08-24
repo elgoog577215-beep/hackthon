@@ -13,6 +13,7 @@ TARGET_COMMIT="${LINGZHI_TARGET_COMMIT:-}"
 ARTIFACT_PATH="${LINGZHI_ARTIFACT_PATH:-}"
 ARTIFACT_SHA256="${LINGZHI_ARTIFACT_SHA256:-}"
 HEALTH_URL="${LINGZHI_HEALTH_URL:-http://127.0.0.1:7862/api/health}"
+STATIC_BASE_URL="${LINGZHI_STATIC_BASE_URL:-${HEALTH_URL%/api/health}}"
 TASKS_URL="${LINGZHI_TASKS_URL:-${HEALTH_URL%/health}/tasks?limit=100}"
 SERVICE_NAME="${LINGZHI_SERVICE_NAME:-lingzhi}"
 LOCK_FILE="${LINGZHI_DEPLOY_LOCK:-/var/lock/lingzhi-deploy.lock}"
@@ -297,6 +298,33 @@ wait_for_health() {
     return 1
 }
 
+verify_locale_assets() {
+    local locale
+    local locale_url
+    local payload
+
+    for locale in zh en; do
+        locale_url="${STATIC_BASE_URL%/}/locales/$locale/translation.json"
+        if ! payload="$(curl --fail --silent --show-error --max-time 5 "$locale_url")"; then
+            log "无法读取生产翻译资源：$locale_url"
+            return 1
+        fi
+        if ! printf '%s' "$payload" | "$VENV/bin/python" -c '
+import json
+import sys
+
+locale = sys.argv[1]
+payload = json.load(sys.stdin)
+expected = {"zh": "我的日历", "en": "My calendar"}[locale]
+if payload.get("teacherHome", {}).get("myCalendar") != expected:
+    raise SystemExit(f"invalid {locale} teacherHome locale payload")
+' "$locale"; then
+            log "生产翻译资源内容不完整：$locale_url"
+            return 1
+        fi
+    done
+}
+
 active_generation_task_ids() {
     local payload
     if ! payload="$(curl --fail --silent --show-error --max-time 5 "$TASKS_URL")"; then
@@ -572,6 +600,12 @@ systemctl restart "$SERVICE_NAME"
 
 if ! wait_for_health; then
     log "新版本未通过健康检查：$HEALTH_URL"
+    log_service_diagnostics
+    false
+fi
+
+if ! verify_locale_assets; then
+    log "新版本未通过翻译资源检查：$STATIC_BASE_URL"
     log_service_diagnostics
     false
 fi

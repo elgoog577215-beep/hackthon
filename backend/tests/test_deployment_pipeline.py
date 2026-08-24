@@ -121,6 +121,19 @@ def test_server_activation_preflights_and_recovers_systemd_runtime() -> None:
     assert 'systemctl reset-failed "$SERVICE_NAME" || true' in script[rollback:]
 
 
+def test_server_activation_verifies_both_locale_assets_before_completion() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    health_check = script.index("if ! wait_for_health")
+    locale_check = script.index("if ! verify_locale_assets", health_check)
+    deployment_complete = script.index('log "部署完成：$TARGET_COMMIT"')
+
+    assert 'STATIC_BASE_URL="${LINGZHI_STATIC_BASE_URL:-${HEALTH_URL%/api/health}}"' in script
+    assert 'for locale in zh en' in script
+    assert 'payload.get("teacherHome", {}).get("myCalendar")' in script
+    assert health_check < locale_check < deployment_complete
+
+
 def test_server_activation_script_has_valid_bash_syntax() -> None:
     subprocess.run(
         ["bash", "-n", str(ROOT / "scripts" / "github-action-deploy.sh")],
@@ -149,3 +162,16 @@ def test_release_artifact_excludes_non_runtime_visual_evidence() -> None:
 
     assert archive < prune_videos < package
     assert archive < prune_design_evidence < package
+
+
+def test_release_artifact_validates_production_i18n_contract() -> None:
+    script_path = ROOT / "scripts" / "build-deploy-artifact.sh"
+    script = script_path.read_text()
+
+    tests = script.index("src/__tests__/shared/i18n.test.ts")
+    build = script.index("VITE_BASE_PATH=/lingzhi/ npm run build")
+    locale_validation = script.index("invalid ${locale} teacherHome locale")
+    archive = script.index('git -C "$ROOT_DIR" archive "$TARGET_COMMIT"')
+
+    assert tests < build < locale_validation < archive
+    subprocess.run(["bash", "-n", str(script_path)], check=True)

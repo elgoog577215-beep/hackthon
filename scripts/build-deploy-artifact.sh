@@ -21,8 +21,28 @@ printf '[%s] 在构建机生成前端产物：%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%
 (
     cd "$ROOT_DIR/frontend"
     npm ci
+    npm run test -- src/__tests__/shared/i18n.test.ts src/__tests__/utils/public-asset-url.test.ts
     VITE_BASE_PATH=/lingzhi/ npm run build
 )
+
+node - "$ROOT_DIR/frontend/dist" <<'NODE'
+const fs = require('node:fs')
+const path = require('node:path')
+
+const dist = process.argv[2]
+const index = fs.readFileSync(path.join(dist, 'index.html'), 'utf8')
+if (!index.includes('/lingzhi/assets/')) {
+  throw new Error('frontend index.html does not use the /lingzhi/ production base path')
+}
+
+for (const [locale, expected] of [['zh', '我的日历'], ['en', 'My calendar']]) {
+  const localePath = path.join(dist, 'locales', locale, 'translation.json')
+  const payload = JSON.parse(fs.readFileSync(localePath, 'utf8'))
+  if (payload?.teacherHome?.myCalendar !== expected) {
+    throw new Error(`invalid ${locale} teacherHome locale in deployment artifact`)
+  }
+}
+NODE
 
 git -C "$ROOT_DIR" archive "$TARGET_COMMIT" | tar -x -C "$STAGING_DIR"
 rm -rf "$STAGING_DIR/demo_videos"

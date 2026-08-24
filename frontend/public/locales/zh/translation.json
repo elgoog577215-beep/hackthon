@@ -4494,6 +4494,7 @@
     "nextPeriod": "下一时段",
     "today": "今天",
     "loadingCalendar": "正在读取教学日历",
+    "calendarLoadFailed": "教学日历读取失败",
     "emptyCalendar": "这个时段还没有课程安排",
     "emptyCalendarHelp": "进入课程文件空间后，可继续完善课次与备课资料。",
     "timePending": "时间待定",
