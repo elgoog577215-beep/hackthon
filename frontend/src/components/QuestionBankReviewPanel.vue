@@ -74,7 +74,6 @@
               <Shapes :size="16" />
               <span>
                 <strong>{{ t('questionBank.studio.questionTypes', '题型组合') }}</strong>
-                <small>{{ profileCapabilities }}</small>
               </span>
               <em>{{ t('questionBank.studio.automatic', '自动') }}</em>
             </article>
@@ -87,14 +86,12 @@
             <label class="question-generation-toggle">
               <span>
                 <strong>{{ t('questionBank.studio.keepPublished', '保留已发布题目') }}</strong>
-                <small>{{ t('questionBank.studio.keepPublishedHint', '增量补齐缺口；关闭后重新生成所选范围') }}</small>
               </span>
               <input v-model="keepPublished" type="checkbox" />
             </label>
             <label class="question-generation-toggle">
               <span>
                 <strong>{{ t('questionBank.studio.retrieval', '联网补充资料') }}</strong>
-                <small>{{ t('questionBank.studio.retrievalHint', '资料不足时引用公开来源并保留证据') }}</small>
               </span>
               <input v-model="retrievalEnabled" type="checkbox" />
             </label>
@@ -232,7 +229,7 @@
             · {{ Math.round(Number(assessmentProfile.confidence || 0) * 100) }}%
           </small>
         </header>
-        <p>{{ profileCapabilities }}</p>
+        <p v-if="profileCapabilities">{{ profileCapabilities }}</p>
       </section>
 
       <section class="assessment-matrix" data-testid="assessment-coverage-matrix">
@@ -1190,10 +1187,7 @@ const profileCapabilities = computed(() => {
     validators.length
       ? t('questionBank.profileValidators', '{count} validation modes').replace('{count}', String(validators.length))
       : '',
-  ].filter(Boolean).join(' · ') || t(
-    'questionBank.profileCompiling',
-    '画像已编译，详细能力随课程资料持续补全。',
-  )
+  ].filter(Boolean).join(' · ')
 })
 const rebuildStageLabel = computed(() => {
   const current = rebuildJob.value?.current_stage || ''

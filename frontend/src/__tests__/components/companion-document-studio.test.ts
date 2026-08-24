@@ -74,10 +74,13 @@ describe('CompanionDocumentStudio', () => {
     expect(wrapper.findAll('.template-card')).toHaveLength(2)
     expect(wrapper.text()).toContain('评分细则')
     expect(wrapper.text()).toContain('考试课程材料自查清单')
+    expect(wrapper.text()).not.toContain(rubricTemplate.description)
 
     await wrapper.findAll('.template-card')[0]!.trigger('click')
     expect(wrapper.get('.document-form')).toBeTruthy()
     expect(wrapper.get('.weight-total').text()).toBe('100%')
+    expect(wrapper.text()).not.toContain('各项比例合计必须为 100%')
+    expect(wrapper.text()).not.toContain('右侧资料会作为引用依据')
 
     await wrapper.get('form').trigger('submit')
     await flushPromises()

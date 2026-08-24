@@ -73,6 +73,7 @@ describe('QuestionBankImportWorkspace', () => {
     await flushPromises()
 
     expect(wrapper.get('.question-import__main').text()).toContain('题目审阅')
+    expect(wrapper.get('.question-import__empty-review').text()).toBe('题目审阅')
     expect(wrapper.text()).toContain('题库文件')
     expect(wrapper.text()).toContain('还没有导入文档')
     expect(wrapper.get('.question-import__sources [data-testid="add-question-files"]').text()).toContain('选择多份文件')

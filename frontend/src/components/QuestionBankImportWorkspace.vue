@@ -41,7 +41,6 @@
       <section v-if="!session" class="question-import__empty-review">
         <FileText :size="28" />
         <strong>{{ t('questionBank.importFlow.reviewTitle', '题目审阅') }}</strong>
-        <span>{{ t('questionBank.importFlow.dropHint', '一次选择多份文件，系统会分别识别并保留原文。') }}</span>
       </section>
 
       <section v-else-if="selectedQuestion" class="question-import__review">
@@ -1245,7 +1244,6 @@ function documentStateLabel(item: ImportSummary) {
 }
 .question-import__empty-review > svg { color: #7773dd; }
 .question-import__empty-review > strong { color: #334155; font-size: 15px; }
-.question-import__empty-review > span { max-width: 440px; color: #738095; font-size: 11px; line-height: 1.55; text-align: center; }
 .question-import__review { display: block; overflow: hidden; }
 .question-editor { height: 100%; }
 .question-editor > header { padding-inline: 20px; }

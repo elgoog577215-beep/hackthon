@@ -11,9 +11,6 @@
         <strong>{{ reviewReady
           ? t('courseWorkbench.outlineReady', '课程大纲已生成')
           : t('courseWorkbench.outlineGrowing', '课程结构正在形成') }}</strong>
-        <small>{{ reviewReady
-          ? t('courseWorkbench.outlineReadyHelp', '已保存完整章节结构，等待审阅确认')
-          : t('courseWorkbench.outlineGrowingHelp', '已完成的章节会持续出现在这里') }}</small>
       </div>
       <span>{{ completedSections }} / {{ totalSections || '—' }}</span>
     </header>
