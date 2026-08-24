@@ -17,10 +17,7 @@
       >
         <header class="dialog-heading">
           <span class="dialog-heading__mark"><Database :size="18" /></span>
-          <div>
-            <h2 :id="titleId">{{ t('courseFiles.workbench.courseInformationTitle', '课程基础信息') }}</h2>
-            <p>{{ t('courseFiles.workbench.courseInformationHelp', '集中查看建课信息、教学类型与学科类型') }}</p>
-          </div>
+          <h2 :id="titleId">{{ t('courseFiles.workbench.courseInformationTitle', '课程基础信息') }}</h2>
           <button class="icon-button" type="button" :aria-label="t('common.close', '关闭')" :disabled="saving" @click="close">
             <X :size="18" />
           </button>
@@ -52,7 +49,6 @@
                 <div>
                   <small>{{ t('teacherCourseCreate.courseName', '课程名称') }}</small>
                   <strong>{{ original.course_name }}</strong>
-                  <span>{{ t('courseFiles.workbench.courseNameReadOnly', '课程名称关联正式课程文档，此处仅供查看') }}</span>
                 </div>
                 <b>{{ t('courseFiles.workbench.revisionLabel', '修订 {revision}').replace('{revision}', String(envelope?.revision ?? 0)) }}</b>
               </section>
@@ -70,7 +66,7 @@
 
             <form v-else-if="mode === 'edit'" class="information-form" @submit.prevent="reviewChanges">
               <section class="form-section">
-                <header><BookOpen :size="17" /><div><h3>{{ t('courseFiles.workbench.identityAndSchedule', '课程身份与排课') }}</h3><p>{{ t('courseFiles.workbench.identityAndScheduleHelp', '编号、类别、教学对象和学期信息') }}</p></div></header>
+                <header><BookOpen :size="17" /><h3>{{ t('courseFiles.workbench.identityAndSchedule', '课程身份与排课') }}</h3></header>
                 <div class="field-grid field-grid--three">
                   <label><span>{{ t('teacherCourseCreate.courseCode', '课程代码') }}</span><input v-model.trim="draft.course_profile.course_code" maxlength="64" /></label>
                   <label><span>{{ t('teacherCourseCreate.courseCategory', '课程类别') }}</span><input v-model.trim="draft.course_profile.course_category" maxlength="100" /></label>
@@ -84,7 +80,7 @@
               </section>
 
               <section class="form-section">
-                <header><Clock3 :size="17" /><div><h3>{{ t('courseFiles.workbench.teachingArrangement', '授课安排') }}</h3><p>{{ t('courseFiles.workbench.teachingArrangementHelp', '课时与班级情况') }}</p></div></header>
+                <header><Clock3 :size="17" /><h3>{{ t('courseFiles.workbench.teachingArrangement', '授课安排') }}</h3></header>
                 <div class="field-grid field-grid--three">
                   <label><span>{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }} <b>*</b></span><input v-model.number="draft.generation_request.teacher_course_brief.total_class_hours" required type="number" min="1" max="1000" step="1" /></label>
                   <label><span>{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }} <b>*</b></span><input v-model.number="draft.generation_request.teacher_course_brief.lesson_duration_minutes" required type="number" min="20" max="240" step="1" /></label>
@@ -96,7 +92,7 @@
               </section>
 
               <section class="form-section">
-                <header><SlidersHorizontal :size="17" /><div><h3>{{ t('courseFiles.workbench.courseDesignSettings', '课程设计设置') }}</h3><p>{{ t('courseFiles.workbench.courseDesignSettingsHelp', '教学类型、学科类型与难度') }}</p></div></header>
+                <header><SlidersHorizontal :size="17" /><h3>{{ t('courseFiles.workbench.courseDesignSettings', '课程设计设置') }}</h3></header>
                 <fieldset class="course-type-field">
                   <legend>{{ t('courseGeneration.courseTypes.label', '教学类型') }}</legend>
                   <div class="course-type-options">
@@ -131,7 +127,7 @@
               </section>
 
               <section class="form-section">
-                <header><FileText :size="17" /><div><h3>{{ t('courseFiles.workbench.additionalCourseInformation', '其他课程信息') }}</h3><p>{{ t('courseFiles.workbench.additionalCourseInformationHelp', '课程简介、考核方式与额外教学要求') }}</p></div></header>
+                <header><FileText :size="17" /><h3>{{ t('courseFiles.workbench.additionalCourseInformation', '其他课程信息') }}</h3></header>
                 <div class="intent-fields">
                   <label><span>{{ t('teacherCourseCreate.courseIntro', '课程简介') }}</span><textarea v-model.trim="draft.course_profile.course_intro" maxlength="3000" rows="3" /></label>
                   <label><span>{{ t('teacherCourseCreate.assessmentMethod', '考核方式') }}</span><textarea v-model.trim="draft.course_profile.assessment_method" maxlength="500" rows="2" /></label>
@@ -141,7 +137,7 @@
             </form>
 
             <section v-else-if="mode === 'review'" class="review-panel">
-              <header><FileDiff :size="19" /><div><h3>{{ restoreRevision === null ? t('courseFiles.workbench.reviewCourseInformationChanges', '确认本次修改') : t('courseFiles.workbench.reviewCourseInformationRestore', '确认恢复历史设置') }}</h3><p>{{ t('courseFiles.workbench.courseInformationNoRegeneration', '保存后作为后续备课的新基线，不会自动重新生成已有内容。') }}</p></div></header>
+              <header><FileDiff :size="19" /><h3>{{ restoreRevision === null ? t('courseFiles.workbench.reviewCourseInformationChanges', '确认本次修改') : t('courseFiles.workbench.reviewCourseInformationRestore', '确认恢复历史设置') }}</h3></header>
               <div class="change-list">
                 <article v-for="change in changes" :key="change.key">
                   <strong>{{ change.label }}</strong>
@@ -151,7 +147,7 @@
             </section>
 
             <section v-else class="history-panel">
-              <header><History :size="19" /><div><h3>{{ t('courseFiles.workbench.courseInformationHistory', '修改记录') }}</h3><p>{{ t('courseFiles.workbench.courseInformationHistoryHelp', '恢复旧设置会创建一个新修订，不删除中间记录。') }}</p></div></header>
+              <header><History :size="19" /><h3>{{ t('courseFiles.workbench.courseInformationHistory', '修改记录') }}</h3></header>
               <ol>
                 <li v-for="version in envelope?.versions || []" :key="version.revision">
                   <span><History :size="15" /></span>

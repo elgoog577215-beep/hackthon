@@ -54,6 +54,10 @@ describe('CourseBaselineDialog', () => {
 
     expect(wrapper.get('.course-identity').text()).toContain('人工智能通识课')
     expect(wrapper.get('.information-view').text()).toContain('32 学时')
+    expect(wrapper.text()).not.toContain('集中查看建课信息')
+    expect(wrapper.text()).not.toContain('编号、类别、教学对象和学期信息')
+    expect(wrapper.text()).not.toContain('课时与班级情况')
+    expect(wrapper.text()).not.toContain('课程名称关联正式课程文档')
     expect(wrapper.text()).not.toContain('大纲版本')
     expect(wrapper.text()).not.toContain('已确认教案')
 
@@ -61,6 +65,10 @@ describe('CourseBaselineDialog', () => {
     expect(wrapper.get('.information-form').text()).toContain('教学类型')
     expect(wrapper.get('.information-form').text()).toContain('学科类型')
     expect(wrapper.get('.information-form').text()).toContain('辅助学科类型')
+    expect(wrapper.text()).not.toContain('编号、类别、教学对象和学期信息')
+    expect(wrapper.text()).not.toContain('课时与班级情况')
+    expect(wrapper.text()).not.toContain('教学类型、学科类型与难度')
+    expect(wrapper.text()).not.toContain('课程简介、考核方式与额外教学要求')
     expect(wrapper.get('.information-form').text()).not.toContain('授课场景')
     await wrapper.get('input[type="number"][min="1"][max="1000"]').setValue(64)
     await wrapper.get('.primary-button').trigger('click')
@@ -68,6 +76,7 @@ describe('CourseBaselineDialog', () => {
     expect(wrapper.get('.review-panel').text()).toContain('总课时')
     expect(wrapper.get('.review-panel').text()).toContain('32')
     expect(wrapper.get('.review-panel').text()).toContain('64')
+    expect(wrapper.text()).not.toContain('不会自动重新生成已有内容')
 
     await wrapper.get('.primary-button').trigger('click')
     await flushPromises()
@@ -97,6 +106,7 @@ describe('CourseBaselineDialog', () => {
 
     await wrapper.get('.secondary-button').trigger('click')
     expect(wrapper.get('.history-panel').text()).toContain('修订 0')
+    expect(wrapper.text()).not.toContain('恢复旧设置会创建一个新修订')
     await wrapper.get('.history-panel li:last-child button').trigger('click')
     expect(wrapper.get('.review-panel').text()).toContain('恢复历史设置')
     await wrapper.get('.primary-button').trigger('click')
