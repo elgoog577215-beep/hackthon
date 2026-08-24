@@ -558,7 +558,8 @@ function recentStatus(item: ImportSummary) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 264px;
   overflow: hidden;
-  border-block: 1px solid #e1e6ee;
+  border: 1px solid #e1e6ee;
+  border-radius: 10px;
   color: #263147;
   background: #fff;
 }

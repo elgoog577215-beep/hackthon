@@ -70,7 +70,7 @@ final result: passed
 
 - No actionable P0, P1 or P2 mismatch remains.
 - Fonts and typography: existing compact Chinese system typography is retained; the original document uses the product's serif reading face. File counts and states are secondary rather than badge-heavy.
-- Spacing and layout: borders only separate the global rail, main workspace, source/result split and document rail. The initial page has one dashed upload affordance; review has no nested outer card.
+- Spacing and layout: the whole import workspace keeps one complete `1px` outer boundary with a restrained `10px` radius; inside it, borders only separate the main workspace, source/result split and document rail. The initial page has one dashed upload affordance; review has no nested card stack.
 - Batch interaction: the native chooser reported `multiple = true`; selecting two different DOCX files created independent sessions. The right rail displayed both filenames, question counts and readiness states, and selecting another row replaced the review content without leaving the page.
 - Short-viewport behavior: at `1280 × 720`, the workspace measured `524px`, the review area `404px`, and the formal import footer ended at `692.6px`, so the complete action boundary remains visible.
 - Accessibility and runtime: semantic buttons, radios, labels, complementary regions and document navigation remain available. Browser console contained zero warnings or errors after upload, switching and reload.
@@ -80,6 +80,7 @@ final result: passed
 - Pass 1 removed the four-step progress block, separate file bar, green result card and generic reference rail, then added the dedicated imported-document rail and central batch-import state.
 - Pass 2 found a P2 short-viewport regression: implicit CSS-grid placement let the review content occupy the optional error row and pushed the formal action footer below the visible workspace.
 - Fix: assigned toolbar, error, content and footer to explicit grid rows and reduced the old `640px` minimum height to `500px`. Post-fix browser geometry confirms the footer is visible at `1280 × 720`.
+- Pass 3 found a P2 boundary regression after over-applying the container reduction: `border-block` preserved only the top and bottom edges, leaving the left and right scope visually open. Fix: restored one full outer border and light radius while keeping all removed inner containers removed; computed browser styles confirm four `1px` edges.
 - The impeccable detector found one layout-width transition on the upload progress bar; it was removed instead of animating layout.
 
 ## Follow-up polish
