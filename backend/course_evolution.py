@@ -13,13 +13,15 @@ import math
 import os
 import re
 import threading
+from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from course_change_planning import CourseChangePlan
 from course_commands import CourseCommandService
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
@@ -30,8 +32,8 @@ from course_revisions import revision_vector_for_document
 from learning_asset_storage import learning_asset_repository
 from learning_events import load_learning_events
 from learning_records import learning_record_repository
-from product_runtime_policy import demo_overrides_enabled
 from practice_attempts import practice_attempt_repository
+from product_runtime_policy import demo_overrides_enabled
 from teaching_representations import teaching_representation_repository
 
 COURSE_EVOLUTION_SCHEMA = "course_evolution_v2"
@@ -191,6 +193,11 @@ class CourseEvolutionPlan(BaseModel):
     base_revision_vector: dict[str, str] = Field(default_factory=dict)
     evidence_ids: list[str] = Field(default_factory=list)
     operations: list[CourseEvolutionOperation] = Field(default_factory=list)
+    # Teacher whole-course changes keep their AI interpretation, structural
+    # migration and unit-level regeneration decisions inside the same
+    # CourseEvolutionPlan.  The nested plan orchestrates existing domain
+    # revisions; it is not another course body or a second apply path.
+    teacher_change_planning: CourseChangePlan | None = None
     scope_selection: Literal[
         "current_block",
         "current_section",

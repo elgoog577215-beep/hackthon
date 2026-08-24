@@ -609,6 +609,32 @@ describe('CourseEvolutionPanel', () => {
     )
   })
 
+  it('教师全课工作台不要求先选模式或硬影响范围', async () => {
+    const store = useCourseEvolutionStore()
+    store.applyPayload('course-1', {
+      evidence_items: [],
+      hypotheses: [],
+      course_evolution_plans: [],
+    })
+    const createPlan = vi.spyOn(store, 'createSectionPlan').mockResolvedValue({} as any)
+    const wrapper = mount(CourseEvolutionPanel, {
+      props: { courseId: 'course-1', sectionId: 's1', surface: 'workspace' },
+    })
+
+    expect(wrapper.find('.request-scope-control').exists()).toBe(false)
+    expect(wrapper.get('.teacher-scope-policy').text()).toContain('AI 会检查整门课程的真实影响')
+    expect(wrapper.get('.teacher-scope-policy').text()).toContain('扫描可以扩展或收缩')
+
+    await wrapper.get('.section-growth-request input').setValue('第三章太散了，但保留原项目案例')
+    await wrapper.get('.generate-plan').trigger('click')
+
+    expect(createPlan).toHaveBeenCalledWith(
+      's1',
+      '第三章太散了，但保留原项目案例',
+      'whole_course',
+    )
+  })
+
   it('没有任何免确认直接应用的小范围路径', async () => {
     // Owner decision Q5 explicitly excluded option (c): there is no scope,
     // however narrow, that applies without the learner confirming.

@@ -58,6 +58,59 @@ export interface AdaptationHypothesis {
   status: string
 }
 
+export interface TeacherCourseChangePlanning {
+  schema_version: 'course_change_plan_v1'
+  scenario_matrix_version: 'course_change_scenario_matrix_v1'
+  plan_id: string
+  course_id: string
+  intent: {
+    schema_version: 'course_change_intent_v1'
+    intent_id: string
+    course_id: string
+    raw_request: string
+    interpreted_goal: string
+    scope_hint: Record<string, any>
+    hard_constraints: string[]
+    soft_preferences: string[]
+    protected_requirements: string[]
+    source_refs: string[]
+    signals: Array<{
+      signal_id: string
+      kind: 'semantic' | 'structural' | 'mixed' | 'uncertain'
+      evidence: string
+      confidence: number
+      source: string
+    }>
+    assumptions: string[]
+    blocking_questions: string[]
+    can_proceed_without_clarification: boolean
+    interpretation_revision: string
+  }
+  base_revision_vector: Record<string, string>
+  execution_strategies: Array<'semantic_impact' | 'structural_regeneration'>
+  strategy_status: 'provisional' | 'resolved'
+  scenario_tags: string[]
+  structural_operations: Array<Record<string, any>>
+  unit_migrations: Array<{
+    migration_id: string
+    asset_type: string
+    unit_type: string
+    source_unit_ids: string[]
+    target_unit_ids: string[]
+    disposition: 'reuse_exact' | 'reuse_rebind' | 'rewrite_partial' | 'regenerate' | 'retire' | 'blocked'
+    reason: string
+    confidence: number
+    requires_review: boolean
+    candidate_status: 'not_started' | 'ready' | 'failed' | 'not_required'
+  }>
+  structure_review_status: 'not_required' | 'pending' | 'confirmed'
+  status: 'draft' | 'impact_ready' | 'needs_clarification' | 'candidate_ready' | 'blocked'
+  supersedes_plan_id: string
+  replan_reasons: string[]
+  created_at: string
+  updated_at: string
+}
+
 export interface CourseEvolutionPlan {
   plan_id?: string
   plan_kind?: 'course_evolution_plan'
@@ -72,6 +125,7 @@ export interface CourseEvolutionPlan {
   requested_roles?: string[]
   evidence_ids: string[]
   operations: EvolutionOperation[]
+  teacher_change_planning?: TeacherCourseChangePlanning | null
   scope_selection?: CourseAdjustmentScope
   allowed_scopes: Array<'current' | 'current_and_next'>
   selected_scope?: 'current' | 'current_and_next'
