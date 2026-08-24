@@ -44,7 +44,7 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray>header').text()).toContain('第 1 讲引用资料')
+    expect(wrapper.find('.reference-tray>header').exists()).toBe(false)
     expect(wrapper.get('.drop-zone').text()).toContain('第一讲案例.docx')
     expect(wrapper.get('.reference-list').text()).not.toContain('第二讲练习.pdf')
 
@@ -55,7 +55,7 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray>header').text()).toContain('第 2 讲引用资料')
+    expect(wrapper.find('.reference-tray>header').exists()).toBe(false)
     expect(wrapper.get('.reference-list').text()).toContain('第二讲练习.pdf')
     expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
 
