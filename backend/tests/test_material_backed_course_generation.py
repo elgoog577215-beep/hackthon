@@ -742,11 +742,25 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
             "user_description": "真题用于例题和练习。",
             "content": "题目：根据导数定义求 f(x)=x^2 在 x=1 的导数？",
         }],
+        existing_course_data={
+            "course_profile": {
+                "course_code": "MATH-101",
+                "credits": 3,
+                "course_intro": "从极限与变化率建立微积分基础。",
+                "assessment_method": "过程任务与期末综合任务",
+            },
+        },
     )
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v26"
+    assert data["prompt_contract_version"] == "course_prompt_v27"
+    assert data["course_generation_brief"]["formal_course_profile"] == {
+        "course_code": "MATH-101",
+        "credits": 3,
+        "course_intro": "从极限与变化率建立微积分基础。",
+        "assessment_method": "过程任务与期末综合任务",
+    }
     assert len(calls) == 4
     assert not any("判断课程教学结构" in prompt for prompt in calls)
     assert data["course_purpose"] == "exam_sprint"

@@ -34,13 +34,27 @@ def _course() -> dict:
     return {
         "course_id": "course-f2",
         "course_name": "微积分",
+        "course_profile": {
+            "course_code": "MATH-101",
+            "course_category": "学科基础课",
+            "credits": 2,
+            "target_major": "理工科",
+            "target_grade": "大学一年级",
+            "course_intro": "从变化与累积两条主线建立微积分基础。",
+            "assessment_method": "平时任务 40%，期末综合任务 60%",
+        },
         "teacher_course_brief": {
             "academic_term": "2026 秋季学期",
             "total_class_hours": 8,
+            "target_audience": "大学一年级",
+            "lesson_duration_minutes": 45,
+            "teaching_context": "classroom",
         },
+        "material_cards": [{"filename": "微积分教材.pdf"}],
         "course_outline": {
             "positioning": "在 8 课时内掌握核心推理链条",
             "learning_objectives": ["能计算导数与定积分"],
+            "prerequisites": ["初等函数与代数运算"],
             "chapters": [{
                 "title": "第1章 极限",
                 "sections": [
@@ -52,10 +66,20 @@ def _course() -> dict:
         "course_teaching_plan": {
             "sections": [{
                 "node_id": "L2-1-1", "node_name": "1.1 函数极限",
+                "learning_objective": "能解释极限并完成基本判定",
+                "key_points": ["极限的定义"],
+                "key_difficulties": ["趋近过程与极限值的区分"],
+                "resource_refs": ["微积分教材.pdf"],
+                "in_class_checks": ["用一道出口题说明极限判定依据"],
+                "homework": ["完成两道极限判定变式题"],
+                "teaching_notes": ["课后记录学生对趋近概念的典型混淆"],
                 "teaching_modules": [{
                     "module_id": "core_explanation", "label": "核心讲解",
+                    "teaching_purpose": "建立极限的直观与形式联系",
                     "teaching_guidance": "先比较两段变化再归纳",
                     "planned_minutes": 15,
+                    "teacher_activity": "展示数表与图像并追问趋势",
+                    "student_activity": "比较数值变化并口述判断",
                 }],
             }],
         },
@@ -127,6 +151,31 @@ def test_outline_document_carries_the_coverage_verdict():
     assert "微型课" in outline["content"]
     assert "本次不覆盖" in outline["content"]
     assert "中值定理" in outline["content"]
+
+
+def test_formal_templates_are_projected_from_the_existing_course_truth():
+    """启智式正式文书骨架只作投影，不新建一份大纲或教案。"""
+    documents = build_course_artifact_documents(_course())
+    outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
+    teaching_plan = next(
+        d for d in documents if d["artifact_type"] == "course_teaching_plan"
+    )["content"]
+
+    assert "## 一、课程基本信息" in outline
+    assert "MATH-101" in outline
+    assert "## 五、考核与成绩构成" in outline
+    assert "平时任务 40%" in outline
+    assert "## 七、参考资料" in outline
+    assert "微积分教材.pdf" in outline
+
+    assert "#### 教学目标" in teaching_plan
+    assert "**知识与能力**" in teaching_plan
+    assert "**过程与方法**" in teaching_plan
+    assert "**迁移与创新**" in teaching_plan
+    assert "#### 教学重点与难点" in teaching_plan
+    assert "| 教学环节 | 教学目的 | 时间 | 教师活动 | 学生活动 |" in teaching_plan
+    assert "展示数表与图像并追问趋势" in teaching_plan
+    assert "微积分教材.pdf" in teaching_plan
 
 
 # --- 要求一：幂等 -----------------------------------------------------------

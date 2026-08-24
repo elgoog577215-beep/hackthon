@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from course_authoring_templates import compile_formal_course_context
+
 
 def _text(value: Any) -> str:
     return " ".join(str(value or "").split())
@@ -64,6 +66,34 @@ def _assessment_methods(
         if text and text not in methods:
             methods.append(text)
 
+    profile = course_data.get("course_profile")
+    if isinstance(profile, dict):
+        add(profile.get("assessment_method"))
+    request = course_data.get("generation_request")
+    request_classroom = (
+        request.get("teacher_course_brief")
+        if isinstance(request, dict)
+        else {}
+    )
+    teaching_plan = course_data.get("course_teaching_plan")
+    plan_classroom = (
+        teaching_plan.get("classroom")
+        if isinstance(teaching_plan, dict)
+        else {}
+    )
+    for classroom in (
+        request_classroom,
+        course_data.get("teacher_course_brief") or {},
+        plan_classroom,
+    ):
+        if not isinstance(classroom, dict):
+            continue
+        values = classroom.get("course_assessment_plan") or []
+        if not isinstance(values, list):
+            values = [values]
+        for item in values:
+            add(item)
+
     for chapter in _records(plan.get("chapters")):
         for section in _records(chapter.get("sections")):
             for item in section.get("assessment") or []:
@@ -76,7 +106,6 @@ def _assessment_methods(
                 else:
                     add(item)
 
-    teaching_plan = course_data.get("course_teaching_plan")
     if isinstance(teaching_plan, dict):
         for section in _records(teaching_plan.get("sections")):
             for group in _records(section.get("knowledge_structure")):
@@ -146,6 +175,10 @@ def compile_overall_teaching_guidance(
     teaching_plan = teaching_plan if isinstance(teaching_plan, dict) else {}
     classroom = teaching_plan.get("classroom")
     classroom = classroom if isinstance(classroom, dict) else {}
+    formal_context = compile_formal_course_context(
+        course_data,
+        plan=plan,
+    )
     positioning = _text(
         plan.get("positioning")
         or brief.get("goal")
@@ -186,6 +219,18 @@ def compile_overall_teaching_guidance(
         "teaching_throughline": rationale or positioning,
         "assessment_methods": _assessment_methods(course_data, plan),
         "chapters": _chapters(plan),
+        "formal_document_template": {
+            "schema_version": formal_context["schema_version"],
+            "course_information": formal_context["course_information"],
+            "course_intro": formal_context["course_intro"],
+            "lesson_plan_sections": formal_context[
+                "lesson_plan_document_sections"
+            ],
+            "objective_dimensions": formal_context["objective_dimensions"],
+            "lesson_flow_contract": formal_context["lesson_flow_contract"],
+            "reference_policy": formal_context["reference_policy"],
+            "confirmed_references": formal_context["references"],
+        },
     }
 
 

@@ -1,6 +1,7 @@
 from copy import deepcopy
 
 from course_prompt_composer import CoursePromptComposer
+from course_pedagogy import resolve_pedagogy_profile
 from course_teaching_guidance import (
     compile_overall_teaching_guidance,
     compile_section_teaching_guidance,
@@ -191,3 +192,46 @@ def test_detailed_lesson_plan_batch_must_translate_overall_guidance():
     assert "先用图像建立变化率直觉，再进入代数表达" in prompt
     assert "必须把总体教案的课程成果、教学主线和" in prompt
     assert "不得改变冻结的目录、知识身份或模块集合" in prompt
+    assert "知识与能力" in prompt
+    assert "过程与方法" in prompt
+    assert "不为补齐「创新」标题编造空洞目标" in prompt
+    assert "不得把所有课都写成" in prompt
+
+
+def test_formal_course_baseline_guides_outline_without_becoming_a_second_plan():
+    profile = resolve_pedagogy_profile(
+        subject="数据结构",
+        requirements="理解并实现核心数据结构",
+        materials=[],
+    )
+    prompt = CoursePromptComposer().build_outline_skeleton_v2_prompt(
+        subject="数据结构",
+        audience="大学二年级",
+        brief={
+            "course_type": "systematic",
+            "course_shape_constraints": {"chapter_count": 4, "section_count": 12},
+            "formal_course_profile": {
+                "course_code": "CS-201",
+                "course_category": "专业基础课",
+                "credits": 3,
+                "course_intro": "以抽象数据类型与复杂度为主线。",
+                "assessment_method": "过程任务与综合项目",
+            },
+            "teacher_course_brief": {
+                "target_audience": "大学二年级",
+                "total_class_hours": 48,
+                "teaching_context": "blended",
+            },
+        },
+        profile=profile,
+        difficulty_profile={},
+        gap_assessment={},
+        adaptation_decision={},
+        material_context="",
+    )
+
+    assert "## 正式教学大纲模板契约" in prompt
+    assert "CS-201" in prompt
+    assert "过程任务与综合项目" in prompt
+    assert "当前模型只规划课程定位、目标和目录" in prompt
+    assert '"course_title": "课程名"' in prompt

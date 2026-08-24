@@ -44,6 +44,7 @@ from course_composition import (
     attach_composition_to_plan,
     compile_composition_profile,
 )
+from course_authoring_templates import attach_formal_course_profile
 from course_context import CourseContextManager, get_context_manager
 from course_difficulty import (
     assess_readiness,
@@ -1345,6 +1346,15 @@ class CourseService(AIBase):
             attach_pedagogy_profile(artifacts, profile)
 
         artifacts["course_composition_profile"] = composition_profile
+        # The generation brief is an immutable input snapshot, not a second
+        # course-profile owner.  Capturing the current formal baseline here
+        # makes it participate in the outline fingerprint and lets the prompt
+        # respect confirmed credits, hours, audience and assessment settings.
+        if "course_profile" in existing:
+            attach_formal_course_profile(
+                artifacts["course_generation_brief"],
+                existing.get("course_profile"),
+            )
         artifacts["generation_runtime_budget"] = {
             **self._generation_budget.to_dict(),
             "outline_batch_max_sections": (

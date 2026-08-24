@@ -29,6 +29,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 import uuid
 
+from course_authoring_templates import (
+    compile_formal_course_context,
+    project_lesson_objective_dimensions,
+)
 from teacher_course_space import (
     MaterialStorageError,
     classify_path,
@@ -90,6 +94,25 @@ def _safe_segment(value: str, *, fallback: str) -> str:
     return text[:80]
 
 
+def _md_cell(value: Any) -> str:
+    """Keep deterministic projections valid inside Markdown tables."""
+    return " ".join(str(value or "").split()).replace("|", "\\|")
+
+
+def _text_items(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = value.splitlines()
+    elif isinstance(value, list):
+        values = value
+    else:
+        values = []
+    return list(dict.fromkeys(
+        text
+        for item in values
+        if (text := " ".join(str(item or "").split()))
+    ))
+
+
 def build_course_artifact_documents(course_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Render the course into the markdown documents that belong in the space.
 
@@ -130,28 +153,107 @@ def _render_outline(course_data: dict[str, Any]) -> str:
     chapters = plan.get("chapters") if isinstance(plan, dict) else None
     if not isinstance(chapters, list) or not chapters:
         return ""
-    lines = [f"# {course_data.get('course_name') or '课程'}｜课程大纲", ""]
-    positioning = str(plan.get("positioning") or "").strip()
-    if positioning:
-        lines += ["## 课程定位", positioning, ""]
-    objectives = [str(item).strip() for item in plan.get("learning_objectives") or [] if str(item).strip()]
-    if objectives:
-        lines += ["## 学习目标"] + [f"- {item}" for item in objectives] + [""]
+    context = compile_formal_course_context(course_data, plan=plan)
+    lines = [f"# {course_data.get('course_name') or '课程'}｜课程教学大纲", ""]
+
+    information = context["course_information"]
+    lines += ["## 一、课程基本信息", ""]
+    if information:
+        lines += ["| 项目 | 内容 |", "|---|---|"]
+        lines.extend(
+            f"| {_md_cell(label)} | {_md_cell(value)} |"
+            for label, value in information.items()
+        )
+    else:
+        lines.append("尚未确认课程基本信息。")
+    lines.append("")
+
+    lines += ["## 二、课程定位与简介", ""]
+    if context["course_intro"]:
+        lines += ["### 课程简介", context["course_intro"], ""]
+    if context["positioning"]:
+        lines += ["### 课程定位", context["positioning"], ""]
+    if not context["course_intro"] and not context["positioning"]:
+        lines += ["尚未确认课程定位与简介。", ""]
+
+    objectives = context["learning_objectives"]
+    lines += ["## 三、教学目标", ""]
+    lines += (
+        [f"- {item}" for item in objectives]
+        if objectives
+        else ["尚未确认可测量的教学目标。"]
+    )
+    lines.append("")
+
+    lines += ["## 四、课程要求", ""]
+    prerequisites = context["prerequisites"]
+    lines.append(
+        f"- 预修要求：{'；'.join(prerequisites)}"
+        if prerequisites
+        else "- 预修要求：未设置额外预修要求"
+    )
+    lines.extend(
+        f"- {item}" for item in context["teaching_requirements"]
+    )
+    lines.append("")
+
     coverage = _coverage_section(course_data)
     if coverage:
+        # Coverage is a requirement boundary, not another parallel outline
+        # section. Keep the existing honesty verdict under the formal template.
+        coverage[0] = "### 覆盖范围说明"
         lines += coverage
-    lines.append("## 目录")
+
+    lines += ["## 五、考核与成绩构成", ""]
+    lines += (
+        [f"- {item}" for item in context["assessment_methods"]]
+        if context["assessment_methods"]
+        else ["尚未确认课程考核方式。"]
+    )
+    lines.append("")
+
+    lines += ["## 六、教学内容与学时安排", ""]
+    has_section_hours = any(
+        section.get("planned_hours") not in (None, "")
+        or section.get("credit_hours") not in (None, "")
+        for chapter in chapters if isinstance(chapter, dict)
+        for section in chapter.get("sections") or [] if isinstance(section, dict)
+    )
+    header = "| 章节 | 课次 | 学习目标 |"
+    divider = "|---|---|---|"
+    if has_section_hours:
+        header = "| 章节 | 课次 | 学习目标 | 学时 |"
+        divider = "|---|---|---|---|"
+    lines += [header, divider]
     for chapter in chapters:
         if not isinstance(chapter, dict):
             continue
-        lines.append(f"### {chapter.get('title') or ''}".rstrip())
+        chapter_title = str(chapter.get("title") or "").strip()
         for section in chapter.get("sections") or []:
             if not isinstance(section, dict):
                 continue
-            objective = str(section.get("learning_objective") or "").strip()
-            suffix = f" —— {objective}" if objective else ""
-            lines.append(f"- {section.get('section_number') or ''} {section.get('title') or ''}{suffix}".strip())
-        lines.append("")
+            lesson_title = " ".join(filter(None, (
+                str(section.get("section_number") or "").strip(),
+                str(section.get("title") or "").strip(),
+            )))
+            row = (
+                f"| {_md_cell(chapter_title)} | {_md_cell(lesson_title)} | "
+                f"{_md_cell(section.get('learning_objective'))} |"
+            )
+            if has_section_hours:
+                hours = section.get("planned_hours")
+                if hours in (None, ""):
+                    hours = section.get("credit_hours")
+                row = row[:-1] + f" {_md_cell(hours)} |"
+            lines.append(row)
+    lines.append("")
+
+    lines += ["## 七、参考资料", ""]
+    lines += (
+        [f"- {item}" for item in context["references"]]
+        if context["references"]
+        else ["暂无已确认参考资料。"]
+    )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -190,23 +292,121 @@ def _render_teaching_plan(course_data: dict[str, Any]) -> str:
     sections = plan.get("sections") if isinstance(plan, dict) else None
     if not isinstance(sections, list) or not sections:
         return ""
+    context = compile_formal_course_context(course_data)
+    node_titles = {
+        str(item.get("node_id") or ""): str(item.get("node_name") or "")
+        for item in course_data.get("nodes") or []
+        if isinstance(item, dict)
+    }
+    outline = course_data.get("course_outline") or course_data.get("course_plan") or {}
+    if isinstance(outline, dict):
+        for chapter in outline.get("chapters") or []:
+            if not isinstance(chapter, dict):
+                continue
+            for item in chapter.get("sections") or []:
+                if isinstance(item, dict):
+                    node_titles.setdefault(
+                        str(item.get("node_id") or ""),
+                        " ".join(filter(None, (
+                            str(item.get("section_number") or "").strip(),
+                            str(item.get("title") or "").strip(),
+                        ))),
+                    )
+
     lines = [f"# {course_data.get('course_name') or '课程'}｜全课教案", ""]
+    if context["course_information"]:
+        lines += ["## 一、课程信息", "", "| 项目 | 内容 |", "|---|---|"]
+        lines.extend(
+            f"| {_md_cell(label)} | {_md_cell(value)} |"
+            for label, value in context["course_information"].items()
+        )
+        lines.append("")
+    if context["learning_objectives"]:
+        lines += ["## 二、整体教学目标", ""]
+        lines.extend(f"- {item}" for item in context["learning_objectives"])
+        lines.append("")
+    if context["positioning"]:
+        lines += ["## 三、整体教学设计", "", context["positioning"], ""]
+
+    lines += ["## 四、分课次教案", ""]
     for section in sections:
         if not isinstance(section, dict):
             continue
-        lines.append(f"## {section.get('node_id') or ''} {section.get('node_name') or ''}".rstrip())
-        for module in section.get("teaching_modules") or []:
-            if not isinstance(module, dict):
-                continue
-            lines.append(f"### {module.get('label') or module.get('module_id') or ''}".rstrip())
-            guidance = str(module.get("teaching_guidance") or "").strip()
-            if guidance:
-                lines.append(guidance)
-            minutes = module.get("planned_minutes")
-            if minutes:
-                lines.append(f"（计划用时 {minutes} 分钟）")
-            lines.append("")
+        section_id = str(section.get("node_id") or "")
+        title = str(section.get("node_name") or node_titles.get(section_id) or "").strip()
+        lines.append(f"### {title or section_id}".rstrip())
+
+        objective_dimensions = project_lesson_objective_dimensions(section)
+        lines += ["#### 教学目标"]
+        if objective_dimensions:
+            lines.extend(
+                f"- **{label}**：{'；'.join(values)}"
+                for label, values in objective_dimensions.items()
+            )
+        else:
+            lines.append("尚未确认本课次教学目标。")
         lines.append("")
+
+        key_points = _text_items(section.get("key_points"))
+        difficulties = _text_items(section.get("key_difficulties"))
+        lines += ["#### 教学重点与难点"]
+        lines.append(f"- 教学重点：{'；'.join(key_points) or '尚未确认'}")
+        lines.append(f"- 教学难点：{'；'.join(difficulties) or '尚未确认'}")
+        lines.append("")
+
+        resource_refs = _text_items(section.get("resource_refs"))
+        lines += ["#### 教学准备与来源资料"]
+        lines.extend(
+            [f"- {item}" for item in resource_refs]
+            if resource_refs
+            else ["暂无本课次已确认来源资料。"]
+        )
+        lines.append("")
+
+        lines += [
+            "#### 教学过程",
+            "",
+            "| 教学环节 | 教学目的 | 时间 | 教师活动 | 学生活动 |",
+            "|---|---|---:|---|---|",
+        ]
+        modules = [
+            item for item in section.get("teaching_modules") or []
+            if isinstance(item, dict)
+        ]
+        for module in modules:
+            minutes = module.get("planned_minutes")
+            time_label = f"{minutes} 分钟" if minutes not in (None, "") else ""
+            lines.append(
+                f"| {_md_cell(module.get('label') or module.get('module_id'))} | "
+                f"{_md_cell(module.get('teaching_purpose') or module.get('teaching_guidance'))} | "
+                f"{_md_cell(time_label)} | {_md_cell(module.get('teacher_activity'))} | "
+                f"{_md_cell(module.get('student_activity'))} |"
+            )
+        if not modules:
+            lines.append("| 待完善 | 尚未确认可执行教学流程 |  |  |  |")
+        lines.append("")
+
+        checks = _text_items(section.get("in_class_checks"))
+        lines += ["#### 课堂检查与评价证据"]
+        lines.extend(
+            [f"- {item}" for item in checks]
+            if checks else ["尚未确认课堂检查。"]
+        )
+        lines.append("")
+
+        homework = _text_items(section.get("homework"))
+        lines += ["#### 作业与拓展"]
+        lines.extend(
+            [f"- {item}" for item in homework]
+            if homework else ["尚未确认课后任务。"]
+        )
+        lines.append("")
+
+        notes = _text_items(section.get("teaching_notes"))
+        if notes:
+            lines += ["#### 教学备注与课后反思"]
+            lines.extend(f"- {item}" for item in notes)
+            lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 

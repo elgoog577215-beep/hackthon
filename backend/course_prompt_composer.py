@@ -8,6 +8,7 @@ from typing import Any
 
 from course_coherence import course_coherence_prompt_context
 from course_composition import format_block_difficulty, format_composition_profile
+from course_authoring_templates import compile_outline_prompt_contract
 from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
@@ -27,7 +28,7 @@ from course_teaching_guidance import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v26"
+PROMPT_CONTRACT_VERSION = "course_prompt_v27"
 
 
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
@@ -151,6 +152,11 @@ class CoursePromptComposer:
         course_type_contract = brief.get("course_type_contract") or {}
         planning_rules = _course_type_planning_rules(planning_brief)
         coverage_rules = _course_coverage_rules(coverage_verdict)
+        formal_outline_contract = compile_outline_prompt_contract(
+            subject=subject,
+            audience=audience,
+            brief=brief,
+        )
         return f"""## 全课章节骨架 V2
 
 你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
@@ -183,6 +189,9 @@ class CoursePromptComposer:
 
 ## 资料摘要
 {material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
+
+## 正式教学大纲模板契约（从属于灵知结构化真源）
+{json.dumps(formal_outline_contract, ensure_ascii=False)}
 
 ## 约束
 1. 用户指定章数或小节总数时必须精确满足；所有 `section_count` 之和必须等于指定总数。
@@ -729,15 +738,23 @@ class CoursePromptComposer:
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
 11. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
    课堂检查、作业或备注；这些字段必须与教学场景和总课时相容，未知内容可以省略，不能编造资料来源。
-8. 「本批次可依据的资料证据」是本节已确认的教师资料与联网来源。写成立条件、边界、
+12. 「本批次可依据的资料证据」是本节已确认的教师资料与联网来源。写成立条件、边界、
    易错点与掌握标准时**必须优先依据这些证据**，不得与证据冲突；证据未覆盖的部分
    照常用学科通识补足，但不得把通识伪装成资料结论，也不得编造证据里没有的来源、
    数据或结论。该段为空时说明本节无可用证据，据实按通识展开即可。
-9. 证据中 `source_kind=uploaded_lesson_plan` 表示老师明确选中的原教案主来源。
+13. 证据中 `source_kind=uploaded_lesson_plan` 表示老师明确选中的原教案主来源。
    必须按照 `source_order_start/source_order_end` 和原分块顺序忠实吸收：已有字段、
    教学环节、师生活动和原文表述优先保留，只补齐缺失项；不得为了套系统模板而重排、
    改写或删去原教案已有结构。原教案与课程大纲或冻结知识边界冲突时，不得静默覆盖，
    应保留可兼容内容，并把冲突写入备注或审核提示。
+14. 「正式教案模板」只是展示和导出契约，不是第二份教案。知识与能力、过程与方法、
+   迁移与创新应有机落在已有的能力点、掌握标准、教学活动和作业中；不增加平行字段，
+   也不为补齐「创新」标题编造空洞目标。
+15. 教学流程必须完成「进入问题或任务 → 核心教学 → 学习者行动 → 检查或总结证据」的职责闭环；
+   具体环节仍由教学类型、学科画像、本讲课型和允许的教学块决定，不得把所有课都写成
+   「案例导入—理论讲授—总结讨论」同一套流程。
+16. `resource_refs` 只能使用已给定的证据名称或标识；没有已确认来源时留空，不得自行生成书目、
+   课程、案例、数据或链接。
 
 ## JSON Schema
 {{
