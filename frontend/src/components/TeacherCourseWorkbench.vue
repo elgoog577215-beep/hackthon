@@ -133,15 +133,17 @@
             <div ref="lessonOutlineRoot" class="lesson-outline-control">
               <button
                 ref="lessonOutlineTrigger"
-                class="lesson-outline-trigger"
+                class="lesson-title-trigger"
                 type="button"
                 :aria-expanded="lessonOutlineOpen"
+                :aria-label="`${t('courseWorkbench.lessonOutline.trigger', '目录')}：${selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次')}，${selectedLessonPosition}/${lessonStore.lessons.length}`"
                 aria-controls="lesson-outline-navigation"
+                :disabled="aiCandidatePending"
                 @click="toggleLessonOutline"
               >
-                <ListTree :size="15" />
-                <span>{{ t('courseWorkbench.lessonOutline.trigger', '目录') }}</span>
+                <strong>{{ selectedLesson?.title || t('courseWorkbench.form.chooseLesson', '请选择课次') }}</strong>
                 <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
+                <ChevronDown class="lesson-title-chevron" :size="15" aria-hidden="true" />
               </button>
               <nav
                 v-if="lessonOutlineOpen"
@@ -177,7 +179,6 @@
                 </button>
               </nav>
             </div>
-            <label class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId" :disabled="aiCandidatePending"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ lesson.title }}</option></select></label>
           </div>
           <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
         </nav>
@@ -379,7 +380,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, ListTree, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -1246,14 +1247,19 @@ onBeforeUnmount(() => {
 .has-lesson-outline .lesson-stage-content{overflow:visible}
 .lesson-navigator{position:relative;z-index:5;grid-template-columns:auto minmax(0,1fr) auto;overflow:visible}
 .lesson-current-group{min-width:0;display:flex;align-items:center;justify-content:center;gap:8px}
-.lesson-current-group .lesson-selector{flex:0 1 auto;max-width:calc(100% - 104px)}
-.lesson-current-group .lesson-selector select{width:auto;max-width:100%}
-.lesson-outline-control{position:relative;align-self:center}
-.lesson-outline-trigger{min-height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #dde2eb;border-radius:8px;color:#536176;background:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .16s ease,color .16s ease,background-color .16s ease,box-shadow .16s ease}
-.lesson-outline-trigger:hover,.lesson-outline-trigger[aria-expanded="true"]{border-color:#c8c9ee;color:#403b9f;background:#f7f7ff}
-.lesson-outline-trigger:focus-visible{outline:3px solid rgba(91,87,232,.16);outline-offset:2px}
-.lesson-outline-trigger small{padding-left:6px;border-left:1px solid #e3e7ee;color:#8994a5;font-size:10px;font-weight:750;font-variant-numeric:tabular-nums}
-.lesson-outline-popover{position:absolute;z-index:30;top:calc(100% + 9px);left:0;width:286px;max-height:min(480px,calc(100vh - 190px));overflow:auto;padding:7px;border-radius:12px;background:#fff;box-shadow:0 16px 42px rgba(30,41,59,.16);animation:lesson-outline-in .16s cubic-bezier(.16,1,.3,1)}
+.lesson-navigator>button{min-height:32px;padding:0 8px;border:0;border-radius:7px;color:#5552c8;background:transparent;box-shadow:none}
+.lesson-navigator>button:hover:not(:disabled){transform:none;border-color:transparent;color:#3730a3;background:#f0f1fa}
+.lesson-navigator>button:disabled{border-color:transparent;background:transparent}
+.lesson-outline-control{position:relative;min-width:0;width:min(100%,560px);display:flex;align-items:center;justify-content:center}
+.lesson-title-trigger{min-width:0;max-width:100%;min-height:38px;display:grid;grid-template-columns:minmax(0,auto) auto 16px;align-items:center;gap:9px;padding:0 10px 0 14px;border:0;border-radius:8px;color:#263147;background:transparent;cursor:pointer;transition:color .16s ease,background-color .16s ease}
+.lesson-title-trigger:hover,.lesson-title-trigger[aria-expanded="true"]{color:#37348c;background:#f2f3fa}
+.lesson-title-trigger:disabled{color:#94a3b8;cursor:not-allowed}
+.lesson-title-trigger:focus-visible{outline:3px solid rgba(91,87,232,.16);outline-offset:2px}
+.lesson-title-trigger strong{min-width:0;overflow:hidden;color:inherit;font-size:13.5px;font-weight:760;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.lesson-title-trigger small{padding-left:9px;border-left:1px solid #dce1e9;color:#8a95a5;font-size:10px;font-weight:750;font-variant-numeric:tabular-nums}
+.lesson-title-chevron{color:#8a95a5;transition:transform .18s cubic-bezier(.16,1,.3,1)}
+.lesson-title-trigger[aria-expanded="true"] .lesson-title-chevron{transform:rotate(180deg)}
+.lesson-outline-popover{position:absolute;z-index:30;top:calc(100% + 8px);left:50%;width:340px;max-width:calc(100vw - 48px);max-height:min(480px,calc(100vh - 190px));overflow:auto;padding:7px;border-radius:11px;background:#fff;box-shadow:0 16px 42px rgba(30,41,59,.16);transform:translateX(-50%);animation:lesson-outline-in .16s cubic-bezier(.16,1,.3,1)}
 .lesson-outline-chapter-button{min-height:44px;display:grid;grid-template-columns:25px minmax(0,1fr) 18px;align-items:center;gap:8px;width:100%;padding:0 9px;border:0;border-radius:8px;color:#536176;background:transparent;text-align:left;cursor:pointer}
 .lesson-outline-chapter-button:hover:not(:disabled){background:#f5f7fa}
 .lesson-outline-chapter-button.active{color:#37348c;background:#f0f1ff}
@@ -1267,9 +1273,9 @@ onBeforeUnmount(() => {
 .lesson-outline-status[data-state="failed"]{color:#c94c5a}
 .lesson-outline-status i{width:7px;height:7px;border:1px solid #b8c2d0;border-radius:50%;background:#fff}
 .lesson-outline-status[data-state="review"] i{border-color:#8b87dc;background:#8b87dc}
-.is-ai-collaboration .lesson-outline-control{display:none}
+.is-ai-collaboration .lesson-outline-control{display:flex;width:min(100%,420px)}
 .is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto}
-@keyframes lesson-outline-in{from{opacity:.5;transform:translateY(-5px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
 
