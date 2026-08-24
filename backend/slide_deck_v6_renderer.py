@@ -13,6 +13,7 @@ from slide_deck import SlideBlockSpec, SlideSpec
 from slide_deck_renderer import (
     SlideDeckQualityError,
     _display_text,
+    _format_formula_text,
     _render_slide,
     validate_theme,
 )
@@ -472,7 +473,13 @@ def _validate_exported_source_regions(
             not in {"依据", "推论", "阅读线索", "核验对照"}
         )
         title = _audience_title(page)
-        if title and _canonical_export_text(title) not in canonical_full:
+        # Headings always pass through the portable formula formatter.  The
+        # fidelity comparison must use the same projection for compact source
+        # titles such as ``a_n-6`` even when they contain no backslash or ``$``.
+        canonical_title = _canonical_export_text(_display_text(title))
+        if title and ("_" in title or "^" in title):
+            canonical_title = _canonical_export_text(_format_formula_text(title))
+        if title and canonical_title not in canonical_full:
             blockers.append({
                 "severity": "critical",
                 "code": "exported_source_region_missing",

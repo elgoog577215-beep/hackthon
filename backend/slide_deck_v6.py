@@ -1891,7 +1891,29 @@ def _formula_candidates(text: str) -> list[str]:
         )
         if match.group(0).strip()
     ]
-    return list(dict.fromkeys(inline)) or [text.strip()]
+    unique = list(dict.fromkeys(inline))
+    if not unique:
+        return [text.strip()]
+
+    # Inline mathematics often includes every temporary symbol mentioned in
+    # prose (``$x$``, ``$1$``, ``$L$``).  Treating each token as a standalone
+    # formula produces dozens of almost-empty pages.  A PPT formula artifact
+    # should instead carry a complete relation, transformation, or operator;
+    # the full source remains in speaker notes and the adjacent prose region.
+    meaningful = [
+        candidate
+        for candidate in unique
+        if re.search(
+            r"(?:=|<|>|\\(?:leq?|geq?|neq?|equiv|approx|to|rightarrow|"
+            r"sum|prod|int|iint|lim|frac|sqrt|in)\b)",
+            candidate.strip("$ "),
+        )
+    ]
+    selected = meaningful or [max(unique, key=len)]
+    # Preserve source order while bounding visual density.  Ten complete
+    # relations become at most two five-line formula pages with the current
+    # classroom template; the unabridged derivation is still bound to notes.
+    return selected[:10]
 
 
 def _bounded_formula_content(
@@ -2399,16 +2421,16 @@ def _pack_formulae(
 ) -> list[str]:
     """Pack atomic formulae against the renderer's multiline formula frame.
 
-    The renderer displays formulae separated by one blank line, so character
-    capacity alone can place many short symbols into a frame that only has
-    room for a few visible lines.  Count both formula lines and separators.
+    Formula source uses blank lines as an identity-preserving separator.  The
+    renderer compacts those separators to one visible line, so capacity is
+    measured from the actual formula lines rather than transport whitespace.
     """
 
     def rendered_line_count(values: list[str]) -> int:
         formula_lines = sum(
             max(1, len(str(value or "").splitlines())) for value in values
         )
-        return formula_lines + max(0, len(values) - 1)
+        return formula_lines
 
     chunks: list[str] = []
     current: list[str] = []
@@ -4866,6 +4888,22 @@ def _continuation_title_candidates(
                     and compact not in formula_candidates
                 ):
                     formula_candidates.append(compact)
+            # A long derivation can be split into an artifact-only
+            # continuation. Its complete relation may exceed the title slot,
+            # while one source-native side (for example an integral) still
+            # names the teaching point precisely. Keep those meaningful terms
+            # available instead of leaving the continuation untitled.
+            if len(relation_parts) >= 2:
+                for part in relation_parts:
+                    term = part.strip()
+                    relation_term = f"${term}$"
+                    if (
+                        len(term) >= 3
+                        and len(relation_term) <= limit
+                        and re.search(r"[A-Za-z0-9\\_^/()\[\]]", term)
+                        and relation_term not in formula_candidates
+                    ):
+                        formula_candidates.append(relation_term)
             candidate = f"${expression}$"
             if len(candidate) <= limit and candidate not in formula_candidates:
                 formula_candidates.append(candidate)

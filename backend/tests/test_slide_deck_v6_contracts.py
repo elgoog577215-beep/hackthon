@@ -94,6 +94,24 @@ def test_continuation_title_compacts_a_long_formula_chain() -> None:
     assert r"$F_x \approx -10.61\,\text{N}$" in candidates
 
 
+def test_continuation_title_uses_source_relation_term_when_chain_is_too_long() -> None:
+    block = _block(
+        "improper-integral",
+        "lesson-1",
+        0,
+        role="example",
+        kind="formula",
+        text=(
+            r"$\int_1^{\infty}1/x\,dx="
+            r"\lim_{b\to\infty}\ln b$"
+        ),
+    )
+
+    candidates = _continuation_title_candidates([block], capacity=42)
+
+    assert r"$\int_1^{\infty}1/x\,dx$" in candidates
+
+
 def test_continuation_title_extracts_complete_windows_from_a_long_step() -> None:
     candidates = _bounded_source_title_windows(
         "1. Record the final pass condition together with the evidence needed for another learner to verify it.",

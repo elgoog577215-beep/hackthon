@@ -1637,6 +1637,19 @@ def test_formula_text_compiler_outputs_portable_mathematical_notation() -> None:
     assert _format_formula_text(
         r"$$ s=\sqrt{x^2+y^2},\quad W=F\cdot s $$"
     ) == "s=√(x²+y²), W=F· s"
+    assert _format_formula_text(
+        r"F(x)=\sqrt{\ln\frac{x+1}{x-1}}"
+    ) == "F(x)=√(ln(x+1)⁄(x-1))"
+    assert _format_formula_text(
+        r"D_{f\circ g}=\{x\in D_g:g(x)\in D_f\},\quad x\to+\infty"
+    ) == "D₍f∘g₎={x∈ D_g:g(x)∈ D_f}, x→+∞"
+    assert _format_formula_text(
+        r"f(x)=\begin{cases}x^2,&x\le1,\\ax+b,&x>1.\end{cases}"
+    ) == "f(x)=⎧ x², x≤1\n⎩ ax+b, x>1."
+    assert _format_formula_text(r"a_{n+1}=\frac12a_n+1") == "aₙ₊₁=(1)⁄(2)aₙ+1"
+    assert _format_formula_text(
+        r"\left|\frac{3n-1}{n+2}-3\right|=\frac7{n+2}"
+    ) == "|(3n-1)⁄(n+2)-3|=(7)⁄(n+2)"
     assert _format_formula_text(r"F_ x = \sum F_{ix}") == "Fₓ = ∑ Fᵢₓ"
 
 

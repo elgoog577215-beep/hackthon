@@ -1209,13 +1209,14 @@ def _render_formula_visual(
     )
     _text(slide, "关键公式", 1.15, 2.22, 1.4, 0.3, 11, theme["accent"], bold=True)
     display_formula = _format_formula_text(formula)
+    display_formula = re.sub(r"\n\s*\n", "\n", display_formula)
     _text(
         slide,
         display_formula,
         1.14,
         2.78 if "\n" in display_formula else 3.08,
         formula_width - 0.72,
-        2.35 if "\n" in display_formula else 1.55,
+        3.15 if "\n" in display_formula else 1.55,
         24 if "\n" in display_formula else (28 if len(display_formula) < 72 else 22),
         theme["title"],
         bold=False,
@@ -1258,6 +1259,8 @@ _FORMULA_SYMBOLS = {
     r"\Leftrightarrow": "⇔",
     r"\longrightarrow": "⟶",
     r"\rightarrow": "→",
+    r"\to": "→",
+    r"\circ": "∘",
     r"\mapsto": "↦",
     r"\subseteq": "⊆",
     r"\supseteq": "⊇",
@@ -1281,8 +1284,12 @@ _FORMULA_SYMBOLS = {
     r"\gg": "≫",
     r"\approx": "≈",
     r"\neq": "≠",
+    r"\ne": "≠",
     r"\leq": "≤",
+    r"\le": "≤",
     r"\geq": "≥",
+    r"\ge": "≥",
+    r"\equiv": "≡",
     r"\subset": "⊂",
     r"\supset": "⊃",
     r"\forall": "∀",
@@ -1292,12 +1299,33 @@ _FORMULA_SYMBOLS = {
     r"\beta": "β",
     r"\gamma": "γ",
     r"\theta": "θ",
+    r"\varepsilon": "ε",
+    r"\epsilon": "ε",
+    r"\delta": "δ",
+    r"\phi": "φ",
+    r"\pi": "π",
     r"\sigma": "σ",
     r"\sum": "∑",
     r"\Sigma": "Σ",
     r"\Delta": "Δ",
     r"\Omega": "Ω",
     r"\prod": "∏",
+    r"\int": "∫",
+    r"\iint": "∬",
+    r"\infty": "∞",
+    r"\partial": "∂",
+    r"\pm": "±",
+    r"\mp": "∓",
+    r"\lceil": "⌈",
+    r"\rceil": "⌉",
+    r"\lfloor": "⌊",
+    r"\rfloor": "⌋",
+    r"\limsup": "lim sup",
+    r"\liminf": "lim inf",
+    r"\lim": "lim",
+    r"\ln": "ln",
+    r"\log": "log",
+    r"\exp": "exp",
     r"\sin": "sin",
     r"\cos": "cos",
     r"\tan": "tan",
@@ -1309,6 +1337,7 @@ _FORMULA_SYMBOLS = {
     r"\in": "∈",
     r"\mid": "∣",
     r"\quad": "  ",
+    r"\ldots": "…",
     r"\,": "",
     r"\!": "",
     r"\left": "",
@@ -1316,9 +1345,111 @@ _FORMULA_SYMBOLS = {
 }
 
 
+def _latex_group(value: str, start: int) -> tuple[str, int] | None:
+    """Read one balanced LaTeX group, including nested braces."""
+
+    if start >= len(value) or value[start] != "{":
+        return None
+    depth = 0
+    for index in range(start, len(value)):
+        if value[index] == "{" and (index == 0 or value[index - 1] != "\\"):
+            depth += 1
+        elif value[index] == "}" and (index == 0 or value[index - 1] != "\\"):
+            depth -= 1
+            if depth == 0:
+                return value[start + 1:index], index + 1
+    return None
+
+
+def _replace_group_command(
+    value: str,
+    command: str,
+    arity: int,
+    builder: Any,
+) -> str:
+    r"""Replace balanced commands such as nested ``\frac`` without truncation."""
+
+    result = value
+    offset = 0
+    replacements = 0
+    while replacements < 128:
+        start = result.find(command, offset)
+        if start < 0:
+            break
+        cursor = start + len(command)
+        arguments: list[str] = []
+        for _ in range(arity):
+            while cursor < len(result) and result[cursor].isspace():
+                cursor += 1
+            group = _latex_group(result, cursor)
+            if group is not None:
+                argument, cursor = group
+            elif cursor < len(result) and result[cursor].isalnum():
+                argument = result[cursor]
+                cursor += 1
+            else:
+                break
+            arguments.append(argument)
+        if len(arguments) != arity:
+            offset = start + len(command)
+            continue
+        result = result[:start] + str(builder(*arguments)) + result[cursor:]
+        offset = max(0, start)
+        replacements += 1
+    return result
+
+
+def _format_formula_cases(body: str) -> str:
+    """Render a LaTeX cases environment as an editable piecewise system."""
+
+    rows = [
+        _format_formula_text(row.replace("&", "  "))
+        for row in re.split(r"\\\\", body)
+        if row.strip()
+    ]
+    if not rows:
+        return ""
+    if len(rows) == 1:
+        return f"⎧ {rows[0]}"
+    return "\n".join(
+        f"{('⎧' if index == 0 else '⎩' if index == len(rows) - 1 else '⎨')} {row}"
+        for index, row in enumerate(rows)
+    )
+
+
 def _format_formula_text(value: str) -> str:
     """Compile common course LaTeX into portable, editable mathematical text."""
     expression = _plain_formula(value)
+    cases_pattern = re.compile(
+        r"\\begin\{cases\}(?P<body>.*?)\\end\{cases\}",
+        re.DOTALL,
+    )
+    expression = cases_pattern.sub(
+        lambda match: _format_formula_cases(match.group("body")),
+        expression,
+    )
+    expression = _replace_group_command(
+        expression,
+        r"\frac",
+        2,
+        lambda numerator, denominator: f"({numerator})⁄({denominator})",
+    )
+    expression = _replace_group_command(
+        expression,
+        r"\sqrt",
+        1,
+        lambda radicand: f"√({radicand})",
+    )
+    expression = re.sub(
+        r"\\frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])",
+        lambda match: f"({match.group(1)})⁄({match.group(2)})",
+        expression,
+    )
+    expression = re.sub(
+        r"\\sqrt\s*([A-Za-z0-9])",
+        lambda match: f"√{match.group(1)}",
+        expression,
+    )
     expression = re.sub(
         r"\\sum_\{([^{}]+)\}\^\{([^{}]+)\}",
         lambda match: (
@@ -1424,7 +1555,16 @@ def _display_text(value: str) -> str:
 
 def _script_text(value: str, translation: dict[int, str], marker: str) -> str:
     rendered = str(value).translate(translation)
-    return rendered if all(ord(character) in translation for character in str(value)) else f"{marker}{value}"
+    grouped = re.sub(r"\s*([∘→⇒⇔])\s*", r"\1", str(value).strip())
+    if all(ord(character) in translation for character in str(value)):
+        return rendered
+    if len(grouped) == 1:
+        return f"{marker}{grouped}"
+    if marker == "_":
+        return f"₍{grouped}₎"
+    if marker == "^":
+        return f"⁽{grouped}⁾"
+    return f"{marker}({grouped})"
 
 
 def _format_formula_matrix(body: str, kind: str) -> str:
