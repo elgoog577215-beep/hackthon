@@ -303,7 +303,7 @@
           </div>
 
           <div class="outline-review__chapters" ref="chaptersRef" data-testid="outline-chapter-list">
-            <div v-if="!isInline || editable" class="outline-review__list-toolbar">
+            <div class="outline-review__list-toolbar">
               <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
               <div class="outline-review__toolbar-actions">
                 <button
@@ -315,7 +315,7 @@
                 >
                   <Sparkles :size="14" />{{ t('courseWorkbench.aiAdjustOutline', 'AI 调整') }}
                 </button>
-                <button data-testid="add-outline-chapter" type="button" :disabled="adjustmentBusy" @click="addChapter">
+                <button v-if="!isInline || editable" data-testid="add-outline-chapter" type="button" :disabled="adjustmentBusy" @click="addChapter">
                   <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
                 </button>
               </div>

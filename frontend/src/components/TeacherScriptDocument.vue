@@ -191,7 +191,7 @@ const emit = defineEmits<{
   (event: 'ai-resolving', result: { accept: boolean }): void
   (event: 'ai-resolved', result: { accept: boolean }): void
   (event: 'ai-error', message: string): void
-  (event: 'ai-scope-change', title: string): void
+  (event: 'ai-scope-change', scope: { id: string; title: string }): void
 }>()
 
 const lessonStore = useTeacherLessonAuthoringStore()
@@ -423,6 +423,12 @@ function focusAiCandidate() {
   candidateRef.value?.focus({ preventScroll: true })
 }
 
+function selectAiScope(scopeId: string) {
+  if (pendingCandidate.value || aiBusy.value || !scriptSections.value.some(node => node.section_node_id === scopeId)) return false
+  selectedNodeId.value = scopeId
+  return true
+}
+
 function blockRoleLabel(role: string) {
   const fallbacks: Record<string, string> = {
     orientation: '课堂导向', prerequisite: '前置衔接', objective: '教学目标', concept: '概念讲解',
@@ -454,9 +460,9 @@ watch(() => props.generationJob, job => {
   }
 }, { immediate: true })
 
-watch(selectedNode, node => emit('ai-scope-change', node?.title || ''), { immediate: true })
+watch(selectedNode, node => emit('ai-scope-change', { id: node?.section_node_id || '', title: node?.title || '' }), { immediate: true })
 
-defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate })
+defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, selectAiScope })
 </script>
 
 <style scoped>

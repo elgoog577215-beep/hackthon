@@ -103,23 +103,27 @@ describe('一句话调整课程目录', () => {
     await flushPromises()
 
     const outlineElement = wrapper.get('[data-testid="outline-chapter-list"]').element
+    const toolbarElement = wrapper.get('.outline-review__list-toolbar').element
     expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('view')
     expect(wrapper.get('.outline-review__chapter-heading input').attributes('readonly')).toBeDefined()
-    expect(wrapper.find('.outline-review__list-toolbar').exists()).toBe(false)
+    expect(wrapper.get('.outline-review__list-toolbar').text()).toContain('AI 调整')
+    expect(wrapper.find('[data-testid="add-outline-chapter"]').exists()).toBe(false)
     expect(wrapper.find('.outline-review__starting-point').exists()).toBe(false)
     expect(wrapper.find('.outline-coverage').exists()).toBe(false)
     expect(wrapper.find('.outline-retrieval').exists()).toBe(false)
     expect(wrapper.text()).toContain('确认大纲，进入教案')
+    await wrapper.get('.outline-review__list-toolbar button').trigger('click')
+    expect(wrapper.emitted('open-ai')).toHaveLength(1)
 
     await wrapper.setProps({ editable: true })
 
     expect(wrapper.get('[data-testid="outline-chapter-list"]').element).toBe(outlineElement)
+    expect(wrapper.get('.outline-review__list-toolbar').element).toBe(toolbarElement)
     expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('edit')
     expect(wrapper.get('.outline-review__chapter-heading input').attributes('readonly')).toBeUndefined()
     expect(wrapper.get('.outline-review__list-toolbar').text()).toContain('AI 调整')
+    expect(wrapper.find('[data-testid="add-outline-chapter"]').exists()).toBe(true)
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
-    await wrapper.get('.outline-review__list-toolbar button').trigger('click')
-    expect(wrapper.emitted('open-ai')).toHaveLength(1)
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
   })
 

@@ -266,7 +266,7 @@
             :confirming="lessonConfirming"
             :confirm-error="lessonConfirmError"
             :active-section-id="selectedLessonSectionId"
-            @update:active-section-id="selectedLessonSectionId = $event"
+            @update:active-section-id="selectLessonSection(selectedLesson.lesson_unit_id, $event)"
             @confirm="confirmLessonPlan"
             @next="activeStage = 'question-bank'"
             @open-ai="openAiCollaboration('lesson')"
@@ -300,7 +300,7 @@
             @ai-resolving="handleAiResolving"
             @ai-resolved="handleAiResolved"
             @ai-error="handleAiError"
-            @ai-scope-change="aiScriptSectionTitle = $event"
+            @ai-scope-change="handleScriptAiScopeChange"
           />
         </template>
 
@@ -338,6 +338,8 @@
       :domain="aiDomain"
       :scope-title="aiScopeTitle"
       :scope-detail="aiScopeDetail"
+      :scope-options="aiScopeOptions"
+      :scope-value="currentAiScopeId"
       :reference-count="activeReferences.length"
       :sources-open="aiSourcesOpen"
       :messages="aiMessages"
@@ -350,6 +352,7 @@
       :placeholder="aiPlaceholder"
       :can-retry="Boolean(lastAiOperation)"
       @close="closeAiCollaboration"
+      @change-scope="changeAiScope"
       @open-sources="aiSourcesOpen = !aiSourcesOpen"
       @send="handleAiRequest"
       @clarify="handleAiClarification"
@@ -388,7 +391,7 @@ import CourseReferenceTray, { type CourseReferenceItem } from './CourseReference
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
-import TeacherLessonAiWorkspace, { type TeacherAiQuickAction } from './TeacherLessonAiWorkspace.vue'
+import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import {
@@ -423,6 +426,21 @@ type ProductionAiDocumentHandle = {
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusAiCandidate?: () => void
   focusCandidate?: () => void
+  selectAiScope?: (scopeId: string) => boolean
+}
+type AiLessonPlanModule = {
+  module_id?: string
+  planned_minutes?: number | null
+  teacher_activity?: string
+  student_activity?: string
+}
+type AiLessonPlanSection = {
+  node_id: string
+  learning_objective?: string
+  key_points?: unknown[]
+  key_difficulties?: unknown[]
+  in_class_checks?: unknown[]
+  teaching_modules?: AiLessonPlanModule[]
 }
 type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
@@ -471,7 +489,7 @@ const editingOutline = computed({
 })
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const activeReferenceScope = computed(() => (
-  activeStage.value === 'lesson' && selectedLessonId.value
+  ['lesson', 'script'].includes(activeStage.value) && selectedLessonId.value
     ? `lesson:${selectedLessonId.value}`
     : activeStage.value
 ))
@@ -511,12 +529,27 @@ const selectedLessonPosition = computed(() => {
 const selectedLessonSectionTitle = computed(() => selectedLesson.value?.sections.find(
   item => item.section_node_id === selectedLessonSectionId.value,
 )?.title || '')
+const aiScriptSectionId = ref('')
 const aiScriptSectionTitle = ref('')
 const aiScopeTitle = computed(() => aiDomain.value === 'outline' ? props.courseTitle : selectedLesson.value?.title || props.courseTitle)
 const aiScopeDetail = computed(() => {
   if (aiDomain.value === 'outline') return t('courseWorkbench.aiCollaboration.outlineScope', '课程大纲')
   if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲稿小节')
   return selectedLessonSectionTitle.value || t('courseWorkbench.aiCollaboration.lessonScope', '整讲教案')
+})
+const aiScopeOptions = computed<TeacherAiScopeOption[]>(() => {
+  if (aiDomain.value === 'lesson') {
+    return (selectedLesson.value?.sections || []).map(section => ({ id: section.section_node_id, label: section.title }))
+  }
+  if (aiDomain.value === 'script') {
+    return (selectedLesson.value?.script.sections || []).map(section => ({ id: section.section_node_id, label: section.title }))
+  }
+  return []
+})
+const currentAiScopeId = computed(() => {
+  if (aiDomain.value === 'outline') return 'outline'
+  if (aiDomain.value === 'script') return aiScriptSectionId.value || aiScopeOptions.value[0]?.id || 'script'
+  return selectedLessonSectionId.value || aiScopeOptions.value[0]?.id || 'lesson'
 })
 const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
   if (aiDomain.value === 'outline') return [
@@ -535,7 +568,7 @@ const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
     { id: 'script-transition', icon: 'transition', label: t('courseWorkbench.aiCollaboration.quickScriptTransition', '优化段落过渡'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTransitionPrompt', '优化段落之间的过渡，让讲解推进更自然') },
     { id: 'script-timing', icon: 'timing', label: t('courseWorkbench.aiCollaboration.quickScriptTiming', '适配授课时长'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTimingPrompt', '在不改变教学目标的前提下调整内容密度，使讲稿适配当前授课时长') },
   ]
-  return [
+  const actions: TeacherAiQuickAction[] = [
     { id: 'lesson-objective', icon: 'target', label: t('courseWorkbench.aiCollaboration.quickObjective', '让目标可观察'), prompt: t('courseWorkbench.aiCollaboration.quickObjectivePrompt', '把教学目标改成具体、可观察、可检查的学习行为') },
     { id: 'lesson-interaction', icon: 'interaction', label: t('courseWorkbench.aiCollaboration.quickInteraction', '增加课堂互动'), prompt: t('courseWorkbench.aiCollaboration.quickInteractionPrompt', '增加与当前教学目标对应的课堂互动活动') },
     { id: 'lesson-check', icon: 'check', label: t('courseWorkbench.aiCollaboration.quickCheck', '补充检查点'), prompt: t('courseWorkbench.aiCollaboration.quickCheckPrompt', '补充能判断学生是否达成目标的课堂检查点') },
@@ -543,22 +576,37 @@ const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
     { id: 'lesson-focus', icon: 'focus', label: t('courseWorkbench.aiCollaboration.quickFocus', '突出重点难点'), prompt: t('courseWorkbench.aiCollaboration.quickFocusPrompt', '突出本节教学重点和难点，并让教学活动与之对应') },
     { id: 'lesson-example', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickLessonExample', '加入课堂案例'), prompt: t('courseWorkbench.aiCollaboration.quickLessonExamplePrompt', '加入一个贴合当前知识点、适合学生理解的课堂案例') },
   ]
+  const revision = selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id)
+  const sections = revision?.plan.sections as AiLessonPlanSection[] | undefined
+  const section = sections?.find(item => item.node_id === selectedLessonSectionId.value)
+  if (!section) return actions
+  const priorities: string[] = []
+  if (!section.in_class_checks?.length) priorities.push('lesson-check')
+  if (!section.key_points?.length || !section.key_difficulties?.length) priorities.push('lesson-focus')
+  const plannedMinutes = (section.teaching_modules || []).reduce((total, module) => total + Number(module.planned_minutes || 0), 0)
+  if (plannedMinutes && Math.abs(plannedMinutes - Number(selectedLesson.value?.duration_minutes || 0)) > 5) priorities.push('lesson-pacing')
+  const moduleText = (section.teaching_modules || []).map(module => `${module.module_id} ${module.teacher_activity} ${module.student_activity}`).join(' ')
+  if (!/(案例|示例|example|case)/i.test(moduleText)) priorities.push('lesson-example')
+  if (!/(讨论|提问|练习|小组|回答|展示|互评|操作|绘制|实验|任务)/.test(moduleText)) priorities.push('lesson-interaction')
+  if (!section.learning_objective?.trim()) priorities.push('lesson-objective')
+  return [...new Set(priorities)].map(id => actions.find(action => action.id === id)!).filter(Boolean)
+    .concat(actions.filter(action => !priorities.includes(action.id)))
 })
 const aiPlaceholder = computed(() => aiDomain.value === 'outline'
   ? '说说你想怎么调整大纲…'
   : aiDomain.value === 'script'
     ? '说说你想怎么改这段讲稿…'
     : '说说你想怎么调整教案…')
-const currentAiScopeKey = computed(() => [props.courseId, aiDomain.value, selectedLessonId.value, aiScopeDetail.value].join(':'))
+const currentAiScopeKey = computed(() => [props.courseId, aiDomain.value, selectedLessonId.value, currentAiScopeId.value].join(':'))
 const lessonReferenceTargetId = computed(() => (
-  activeStage.value === 'lesson' && selectedLessonId.value
+  ['lesson', 'script'].includes(activeStage.value) && selectedLessonId.value
     ? `lesson-plan:${selectedLessonId.value}`
     : ''
 ))
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
 const previousLessonReferenceTargetId = computed(() => (
-  activeStage.value === 'lesson' && previousLesson.value?.lesson_unit_id
+  ['lesson', 'script'].includes(activeStage.value) && previousLesson.value?.lesson_unit_id
     ? `lesson-plan:${previousLesson.value.lesson_unit_id}`
     : ''
 ))
@@ -831,6 +879,25 @@ function closeAiCollaboration() {
   aiCollaborationOpen.value = false
   aiSourcesOpen.value = false
 }
+function handleScriptAiScopeChange(scope: { id: string; title: string }) {
+  aiScriptSectionId.value = scope.id
+  aiScriptSectionTitle.value = scope.title
+}
+function changeAiScope(scopeId: string) {
+  if (!scopeId || aiCollaborationBusy.value || aiCandidatePending.value || scopeId === currentAiScopeId.value) return
+  persistAiSession()
+  aiSourcesOpen.value = false
+  if (aiDomain.value === 'lesson') {
+    selectedLessonSectionId.value = scopeId
+    return
+  }
+  if (aiDomain.value === 'script') {
+    const option = aiScopeOptions.value.find(item => item.id === scopeId)
+    if (!option || !scriptDocument.value?.selectAiScope?.(scopeId)) return
+    aiScriptSectionId.value = option.id
+    aiScriptSectionTitle.value = option.label
+  }
+}
 function buildAiInstruction(): string {
   return buildTeacherProductionAiInstruction(aiMessages.value, {
     domain: aiDomain.value,
@@ -1092,6 +1159,7 @@ function closeLessonOutlineOnOutsidePointer(event: PointerEvent) {
 }
 function selectLessonSection(lessonId: string, sectionId: string) {
   if (aiCandidatePending.value && selectedLessonSectionId.value !== sectionId) return
+  if (aiCollaborationOpen.value && aiDomain.value === 'lesson' && selectedLessonSectionId.value !== sectionId) persistAiSession()
   selectedLessonId.value = lessonId
   selectedLessonSectionId.value = sectionId
 }
@@ -1170,6 +1238,13 @@ watch(aiCollaborationOpen, open => {
   else aiSourcesOpen.value = false
 })
 watch([aiMessages, aiPhase, aiClarificationOptions], persistAiSession, { deep: true, flush: 'post' })
+watch(currentAiScopeKey, scopeKey => {
+  if (!aiCollaborationOpen.value || aiCandidatePending.value || scopeKey === aiSessionScopeKey.value) return
+  aiCandidate.value = null
+  aiClarificationOptions.value = []
+  if (!restoreAiSession()) resetAiSession()
+  transitionAi({ type: 'OPEN', candidatePending: false })
+})
 watch(lessonOutlineRoot, (root, _previousRoot, onCleanup) => {
   if (!root) return
   document.addEventListener('pointerdown', closeLessonOutlineOnOutsidePointer)

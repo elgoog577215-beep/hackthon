@@ -113,6 +113,22 @@ describe('统一讲稿页面', () => {
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
 
+  it('允许 AI 助手按真实讲稿小节定位正文并回传稳定作用域', async () => {
+    const scopedLesson = structuredClone(lesson)
+    scopedLesson.sections.push({ section_node_id: 'section-2', title: '1.2 HTTP 请求与响应' })
+    scopedLesson.script.sections.push({
+      section_node_id: 'section-2', title: '1.2 HTTP 请求与响应', content: '第二节讲稿内容',
+    })
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: scopedLesson } })
+
+    expect((wrapper.vm as any).selectAiScope('section-2')).toBe(true)
+    await flushPromises()
+
+    expect(wrapper.get('.script-content').text()).toContain('第二节讲稿内容')
+    expect(wrapper.emitted('ai-scope-change')?.at(-1)).toEqual([{ id: 'section-2', title: '1.2 HTTP 请求与响应' }])
+    expect((wrapper.vm as any).selectAiScope('missing-section')).toBe(false)
+  })
+
   it('底部同一位置先确认，确认后切换为进入 PPT', async () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
     const button = wrapper.get('.script-footer button')

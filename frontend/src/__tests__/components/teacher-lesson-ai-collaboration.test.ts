@@ -74,7 +74,7 @@ describe('教案 AI 协作编辑模式', () => {
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
   })
 
-  it('提供当前资产可执行的六项快捷修改，并把完整要求送入教案候选链', async () => {
+  it('按当前小节缺口优先排列六项快捷修改，并把完整要求送入教案候选链', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
     const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
@@ -89,10 +89,10 @@ describe('教案 AI 协作编辑模式', () => {
     const actions = wrapper.findAll('.lesson-ai-quick-grid button')
     expect(actions).toHaveLength(6)
     expect(actions.map(action => action.text())).toEqual([
-      '让目标可观察', '增加课堂互动', '补充检查点', '调整时间节奏', '突出重点难点', '加入课堂案例',
+      '补充检查点', '突出重点难点', '调整时间节奏', '加入课堂案例', '让目标可观察', '增加课堂互动',
     ])
 
-    await actions[2]!.trigger('click')
+    await actions[0]!.trigger('click')
     await flushPromises()
 
     expect(createCandidate).toHaveBeenCalledTimes(1)
@@ -205,7 +205,7 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(createCandidate).toHaveBeenCalledTimes(1)
     expect(createCandidate.mock.calls[0]![3]).toContain('帮我改好一点')
-    expect(createCandidate.mock.calls[0]![3]).toContain('具体、可观察、可检查')
+    expect(createCandidate.mock.calls[0]![3]).toContain('补充能判断学生是否达成目标的课堂检查点')
   })
 
   it('刷新后恢复当前修订尚未处理的候选', async () => {
@@ -232,7 +232,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(store.resolveAiCandidate).toHaveBeenCalledWith('course-1', 'lesson-1', 'candidate-restored', false)
   })
 
-  it('按课程与课次恢复未结束的对话', async () => {
+  it('按课程、课次与稳定小节恢复未结束的对话', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
     const first = mountWorkbench()
@@ -244,7 +244,7 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(first.text()).toContain('帮我改好一点')
     expect([...Array(window.localStorage.length)].map((_, index) => window.localStorage.key(index)))
-      .toContain('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:1.1 爬虫的定义与流程')
+      .toContain('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:section-1')
     first.unmount()
 
     const second = mountWorkbench()
@@ -254,5 +254,46 @@ describe('教案 AI 协作编辑模式', () => {
     expect(second.text()).toContain('帮我改好一点')
     expect(second.text()).toContain('你希望优先调整哪一部分')
     expect(second.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
+  })
+
+  it('切换实际教案小节时同步左侧正文与独立对话，不把修改串到别的小节', async () => {
+    const scopedLesson = structuredClone(lesson)
+    scopedLesson.sections.push({ section_node_id: 'section-2', title: '1.2 HTTP 请求与响应' })
+    scopedLesson.plan.revisions[0]!.plan.sections.push({
+      node_id: 'section-2', learning_objective: '能区分请求与响应', key_points: ['请求结构'],
+      key_difficulties: ['状态码'], in_class_checks: [], homework: [], teaching_notes: [],
+      teaching_modules: [{
+        module_id: 'core_explanation', planned_minutes: 25,
+        teacher_activity: '对比请求与响应', student_activity: '分析报文',
+      }],
+    })
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [scopedLesson]
+    const wrapper = mountWorkbench()
+
+    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await wrapper.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
+    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    await flushPromises()
+
+    const scopeSelect = wrapper.get('.lesson-ai-scope-select select')
+    expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-1')
+    await scopeSelect.setValue('section-2')
+    await flushPromises()
+
+    expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-2')
+    expect(wrapper.text()).toContain('1.2 HTTP 请求与响应')
+    expect(wrapper.text()).not.toContain('帮我改好一点')
+    expect(wrapper.find('.lesson-ai-quick-grid').exists()).toBe(true)
+    expect(wrapper.findAll('.lesson-section-tabs button')[1]!.classes()).toContain('active')
+    expect(window.localStorage.getItem('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:section-1')).toContain('帮我改好一点')
+
+    await wrapper.findAll('.lesson-section-tabs button')[0]!.trigger('click')
+    await flushPromises()
+
+    expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-1')
+    expect(wrapper.text()).toContain('帮我改好一点')
+    expect(wrapper.text()).toContain('你希望优先调整哪一部分')
+    expect(wrapper.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
   })
 })
