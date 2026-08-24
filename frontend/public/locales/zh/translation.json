@@ -303,7 +303,7 @@
     "generateOutline": "生成课程大纲",
     "generateChapterSkeleton": "生成大章节",
     "generateLessonPlan": "生成本讲教案",
-    "lessonGenerationHint": "AI 会根据课程大纲和所选资料自动组织本讲；生成后可通过 AI 助手继续调整。",
+    "lessonGenerationHint": "请补充本讲的重难点、教学方法或课堂活动要求（选填）。",
     "retryLessonPlan": "重新生成本讲教案",
     "continueLessonPlan": "继续生成本讲教案",
     "generatingLessonPlan": "正在生成本讲教案",
@@ -596,8 +596,7 @@
       "sectionUnit": "小节",
       "requirementsPlaceholder": "例如：每章包含案例讨论，兼顾理论与实践",
       "sourceHint": "右侧资料会与这些信息一起交给 AI", "lesson": "选择课次",
-      "chooseLesson": "请选择课次", "lessonFocus": "本讲重点",
-      "lessonFocusPlaceholder": "填写重难点、教学方法或课堂活动要求",
+      "chooseLesson": "请选择课次",
       "questionCount": "题目数量", "difficulty": "难度", "basic": "基础", "mixed": "混合", "challenge": "挑战",
       "questionRequirements": "命题要求", "questionRequirementsPlaceholder": "例如：覆盖核心知识点，包含应用题",
       "questionSourceHint": "老师未提供题库时由 AI 生成"

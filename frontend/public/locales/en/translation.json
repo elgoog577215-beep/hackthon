@@ -303,7 +303,7 @@
     "generateOutline": "Generate course outline",
     "generateChapterSkeleton": "Generate chapters",
     "generateLessonPlan": "Generate lesson plan",
-    "lessonGenerationHint": "AI organizes this lesson from the course outline and selected sources. Continue refining it with the AI assistant after generation.",
+    "lessonGenerationHint": "Add key points, teaching methods, or classroom activity requirements (optional).",
     "retryLessonPlan": "Regenerate lesson plan",
     "continueLessonPlan": "Continue lesson plan",
     "generatingLessonPlan": "Generating this lesson plan",
@@ -596,8 +596,7 @@
       "sectionUnit": "sections",
       "requirementsPlaceholder": "For example: include case discussions and balance theory with practice",
       "sourceHint": "Sources on the right are sent to AI with this information", "lesson": "Select session",
-      "chooseLesson": "Choose a session", "lessonFocus": "Lesson focus",
-      "lessonFocusPlaceholder": "Add key points, methods, or classroom activity requirements",
+      "chooseLesson": "Choose a session",
       "questionCount": "Questions", "difficulty": "Difficulty", "basic": "Basic", "mixed": "Mixed", "challenge": "Challenge",
       "questionRequirements": "Question requirements", "questionRequirementsPlaceholder": "For example: cover core concepts and include application questions",
       "questionSourceHint": "AI generates questions when the teacher provides no question bank"

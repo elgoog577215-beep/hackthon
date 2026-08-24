@@ -290,10 +290,13 @@ describe('teacher course workbench outline streaming', () => {
     const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'job-1' } as any)
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    const generationForm = wrapper.get('[data-testid="lesson-generation-form"]')
     expect(wrapper.find('[data-testid="lesson-arrangement-editor"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="lesson-generation-form"]').text()).toContain('AI 会根据课程大纲和所选资料自动组织本讲')
+    expect(generationForm.get('label').text()).toBe('请补充本讲的重难点、教学方法或课堂活动要求（选填）。')
+    expect(generationForm.find('.lesson-generation-copy').exists()).toBe(false)
+    expect(generationForm.get('textarea').attributes('placeholder')).toBeUndefined()
 
-    await wrapper.get('[data-testid="lesson-generation-form"]').trigger('submit')
+    await generationForm.trigger('submit')
     await flushPromises()
 
     expect(confirmArrangement).toHaveBeenCalledWith(
