@@ -128,55 +128,57 @@
         <div class="lesson-workspace">
           <div class="lesson-stage-content">
         <nav v-if="lessonStore.lessons.length && !outlineGatePending" class="lesson-navigator" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
-          <div ref="lessonOutlineRoot" class="lesson-outline-control">
-            <button
-              ref="lessonOutlineTrigger"
-              class="lesson-outline-trigger"
-              type="button"
-              :aria-expanded="lessonOutlineOpen"
-              aria-controls="lesson-outline-navigation"
-              @click="toggleLessonOutline"
-            >
-              <ListTree :size="15" />
-              <span>{{ t('courseWorkbench.lessonOutline.trigger', '目录') }}</span>
-              <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
-            </button>
-            <nav
-              v-if="lessonOutlineOpen"
-              id="lesson-outline-navigation"
-              class="lesson-outline-popover"
-              :aria-label="t('courseWorkbench.lessonOutline.title', '教案目录')"
-              @keydown.esc.stop.prevent="closeLessonOutline(true)"
-            >
-              <button
-                v-for="(lesson, lessonIndex) in lessonStore.lessons"
-                :key="lesson.lesson_unit_id"
-                class="lesson-outline-chapter-button"
-                type="button"
-                :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
-                :disabled="aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id"
-                :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
-                :aria-label="`${lesson.title}，${lessonGenerationStateLabel(lesson)}`"
-                @click="selectLessonFromOutline(lesson.lesson_unit_id)"
-              >
-                <span class="lesson-outline-chapter-index">{{ String(lessonIndex + 1).padStart(2, '0') }}</span>
-                <strong>{{ lesson.title }}</strong>
-                <span
-                  class="lesson-outline-status"
-                  :data-state="lessonGenerationState(lesson)"
-                  :title="lessonGenerationStateLabel(lesson)"
-                  aria-hidden="true"
-                >
-                  <LoaderCircle v-if="lessonGenerationState(lesson) === 'generating'" :size="14" class="spin" />
-                  <Check v-else-if="lessonGenerationState(lesson) === 'confirmed'" :size="14" />
-                  <TriangleAlert v-else-if="lessonGenerationState(lesson) === 'failed'" :size="14" />
-                  <i v-else />
-                </span>
-              </button>
-            </nav>
-          </div>
           <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
-          <label class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId" :disabled="aiCandidatePending"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ lesson.title }}</option></select></label>
+          <div class="lesson-current-group">
+            <div ref="lessonOutlineRoot" class="lesson-outline-control">
+              <button
+                ref="lessonOutlineTrigger"
+                class="lesson-outline-trigger"
+                type="button"
+                :aria-expanded="lessonOutlineOpen"
+                aria-controls="lesson-outline-navigation"
+                @click="toggleLessonOutline"
+              >
+                <ListTree :size="15" />
+                <span>{{ t('courseWorkbench.lessonOutline.trigger', '目录') }}</span>
+                <small>{{ selectedLessonPosition }}/{{ lessonStore.lessons.length }}</small>
+              </button>
+              <nav
+                v-if="lessonOutlineOpen"
+                id="lesson-outline-navigation"
+                class="lesson-outline-popover"
+                :aria-label="t('courseWorkbench.lessonOutline.title', '教案目录')"
+                @keydown.esc.stop.prevent="closeLessonOutline(true)"
+              >
+                <button
+                  v-for="(lesson, lessonIndex) in lessonStore.lessons"
+                  :key="lesson.lesson_unit_id"
+                  class="lesson-outline-chapter-button"
+                  type="button"
+                  :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
+                  :disabled="aiCandidatePending && selectedLessonId !== lesson.lesson_unit_id"
+                  :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
+                  :aria-label="`${lesson.title}，${lessonGenerationStateLabel(lesson)}`"
+                  @click="selectLessonFromOutline(lesson.lesson_unit_id)"
+                >
+                  <span class="lesson-outline-chapter-index">{{ String(lessonIndex + 1).padStart(2, '0') }}</span>
+                  <strong>{{ lesson.title }}</strong>
+                  <span
+                    class="lesson-outline-status"
+                    :data-state="lessonGenerationState(lesson)"
+                    :title="lessonGenerationStateLabel(lesson)"
+                    aria-hidden="true"
+                  >
+                    <LoaderCircle v-if="lessonGenerationState(lesson) === 'generating'" :size="14" class="spin" />
+                    <Check v-else-if="lessonGenerationState(lesson) === 'confirmed'" :size="14" />
+                    <TriangleAlert v-else-if="lessonGenerationState(lesson) === 'failed'" :size="14" />
+                    <i v-else />
+                  </span>
+                </button>
+              </nav>
+            </div>
+            <label class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId" :disabled="aiCandidatePending"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ lesson.title }}</option></select></label>
+          </div>
           <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
         </nav>
         <nav
@@ -1126,7 +1128,10 @@ onBeforeUnmount(() => {
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */
 .has-lesson-outline .lesson-workspace{display:block}
 .has-lesson-outline .lesson-stage-content{overflow:visible}
-.lesson-navigator{position:relative;z-index:5;grid-template-columns:auto auto minmax(0,1fr) auto;overflow:visible}
+.lesson-navigator{position:relative;z-index:5;grid-template-columns:auto minmax(0,1fr) auto;overflow:visible}
+.lesson-current-group{min-width:0;display:flex;align-items:center;justify-content:center;gap:8px}
+.lesson-current-group .lesson-selector{flex:0 1 auto;max-width:calc(100% - 104px)}
+.lesson-current-group .lesson-selector select{width:auto;max-width:100%}
 .lesson-outline-control{position:relative;align-self:center}
 .lesson-outline-trigger{min-height:34px;display:flex;align-items:center;gap:6px;padding:0 10px;border:1px solid #dde2eb;border-radius:8px;color:#536176;background:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:border-color .16s ease,color .16s ease,background-color .16s ease,box-shadow .16s ease}
 .lesson-outline-trigger:hover,.lesson-outline-trigger[aria-expanded="true"]{border-color:#c8c9ee;color:#403b9f;background:#f7f7ff}
