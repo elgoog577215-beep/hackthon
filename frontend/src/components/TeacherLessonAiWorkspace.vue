@@ -15,27 +15,26 @@
 
     <section class="lesson-ai-scope" :title="`${scopeTitle} · ${scopeDetail}`" :aria-label="tr('context')">
       <div>
-        <BookOpenText :size="15" />
+        <component :is="scopeIcon" :size="15" />
         <span>
           <strong>{{ scopeDetail }}</strong>
           <small>{{ scopeTitle }}</small>
         </span>
       </div>
-      <small><Paperclip :size="12" />{{ tr('sourceCount').replace('{count}', String(referenceCount)) }}</small>
+      <button
+        type="button"
+        class="lesson-ai-sources"
+        :class="{ active: sourcesOpen }"
+        :aria-expanded="sourcesOpen"
+        :title="tr('sources')"
+        @click="emit('open-sources')"
+      ><Paperclip :size="13" />{{ tr('sourceCount').replace('{count}', String(referenceCount)) }}</button>
     </section>
 
     <main ref="messageViewport" class="lesson-ai-messages" aria-live="polite">
       <section v-if="showStarter" class="lesson-ai-starter">
-        <div class="lesson-ai-starter-copy">
-          <span><WandSparkles :size="17" /></span>
-          <div>
-            <strong>{{ tr('starterTitle') }}</strong>
-            <p>{{ starterMessageText || tr('starterHint') }}</p>
-          </div>
-        </div>
         <div class="lesson-ai-quick-heading">
           <strong>{{ tr('quickPrompts') }}</strong>
-          <small>{{ tr('quickHint') }}</small>
         </div>
         <div class="lesson-ai-quick-grid">
           <button
@@ -55,7 +54,6 @@
 
       <template v-for="message in messages" :key="message.id">
         <article
-          v-if="!showStarter || message.id !== starterMessageId"
           :class="['lesson-ai-message', `is-${message.role}`, `is-${message.kind}`]"
         >
           <div v-if="message.role === 'user'" class="lesson-ai-user-bubble">{{ message.text }}</div>
@@ -66,7 +64,10 @@
                 <strong>{{ tr('candidateReady') }}</strong>
                 <span>{{ tr('changeCount').replace('{count}', String(candidateFields.length)) }}</span>
               </header>
-              <p>{{ candidateFieldSummary || message.text }}</p>
+              <div class="lesson-ai-review-fields">
+                <span v-for="field in candidateFields" :key="field">{{ field }}</span>
+                <span v-if="!candidateFields.length">{{ candidateFieldSummary || message.text }}</span>
+              </div>
               <footer v-if="candidatePending && message.id === latestCandidateMessageId">
                 <button type="button" :disabled="busy" @click="emit('focus-candidate')">
                   <LocateFixed :size="14" />{{ tr('locate') }}
@@ -110,11 +111,10 @@
 
     <footer class="lesson-ai-composer-shell">
       <div v-if="showCompactActions" class="lesson-ai-quick-strip" :aria-label="tr('quickPrompts')">
-        <button v-for="action in quickActions" :key="action.id" type="button" :disabled="busy" @click="submit(action.prompt)">
+        <button v-for="action in recommendedQuickActions" :key="action.id" type="button" :disabled="busy" @click="submit(action.prompt)">
           <component :is="quickActionIcon(action.icon)" :size="13" />{{ action.label }}
         </button>
       </div>
-      <span class="lesson-ai-composer-label">{{ tr('composerLabel') }}</span>
       <form class="lesson-ai-composer" @submit.prevent="submit(draft)">
         <textarea
           ref="composer"
@@ -131,7 +131,6 @@
           <SendHorizontal v-else :size="15" />
         </button>
       </form>
-      <small>{{ candidatePending ? tr('followUpHint') : tr('composerHint') }}</small>
     </footer>
   </aside>
 </template>
@@ -141,14 +140,15 @@ import { computed, nextTick, ref, watch, type Component } from 'vue'
 import {
   AlignLeft,
   ArrowDownUp,
-  BookOpenText,
   Check,
   CheckCircle2,
   ChevronRight,
   CircleAlert,
   CircleHelp,
+  ClipboardList,
   Combine,
   FileDiff,
+  FileText,
   Focus,
   Lightbulb,
   ListChecks,
@@ -206,6 +206,7 @@ const props = withDefaults(defineProps<{
   scopeTitle: string
   scopeDetail: string
   referenceCount?: number
+  sourcesOpen?: boolean
   messages: TeacherProductionAiMessage[]
   phase?: TeacherProductionAiPhase
   busy?: boolean
@@ -218,6 +219,7 @@ const props = withDefaults(defineProps<{
 }>(), {
   domain: 'lesson',
   referenceCount: 0,
+  sourcesOpen: false,
   phase: 'ready',
   busy: false,
   candidatePending: false,
@@ -230,6 +232,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'open-sources'): void
   (event: 'send', value: string): void
   (event: 'clarify', value: string): void
   (event: 'retry'): void
@@ -242,6 +245,7 @@ const fallbackMessages: Record<string, string> = {
   title: 'AI 助手',
   close: '退出 AI 编辑模式',
   context: '当前编辑范围',
+  sources: '资料范围',
   sourceCount: '{count} 份资料',
   candidateReady: '修改候选',
   changeCount: '{count} 处修改',
@@ -280,8 +284,6 @@ function tr(key: string): string {
 const draft = ref('')
 const composer = ref<HTMLTextAreaElement | null>(null)
 const messageViewport = ref<HTMLElement | null>(null)
-const starterMessageId = computed(() => props.messages.find(message => message.role === 'assistant' && message.kind === 'text')?.id || '')
-const starterMessageText = computed(() => props.messages.find(message => message.id === starterMessageId.value)?.text || '')
 const showStarter = computed(() => props.phase === 'ready' && !props.messages.some(message => message.role === 'user'))
 const showCompactActions = computed(() => !showStarter.value
   && !props.candidatePending
@@ -290,6 +292,8 @@ const showCompactActions = computed(() => !showStarter.value
   && props.quickActions.length > 0)
 const latestCandidateMessageId = computed(() => [...props.messages].reverse().find(message => message.kind === 'candidate')?.id || '')
 const latestErrorMessageId = computed(() => [...props.messages].reverse().find(message => message.kind === 'error')?.id || '')
+const recommendedQuickActions = computed(() => props.quickActions.slice(0, 3))
+const scopeIcon = computed<Component>(() => props.domain === 'outline' ? ListTree : props.domain === 'script' ? FileText : ClipboardList)
 const candidateFieldSummary = computed(() => props.candidateFields.length
   ? tr('changedFields').replace('{fields}', props.candidateFields.join('、'))
   : tr('noChangedFields'))
@@ -341,13 +345,13 @@ watch(() => [props.domain, props.scopeTitle, props.scopeDetail], () => nextTick(
 
 <style scoped>
 .lesson-ai-workspace{height:100%;min-width:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;color:#263147;background:#fff}
-.lesson-ai-header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px 0 16px;border-bottom:1px solid #e7ebf2}.lesson-ai-title{min-width:0;display:flex;align-items:center;gap:10px}.lesson-ai-brand{width:30px;height:30px;display:grid;place-items:center;border-radius:9px;color:#4f46e5;background:#f0f1ff}.lesson-ai-title>div{display:flex;align-items:baseline;gap:8px}.lesson-ai-title strong{color:#202a3d;font-size:13.5px}.lesson-ai-title>div>span{display:flex;align-items:center;gap:5px;color:#718096;font-size:10px;font-weight:650}.lesson-ai-title>div>span i{width:5px;height:5px;border-radius:50%;background:#94a3b8}.lesson-ai-title>div>span[data-phase="generating"] i,.lesson-ai-title>div>span[data-phase="accepting"] i,.lesson-ai-title>div>span[data-phase="rejecting"] i{background:#6366f1}.lesson-ai-title>div>span[data-phase="review"] i{background:#8b5cf6}.lesson-ai-title>div>span[data-phase="success"] i{background:#16a34a}.lesson-ai-title>div>span[data-phase="error"] i{background:#dc2626}.lesson-ai-header>button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.lesson-ai-header>button:hover{color:#334155;background:#f3f5f8}.lesson-ai-header>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.lesson-ai-scope{min-width:0;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 16px;border-bottom:1px solid #e9edf3;background:#fbfcfe}.lesson-ai-scope>div{min-width:0;display:flex;align-items:center;gap:9px}.lesson-ai-scope>div>svg{flex:none;color:#6366f1}.lesson-ai-scope>div>span{min-width:0;display:grid;gap:1px}.lesson-ai-scope strong,.lesson-ai-scope>div small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-ai-scope strong{color:#344158;font-size:11.5px}.lesson-ai-scope>div small{color:#7b8799;font-size:10px}.lesson-ai-scope>small{flex:none;display:flex;align-items:center;gap:4px;color:#7b8799;font-size:9.5px}
+.lesson-ai-header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px 0 16px;border-bottom:1px solid #e8ecf2}.lesson-ai-title{min-width:0;display:flex;align-items:center;gap:9px}.lesson-ai-brand{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#f0f1ff}.lesson-ai-title>div{display:flex;align-items:baseline;gap:8px}.lesson-ai-title strong{color:#202a3d;font-size:13.5px}.lesson-ai-title>div>span{display:flex;align-items:center;gap:5px;color:#718096;font-size:10px;font-weight:650}.lesson-ai-title>div>span i{width:5px;height:5px;border-radius:50%;background:#94a3b8}.lesson-ai-title>div>span[data-phase="generating"] i,.lesson-ai-title>div>span[data-phase="accepting"] i,.lesson-ai-title>div>span[data-phase="rejecting"] i{background:#6366f1}.lesson-ai-title>div>span[data-phase="review"] i{background:#8b5cf6}.lesson-ai-title>div>span[data-phase="success"] i{background:#16a34a}.lesson-ai-title>div>span[data-phase="error"] i{background:#dc2626}.lesson-ai-header>button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.lesson-ai-header>button:hover{color:#334155;background:#f3f5f8}.lesson-ai-header>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-ai-scope{min-width:0;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px 8px 16px;border-bottom:1px solid #e9edf3;background:#fbfcfe}.lesson-ai-scope>div{min-width:0;display:flex;align-items:center;gap:9px}.lesson-ai-scope>div>svg{flex:none;color:#6366f1}.lesson-ai-scope>div>span{min-width:0;display:grid;gap:1px}.lesson-ai-scope strong,.lesson-ai-scope>div small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-ai-scope strong{color:#344158;font-size:11.5px}.lesson-ai-scope>div small{color:#7b8799;font-size:10px}.lesson-ai-sources{flex:none;min-height:30px;display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid transparent;border-radius:7px;color:#697589;background:transparent;font:inherit;font-size:9.5px;font-weight:650;cursor:pointer}.lesson-ai-sources:hover,.lesson-ai-sources.active{border-color:#d9dcf7;color:#4338ca;background:#f3f3ff}.lesson-ai-sources:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-ai-messages{min-height:0;overflow:auto;padding:18px 16px 28px;scrollbar-width:thin;scrollbar-color:transparent transparent}.lesson-ai-messages:hover{scrollbar-color:#cbd3df transparent}.lesson-ai-messages::-webkit-scrollbar{width:6px}.lesson-ai-messages::-webkit-scrollbar-thumb{border-radius:6px;background:transparent}.lesson-ai-messages:hover::-webkit-scrollbar-thumb{background:#cbd3df}.lesson-ai-message{margin:0 0 15px}.lesson-ai-message.is-user{display:flex;justify-content:flex-end}.lesson-ai-user-bubble{max-width:84%;padding:8px 10px;border-radius:11px 11px 3px 11px;color:#fff;background:#514bdc;font-size:12px;line-height:1.55;overflow-wrap:anywhere}.lesson-ai-assistant-line{display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:start;gap:7px;color:#6366f1}.lesson-ai-assistant-line p{margin:0;color:#4c596d;font-size:12px;line-height:1.65;overflow-wrap:anywhere}.lesson-ai-assistant-line.is-receipt{color:#16925f}.lesson-ai-assistant-line.is-receipt p{color:#29765a}.lesson-ai-assistant-line.is-error{color:#c2414f}.lesson-ai-assistant-line.is-error p{color:#9f3c48}.lesson-ai-assistant-line>button{min-height:26px;padding:0 8px;border:1px solid #e0b5bb;border-radius:6px;color:#9f3c48;background:#fff;font-size:10px;font-weight:700;cursor:pointer}
-.lesson-ai-starter{display:grid;gap:20px;max-width:560px;margin:0 auto}.lesson-ai-starter-copy{display:grid;grid-template-columns:36px minmax(0,1fr);align-items:start;gap:11px}.lesson-ai-starter-copy>span{width:36px;height:36px;display:grid;place-items:center;border-radius:10px;color:#514bdc;background:#f0f1ff}.lesson-ai-starter-copy>div{display:grid;gap:4px}.lesson-ai-starter-copy strong{color:#253047;font-size:14px}.lesson-ai-starter-copy p{max-width:42ch;margin:0;color:#64748b;font-size:11.5px;line-height:1.6}.lesson-ai-quick-heading{display:flex;align-items:baseline;justify-content:space-between;gap:10px}.lesson-ai-quick-heading strong{color:#334155;font-size:11.5px}.lesson-ai-quick-heading small{color:#8a94a5;font-size:9.5px}.lesson-ai-quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.lesson-ai-quick-grid button{min-width:0;min-height:44px;display:grid;grid-template-columns:18px minmax(0,1fr) 14px;align-items:center;gap:7px;padding:0 10px;border:1px solid #e0e5ee;border-radius:10px;color:#596579;background:#fff;text-align:left;font:inherit;font-size:10.5px;font-weight:650;cursor:pointer}.lesson-ai-quick-grid button>svg:first-child{color:#625dd7}.lesson-ai-quick-grid button>svg:last-child{color:#a0a9b8}.lesson-ai-quick-grid button:hover:not(:disabled){border-color:#c7c9ef;color:#383379;background:#f8f8ff}.lesson-ai-quick-grid button:hover>svg:last-child{color:#625dd7}.lesson-ai-quick-grid button:disabled{opacity:.48;cursor:not-allowed}.lesson-ai-quick-grid button:focus-visible,.lesson-ai-quick-strip button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.lesson-ai-review{border-top:1px solid #dfe2f4;border-bottom:1px solid #dfe2f4;background:#fbfbff}.lesson-ai-review>header{min-height:40px;display:flex;align-items:center;gap:7px;color:#514bdc}.lesson-ai-review>header strong{color:#353567;font-size:12px}.lesson-ai-review>header span{margin-inline-start:auto;color:#7772a8;font-size:10px;font-weight:700}.lesson-ai-review>p{margin:0;padding:0 0 12px;color:#5f6980;font-size:11px;line-height:1.55}.lesson-ai-review>footer{display:flex;align-items:center;justify-content:flex-end;gap:5px;padding:9px 0;border-top:1px solid #ececf6}.lesson-ai-review button{min-height:30px;display:flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#596579;background:transparent;font-size:10.5px;font-weight:700;cursor:pointer}.lesson-ai-review button:hover:not(:disabled){background:#f1f3f7}.lesson-ai-review button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-ai-review button:disabled{opacity:.5;cursor:not-allowed}.lesson-ai-review button:focus-visible,.lesson-ai-clarification button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-ai-starter{display:grid;gap:10px;max-width:560px;margin:0 auto}.lesson-ai-quick-heading{display:flex;align-items:center;min-height:26px}.lesson-ai-quick-heading strong{color:#536176;font-size:10.5px}.lesson-ai-quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.lesson-ai-quick-grid button{min-width:0;min-height:42px;display:grid;grid-template-columns:18px minmax(0,1fr) 14px;align-items:center;gap:7px;padding:0 10px;border:1px solid #e1e6ee;border-radius:9px;color:#536176;background:#fff;text-align:left;font:inherit;font-size:10.5px;font-weight:650;cursor:pointer}.lesson-ai-quick-grid button>svg:first-child{color:#625dd7}.lesson-ai-quick-grid button>svg:last-child{color:#a0a9b8}.lesson-ai-quick-grid button:hover:not(:disabled){border-color:#c7c9ef;color:#383379;background:#f8f8ff}.lesson-ai-quick-grid button:hover>svg:last-child{color:#625dd7}.lesson-ai-quick-grid button:disabled{opacity:.48;cursor:not-allowed}.lesson-ai-quick-grid button:focus-visible,.lesson-ai-quick-strip button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-ai-review{border-top:1px solid #dfe2f4;border-bottom:1px solid #dfe2f4;background:#fbfbff}.lesson-ai-review>header{min-height:40px;display:flex;align-items:center;gap:7px;color:#514bdc}.lesson-ai-review>header strong{color:#353567;font-size:12px}.lesson-ai-review>header span{margin-inline-start:auto;color:#7772a8;font-size:10px;font-weight:700}.lesson-ai-review-fields{display:flex;flex-wrap:wrap;gap:5px;padding:0 0 12px}.lesson-ai-review-fields span{min-height:24px;display:inline-flex;align-items:center;padding:0 7px;border-radius:6px;color:#5b5790;background:#f0f0fb;font-size:10px;font-weight:650}.lesson-ai-review>footer{display:flex;align-items:center;justify-content:flex-end;gap:5px;padding:9px 0;border-top:1px solid #ececf6}.lesson-ai-review button{min-height:30px;display:flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#596579;background:transparent;font-size:10.5px;font-weight:700;cursor:pointer}.lesson-ai-review button:hover:not(:disabled){background:#f1f3f7}.lesson-ai-review button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-ai-review button:disabled{opacity:.5;cursor:not-allowed}.lesson-ai-review button:focus-visible,.lesson-ai-clarification button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-ai-clarification{display:flex;flex-wrap:wrap;gap:6px;margin:-3px 0 17px;padding-inline-start:22px}.lesson-ai-clarification button{min-height:29px;padding:0 9px;border:1px solid #d9def0;border-radius:7px;color:#4f4a8d;background:#fff;font-size:10.5px;cursor:pointer}.lesson-ai-clarification button:hover{border-color:#b9bced;background:#f7f7ff}.lesson-ai-working-state{display:flex;align-items:center;gap:7px;color:#65649c;font-size:11px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-.lesson-ai-composer-shell{display:grid;gap:7px;padding:11px 12px 12px;border-top:1px solid #e4e9f1;background:#fbfcfe}.lesson-ai-quick-strip{display:flex;gap:6px;overflow:auto;padding-bottom:1px}.lesson-ai-quick-strip button{flex:none;min-height:28px;display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #dce1ec;border-radius:7px;color:#55517e;background:#fff;font:inherit;font-size:9.5px;cursor:pointer}.lesson-ai-quick-strip button:hover:not(:disabled){border-color:#c7c9ef;background:#f8f8ff}.lesson-ai-composer-label{padding-inline:1px;color:#536176;font-size:10.5px;font-weight:700}.lesson-ai-composer{position:relative}.lesson-ai-composer textarea{width:100%;min-height:64px;max-height:132px;box-sizing:border-box;padding:10px 42px 10px 11px;border:1px solid #cbd4e1;border-radius:10px;outline:0;color:#263147;background:#fff;font:inherit;font-size:11.5px;line-height:1.5;resize:none}.lesson-ai-composer textarea::placeholder{color:#7b8799}.lesson-ai-composer textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.09)}.lesson-ai-composer>button{position:absolute;right:7px;bottom:7px;width:31px;height:31px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;color:#fff;background:#514bdc;cursor:pointer}.lesson-ai-composer>button:disabled{color:#8e98aa;background:#e4e7ee;cursor:not-allowed}.lesson-ai-composer>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-ai-composer-shell>small{padding-inline:1px;color:#7b8799;font-size:9.5px;line-height:1.4}
+.lesson-ai-composer-shell{display:grid;gap:7px;padding:10px 12px 12px;border-top:1px solid #e4e9f1;background:#fbfcfe}.lesson-ai-quick-strip{display:flex;gap:6px;overflow:auto;padding-bottom:1px}.lesson-ai-quick-strip button{flex:none;min-height:28px;display:flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #dce1ec;border-radius:7px;color:#55517e;background:#fff;font:inherit;font-size:9.5px;cursor:pointer}.lesson-ai-quick-strip button:hover:not(:disabled){border-color:#c7c9ef;background:#f8f8ff}.lesson-ai-composer{position:relative}.lesson-ai-composer textarea{width:100%;min-height:64px;max-height:132px;box-sizing:border-box;padding:10px 42px 10px 11px;border:1px solid #cbd4e1;border-radius:10px;outline:0;color:#263147;background:#fff;font:inherit;font-size:11.5px;line-height:1.5;resize:none}.lesson-ai-composer textarea::placeholder{color:#6f7c90}.lesson-ai-composer textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.09)}.lesson-ai-composer>button{position:absolute;right:7px;bottom:7px;width:31px;height:31px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;color:#fff;background:#514bdc;cursor:pointer}.lesson-ai-composer>button:disabled{color:#8e98aa;background:#e4e7ee;cursor:not-allowed}.lesson-ai-composer>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 @media(max-width:430px){.lesson-ai-quick-grid{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

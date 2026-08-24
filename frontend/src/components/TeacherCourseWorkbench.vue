@@ -322,7 +322,7 @@
       :title="t('courseWorkbench.aiCollaboration.resizeHint', '拖动调整宽度，或使用左右方向键')"
       @pointerdown="startAiPaneResize"
       @keydown="resizeAiPaneWithKeyboard"
-    ><i /></div>
+    ><GripVertical :size="14" /></div>
 
     <TeacherLessonAiWorkspace
       v-if="aiCollaborationOpen"
@@ -330,6 +330,7 @@
       :scope-title="aiScopeTitle"
       :scope-detail="aiScopeDetail"
       :reference-count="activeReferences.length"
+      :sources-open="aiSourcesOpen"
       :messages="aiMessages"
       :phase="aiPhase"
       :busy="aiCollaborationBusy"
@@ -340,6 +341,7 @@
       :placeholder="aiPlaceholder"
       :can-retry="Boolean(lastAiOperation)"
       @close="closeAiCollaboration"
+      @open-sources="aiSourcesOpen = !aiSourcesOpen"
       @send="handleAiRequest"
       @clarify="handleAiClarification"
       @retry="retryAiAction"
@@ -349,15 +351,19 @@
     />
 
     <CourseReferenceTray
-      v-else
+      v-if="!aiCollaborationOpen || aiSourcesOpen"
       v-model="activeReferences"
+      :class="{ 'ai-source-drawer': aiCollaborationOpen }"
       :course-id="courseId"
+      :compact="aiCollaborationOpen"
+      :show-close="aiCollaborationOpen"
       :stage="activeStage"
       :lesson-id="activeReferenceLessonId"
       :scope-target-id="lessonReferenceTargetId"
       :scope-target-type="lessonReferenceTargetId ? 'lesson_plan' : ''"
       :scope-target-label="selectedLesson?.title || ''"
       :previous-scope-target-id="previousLessonReferenceTargetId"
+      @close="aiSourcesOpen = false"
       @open-course-information="emit('open-course-information')"
     />
   </section>
@@ -365,7 +371,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, ListTree, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, ListTree, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -431,8 +437,10 @@ const workbenchCenter = ref<HTMLElement | null>(null)
 const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
 const scriptDocument = ref<ProductionAiDocumentHandle | null>(null)
 const aiCollaborationOpen = ref(false)
+const aiSourcesOpen = ref(false)
 const aiDomain = ref<TeacherProductionAiDomain>('lesson')
 const AI_PANE_STORAGE_KEY = 'teacher-course-workbench:ai-pane-width'
+const AI_SESSION_STORAGE_PREFIX = 'teacher-course-workbench:ai-session:'
 const AI_PANE_MIN_WIDTH = 360
 const AI_PANE_MAX_WIDTH = 680
 const AI_CANVAS_MIN_WIDTH = 560
@@ -549,6 +557,11 @@ const previousLessonReferenceTargetId = computed(() => (
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
 const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
+const currentAiBaseRevision = computed(() => {
+  if (aiDomain.value === 'lesson') return String(workingLessonRevision.value?.revision_id || '')
+  if (aiDomain.value === 'script') return String(selectedLesson.value?.script?.current_revision_id || '')
+  return String(generationTask.value?.phaseDetail?.skeleton_revision_id || '')
+})
 const aiCollaborationBusy = computed(() => teacherProductionAiBusy(aiPhase.value))
 const aiCandidatePending = computed(() => Boolean(aiCandidate.value))
 const activeAiDocument = computed<ProductionAiDocumentHandle | null>(() => {
@@ -727,17 +740,57 @@ function resetAiSession() {
   if (aiCandidatePending.value) {
     appendRestoredAiCandidate()
     transitionAi({ type: 'CANDIDATE_RESTORED' })
-  } else {
-    appendAiMessage(
-      'assistant',
-      'text',
-      aiDomain.value === 'outline'
-        ? '你可以直接说想调整哪些章节，我会先在左侧生成整套差异。'
-        : aiDomain.value === 'script'
-          ? '你可以说清楚想改的表达、节奏或案例，我会先给出可审阅候选。'
-          : t('courseWorkbench.aiCollaboration.welcome', '告诉我你想调整什么；要求不够明确时，我会先向你确认。'),
-    )
   }
+}
+function aiSessionStorageKey() {
+  return `${AI_SESSION_STORAGE_PREFIX}${currentAiScopeKey.value}`
+}
+function restoreAiSession() {
+  try {
+    const raw = window.localStorage.getItem(aiSessionStorageKey())
+    if (!raw) return false
+    const stored = JSON.parse(raw) as {
+      baseRevision?: string
+      messages?: TeacherProductionAiMessage[]
+      phase?: TeacherProductionAiPhase
+      clarificationOptions?: string[]
+      sequence?: number
+    }
+    if (!Array.isArray(stored.messages) || !stored.messages.length) return false
+    const baseMatches = String(stored.baseRevision || '') === currentAiBaseRevision.value
+    aiMessages.value = stored.messages.filter(message => (
+      message
+      && typeof message.id === 'string'
+      && typeof message.text === 'string'
+      && (baseMatches || !['candidate', 'error'].includes(message.kind))
+    ))
+    if (!aiMessages.value.length) return false
+    aiClarificationOptions.value = baseMatches && Array.isArray(stored.clarificationOptions)
+      ? stored.clarificationOptions.filter(option => typeof option === 'string')
+      : []
+    aiMessageSequence.value = Math.max(Number(stored.sequence || 0), aiMessages.value.length)
+    aiSessionScopeKey.value = currentAiScopeKey.value
+    aiPhase.value = aiCandidatePending.value
+      ? 'review'
+      : baseMatches && stored.phase === 'clarifying'
+        ? 'clarifying'
+        : 'ready'
+    return true
+  } catch {
+    return false
+  }
+}
+function persistAiSession() {
+  if (!aiSessionScopeKey.value || aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) return
+  try {
+    window.localStorage.setItem(aiSessionStorageKey(), JSON.stringify({
+      baseRevision: currentAiBaseRevision.value,
+      messages: aiMessages.value,
+      phase: aiPhase.value,
+      clarificationOptions: aiClarificationOptions.value,
+      sequence: aiMessageSequence.value,
+    }))
+  } catch { /* local storage can be unavailable */ }
 }
 function openAiCollaboration(domain: TeacherProductionAiDomain) {
   if (domain === 'lesson' && (!selectedLesson.value || !workingLessonRevision.value)) return
@@ -747,7 +800,10 @@ function openAiCollaboration(domain: TeacherProductionAiDomain) {
     aiDomain.value = domain
     aiCandidate.value = null
   }
-  if (aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) resetAiSession()
+  aiSourcesOpen.value = false
+  if (aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) {
+    if (!restoreAiSession()) resetAiSession()
+  }
   if (aiCandidatePending.value && !aiMessages.value.some(message => message.kind === 'candidate')) {
     appendRestoredAiCandidate()
     transitionAi({ type: 'CANDIDATE_RESTORED' })
@@ -757,6 +813,7 @@ function openAiCollaboration(domain: TeacherProductionAiDomain) {
 }
 function closeAiCollaboration() {
   aiCollaborationOpen.value = false
+  aiSourcesOpen.value = false
 }
 function buildAiInstruction(): string {
   return buildTeacherProductionAiInstruction(aiMessages.value, {
@@ -891,7 +948,7 @@ function focusAiCandidate() {
 }
 function updateAiPaneBounds() {
   const rootWidth = workbenchRoot.value?.getBoundingClientRect().width || window.innerWidth
-  aiPaneMaxWidth.value = Math.max(AI_PANE_MIN_WIDTH, Math.min(AI_PANE_MAX_WIDTH, Math.floor(rootWidth - AI_CANVAS_MIN_WIDTH - 10)))
+  aiPaneMaxWidth.value = Math.max(AI_PANE_MIN_WIDTH, Math.min(AI_PANE_MAX_WIDTH, Math.floor(rootWidth - AI_CANVAS_MIN_WIDTH - 8)))
   aiPaneWidth.value = Math.min(aiPaneMaxWidth.value, Math.max(AI_PANE_MIN_WIDTH, Math.round(aiPaneWidth.value)))
 }
 function clampAiPaneWidth(value: number) {
@@ -1080,7 +1137,11 @@ watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshG
 watch(() => props.initialStage, stage => { activeStage.value = stage })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
 watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; closeAiCollaboration(); closeLessonOutline(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
-watch(aiCollaborationOpen, open => { if (open) closeLessonOutline() })
+watch(aiCollaborationOpen, open => {
+  if (open) closeLessonOutline()
+  else aiSourcesOpen.value = false
+})
+watch([aiMessages, aiPhase, aiClarificationOptions], persistAiSession, { deep: true, flush: 'post' })
 watch(lessonOutlineRoot, (root, _previousRoot, onCleanup) => {
   if (!root) return
   document.addEventListener('pointerdown', closeLessonOutlineOnOutsidePointer)
@@ -1183,4 +1244,16 @@ onBeforeUnmount(() => {
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateY(-5px) scale(.985)}to{opacity:1;transform:none}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
+
+.teacher-workbench{position:relative}
+.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px var(--ai-pane-width);background:#f4f6f9}
+.ai-workspace-resizer{z-index:6;display:grid;place-items:center;background:#f4f6f9}
+.ai-workspace-resizer::after{background:#dfe4ec}
+.ai-workspace-resizer>svg{position:relative;z-index:1;width:20px;height:32px;padding:8px 3px;border-radius:7px;color:#9aa6b6;background:#fff;box-shadow:0 0 0 1px #dfe4ec;opacity:0;transition:color .16s ease,opacity .16s ease,box-shadow .16s ease}
+.ai-workspace-resizer:hover>svg,.ai-workspace-resizer:focus-visible>svg,.ai-workspace-resizer.is-resizing>svg{color:#5b57d9;box-shadow:0 0 0 1px #c8c6f1;opacity:1}
+.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:#f4f6f9}
+.ai-source-drawer{position:absolute;z-index:10;top:0;right:calc(var(--ai-pane-width) + 8px);bottom:0;width:min(340px,calc(100% - var(--ai-pane-width) - 72px));border-left:0;box-shadow:0 18px 50px rgba(30,41,59,.14);animation:ai-source-drawer-in .18s cubic-bezier(.16,1,.3,1)}
+@keyframes ai-source-drawer-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+@media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 8px 340px}.ai-source-drawer{right:348px;width:min(320px,calc(100% - 420px))}}
+@media(prefers-reduced-motion:reduce){.ai-workspace-resizer>svg{transition:none}.ai-source-drawer{animation:none}}
 </style>

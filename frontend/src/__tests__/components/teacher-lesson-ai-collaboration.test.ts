@@ -142,6 +142,14 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
     expect(wrapper.text()).toContain('AI 助手')
     expect(wrapper.text()).toContain('1.1 爬虫的定义与流程')
+    expect(wrapper.text()).not.toContain('从哪里开始修改')
+    expect(wrapper.text()).not.toContain('点击后生成可审阅候选')
+
+    await wrapper.get('.lesson-ai-sources').trigger('click')
+    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
+    wrapper.getComponent({ name: 'CourseReferenceTray' }).vm.$emit('close')
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
 
     await wrapper.get('.lesson-ai-composer textarea').setValue('把教学目标改成可观察行为')
     await wrapper.get('.lesson-ai-composer').trigger('submit')
@@ -222,5 +230,29 @@ describe('教案 AI 协作编辑模式', () => {
     await flushPromises()
 
     expect(store.resolveAiCandidate).toHaveBeenCalledWith('course-1', 'lesson-1', 'candidate-restored', false)
+  })
+
+  it('按课程与课次恢复未结束的对话', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const first = mountWorkbench()
+
+    await first.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await first.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
+    await first.get('.lesson-ai-composer').trigger('submit')
+    await flushPromises()
+
+    expect(first.text()).toContain('帮我改好一点')
+    expect([...Array(window.localStorage.length)].map((_, index) => window.localStorage.key(index)))
+      .toContain('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:1.1 爬虫的定义与流程')
+    first.unmount()
+
+    const second = mountWorkbench()
+    await second.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await flushPromises()
+
+    expect(second.text()).toContain('帮我改好一点')
+    expect(second.text()).toContain('你希望优先调整哪一部分')
+    expect(second.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
   })
 })
