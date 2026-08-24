@@ -35,12 +35,14 @@ class _StrictModel(BaseModel):
 class CoursePresentationUnitV1(_StrictModel):
     teaching_unit_id: str
     section_id: str
+    section_title: str = ""
     source_ordinal: int = Field(ge=0)
     primary_block_ids: list[str] = Field(min_length=1)
     primary_block_kinds: dict[str, str] = Field(default_factory=dict)
     primary_block_roles: dict[str, str] = Field(default_factory=dict)
     primary_block_artifacts: dict[str, list[ArtifactKind]] = Field(default_factory=dict)
     primary_block_texts: dict[str, str] = Field(default_factory=dict)
+    primary_block_presentation_texts: dict[str, str] = Field(default_factory=dict)
     primary_block_asset_refs: dict[str, list[str]] = Field(default_factory=dict)
     supporting_block_ids: list[str] = Field(default_factory=list)
     teaching_intent: str
@@ -50,6 +52,7 @@ class CoursePresentationUnitV1(_StrictModel):
     prerequisite_unit_ids: list[str] = Field(default_factory=list)
     dependent_unit_ids: list[str] = Field(default_factory=list)
     source_text: str
+    presentation_text: str = ""
 
 
 class CoursePresentationGraphV1(_StrictModel):
@@ -78,7 +81,58 @@ _ARTIFACT_KIND_BY_BLOCK_KIND: dict[str, ArtifactKind] = {
 }
 _CODE_FENCE_RE = re.compile(r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n.+?```", re.S)
 _DISPLAY_FORMULA_RE = re.compile(r"\$\$.+?\$\$|\\\[.+?\\\]", re.S)
+_INLINE_FORMULA_RE = re.compile(r"(?<!\\)\$(?!\$)(.+?)(?<!\\)\$(?!\$)", re.S)
 _MARKDOWN_TABLE_RE = re.compile(r"(?m)^\s*\|.+\|\s*\n\s*\|\s*:?-{3,}")
+_TEACHER_CUE_RE = re.compile(
+    r"【(?:板书[^】]*|提问[^】]*|等待回应|演示[^】]*|巡视(?:提示)?|投影|"
+    r"典型错误反馈|反馈|收束|"
+    r"分发练习单|播放[^】]*|画[^】]*|指令|计时|全链路验收补位[^】]*)】"
+)
+_INTERNAL_TEACHER_NOTE_RE = re.compile(
+    r"(?:教师|老师)(?:展示|强调|说明|引导|巡视|记录|补充)[^。！？；;]*[。！？；;]?"
+)
+_PRESENTATION_SIGNAL_TERMS = (
+    "定义", "定理", "规律", "公式", "结论", "条件", "边界", "原则", "步骤",
+    "依据", "标准", "错误", "修正", "已知量", "未知量", "约束", "模型",
+    "方向", "分量", "合力", "加速度", "质量", "实验", "观察", "证据",
+    "要求", "任务", "完成", "判断", "计算", "核对", "检查", "阶段", "连续",
+)
+_ROLE_SIGNAL_TERMS: dict[str, tuple[str, ...]] = {
+    "objective": ("目标", "任务", "能", "解决", "做到", "完成", "掌握"),
+    "concept": ("定义", "规律", "模型", "公式", "条件", "边界", "属性", "方向"),
+    "reasoning": ("实验", "观察", "说明", "支持", "证据", "关系", "误差"),
+    "activity": ("要求", "任务", "完成", "填写", "画出", "列出", "判断", "计算"),
+    "feedback": ("标准", "结论", "错误", "修正", "核对", "检查", "依据"),
+    "application": ("情境", "已知", "未知", "约束", "计算", "判断", "结果"),
+}
+_LOW_VALUE_SPOKEN_LEAD_RE = re.compile(
+    r"^(?:好[，,]?|同学们[，,]?|今天[，,]?|现在[，,]?|接下来[，,]?|首先[，,]?|其次[，,]?|"
+    r"这节课(?:的)?[，,]?|本节课(?:的)?[，,]?|请(?:大家|同学|一位同学)?|"
+    r"我们(?:刚才|现在|接下来|先|来|要)?|谁(?:来|能)?|想一想|"
+    r"来看(?:一个|这)?|看(?:这个|这里)?|"
+    r"拿出[^，,。；;]{0,28}[，,]|对照(?:标准)?答案[，,]?|"
+    r"完成的同学(?:请)?|学生(?:分别|先|再)?|教师(?:先|再)?|"
+    r"我把它写在黑板上[：:]?)"
+)
+_DELIVERY_ONLY_SEGMENT_RE = re.compile(
+    r"^(?:展示(?:标准)?(?:答案|解答)|停笔|等待|巡视|我(?:把|只用|来)|"
+    r"请(?:一位|两位|大家|同学)?(?:学生|同学)?(?:回答|举手|观察|看|记录)|"
+    r"把它写在黑板上|板书|投影)(?:[^。！？；;]{0,80})[。！？；;]?$"
+)
+_LOW_INFORMATION_LABEL_RE = re.compile(r"^[^:：\n]{1,14}[:：]$")
+_ROLE_PRESENTATION_BUDGET: dict[str, tuple[int, int]] = {
+    "objective": (3, 120),
+    "concept": (5, 280),
+    "reasoning": (6, 320),
+    "example": (7, 380),
+    "application": (7, 380),
+    "activity": (9, 420),
+    "feedback": (9, 420),
+    "misconception": (7, 360),
+    "remediation": (7, 360),
+    "summary": (6, 320),
+    "transfer": (6, 320),
+}
 
 
 def block_source_text(block: CourseBlock) -> str:
@@ -95,6 +149,154 @@ def block_source_text(block: CourseBlock) -> str:
     ).strip()
 
 
+def _presentation_segments(value: str) -> list[str]:
+    """Return source-extractive classroom screen candidates in source order."""
+
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n.*?```", "", text, flags=re.S)
+    text = text.replace("【学生任务】", "任务：")
+    text = _TEACHER_CUE_RE.sub("", text)
+    text = _INTERNAL_TEACHER_NOTE_RE.sub("", text)
+    text = re.sub(r"(?m)^\s*\*{2,}\s*", "", text)
+    text = re.sub(r"(?m)^\s*(?:教师|老师)(?:用|通过)", "", text)
+    text = re.sub(r"!\[([^]]*)]\([^)]*\)", r"\1", text)
+    text = re.sub(r"\[([^]]+)]\([^)]*\)", r"\1", text)
+    text = re.sub(r"(?<!\\)(\*\*|__)(.+?)\1", r"\2", text)
+    text = re.sub(r"(?<!\\)(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", text)
+    text = text.replace("**", "").replace("__", "")
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)
+    text = re.sub(r"(?m)^\s*#{1,6}\s+", "", text)
+
+    segments: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or re.fullmatch(r"\|?[|:\-\s]+\|?", line):
+            continue
+        if line.startswith("|") and line.endswith("|"):
+            continue
+        line = re.sub(r"^\s*(?:[-+*]\s+|\d+[.)]\s+)", "", line).strip()
+        if not line:
+            continue
+        for segment in re.split(r"(?<=[。！？；;])\s*", line):
+            clean = segment.strip()
+            if _DELIVERY_ONLY_SEGMENT_RE.match(clean):
+                continue
+            spoken_lead = _LOW_VALUE_SPOKEN_LEAD_RE.match(clean)
+            while spoken_lead:
+                remainder = clean[spoken_lead.end():].lstrip("，, ：:")
+                if remainder:
+                    clean = remainder
+                    spoken_lead = _LOW_VALUE_SPOKEN_LEAD_RE.match(clean)
+                else:
+                    break
+            if _DELIVERY_ONLY_SEGMENT_RE.match(clean):
+                continue
+            if clean:
+                segments.append(clean)
+    return segments
+
+
+def block_presentation_text(block: CourseBlock) -> str:
+    """Project a teacher script block onto what learners should see on screen.
+
+    The complete script remains unchanged in speaker notes.  This projection is
+    deliberately extractive: it removes delivery cues and selects only source
+    clauses that function as definitions, formulas, steps, tasks, evidence, or
+    conclusions.  It never paraphrases or invents teaching content.
+    """
+
+    source = block_source_text(block)
+    payload = block.payload or {}
+    if payload.get("_v6_artifact_only"):
+        return ""
+    explicit = str(payload.get("slide_visible_text") or "").strip()
+    if explicit:
+        return explicit
+    if not source or not (
+        payload.get("module_id")
+        or payload.get("module_instance_id")
+        or payload.get("teacher_script_block")
+    ):
+        return source
+
+    candidates = [
+        segment
+        for segment in _presentation_segments(source)
+        if not _LOW_INFORMATION_LABEL_RE.fullmatch(segment)
+    ]
+    if not candidates:
+        return source
+    role_terms = _ROLE_SIGNAL_TERMS.get(str(block.role or ""), ())
+    scored: list[tuple[int, int, str]] = []
+    for index, segment in enumerate(candidates):
+        score = 0
+        if any(term in segment for term in _PRESENTATION_SIGNAL_TERMS):
+            score += 3
+        if any(term in segment for term in role_terms):
+            score += 4
+        if _INLINE_FORMULA_RE.search(segment) or _DISPLAY_FORMULA_RE.search(segment):
+            score += 4
+        if re.search(r"(?:^|[^A-Za-z])\d+(?:\.\d+)?(?:\s|$|[^A-Za-z])", segment):
+            score += 1
+        if "：" in segment or ":" in segment:
+            score += 1
+        if segment.endswith(("？", "?")):
+            score -= 2
+        if _LOW_VALUE_SPOKEN_LEAD_RE.match(segment) and not any(
+            term in segment for term in role_terms
+        ):
+            score -= 3
+        if "等待" in segment or "巡视" in segment or "举手" in segment:
+            score -= 4
+        if block.role == "objective":
+            if any(
+                term in segment
+                for term in ("学完", "能够", "能做到", "学习目标", "下课前")
+            ):
+                score += 5
+            if any(term in segment for term in ("请带着", "开始", "举手回答")):
+                score -= 4
+            if segment.startswith("这些就是"):
+                score -= 5
+        if block.role in {"activity", "feedback"} and re.match(
+            r"^(?:【?[第任情]一二三四五六七八九十\d]+|[①-⑳])",
+            segment,
+        ):
+            score += 4
+        scored.append((score, index, segment))
+
+    max_segments, max_chars = _ROLE_PRESENTATION_BUDGET.get(
+        str(block.role or ""),
+        (5, 280),
+    )
+    if _MARKDOWN_TABLE_RE.search(source):
+        max_segments = min(max_segments, 6)
+        max_chars = min(
+            max_chars,
+            220 if block.role == "activity" else 140,
+        )
+    preferred = sorted(
+        (item for item in scored if item[0] > 0),
+        key=lambda item: (-item[0], item[1]),
+    )[:max_segments]
+    if not preferred:
+        preferred = [max(scored, key=lambda item: (item[0], -item[1]))]
+    selected = sorted(preferred, key=lambda item: item[1])
+    accepted: list[str] = []
+    for _score, _index, segment in selected:
+        candidate = "\n".join([*accepted, segment])
+        if accepted and len(candidate) > max_chars:
+            continue
+        if not accepted and len(segment) > max_chars:
+            # Preserve a complete source clause.  Long delivery prose is less
+            # harmful in notes than a generated truncation marker on canvas.
+            continue
+        accepted.append(segment)
+    if not accepted:
+        accepted.append(max(scored, key=lambda item: (item[0], -item[1]))[2])
+    return "\n".join(dict.fromkeys(accepted)).strip()
+
+
 def _artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
     kinds: list[ArtifactKind] = []
     explicit = _ARTIFACT_KIND_BY_BLOCK_KIND.get(block.kind)
@@ -108,11 +310,32 @@ def _artifact_kinds(block: CourseBlock) -> list[ArtifactKind]:
         kinds.append("code")
     if _DISPLAY_FORMULA_RE.search(text):
         kinds.append("formula")
-    if _MARKDOWN_TABLE_RE.search(text):
+    has_markdown_table = bool(_MARKDOWN_TABLE_RE.search(text))
+    inline_formulae = _INLINE_FORMULA_RE.findall(text)
+    if (
+        (
+            (block.payload or {}).get("module_id")
+            or (block.payload or {}).get("module_instance_id")
+        )
+        and len(inline_formulae) >= 2
+        and any("=" in formula for formula in inline_formulae)
+        and not has_markdown_table
+        and block.role in {"concept", "reasoning", "application", "example"}
+    ):
+        kinds.append("formula")
+    if has_markdown_table:
         kinds.append("table")
     payload_kind = str((block.payload or {}).get("artifact_kind") or "").strip()
     if payload_kind in ArtifactKind.__args__:  # type: ignore[attr-defined]
         kinds.append(payload_kind)  # type: ignore[arg-type]
+    for payload_item in (
+        (block.payload or {}).get("artifact_kinds")
+        or (block.payload or {}).get("_v6_artifact_kinds")
+        or []
+    ):
+        normalized = str(payload_item or "").strip()
+        if normalized in ArtifactKind.__args__:  # type: ignore[attr-defined]
+            kinds.append(normalized)  # type: ignore[arg-type]
     return list(dict.fromkeys(kinds))
 
 
@@ -127,6 +350,8 @@ def teaching_intent_for_roles(
     artifacts: set[str] | None = None,
 ) -> str:
     artifacts = artifacts or set()
+    if any(role == "objective" for role in roles) and not artifacts:
+        return "orientation"
     if artifacts:
         return "artifact_explanation"
     if any(role in {"activity", "checkpoint", "feedback"} for role in roles):
@@ -282,6 +507,10 @@ def compile_course_presentation_graph(
 
     units: list[CoursePresentationUnitV1] = []
     plan_contexts = _teaching_plan_context_by_section(teaching_plan)
+    section_titles = {
+        section.section_id: section.title
+        for section in document.sections
+    }
     previous_unit_id = ""
     for section_id in section_sequence:
         for blocks in _partition_section(by_section[section_id]):
@@ -299,6 +528,7 @@ def compile_course_presentation_graph(
             unit = CoursePresentationUnitV1(
                 teaching_unit_id=unit_id,
                 section_id=section_id,
+                section_title=str(section_titles.get(section_id) or "").strip(),
                 source_ordinal=ordinal,
                 primary_block_ids=block_ids,
                 primary_block_kinds={
@@ -312,6 +542,10 @@ def compile_course_presentation_graph(
                 },
                 primary_block_texts={
                     block.block_id: block_source_text(block) for block in blocks
+                },
+                primary_block_presentation_texts={
+                    block.block_id: block_presentation_text(block)
+                    for block in blocks
                 },
                 primary_block_asset_refs={
                     block.block_id: list(block.asset_refs) for block in blocks
@@ -334,6 +568,11 @@ def compile_course_presentation_graph(
                 prerequisite_unit_ids=[previous_unit_id] if previous_unit_id else [],
                 source_text="\n\n".join(
                     text for block in blocks if (text := block_source_text(block))
+                ),
+                presentation_text="\n\n".join(
+                    text
+                    for block in blocks
+                    if (text := block_presentation_text(block))
                 ),
             )
             if units:
@@ -373,6 +612,7 @@ __all__ = [
     "CoursePresentationGraphV1",
     "CoursePresentationUnitV1",
     "block_artifact_kinds",
+    "block_presentation_text",
     "block_source_text",
     "compile_course_presentation_graph",
     "page_artifact_kinds",

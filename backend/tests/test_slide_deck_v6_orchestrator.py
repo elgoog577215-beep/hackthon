@@ -7,6 +7,7 @@ import pytest
 import slide_deck_v6_orchestrator as orchestrator_module
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
+from representation_compiler import export_slide_deck_pptx
 from slide_ai_planning_v6 import AIPlannerInvocationError
 from slide_build_progress_v2 import (
     SlideBuildProgressManifestV2,
@@ -758,6 +759,11 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     assert spec.payload["content"]["build_signature"]["signature"].startswith(
         "slidebuildv6_"
     )
+    exported = export_slide_deck_pptx(
+        spec,
+        tmp_path / "published-v6-with-storyboard.pptx",
+    )
+    assert exported.is_file()
 
 
 @pytest.mark.asyncio

@@ -92,6 +92,10 @@ The final contract stores pages, resolved template layout IDs, typed slots, sour
 
 Full block text, full code and supplemental detail are stored in speaker notes with exact block/revision bindings. Canvas copy remains a source-faithful presentation expression. Code、显式步骤、表格和仅有一个正文块的页面不得用摘要替换原文；容量不足时必须按完整行、完整步骤、完整表格行或无损文字边界续页，而不是截断内容。实现可以保留仅用于异常输入的有限安全上限，但该上限不是教学页数策略。
 
+教师讲稿与课堂屏幕是同源的两种投影，不是相同文字的复制。教师讲稿块的完整正文逐字进入讲者备注；可见画布只抽取学生在该页需要观察、推导、比较、计算或作答的定义、条件、公式、步骤、例题数据和结论。问候、板书口令、停顿、巡视、转场和教师解释话术不得进入画布。目标页优先使用正式小节标题；公式推导、概念、例题、练习、反馈和总结分别使用与教学角色兼容的已发布布局，但布局不能重写教学语义。
+
+故事页因容量生成续页时，每页必须得到一个不同的、可回溯到该页来源片段的教学标题。公式续页可从同一来源等式链确定性压缩为“变量—关系—结果”，表格续页使用行主键，代码续页使用完整源码行，正文续页使用完整来源分句；无法得到合格标题时阻断发布，不使用“续一、续二”或重复父标题掩盖问题。标题、章节正文和公式显示均由 Web/PPTX 共享适配合同编译，原始 LaTeX 仍保留在来源与备注中。
+
 Table projection is semantic before geometric. The compiler measures wrapped cell demand, prefers a declared full-width/wide variant for dense tables, and otherwise paginates complete rows with repeated headers. A row that cannot remain complete becomes a source-bound detail page. Generated ellipses, lost protected tokens and pre-render cell truncation are hard failures even when object bounds do not overflow.
 
 Course agenda projection is also semantic before geometric. Each entry keeps a stable chapter number and full source title, and MAY add a complete source-derived learning objective or path explanation when it fits the shared agenda geometry. The agenda uses at most four two-level entries per page and continues through the same published `agenda-path` contract. It never invents a chapter description, repeats the title as a fake description or shrinks text to keep all chapters on one page.
@@ -126,6 +130,8 @@ Every failure contains `stage`, `code`, `message`, `retryable`, and optional `ch
 - exactly one primary teaching job per page;
 - template layout and teaching intent compatible;
 - no empty required slot, fake visual, duplicate heading/body, prose wall, clipping, overlap or Web/PPTX drift;
+- visible canvas contains no teacher delivery cue, every page title is distinct, and formal lesson openings use their frozen section title;
+- classroom density stays measurable through average/max visible characters and visible-to-speaker-notes ratio rather than copying the teacher transcript onto slides;
 - agenda hierarchy uses full source titles and source-derived descriptions at readable template density;
 - every materialized title/body/item/step/table/code region is visible in the exported PPTX;
 - code keeps exact source lines and blank lines while exposing language, continuation and line-number reading aids without internal `CODE`/`SOURCE` labels;

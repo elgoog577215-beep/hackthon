@@ -318,6 +318,14 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         ),
         "",
     )
+    chapter_message = next(
+        (
+            region.content
+            for region in resolved_page.regions
+            if slug == "chapter-entry" and region.content_kind == "body"
+        ),
+        "",
+    )
     return SlideSpec(
         unit_id=resolved_page.page_id,
         position=resolved_page.page_ordinal,
@@ -326,6 +334,7 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         eyebrow=eyebrow,
         title=_audience_title(resolved_page),
         subtitle=subtitle,
+        key_message=chapter_message,
         composition="diagram-full" if slug == "evidence-diagram" else "",
         visuals=_visuals(resolved_page),
         blocks=[
@@ -400,7 +409,9 @@ def _exported_slide_text(slide: Any) -> tuple[str, list[str]]:
 
 def _canonical_export_text(value: str) -> str:
     display = _display_text(str(value or ""))
-    display = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)、]\s*)", "", display)
+    # Treat ``1. item`` as a list marker, but keep source values such as
+    # ``5.0 N`` and ``2.5 m/s`` intact.
+    display = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)、]\s+)", "", display)
     display = re.sub(r"[*`]+", "", display)
     # Renderers may turn source list markers/colon separators into native
     # numbers, columns or distinct text boxes. Compare the substantive glyph
@@ -562,6 +573,7 @@ _V6_PUBLICATION_METADATA_FIELDS = frozenset({
     "planning_status",
     "source_contract",
     "story_plan",
+    "storyboard",
     "template_contract",
     "visual_plan",
 })

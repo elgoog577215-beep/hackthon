@@ -267,6 +267,14 @@ def _request_title_candidates_for_blocks(
         )
         if str(candidate).strip()
     ))
+    if any(
+        str(block_metadata.get(block_id, {}).get("role") or "") == "objective"
+        for block_id in source_block_ids
+    ):
+        section_title = str(unit.get("section_title") or "").strip()
+        if section_title:
+            candidates.insert(0, section_title)
+            candidates = list(dict.fromkeys(candidates))
     return candidates or [
         str(candidate)
         for candidate in unit.get("title_candidates") or []
@@ -311,6 +319,14 @@ def _assign_global_story_titles(
             for block_id in page.source_block_ids
             if str(block_metadata.get(block_id, {}).get("source_text") or "").strip()
         )
+        if any(
+            str(block_metadata.get(block_id, {}).get("role") or "") == "objective"
+            for block_id in page.source_block_ids
+        ):
+            page_source_text = "\n".join(filter(None, [
+                str(unit.get("section_title") or "").strip(),
+                page_source_text,
+            ]))
         candidates = [
             candidate
             for candidate in candidates
@@ -1501,6 +1517,7 @@ def _story_unit_request(
 
     return {
         "teaching_unit_id": unit.teaching_unit_id,
+        "section_title": unit.section_title,
         "source_ordinal": unit.source_ordinal,
         "primary_block_ids": unit.primary_block_ids,
         "primary_blocks": [
@@ -1513,13 +1530,29 @@ def _story_unit_request(
                 )),
                 "page_intent": page_teaching_intent(unit, [block_id]),
                 "source_text": unit.primary_block_texts.get(block_id, ""),
+                "presentation_text": unit.primary_block_presentation_texts.get(
+                    block_id,
+                    unit.primary_block_texts.get(block_id, ""),
+                ),
                 "allowed_protected_tokens": sorted(_protected_tokens(
                     unit.primary_block_texts.get(block_id, "")
                 )),
-                "title_candidates": _grounded_title_candidates(
-                    unit.primary_block_texts.get(block_id, ""),
-                    max_chars=title_max_chars,
-                ),
+                "title_candidates": list(dict.fromkeys([
+                    *(
+                        [unit.section_title]
+                        if unit.section_title
+                        and unit.primary_block_roles.get(block_id) == "objective"
+                        and len(unit.section_title) <= title_max_chars
+                        else []
+                    ),
+                    *_grounded_title_candidates(
+                        unit.primary_block_presentation_texts.get(
+                            block_id,
+                            unit.primary_block_texts.get(block_id, ""),
+                        ),
+                        max_chars=title_max_chars,
+                    ),
+                ])),
                 "compatible_template_layout_ids": (
                     block_compatible_layout_ids(block_id)
                 ),
@@ -1532,15 +1565,28 @@ def _story_unit_request(
         "teaching_plan_context": unit.teaching_plan_context,
         "prerequisite_unit_ids": unit.prerequisite_unit_ids,
         "source_text": unit.source_text,
+        "presentation_text": unit.presentation_text or unit.source_text,
         "allowed_protected_tokens": sorted(_protected_tokens(unit.source_text)),
         "title_max_chars": title_max_chars,
         "title_policy": (
             "copy_a_complete_specific_candidate_grounded_in_bound_blocks"
         ),
-        "title_candidates": _grounded_title_candidates(
-            unit.source_text,
-            max_chars=title_max_chars,
-        ),
+        "title_candidates": list(dict.fromkeys([
+            *(
+                [unit.section_title]
+                if unit.section_title
+                and any(
+                    role == "objective"
+                    for role in unit.primary_block_roles.values()
+                )
+                and len(unit.section_title) <= title_max_chars
+                else []
+            ),
+            *_grounded_title_candidates(
+                unit.presentation_text or unit.source_text,
+                max_chars=title_max_chars,
+            ),
+        ])),
         "summary_max_chars_by_layout_id": summary_max_chars_by_layout_id,
         "summary_min_chars_by_layout_id": summary_min_chars_by_layout_id,
         "allowed_page_count_range": allowed_page_count_range,
@@ -1576,6 +1622,13 @@ def _story_requests(
                 "primary_block_page_ownership": "exactly_once",
                 "allow_multiple_primary_blocks_per_page": True,
                 "canvas_expression": "semantic_closure_with_full_source_in_notes",
+                "audience": "learners_during_live_teaching",
+                "speaker_notes_policy": "complete_teacher_script_notes_only",
+                "presentation_text_policy": (
+                    "show_only_definition_theorem_formula_derivation_evidence_"
+                    "example_task_feedback_boundary_or_recap_signals"
+                ),
+                "one_page_one_teaching_point": True,
                 "summary_policy": (
                     "source_grounded_semantic_closure_for_all_bound_blocks_"
                     "complete_sentence_no_markdown"
@@ -1629,6 +1682,7 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
 
     unit_fields = (
         "teaching_unit_id",
+        "section_title",
         "source_ordinal",
         "primary_block_ids",
         "primary_blocks",
@@ -1646,6 +1700,22 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
         "allowed_template_layout_ids",
         "allowed_template_layout_ids_by_page_intent",
     )
+    def model_primary_blocks(unit: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                **{
+                    key: value
+                    for key, value in block.items()
+                    if key != "presentation_text"
+                },
+                "source_text": block.get("presentation_text")
+                or block.get("source_text")
+                or "",
+            }
+            for block in unit.get("primary_blocks") or []
+            if isinstance(block, dict)
+        ]
+
     return {
         **{
             key: value
@@ -1654,7 +1724,11 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
         },
         "teaching_units": [
             {
-                key: unit[key]
+                key: (
+                    model_primary_blocks(unit)
+                    if key == "primary_blocks"
+                    else unit[key]
+                )
                 for key in unit_fields
                 if key in unit
             }
@@ -2950,12 +3024,16 @@ def _visual_request(
         blocks = [
             {
                 "block_id": block_id,
-                "source_text": str(unit.primary_block_texts.get(block_id) or "").strip(),
+                "source_text": str(
+                    unit.primary_block_presentation_texts.get(block_id)
+                    or unit.primary_block_texts.get(block_id)
+                    or ""
+                ).strip(),
             }
             for block_id in page.source_block_ids
         ]
         if len(blocks) == 1 and not blocks[0]["source_text"]:
-            blocks[0]["source_text"] = unit.source_text
+            blocks[0]["source_text"] = unit.presentation_text or unit.source_text
         return blocks
 
     def page_request(page: SlideStoryPageV3) -> dict[str, Any]:
@@ -3005,7 +3083,7 @@ def _visual_request(
             "source_text": "\n\n".join(
                 block["source_text"] for block in source_blocks
                 if block["source_text"]
-            ) or unit.source_text,
+            ) or unit.presentation_text or unit.source_text,
             "source_blocks": source_blocks,
             "artifact_kinds": sorted(artifact_kinds),
             "layout_artifact_kinds": list(layout.artifact_kinds),
@@ -4014,9 +4092,17 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "Copy each option page's source_block_ids exactly and choose one of that page's listed "
                 "template_layout_ids. Do not create "
                 "one page per primary block: partition the unit's block IDs across its pages and "
-                "bind multiple related blocks to one page when needed. The downstream compiler "
-                "keeps complete source text in speaker notes, so canvas pages should express a "
-                "semantically closed teaching step rather than repeat all source prose. Titles, "
+                "bind multiple related blocks to one page when needed. The downstream compiler keeps "
+                "the complete teacher script in speaker notes. The canvas is for learners during live "
+                "teaching: never copy greetings, teacher moves, waiting cues, narration, or transcript "
+                "prose onto slides. Show only the definition, theorem, formula, derivation step, "
+                "evidence, worked example, learner task, feedback, boundary, or recap needed at that "
+                "moment. Treat each page as one teaching point and use page_intent plus compatible "
+                "layouts to choose a real classroom composition, not a generic text page. Prefer "
+                "chapter-entry for a lesson objective, formula layouts for equations and derivations, "
+                "process layouts for ordered mechanisms, worked-example for a prompt plus reasoning, "
+                "practice layouts for tasks and checks, and repair layouts for misconceptions when "
+                "those choices are supplied. Titles, "
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
                 "by that unit's source_text. Copy every identifier and number exactly from the "
                 "allowed_protected_tokens of its bound primary_blocks; never shorten, approximate, "
@@ -4024,8 +4110,9 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "
                  "page level; never emit a nested content object. Copy a complete title from candidates "
                  "supplied by the primary_blocks bound to that page, keep it within title_max_chars, "
-                 "and never end it with a connector or delimiter. A non-empty summary must express the semantic closure of every "
-                 "source_block_id bound to that page. Never invent teaching content."
+                 "and never end it with a connector or delimiter. Keep each summary compact and "
+                 "screen-worthy; it must express the semantic closure of every source_block_id bound "
+                 "to that page without reintroducing teacher speech. Never invent teaching content."
                     ),
                     use_fast_model=False,
                     retry_count=1,

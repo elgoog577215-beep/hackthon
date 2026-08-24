@@ -22,9 +22,18 @@ from slide_deck_v6 import (
     _compile_course_cover_page,
     compile_slide_deck_v6,
 )
-from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_deck_v6_pptx
+from slide_deck_v6_renderer import (
+    _canonical_export_text,
+    adapt_v6_page_to_slide_spec,
+    export_slide_deck_v6_pptx,
+)
 from slide_layout_geometry import balanced_two_column_body_metrics
 from template_layout_contract import compile_builtin_template_layout_contract_v1
+
+
+def test_export_fidelity_keeps_decimal_formula_values() -> None:
+    assert _canonical_export_text("5.0\\,\\text{N}") == "50n"
+    assert _canonical_export_text("1. Verify the result") == "verifytheresult"
 
 
 def _code_deck(code_source: str = "function onEvent(value) {\n  return validate(value);\n}"):
@@ -1476,6 +1485,10 @@ def test_chapter_entry_renderer_honors_declared_driving_question_capacity(
     tmp_path: Path,
 ) -> None:
     deck = _chapter_entry_at_contract_capacity_deck()
+    adapted = adapt_v6_page_to_slide_spec(deck.pages[0])
+
+    assert adapted.key_message
+    assert "地点、时间、天气" in adapted.key_message
 
     output = export_slide_deck_v6_pptx(deck, tmp_path / "chapter-entry-capacity.pptx")
     report = audit_exported_pptx(output, expected_slide_count=1)

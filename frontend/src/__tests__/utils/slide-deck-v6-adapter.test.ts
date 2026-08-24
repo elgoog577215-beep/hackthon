@@ -38,6 +38,35 @@ describe('slide deck V6 web adapter', () => {
     expect(slide.quality.audience_label_policy).toBe('source_only')
   })
 
+  it('shows the chapter driving question and formats math in audience titles', () => {
+    const slide = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        page_id: 'lesson-opening',
+        page_ordinal: 0,
+        title: '力 $\\vec{F}$、质量 $m$ 与 $F_y \\approx 10$',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.18.1/chapter-entry',
+        source_block_ids: ['objective'],
+        regions: [{
+          region_id: 'lesson-opening:body',
+          slot_id: 'body',
+          content_kind: 'body',
+          content: '本讲要解决：如何从真实情境中隔离研究对象并建立受力模型。',
+          source_block_ids: ['objective'],
+        }],
+        speaker_notes: {
+          source_document_revision: 'r1',
+          teaching_unit_id: 'u1',
+          source_blocks: [],
+        },
+      }],
+    })[0]!
+
+    expect(slide.title).toBe('力 F⃗、质量 m 与 Fᵧ ≈ 10')
+    expect(slide.key_message).toContain('如何从真实情境中隔离研究对象')
+    expect(slide.quality.character_count).toBeGreaterThan(0)
+  })
+
   it('uses the shared template adapter contract and preserves full V6 layout identity', () => {
     const content = {
       schema_version: 'slide_deck_v6',

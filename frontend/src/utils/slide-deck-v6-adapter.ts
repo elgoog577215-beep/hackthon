@@ -70,6 +70,44 @@ interface AdapterDefinition {
 
 const layouts = adapterContract.layouts as Record<string, AdapterDefinition>
 
+const subscriptMap: Record<string, string> = {
+  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+  '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+  x: 'ₓ', y: 'ᵧ', i: 'ᵢ', j: 'ⱼ', n: 'ₙ', m: 'ₘ',
+}
+
+function formulaLabel(value: string): string {
+  const renderSubscript = (source: string) => (
+    [...source].every(character => subscriptMap[character])
+      ? [...source].map(character => subscriptMap[character]).join('')
+      : `_${source}`
+  )
+  return String(value || '')
+    .replace(/(?<!\\)\$+/g, '')
+    .replace(/\\vec\{([^{}]+)\}/g, '$1⃗')
+    .replace(/\\vec\s*([A-Za-z])/g, '$1⃗')
+    .replace(/\\sqrt\{([^{}]+)\}/g, '√($1)')
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '($1)⁄($2)')
+    .replace(/\\(?:mathbf|boldsymbol|mathrm|mathbb|operatorname|text)\{([^{}]+)\}/g, '$1')
+    .replace(/\\(?:cdot)/g, '·')
+    .replace(/\\(?:times)/g, '×')
+    .replace(/\\(?:leq)/g, '≤')
+    .replace(/\\(?:geq)/g, '≥')
+    .replace(/\\(?:approx)/g, '≈')
+    .replace(/\\(?:ll)/g, '≪')
+    .replace(/\\(?:gg)/g, '≫')
+    .replace(/\\theta/g, 'θ')
+    .replace(/\\Delta/g, 'Δ')
+    .replace(/\\sum/g, '∑')
+    .replace(/\\(?:sin|cos|tan|arctan)/g, command => command.slice(1))
+    .replace(/_\s*\{([^{}]+)\}/g, (_, source: string) => renderSubscript(source))
+    .replace(/_\s*([A-Za-z0-9])/g, (_, source: string) => renderSubscript(source))
+    .replace(/\\(?:quad|,|!)/g, ' ')
+    .replace(/[{}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function layoutSlug(layoutId: string): string {
   const slug = String(layoutId || '').split('/').at(-1) || ''
   if (!layouts[slug]) throw new Error(`v6_template_layout_adapter_missing:${layoutId}`)
@@ -168,8 +206,10 @@ function layoutVariant(page: V6Page, adapter: AdapterDefinition) {
 
 function audienceTitle(page: V6Page): string {
   const title = String(page.title || '').trim()
-  if (Number(page.continuation_count || 1) <= 1) return title
-  return title.replace(/\s*[（(]\s*\d+\s*\/\s*\d+\s*[）)]\s*$/u, '').trim()
+  const withoutLegacySuffix = Number(page.continuation_count || 1) <= 1
+    ? title
+    : title.replace(/\s*[（(]\s*\d+\s*\/\s*\d+\s*[）)]\s*$/u, '').trim()
+  return formulaLabel(withoutLegacySuffix)
 }
 
 function regionBlock(region: V6Region): Record<string, unknown> {
@@ -273,6 +313,13 @@ function adaptPage(
     ? ''
     : page.regions.find(region => region.slot_id === 'subtitle')?.content || ''
   const eyebrow = page.regions.find(region => region.slot_id === 'eyebrow')?.content || ''
+  const chapterMessage = slug === 'chapter-entry'
+    ? page.regions.find(region => region.content_kind === 'body')?.content || ''
+    : ''
+  const characterCount = page.regions.reduce(
+    (total, region) => total + formulaLabel(region.content).replace(/\s+/g, '').length,
+    0,
+  )
   return {
     unit_id: page.page_id,
     position: page.page_ordinal,
@@ -281,7 +328,7 @@ function adaptPage(
     eyebrow,
     title: audienceTitle(page),
     subtitle,
-    key_message: '',
+    key_message: chapterMessage,
     teaching_job: '',
     takeaway: '',
     transition_from: '',
@@ -292,6 +339,7 @@ function adaptPage(
     source_block_ids: [...page.source_block_ids],
     quality: {
       passed: true,
+      character_count: characterCount,
       render_contract: 'template_layout_contract_v1',
       audience_label_policy: 'source_only',
       v6_template_layout_id: page.resolved_layout,

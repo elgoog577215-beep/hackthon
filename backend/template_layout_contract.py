@@ -14,6 +14,7 @@ from slide_layout_geometry import (
     FIGURE_SOURCE_PANEL_V1,
     FORMULA_SOURCE_PANEL_V1,
     HORIZONTAL_PROCESS_CARDS_V1,
+    TABLE_SUPPORT_BAND_V1,
 )
 from slide_theme import load_slide_theme_pack
 
@@ -179,7 +180,7 @@ _SLOT_SOURCE_ROLES: dict[str, set[str]] = {
     "criteria": {"feedback", "summary", "objective"},
     "feedback": {"feedback", "remediation"},
     "annotation": {"concept", "reasoning", "feedback", "remediation"},
-    "derivation": {"reasoning", "example"},
+    "derivation": {"concept", "reasoning", "example", "application"},
     "reasoning": {"reasoning", "example"},
     "interpretation": {
         "activity",
@@ -358,7 +359,7 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "artifact_kinds": ["formula"],
         "slots": [
             _TITLE,
-            _slot("formula", "formula", chars=300),
+            _slot("formula", "formula", chars=130, lines=5),
             _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
@@ -415,10 +416,11 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
         "artifact_kinds": ["formula"],
         "slots": [
             _TITLE,
-            _slot("formula", "formula", chars=420),
+            _slot("formula", "formula", chars=150, lines=5),
             _slot(
                 "derivation",
                 "body",
+                required=False,
                 chars=360,
                 capacity_profile=FORMULA_SOURCE_PANEL_V1,
             ),
@@ -442,7 +444,13 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
                 full_column_chars=36,
                 wide_min_columns=3,
             ),
-            _slot("interpretation", "body", required=False, chars=140),
+            _slot(
+                "interpretation",
+                "body",
+                required=False,
+                chars=220,
+                capacity_profile=TABLE_SUPPORT_BAND_V1,
+            ),
             _NOTES,
         ],
         "continuations": ["evidence-table", "content-stack"],

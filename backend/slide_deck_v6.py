@@ -16,6 +16,7 @@ from course_presentation_graph import (
     CoursePresentationGraphV1,
     CoursePresentationUnitV1,
     block_artifact_kinds,
+    block_presentation_text,
     block_source_text,
     page_artifact_kinds,
     page_teaching_intent,
@@ -29,7 +30,7 @@ from slide_layout_geometry import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v7"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v9"
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
@@ -57,7 +58,9 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "template_slot_capacity_exceeded": "pagination_capacity",
     "template_continuation_contract_invalid": "pagination_contract",
     "template_layout_unavailable": "pagination_contract",
+    "continuation_title_unavailable": "source_slot_binding",
     "pagination_expansion_excessive": "pagination_capacity",
+    "duplicate_final_page_title": "source_fidelity",
     "source_artifact_visible_fidelity_incomplete": "source_fidelity",
     "source_prose_visible_fidelity_incomplete": "source_fidelity",
     "ordered_step_visible_fidelity_incomplete": "source_fidelity",
@@ -353,6 +356,11 @@ class SlideDeckV6Quality(_StrictModel):
     max_story_page_expansion: int = Field(default=1, ge=0)
     pagination_page_upper_bound: int = Field(default=0, ge=0)
     pagination_within_dynamic_bound: bool = True
+    average_visible_chars_per_page: float = Field(default=0.0, ge=0)
+    max_visible_chars_per_page: int = Field(default=0, ge=0)
+    visible_to_speaker_notes_ratio: float = Field(default=0.0, ge=0)
+    teacher_cue_free_page_ratio: float = Field(default=1.0, ge=0, le=1)
+    distinct_page_title_ratio: float = Field(default=1.0, ge=0, le=1)
     render_review: dict[str, Any] = Field(default_factory=dict)
     blockers: list[V6Failure] = Field(default_factory=list)
     passed: bool = True
@@ -649,11 +657,20 @@ def _unit_source_text_for_blocks(
     unit: CoursePresentationUnitV1,
     block_ids: set[str] | list[str],
 ) -> str:
+    selected_ids = [str(block_id) for block_id in block_ids]
     texts = [
         str(unit.primary_block_texts.get(block_id) or "").strip()
-        for block_id in block_ids
+        for block_id in selected_ids
         if str(unit.primary_block_texts.get(block_id) or "").strip()
     ]
+    # A lesson/chapter opening is allowed to use its formal section title. The
+    # title belongs to the frozen course source even though it is not duplicated
+    # inside the objective block text.
+    if unit.section_title and any(
+        unit.primary_block_roles.get(block_id) == "objective"
+        for block_id in selected_ids
+    ):
+        texts.insert(0, unit.section_title)
     return "\n\n".join(texts) or unit.source_text
 
 
@@ -667,18 +684,32 @@ def graph_page_source_blocks(
 ) -> list[CourseBlock]:
     """Rehydrate the frozen block facts needed by the template allocator."""
 
-    return [
-        CourseBlock(
+    result: list[CourseBlock] = []
+    for index, block_id in enumerate(source_block_ids):
+        source_text = unit.primary_block_texts.get(block_id, "")
+        presentation_text = unit.primary_block_presentation_texts.get(
+            block_id,
+            source_text,
+        )
+        payload: dict[str, Any] = {
+            "text": source_text,
+            "_v6_artifact_kinds": unit.primary_block_artifacts.get(
+                block_id,
+                [],
+            ),
+        }
+        if presentation_text != source_text:
+            payload["slide_visible_text"] = presentation_text
+        result.append(CourseBlock(
             block_id=block_id,
             section_id=unit.section_id,
             position=index,
             kind=unit.primary_block_kinds.get(block_id, "rich_text"),
             role=unit.primary_block_roles.get(block_id, "concept"),
-            payload={"text": unit.primary_block_texts.get(block_id, "")},
+            payload=payload,
             asset_refs=list(unit.primary_block_asset_refs.get(block_id, [])),
-        )
-        for index, block_id in enumerate(source_block_ids)
-    ]
+        ))
+    return result
 
 
 def validate_slide_story_plan_v3(
@@ -1465,6 +1496,7 @@ def _code_chunk_blocks(
             "_v6_code_end_line": start_line + source_line_count - 1,
             "_v6_code_chunk_index": chunk_index,
             "_v6_code_chunk_count": chunk_count,
+            "_v6_artifact_only": True,
         }
         result.append(_block_with_source_excerpt(
             block,
@@ -1481,7 +1513,7 @@ def _code_chunk_blocks(
 
 
 def _prose_source_text(block: CourseBlock) -> str:
-    text = block_source_text(block)
+    text = block_presentation_text(block)
     without_code = re.sub(
         r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n.*?```",
         "",
@@ -1694,7 +1726,18 @@ def _formula_candidates(text: str) -> list[str]:
         for match in re.finditer(r"\$\$.+?\$\$|\\\[.+?\\\]", text, re.DOTALL)
         if match.group(0).strip()
     ]
-    return displayed or [text.strip()]
+    if displayed:
+        return displayed
+    inline = [
+        match.group(0).strip()
+        for match in re.finditer(
+            r"(?<!\\)\$(?!\$).+?(?<!\\)\$(?!\$)",
+            text,
+            re.DOTALL,
+        )
+        if match.group(0).strip()
+    ]
+    return list(dict.fromkeys(inline)) or [text.strip()]
 
 
 def _bounded_formula_content(
@@ -1940,12 +1983,12 @@ def _first_incomplete_visible_prose_block(
 
 
 def source_required_slot_kinds(source_blocks: list[CourseBlock]) -> set[str]:
-    """Return semantic template slots required to keep source structure visible."""
+    """Return slots required by the learner-visible presentation projection."""
 
     sequence_roles = {"activity", "checkpoint", "orientation"}
     if any(
         block.role in sequence_roles
-        and len(_ordered_step_items(block_source_text(block))) >= 2
+        and len(_ordered_step_items(block_presentation_text(block))) >= 2
         for block in source_blocks
     ):
         return {"steps"}
@@ -2137,6 +2180,8 @@ def _block_with_source_excerpt(
         "text",
     )
     payload[key] = content
+    if not artifact_kind and "slide_visible_text" in payload:
+        payload["slide_visible_text"] = content
     if artifact_kind:
         payload["artifact_kind"] = artifact_kind
     if payload_metadata:
@@ -2189,6 +2234,47 @@ def _pack_lines(
         chunks.append("\n".join([*prefix, *current]))
     elif prefix and prefix_chars <= max_chars:
         chunks.append("\n".join(prefix))
+    return chunks
+
+
+def _pack_formulae(
+    formulae: list[str],
+    *,
+    max_chars: int,
+    max_lines: int,
+) -> list[str]:
+    """Pack atomic formulae against the renderer's multiline formula frame.
+
+    The renderer displays formulae separated by one blank line, so character
+    capacity alone can place many short symbols into a frame that only has
+    room for a few visible lines.  Count both formula lines and separators.
+    """
+
+    def rendered_line_count(values: list[str]) -> int:
+        formula_lines = sum(
+            max(1, len(str(value or "").splitlines())) for value in values
+        )
+        return formula_lines + max(0, len(values) - 1)
+
+    chunks: list[str] = []
+    current: list[str] = []
+    for formula in formulae:
+        candidate = "\n\n".join([*current, formula])
+        exceeds_chars = bool(max_chars and len(candidate) > max_chars)
+        exceeds_lines = bool(
+            max_lines and rendered_line_count([*current, formula]) > max_lines
+        )
+        if current and (exceeds_chars or exceeds_lines):
+            chunks.append("\n\n".join(current))
+            current = [formula]
+            continue
+        if (max_chars and len(candidate) > max_chars) or (
+            max_lines and rendered_line_count([formula]) > max_lines
+        ):
+            raise ValueError("template_slot_capacity_exceeded")
+        current.append(formula)
+    if current:
+        chunks.append("\n\n".join(current))
     return chunks
 
 
@@ -2350,10 +2436,12 @@ def _split_artifact_block(
             prefix_lines=header,
         )
     elif slot_kind == "formula":
-        formula = "\n\n".join(_formula_candidates(content))
-        if max_chars and len(formula) > max_chars:
-            raise ValueError("template_slot_capacity_exceeded")
-        chunks = [formula]
+        formulae = _formula_candidates(content)
+        chunks = _pack_formulae(
+            formulae,
+            max_chars=max_chars,
+            max_lines=max_lines,
+        )
     else:
         return [block]
     if slot_kind == "code":
@@ -2367,6 +2455,7 @@ def _split_artifact_block(
             block,
             chunk,
             artifact_kind=slot_kind,
+            payload_metadata={"_v6_artifact_only": True},
         )
         for chunk in chunks
     ]
@@ -3242,6 +3331,7 @@ def _split_table_block_for_layout_variants(
             block,
             chunk,
             artifact_kind="table",
+            payload_metadata={"_v6_artifact_only": True},
         )
         for chunk in chunks
     ]
@@ -3284,6 +3374,7 @@ def _text_slot_accepts_block(slot: Any, block: CourseBlock) -> bool:
     if (
         slot.slot_kind == "steps"
         and not _ordered_step_groups(prose)
+        and block.role not in {"activity", "checkpoint", "orientation"}
     ):
         return False
     source_roles = set(slot.source_roles)
@@ -4515,11 +4606,189 @@ def _safe_artifact_page_blocks(
     return materializations
 
 
-def _continuation_title(title: str, index: int, count: int, capacity: int) -> str:
-    """Keep pagination metadata out of the audience-facing teaching claim."""
+_CONTINUATION_FORMULA_RE = re.compile(
+    r"\$\$(.+?)\$\$|(?<!\\)\$(?!\$)(.+?)(?<!\\)\$(?!\$)|"
+    r"\\\[(.+?)\\\]",
+    re.S,
+)
 
-    _ = (index, count, capacity)
-    return title
+
+def _bounded_source_title_windows(value: str, limit: int) -> list[str]:
+    """Extract several complete, source-native title windows from long prose."""
+
+    fragment = " ".join(str(value or "").split()).strip("，,：:、| ")
+    fragment = re.sub(r"^\d+[.)、]\s*", "", fragment)
+    if len(fragment) < 4:
+        return []
+    if len(fragment) <= limit:
+        return [] if _title_is_incomplete(fragment) else [fragment]
+
+    words = fragment.split()
+    candidates: list[str] = []
+    if len(words) > 1:
+        for start in range(len(words)):
+            selected: list[str] = []
+            for word in words[start:]:
+                candidate = " ".join([*selected, word])
+                if len(candidate) > limit:
+                    break
+                selected.append(word)
+            while selected:
+                candidate = " ".join(selected).strip("，,：:、| ")
+                if 4 <= len(candidate) <= limit and not _title_is_incomplete(candidate):
+                    if candidate not in candidates:
+                        candidates.append(candidate)
+                    break
+                selected.pop()
+            if len(candidates) >= 8:
+                break
+    else:
+        candidate = fragment[:limit].strip("，,：:、| ")
+        while candidate and _title_is_incomplete(candidate):
+            candidate = candidate[:-1].rstrip()
+        if len(candidate) >= 4:
+            candidates.append(candidate)
+    return candidates
+
+
+def _continuation_title_candidates(
+    blocks: list[CourseBlock],
+    *,
+    capacity: int,
+) -> list[str]:
+    """Extract complete source-backed titles for compiler-created pages."""
+
+    limit = max(4, capacity or 72)
+    formula_candidates: list[str] = []
+    code_candidates: list[str] = []
+    table_candidates: list[str] = []
+    prose_candidates: list[str] = []
+    for block in blocks:
+        source = block_source_text(block)
+        presentation = block_presentation_text(block) or source
+        table_rows = [
+            [cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in source.splitlines()
+            if line.strip().startswith("|")
+            and line.strip().endswith("|")
+            and not re.fullmatch(r"[|:\-\s]+", line.strip())
+        ]
+        for row in table_rows[1:] if len(table_rows) > 1 else []:
+            candidate = str(row[0] if row else "").strip()
+            if (
+                4 <= len(candidate) <= limit
+                and candidate not in table_candidates
+            ):
+                table_candidates.append(candidate)
+        for code_match in re.finditer(
+            r"```(?:[A-Za-z0-9_+.#-]+)?\s*\n(.*?)```",
+            source,
+            flags=re.S,
+        ):
+            for raw_line in code_match.group(1).splitlines():
+                candidate = raw_line.strip()
+                if (
+                    4 <= len(candidate) <= limit
+                    and re.search(r"[A-Za-z0-9_]", candidate)
+                    and candidate not in code_candidates
+                ):
+                    code_candidates.append(candidate)
+        for match in _CONTINUATION_FORMULA_RE.finditer(source):
+            expression = next(
+                (group.strip() for group in match.groups() if group and group.strip()),
+                "",
+            )
+            if not expression:
+                continue
+            relation_parts = re.split(r"\\approx|≈|=", expression)
+            if len(relation_parts) >= 3:
+                relation = r"\approx" if re.search(r"\\approx|≈", expression) else "="
+                compact = (
+                    f"${relation_parts[0].strip()} {relation} "
+                    f"{relation_parts[-1].strip()}$"
+                )
+                if (
+                    4 <= len(compact) <= limit
+                    and compact not in formula_candidates
+                ):
+                    formula_candidates.append(compact)
+            candidate = f"${expression}$"
+            if len(candidate) <= limit and candidate not in formula_candidates:
+                formula_candidates.append(candidate)
+        cleaned = re.sub(r"```.*?```", "", presentation, flags=re.S)
+        cleaned = _CONTINUATION_FORMULA_RE.sub(" ", cleaned)
+        cleaned = re.sub(r"(?m)^\s*#{1,6}\s+", "", cleaned)
+        cleaned = re.sub(r"(?<!\\)(?:\*\*|__|`)", "", cleaned)
+        for fragment in re.split(r"[\n。！？!?；;：:，,]", cleaned):
+            candidate = " ".join(fragment.split()).strip("，,：:、| ")
+            candidate = re.sub(r"^\d+[.)、]\s*", "", candidate)
+            if (
+                4 <= len(candidate) <= limit
+                and not _title_is_incomplete(candidate)
+                and candidate not in prose_candidates
+            ):
+                prose_candidates.append(candidate)
+            for window in _bounded_source_title_windows(fragment, limit):
+                if window not in prose_candidates:
+                    prose_candidates.append(window)
+    # A formula page should be named by its strongest equation rather than by
+    # a repeated parent-page heading. Equations with relations carry more
+    # teaching meaning than isolated symbols.
+    formula_candidates.sort(
+        key=lambda value: (
+            not any(operator in value for operator in ("=", "≤", "≥", "<", ">")),
+            -len(value),
+        )
+    )
+    return [
+        *formula_candidates,
+        *code_candidates,
+        *table_candidates,
+        *prose_candidates,
+    ]
+
+
+def _continuation_title(
+    title: str,
+    index: int,
+    count: int,
+    title_slot: Any,
+    blocks: list[CourseBlock],
+    used_title_keys: set[str],
+    *,
+    page_id: str = "",
+) -> str:
+    """Name each continuation with a distinct, source-backed teaching point."""
+
+    _ = count
+    if index == 1:
+        selected = title
+    else:
+        selected = next(
+            (
+                candidate
+                for candidate in _continuation_title_candidates(
+                    blocks,
+                    capacity=int(getattr(title_slot, "max_chars", 0) or 0),
+                )
+                if title_slot is None or _title_fits_slot(candidate, title_slot)
+                if re.sub(r"\s+", "", candidate).casefold()
+                not in used_title_keys
+            ),
+            "",
+        )
+        if not selected:
+            raise V6BuildError(
+                stage="quality",
+                code="continuation_title_unavailable",
+                message=(
+                    "A compiler-created continuation has no distinct "
+                    "source-backed teaching title"
+                ),
+                page_id=page_id,
+            )
+    used_title_keys.add(re.sub(r"\s+", "", selected).casefold())
+    return selected
 
 
 def _effective_slot_min_chars(slot: Any, blocks: list[CourseBlock]) -> int:
@@ -5454,6 +5723,7 @@ def prepare_story_plan_for_final_compilation(
     """Project incompatible optional companions before strict final validation."""
 
     units = _unit_map(graph)
+    used_section_titles: set[str] = set()
     batches: list[SlideStoryBatchV3] = []
     for batch in story.batches:
         pages: list[SlideStoryPageV3] = []
@@ -5463,6 +5733,28 @@ def prepare_story_plan_for_final_compilation(
             if layout is None or unit is None:
                 pages.append(page)
                 continue
+            title_slot = next(
+                (slot for slot in layout.slots if slot.slot_kind == "title"),
+                None,
+            )
+            section_title_key = re.sub(
+                r"\s+", "", str(unit.section_title or "")
+            ).casefold()
+            opens_formal_section = any(
+                unit.primary_block_roles.get(block_id) == "objective"
+                for block_id in page.source_block_ids
+            )
+            if (
+                opens_formal_section
+                and unit.section_title
+                and section_title_key not in used_section_titles
+                and (
+                    title_slot is None
+                    or _title_fits_slot(unit.section_title, title_slot)
+                )
+            ):
+                page = page.model_copy(update={"title": unit.section_title})
+                used_section_titles.add(section_title_key)
             summary = str(page.summary or "")
             body_slots = [
                 slot for slot in layout.slots if slot.slot_kind == "body"
@@ -5556,7 +5848,26 @@ def _ellipsis_maps_to_frozen_source(value: str, source: str) -> bool:
         return True
     visible = " ".join(_presentation_summary_text(value).split())
     frozen = " ".join(_presentation_summary_text(source).split())
-    return bool(visible and visible in frozen)
+    if not visible or not frozen:
+        return False
+    if visible in frozen:
+        return True
+
+    # A classroom projection may extract several complete source sentences and
+    # place them in one slot.  Requiring the entire joined projection to be one
+    # contiguous source substring incorrectly rejects a source-authored
+    # ellipsis whenever an unrelated delivery sentence was removed in between.
+    # Prove each ellipsis-bearing clause independently instead; a renderer- or
+    # model-generated truncation marker still fails because that local clause
+    # cannot be found in the frozen block.
+    ellipsis_clauses = [
+        " ".join(_presentation_summary_text(clause).split())
+        for clause in re.split(r"[\n。！？；;]+", str(value or ""))
+        if _ELLIPSIS_MARKER_RE.search(clause)
+    ]
+    return bool(ellipsis_clauses) and all(
+        clause and clause in frozen for clause in ellipsis_clauses
+    )
 
 
 def _first_generated_ellipsis(
@@ -5665,14 +5976,15 @@ def _visible_semantic_fidelity(
                 expected = _complete_slot_content([block], "table")
                 artifact_results.append(expected in table_regions)
 
-        expected_step_groups = _ordered_step_groups(block_source_text(block))
+        presentation_source = block_presentation_text(block)
+        expected_step_groups = _ordered_step_groups(presentation_source)
         if len(expected_step_groups) >= 2:
             source_prose = _artifact_free_prose_text(block)
             actual_semantic = "\n".join(
                 semantic_region_contents(block.block_id)
             )
             steps_visible = _ordered_step_sequence_visible(
-                block_source_text(block),
+                presentation_source,
                 actual_semantic,
             )
             projection_closed = (
@@ -5771,8 +6083,25 @@ def _source_driven_page_upper_bound(
         return max(1, ceil(len(prose) / max(1, capacity)))
 
     def artifact_fragments(block: CourseBlock, artifact_kind: str) -> int:
-        if artifact_kind in {"formula", "visual", "diagram", "image", "data", "experiment", "source_excerpt"}:
+        if artifact_kind in {"visual", "diagram", "image", "data", "experiment", "source_excerpt"}:
             return 1
+        if artifact_kind == "formula":
+            counts: list[int] = []
+            for slot in slots_by_kind["formula"]:
+                try:
+                    counts.append(len(_split_artifact_block(
+                        block,
+                        slot_kind="formula",
+                        max_chars=slot.max_chars,
+                        max_lines=slot.max_lines,
+                        max_rows=slot.max_rows,
+                    )))
+                except ValueError:
+                    continue
+            return min(counts) if counts else max(
+                1,
+                len(_formula_candidates(block_source_text(block))),
+            )
         if artifact_kind == "table":
             _headers, rows = _table_components(block_source_text(block))
             max_rows = max(
@@ -5822,6 +6151,11 @@ def compile_slide_deck_v6(
     blocks = {block.block_id: block for block in _formal_blocks(document)}
     visual_by_page = {decision.page_id: decision for decision in visual.decisions}
     pages: list[SlidePageV6] = []
+    used_page_title_keys: set[str] = {
+        re.sub(r"\s+", "", page.title).casefold()
+        for page in story.pages
+        if page.title.strip()
+    }
     for story_page in sorted(story.pages, key=lambda item: item.page_ordinal):
         layout = template.get_layout(visual_by_page[story_page.page_id].resolved_template_layout_id)
         if layout is None:
@@ -5854,7 +6188,10 @@ def compile_slide_deck_v6(
                 story_page.title,
                 continuation_index,
                 continuation_count,
-                int(getattr(title_slot, "max_chars", 0) or 0),
+                title_slot,
+                materialized_blocks,
+                used_page_title_keys,
+                page_id=page_id,
             )
             materialized_source_ids = list(dict.fromkeys(
                 block.block_id for block in materialized_blocks
@@ -6014,6 +6351,25 @@ def compile_slide_deck_v6(
         story_page_count,
         template,
     )
+    visible_char_counts = [
+        sum(
+            len(_visible_prose_text(region.content))
+            for region in page.regions
+            if region.content_kind != "notes"
+        )
+        for page in pages
+    ]
+    unique_note_chars = sum(
+        len(_visible_prose_text(note.full_text))
+        for note in {
+            (note.block_id, note.block_revision): note
+            for page in pages
+            for note in page.speaker_notes.source_blocks
+        }.values()
+    )
+    teacher_cue_pattern = re.compile(
+        r"【(?:板书|提问|等待回应|演示|巡视|投影|计时)[^】]*】"
+    )
     quality = SlideDeckV6Quality(
         formal_block_visible_coverage=len(visible.intersection(formal_ids)) / denominator,
         full_text_note_binding=len(exact_noted.intersection(formal_ids)) / denominator,
@@ -6034,6 +6390,33 @@ def compile_slide_deck_v6(
         pagination_page_upper_bound=pagination_page_upper_bound,
         pagination_within_dynamic_bound=(
             final_page_count <= pagination_page_upper_bound
+        ),
+        average_visible_chars_per_page=(
+            sum(visible_char_counts)
+            / max(1, final_page_count)
+        ),
+        max_visible_chars_per_page=max(visible_char_counts, default=0),
+        visible_to_speaker_notes_ratio=(
+            sum(visible_char_counts) / max(1, unique_note_chars)
+        ),
+        teacher_cue_free_page_ratio=(
+            sum(
+                1
+                for page in pages
+                if not any(
+                    teacher_cue_pattern.search(region.content)
+                    for region in page.regions
+                )
+            )
+            / max(1, final_page_count)
+        ),
+        distinct_page_title_ratio=(
+            len({
+                re.sub(r"\s+", "", page.title).casefold()
+                for page in pages
+                if page.title.strip()
+            })
+            / max(1, final_page_count)
         ),
     )
     if quality.formal_block_visible_coverage != 1.0 or quality.full_text_note_binding != 1.0:
@@ -6076,6 +6459,12 @@ def compile_slide_deck_v6(
                 + (f" ({offending[1]})" if offending else "")
             ),
             page_id=offending[0] if offending else "",
+        )
+    if quality.distinct_page_title_ratio != 1.0:
+        raise V6BuildError(
+            stage="quality",
+            code="duplicate_final_page_title",
+            message="Every final classroom page requires a distinct teaching title",
         )
     return SlideDeckV6(
         course_id=document.course_id,

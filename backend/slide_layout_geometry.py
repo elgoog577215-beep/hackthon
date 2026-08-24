@@ -15,6 +15,7 @@ BALANCED_TWO_COLUMN_BODY_V1 = "balanced-two-column-body-v1"
 FORMULA_SOURCE_PANEL_V1 = "formula-source-panel-v1"
 FIGURE_SOURCE_PANEL_V1 = "figure-source-panel-v1"
 DIAGRAM_SOURCE_PANEL_V1 = "diagram-source-panel-v1"
+TABLE_SUPPORT_BAND_V1 = "table-support-band-v1"
 _PROCESS_TOTAL_WIDTH_IN = 11.7
 _PROCESS_GAP_IN = 0.24
 _PROCESS_CARD_HORIZONTAL_PADDING_IN = 0.46
@@ -61,6 +62,11 @@ _SOURCE_PANEL_GEOMETRY = {
     FORMULA_SOURCE_PANEL_V1: {"width_pt": 3.80 * 72, "height_pt": 3.57 * 72},
     FIGURE_SOURCE_PANEL_V1: {"width_pt": 3.72 * 72, "height_pt": 3.57 * 72},
     DIAGRAM_SOURCE_PANEL_V1: {"width_pt": 4.76 * 72, "height_pt": 3.57 * 72},
+    TABLE_SUPPORT_BAND_V1: {
+        "width_pt": 11.08 * 72,
+        "height_pt": 1.38 * 72,
+        "font_size_pt": 16.0,
+    },
 }
 _SOURCE_PANEL_LINE_HEIGHT = 1.22
 
@@ -477,7 +483,10 @@ def source_panel_text_metrics(profile: str, text: str) -> dict[str, Any]:
     geometry = _SOURCE_PANEL_GEOMETRY.get(profile)
     if geometry is None:
         raise ValueError(f"unknown_template_capacity_profile:{profile}")
-    font_size_pt = 18.0 if len(str(text or "")) <= 170 else 16.0
+    font_size_pt = float(
+        geometry.get("font_size_pt")
+        or (18.0 if len(str(text or "")) <= 170 else 16.0)
+    )
     wrapped_lines = wrapped_line_count(
         text,
         width_pt=geometry["width_pt"],
@@ -616,6 +625,7 @@ __all__ = [
     "FIGURE_SOURCE_PANEL_V1",
     "FORMULA_SOURCE_PANEL_V1",
     "HORIZONTAL_PROCESS_CARDS_V1",
+    "TABLE_SUPPORT_BAND_V1",
     "balanced_two_column_body_metrics",
     "classification_three_card_metrics",
     "capacity_profile_items_fit",

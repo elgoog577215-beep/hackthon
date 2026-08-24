@@ -1631,6 +1631,13 @@ def test_formula_text_compiler_outputs_portable_mathematical_notation() -> None:
         r"U_1 \\cap U_2 = \\{v \\in V \\mid v \\in U_1 \\land v \\in U_2\\}"
     ) == "U₁ ∩ U₂ = {v ∈ V ∣ v ∈ U₁ ∧ v ∈ U₂}"
     assert _format_formula_text(r"\Sigma_i=1^k c_i") == "∑ᵢ₌₁ᵏ cᵢ"
+    assert _format_formula_text(
+        r"力 $\vec{F}$ 满足 $F_y=F\sin\theta$，且 $a\ll g$"
+    ) == "力 F⃗ 满足 Fᵧ=Fsinθ，且 a ≪ g"
+    assert _format_formula_text(
+        r"$$ s=\sqrt{x^2+y^2},\quad W=F\cdot s $$"
+    ) == "s=√(x²+y²), W=F· s"
+    assert _format_formula_text(r"F_ x = \sum F_{ix}") == "Fₓ = ∑ Fᵢₓ"
 
 
 def test_image_provider_failure_degrades_to_deterministic_diagram(

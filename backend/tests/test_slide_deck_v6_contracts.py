@@ -6,8 +6,10 @@ import pytest
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import (
     block_artifact_kinds,
+    block_presentation_text,
     block_source_text,
     compile_course_presentation_graph,
+    teaching_intent_for_roles,
 )
 from slide_deck_v6 import (
     SlideStoryBatchV3,
@@ -17,15 +19,19 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     _bounded_slot_content,
+    _bounded_source_title_windows,
     _compile_course_agenda_pages,
     _complete_sentence_excerpt,
+    _continuation_title_candidates,
     _display_excerpt,
+    _ellipsis_maps_to_frozen_source,
     _protected_tokens,
     build_signature_v6,
     classify_v6_failure,
     compile_ppt_source_contract_v2,
     compile_shadow_chapter_document,
     compile_slide_deck_v6,
+    prepare_story_plan_for_final_compilation,
     story_page_count_range,
     story_safe_page_slices,
     validate_slide_story_plan_v3,
@@ -44,6 +50,8 @@ from template_layout_contract import compile_builtin_template_layout_contract_v1
         ("visual", "visual_page_duplicate_conflict", "visual_page_mapping"),
         ("visual", "visual_page_unknown", "visual_page_mapping"),
         ("template", "template_slot_capacity_exceeded", "pagination_capacity"),
+        ("quality", "continuation_title_unavailable", "source_slot_binding"),
+        ("quality", "duplicate_final_page_title", "source_fidelity"),
         ("recovery", "v6_recovery_contract_mismatch", "checkpoint_contract"),
     ],
 )
@@ -67,6 +75,34 @@ def test_sentence_excerpt_never_exceeds_its_template_budget():
     assert len(excerpt) <= 35
     assert excerpt.endswith("…")
     assert excerpt[:-1] in source
+
+
+def test_continuation_title_compacts_a_long_formula_chain() -> None:
+    block = _block(
+        "force-x",
+        "lesson-1",
+        0,
+        role="concept",
+        kind="formula",
+        text=(
+            r"$F_x = -15\cos 45^\circ \approx -10.61\,\text{N}$"
+        ),
+    )
+
+    candidates = _continuation_title_candidates([block], capacity=36)
+
+    assert r"$F_x \approx -10.61\,\text{N}$" in candidates
+
+
+def test_continuation_title_extracts_complete_windows_from_a_long_step() -> None:
+    candidates = _bounded_source_title_windows(
+        "1. Record the final pass condition together with the evidence needed for another learner to verify it.",
+        42,
+    )
+
+    assert candidates
+    assert all(len(candidate) <= 42 for candidate in candidates)
+    assert candidates[0] == "Record the final pass condition together"
 
 
 def test_sentence_excerpt_never_invents_a_partial_protected_source_token():
@@ -469,6 +505,111 @@ def test_empty_code_block_does_not_claim_a_renderable_code_artifact() -> None:
     assert block_artifact_kinds(block) == []
 
 
+def test_teacher_script_projection_keeps_screen_signals_and_drops_delivery_cues() -> None:
+    source = (
+        "同学们，现在请看黑板。【板书】牛顿第二定律：$\\vec F=m\\vec a$。"
+        "【提问】如果合力向左，加速度方向如何？【等待回应】"
+        "结论：加速度方向与合力方向一致。"
+    )
+    block = CourseBlock(
+        block_id="teacher-script",
+        section_id="source",
+        position=0,
+        role="concept",
+        payload={
+            "markdown": source,
+            "module_id": "science_model",
+            "module_instance_id": "teacher-script",
+        },
+    )
+
+    projected = block_presentation_text(block)
+
+    assert "$\\vec F=m\\vec a$" in projected
+    assert "结论：加速度方向与合力方向一致。" in projected
+    assert "同学们" not in projected
+    assert "【板书】" not in projected
+    assert "【等待回应】" not in projected
+    assert block_source_text(block) == source
+
+
+def test_teacher_script_projection_removes_spoken_setup_but_keeps_direct_task() -> None:
+    source = (
+        "这节课，我们要先来看一个真实情境。"
+        "拿出练习本，独立完成受力图并标明方向。"
+        "展示标准解答。"
+        "结论：合力方向就是加速度方向。"
+    )
+    block = CourseBlock(
+        block_id="teacher-script-classroom-copy",
+        section_id="source",
+        position=0,
+        role="activity",
+        payload={
+            "markdown": source,
+            "module_id": "learner_action",
+            "module_instance_id": "teacher-script-classroom-copy",
+        },
+    )
+
+    projected = block_presentation_text(block)
+
+    assert "独立完成受力图并标明方向。" in projected
+    assert "结论：合力方向就是加速度方向。" in projected
+    assert "这节课" not in projected
+    assert "我们要" not in projected
+    assert "拿出练习本" not in projected
+    assert "展示标准解答" not in projected
+
+
+def test_source_authored_ellipsis_survives_noncontiguous_classroom_projection() -> None:
+    source = (
+        "教师补充一段只进入讲者备注的说明。"
+        "学习目标：能够判断能否建模，因为……。"
+        "教师再补充一个课堂动作。结论：模型边界必须明确。"
+    )
+    projection = "学习目标：能够判断能否建模，因为……。\n结论：模型边界必须明确。"
+
+    assert _ellipsis_maps_to_frozen_source(projection, source) is True
+    assert _ellipsis_maps_to_frozen_source("学习目标：能够判断能否建模…", source) is False
+
+
+def test_teacher_script_projection_accepts_explicit_slide_copy_without_rewriting_source() -> None:
+    block = CourseBlock(
+        block_id="teacher-script-explicit",
+        section_id="source",
+        position=0,
+        role="activity",
+        payload={
+            "markdown": "请大家先分组，然后按我的口头说明完成任务。",
+            "slide_visible_text": "任务：独立画出受力图，并标注所有力的方向。",
+            "module_id": "learner_action",
+        },
+    )
+
+    assert block_presentation_text(block) == "任务：独立画出受力图，并标注所有力的方向。"
+    assert block_source_text(block).startswith("请大家")
+
+
+def test_inline_formula_teacher_block_is_a_formula_artifact() -> None:
+    block = CourseBlock(
+        block_id="teacher-inline-formula",
+        section_id="source",
+        position=0,
+        role="concept",
+        payload={
+            "markdown": "分解公式：$F_x=F\\cos\\theta$，$F_y=F\\sin\\theta$。",
+            "module_id": "science_model",
+        },
+    )
+
+    assert block_artifact_kinds(block) == ["formula"]
+
+
+def test_objective_role_uses_orientation_page_intent() -> None:
+    assert teaching_intent_for_roles(["objective"]) == "orientation"
+
+
 def test_story_preflight_rejects_a_code_template_for_an_empty_code_block() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="empty-code-template",
@@ -725,7 +866,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         ),
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v7"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v9"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
 
@@ -790,6 +931,31 @@ def test_story_plan_rejects_missing_blocks_unknown_sources_and_legacy_layouts() 
     legacy.batches[0].pages[0].template_layout_id = "two-column"
     with pytest.raises(V6BuildError, match="template_layout_unavailable"):
         validate_slide_story_plan_v3(legacy, graph, template)
+
+
+def test_final_compilation_uses_formal_section_title_for_objective_opening() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="teacher-physics-title",
+        title="牛顿第二定律",
+        sections=[CourseSection(
+            section_id="lesson-1",
+            title="1.1 力、质量与加速度的关系",
+            position=0,
+        )],
+        blocks=[_block(
+            "lesson-objective",
+            "lesson-1",
+            0,
+            role="objective",
+            text="能够判断力、质量和加速度之间的定量关系。",
+        )],
+    ))
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "能够判断力、质量"
+
+    prepared = prepare_story_plan_for_final_compilation(story, graph, template)
+
+    assert prepared.pages[0].title == "1.1 力、质量与加速度的关系"
 
 
 def test_story_plan_rejects_untraceable_factual_tokens() -> None:
@@ -2577,8 +2743,8 @@ def test_template_safe_table_continuations_do_not_consume_the_story_page_budget(
     assert all(page.continuation_count == 3 for page in table_pages)
     assert [page.title for page in table_pages] == [
         "Inspect the complete evidence",
-        "Inspect the complete evidence",
-        "Inspect the complete evidence",
+        "Stage 2",
+        "Stage 3",
     ]
     assert all("/3)" not in page.title for page in table_pages)
 

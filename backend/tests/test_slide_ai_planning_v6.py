@@ -851,6 +851,55 @@ def test_story_unit_request_reuses_precomputed_template_partitions(
 
 
 @pytest.mark.asyncio
+async def test_objective_page_may_use_the_frozen_section_title() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="classroom-opening",
+        title="Newton's laws",
+        sections=[CourseSection(
+            section_id="lesson-1",
+            title="从真实运动情境建立受力模型",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="lesson-objective",
+            section_id="lesson-1",
+            position=0,
+            role="objective",
+            payload={
+                "markdown": "下课前能够识别研究对象，并说明受力分析的判断依据。"
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "fixture-provider",
+            "model": "fixture-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": "lesson-opening",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": unit[
+                    "allowed_template_layout_ids_by_page_intent"
+                ]["orientation"][0],
+                "title": unit["section_title"],
+                "summary": "",
+                "source_block_ids": unit["primary_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert graph.units[0].section_title == "从真实运动情境建立受力模型"
+    assert story.pages[0].title == graph.units[0].section_title
+
+
+@pytest.mark.asyncio
 async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
@@ -908,6 +957,11 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
     assert calls[0]["constraints"]["canvas_expression"] == (
         "semantic_closure_with_full_source_in_notes"
     )
+    assert calls[0]["constraints"]["audience"] == "learners_during_live_teaching"
+    assert calls[0]["constraints"]["speaker_notes_policy"] == (
+        "complete_teacher_script_notes_only"
+    )
+    assert calls[0]["constraints"]["one_page_one_teaching_point"] is True
     assert calls[0]["constraints"]["summary_policy"] == (
         "source_grounded_semantic_closure_for_all_bound_blocks_"
         "complete_sentence_no_markdown"
@@ -940,6 +994,45 @@ def test_story_model_request_removes_repeated_layout_and_source_contracts() -> N
     assert model_request["teaching_units"][0]["safe_partition_options"]
     assert "allowed_template_layouts" not in model_request["teaching_units"][0]
     assert "source_text" not in model_request["teaching_units"][0]
+
+
+def test_story_model_request_uses_slide_projection_instead_of_teacher_transcript() -> None:
+    teacher_source = (
+        "同学们，请大家先看我演示。【板书】"
+        "定义：牛顿第二定律是 $\\vec F=m\\vec a$。"
+        "【等待回应】接下来我会继续讲解。"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="teacher-projection",
+        title="Teacher projection",
+        sections=[CourseSection(section_id="chapter", title="Chapter", position=0)],
+        blocks=[CourseBlock(
+            block_id="teacher-block",
+            section_id="chapter",
+            position=0,
+            role="concept",
+            payload={
+                "markdown": teacher_source,
+                "module_id": "core_explanation",
+                "module_instance_id": "teacher-block",
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    full_request = planning_module._story_requests(graph, template)[0]
+    model_request = planning_module._story_model_request(full_request)
+    model_block = model_request["teaching_units"][0]["primary_blocks"][0]
+
+    assert model_block["source_text"] == graph.units[0].primary_block_presentation_texts[
+        "teacher-block"
+    ]
+    assert "同学们" not in model_block["source_text"]
+    assert "【板书】" not in model_block["source_text"]
+    assert teacher_source == full_request["teaching_units"][0]["primary_blocks"][0][
+        "source_text"
+    ]
 
 
 @pytest.mark.asyncio

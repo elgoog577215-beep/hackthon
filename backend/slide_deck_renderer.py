@@ -1216,7 +1216,7 @@ def _render_formula_visual(
         2.78 if "\n" in display_formula else 3.08,
         formula_width - 0.72,
         2.35 if "\n" in display_formula else 1.55,
-        28 if len(display_formula) < 72 else 22,
+        24 if "\n" in display_formula else (28 if len(display_formula) < 72 else 22),
         theme["title"],
         bold=False,
         align="center",
@@ -1235,10 +1235,14 @@ def _plain_formula(value: str) -> str:
     clean = str(value or "").strip()
     clean = re.sub(r"^\s*(?:\$\$|\\\[)", "", clean)
     clean = re.sub(r"(?:\$\$|\\\])\s*$", "", clean)
+    # Inline math delimiters are transport markup, not classroom content.
+    # Remove every unescaped delimiter so mixed prose/formula titles do not
+    # leak raw ``$`` characters into the exported deck.
+    clean = re.sub(r"(?<!\\)\$+", "", clean)
     return clean.strip()
 
 
-_SUBSCRIPT = str.maketrans("0123456789+-=()aehijklmnoprstuvx", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ")
+_SUBSCRIPT = str.maketrans("0123456789+-=()aehijklmnoprstuvxy", "₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓᵧ")
 _SUPERSCRIPT = str.maketrans({
     **dict(zip("0123456789+-=()", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾", strict=True)),
     **{
@@ -1272,6 +1276,9 @@ _FORMULA_SYMBOLS = {
     r"\cdots": "⋯",
     r"\vdots": "⋮",
     r"\times": "×",
+    r"\cdot": "·",
+    r"\ll": "≪",
+    r"\gg": "≫",
     r"\approx": "≈",
     r"\neq": "≠",
     r"\leq": "≤",
@@ -1291,6 +1298,10 @@ _FORMULA_SYMBOLS = {
     r"\Delta": "Δ",
     r"\Omega": "Ω",
     r"\prod": "∏",
+    r"\sin": "sin",
+    r"\cos": "cos",
+    r"\tan": "tan",
+    r"\arctan": "arctan",
     r"\cap": "∩",
     r"\cup": "∪",
     r"\land": "∧",
@@ -1298,6 +1309,8 @@ _FORMULA_SYMBOLS = {
     r"\in": "∈",
     r"\mid": "∣",
     r"\quad": "  ",
+    r"\,": "",
+    r"\!": "",
     r"\left": "",
     r"\right": "",
 }
@@ -1337,6 +1350,21 @@ def _format_formula_text(value: str) -> str:
     # slashes can safely be normalized back to one command introducer.
     expression = re.sub(r"\\\\(?=[A-Za-z{}])", r"\\", expression)
     expression = re.sub(
+        r"\\vec\{([^{}]+)\}",
+        lambda match: f"{match.group(1)}⃗",
+        expression,
+    )
+    expression = re.sub(
+        r"\\vec\s*([A-Za-z])",
+        lambda match: f"{match.group(1)}⃗",
+        expression,
+    )
+    expression = re.sub(
+        r"\\sqrt\{([^{}]+)\}",
+        lambda match: f"√({match.group(1)})",
+        expression,
+    )
+    expression = re.sub(
         r"\\frac\{([^{}]+)\}\{([^{}]+)\}",
         lambda match: f"({match.group(1)})⁄({match.group(2)})",
         expression,
@@ -1354,22 +1382,22 @@ def _format_formula_text(value: str) -> str:
         expression,
     )
     expression = re.sub(
-        r"_\{([^{}]+)\}",
+        r"_\s*\{([^{}]+)\}",
         lambda match: _script_text(match.group(1), _SUBSCRIPT, "_"),
         expression,
     )
     expression = re.sub(
-        r"\^\{([^{}]+)\}",
+        r"\^\s*\{([^{}]+)\}",
         lambda match: _script_text(match.group(1), _SUPERSCRIPT, "^"),
         expression,
     )
     expression = re.sub(
-        r"_([A-Za-z0-9+\-=()])",
+        r"_\s*([A-Za-z0-9+\-=()])",
         lambda match: _script_text(match.group(1), _SUBSCRIPT, "_"),
         expression,
     )
     expression = re.sub(
-        r"\^([A-Za-z0-9+\-=()])",
+        r"\^\s*([A-Za-z0-9+\-=()])",
         lambda match: _script_text(match.group(1), _SUPERSCRIPT, "^"),
         expression,
     )
@@ -1379,6 +1407,8 @@ def _format_formula_text(value: str) -> str:
         .replace("⦃", "{")
         .replace("⦄", "}")
     )
+    expression = re.sub(r"[ \t]+", " ", expression)
+    expression = re.sub(r"\s*([≪≫])\s*", r" \1 ", expression)
     expression = re.sub(r"[ \t]+", " ", expression)
     expression = re.sub(r" *\n *", "\n", expression)
     return expression.strip(" ,")
