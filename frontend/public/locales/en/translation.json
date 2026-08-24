@@ -420,7 +420,6 @@
       "sourceHint": "Sources on the right are sent to AI with this information", "lesson": "Select session",
       "chooseLesson": "Choose a session", "lessonFocus": "Lesson focus",
       "lessonFocusPlaceholder": "Add key points, methods, or classroom activity requirements",
-      "lessonGenerationHint": "Generate objectives, classroom steps, and timing for each section",
       "questionCount": "Questions", "difficulty": "Difficulty", "basic": "Basic", "mixed": "Mixed", "challenge": "Challenge",
       "questionRequirements": "Question requirements", "questionRequirementsPlaceholder": "For example: cover core concepts and include application questions",
       "questionSourceHint": "AI generates questions when the teacher provides no question bank"
