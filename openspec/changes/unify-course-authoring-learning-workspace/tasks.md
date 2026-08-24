@@ -141,9 +141,9 @@
 - [x] 16.3 Restore each lesson's independent primary and supporting references when switching or reloading lessons.
 - [x] 16.4 Add focused frontend tests, strict OpenSpec validation, production-build verification and Chinese desktop real-page verification.
 
-## 16. Durable lesson-plan content streaming
+## 17. Durable lesson-plan content streaming
 
-- [x] 16.1 Forward provider-visible content deltas through the existing `CourseTeachingPlanV3` batch callbacks without exposing reasoning content.
-- [x] 16.2 Persist per-batch stream checkpoints atomically on the existing lesson job and expose reconnectable SSE snapshots without creating a second lesson-plan source of truth.
-- [x] 16.3 Render readable partial lesson-plan content in the original workbench surface and replace it with the quality-gated formal revision on completion.
-- [x] 16.4 Preserve streamed working content on failure, retain polling as transport fallback and cover model, repository, API and workbench behavior with focused tests.
+- [x] 17.1 Forward provider-visible content deltas through the existing `CourseTeachingPlanV3` batch callbacks without exposing reasoning content.
+- [x] 17.2 Persist per-batch stream checkpoints atomically on the existing lesson job and expose reconnectable SSE snapshots without creating a second lesson-plan source of truth.
+- [x] 17.3 Render readable partial lesson-plan content in the original workbench surface and replace it with the quality-gated formal revision on completion.
+- [x] 17.4 Preserve streamed working content on failure, retain polling as transport fallback and cover model, repository, API and workbench behavior with focused tests.

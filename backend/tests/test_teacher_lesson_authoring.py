@@ -264,6 +264,52 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
     assert "模型内容校验未通过" in completed["message"]
 
 
+def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="request-stream-failure",
+        source_outline_revision_id="outline-v1",
+    )
+
+    async def planner(_course, _lesson_id, on_progress):
+        await asyncio.gather(
+            on_progress(
+                "course_teaching_plan_batch", 45, "生成第一批", 45,
+                {
+                    "stream_event": "delta",
+                    "stream_batch_id": "TP-B01",
+                    "stream_delta": '{"title":"第一批已生成"',
+                },
+            ),
+            on_progress(
+                "course_teaching_plan_batch", 45, "生成第二批", 45,
+                {
+                    "stream_event": "delta",
+                    "stream_batch_id": "TP-B02",
+                    "stream_delta": '{"title":"第二批已生成"',
+                },
+            ),
+        )
+        raise RuntimeError("模型连接中断")
+
+    failed = asyncio.run(service.run_plan_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        course_data=course_data(),
+        planner=planner,
+    ))
+
+    assert failed["status"] == "failed"
+    assert failed["stream_complete"] is True
+    assert set(failed["stream_batches"]) == {"TP-B01", "TP-B02"}
+    assert "第一批已生成" in failed["stream_batches"]["TP-B01"]
+    assert "第二批已生成" in failed["stream_batches"]["TP-B02"]
+
+
 def test_plan_v3_projection_is_editable_and_never_serializes_module_json():
     section = {
         "node_id": "L2-1-1",
@@ -947,7 +993,26 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
                 if item["node_id"] == lesson_unit_id
             )
             assert selected["teacher_requirements"] == "突出课堂讨论与案例分析"
-            await on_phase("lesson_plan_batch", 60, "生成中")
+            await on_phase(
+                "course_teaching_plan_batch", 60, "生成中", 60,
+                {"stream_event": "reset", "stream_batch_id": "TP-B01", "stream_delta": ""},
+            )
+            await on_phase(
+                "course_teaching_plan_batch", 60, "生成中", 60,
+                {
+                    "stream_event": "delta",
+                    "stream_batch_id": "TP-B01",
+                    "stream_delta": '{"sections":[{"learning_objective":"正在生成',
+                },
+            )
+            await on_phase(
+                "course_teaching_plan_batch", 60, "生成中", 60,
+                {
+                    "stream_event": "delta",
+                    "stream_batch_id": "TP-B01",
+                    "stream_delta": '专业教学目标"}]}',
+                },
+            )
             scope = lesson_scope(course_data, lesson_unit_id)
             return {
                 "plan": {
@@ -998,8 +1063,19 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
             if job["status"] in {"completed", "completed_with_warnings", "failed"}:
                 break
             time.sleep(0.01)
+        with client.stream(
+            "GET",
+            f"/api/teacher/courses/course-1/lesson-jobs/{job_id}/stream",
+        ) as stream_response:
+            stream_payload = "".join(stream_response.iter_text())
 
     assert job["status"] == "completed_with_warnings"
+    assert job["stream_complete"] is True
+    assert job["stream_batches"]["TP-B01"] == (
+        '{"sections":[{"learning_objective":"正在生成专业教学目标"}]}'
+    )
+    assert "lesson_plan_complete" in stream_payload
+    assert "正在生成专业教学目标" in stream_payload
     assert FakeTaskManager.course_service.calls == ["L1-2"]
     assets = repository.view("course-1")["lessons"]
     assert set(assets) == {"L1-2"}

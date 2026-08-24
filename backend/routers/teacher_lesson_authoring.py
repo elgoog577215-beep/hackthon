@@ -1152,6 +1152,90 @@ async def get_lesson_job(
         _raise(exc)
 
 
+@router.get("/courses/{course_id}/lesson-jobs/{job_id}/stream")
+async def stream_lesson_job(
+    course_id: str,
+    job_id: str,
+    request: Request,
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    """Stream the durable lesson-plan candidate while final save stays atomic."""
+    try:
+        repository.get_job(course_id, job_id)
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+    async def event_stream():
+        last_sequence = -1
+        last_updated_at = ""
+        while True:
+            if await request.is_disconnected():
+                return
+            try:
+                job = repository.get_job(course_id, job_id)
+            except TeacherLessonAuthoringError:
+                payload = {
+                    "event": "error",
+                    "job_id": job_id,
+                    "message": "教案生成任务不存在或已被清理。",
+                }
+                yield f"event: error\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                return
+            sequence = int(job.get("stream_sequence") or 0)
+            updated_at = str(job.get("updated_at") or "")
+            status = str(job.get("status") or "")
+            terminal = status in {
+                "completed",
+                "completed_with_warnings",
+                "failed",
+            }
+            if sequence > last_sequence or updated_at != last_updated_at:
+                last_sequence = sequence
+                last_updated_at = updated_at
+                event = (
+                    "lesson_plan_complete"
+                    if status in {"completed", "completed_with_warnings"}
+                    else "lesson_plan_failed"
+                    if status == "failed"
+                    else "lesson_plan_stream"
+                )
+                payload = {
+                    "event": event,
+                    "job": {
+                        "id": job_id,
+                        "course_id": course_id,
+                        "lesson_unit_id": str(job.get("lesson_unit_id") or ""),
+                        "status": status,
+                        "phase": str(job.get("phase") or ""),
+                        "progress": int(job.get("progress") or 0),
+                        "message": str(job.get("message") or ""),
+                        "warnings": deepcopy(job.get("warnings") or []),
+                        "error": deepcopy(job.get("error")),
+                        "result_revision_id": str(job.get("result_revision_id") or ""),
+                        "stream_sequence": sequence,
+                        "stream_batches": deepcopy(job.get("stream_batches") or {}),
+                        "stream_complete": bool(job.get("stream_complete")),
+                        "updated_at": updated_at,
+                    },
+                }
+                yield (
+                    f"id: {sequence}\n"
+                    f"event: {event}\n"
+                    f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                )
+            if terminal:
+                return
+            await asyncio.sleep(0.12)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.patch("/courses/{course_id}/lessons/{lesson_unit_id}/plan/draft")
 async def save_lesson_plan_draft(
     course_id: str,

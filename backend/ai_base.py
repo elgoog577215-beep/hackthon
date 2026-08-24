@@ -13,6 +13,7 @@ AI 基础服务模块 - LLM 调用层
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 import math
@@ -61,6 +62,21 @@ sys.path.insert(0, str(project_root))
 # 配置日志记录
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def _notify_stream_callback(
+    callback: Callable[..., Any] | None,
+    *args: Any,
+) -> None:
+    """Keep an optional UI stream sink from breaking the model result."""
+    if callback is None:
+        return
+    try:
+        result = callback(*args)
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        logger.warning("LLM content stream callback failed", exc_info=True)
 
 # API密钥存在性检查（不记录密钥内容）
 _api_key_present = bool(os.getenv("AI_API_KEY"))
@@ -1257,6 +1273,8 @@ class AIBase:
         json_mode: bool,
         model_role: str | None,
         on_stream_activity: Callable[[], None] | None,
+        on_content_delta: Callable[[str], Any] | None,
+        on_content_reset: Callable[[], Any] | None,
         telemetry_sink: Callable[[dict], None] | None,
     ) -> str | None:
         if not self._modelscope_fallback_available():
@@ -1378,6 +1396,7 @@ class AIBase:
                     try:
                         try:
                             await self._wait_for_request_slot()
+                            await _notify_stream_callback(on_content_reset)
                             physical_request_count += 1
                             response = await (
                                 self.modelscope_fallback_client
@@ -1410,6 +1429,10 @@ class AIBase:
                                 full_content += delta.content
                                 if on_stream_activity:
                                     on_stream_activity()
+                                await _notify_stream_callback(
+                                    on_content_delta,
+                                    delta.content,
+                                )
                             if getattr(
                                 chunk.choices[0],
                                 "finish_reason",
@@ -1698,6 +1721,8 @@ class AIBase:
         json_mode: bool = False,
         model_role: str | None = None,
         on_stream_activity: Callable[[], None] | None = None,
+        on_content_delta: Callable[[str], Any] | None = None,
+        on_content_reset: Callable[[], Any] | None = None,
         telemetry_sink: Callable[[dict], None] | None = None,
     ) -> Optional[str]:
         """
@@ -1919,6 +1944,7 @@ class AIBase:
                     try:
                         try:
                             await self._wait_for_request_slot()
+                            await _notify_stream_callback(on_content_reset)
                             physical_request_count += 1
                             response = await self.client.chat.completions.create(
                                 **request_options
@@ -1989,6 +2015,10 @@ class AIBase:
                                     full_content += delta.content
                                     if on_stream_activity:
                                         on_stream_activity()
+                                    await _notify_stream_callback(
+                                        on_content_delta,
+                                        delta.content,
+                                    )
                                 if getattr(chunk.choices[0], "finish_reason", None) == "length":
                                     truncated = True
                     finally:
@@ -2156,6 +2186,8 @@ class AIBase:
                 json_mode=json_mode,
                 model_role=model_role,
                 on_stream_activity=on_stream_activity,
+                on_content_delta=on_content_delta,
+                on_content_reset=on_content_reset,
                 telemetry_sink=telemetry_sink,
             )
 

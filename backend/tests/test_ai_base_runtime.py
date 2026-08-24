@@ -95,6 +95,39 @@ async def test_call_llm_does_not_print_reasoning_content(monkeypatch, capsys, ca
 
 
 @pytest.mark.asyncio
+async def test_call_llm_forwards_only_visible_content_deltas(monkeypatch):
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    service = AIBase()
+    service.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions())
+    )
+    service.smart_models = ["test-model"]
+    service.fast_models = ["test-model"]
+    service._working_model_cache.clear()
+    resets: list[bool] = []
+    deltas: list[str] = []
+
+    async def on_reset():
+        resets.append(True)
+
+    async def on_delta(delta: str):
+        deltas.append(delta)
+
+    result = await service._call_llm(
+        "test",
+        retry_count=1,
+        enable_thinking=True,
+        on_content_reset=on_reset,
+        on_content_delta=on_delta,
+    )
+
+    assert result == "正式答案"
+    assert resets == [True]
+    assert deltas == ["正式答案"]
+    assert "内部思考不应进入运行输出" not in "".join(deltas)
+
+
+@pytest.mark.asyncio
 async def test_call_llm_emits_safe_physical_call_telemetry(monkeypatch):
     monkeypatch.setenv("AI_API_KEY", "test-key")
     service = AIBase()

@@ -850,6 +850,9 @@ class TeacherLessonAuthoringRepository:
                 "progress": 0,
                 "phase": "queued",
                 "message": "等待生成本讲教案",
+                "stream_sequence": 0,
+                "stream_batches": {},
+                "stream_complete": False,
                 "warnings": [],
                 "error": None,
                 "created_at": _now(),
@@ -867,6 +870,44 @@ class TeacherLessonAuthoringRepository:
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
             job.update(deepcopy(changes))
             job["updated_at"] = _now()
+            value["jobs"][job_id] = job
+            self._save(value)
+            return deepcopy(job)
+
+    def update_job_stream(
+        self,
+        course_id: str,
+        job_id: str,
+        *,
+        phase: str,
+        progress: int,
+        message: str,
+        batch_id: str,
+        event: str,
+        delta: str = "",
+    ) -> dict[str, Any]:
+        """Persist one model-stream checkpoint without losing concurrent batches."""
+        with self._lock:
+            value = self.load(course_id)
+            job = (value.get("jobs") or {}).get(job_id)
+            if not isinstance(job, dict):
+                raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
+            batches = deepcopy(job.get("stream_batches") or {})
+            if event == "reset":
+                batches[batch_id] = ""
+            elif event == "delta":
+                batches[batch_id] = (
+                    str(batches.get(batch_id) or "") + str(delta or "")
+                )[-200_000:]
+            job.update({
+                "phase": phase,
+                "progress": progress,
+                "message": message,
+                "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
+                "stream_batches": batches,
+                "stream_complete": False,
+                "updated_at": _now(),
+            })
             value["jobs"][job_id] = job
             self._save(value)
             return deepcopy(job)
@@ -1619,13 +1660,37 @@ class TeacherLessonAuthoringService:
             message="正在生成本讲全部小节教案",
         )
 
-        async def on_progress(phase: str, progress: int, message: str) -> None:
+        async def on_progress(
+            phase: str,
+            progress: int,
+            message: str,
+            _phase_progress: int = 0,
+            phase_detail: dict[str, Any] | None = None,
+        ) -> None:
+            changes: dict[str, Any] = {
+                "phase": phase,
+                "progress": max(5, min(95, int(progress))),
+                "message": message,
+            }
+            detail = phase_detail or {}
+            stream_event = str(detail.get("stream_event") or "")
+            batch_id = str(detail.get("stream_batch_id") or "")
+            if stream_event in {"reset", "delta"} and batch_id:
+                self.repository.update_job_stream(
+                    course_id,
+                    job_id,
+                    phase=phase,
+                    progress=changes["progress"],
+                    message=message,
+                    batch_id=batch_id,
+                    event=stream_event,
+                    delta=str(detail.get("stream_delta") or ""),
+                )
+                return
             self.repository.update_job(
                 course_id,
                 job_id,
-                phase=phase,
-                progress=max(5, min(95, int(progress))),
-                message=message,
+                **changes,
             )
 
         try:
@@ -1676,6 +1741,7 @@ class TeacherLessonAuthoringService:
                 quality_report=quality_report,
             )
             status = "completed_with_warnings" if warnings else "completed"
+            current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
                 course_id,
                 job_id,
@@ -1689,18 +1755,23 @@ class TeacherLessonAuthoringService:
                 ),
                 warnings=warnings,
                 result_revision_id=lesson.get("working_revision_id"),
+                stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
+                stream_complete=True,
                 error=None,
             )
         except Exception as exc:
             if isinstance(exc, asyncio.CancelledError):
                 raise
             code = exc.code if isinstance(exc, TeacherLessonAuthoringError) else "lesson_plan_generation_failed"
+            current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
                 course_id,
                 job_id,
                 status="failed",
                 phase="lesson_plan_failed",
                 message="本讲教案生成失败",
+                stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
+                stream_complete=True,
                 error={"code": code, "message": str(exc), "retryable": True},
             )
 

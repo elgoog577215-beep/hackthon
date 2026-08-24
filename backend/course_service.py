@@ -2037,7 +2037,7 @@ class CourseService(AIBase):
         *,
         course_data: dict[str, Any],
         lesson_unit_id: str,
-        on_phase: Callable[[str, int, str], Awaitable[None] | None] | None = None,
+        on_phase: Callable[..., Awaitable[None] | None] | None = None,
         source_evidence: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate one teacher lesson without entering learner content flow.
@@ -2129,7 +2129,13 @@ class CourseService(AIBase):
         ) -> None:
             if on_phase is None:
                 return
-            result = on_phase(phase, progress, message)
+            result = on_phase(
+                phase,
+                progress,
+                message,
+                _phase_progress,
+                _phase_detail or {},
+            )
             if inspect.isawaitable(result):
                 await result
 
@@ -2762,33 +2768,101 @@ class CourseService(AIBase):
                 user_prompt,
                 system_prompt,
             )
+            stream_batch_id = str(phase_detail.get("batch_id") or "")
+            stream_enabled = (
+                phase == "course_teaching_plan_batch"
+                and bool(stream_batch_id)
+            )
+            pending_stream_delta = ""
+            last_stream_emit = time.monotonic()
+
+            async def publish_stream_event(
+                event: str,
+                delta: str = "",
+            ) -> None:
+                await self._notify_phase(
+                    on_phase,
+                    phase,
+                    progress,
+                    heartbeat_message,
+                    phase_progress=progress,
+                    phase_detail={
+                        **phase_detail,
+                        "stream_event": event,
+                        "stream_batch_id": stream_batch_id,
+                        "stream_delta": delta,
+                    },
+                )
+
+            async def reset_stream() -> None:
+                nonlocal pending_stream_delta, last_stream_emit
+                if not stream_enabled:
+                    return
+                pending_stream_delta = ""
+                last_stream_emit = time.monotonic()
+                await publish_stream_event("reset")
+
+            async def collect_stream_delta(delta: str) -> None:
+                nonlocal pending_stream_delta, last_stream_emit
+                if not stream_enabled or not delta:
+                    return
+                pending_stream_delta += delta
+                now = time.monotonic()
+                if (
+                    len(pending_stream_delta) < 180
+                    and now - last_stream_emit < 0.25
+                ):
+                    return
+                flushed = pending_stream_delta
+                pending_stream_delta = ""
+                last_stream_emit = now
+                await publish_stream_event("delta", flushed)
+
+            async def flush_stream_delta() -> None:
+                nonlocal pending_stream_delta, last_stream_emit
+                if not stream_enabled or not pending_stream_delta:
+                    return
+                flushed = pending_stream_delta
+                pending_stream_delta = ""
+                last_stream_emit = time.monotonic()
+                await publish_stream_event("delta", flushed)
+
             try:
                 async with self._teaching_plan_semaphore:
-                    return await self._call_llm_with_heartbeat(
-                        user_prompt,
-                        system_prompt,
-                        enable_thinking=enable_thinking,
-                        on_phase=on_phase,
-                        phase=phase,
-                        base_progress=progress,
-                        stage_timeout_seconds=(
-                            self._teaching_plan_budget.batch_timeout_seconds
-                        ),
-                        heartbeat_message=heartbeat_message,
-                        phase_detail=phase_detail,
-                        max_input_tokens=(
-                            self._teaching_plan_budget.max_input_tokens
-                        ),
-                        max_input_chars=(
-                            self._generation_budget.max_input_chars
-                        ),
-                        max_output_tokens=(
-                            self._teaching_plan_budget.max_output_tokens
-                        ),
-                        max_attempts=(
-                            self._generation_budget.provider_max_attempts
-                        ),
-                    )
+                    try:
+                        return await self._call_llm_with_heartbeat(
+                            user_prompt,
+                            system_prompt,
+                            enable_thinking=enable_thinking,
+                            on_phase=on_phase,
+                            phase=phase,
+                            base_progress=progress,
+                            stage_timeout_seconds=(
+                                self._teaching_plan_budget.batch_timeout_seconds
+                            ),
+                            heartbeat_message=heartbeat_message,
+                            phase_detail=phase_detail,
+                            max_input_tokens=(
+                                self._teaching_plan_budget.max_input_tokens
+                            ),
+                            max_input_chars=(
+                                self._generation_budget.max_input_chars
+                            ),
+                            max_output_tokens=(
+                                self._teaching_plan_budget.max_output_tokens
+                            ),
+                            max_attempts=(
+                                self._generation_budget.provider_max_attempts
+                            ),
+                            on_content_delta=(
+                                collect_stream_delta if stream_enabled else None
+                            ),
+                            on_content_reset=(
+                                reset_stream if stream_enabled else None
+                            ),
+                        )
+                    finally:
+                        await flush_stream_delta()
             finally:
                 async with counter_lock:
                     counter["calls"] += 1
@@ -3596,7 +3670,10 @@ class CourseService(AIBase):
                             heartbeat_message=(
                                 f"仍在等待 AI 完成教案批次 {batch_id}"
                             ),
-                            phase_detail=batch_progress_detail,
+                            phase_detail={
+                                **batch_progress_detail,
+                                "batch_id": batch_id,
+                            },
                         )
                     except (
                         AIProviderRequestError,
@@ -4636,6 +4713,8 @@ class CourseService(AIBase):
         max_input_chars: int | None = None,
         max_output_tokens: int | None = None,
         max_attempts: int | None = None,
+        on_content_delta: Callable[[str], Awaitable[None] | None] | None = None,
+        on_content_reset: Callable[[], Awaitable[None] | None] | None = None,
     ) -> str:
         """Run one model unit until it completes or stops producing chunks."""
         inactivity_timeout_seconds = max(
@@ -4671,6 +4750,8 @@ class CourseService(AIBase):
             raise_on_failure=True,
             json_mode=True,
             on_stream_activity=_mark_activity,
+            on_content_delta=on_content_delta,
+            on_content_reset=on_content_reset,
         ))
         started_at = time.monotonic()
         last_heartbeat = started_at

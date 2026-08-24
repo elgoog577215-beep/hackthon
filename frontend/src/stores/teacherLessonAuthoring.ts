@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http, { getTeacherIdentity } from '../utils/http'
+import http, { getTeacherIdentity, withApiBase } from '../utils/http'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed'
 
@@ -147,6 +147,17 @@ export interface TeacherLessonJob {
   warnings: Array<Record<string, unknown>>
   error?: { code: string; message: string; retryable?: boolean } | null
   result_revision_id?: string
+  stream_sequence?: number
+  stream_batches?: Record<string, string>
+  stream_complete?: boolean
+  updated_at?: string
+}
+
+export interface TeacherLessonJobStreamEvent {
+  event: 'lesson_plan_stream' | 'lesson_plan_complete' | 'lesson_plan_failed' | 'error'
+  job?: TeacherLessonJob
+  job_id?: string
+  message?: string
 }
 
 export interface TeacherLessonAuthoringView {
@@ -176,6 +187,117 @@ export interface TeacherLessonKnowledgeEvidence {
 
 const requestConfig = () => ({ headers: { 'X-User-Id': getTeacherIdentity() } })
 
+const decodeJsonStreamString = (value: string) => {
+  try {
+    return JSON.parse(`"${value}"`) as string
+  } catch {
+    return value
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_match, code) => String.fromCharCode(Number.parseInt(code, 16)))
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, ' ')
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, '\\')
+  }
+}
+
+const usefulLessonPlanStreamValue = (value: string) => {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  if (normalized.length < 2) return ''
+  if (/^(?:L[12]-|TP-B|course_|teacher_|standard_|lesson_|module_)/i.test(normalized)) return ''
+  if (/^[A-Za-z0-9_.:-]+$/.test(normalized) && !normalized.includes(' ')) return ''
+  return normalized
+}
+
+const lessonPlanStreamValues = (raw: string) => {
+  const values: string[] = []
+  let index = 0
+  let previousSignificant = ''
+  while (index < raw.length) {
+    const character = raw.charAt(index)
+    if (character !== '"') {
+      if (!/\s/.test(character)) previousSignificant = character
+      index += 1
+      continue
+    }
+    const beforeString = previousSignificant
+    index += 1
+    let token = ''
+    let escaped = false
+    let closed = false
+    while (index < raw.length) {
+      const current = raw.charAt(index)
+      if (escaped) {
+        token += `\\${current}`
+        escaped = false
+        index += 1
+        continue
+      }
+      if (current === '\\') {
+        escaped = true
+        index += 1
+        continue
+      }
+      if (current === '"') {
+        closed = true
+        index += 1
+        break
+      }
+      token += current
+      index += 1
+    }
+    if (!closed) {
+      if (beforeString === ':' || beforeString === '[') {
+        const partial = usefulLessonPlanStreamValue(decodeJsonStreamString(token))
+        if (partial) values.push(partial)
+      }
+      break
+    }
+    let lookahead = index
+    while (lookahead < raw.length && /\s/.test(raw.charAt(lookahead))) lookahead += 1
+    const isKey = raw.charAt(lookahead) === ':'
+    if (!isKey) {
+      const decoded = usefulLessonPlanStreamValue(decodeJsonStreamString(token))
+      if (decoded && values[values.length - 1] !== decoded) values.push(decoded)
+    }
+    previousSignificant = '"'
+  }
+  return values
+}
+
+export function lessonPlanStreamSegments(batches: Record<string, string> | undefined) {
+  return Object.entries(batches || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([, raw]) => lessonPlanStreamValues(String(raw || '')))
+}
+
+async function consumeLessonPlanStream(
+  response: Response,
+  onEvent: (event: TeacherLessonJobStreamEvent) => void,
+) {
+  if (!response.ok) throw new Error((await response.text()) || `HTTP ${response.status}`)
+  if (!response.body) throw new Error('Lesson plan stream is unavailable')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  const flush = (chunk: string) => {
+    const data = chunk
+      .split(/\r?\n/)
+      .filter(line => line.startsWith('data:'))
+      .map(line => line.slice(5).trimStart())
+      .join('\n')
+    if (data) onEvent(JSON.parse(data) as TeacherLessonJobStreamEvent)
+  }
+  while (true) {
+    const { done, value } = await reader.read()
+    buffer += decoder.decode(value, { stream: !done })
+    const chunks = buffer.split(/\r?\n\r?\n/)
+    buffer = chunks.pop() || ''
+    chunks.forEach(flush)
+    if (done) break
+  }
+  if (buffer.trim()) flush(buffer)
+}
+
 const errorMessage = (error: any, fallback: string) => {
   const detail = error?.response?.data?.detail
   return String(detail?.message || detail || error?.message || fallback)
@@ -189,6 +311,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     jobs: [] as TeacherLessonJob[],
     loading: false,
     actionLessonId: '',
+    streamingJobIds: {} as Record<string, boolean>,
     error: '',
   }),
   getters: {
@@ -208,6 +331,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.outlineRevisionId = ''
         this.lessons = []
         this.jobs = []
+        this.streamingJobIds = {}
       }
       this.loading = true
       this.error = ''
@@ -220,6 +344,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.outlineRevisionId = response.data.outline_revision_id
         this.lessons = response.data.lessons
         this.jobs = response.data.jobs
+        response.data.jobs
+          .filter(job => ['pending', 'running'].includes(job.status))
+          .forEach(job => { void this.streamJob(courseId, job.id) })
         return response.data
       } catch (error) {
         this.error = errorMessage(error, '分讲教案状态读取失败')
@@ -251,7 +378,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         )
         const job = response.data.job
         this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
-        void this.pollJob(courseId, job.id)
+        void this.streamJob(courseId, job.id)
         return job
       } catch (error) {
         this.error = errorMessage(error, '本讲教案生成失败')
@@ -282,6 +409,43 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         await new Promise(resolve => setTimeout(resolve, 1500))
       }
       return this.jobs.find(item => item.id === jobId)
+    },
+    async streamJob(courseId: string, jobId: string) {
+      if (this.streamingJobIds[jobId]) return this.jobs.find(item => item.id === jobId)
+      this.streamingJobIds = { ...this.streamingJobIds, [jobId]: true }
+      let terminal = false
+      try {
+        const response = await fetch(
+          withApiBase(`/api/teacher/courses/${courseId}/lesson-jobs/${jobId}/stream`),
+          {
+            headers: {
+              Accept: 'text/event-stream',
+              'X-User-Id': getTeacherIdentity(),
+            },
+          },
+        )
+        await consumeLessonPlanStream(response, event => {
+          const job = event.job
+          if (!job) {
+            if (event.event === 'error') this.error = event.message || '教案生成流已中断'
+            return
+          }
+          this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
+          terminal = ['completed', 'completed_with_warnings', 'failed'].includes(job.status)
+        })
+        if (terminal) await this.load(courseId)
+        return this.jobs.find(item => item.id === jobId)
+      } catch {
+        const current = this.jobs.find(item => item.id === jobId)
+        if (current && !['completed', 'completed_with_warnings', 'failed'].includes(current.status)) {
+          return this.pollJob(courseId, jobId)
+        }
+        return current
+      } finally {
+        const next = { ...this.streamingJobIds }
+        delete next[jobId]
+        this.streamingJobIds = next
+      }
     },
     async saveDraft(courseId: string, lessonUnitId: string, plan: Record<string, any>) {
       const response = await http.patch<{ lesson: TeacherLessonPlanAsset }>(

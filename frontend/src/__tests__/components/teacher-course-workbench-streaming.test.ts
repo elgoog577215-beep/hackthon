@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
-import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
+import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'
 import http from '@/utils/http'
 
 const growth = {
@@ -69,6 +69,12 @@ describe('teacher course workbench outline streaming', () => {
     vi.restoreAllMocks()
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
     vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'resumed' } })
+  })
+
+  it('能从尚未闭合的 JSON 增量中提前显示教案正文', () => {
+    expect(lessonPlanStreamSegments({
+      'TP-B01': '{"sections":[{"learning_objective":"学生能够解释爬虫的工作流程',
+    })).toContain('学生能够解释爬虫的工作流程')
   })
 
   it('用后端大纲检查点持续吐出已形成的章节文字', () => {
@@ -255,11 +261,17 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.jobs = [{
       id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
       status: 'running', progress: 36, phase: 'course_teaching_plan_skeleton', message: '正在冻结知识职责', warnings: [],
+      stream_batches: {
+        'TP-B01': '{"sections":[{"learning_objective":"学生能够解释爬虫的工作流程',
+      },
     }] as any
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
     expect(wrapper.get('.lesson-generation-surface').text()).toContain('正在冻结知识职责')
+    expect(wrapper.get('.lesson-stream-document').text()).toContain('AI 工作稿')
+    expect(wrapper.get('.lesson-stream-document').text()).toContain('学生能够解释爬虫的工作流程')
+    expect(wrapper.find('.lesson-stream-document .stream-caret').exists()).toBe(true)
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
   })
 
