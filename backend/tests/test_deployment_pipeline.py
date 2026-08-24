@@ -13,6 +13,8 @@ def test_server_activation_script_never_builds_application() -> None:
     assert "git fetch" not in script
     assert 'HEALTH_ATTEMPTS="${LINGZHI_HEALTH_ATTEMPTS:-60}"' in script
     assert 'HEALTH_INTERVAL_SECONDS="${LINGZHI_HEALTH_INTERVAL_SECONDS:-2}"' in script
+    assert 'LOCALE_ATTEMPTS="${LINGZHI_LOCALE_ATTEMPTS:-12}"' in script
+    assert 'LOCALE_INTERVAL_SECONDS="${LINGZHI_LOCALE_INTERVAL_SECONDS:-3}"' in script
 
 
 def test_server_activation_bounds_backup_and_failed_artifact_retention() -> None:
@@ -130,6 +132,9 @@ def test_server_activation_verifies_both_locale_assets_before_completion() -> No
 
     assert 'STATIC_BASE_URL="${LINGZHI_STATIC_BASE_URL:-${HEALTH_URL%/api/health}}"' in script
     assert 'for locale in zh en' in script
+    assert 'for attempt in $(seq 1 "$LOCALE_ATTEMPTS")' in script
+    assert 'curl --fail --silent --show-error --max-time 10 "$locale_url"' in script
+    assert 'sleep "$LOCALE_INTERVAL_SECONDS"' in script
     assert 'payload.get("teacherHome", {}).get("myCalendar")' in script
     assert health_check < locale_check < deployment_complete
 

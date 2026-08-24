@@ -23,6 +23,8 @@ MIN_FREE_MB="${LINGZHI_MIN_FREE_MB:-}"
 DEPLOY_SAFETY_RESERVE_MB="${LINGZHI_DEPLOY_SAFETY_RESERVE_MB:-176}"
 HEALTH_ATTEMPTS="${LINGZHI_HEALTH_ATTEMPTS:-60}"
 HEALTH_INTERVAL_SECONDS="${LINGZHI_HEALTH_INTERVAL_SECONDS:-2}"
+LOCALE_ATTEMPTS="${LINGZHI_LOCALE_ATTEMPTS:-12}"
+LOCALE_INTERVAL_SECONDS="${LINGZHI_LOCALE_INTERVAL_SECONDS:-3}"
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 service_stopped=0
@@ -58,6 +60,14 @@ validate_settings() {
     fi
     if ! [[ "$HEALTH_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [ "$HEALTH_INTERVAL_SECONDS" -lt 1 ]; then
         log "LINGZHI_HEALTH_INTERVAL_SECONDS 必须是正整数"
+        exit 1
+    fi
+    if ! [[ "$LOCALE_ATTEMPTS" =~ ^[0-9]+$ ]] || [ "$LOCALE_ATTEMPTS" -lt 1 ]; then
+        log "LINGZHI_LOCALE_ATTEMPTS 必须是正整数"
+        exit 1
+    fi
+    if ! [[ "$LOCALE_INTERVAL_SECONDS" =~ ^[0-9]+$ ]] || [ "$LOCALE_INTERVAL_SECONDS" -lt 1 ]; then
+        log "LINGZHI_LOCALE_INTERVAL_SECONDS 必须是正整数"
         exit 1
     fi
     if ! [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40}$ ]]; then
@@ -299,17 +309,18 @@ wait_for_health() {
 }
 
 verify_locale_assets() {
+    local attempt
     local locale
+    local locale_ready
     local locale_url
     local payload
 
     for locale in zh en; do
+        locale_ready=0
         locale_url="${STATIC_BASE_URL%/}/locales/$locale/translation.json"
-        if ! payload="$(curl --fail --silent --show-error --max-time 5 "$locale_url")"; then
-            log "无法读取生产翻译资源：$locale_url"
-            return 1
-        fi
-        if ! printf '%s' "$payload" | "$VENV/bin/python" -c '
+        for attempt in $(seq 1 "$LOCALE_ATTEMPTS"); do
+            if payload="$(curl --fail --silent --show-error --max-time 10 "$locale_url")" \
+                && printf '%s' "$payload" | "$VENV/bin/python" -c '
 import json
 import sys
 
@@ -319,7 +330,16 @@ expected = {"zh": "我的日历", "en": "My calendar"}[locale]
 if payload.get("teacherHome", {}).get("myCalendar") != expected:
     raise SystemExit(f"invalid {locale} teacherHome locale payload")
 ' "$locale"; then
-            log "生产翻译资源内容不完整：$locale_url"
+                locale_ready=1
+                break
+            fi
+            if [ "$attempt" -lt "$LOCALE_ATTEMPTS" ]; then
+                log "生产翻译资源尚未就绪，准备重试（$attempt/$LOCALE_ATTEMPTS）：$locale_url"
+                sleep "$LOCALE_INTERVAL_SECONDS"
+            fi
+        done
+        if [ "$locale_ready" -ne 1 ]; then
+            log "生产翻译资源在重试后仍不可用或内容不完整：$locale_url"
             return 1
         fi
     done
