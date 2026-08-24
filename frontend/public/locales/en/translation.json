@@ -448,7 +448,7 @@
       "questionSourceHint": "AI generates questions when the teacher provides no question bank"
     },
     "references": {
-      "title": "References", "help": "Choose which teacher materials this generation uses",
+      "title": "Information sources", "help": "Choose which teacher materials this generation uses",
       "lessonTitle": "Session {number} references", "lessonHelp": "Used only for the current session's generation and revisions", "reusePrevious": "Reuse previous session",
       "systemContext": "Course context", "systemContextHelp": "The outline, sessions, and confirmed content are included automatically",
       "primary": "Primary source", "primaryLimit": "Up to 1", "addPrimary": "Add primary source",

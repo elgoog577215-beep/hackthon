@@ -38,24 +38,24 @@ describe('CourseReferenceTray lesson scope', () => {
       props: {
         courseId: 'course-1', modelValue: [], stage: 'lesson', lessonId: 'L1-1',
         scopeTargetId: 'lesson-plan:L1-1', scopeTargetType: 'lesson_plan',
-        scopeTargetLabel: '第一讲', scopeTitle: '第 1 讲引用资料',
+        scopeTargetLabel: '第一讲',
       },
       global: { stubs: { WebResearchDialog: true } },
     })
     await flushPromises()
 
-    expect(wrapper.find('.reference-tray>header').exists()).toBe(false)
+    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
     expect(wrapper.get('.drop-zone').text()).toContain('第一讲案例.docx')
     expect(wrapper.get('.reference-list').text()).not.toContain('第二讲练习.pdf')
 
     await wrapper.setProps({
       lessonId: 'L1-2', scopeTargetId: 'lesson-plan:L1-2',
-      scopeTargetLabel: '第二讲', scopeTitle: '第 2 讲引用资料',
+      scopeTargetLabel: '第二讲',
       previousScopeTargetId: 'lesson-plan:L1-1',
     })
     await flushPromises()
 
-    expect(wrapper.find('.reference-tray>header').exists()).toBe(false)
+    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
     expect(wrapper.get('.reference-list').text()).toContain('第二讲练习.pdf')
     expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
 

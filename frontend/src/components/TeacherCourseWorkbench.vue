@@ -281,7 +281,6 @@
       :scope-target-id="lessonReferenceTargetId"
       :scope-target-type="lessonReferenceTargetId ? 'lesson_plan' : ''"
       :scope-target-label="selectedLesson?.title || ''"
-      :scope-title="lessonReferenceTitle"
       :previous-scope-target-id="previousLessonReferenceTargetId"
     />
   </section>
@@ -367,11 +366,6 @@ const lessonReferenceTargetId = computed(() => (
     ? `lesson-plan:${selectedLessonId.value}`
     : ''
 ))
-const lessonReferenceTitle = computed(() => {
-  if (!lessonReferenceTargetId.value || !selectedLesson.value) return ''
-  return t('courseWorkbench.references.lessonTitle', '第 {number} 讲引用资料')
-    .replace('{number}', String(selectedLesson.value.number))
-})
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
 const previousLessonReferenceTargetId = computed(() => (

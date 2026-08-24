@@ -448,7 +448,7 @@
       "questionSourceHint": "老师未提供题库时由 AI 生成"
     },
     "references": {
-      "title": "引用资料", "help": "决定本次生成使用哪些老师资料",
+      "title": "信息来源", "help": "决定本次生成使用哪些老师资料",
       "lessonTitle": "第 {number} 讲引用资料", "lessonHelp": "仅用于当前讲次的生成与迭代", "reusePrevious": "沿用上一讲资料",
       "systemContext": "课程上下文", "systemContextHelp": "大纲、课次与已确认内容自动加入",
       "primary": "主来源", "primaryLimit": "最多 1 份", "addPrimary": "添加主来源",

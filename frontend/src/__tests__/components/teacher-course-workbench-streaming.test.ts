@@ -375,7 +375,7 @@ describe('teacher course workbench outline streaming', () => {
 
     let tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-1')
-    expect(tray.props('scopeTitle')).toBe('第 1 讲引用资料')
+    expect(tray.props('scopeTargetLabel')).toBe('第1讲')
     tray.vm.$emit('update:modelValue', [firstReference])
     await flushPromises()
 
