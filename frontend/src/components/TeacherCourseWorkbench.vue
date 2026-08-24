@@ -8,13 +8,13 @@
     <aside v-show="!aiCollaborationOpen" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
       <header><strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong></header>
       <nav>
-        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" @click="activeStage = stage.id">
+        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="aiCandidatePending && activeStage !== stage.id" @click="activeStage = stage.id">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong><Check v-if="stageReady(stage.id)" :size="15" />
         </button>
       </nav>
       <section class="companion-entry">
         <small>{{ t('courseWorkbench.supporting.group', '其他课程文件') }}</small>
-        <button type="button" :class="{ active: activeStage === 'companion' }" @click="activeStage = 'companion'">
+        <button type="button" :class="{ active: activeStage === 'companion' }" :disabled="aiCandidatePending && activeStage !== 'companion'" @click="activeStage = 'companion'">
           <FileCheck2 :size="18" /><strong>{{ t('courseWorkbench.supporting.title', '配套文档') }}</strong><ChevronRight :size="16" />
         </button>
       </section>
@@ -96,10 +96,16 @@
           :task="generationTask"
           :editable="editingOutline"
           :requires-confirmation="outlineAwaitingReview"
+          :assistant-open="aiCollaborationOpen && aiDomain === 'outline'"
           variant="inline"
           surface="teacher"
           @confirmed="handleInlineOutlineConfirmed"
           @next="activeStage = 'lesson'"
+          @open-ai="openAiCollaboration('outline')"
+          @ai-candidate-change="handleAiCandidateChange"
+          @ai-resolving="handleAiResolving"
+          @ai-resolved="handleAiResolved"
+          @ai-error="handleAiError"
         />
       </section>
 
@@ -234,14 +240,14 @@
             :course-id="courseId"
             :lesson="selectedLesson"
             :confirmed="lessonPlanConfirmed"
-            :assistant-open="aiCollaborationOpen"
+            :assistant-open="aiCollaborationOpen && aiDomain === 'lesson'"
             :confirming="lessonConfirming"
             :confirm-error="lessonConfirmError"
             :active-section-id="selectedLessonSectionId"
             @update:active-section-id="selectedLessonSectionId = $event"
             @confirm="confirmLessonPlan"
             @next="activeStage = 'question-bank'"
-            @open-ai="openLessonAiCollaboration"
+            @open-ai="openAiCollaboration('lesson')"
             @ai-candidate-change="handleAiCandidateChange"
             @ai-resolving="handleAiResolving"
             @ai-resolved="handleAiResolved"
@@ -252,8 +258,10 @@
         <template v-else-if="activeStage === 'script'">
           <TeacherScriptDocument
             v-if="selectedLesson"
+            ref="scriptDocument"
             :course-id="courseId"
             :lesson="selectedLesson"
+            :assistant-open="aiCollaborationOpen && aiDomain === 'script'"
             :confirmed="scriptConfirmed"
             :confirming="scriptConfirming"
             :confirm-error="scriptConfirmError"
@@ -264,6 +272,12 @@
             @saved="handleScriptSaved"
             @confirm="confirmScript"
             @next="activeStage = 'ppt'"
+            @open-ai="openAiCollaboration('script')"
+            @ai-candidate-change="handleAiCandidateChange"
+            @ai-resolving="handleAiResolving"
+            @ai-resolved="handleAiResolved"
+            @ai-error="handleAiError"
+            @ai-scope-change="aiScriptSectionTitle = $event"
           />
         </template>
 
@@ -286,18 +300,18 @@
       tabindex="0"
       aria-orientation="vertical"
       :aria-label="t('courseWorkbench.aiCollaboration.resize', '调整 AI 助手宽度')"
-      aria-valuemin="32"
-      aria-valuemax="46"
+      aria-valuemin="28"
+      aria-valuemax="38"
       :aria-valuenow="aiPanePercent"
       @pointerdown="startAiPaneResize"
       @keydown="resizeAiPaneWithKeyboard"
     ><i /></div>
 
     <TeacherLessonAiWorkspace
-      v-if="aiCollaborationOpen && selectedLesson"
-      :course-title="courseTitle"
-      :lesson-title="selectedLesson.title"
-      :section-title="selectedLessonSectionTitle"
+      v-if="aiCollaborationOpen"
+      :domain="aiDomain"
+      :scope-title="aiScopeTitle"
+      :scope-detail="aiScopeDetail"
       :reference-count="activeReferences.length"
       :messages="aiMessages"
       :phase="aiPhase"
@@ -305,8 +319,10 @@
       :candidate-pending="aiCandidatePending"
       :candidate-fields="aiCandidateFieldLabels"
       :clarification-options="aiClarificationOptions"
+      :quick-prompts="aiQuickPrompts"
+      :placeholder="aiPlaceholder"
       :can-retry="Boolean(lastAiOperation)"
-      @close="closeLessonAiCollaboration"
+      @close="closeAiCollaboration"
       @send="handleAiRequest"
       @clarify="handleAiClarification"
       @retry="retryAiAction"
@@ -344,15 +360,16 @@ import TeacherLessonAiWorkspace from './TeacherLessonAiWorkspace.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import {
-  assessTeacherLessonRequest,
-  buildTeacherLessonAiInstruction,
+  assessTeacherProductionRequest,
+  buildTeacherProductionAiInstruction,
   changedTeacherLessonFields,
-  teacherLessonAiBusy,
-  transitionTeacherLessonAiPhase,
-  type TeacherLessonAiEvent,
-  type TeacherLessonAiMessage,
-  type TeacherLessonAiPhase,
-} from '../composables/useTeacherLessonAiCollaboration'
+  teacherProductionAiBusy,
+  transitionTeacherProductionAiPhase,
+  type TeacherProductionAiDomain,
+  type TeacherProductionAiEvent,
+  type TeacherProductionAiMessage,
+  type TeacherProductionAiPhase,
+} from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
@@ -369,6 +386,15 @@ type LessonPlanDocumentHandle = {
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusCandidate: () => void
 }
+type ProductionAiDocumentHandle = {
+  requestAiCandidate: (instruction: string) => Promise<Record<string, any> | null>
+  resolveAiCandidate: (accept: boolean) => Promise<boolean>
+  focusAiCandidate?: () => void
+  focusCandidate?: () => void
+}
+type OutlineEditorHandle = ProductionAiDocumentHandle & {
+  finishEditing: () => Promise<boolean>
+}
 const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
@@ -383,17 +409,19 @@ const lessonOutlineCollapsed = ref(true)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const workbenchCenter = ref<HTMLElement | null>(null)
 const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
+const scriptDocument = ref<ProductionAiDocumentHandle | null>(null)
 const aiCollaborationOpen = ref(false)
-const aiPanePercent = ref(38)
-const aiPhase = ref<TeacherLessonAiPhase>('ready')
-const aiCandidate = ref<TeacherLessonPlanCandidate | null>(null)
-const aiMessages = ref<TeacherLessonAiMessage[]>([])
+const aiDomain = ref<TeacherProductionAiDomain>('lesson')
+const aiPanePercent = ref(34)
+const aiPhase = ref<TeacherProductionAiPhase>('ready')
+const aiCandidate = ref<Record<string, any> | null>(null)
+const aiMessages = ref<TeacherProductionAiMessage[]>([])
 const aiSessionScopeKey = ref('')
 const aiMessageSequence = ref(0)
 const aiClarificationOptions = ref<string[]>([])
 const lastAiOperation = ref<'generate' | 'accept' | 'reject' | ''>('')
 const replacingAiCandidate = ref(false)
-const outlineEditor = ref<{ finishEditing: () => Promise<boolean> } | null>(null)
+const outlineEditor = ref<OutlineEditorHandle | null>(null)
 const finishingOutline = ref(false)
 const editingOutline = computed({
   get: () => props.outlineEditing,
@@ -437,7 +465,28 @@ const selectedLesson = computed(() => lessonStore.lessons.find(item => item.less
 const selectedLessonSectionTitle = computed(() => selectedLesson.value?.sections.find(
   item => item.section_node_id === selectedLessonSectionId.value,
 )?.title || '')
-const currentAiScopeKey = computed(() => [props.courseId, selectedLessonId.value, selectedLessonSectionId.value].join(':'))
+const aiScriptSectionTitle = ref('')
+const aiScopeTitle = computed(() => aiDomain.value === 'outline' ? props.courseTitle : selectedLesson.value?.title || props.courseTitle)
+const aiScopeDetail = computed(() => {
+  if (aiDomain.value === 'outline') return t('courseWorkbench.aiCollaboration.outlineScope', '课程大纲')
+  if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲稿小节')
+  return selectedLessonSectionTitle.value || t('courseWorkbench.aiCollaboration.lessonScope', '整讲教案')
+})
+const aiQuickPrompts = computed(() => {
+  if (aiDomain.value === 'outline') return ['调整章节顺序', '补齐学习路径', '合并重复内容']
+  if (aiDomain.value === 'script') return ['改得更适合口语讲解', '加入课堂案例', '压缩重复表达']
+  return [
+    t('courseWorkbench.aiCollaboration.quickObjective', '让目标可观察'),
+    t('courseWorkbench.aiCollaboration.quickActivity', '增加互动与检查'),
+    t('courseWorkbench.aiCollaboration.quickPacing', '压缩讲授，突出活动'),
+  ]
+})
+const aiPlaceholder = computed(() => aiDomain.value === 'outline'
+  ? '说说你想怎么调整大纲…'
+  : aiDomain.value === 'script'
+    ? '说说你想怎么改这段讲稿…'
+    : '说说你想怎么调整教案…')
+const currentAiScopeKey = computed(() => [props.courseId, aiDomain.value, selectedLessonId.value, aiScopeDetail.value].join(':'))
 const lessonReferenceTargetId = computed(() => (
   activeStage.value === 'lesson' && selectedLessonId.value
     ? `lesson-plan:${selectedLessonId.value}`
@@ -453,9 +502,24 @@ const previousLessonReferenceTargetId = computed(() => (
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
 const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
-const aiCollaborationBusy = computed(() => teacherLessonAiBusy(aiPhase.value))
+const aiCollaborationBusy = computed(() => teacherProductionAiBusy(aiPhase.value))
 const aiCandidatePending = computed(() => Boolean(aiCandidate.value))
+const activeAiDocument = computed<ProductionAiDocumentHandle | null>(() => {
+  if (aiDomain.value === 'outline') return outlineEditor.value
+  if (aiDomain.value === 'script') return scriptDocument.value
+  return lessonPlanDocument.value as ProductionAiDocumentHandle | null
+})
 const aiCandidateFieldLabels = computed(() => {
+  if (aiDomain.value === 'outline') {
+    const diff = aiCandidate.value?.diff || {}
+    return [
+      Array.isArray(diff.added) && diff.added.length ? `新增 ${diff.added.length} 项` : '',
+      Array.isArray(diff.removed) && diff.removed.length ? `删除 ${diff.removed.length} 项` : '',
+      Array.isArray(diff.moved) && diff.moved.length ? `移动 ${diff.moved.length} 项` : '',
+      Array.isArray(diff.updated) && diff.updated.length ? `修改 ${diff.updated.length} 项` : '',
+    ].filter(Boolean)
+  }
+  if (aiDomain.value === 'script') return [t('courseWorkbench.aiCollaboration.scriptBody', '讲稿正文')]
   const labels: Record<string, string> = {
     learning_objective: t('courseWorkbench.lessonDocument.objective', '教学目标'),
     key_points: t('courseWorkbench.lessonDocument.keyPoints', '教学重点'),
@@ -588,12 +652,12 @@ const shapeConfirmErrorPresentation = computed(() => shapeConfirmError.value ? t
 function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => asset.engine === 'slide_deck_v6' && asset.source_state === 'current')) }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
-function appendAiMessage(role: TeacherLessonAiMessage['role'], kind: TeacherLessonAiMessage['kind'], text: string) {
+function appendAiMessage(role: TeacherProductionAiMessage['role'], kind: TeacherProductionAiMessage['kind'], text: string) {
   aiMessageSequence.value += 1
-  aiMessages.value.push({ id: `lesson-ai-${aiMessageSequence.value}`, role, kind, text })
+  aiMessages.value.push({ id: `production-ai-${aiMessageSequence.value}`, role, kind, text })
 }
-function transitionAi(event: TeacherLessonAiEvent) {
-  aiPhase.value = transitionTeacherLessonAiPhase(aiPhase.value, event)
+function transitionAi(event: TeacherProductionAiEvent) {
+  aiPhase.value = transitionTeacherProductionAiPhase(aiPhase.value, event)
 }
 function appendRestoredAiCandidate() {
   appendAiMessage(
@@ -620,12 +684,22 @@ function resetAiSession() {
     appendAiMessage(
       'assistant',
       'text',
-      t('courseWorkbench.aiCollaboration.welcome', '告诉我你想调整什么；要求不够明确时，我会先向你确认。'),
+      aiDomain.value === 'outline'
+        ? '你可以直接说想调整哪些章节，我会先在左侧生成整套差异。'
+        : aiDomain.value === 'script'
+          ? '你可以说清楚想改的表达、节奏或案例，我会先给出可审阅候选。'
+          : t('courseWorkbench.aiCollaboration.welcome', '告诉我你想调整什么；要求不够明确时，我会先向你确认。'),
     )
   }
 }
-function openLessonAiCollaboration() {
-  if (!selectedLesson.value || !workingLessonRevision.value) return
+function openAiCollaboration(domain: TeacherProductionAiDomain) {
+  if (domain === 'lesson' && (!selectedLesson.value || !workingLessonRevision.value)) return
+  if (domain === 'script' && (!selectedLesson.value?.script.ready || !scriptDocument.value)) return
+  if (domain === 'outline' && !outlineEditor.value) return
+  if (aiDomain.value !== domain) {
+    aiDomain.value = domain
+    aiCandidate.value = null
+  }
   if (aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) resetAiSession()
   if (aiCandidatePending.value && !aiMessages.value.some(message => message.kind === 'candidate')) {
     appendRestoredAiCandidate()
@@ -634,14 +708,15 @@ function openLessonAiCollaboration() {
   aiCollaborationOpen.value = true
   transitionAi({ type: 'OPEN', candidatePending: aiCandidatePending.value })
 }
-function closeLessonAiCollaboration() {
+function closeAiCollaboration() {
   aiCollaborationOpen.value = false
 }
 function buildAiInstruction(): string {
-  return buildTeacherLessonAiInstruction(aiMessages.value, {
+  return buildTeacherProductionAiInstruction(aiMessages.value, {
+    domain: aiDomain.value,
     courseTitle: props.courseTitle,
-    lessonTitle: selectedLesson.value?.title || '',
-    sectionTitle: selectedLessonSectionTitle.value,
+    primaryTitle: aiScopeTitle.value,
+    secondaryTitle: aiScopeDetail.value,
     referenceCount: activeReferences.value.length,
   })
 }
@@ -652,19 +727,20 @@ function replacePreviousCandidateMessage() {
   previousCandidate.text = t('courseWorkbench.aiCollaboration.replacedReceipt', '上一版候选已由本轮要求替换。')
 }
 async function generateAiCandidateFromConversation() {
-  if (aiCollaborationBusy.value || !lessonPlanDocument.value) return
+  const document = activeAiDocument.value
+  if (aiCollaborationBusy.value || !document) return
   lastAiOperation.value = 'generate'
   aiClarificationOptions.value = []
   transitionAi({ type: 'GENERATE' })
   if (aiCandidatePending.value) {
     replacingAiCandidate.value = true
-    const discarded = await lessonPlanDocument.value.resolveAiCandidate(false).finally(() => {
+    const discarded = await document.resolveAiCandidate(false).finally(() => {
       replacingAiCandidate.value = false
     })
     if (!discarded) return
     replacePreviousCandidateMessage()
   }
-  const candidate = await lessonPlanDocument.value.requestAiCandidate(buildAiInstruction())
+  const candidate = await document.requestAiCandidate(buildAiInstruction())
   if (!candidate) {
     if (aiPhase.value !== 'error') transitionAi({ type: 'FAIL' })
     return
@@ -673,26 +749,30 @@ async function generateAiCandidateFromConversation() {
   appendAiMessage(
     'assistant',
     'candidate',
-    t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
+    aiDomain.value === 'outline'
+      ? '大纲调整已在左侧展开，请核对整套差异。'
+      : aiDomain.value === 'script'
+        ? '讲稿候选已在左侧高亮，请核对表达和事实。'
+        : t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
   )
   transitionAi({ type: 'CANDIDATE_READY' })
   lastAiOperation.value = ''
-  lessonPlanDocument.value.focusCandidate()
+  focusAiCandidate()
 }
 async function handleAiRequest(instruction: string) {
   const request = instruction.trim()
-  if (!request || aiCollaborationBusy.value || !lessonPlanDocument.value) return
+  if (!request || aiCollaborationBusy.value || !activeAiDocument.value) return
   appendAiMessage('user', 'text', request)
-  if (assessTeacherLessonRequest(request) === 'clarify') {
-    aiClarificationOptions.value = [
-      t('courseWorkbench.aiCollaboration.quickObjective', '让目标可观察'),
-      t('courseWorkbench.aiCollaboration.quickActivity', '增加互动与检查'),
-      t('courseWorkbench.aiCollaboration.quickPacing', '压缩讲授，突出活动'),
-    ]
+  if (assessTeacherProductionRequest(aiDomain.value, request) === 'clarify') {
+    aiClarificationOptions.value = aiQuickPrompts.value
     appendAiMessage(
       'assistant',
       'text',
-      t('courseWorkbench.aiCollaboration.clarificationQuestion', '为了避免整段重写，你希望优先调整哪一部分？'),
+      aiDomain.value === 'outline'
+        ? '你希望先调整章节顺序、学习路径，还是合并重复内容？'
+        : aiDomain.value === 'script'
+          ? '你希望先调整口语表达、课堂案例，还是讲解节奏？'
+          : t('courseWorkbench.aiCollaboration.clarificationQuestion', '为了避免整段重写，你希望优先调整哪一部分？'),
     )
     lastAiOperation.value = ''
     transitionAi({ type: 'ASK_CLARIFICATION' })
@@ -705,7 +785,7 @@ async function handleAiClarification(option: string) {
   appendAiMessage('user', 'text', option)
   await generateAiCandidateFromConversation()
 }
-function handleAiCandidateChange(candidate: TeacherLessonPlanCandidate | null) {
+function handleAiCandidateChange(candidate: Record<string, any> | TeacherLessonPlanCandidate | null) {
   aiCandidate.value = candidate
   if (candidate && aiCollaborationOpen.value && aiPhase.value !== 'generating') {
     transitionAi({ type: 'CANDIDATE_RESTORED' })
@@ -720,9 +800,10 @@ function handleAiResolved(result: { accept: boolean }) {
   if (replacingAiCandidate.value) return
   transitionAi({ type: 'RESOLVED' })
   lastAiOperation.value = ''
+  const objectName = aiDomain.value === 'outline' ? '大纲' : aiDomain.value === 'script' ? '讲稿' : '教案'
   const receipt = result.accept
-    ? t('courseWorkbench.aiCollaboration.acceptedReceipt', '候选已采用，并形成新的教案工作修订。')
-    : t('courseWorkbench.aiCollaboration.rejectedReceipt', '候选已放弃，当前教案保持不变。')
+    ? `候选已采用，并形成新的${objectName}工作修订。`
+    : `候选已放弃，当前${objectName}保持不变。`
   const candidateMessage = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
   if (candidateMessage) {
     candidateMessage.kind = 'receipt'
@@ -737,10 +818,11 @@ function handleAiError(error: string) {
   appendAiMessage('assistant', 'error', error)
 }
 async function resolveAiCandidate(accept: boolean) {
-  if (!lessonPlanDocument.value || !aiCandidatePending.value || aiCollaborationBusy.value) return
+  const document = activeAiDocument.value
+  if (!document || !aiCandidatePending.value || aiCollaborationBusy.value) return
   lastAiOperation.value = accept ? 'accept' : 'reject'
   transitionAi({ type: accept ? 'ACCEPT' : 'REJECT' })
-  const resolved = await lessonPlanDocument.value.resolveAiCandidate(accept)
+  const resolved = await document.resolveAiCandidate(accept)
   if (!resolved && aiPhase.value !== 'error') transitionAi({ type: 'FAIL' })
 }
 async function retryAiAction() {
@@ -756,10 +838,12 @@ async function retryAiAction() {
   await generateAiCandidateFromConversation()
 }
 function focusAiCandidate() {
-  lessonPlanDocument.value?.focusCandidate()
+  const document = activeAiDocument.value
+  if (document?.focusAiCandidate) document.focusAiCandidate()
+  else document?.focusCandidate?.()
 }
 function clampAiPanePercent(value: number) {
-  aiPanePercent.value = Math.min(46, Math.max(32, Math.round(value)))
+  aiPanePercent.value = Math.min(38, Math.max(28, Math.round(value)))
 }
 function handleAiPanePointerMove(event: PointerEvent) {
   const bounds = workbenchRoot.value?.getBoundingClientRect()
@@ -894,7 +978,7 @@ watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (va
 watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
 watch(() => props.initialStage, stage => { activeStage.value = stage })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
-watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; if (stage !== 'lesson') closeLessonAiCollaboration(); if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; closeAiCollaboration(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(() => lessonStore.lessons, lessons => {
   if (props.initialLessonId && lessons.some(item => item.lesson_unit_id === props.initialLessonId)) {
     selectedLessonId.value = props.initialLessonId
@@ -908,7 +992,7 @@ watch(() => lessonStore.lessons, lessons => {
   }
 }, { immediate: true, deep: true })
 watch(selectedLessonId, (lessonId, previousLessonId) => {
-  if (previousLessonId && lessonId !== previousLessonId) closeLessonAiCollaboration()
+  if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
   lessonConfirmError.value = ''
   scriptGenerationError.value = ''
   scriptConfirmError.value = ''
@@ -946,5 +1030,7 @@ onBeforeUnmount(stopAiPaneResize)
 .teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 1px minmax(320px,var(--ai-pane-width))}.lesson-navigator{grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px}.is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto}.lesson-selector select:disabled{color:#94a3b8;cursor:not-allowed}.lesson-outline-chapter-button:focus-visible,.lesson-section-tabs button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 @media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:184px minmax(0,1fr);gap:12px}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:minmax(0,1fr);gap:0}}
 @media(max-width:760px){.lesson-navigator{gap:6px;padding-inline:10px}.lesson-navigator>button{font-size:0}.lesson-navigator>button svg{display:block}.lesson-selector select{padding-inline:8px;font-size:12px}.ppt-entry{grid-template-columns:auto minmax(0,1fr);padding:28px 18px}.ppt-entry .primary{grid-column:1/-1}}
+.stage-rail nav button:disabled,.companion-entry>button:disabled{opacity:.45;cursor:not-allowed}.teacher-workbench.is-ai-collaboration{min-width:0;grid-template-columns:minmax(0,1fr) 1px clamp(300px,var(--ai-pane-width),420px);background:#eef1f6}.is-ai-collaboration>.workbench-center{min-width:0;overflow:auto}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{min-width:0;overflow:hidden}.is-ai-collaboration .lesson-workspace,.is-ai-collaboration .lesson-stage,.is-ai-collaboration .outline-workspace{min-width:0;max-width:none}.is-ai-collaboration :deep(.lesson-document .flow-table){max-width:100%;overflow:auto}.ai-workspace-resizer{background:#e4e8ef}.ai-workspace-resizer i{height:28px;background:#7c83d5}
+@media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 1px 300px}.is-ai-collaboration>.workbench-center{padding:0}}
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 </style>

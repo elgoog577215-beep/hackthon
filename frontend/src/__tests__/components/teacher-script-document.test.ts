@@ -90,8 +90,8 @@ describe('统一讲稿页面', () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
 
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('AI 优化'))!.trigger('click')
-    await wrapper.get('.script-ai textarea').setValue('增加一个真实课堂案例')
-    await wrapper.get('.script-ai').trigger('submit')
+    expect(wrapper.emitted('open-ai')).toHaveLength(1)
+    await (wrapper.vm as any).requestAiCandidate('增加一个真实课堂案例')
     await flushPromises()
 
     expect(rewrite).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-1', 'section-1', '增加一个真实课堂案例')
@@ -99,7 +99,7 @@ describe('统一讲稿页面', () => {
     expect(wrapper.findComponent(MarkdownRenderer).props('content')).toBe('AI 候选讲稿')
     expect(save).not.toHaveBeenCalled()
 
-    await wrapper.findAll('.script-actions button').find(button => button.text().includes('采用'))!.trigger('click')
+    await (wrapper.vm as any).resolveAiCandidate(true)
     await flushPromises()
     expect(save).toHaveBeenCalledWith('course-1', 'lesson-1', 'script-1', [
       { section_node_id: 'section-1', title: '1.1 爬虫基础', content: 'AI 候选讲稿' },

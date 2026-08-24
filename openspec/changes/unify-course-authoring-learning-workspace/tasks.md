@@ -161,3 +161,13 @@
 - [x] 18.4 Render and edit the same script blocks in the existing document surface, keep the page visually continuous and route AI candidates through the same working revision.
 - [x] 18.5 Compile V6 source units directly from confirmed script blocks, preserve module/role/knowledge bindings and remove the duplicate giant-script-plus-plan-module projection.
 - [x] 18.6 Add focused backend/frontend tests, validate the active OpenSpec, run the production frontend build and verify the Chinese desktop script-to-PPT flow.
+
+## 19. Domain-adapted production AI workspace
+
+- [x] 19.1 Extract one compact conversation, clarification, candidate review, receipt and retry state machine for teacher production assets.
+- [x] 19.2 Connect the outline blueprint proposal, structured lesson-plan candidate and script rewrite candidate through separate domain adapters while keeping review in the left document surface.
+- [x] 19.3 Contain wide lesson-plan tables inside the left canvas, cap the assistant width, remove the second inline script prompt and move quick actions out of the bottom composer.
+- [x] 19.4 Lock the current asset while a candidate is pending and keep accept/reject tied to the corresponding working revision.
+- [ ] 19.5 Add a question-bank adapter only after teacher instructions are part of its rebuild/review contract; do not expose a fake generic editor before then.
+- [ ] 19.6 Replace the generic PPT chat panel with a V6-specific slide candidate adapter before presenting the shared production AI entry in the PPT workspace.
+- [x] 19.7 Add focused state/prompt tests, strict OpenSpec validation, production build, detector output and Chinese desktop verification.

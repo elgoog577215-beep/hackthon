@@ -16,9 +16,9 @@ function cssDeclarations(selector: string) {
 describe('course outline review layout', () => {
   it('keeps confirmation actions outside the scrollable body when retrieval content is tall', () => {
     const bodyStart = componentSource.indexOf('<div class="outline-review__body">')
-    const setupStart = componentSource.indexOf('<div class="outline-review__setup">')
+    const setupStart = componentSource.indexOf('<div class="outline-review__setup"')
     const nodesStart = componentSource.indexOf('<div class="outline-review__chapters"')
-    const footerStart = componentSource.indexOf('<footer class="outline-review__footer">')
+    const footerStart = componentSource.indexOf('<footer class="outline-review__footer"')
 
     expect(bodyStart).toBeGreaterThan(-1)
     expect(bodyStart).toBeLessThan(setupStart)

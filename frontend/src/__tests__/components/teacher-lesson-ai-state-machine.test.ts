@@ -8,6 +8,10 @@ import {
   type TeacherLessonAiMessage,
   type TeacherLessonAiPhase,
 } from '@/composables/useTeacherLessonAiCollaboration'
+import {
+  assessTeacherProductionRequest,
+  buildTeacherProductionAiInstruction,
+} from '@/composables/useTeacherProductionAiCollaboration'
 
 describe('教师教案 AI 协作状态机', () => {
   it('覆盖澄清、生成、审阅、采用和失败恢复的合法状态', () => {
@@ -55,5 +59,29 @@ describe('教师教案 AI 协作状态机', () => {
     const base = { sections: [{ node_id: 's1', learning_objective: '原目标', homework: ['原作业'], teaching_notes: [] }] }
     const candidate = { sections: [{ node_id: 's1', learning_objective: '新目标', homework: ['原作业'], teaching_notes: ['课前准备'] }] }
     expect(changedTeacherLessonFields(base, candidate, 's1')).toEqual(['learning_objective', 'teaching_notes'])
+  })
+})
+
+describe('教师课程生产 AI 领域适配', () => {
+  it('在共享状态机前使用大纲和讲稿各自的意图边界', () => {
+    expect(assessTeacherProductionRequest('outline', '优化一下')).toBe('clarify')
+    expect(assessTeacherProductionRequest('outline', '把网络安全章前移到工程实践之前')).toBe('generate')
+    expect(assessTeacherProductionRequest('script', '这段不太好')).toBe('clarify')
+    expect(assessTeacherProductionRequest('script', '压缩重复表达，加入一个课堂案例')).toBe('generate')
+  })
+
+  it('为大纲和讲稿构建不同的后端候选约束', () => {
+    const messages = [{ id: '1', role: 'user' as const, kind: 'text' as const, text: '合并两个重复小节' }]
+    const outlinePrompt = buildTeacherProductionAiInstruction(messages, {
+      domain: 'outline', courseTitle: '测试课程', primaryTitle: '测试课程', secondaryTitle: '课程大纲', referenceCount: 2,
+    })
+    const scriptPrompt = buildTeacherProductionAiInstruction(messages, {
+      domain: 'script', courseTitle: '测试课程', primaryTitle: '第一讲', secondaryTitle: '导入', referenceCount: 1,
+    })
+    expect(outlinePrompt).toContain('结构调整候选')
+    expect(outlinePrompt).toContain('章节增删、顺序')
+    expect(scriptPrompt).toContain('表达修改候选')
+    expect(scriptPrompt).toContain('保持已确认教案')
+    expect(scriptPrompt).toContain('不确认、不发布')
   })
 })

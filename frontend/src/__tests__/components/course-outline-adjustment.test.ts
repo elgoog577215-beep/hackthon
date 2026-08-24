@@ -119,7 +119,8 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.get('.outline-review__list-toolbar').text()).toContain('AI 调整')
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
     await wrapper.get('.outline-review__list-toolbar button').trigger('click')
-    expect(wrapper.find('.outline-review__adjustment').exists()).toBe(true)
+    expect(wrapper.emitted('open-ai')).toHaveLength(1)
+    expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
   })
 
   it('新增章和小节后滚动并聚焦标题，避免长大纲看起来没有响应', async () => {

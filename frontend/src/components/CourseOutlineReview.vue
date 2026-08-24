@@ -23,7 +23,7 @@
 
       <template v-else>
         <div class="outline-review__body">
-          <div v-if="inlineSetupVisible" class="outline-review__setup">
+          <div class="outline-review__setup" v-if="inlineSetupVisible">
           <section
             v-if="!isInline && coverageVerdict"
             class="outline-coverage"
@@ -183,7 +183,7 @@
             </div>
           </section>
 
-          <section v-if="!isInline || (editable && inlineToolsOpen)" class="outline-review__adjustment" :aria-busy="generatingProposal">
+          <section v-if="!assistantOpen && (!isInline || (editable && inlineToolsOpen))" class="outline-review__adjustment" :aria-busy="generatingProposal">
             <div class="outline-review__adjustment-heading">
               <label for="outline-adjustment-instruction">
                 {{ t('courseGeneration.outlineReview.adjustmentTitle', '目录调整') }}
@@ -276,7 +276,7 @@
                 </li>
               </ul>
 
-              <div class="outline-review__proposal-actions">
+              <div v-if="!assistantOpen" class="outline-review__proposal-actions">
                 <button
                   type="button"
                   data-testid="cancel-outline-adjustment"
@@ -302,16 +302,16 @@
           </section>
           </div>
 
-          <div ref="chaptersRef" class="outline-review__chapters" data-testid="outline-chapter-list">
+          <div class="outline-review__chapters" ref="chaptersRef" data-testid="outline-chapter-list">
             <div v-if="!isInline || editable" class="outline-review__list-toolbar">
               <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
               <div class="outline-review__toolbar-actions">
                 <button
                   v-if="isInline"
                   type="button"
-                  :aria-expanded="inlineToolsOpen"
+                  :aria-expanded="assistantOpen || inlineToolsOpen"
                   :disabled="adjustmentBusy"
-                  @click="inlineToolsOpen = !inlineToolsOpen"
+                  @click="emit('open-ai')"
                 >
                   <Sparkles :size="14" />{{ t('courseWorkbench.aiAdjustOutline', 'AI 调整') }}
                 </button>
@@ -416,7 +416,7 @@
         </div>
       </template>
 
-      <footer v-if="!isInline || requiresConfirmation || (editable && dirty) || (isInline && surface === 'teacher' && !editable) || actionError" class="outline-review__footer">
+      <footer class="outline-review__footer" v-if="!isInline || requiresConfirmation || (editable && dirty) || (isInline && surface === 'teacher' && !editable) || actionError">
         <p v-if="actionError" class="outline-review__action-error" role="alert">{{ actionError }}</p>
         <div class="outline-review__actions">
           <span
@@ -489,6 +489,7 @@ const props = withDefaults(defineProps<{
   editable?: boolean
   variant?: 'full' | 'inline'
   requiresConfirmation?: boolean
+  assistantOpen?: boolean
 }>(), {
   courseName: '',
   nodes: () => [],
@@ -497,11 +498,17 @@ const props = withDefaults(defineProps<{
   editable: true,
   variant: 'full',
   requiresConfirmation: true,
+  assistantOpen: false,
 })
 
 const emit = defineEmits<{
   (event: 'confirmed'): void
   (event: 'next'): void
+  (event: 'open-ai'): void
+  (event: 'ai-candidate-change', candidate: Record<string, any> | null): void
+  (event: 'ai-resolving', result: { accept: boolean }): void
+  (event: 'ai-resolved', result: { accept: boolean }): void
+  (event: 'ai-error', message: string): void
 }>()
 
 const courseStore = useCourseStore()
@@ -957,7 +964,7 @@ function invalidateProposal() {
 
 async function generateAdjustmentProposal() {
   const instruction = adjustmentInstruction.value.trim()
-  if (!instruction || acting.value || !blueprintNodes.value.length) return
+  if (!instruction || acting.value || !blueprintNodes.value.length) return null
   generatingProposal.value = true
   adjustmentProposal.value = null
   proposalNotice.value = ''
@@ -973,11 +980,13 @@ async function generateAdjustmentProposal() {
       instruction,
     })
     adjustmentProposal.value = clone(proposal)
+    emit('ai-candidate-change', adjustmentProposal.value)
     liveStatus.value = proposal.can_apply
       ? t('courseGeneration.outlineReview.proposalReady', '调整方案已生成，请检查整套差异')
       : t('courseGeneration.outlineReview.proposalBlocked', '调整方案存在阻断项，不能应用')
     await nextTick()
     proposalSummaryRef.value?.focus()
+    return adjustmentProposal.value
   } catch (error: any) {
     const status = Number(error?.response?.status || 0)
     actionError.value = status === 409
@@ -986,6 +995,8 @@ async function generateAdjustmentProposal() {
         ? t('courseGeneration.outlineReview.proposalUnavailable', 'AI 调整服务暂时不可用，请稍后重试。')
         : t('courseGeneration.outlineReview.proposalFailed', '调整方案生成失败，请换一种说法后重试。')
     liveStatus.value = actionError.value
+    emit('ai-error', actionError.value)
+    return null
   } finally {
     generatingProposal.value = false
   }
@@ -1001,13 +1012,14 @@ function cancelAdjustmentProposal() {
     ).catch(() => undefined)
   }
   adjustmentProposal.value = null
+  emit('ai-candidate-change', null)
   proposalNotice.value = ''
   liveStatus.value = t('courseGeneration.outlineReview.proposalCancelled', '已取消调整方案，目录没有变化')
 }
 
 async function applyAdjustmentProposal() {
   const proposal = adjustmentProposal.value
-  if (!proposal?.can_apply || acting.value) return
+  if (!proposal?.can_apply || acting.value) return false
   applyingProposal.value = true
   actionError.value = ''
   liveStatus.value = t('courseGeneration.outlineReview.proposalApplying', '正在应用')
@@ -1023,21 +1035,44 @@ async function applyAdjustmentProposal() {
       ),
     )
     adjustmentProposal.value = null
+    emit('ai-candidate-change', null)
     blueprintDraft.value = clone(result?.draft || candidate)
     syncNavigationFromDraft()
     baseline.value = draftSignature.value
     proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
     liveStatus.value = proposalNotice.value
     ElMessage.success(proposalNotice.value)
+    return true
   } catch (error: any) {
     const status = Number(error?.response?.status || 0)
     actionError.value = status === 409
       ? t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
       : t('courseGeneration.outlineReview.proposalApplyFailed', '方案应用失败，原目录草稿未改变。')
     liveStatus.value = actionError.value
+    emit('ai-error', actionError.value)
+    return false
   } finally {
     applyingProposal.value = false
   }
+}
+
+async function requestAiCandidate(instruction: string) {
+  adjustmentInstruction.value = instruction.trim()
+  return generateAdjustmentProposal()
+}
+
+async function resolveAiCandidate(accept: boolean) {
+  if (!adjustmentProposal.value || adjustmentBusy.value) return false
+  emit('ai-resolving', { accept })
+  const resolved = accept ? await applyAdjustmentProposal() : (cancelAdjustmentProposal(), true)
+  if (resolved) emit('ai-resolved', { accept })
+  return resolved
+}
+
+async function focusAiCandidate() {
+  await nextTick()
+  proposalSummaryRef.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  proposalSummaryRef.value?.focus({ preventScroll: true })
 }
 
 async function saveDraft() {
@@ -1092,7 +1127,7 @@ async function confirmOutline() {
   }
 }
 
-defineExpose({ finishEditing })
+defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCandidate })
 </script>
 
 <style scoped>
