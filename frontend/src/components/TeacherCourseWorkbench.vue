@@ -211,6 +211,7 @@
       :scope-target-type="lessonReferenceTargetId ? 'lesson_plan' : ''"
       :scope-target-label="selectedLesson?.title || ''"
       :scope-title="lessonReferenceTitle"
+      :previous-scope-target-id="previousLessonReferenceTargetId"
     />
   </section>
 </template>
@@ -299,6 +300,11 @@ const lessonReferenceTitle = computed(() => {
 })
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
+const previousLessonReferenceTargetId = computed(() => (
+  activeStage.value === 'lesson' && previousLesson.value?.lesson_unit_id
+    ? `lesson-plan:${previousLesson.value.lesson_unit_id}`
+    : ''
+))
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
 const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))

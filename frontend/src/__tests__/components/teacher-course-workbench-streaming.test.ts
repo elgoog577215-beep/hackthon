@@ -356,6 +356,7 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.findAll('.lesson-navigator>button')[1]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-2')
+    expect(tray.props('previousScopeTargetId')).toBe('lesson-plan:L1-1')
     expect(tray.props('modelValue')).toEqual([])
     tray.vm.$emit('update:modelValue', [secondReference])
     await flushPromises()

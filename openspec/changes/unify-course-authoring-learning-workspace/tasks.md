@@ -140,6 +140,7 @@
 - [x] 16.2 Persist upload, selection and removal immediately through the existing formal-file relationship index without duplicating source assets.
 - [x] 16.3 Restore each lesson's independent primary and supporting references when switching or reloading lessons.
 - [x] 16.4 Add focused frontend tests, strict OpenSpec validation, production-build verification and Chinese desktop real-page verification.
+- [x] 16.5 Add a one-click previous-session reference merge that preserves current selections and the single-primary-source constraint.
 
 ## 17. Durable lesson-plan content streaming
 

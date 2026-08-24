@@ -14,6 +14,11 @@ const assets = [
     filename: '第二讲练习.pdf', relative_path: '生成资料/第二讲练习.pdf', size_bytes: 2400,
     role: 'reference', usages: [{ target_id: 'lesson-plan:L1-2', target_type: 'lesson_plan', role: 'reference' }],
   },
+  {
+    package_id: 'package-1', asset_id: 'asset-3', material_asset_id: 'mat-3',
+    filename: '第二讲主教材.docx', relative_path: '生成资料/第二讲主教材.docx', size_bytes: 1800,
+    role: 'reference', usages: [{ target_id: 'lesson-plan:L1-2', target_type: 'lesson_plan', role: 'primary' }],
+  },
 ]
 
 describe('CourseReferenceTray lesson scope', () => {
@@ -46,14 +51,37 @@ describe('CourseReferenceTray lesson scope', () => {
     await wrapper.setProps({
       lessonId: 'L1-2', scopeTargetId: 'lesson-plan:L1-2',
       scopeTargetLabel: '第二讲', scopeTitle: '第 2 讲引用资料',
+      previousScopeTargetId: 'lesson-plan:L1-1',
     })
     await flushPromises()
 
     expect(wrapper.get('.reference-tray>header').text()).toContain('第 2 讲引用资料')
     expect(wrapper.get('.reference-list').text()).toContain('第二讲练习.pdf')
-    expect(wrapper.get('.drop-zone').text()).not.toContain('第一讲案例.docx')
+    expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
 
-    await wrapper.get('.reference-item button').trigger('click')
+    await wrapper.get('.reuse-previous').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.reference-list').text()).toContain('第一讲案例.docx')
+    expect(wrapper.find('.reuse-previous').exists()).toBe(false)
+    expect(http.put).toHaveBeenLastCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'lesson-plan:L1-2',
+        sources: expect.arrayContaining([
+          expect.objectContaining({ source_asset_id: 'asset-1', role: 'reference' }),
+          expect.objectContaining({ source_asset_id: 'asset-2', role: 'reference' }),
+          expect.objectContaining({ source_asset_id: 'asset-3', role: 'primary' }),
+        ]),
+      }),
+      expect.any(Object),
+    )
+
+    while (wrapper.find('.reference-item button').exists()) {
+      await wrapper.get('.reference-item button').trigger('click')
+      await flushPromises()
+    }
+    await wrapper.get('.drop-zone button').trigger('click')
     await flushPromises()
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
