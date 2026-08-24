@@ -48,6 +48,37 @@ def _document() -> CourseDocument:
     )
 
 
+def test_planning_cost_summary_aggregates_model_usage() -> None:
+    summary = orchestrator_module._planning_cost_summary([
+        {
+            "physical_request_count": 2,
+            "input_tokens": 1200,
+            "output_tokens": 300,
+            "tokens_source": "provider",
+            "duration_ms": 4500,
+            "retry_count": 1,
+        },
+        {
+            "physical_request_count": 1,
+            "input_tokens": 800,
+            "output_tokens": 200,
+            "tokens_source": "estimate",
+            "duration_ms": 1500,
+            "retry_count": 0,
+        },
+    ])
+
+    assert summary == {
+        "schema_version": "ppt_planning_cost_v1",
+        "model_call_count": 3,
+        "input_tokens": 2000,
+        "output_tokens": 500,
+        "tokens_source": "mixed",
+        "ai_busy_duration_ms": 6000,
+        "retry_count": 1,
+    }
+
+
 def _two_chapter_document() -> CourseDocument:
     return refresh_document_revision(
         CourseDocument(
@@ -582,6 +613,13 @@ def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_pat
         "task_id": "ready",
         "status": "v6_ready",
         "visual_plan": {"decisions": [{"degraded": False}, {"degraded": False}]},
+        "ai_batch_diagnostics": [{
+            "physical_request_count": 2,
+            "input_tokens": 4000,
+            "output_tokens": 800,
+            "duration_ms": 5000,
+            "retry_count": 1,
+        }],
         "failure": None,
     })
     candidates.save("manual", {
@@ -634,6 +672,15 @@ def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_pat
     assert metrics["manual_edit_rate"] == 0.25
     assert metrics["template_conflict_rate"] == 0.25
     assert metrics["average_stage_duration_ms"] == {"source": 2000}
+    assert metrics["planning_cost"] == {
+        "schema_version": "ppt_planning_cost_metrics_v1",
+        "measured_build_count": 1,
+        "model_call_count": 2,
+        "input_tokens": 4000,
+        "output_tokens": 800,
+        "ai_busy_duration_ms": 5000,
+        "retry_count": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -685,6 +732,18 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
             "page_count": 1,
             "degraded_page_count": 0,
             "providers": ["fixture-pool"],
+        },
+        "cost": {
+            "schema_version": "ppt_planning_cost_v1",
+            "model_call_count": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "tokens_source": "unknown",
+            "ai_busy_duration_ms": sum(
+                item["duration_ms"]
+                for item in candidate["ai_batch_diagnostics"]
+            ),
+            "retry_count": 0,
         },
     }
     storyboard = spec.payload["content"]["storyboard"]
@@ -1008,7 +1067,7 @@ async def test_restart_reuses_persisted_story_batches_instead_of_calling_ai_agai
                     item for item in unit["allowed_template_layout_ids"]
                     if item.endswith("/content-stack")
                 ),
-                "title": unit["source_text"][:40],
+                "title": unit["primary_blocks"][0]["source_text"][:40],
                 "summary": "",
                 "source_block_ids": unit["primary_block_ids"],
             }],

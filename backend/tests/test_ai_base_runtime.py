@@ -75,6 +75,15 @@ def test_unsupported_provider_model_opens_long_lived_circuit_immediately(
     assert service._models_for(False) == ["working-model"]
 
 
+def test_account_balance_failure_is_provider_wide() -> None:
+    assert AIBase._provider_wide_quota_failure(
+        RuntimeError("Error code: 429 - insufficient balance")
+    ) is True
+    assert AIBase._provider_wide_quota_failure(
+        RuntimeError("429 rate limit for one model")
+    ) is False
+
+
 @pytest.mark.asyncio
 async def test_call_llm_does_not_print_reasoning_content(monkeypatch, capsys, caplog):
     monkeypatch.setenv("AI_API_KEY", "test-key")
@@ -154,6 +163,10 @@ async def test_call_llm_emits_safe_physical_call_telemetry(monkeypatch):
     assert telemetry[0]["status"] == "completed"
     assert telemetry[0]["estimated_input_tokens"] > 0
     assert telemetry[0]["estimated_output_tokens"] > 0
+    assert telemetry[0]["input_tokens"] > 0
+    assert telemetry[0]["output_tokens"] > 0
+    assert telemetry[0]["tokens_source"] == "estimate"
+    assert telemetry[0]["failure_kind"] == ""
     assert "reasoning" not in telemetry[0]
 
 

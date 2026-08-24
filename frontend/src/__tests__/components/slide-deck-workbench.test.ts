@@ -54,6 +54,12 @@ describe('SlideDeckWorkbench', () => {
         planningStatus: {
           story_ai: { status: 'completed', batch_count: 2 },
           visual_ai: { status: 'partial_degraded', degraded_page_count: 1 },
+          cost: {
+            model_call_count: 4,
+            input_tokens: 12500,
+            output_tokens: 2400,
+            ai_busy_duration_ms: 12500,
+          },
         },
         storyboard: {
           page_count: 2,
@@ -70,6 +76,9 @@ describe('SlideDeckWorkbench', () => {
     const details = wrapper.get('[data-testid="ppt-build-details"]')
     expect(details.get('summary').text()).toContain('生成详情')
     expect(details.get('[data-testid="ppt-story-ai-status"]').text()).toContain('2 批')
+    expect(details.get('[data-testid="ppt-planning-cost"]').text()).toContain('4 次')
+    expect(details.get('[data-testid="ppt-planning-cost"]').text()).toContain('1.3万 Token')
+    expect(details.get('[data-testid="ppt-planning-cost"]').text()).toContain('12.5 秒')
     expect(details.get('[data-testid="ppt-storyboard-status"]').text()).toContain('2 页')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('建立问题')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个来源块')

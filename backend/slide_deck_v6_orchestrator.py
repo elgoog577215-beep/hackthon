@@ -151,6 +151,17 @@ class SlideDeckV6CandidateRepository:
             for decision in ((item.get("visual_plan") or {}).get("decisions") or [])
         ]
         degraded_visuals = sum(bool(item.get("degraded")) for item in visual_decisions)
+        batch_diagnostics = [
+            diagnostic
+            for item in candidates
+            for diagnostic in (item.get("ai_batch_diagnostics") or [])
+            if isinstance(diagnostic, dict)
+        ]
+        measured_task_ids = {
+            str(item.get("task_id") or "")
+            for item in candidates
+            if item.get("ai_batch_diagnostics")
+        }
 
         duration_totals: dict[str, float] = {}
         duration_counts: dict[str, int] = {}
@@ -204,6 +215,30 @@ class SlideDeckV6CandidateRepository:
                 stage: round(duration_totals[stage] / duration_counts[stage])
                 for stage in sorted(duration_totals)
             },
+            "planning_cost": {
+                "schema_version": "ppt_planning_cost_metrics_v1",
+                "measured_build_count": len(measured_task_ids),
+                "model_call_count": sum(
+                    int(item.get("physical_request_count") or 0)
+                    for item in batch_diagnostics
+                ),
+                "input_tokens": sum(
+                    int(item.get("input_tokens") or 0)
+                    for item in batch_diagnostics
+                ),
+                "output_tokens": sum(
+                    int(item.get("output_tokens") or 0)
+                    for item in batch_diagnostics
+                ),
+                "ai_busy_duration_ms": sum(
+                    int(item.get("duration_ms") or 0)
+                    for item in batch_diagnostics
+                ),
+                "retry_count": sum(
+                    int(item.get("retry_count") or 0)
+                    for item in batch_diagnostics
+                ),
+            },
         }
 
 
@@ -254,6 +289,46 @@ def _storyboard_summary(story: SlideStoryPlanV3) -> dict[str, Any]:
             }
             for page in pages
         ],
+    }
+
+
+def _planning_cost_summary(
+    diagnostics: list[dict[str, Any]],
+) -> dict[str, Any]:
+    token_sources = {
+        str(item.get("tokens_source") or "")
+        for item in diagnostics
+        if str(item.get("tokens_source") or "") not in {"", "unknown"}
+    }
+    return {
+        "schema_version": "ppt_planning_cost_v1",
+        "model_call_count": sum(
+            int(item.get("physical_request_count") or 0)
+            for item in diagnostics
+        ),
+        "input_tokens": sum(
+            int(item.get("input_tokens") or 0)
+            for item in diagnostics
+        ),
+        "output_tokens": sum(
+            int(item.get("output_tokens") or 0)
+            for item in diagnostics
+        ),
+        "tokens_source": (
+            next(iter(token_sources))
+            if len(token_sources) == 1
+            else "mixed"
+            if token_sources
+            else "unknown"
+        ),
+        "ai_busy_duration_ms": sum(
+            int(item.get("duration_ms") or 0)
+            for item in diagnostics
+        ),
+        "retry_count": sum(
+            int(item.get("retry_count") or 0)
+            for item in diagnostics
+        ),
     }
 
 
@@ -961,6 +1036,7 @@ class SlideDeckV6Orchestrator:
             degraded_visual_count = sum(
                 1 for decision in visual.decisions if decision.degraded
             )
+            planning_diagnostics = serialized_ai_batch_diagnostics()
             planning_status = {
                 "story_ai": {
                     "status": "completed",
@@ -981,6 +1057,7 @@ class SlideDeckV6Orchestrator:
                         if decision.provider
                     )),
                 },
+                "cost": _planning_cost_summary(planning_diagnostics),
             }
             if degraded_visual_count:
                 planning_status["visual_ai"]["degraded_pages"] = [
@@ -1006,7 +1083,7 @@ class SlideDeckV6Orchestrator:
                 "storyboard": _storyboard_summary(story),
                 "visual_plan": visual.model_dump(mode="json"),
                 "template_contract": template.model_dump(mode="json"),
-                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
+                "ai_batch_diagnostics": planning_diagnostics,
                 "planning_status": planning_status,
                 **({"visual_repair": repair_context} if repair_context else {}),
             }
@@ -1109,7 +1186,7 @@ class SlideDeckV6Orchestrator:
                 "course_presentation_graph": graph.model_dump(mode="json"),
                 "story_plan": story.model_dump(mode="json"),
                 "visual_plan": visual.model_dump(mode="json"),
-                "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
+                "ai_batch_diagnostics": planning_diagnostics,
                 "planning_status": planning_status,
                 "visual_repair": repair_context or None,
                 "deck": deck.model_dump(mode="json"),

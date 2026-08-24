@@ -782,6 +782,13 @@ def _title_for_request_blocks(unit: dict, block_ids: list[str]) -> str:
     )
 
 
+def _request_unit_source_text(unit: dict) -> str:
+    return "\n\n".join(
+        str(block.get("source_text") or "")
+        for block in unit.get("primary_blocks") or []
+    )
+
+
 def test_long_source_heading_offers_semantic_fragments_within_template_capacity() -> None:
     source = "## Field protocol: Observe habitat signals and record the evidence"
 
@@ -878,11 +885,14 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
     story = await plan_slide_story_v3(graph, template, ai_planner=planner)
 
     assert len(calls) == 1
-    supplied_layouts = calls[0]["teaching_units"][0]["allowed_template_layouts"]
+    supplied_layout_ids = calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
     title_candidates = calls[0]["teaching_units"][0]["title_candidates"]
     assert title_candidates
     assert all(
-        candidate in calls[0]["teaching_units"][0]["source_text"]
+        any(
+            candidate in block["source_text"]
+            for block in calls[0]["teaching_units"][0]["primary_blocks"]
+        )
         for candidate in title_candidates
     )
     assert calls[0]["response_contract"]["required_page_fields"] == [
@@ -903,22 +913,33 @@ async def test_story_ai_is_required_and_uses_only_supplied_units_and_layouts() -
         "complete_sentence_no_markdown"
     )
     assert calls[0]["teaching_units"][0]["summary_max_chars_by_layout_id"]
-    assert {item["template_layout_id"] for item in supplied_layouts} == set(
-        calls[0]["teaching_units"][0]["allowed_template_layout_ids"]
-    )
-    assert all(item["slots"] for item in supplied_layouts)
-    assert all(
-        {"slot_id", "slot_kind", "required", "max_chars", "max_items", "max_lines", "max_rows"}
-        <= set(slot)
-        for item in supplied_layouts
-        for slot in item["slots"]
-    )
+    assert supplied_layout_ids
+    assert "allowed_template_layouts" not in calls[0]["teaching_units"][0]
+    assert "safe_page_slices" not in calls[0]["teaching_units"][0]
     assert story.batches[0].provider == "rotating-fixture"
     assert story.batches[0].validation_status == "passed"
     validate_slide_story_plan_v3(story, graph, template)
 
     with pytest.raises(V6BuildError, match="story_ai_required"):
         await plan_slide_story_v3(graph, template, ai_planner=None)
+
+
+def test_story_model_request_removes_repeated_layout_and_source_contracts() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    full_request = planning_module._story_requests(graph, template)[0]
+
+    model_request = planning_module._story_model_request(full_request)
+
+    full_chars = len(json.dumps(full_request, ensure_ascii=False))
+    model_chars = len(json.dumps(model_request, ensure_ascii=False))
+    assert model_chars < full_chars * 0.6
+    assert model_request["response_contract"] == full_request["response_contract"]
+    assert model_request["teaching_units"][0]["primary_blocks"]
+    assert model_request["teaching_units"][0]["safe_partition_options"]
+    assert "allowed_template_layouts" not in model_request["teaching_units"][0]
+    assert "source_text" not in model_request["teaching_units"][0]
 
 
 @pytest.mark.asyncio
@@ -1606,7 +1627,7 @@ async def test_story_ai_accepts_lossless_versioned_response_shapes(
                 for item in unit["allowed_template_layout_ids"]
                 if item.endswith("/practice-feedback")
             ),
-            "title": unit["source_text"][:24],
+            "title": _request_unit_source_text(unit)[:24],
             "summary": "",
             "source_block_ids": unit["primary_block_ids"],
         }
@@ -1632,7 +1653,7 @@ async def test_story_ai_accepts_lossless_versioned_response_shapes(
                 "pages": [{
                     "teaching_unit_id": unit["teaching_unit_id"],
                     "template_layout_id": page["template_layout_id"],
-                    "content": {"title": unit["source_text"][:24]},
+                    "content": {"title": _request_unit_source_text(unit)[:24]},
                 }],
             }
         return {
@@ -1760,6 +1781,42 @@ async def test_story_primary_rate_limit_is_not_masked_by_fallback_authentication
 
 
 @pytest.mark.asyncio
+async def test_story_primary_balance_is_not_masked_by_fallback_authentication() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(_request):
+        raise AIPlannerInvocationError(
+            AIProviderUnavailable("authentication_failed"),
+            telemetry=[
+                {
+                    "provider_route": "shared-ai-pool",
+                    "model_id": "generic-primary-model",
+                    "provider_attempt": 1,
+                    "status": "failed",
+                    "error_code": "RateLimitError",
+                    "failure_kind": "quota_exhausted",
+                },
+                {
+                    "provider_route": "modelscope_fallback",
+                    "model_id": "generic-fallback-model",
+                    "provider_attempt": 1,
+                    "status": "failed",
+                    "error_code": "AuthenticationError",
+                    "failure_kind": "transient",
+                },
+            ],
+        )
+
+    with pytest.raises(V6BuildError) as captured:
+        await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert captured.value.failure.code == "story_ai_batch_balance_unavailable"
+    assert captured.value.failure.retryable is False
+
+
+@pytest.mark.asyncio
 async def test_failed_story_batch_reports_sanitized_provider_attempt_diagnostics() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
@@ -1818,6 +1875,11 @@ async def test_failed_story_batch_reports_sanitized_provider_attempt_diagnostics
             "status": "failed",
             "duration_ms": 120,
             "queue_wait_ms": 5,
+            "physical_request_count": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "tokens_source": "unknown",
+            "failure_kind": "",
             "error_code": "RateLimitError",
         },
         {
@@ -1827,6 +1889,11 @@ async def test_failed_story_batch_reports_sanitized_provider_attempt_diagnostics
             "status": "failed",
             "duration_ms": 240,
             "queue_wait_ms": 8,
+            "physical_request_count": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "tokens_source": "unknown",
+            "failure_kind": "",
             "error_code": "BalanceError",
         },
     ]
@@ -1867,6 +1934,11 @@ async def test_shared_ai_story_planner_preserves_safe_failure_telemetry(monkeypa
         "status": "failed",
         "duration_ms": 90,
         "queue_wait_ms": 7,
+        "physical_request_count": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "tokens_source": "unknown",
+        "failure_kind": "",
         "error_code": "QuotaError",
     }]
     assert "api_key" not in str(captured.value.telemetry)
@@ -1897,7 +1969,7 @@ async def test_story_batch_retries_a_template_contract_violation_before_failing(
                 "page_id": f"page-{len(calls)}",
                 "teaching_unit_id": unit["teaching_unit_id"],
                 "template_layout_id": layout,
-                "title": unit["source_text"][:24],
+                "title": _request_unit_source_text(unit)[:24],
                 "summary": "",
                 "source_block_ids": unit["primary_block_ids"],
             }],
@@ -2026,15 +2098,7 @@ async def test_story_batch_repairs_a_title_over_the_selected_layout_capacity() -
         else:
             repair_target = request["repair_feedback"]["repair_targets"][0]
             title = repair_target["available_title_candidates"][0]
-        selected_layout = next(
-            layout["template_layout_id"]
-            for layout in unit["allowed_template_layouts"]
-            if any(
-                slot["slot_kind"] == "title"
-                and slot["max_chars"] == unit["title_max_chars"]
-                for slot in layout["slots"]
-            )
-        )
+        selected_layout = unit["allowed_template_layout_ids"][0]
         return {
             "schema_version": "slide_story_batch_response_v3",
             "chapter_id": request["chapter_id"],
@@ -4976,7 +5040,7 @@ async def test_story_batch_reports_the_exact_contract_error_after_bounded_repair
                 "page_id": f"invalid-{calls}",
                 "teaching_unit_id": unit["teaching_unit_id"],
                 "template_layout_id": "template-layout-not-in-contract",
-                "title": unit["source_text"][:24],
+                "title": _request_unit_source_text(unit)[:24],
                 "summary": "",
                 "source_block_ids": unit["primary_block_ids"],
             }],

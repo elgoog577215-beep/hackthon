@@ -188,6 +188,11 @@ class AIProviderAttemptDiagnosticV1(_StrictModel):
     status: str
     duration_ms: int = Field(default=0, ge=0)
     queue_wait_ms: int = Field(default=0, ge=0)
+    physical_request_count: int = Field(default=1, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    tokens_source: Literal["provider", "estimate", "unknown"] = "unknown"
+    failure_kind: str = ""
     error_code: str = ""
 
 
@@ -201,6 +206,10 @@ class AIBatchDiagnosticV1(_StrictModel):
     duration_ms: int = Field(ge=0)
     attempts: int = Field(ge=1)
     retry_count: int = Field(ge=0)
+    physical_request_count: int = Field(default=0, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    tokens_source: Literal["provider", "estimate", "mixed", "unknown"] = "unknown"
     validation_status: Literal["passed", "failed", "degraded"]
     failure_category: str = ""
     attempt_records: list[AIProviderAttemptDiagnosticV1] = Field(default_factory=list)

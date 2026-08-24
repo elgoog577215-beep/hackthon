@@ -56,6 +56,7 @@ from slide_deck_v6 import (
     validate_slide_visual_plan_v2,
     validate_story_template_text_slots,
 )
+from generation_telemetry import stage as generation_stage
 from template_layout_contract import TemplateLayoutPackContractV1
 
 Planner = Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]]
@@ -1100,6 +1101,32 @@ def _sanitize_provider_attempts(
             queue_wait_ms = max(0, int(raw.get("queue_wait_ms") or 0))
         except (TypeError, ValueError):
             queue_wait_ms = 0
+        try:
+            physical_request_count = max(
+                0,
+                int(raw.get("physical_request_count") or 0),
+            )
+        except (TypeError, ValueError):
+            physical_request_count = 0
+        try:
+            input_tokens = max(0, int(
+                raw.get("input_tokens")
+                or raw.get("estimated_input_tokens")
+                or 0
+            ))
+        except (TypeError, ValueError):
+            input_tokens = 0
+        try:
+            output_tokens = max(0, int(
+                raw.get("output_tokens")
+                or raw.get("estimated_output_tokens")
+                or 0
+            ))
+        except (TypeError, ValueError):
+            output_tokens = 0
+        tokens_source = str(raw.get("tokens_source") or "unknown")
+        if tokens_source not in {"provider", "estimate", "unknown"}:
+            tokens_source = "unknown"
         records.append(AIProviderAttemptDiagnosticV1(
             provider=provider,
             model=model,
@@ -1107,6 +1134,11 @@ def _sanitize_provider_attempts(
             status=str(raw.get("status") or "unknown"),
             duration_ms=duration_ms,
             queue_wait_ms=queue_wait_ms,
+            physical_request_count=physical_request_count,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            tokens_source=tokens_source,
+            failure_kind=str(raw.get("failure_kind") or ""),
             error_code=str(raw.get("error_code") or ""),
         ))
     return records
@@ -1133,6 +1165,11 @@ def _batch_diagnostic(
     records = list(attempt_records or [])
     last = records[-1] if records else None
     actual_attempts = max(1, attempts, len(records))
+    token_sources = {
+        record.tokens_source
+        for record in records
+        if record.tokens_source != "unknown"
+    }
     return AIBatchDiagnosticV1(
         kind=kind,
         batch_id=batch_id,
@@ -1142,6 +1179,18 @@ def _batch_diagnostic(
         duration_ms=max(0, duration_ms),
         attempts=actual_attempts,
         retry_count=max(0, actual_attempts - 1),
+        physical_request_count=sum(
+            record.physical_request_count for record in records
+        ),
+        input_tokens=sum(record.input_tokens for record in records),
+        output_tokens=sum(record.output_tokens for record in records),
+        tokens_source=(
+            next(iter(token_sources))
+            if len(token_sources) == 1
+            else "mixed"
+            if token_sources
+            else "unknown"
+        ),
         validation_status=validation_status,
         failure_category=failure_category,
         attempt_records=records,
@@ -1167,8 +1216,18 @@ def _failure_category(error: BaseException, *, prefix: str) -> tuple[str, bool]:
         for record in attempt_records
         if isinstance(record, dict)
     )
+    primary_quota_exhausted = any(
+        str(record.get("failure_kind") or "").casefold()
+        == "quota_exhausted"
+        and str(record.get("provider_route") or record.get("provider") or "").casefold()
+        != "modelscope_fallback"
+        for record in attempt_records
+        if isinstance(record, dict)
+    )
     if isinstance(original, (TimeoutError, asyncio.TimeoutError)) or "timeout" in message:
         return f"{prefix}_timeout", True
+    if primary_quota_exhausted:
+        return f"{prefix}_balance_unavailable", False
     if any(token in message for token in ("401", "403", "authentication", "api key")):
         # A broken last-resort credential must not turn a temporary primary
         # pool rate limit into a permanent, non-retryable story failure. Keep
@@ -1556,6 +1615,53 @@ def _story_requests(
         }
         for section_id in section_order
     ]
+
+
+def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Project the strict story contract into a smaller model-facing request.
+
+    The full request remains the validator's source of truth.  The model does
+    not need a copy of every layout slot contract for every teaching unit, nor
+    the unit-level source text that is already present in ``primary_blocks``.
+    Removing those duplicates keeps retries and provider failover from
+    repeatedly billing tens of thousands of irrelevant input tokens.
+    """
+
+    unit_fields = (
+        "teaching_unit_id",
+        "source_ordinal",
+        "primary_block_ids",
+        "primary_blocks",
+        "teaching_intent",
+        "artifact_kinds",
+        "source_asset_ids",
+        "prerequisite_unit_ids",
+        "allowed_protected_tokens",
+        "title_max_chars",
+        "title_candidates",
+        "summary_max_chars_by_layout_id",
+        "summary_min_chars_by_layout_id",
+        "allowed_page_count_range",
+        "safe_partition_options",
+        "allowed_template_layout_ids",
+        "allowed_template_layout_ids_by_page_intent",
+    )
+    return {
+        **{
+            key: value
+            for key, value in request.items()
+            if key != "teaching_units"
+        },
+        "teaching_units": [
+            {
+                key: unit[key]
+                for key in unit_fields
+                if key in unit
+            }
+            for unit in request.get("teaching_units") or []
+            if isinstance(unit, dict)
+        ],
+    }
 
 
 def _validate_story_batch_candidate(
@@ -2570,7 +2676,11 @@ async def plan_slide_story_v3(
                     })
                 try:
                     planner_invocations += 1
-                    raw = await _invoke(ai_planner, attempt_request, timeout_seconds)
+                    raw = await _invoke(
+                        ai_planner,
+                        _story_model_request(attempt_request),
+                        timeout_seconds,
+                    )
                     attempt_records.extend(_provider_attempts_from(raw))
                     normalized_response_payload = _normalize_story_batch_response(
                         raw,
@@ -2789,6 +2899,9 @@ async def plan_slide_story_v3(
                     "PPT planning models are temporarily rate limited; the "
                     "last published deck was preserved and this build can be retried"
                     if code == "story_ai_batch_rate_limited"
+                    else "PPT planning provider balance is unavailable; the last "
+                    "published deck was preserved and no automatic retry was started"
+                    if code == "story_ai_batch_balance_unavailable"
                     else str(error) or "Story AI batch failed"
                 ),
                 retryable=retryable,
@@ -3884,9 +3997,14 @@ def build_ai_base_story_planner_v6() -> Planner:
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         telemetry: list[dict[str, Any]] = []
         try:
-            response = await provider._call_llm(
-                json.dumps(request, ensure_ascii=False),
-                system_prompt=(
+            with generation_stage(
+                "ppt_story",
+                section=str(request.get("chapter_id") or ""),
+                purpose="plan_slide_story",
+            ):
+                response = await provider._call_llm(
+                    json.dumps(request, ensure_ascii=False),
+                    system_prompt=(
                 "Return only slide_story_batch_response_v3 JSON. You are a course-faithful "
                 "presentation planner. Use every supplied primary_block_id exactly once, keep "
                 "teaching units and prerequisites in order, and use only supplied teaching_unit_id. "
@@ -3908,17 +4026,19 @@ def build_ai_base_story_planner_v6() -> Planner:
                  "supplied by the primary_blocks bound to that page, keep it within title_max_chars, "
                  "and never end it with a connector or delimiter. A non-empty summary must express the semantic closure of every "
                  "source_block_id bound to that page. Never invent teaching content."
-                ),
-                use_fast_model=False,
-                retry_count=1,
-                max_attempts=3,
-                max_tokens=6144,
-                reject_truncated=True,
-                raise_on_failure=True,
-                json_mode=True,
-                model_role="ppt_story",
-                telemetry_sink=telemetry.append,
-            )
+                    ),
+                    use_fast_model=False,
+                    retry_count=1,
+                    max_attempts=3,
+                    max_tokens=4096,
+                    max_input_tokens=16000,
+                    max_input_chars=40000,
+                    reject_truncated=True,
+                    raise_on_failure=True,
+                    json_mode=True,
+                    model_role="ppt_story",
+                    telemetry_sink=telemetry.append,
+                )
         except Exception as error:
             raise AIPlannerInvocationError(error, telemetry=telemetry) from error
         value = provider._extract_json(response or "") or {}
@@ -3938,9 +4058,14 @@ def build_ai_base_visual_planner_v2() -> Planner:
     async def planner(request: dict[str, Any]) -> dict[str, Any]:
         telemetry: list[dict[str, Any]] = []
         try:
-            response = await provider._call_llm(
-                json.dumps(request, ensure_ascii=False),
-                system_prompt=(
+            with generation_stage(
+                "ppt_visual",
+                section=str(request.get("chapter_id") or ""),
+                purpose="plan_slide_visuals",
+            ):
+                response = await provider._call_llm(
+                    json.dumps(request, ensure_ascii=False),
+                    system_prompt=(
                 "Return only slide_visual_batch_response_v2 JSON with exactly one decision per "
                 "page_id and follow response_contract exactly. Use decision, never decision_type. "
                 "Use only supplied source_block_ids and template_layout_id values. Preserve "
@@ -3956,17 +4081,19 @@ def build_ai_base_visual_planner_v2() -> Planner:
                 "code identifiers must remain exact. During repair, change only failed_node_ids and "
                 "preserve locked_nodes. For "
                 "image or experiment decisions choose only supplied source_asset_ids."
-                ),
-                use_fast_model=True,
-                retry_count=1,
-                max_attempts=3,
-                max_tokens=4096,
-                reject_truncated=True,
-                raise_on_failure=True,
-                json_mode=True,
-                model_role="ppt_visual",
-                telemetry_sink=telemetry.append,
-            )
+                    ),
+                    use_fast_model=True,
+                    retry_count=1,
+                    max_attempts=3,
+                    max_tokens=3072,
+                    max_input_tokens=12000,
+                    max_input_chars=32000,
+                    reject_truncated=True,
+                    raise_on_failure=True,
+                    json_mode=True,
+                    model_role="ppt_visual",
+                    telemetry_sink=telemetry.append,
+                )
         except Exception as error:
             raise AIPlannerInvocationError(error, telemetry=telemetry) from error
         value = provider._extract_json(response or "") or {}

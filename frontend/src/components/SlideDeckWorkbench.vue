@@ -77,6 +77,10 @@
               data-testid="ppt-story-ai-status"
             >故事 AI 已完成 · {{ planningStatus.story_ai.batch_count || 0 }} 批</small>
             <small
+              v-if="planningStatus?.cost?.model_call_count"
+              data-testid="ppt-planning-cost"
+            >模型调用 {{ planningStatus.cost.model_call_count }} 次 · 输入 {{ formatTokenCount(planningStatus.cost.input_tokens) }} · 输出 {{ formatTokenCount(planningStatus.cost.output_tokens) }} · AI 耗时 {{ formatDuration(planningStatus.cost.ai_busy_duration_ms) }}</small>
+            <small
               v-if="storyboard?.page_count"
               class="slide-workbench__manual-status"
               data-testid="ppt-storyboard-status"
@@ -1285,6 +1289,19 @@ function classificationLabel(value: string) {
     semantic: t('teachingRepresentations.classification.semantic', '语义修改'),
     ambiguous: t('teachingRepresentations.classification.ambiguous', '需要确认'),
   } as Record<string, string>)[value] || value
+}
+
+function formatTokenCount(value: unknown) {
+  const count = Math.max(0, Number(value || 0))
+  if (count >= 10000) return `${(count / 10000).toFixed(1)}万 Token`
+  if (count >= 1000) return `${(count / 1000).toFixed(1)}千 Token`
+  return `${Math.round(count)} Token`
+}
+
+function formatDuration(value: unknown) {
+  const milliseconds = Math.max(0, Number(value || 0))
+  if (milliseconds >= 60000) return `${(milliseconds / 60000).toFixed(1)} 分钟`
+  return `${(milliseconds / 1000).toFixed(1)} 秒`
 }
 
 </script>

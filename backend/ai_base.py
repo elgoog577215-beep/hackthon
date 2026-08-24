@@ -766,6 +766,18 @@ class AIBase:
             return "rate_limited"
         return "transient"
 
+    @staticmethod
+    def _provider_wide_quota_failure(error: Exception) -> bool:
+        """Identify account balance failures that cannot recover on another model."""
+
+        message = str(error).lower()
+        return any(marker in message for marker in (
+            "insufficient balance",
+            "exceeded your current quota",
+            "exceeded today's quota",
+            "余额不足",
+        ))
+
     def provider_capacity_snapshot(self) -> dict:
         return get_provider_capacity_controller(
             self._primary_provider_scope()
@@ -1328,6 +1340,33 @@ class AIBase:
                     output: str = "",
                     error: Exception | None = None,
                 ) -> None:
+                    if _generation_telemetry_on():
+                        _record_generation_call(
+                            model_id=model_id,
+                            model_role=model_role or "",
+                            status=status,
+                            stream=False,
+                            attempt=attempts,
+                            queue_wait_ms=queue_wait_ms,
+                            duration_ms=(
+                                (time.perf_counter() - attempt_started) * 1000
+                            ),
+                            prompt=prompt,
+                            system_prompt=system_prompt,
+                            output_text=output,
+                            tokens_source="estimate",
+                            retry_reason=(
+                                type(error).__name__ if error else ""
+                            ),
+                            error_code=str(error)[:200] if error else "",
+                            physical_request_count=physical_request_count,
+                            provider_scope=self._fallback_provider_scope(),
+                            service=type(self).__name__,
+                            extra={
+                                "queue_wait_reason": queue_wait_reason,
+                                "provider_route": "modelscope_fallback",
+                            },
+                        )
                     if telemetry_sink is None:
                         return
                     try:
@@ -1347,6 +1386,18 @@ class AIBase:
                                 self.estimate_request_tokens(output, "")
                                 if output
                                 else 0
+                            ),
+                            "input_tokens": estimated_input_tokens,
+                            "output_tokens": (
+                                self.estimate_request_tokens(output, "")
+                                if output
+                                else 0
+                            ),
+                            "tokens_source": "estimate",
+                            "failure_kind": (
+                                self._capacity_failure_kind(error)
+                                if error
+                                else ""
                             ),
                             "provider_route": "modelscope_fallback",
                         })
@@ -1889,6 +1940,28 @@ class AIBase:
                                 if output
                                 else 0
                             ),
+                            "input_tokens": (
+                                real_usage[0]
+                                if real_usage
+                                else estimated_input_tokens
+                            ),
+                            "output_tokens": (
+                                real_usage[1]
+                                if real_usage
+                                else (
+                                    self.estimate_request_tokens(output, "")
+                                    if output
+                                    else 0
+                                )
+                            ),
+                            "tokens_source": (
+                                "provider" if real_usage else "estimate"
+                            ),
+                            "failure_kind": (
+                                self._capacity_failure_kind(error)
+                                if error
+                                else ""
+                            ),
                         })
                     except Exception:
                         logger.debug(
@@ -2150,7 +2223,10 @@ class AIBase:
                         )
                         self._cool_down_model(model_id, e)
                         fallback_eligible = True
-                        if not self._uses_model_scoped_quota(self.api_base):
+                        if (
+                            self._provider_wide_quota_failure(e)
+                            or not self._uses_model_scoped_quota(self.api_base)
+                        ):
                             self._block_provider("quota_exhausted")
                         break
                     if self._should_try_next_model(e):
