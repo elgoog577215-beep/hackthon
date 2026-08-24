@@ -62,7 +62,7 @@ final result: passed
 ## Verified hierarchy
 
 - The left course-stage rail remains the global orientation layer. The generic course reference tray is absent only in question-import mode.
-- The question workspace is one continuous surface divided into a main task area and a dedicated `264px` imported-document rail. It no longer stacks a progress container, file container and recognition-result container.
+- The question workspace is one continuous surface divided into a main task area and a dedicated `264px` imported-document rail. It no longer stacks a progress container, file container and recognition-result container. The rail is a white work queue: each row gives visual priority to the filename and places only the semantic `未处理 / 正在处理 / 已完成` state at the right edge.
 - Initial state puts one batch-import affordance in the middle and existing imported documents on the right. Review state keeps source and structured result side by side in the middle while the right rail remains available for document switching.
 - AI generation is a quiet secondary action in the workspace toolbar. The formal bank-import action remains a single footer action.
 
@@ -81,6 +81,7 @@ final result: passed
 - Pass 2 found a P2 short-viewport regression: implicit CSS-grid placement let the review content occupy the optional error row and pushed the formal action footer below the visible workspace.
 - Fix: assigned toolbar, error, content and footer to explicit grid rows and reduced the old `640px` minimum height to `500px`. Post-fix browser geometry confirms the footer is visible at `1280 × 720`.
 - Pass 3 found a P2 boundary regression after over-applying the container reduction: `border-block` preserved only the top and bottom edges, leaving the left and right scope visually open. Fix: restored one full outer border and light radius while keeping all removed inner containers removed; computed browser styles confirm four `1px` edges.
+- Pass 4 removed per-document question-count and review-detail subtitles, replaced backend-oriented labels with the three teacher task states, and restored the rail from gray fill to a white surface with violet selection plus amber/violet/green semantic state color.
 - The impeccable detector found one layout-width transition on the upload progress bar; it was removed instead of animating layout.
 
 ## Follow-up polish

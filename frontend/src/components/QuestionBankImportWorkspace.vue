@@ -194,11 +194,10 @@
           @click="resumeImport(item.import_id)"
         >
           <FileText :size="17" />
-          <span>
-            <strong>{{ item.filename }}</strong>
-            <small>{{ item.question_count }} {{ t('questionBank.questionUnit', '道') }} · {{ recentStatus(item) }}</small>
+          <strong>{{ item.filename }}</strong>
+          <span class="question-import__document-status" :data-state="documentState(item)">
+            {{ documentStateLabel(item) }}
           </span>
-          <i :data-status="item.status" />
         </button>
       </nav>
       <div v-else class="question-import__documents-empty">
@@ -544,10 +543,19 @@ function warningLabel(code: string) {
   return labels[code] || t('questionBank.importFlow.warnings.review', '这道题需要人工确认')
 }
 
-function recentStatus(item: ImportSummary) {
-  if (item.status === 'committed') return t('questionBank.importFlow.status.committed', '已导入题库')
-  if (item.pending_count) return t('questionBank.importFlow.pending', '{count} 道待确认').replace('{count}', String(item.pending_count))
-  return t('questionBank.importFlow.status.ready', '可导入')
+function documentState(item: ImportSummary) {
+  if (item.status === 'committed' || !item.pending_count) return 'completed'
+  if (session.value?.import_id === item.import_id) return 'processing'
+  return 'unprocessed'
+}
+
+function documentStateLabel(item: ImportSummary) {
+  const labels = {
+    unprocessed: t('questionBank.importFlow.status.unprocessed', '未处理'),
+    processing: t('questionBank.importFlow.status.processing', '正在处理'),
+    completed: t('questionBank.importFlow.status.completed', '已完成'),
+  }
+  return labels[documentState(item) as keyof typeof labels]
 }
 </script>
 
@@ -960,8 +968,8 @@ function recentStatus(item: ImportSummary) {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #dfe5ed;
-  background: #fafbfc;
+  border-left: 1px solid #e4e2f0;
+  background: #fff;
 }
 .question-import__documents > header {
   min-height: 58px;
@@ -969,7 +977,7 @@ function recentStatus(item: ImportSummary) {
   align-items: center;
   justify-content: space-between;
   padding: 0 13px 0 15px;
-  border-bottom: 1px solid #e5e9ef;
+  border-bottom: 1px solid #eceaf4;
 }
 .question-import__documents > header > div {
   display: flex;
@@ -1004,7 +1012,7 @@ function recentStatus(item: ImportSummary) {
   cursor: pointer;
 }
 .question-import__documents > header button:hover:not(:disabled) {
-  background: #eef0f7;
+  background: #f5f3ff;
 }
 .question-import__documents > nav {
   min-height: 0;
@@ -1015,23 +1023,23 @@ function recentStatus(item: ImportSummary) {
   width: 100%;
   min-height: 62px;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 8px;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   padding: 9px 13px 9px 15px;
   border: 0;
-  border-bottom: 1px solid #e9edf2;
-  color: #738095;
-  background: transparent;
+  border-bottom: 1px solid #efedf6;
+  color: #6d73a3;
+  background: #fff;
   text-align: left;
   cursor: pointer;
 }
 .question-import__documents > nav > button:hover {
-  background: #f4f5f8;
+  background: #faf9ff;
 }
 .question-import__documents > nav > button.active {
   color: #5552c8;
-  background: #f0f1ff;
+  background: #f4f2ff;
 }
 .question-import__documents > nav > button.active::before {
   position: absolute;
@@ -1042,38 +1050,39 @@ function recentStatus(item: ImportSummary) {
   background: #6366f1;
   content: "";
 }
-.question-import__documents > nav > button > span {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
 .question-import__documents > nav strong {
+  min-width: 0;
   overflow: hidden;
-  color: #344054;
+  color: #28344d;
   font-size: 11.5px;
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.question-import__documents > nav small {
-  overflow: hidden;
-  color: #748197;
+.question-import__document-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  justify-self: end;
+  color: #b45309;
   font-size: 9.5px;
-  line-height: 1.3;
-  text-overflow: ellipsis;
+  font-weight: 750;
+  line-height: 1;
   white-space: nowrap;
 }
-.question-import__documents > nav i {
-  width: 7px;
-  height: 7px;
+.question-import__document-status::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
   border-radius: 50%;
-  background: #f59e0b;
+  background: currentColor;
+  content: "";
 }
-.question-import__documents > nav i[data-status="ready"] {
-  background: #6366f1;
+.question-import__document-status[data-state="processing"] {
+  color: #5b57e8;
 }
-.question-import__documents > nav i[data-status="committed"] {
-  background: #16a34a;
+.question-import__document-status[data-state="completed"] {
+  color: #16805d;
 }
 .question-import__uploading {
   display: grid;

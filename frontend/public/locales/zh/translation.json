@@ -4391,7 +4391,7 @@
       "steps": { "upload": "上传文件", "recognize": "识别题目", "review": "校对确认", "import": "导入题库" },
       "types": { "singleChoice": "单选题", "multipleChoice": "多选题", "trueFalse": "判断题", "fillBlank": "填空题", "shortAnswer": "简答题", "calculation": "计算题", "essay": "论述题" },
       "warnings": { "answerMissing": "未识别到答案，请确认", "optionsIncomplete": "选项识别不完整，请确认", "promptMissing": "题干识别不完整，请确认", "degraded": "原文解析质量较低，请对照检查", "review": "这道题需要人工确认" },
-      "status": { "committed": "已导入题库", "ready": "可导入" }
+      "status": { "committed": "已导入题库", "ready": "可导入", "unprocessed": "未处理", "processing": "正在处理", "completed": "已完成" }
     },
     "studio": {
       "title": "生成题目",

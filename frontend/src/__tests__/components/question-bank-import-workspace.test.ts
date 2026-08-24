@@ -108,7 +108,10 @@ describe('QuestionBankImportWorkspace', () => {
 
     expect(wrapper.text()).toContain('HTTP 测试题.docx')
     expect(wrapper.text()).toContain('第二套试题.pdf')
-    expect(wrapper.findAll('.question-import__documents nav button')).toHaveLength(2)
+    const documentRows = wrapper.findAll('.question-import__documents nav button')
+    expect(documentRows).toHaveLength(2)
+    expect(documentRows.find(row => row.text().includes('HTTP 测试题.docx'))?.text()).toBe('HTTP 测试题.docx正在处理')
+    expect(documentRows.find(row => row.text().includes('第二套试题.pdf'))?.text()).toBe('第二套试题.pdf已完成')
     expect(window.sessionStorage.getItem('lingzhi:question-import:course-http')).toBe('qimp-1')
   })
 
@@ -162,9 +165,11 @@ describe('QuestionBankImportWorkspace', () => {
     })
     await flushPromises()
     expect(wrapper.find('[data-testid="confirm-import-question"]').exists()).toBe(false)
+    expect(wrapper.get('.question-import__documents nav button').text()).toBe('HTTP 测试题.docx未处理')
 
     await wrapper.get('.question-import__documents nav button').trigger('click')
     await flushPromises()
+    expect(wrapper.get('.question-import__documents nav button').text()).toBe('HTTP 测试题.docx正在处理')
     expect(wrapper.text()).toContain('原文')
     expect(wrapper.text()).toContain('未识别到答案')
 

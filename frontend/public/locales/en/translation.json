@@ -4391,7 +4391,7 @@
       "steps": { "upload": "Upload file", "recognize": "Recognize questions", "review": "Review", "import": "Import to bank" },
       "types": { "singleChoice": "Single choice", "multipleChoice": "Multiple choice", "trueFalse": "True or false", "fillBlank": "Fill in the blank", "shortAnswer": "Short answer", "calculation": "Calculation", "essay": "Essay" },
       "warnings": { "answerMissing": "No answer was recognized. Please confirm.", "optionsIncomplete": "Options may be incomplete. Please confirm.", "promptMissing": "The question text may be incomplete. Please confirm.", "degraded": "Source parsing quality is low. Compare it with the original.", "review": "This question needs manual confirmation." },
-      "status": { "committed": "Imported to bank", "ready": "Ready to import" }
+      "status": { "committed": "Imported to bank", "ready": "Ready to import", "unprocessed": "Not started", "processing": "In progress", "completed": "Completed" }
     },
     "studio": {
       "title": "Generate questions",
