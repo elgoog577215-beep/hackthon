@@ -141,6 +141,31 @@ describe('统一教案页面', () => {
     expect(wrapper.text()).not.toContain('AI 方案')
   })
 
+  it('由工作台左侧目录直接切换小节正文，不再保留横向 Tab', async () => {
+    const multiSectionLesson = structuredClone(lesson)
+    multiSectionLesson.sections.push({ section_node_id: 'section-2', title: '1.2 请求与响应' })
+    multiSectionLesson.plan.revisions[0]!.plan.sections.push({
+      node_id: 'section-2',
+      learning_objective: '能判断一次请求与响应的边界',
+      key_points: ['请求', '响应'],
+      key_difficulties: [],
+      in_class_checks: [],
+      homework: [],
+      teaching_notes: [],
+      teaching_modules: [],
+    })
+    const wrapper = mount(TeacherLessonPlanDocument, {
+      props: { courseId: 'course-1', lesson: multiSectionLesson, confirmed: true, activeSectionId: 'section-2' },
+    })
+
+    expect(wrapper.find('.section-tabs').exists()).toBe(false)
+    expect(wrapper.get('.section-title').text()).toContain('1.2 请求与响应')
+    expect(wrapper.get('.objective-section').text()).toContain('能判断一次请求与响应的边界')
+
+    await wrapper.setProps({ activeSectionId: 'section-1' })
+    expect(wrapper.get('.section-title').text()).toContain('1.1 爬虫的定义、原理与应用场景')
+  })
+
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/CourseWorkspaceView.vue'), 'utf8')
     const fileSource = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')

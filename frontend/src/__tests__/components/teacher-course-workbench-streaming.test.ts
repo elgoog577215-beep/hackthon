@@ -326,27 +326,46 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-entry button.primary').attributes('disabled')).toBeDefined()
   })
 
-  it('所有讲次在同一位置切换上一讲与下一讲', async () => {
+  it('教案目录按章展开小节，并能整体向左收起', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
-      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}章`, duration_minutes: 45,
+      sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
       plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
     })) as any
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect((wrapper.get('.lesson-selector select').element as HTMLSelectElement).value).toBe('L1-1')
-    const navigationButtons = wrapper.findAll('.lesson-navigator>button')
-    expect(navigationButtons[0]!.attributes('disabled')).toBeDefined()
-    await navigationButtons[1]!.trigger('click')
-    expect((wrapper.get('.lesson-selector select').element as HTMLSelectElement).value).toBe('L1-2')
-    expect(wrapper.findAll('.lesson-navigator>button')[1]!.attributes('disabled')).toBeDefined()
+    let chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
+    let sectionGroups = wrapper.findAll('.lesson-outline-sections')
+    expect(chapterButtons[0]!.attributes('aria-expanded')).toBe('true')
+    expect(chapterButtons[1]!.attributes('aria-expanded')).toBe('false')
+    expect(sectionGroups[0]!.attributes('style') || '').not.toContain('display: none')
+    expect(sectionGroups[1]!.attributes('style')).toContain('display: none')
+
+    await chapterButtons[1]!.trigger('click')
+    chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
+    sectionGroups = wrapper.findAll('.lesson-outline-sections')
+    expect(chapterButtons[0]!.attributes('aria-expanded')).toBe('false')
+    expect(chapterButtons[1]!.attributes('aria-expanded')).toBe('true')
+    expect(sectionGroups[0]!.attributes('style')).toContain('display: none')
+    expect(sectionGroups[1]!.attributes('style') || '').not.toContain('display: none')
+
+    const secondChapterSections = sectionGroups[1]!.findAll('button')
+    await secondChapterSections[1]!.trigger('click')
+    expect(secondChapterSections[1]!.classes()).toContain('active')
+
+    await wrapper.get('.lesson-outline-toggle').trigger('click')
+    expect(wrapper.get('.lesson-workspace').classes()).toContain('is-outline-collapsed')
+    expect(wrapper.find('.lesson-outline > nav').exists()).toBe(false)
+    expect(wrapper.get('.lesson-outline-toggle').attributes('aria-label')).toBe('展开教案目录')
   })
 
   it('右侧资料随当前讲次切换且不会串到其他讲次', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
-      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 小节` }],
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
       plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
     })) as any
@@ -360,7 +379,7 @@ describe('teacher course workbench outline streaming', () => {
     tray.vm.$emit('update:modelValue', [firstReference])
     await flushPromises()
 
-    await wrapper.findAll('.lesson-navigator>button')[1]!.trigger('click')
+    await wrapper.findAll('.lesson-outline-chapter-button')[1]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-2')
     expect(tray.props('previousScopeTargetId')).toBe('lesson-plan:L1-1')
@@ -368,7 +387,7 @@ describe('teacher course workbench outline streaming', () => {
     tray.vm.$emit('update:modelValue', [secondReference])
     await flushPromises()
 
-    await wrapper.findAll('.lesson-navigator>button')[0]!.trigger('click')
+    await wrapper.findAll('.lesson-outline-chapter-button')[0]!.trigger('click')
     tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
     expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-1')
     expect(tray.props('modelValue')).toEqual([firstReference])

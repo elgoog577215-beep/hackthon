@@ -136,6 +136,7 @@
 - [x] 15.4 Remove active legacy PPT generation/edit candidate APIs and route every teacher PPT creation to the existing `SlideDeckV6` workbench.
 - [x] 15.5 Bind each V6 PPT revision to both the confirmed lesson-plan revision and confirmed script revision; mark it stale when either source changes.
 - [x] 15.6 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.
+- [x] 15.7 Replace the lesson-plan previous/next control and horizontal section tabs with one collapsible chapter-section outline in the center workspace, keeping direct document switching and accessible focus states.
 
 ## 16. Lesson-scoped reference materials
 

@@ -16,7 +16,14 @@
       <footer><span>{{ readyStageCount }}/5</span><div><i :style="{ width: `${readyStageCount / 5 * 100}%` }" /></div></footer>
     </aside>
 
-    <main ref="workbenchCenter" class="workbench-center" :class="{ 'is-outline-workspace': showOutlineWorkspace }">
+    <main
+      ref="workbenchCenter"
+      class="workbench-center"
+      :class="{
+        'is-outline-workspace': showOutlineWorkspace,
+        'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
+      }"
+    >
       <header class="center-heading">
         <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
         <button
@@ -117,12 +124,72 @@
         @saved="handleCompanionSaved"
       />
 
-      <section v-else class="lesson-stage">
-        <nav v-if="lessonStore.lessons.length && !outlineGatePending" class="lesson-navigator" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
+      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': activeStage === 'lesson' && lessonStore.lessons.length && !outlineGatePending }">
+        <nav v-if="activeStage !== 'lesson' && lessonStore.lessons.length && !outlineGatePending" class="lesson-navigator" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
           <button type="button" :disabled="!previousLesson" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
           <label class="lesson-selector"><span>{{ t('courseWorkbench.form.lesson', '选择课次') }}</span><select v-model="selectedLessonId"><option value="" disabled>{{ t('courseWorkbench.form.chooseLesson', '请选择课次') }}</option><option v-for="lesson in lessonStore.lessons" :key="lesson.lesson_unit_id" :value="lesson.lesson_unit_id">{{ lesson.title }}</option></select></label>
           <button type="button" :disabled="!nextLesson" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
         </nav>
+        <div class="lesson-workspace" :class="{ 'is-outline-collapsed': lessonOutlineCollapsed }">
+          <aside
+            v-if="activeStage === 'lesson' && lessonStore.lessons.length && !outlineGatePending"
+            class="lesson-outline"
+            :aria-label="t('courseWorkbench.lessonOutline.title', '教案目录')"
+          >
+            <header>
+              <strong v-if="!lessonOutlineCollapsed">{{ t('courseWorkbench.lessonOutline.title', '教案目录') }}</strong>
+              <button
+                class="lesson-outline-toggle"
+                type="button"
+                :aria-label="lessonOutlineCollapsed
+                  ? t('courseWorkbench.lessonOutline.expand', '展开教案目录')
+                  : t('courseWorkbench.lessonOutline.collapse', '收起教案目录')"
+                :title="lessonOutlineCollapsed
+                  ? t('courseWorkbench.lessonOutline.expand', '展开教案目录')
+                  : t('courseWorkbench.lessonOutline.collapse', '收起教案目录')"
+                @click="lessonOutlineCollapsed = !lessonOutlineCollapsed"
+              >
+                <PanelLeftOpen v-if="lessonOutlineCollapsed" :size="17" />
+                <PanelLeftClose v-else :size="17" />
+              </button>
+            </header>
+            <nav v-if="!lessonOutlineCollapsed">
+              <section v-for="(lesson, lessonIndex) in lessonStore.lessons" :key="lesson.lesson_unit_id" class="lesson-outline-chapter">
+                <button
+                  class="lesson-outline-chapter-button"
+                  type="button"
+                  :class="{ active: selectedLessonId === lesson.lesson_unit_id }"
+                  :aria-current="selectedLessonId === lesson.lesson_unit_id ? 'page' : undefined"
+                  :aria-expanded="expandedLessonId === lesson.lesson_unit_id"
+                  :aria-controls="lessonOutlineSectionId(lessonIndex)"
+                  @click="toggleLessonChapter(lesson.lesson_unit_id)"
+                >
+                  <span>{{ String(lessonIndex + 1).padStart(2, '0') }}</span>
+                  <strong>{{ lesson.title }}</strong>
+                  <ChevronRight :size="15" />
+                </button>
+                <div
+                  v-show="expandedLessonId === lesson.lesson_unit_id"
+                  :id="lessonOutlineSectionId(lessonIndex)"
+                  class="lesson-outline-sections"
+                >
+                  <button
+                    v-for="section in lesson.sections"
+                    :key="section.section_node_id"
+                    type="button"
+                    :class="{ active: selectedLessonId === lesson.lesson_unit_id && selectedLessonSectionId === section.section_node_id }"
+                    :aria-current="selectedLessonId === lesson.lesson_unit_id && selectedLessonSectionId === section.section_node_id ? 'location' : undefined"
+                    @click="selectLessonSection(lesson.lesson_unit_id, section.section_node_id)"
+                  >
+                    <i aria-hidden="true" />
+                    <span>{{ section.title }}</span>
+                  </button>
+                </div>
+              </section>
+            </nav>
+          </aside>
+
+          <div class="lesson-stage-content">
         <div v-if="lessonStageBlocked" class="prerequisite" :data-state="lessonPrerequisiteState.kind" aria-live="polite">
           <LoaderCircle v-if="lessonPrerequisiteState.kind === 'loading'" :size="24" class="spin" />
           <TriangleAlert v-else-if="lessonPrerequisiteState.kind === 'error'" :size="24" />
@@ -169,6 +236,8 @@
             :confirmed="lessonPlanConfirmed"
             :confirming="lessonConfirming"
             :confirm-error="lessonConfirmError"
+            :active-section-id="selectedLessonSectionId"
+            @update:active-section-id="selectedLessonSectionId = $event"
             @confirm="confirmLessonPlan"
             @next="activeStage = 'question-bank'"
           />
@@ -199,6 +268,8 @@
             <button class="primary" type="button" :disabled="!confirmedLessonRevision || !scriptConfirmed" @click="openPptWorkspace"><Presentation :size="15" />{{ t('courseWorkbench.openPptWorkbench', '进入 PPT 工作台') }}</button>
           </section>
         </template>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -218,7 +289,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, Layers3, ListChecks, LoaderCircle, PanelLeftClose, PanelLeftOpen, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
@@ -245,6 +316,9 @@ const emit = defineEmits<{
 }>()
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
+const selectedLessonSectionId = ref('')
+const expandedLessonId = ref(props.initialLessonId)
+const lessonOutlineCollapsed = ref(false)
 const workbenchCenter = ref<HTMLElement | null>(null)
 const outlineEditor = ref<{ finishEditing: () => Promise<boolean> } | null>(null)
 const finishingOutline = ref(false)
@@ -429,7 +503,29 @@ async function submitFoundation() { generationRequested.value = true; try { cons
 async function confirmOutlineShape() { if (!shapeCountsValid.value || shapeConfirming.value) return; shapeConfirming.value = true; shapeConfirmError.value = ''; try { const counts = chapterSectionCounts.value.map(count => Number(count)); await courseWorkspaceStore.confirmOutlineShape(props.courseId, counts); generationRequested.value = true; await generationStore.fetchGlobalTasks() } catch (error: any) { shapeConfirmError.value = String(error?.response?.data?.detail || error?.message || t('courseWorkbench.shapeReview.failed', '无法继续生成，请稍后重试')) } finally { shapeConfirming.value = false } }
 async function generateLessonPlan() { if (!selectedLesson.value || lessonGenerationActive.value) return; lessonBusy.value = true; lessonConfirmError.value = ''; try { await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', selectedLesson.value.title); const primary = activeReferences.value.find(item => item.role === 'primary'); await lessonStore.generateLesson(props.courseId, selectedLessonId.value, primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined, lessonRequirements.value, activeReferences.value.map(item => item.material_asset_id)) } catch { /* The store keeps the teacher-visible reason. */ } finally { lessonBusy.value = false } }
 async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision); activeStage.value = 'question-bank' } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
-function selectLesson(lessonId?: string) { if (lessonId) selectedLessonId.value = lessonId }
+function lessonOutlineSectionId(index: number) { return `lesson-outline-sections-${index}` }
+function selectLesson(lessonId?: string) {
+  if (!lessonId) return
+  const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+  const lessonChanged = selectedLessonId.value !== lessonId
+  selectedLessonId.value = lessonId
+  expandedLessonId.value = lessonId
+  if (lessonChanged || !lesson?.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {
+    selectedLessonSectionId.value = lesson?.sections[0]?.section_node_id || ''
+  }
+}
+function toggleLessonChapter(lessonId: string) {
+  if (expandedLessonId.value === lessonId) {
+    expandedLessonId.value = ''
+    return
+  }
+  selectLesson(lessonId)
+}
+function selectLessonSection(lessonId: string, sectionId: string) {
+  selectedLessonId.value = lessonId
+  selectedLessonSectionId.value = sectionId
+  expandedLessonId.value = lessonId
+}
 async function handleScriptSaved() { scriptConfirmError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements: string) {
   if (!selectedLesson.value || !confirmedLessonRevision.value || scriptGenerating.value) return
@@ -483,11 +579,31 @@ watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value =
 watch(() => lessonStore.lessons, lessons => {
   if (props.initialLessonId && lessons.some(item => item.lesson_unit_id === props.initialLessonId)) {
     selectedLessonId.value = props.initialLessonId
+  } else if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) {
+    selectedLessonId.value = lessons[0]?.lesson_unit_id || ''
+  }
+  const lesson = lessons.find(item => item.lesson_unit_id === selectedLessonId.value)
+  if (!lesson) return
+  const hadSectionSelection = Boolean(selectedLessonSectionId.value)
+  if (!lesson.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {
+    selectedLessonSectionId.value = lesson.sections[0]?.section_node_id || ''
+  }
+  if (!expandedLessonId.value && !hadSectionSelection) expandedLessonId.value = lesson.lesson_unit_id
+}, { immediate: true, deep: true })
+watch(selectedLessonId, (lessonId, previousLessonId) => {
+  lessonConfirmError.value = ''
+  scriptGenerationError.value = ''
+  scriptConfirmError.value = ''
+  const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
+  if (!lesson) {
+    selectedLessonSectionId.value = ''
     return
   }
-  if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) selectedLessonId.value = lessons[0]?.lesson_unit_id || ''
-}, { immediate: true, deep: true })
-watch(selectedLessonId, () => { lessonConfirmError.value = ''; scriptGenerationError.value = ''; scriptConfirmError.value = '' })
+  if (previousLessonId !== lessonId || !lesson.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {
+    selectedLessonSectionId.value = lesson.sections[0]?.section_node_id || ''
+  }
+  expandedLessonId.value = lessonId
+}, { immediate: true })
 watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 </script>
@@ -504,6 +620,9 @@ watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) gene
 .lesson-generation-surface{min-height:68px}.lesson-generation-error{margin:-4px 0 0;padding:10px 12px;border-radius:8px}.lesson-stream-document{max-height:calc(100vh - 350px);overflow:auto;padding:26px 30px 44px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:10px;font-weight:800;letter-spacing:.08em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{margin:0 0 15px;color:#475569;font-size:13px;line-height:1.85}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:220px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px}
 .workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace>header{border-bottom:1px solid #e7ebf2}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
+.workbench-center.is-lesson-workspace .center-heading,.workbench-center.is-lesson-workspace .lesson-stage{max-width:1160px}.lesson-workspace{min-width:0}.lesson-stage-content{min-width:0;background:#fff}.has-lesson-outline .lesson-workspace{display:grid;grid-template-columns:230px minmax(0,1fr);transition:grid-template-columns .22s cubic-bezier(.2,.8,.2,1)}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:58px minmax(0,1fr)}.lesson-outline{min-width:0;align-self:start;margin:12px 0 12px 12px;border:0;border-radius:11px;background:rgba(248,250,252,.82);box-shadow:0 7px 22px rgba(30,41,59,.045)}.lesson-outline>header{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 7px 0 12px}.lesson-outline>header strong{overflow:hidden;color:#475569;font-size:11px;font-weight:700;letter-spacing:.02em;text-overflow:ellipsis;white-space:nowrap}.lesson-outline-toggle{width:30px;height:30px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:#7b879b;background:transparent;cursor:pointer}.lesson-outline-toggle:hover{color:#4338ca;background:rgba(99,102,241,.07)}.lesson-outline-toggle:focus-visible,.lesson-outline-chapter-button:focus-visible,.lesson-outline-sections button:focus-visible{outline:2px solid #5b57e8;outline-offset:-2px}.is-outline-collapsed .lesson-outline{margin-right:0}.is-outline-collapsed .lesson-outline>header{justify-content:center;padding:0}.lesson-outline>nav{max-height:calc(100vh - 205px);overflow:auto;padding:0 6px 8px}.lesson-outline-chapter{display:grid}.lesson-outline-chapter-button{min-height:38px;display:grid;grid-template-columns:22px minmax(0,1fr) 14px;align-items:center;gap:6px;width:100%;padding:5px 7px;border:0;border-radius:6px;color:#94a3b8;background:transparent;text-align:left;cursor:pointer}.lesson-outline-chapter-button>span{font-size:9px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-outline-chapter-button>strong{overflow:hidden;color:#5b687c;font-size:11.5px;font-weight:650;line-height:1.45;text-overflow:ellipsis;white-space:nowrap}.lesson-outline-chapter-button>svg{transition:transform .18s ease}.lesson-outline-chapter-button[aria-expanded="true"]>svg{transform:rotate(90deg)}.lesson-outline-chapter-button:hover{background:rgba(148,163,184,.08)}.lesson-outline-chapter-button.active{color:#6366f1;background:rgba(99,102,241,.045)}.lesson-outline-chapter-button.active>strong{color:#373b71}.lesson-outline-sections{display:grid;gap:0;padding:1px 0 6px 23px}.lesson-outline-sections button{min-height:32px;display:grid;grid-template-columns:8px minmax(0,1fr);align-items:start;gap:6px;width:100%;padding:6px 8px;border:0;border-radius:5px;color:#7b879b;background:transparent;text-align:left;cursor:pointer}.lesson-outline-sections button i{width:4px;height:4px;margin-top:6px;border-radius:50%;background:#d1d8e3}.lesson-outline-sections button span{min-width:0;font-size:10.5px;line-height:1.5}.lesson-outline-sections button:hover{color:#475569;background:rgba(148,163,184,.07)}.lesson-outline-sections button.active{color:#373b71;background:rgba(99,102,241,.055);box-shadow:inset 2px 0 #6366f1;font-weight:650}.lesson-outline-sections button.active i{background:#6366f1}.has-lesson-outline :deep(.lesson-document .document-title h3){overflow:visible;line-height:1.35;text-overflow:clip;white-space:normal}.has-lesson-outline :deep(.lesson-document .flow-table){overflow:auto}.has-lesson-outline :deep(.lesson-document .flow-row){min-width:800px}
 .lesson-stage{padding:0;overflow:hidden}.lesson-navigator{min-height:54px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid #e7ebf2;background:#fbfcfe}.lesson-navigator>button{min-height:36px;display:flex;align-items:center;gap:5px;padding:0 11px;border:1px solid #d9dcfa;border-radius:8px;color:#4338ca;background:#f3f2ff;font-size:12px;font-weight:750;cursor:pointer;transition:color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease}.lesson-navigator>button:hover:not(:disabled){transform:translateY(-1px);border-color:#aaa7f2;color:#3730a3;background:#eae8ff}.lesson-navigator>button:focus-visible{outline:3px solid rgba(91,87,232,.18);outline-offset:2px}.lesson-navigator>button:disabled{border-color:transparent;color:#94a3b8;background:transparent;opacity:.48;cursor:not-allowed}.lesson-selector{min-width:0;display:flex;align-items:center;justify-content:center;gap:0;padding:0;border:0}.lesson-selector>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.lesson-selector select{width:min(100%,560px);min-height:36px;padding:0 34px 0 12px;border:0;border-radius:7px;color:#263147;background:transparent;font-size:13px;font-weight:750;text-align:center;box-shadow:none}.lesson-selector select:hover{background:#f3f5fa}.lesson-selector select:focus{background:#fff}.stage-form--lesson{border:0;border-radius:0;box-shadow:none}.stage-form>.lesson-form-actions{justify-content:flex-end}.stage-next-bar{min-height:64px;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.ppt-entry{min-height:180px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;padding:36px 28px}.ppt-entry>svg{color:#5b57e8}.ppt-entry>div{min-width:0;display:grid;gap:5px}.ppt-entry strong{color:#1f2a40;font-size:15px}.ppt-entry span{color:#64748b;font-size:12px}.question-workbench-surface{max-width:860px;margin:0 auto;padding:0;border:0;border-radius:0;box-shadow:none}
+@media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:202px minmax(0,1fr)}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:58px minmax(0,1fr)}.lesson-outline-chapter-button{grid-template-columns:20px minmax(0,1fr) 14px;padding-inline:6px}.lesson-outline-sections{padding-left:18px}}
 @media(max-width:760px){.lesson-navigator{gap:6px;padding-inline:10px}.lesson-navigator>button{font-size:0}.lesson-navigator>button svg{display:block}.lesson-selector select{padding-inline:8px;font-size:12px}.ppt-entry{grid-template-columns:auto minmax(0,1fr);padding:28px 18px}.ppt-entry .primary{grid-column:1/-1}}
+@media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace,.lesson-outline-chapter-button>svg{transition:none}}
 </style>
