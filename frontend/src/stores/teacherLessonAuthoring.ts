@@ -419,7 +419,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       try {
         const response = await http.get<TeacherLessonAuthoringView>(
           `/api/teacher/courses/${courseId}/lesson-authoring`,
-          requestConfig(),
+          { ...requestConfig(), silentError: true },
         )
         this.courseId = courseId
         this.outlineRevisionId = response.data.outline_revision_id

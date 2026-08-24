@@ -1883,6 +1883,53 @@ def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_
     assert returned["error"]["code"] == "lesson_script_generation_interrupted"
 
 
+def test_teacher_lesson_view_treats_an_empty_teacher_draft_as_ready_for_setup(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    empty_draft = {
+        "course_id": "course-1",
+        "course_name": "物理",
+        "nodes": [],
+        "course_document": {
+            "schema_version": "course_document_v1",
+            "course_id": "course-1",
+            "title": "物理",
+            "sections": [],
+            "blocks": [],
+        },
+    }
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(course_id):
+            assert course_id == "course-1"
+            return empty_draft
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        view = client.get("/api/teacher/courses/course-1/lesson-authoring")
+
+    assert view.status_code == 200
+    assert view.json()["course_id"] == "course-1"
+    assert view.json()["outline_revision_id"] == ""
+    assert view.json()["lessons"] == []
+    assert view.json()["jobs"] == []
+
+
 def test_teacher_lesson_api_ignores_empty_persisted_shell_and_uses_workspace(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     empty_shell = {

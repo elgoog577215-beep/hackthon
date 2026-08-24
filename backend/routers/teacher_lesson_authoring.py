@@ -258,7 +258,24 @@ def _has_teaching_structure(source: Any) -> bool:
     return bool(document.get("sections") or document.get("blocks"))
 
 
-def _source_course(tm: TaskManager, course_id: str) -> dict[str, Any]:
+def _matches_course_shell(source: Any, course_id: str) -> bool:
+    if not isinstance(source, dict):
+        return False
+    if str(source.get("course_id") or "") == course_id:
+        return True
+    document = source.get("course_document")
+    return (
+        isinstance(document, dict)
+        and str(document.get("course_id") or "") == course_id
+    )
+
+
+def _source_course(
+    tm: TaskManager,
+    course_id: str,
+    *,
+    allow_empty: bool = False,
+) -> dict[str, Any]:
     raw = tm.storage.load_course(course_id) if tm.storage else None
     source = raw if _has_teaching_structure(raw) else None
     if not isinstance(source, dict):
@@ -267,6 +284,8 @@ def _source_course(tm: TaskManager, course_id: str) -> dict[str, Any]:
     if not isinstance(source, dict):
         preview = tm.get_generation_preview(course_id)
         source = preview if _has_teaching_structure(preview) else None
+    if not isinstance(source, dict) and allow_empty and _matches_course_shell(raw, course_id):
+        source = raw
     if not isinstance(source, dict):
         raise TeacherLessonAuthoringError("course_not_found", "课程不存在或没有可用大纲。")
     if not source.get("nodes") and isinstance(source.get("course_document"), dict):
@@ -662,7 +681,7 @@ async def get_lesson_authoring_view(
     ),
 ):
     try:
-        source = _source_course(tm, course_id)
+        source = _source_course(tm, course_id, allow_empty=True)
         outline_revision = _canonical_outline_revision(source)
         if outline_revision:
             repository.set_outline(course_id, outline_revision)
