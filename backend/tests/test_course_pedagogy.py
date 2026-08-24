@@ -98,6 +98,24 @@ def test_persisted_profile_keeps_evidence_and_rationale():
     assert restored.rationale == "课程以工程交付为主线"
 
 
+def test_auto_detected_profile_is_recomputed_when_course_signals_become_clearer():
+    restored = coerce_persisted_profile({
+        "course_name": "全链路验收：牛顿第二定律与受力分析",
+        "generation_request": {
+            "requirements": "学生能够画出受力图，建立方程并解释加速度。",
+        },
+        "subject_pedagogy_profile": {
+            "primary_mode": "general",
+            "secondary_mode": "humanities_social",
+            "user_locked": False,
+        },
+    })
+
+    assert restored.primary_mode is PedagogyMode.NATURAL_SCIENCE
+    assert restored.secondary_mode is not PedagogyMode.HUMANITIES_SOCIAL
+    assert restored.user_locked is False
+
+
 def test_module_plan_deduplicates_and_injects_secondary_modules():
     profile = resolve_pedagogy_profile(
         subject="商务英语谈判",

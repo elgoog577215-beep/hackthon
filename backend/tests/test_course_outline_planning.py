@@ -724,6 +724,46 @@ def test_short_course_may_not_call_itself_complete():
     }
 
 
+def test_short_course_may_state_that_it_does_not_cover_everything():
+    """否定式范围说明是诚实边界，不应被关键词门禁误判。"""
+    brief = _calculus_brief(8)
+    shape = brief.get("course_shape_constraints") or {}
+    fingerprint = outline_request_fingerprint(
+        topic="微积分",
+        audience="大一本科生",
+        brief=brief,
+        difficulty_profile={"level": "intermediate"},
+    )
+    honest = normalize_outline_skeleton(
+        {
+            "course_title": "微积分核心概览课",
+            "positioning": "本课不追求学科完整覆盖，只训练极限与导数的核心推理。",
+            "chapters": [
+                {"chapter_number": 1, "title": "极限", "section_count": 4},
+                {"chapter_number": 2, "title": "导数", "section_count": 4},
+            ],
+        },
+        topic="微积分",
+        request_fingerprint=fingerprint,
+    )
+    verdict = course_coverage_verdict(
+        subject="微积分",
+        brief=brief,
+        skeleton=honest,
+    )
+
+    report = validate_outline_skeleton(
+        honest,
+        shape_constraints=shape,
+        request_fingerprint=fingerprint,
+        coverage_verdict=verdict,
+    )
+
+    assert "outline_skeleton:unsupported_completeness_claim" not in {
+        issue["code"] for issue in report["issues"]
+    }
+
+
 def test_full_term_course_may_still_claim_completeness():
     """完整学期课不应被这道诚实性门误伤。"""
     brief = _calculus_brief(64)

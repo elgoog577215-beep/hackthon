@@ -163,6 +163,65 @@ def test_rebuild_api_creates_real_job_and_supports_status_lookup(
     assert status.json()["stages"] == payload["stages"]
 
 
+def test_rebuild_uses_teacher_workspace_nodes_for_empty_canonical_shell(
+    monkeypatch,
+    tmp_path,
+):
+    client, _, executor = _client(monkeypatch, tmp_path)
+
+    async def get_canonical(_course_id: str):
+        return {
+            "course_id": "course-jobs",
+            "course_name": "待生成课程",
+            "course_schema_version": "course_document_v1",
+            "course_document_authoritative": True,
+            "course_document": {
+                "schema_version": "course_document_v1",
+                "course_id": "course-jobs",
+                "document_revision": "cdr-empty",
+                "sections": [],
+                "blocks": [],
+            },
+            "nodes": [],
+        }
+
+    class FakeTaskManager:
+        @staticmethod
+        def get_generation_workspace_course(_course_id: str):
+            return {
+                "course_id": "course-jobs",
+                "nodes": [{
+                    "node_id": "node-1",
+                    "node_level": 2,
+                    "node_name": "生成大纲小节",
+                }],
+            }
+
+    monkeypatch.setattr(question_bank, "get_course_or_404", get_canonical)
+    monkeypatch.setattr(
+        question_bank,
+        "get_task_manager_optional",
+        lambda: FakeTaskManager(),
+    )
+
+    created = client.post(
+        "/api/courses/course-jobs/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-workspace-nodes",
+            "scope": "nodes",
+            "node_ids": ["node-1"],
+            "mode": "full",
+        },
+    )
+
+    assert created.status_code == 202
+    submitted = executor.submissions[0]["course"]
+    assert submitted["nodes"][0]["node_id"] == "node-1"
+    assert submitted["course_document_authoritative"] is True
+    assert submitted["teacher_generation_workspace_projection"] is True
+
+
 def test_rebuild_api_recovers_active_job_for_course(
     monkeypatch,
     tmp_path,

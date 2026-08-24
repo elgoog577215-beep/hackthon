@@ -13,7 +13,7 @@ AssessmentGenerationScope = Literal[
 ]
 
 ASSESSMENT_GENERATION_POLICY_VERSION = (
-    "assessment_generation_policy_v4"
+    "assessment_generation_policy_v5"
 )
 
 _COMPLEX_INPUT_MODES = {
@@ -152,10 +152,10 @@ def resolve_assessment_generation_policy(
         # 同一道算术题再算一遍，这正是"6 道题 42 次请求"里最没有信息量的那部分。
         prefer_local_solver=True,
         stage_timeouts={
-            "generate": None,
-            "repair": None,
-            "solve": None,
-            "review": None,
+            "generate": 150.0,
+            "repair": 120.0,
+            "solve": 120.0,
+            "review": 90.0,
         },
     )
 

@@ -38,10 +38,10 @@ def test_complete_policy_preserves_the_full_quality_budget() -> None:
     assert policy.max_provider_attempts is None
     assert policy.compact_candidate is True
     assert policy.stage_timeouts == {
-        "generate": None,
-        "repair": None,
-        "solve": None,
-        "review": None,
+        "generate": 150.0,
+        "repair": 120.0,
+        "solve": 120.0,
+        "review": 90.0,
     }
 
 

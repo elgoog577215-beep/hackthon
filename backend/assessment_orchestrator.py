@@ -2017,6 +2017,7 @@ class AssessmentGenerationOrchestrator:
                 )
                 initial_candidates = (
                     await self._generate_initial_candidate_batch(
+                        prepared=prepared,
                         profile=profile,
                         objective=objective,
                         blueprint=blueprint,
@@ -2199,6 +2200,7 @@ class AssessmentGenerationOrchestrator:
     async def _generate_initial_candidate_batch(
         self,
         *,
+        prepared: dict[str, Any],
         profile: dict[str, Any],
         objective: dict[str, Any],
         blueprint: dict[str, Any],

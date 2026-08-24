@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from copy import deepcopy
@@ -49,9 +50,6 @@ from representation_compiler import export_slide_deck_pptx
 from representation_edits import (
     classify_representation_edit,
     representation_edit_impact,
-)
-from slide_ai_planning_v6 import (
-    build_ai_base_visual_planner_v2,
 )
 from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
@@ -700,6 +698,99 @@ async def _teacher_v6_story_planner(request: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _teacher_v6_visual_planner(request: dict[str, Any]) -> dict[str, Any]:
+    """Choose a source-native base visual without making publication depend on AI.
+
+    The teacher workbench already freezes page ownership and hard artifacts from
+    the confirmed script.  Selecting ``text_native`` for prose and the matching
+    compiler-owned renderer for tables/formulas/code is deterministic; a later
+    AI edit may still enhance the published deck through the normal candidate
+    workflow.
+    """
+    artifact_priority = (
+        "table",
+        "formula",
+        "code",
+        "data",
+        "source_excerpt",
+        "experiment",
+        "image",
+        "text_native",
+        "diagram",
+    )
+    decisions: list[dict[str, Any]] = []
+    for page in request.get("pages") or []:
+        if not isinstance(page, dict):
+            continue
+        allowed = [str(item) for item in page.get("allowed_decisions") or []]
+        if not bool(page.get("layout_requires_artifact")) and "text_native" in allowed:
+            decision = "text_native"
+        else:
+            decision = next(
+                (item for item in artifact_priority if item in allowed),
+                allowed[0] if allowed else "text_native",
+            )
+        value: dict[str, Any] = {
+            "page_id": str(page.get("page_id") or ""),
+            "decision": decision,
+            "source_block_ids": list(page.get("source_block_ids") or []),
+            "resolved_template_layout_id": str(
+                page.get("template_layout_id") or ""
+            ),
+        }
+        if decision in {"image", "experiment"}:
+            value["source_asset_ids"] = list(page.get("source_asset_ids") or [])
+        if decision == "diagram":
+            labels: list[tuple[str, str]] = []
+            for source in page.get("source_blocks") or []:
+                if not isinstance(source, dict):
+                    continue
+                source_id = str(source.get("block_id") or "")
+                text = " ".join(str(source.get("source_text") or "").split())
+                segments = [
+                    item.strip(" #*-:|")
+                    for item in re.split(r"[\n。！？；]", text)
+                    if item.strip(" #*-:|")
+                ]
+                if len(segments) < 2 and len(text) >= 4:
+                    midpoint = max(2, len(text) // 2)
+                    segments = [text[:midpoint], text[midpoint:]]
+                labels.extend(
+                    (segment[:28], source_id)
+                    for segment in segments
+                    if segment and source_id
+                )
+            labels = labels[:6]
+            if len(labels) >= 2:
+                nodes = [
+                    {
+                        "node_id": f"source-node-{index}",
+                        "label": label,
+                        "source_block_ids": [source_id],
+                    }
+                    for index, (label, source_id) in enumerate(labels, start=1)
+                ]
+                value["visual_payload"] = {
+                    "direction": "vertical",
+                    "nodes": nodes,
+                    "edges": [
+                        {
+                            "source": nodes[index]["node_id"],
+                            "target": nodes[index + 1]["node_id"],
+                        }
+                        for index in range(len(nodes) - 1)
+                    ],
+                }
+        decisions.append(value)
+    return {
+        "schema_version": "slide_visual_batch_response_v2",
+        "provider": "teacher-plan-adapter",
+        "model": "source-native-deterministic",
+        "attempts": 1,
+        "decisions": decisions,
+    }
+
+
 @router.get("/courses/{course_id}/lesson-authoring")
 async def get_lesson_authoring_view(
     course_id: str,
@@ -1113,7 +1204,7 @@ async def build_teacher_lesson_v6(
                     mode=body.mode,
                     theme=body.theme,
                     story_planner=_teacher_v6_story_planner,
-                    visual_planner=build_ai_base_visual_planner_v2(),
+                    visual_planner=_teacher_v6_visual_planner,
                     source_revision_provider=source_revision_provider,
                     template_contract=template,
                     template_digest_provider=lambda: template.template_digest,
@@ -1999,8 +2090,9 @@ async def generate_lesson_script(
                 **deepcopy(module),
                 "label": str(module.get("title") or module_id),
             }]
-            generated = await asyncio.wait_for(
-                tm.course_service.generate_teacher_script_section(
+            try:
+                generated = await asyncio.wait_for(
+                    tm.course_service.generate_teacher_script_section(
                     course_id=course_id,
                     outline_section=single_outline,
                     confirmed_plan_section=single_plan,
@@ -2016,7 +2108,11 @@ async def generate_lesson_script(
                         "previous_script_blocks": [
                             {
                                 "title": item.get("title"),
-                                "content": item.get("content"),
+                                # Only a short tail is needed for transition
+                                # and de-duplication. Passing several complete
+                                # blocks makes the next lightweight block copy
+                                # the earlier textbook-like exposition.
+                                "content": str(item.get("content") or "")[-320:],
                             }
                             for item in completed_blocks[-3:]
                         ],
@@ -2025,9 +2121,14 @@ async def generate_lesson_script(
                     },
                     requirements=body.requirements,
                     user_id=actor,
-                ),
-                timeout=150,
-            )
+                    ),
+                    timeout=150,
+                )
+            except asyncio.TimeoutError as exc:
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_block_timeout",
+                    f"“{module.get('title') or module_id}”生成超时，已保留前面完成的教学块。",
+                ) from exc
             blocks = [
                 item for item in generated.get("blocks") or [] if isinstance(item, dict)
             ]
@@ -2105,8 +2206,16 @@ async def save_lesson_script_draft(
                 "lesson_script_revision_conflict",
                 "讲稿工作稿已经变化，请重新载入后再保存。",
             )
-        base_revision = _script_revision(
-            repository, course_id, lesson_unit_id, body.base_revision_id
+        # The first teacher-authored draft has no model revision to build on.
+        # Treat an empty base id as the explicit empty working state so a
+        # teacher can take over after generation fails (or write from scratch)
+        # without creating a parallel persistence path.
+        base_revision = (
+            _script_revision(
+                repository, course_id, lesson_unit_id, body.base_revision_id
+            )
+            if body.base_revision_id
+            else {}
         )
         base_sections = {
             str(item.get("section_node_id") or ""): item

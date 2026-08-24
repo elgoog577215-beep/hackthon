@@ -389,6 +389,30 @@ _COMPLETENESS_CLAIMS = (
     "面面俱到",
 )
 
+_COMPLETENESS_NEGATION = re.compile(
+    r"(?:并不|并非|不追求|不承担|不承诺|不要求|不能|无法|无需|无须|未|非|不).{0,8}$"
+)
+
+
+def _affirmative_completeness_claims(prose: str) -> list[str]:
+    """Return completeness claims that are asserted rather than denied.
+
+    The outline prompt explicitly asks a short course to state what it does not
+    cover.  A plain substring check therefore treated honest wording such as
+    ``不追求学科完整覆盖`` as the exact overclaim it was denying.  Inspect the
+    local prefix of every occurrence so a negative scope boundary passes while
+    a real promise like ``完整覆盖全部内容`` remains blocked.
+    """
+    claims: list[str] = []
+    for claim in _COMPLETENESS_CLAIMS:
+        for match in re.finditer(re.escape(claim), prose):
+            prefix = prose[max(0, match.start() - 12):match.start()]
+            if _COMPLETENESS_NEGATION.search(prefix):
+                continue
+            claims.append(claim)
+            break
+    return claims
+
 
 def _coverage_honesty_issues(
     skeleton: dict[str, Any],
@@ -409,7 +433,7 @@ def _coverage_honesty_issues(
         str(skeleton.get("course_title") or ""),
         str(skeleton.get("positioning") or ""),
     ])
-    claims = [claim for claim in _COMPLETENESS_CLAIMS if claim in prose]
+    claims = _affirmative_completeness_claims(prose)
     if not claims:
         return []
     return [_issue(

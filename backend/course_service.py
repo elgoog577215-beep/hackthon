@@ -25,7 +25,7 @@ from typing import (
     Any,
 )
 
-from ai_base import AIBase, AIProviderRequestError
+from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
 from ai_learning_context import build_ai_learning_context
 from ai_output_quality import assess_ai_output
 from content_blocks import (
@@ -6548,6 +6548,11 @@ class CourseService(AIBase):
                 str(module.get("prompt_instruction") or ""),
                 str((module.get("artifact_contract") or {}).get("guidance") or ""),
                 (
+                    f"篇幅：约 {module.get('target_characters')} 字，"
+                    f"不得超过 {module.get('max_characters')} 字"
+                    if module.get("max_characters") else ""
+                ),
+                (
                     f"硬性产物：{(module.get('artifact_contract') or {}).get('hard_artifact')}"
                     if (module.get("artifact_contract") or {}).get("hard_artifact")
                     else ""
@@ -6572,6 +6577,8 @@ class CourseService(AIBase):
             *module_lines,
             "",
             "每个教学块都要写成教师真正会说或会做的内容，而不是教案摘要。可在正文中自然使用【提问】【板书】【演示】【等待回应】【巡视】等轻量课堂提示。",
+            "讲稿是轻量的教师讲授支架，不是另一份学生教材，也不是必须逐字照读的长文。只保留当前教学块完成其职责所需的讲解、指令、例子和核对标准。",
+            "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和推演；活动块要说明教师指令、学生动作、等待与收束；反馈块要给出核对标准、典型错误和回应方式。",
             "沿用旧正文链已经验证的学科讲解、知识边界、前后连贯和产物完整性要求，但必须改写为教师课堂表达，不得保留学生自学教材口吻。",
             "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式必须使用成对闭合的 `$...$`、`$$...$$`、`\\(...\\)` 或 `\\[...\\]`，不得把公式拆断。",
@@ -6596,6 +6603,39 @@ class CourseService(AIBase):
             json.dumps(lesson_context or {}, ensure_ascii=False),
         ])
         user_prompt = f"请生成《{contract.get('title') or '当前小节'}》的教师讲稿。"
+        async def call_script_model(
+            prompt: str,
+            instructions: str,
+            *,
+            output_tokens: int,
+        ) -> str | None:
+            common = {
+                "retry_count": 1,
+                "max_attempts": 2,
+                "enable_thinking": False,
+                "reject_truncated": True,
+                "raise_on_failure": True,
+                "max_tokens": output_tokens,
+            }
+            try:
+                return await self._call_llm(
+                    prompt,
+                    instructions,
+                    use_fast_model=True,
+                    **common,
+                )
+            except (AIProviderRequestError, AIProviderUnavailable):
+                # Fast quotas are model-specific in the current provider. A
+                # depleted or overloaded fast route must be able to use the
+                # already validated smart-model pool before the durable job
+                # pauses; the invalid last-resort token is not the only exit.
+                return await self._call_llm(
+                    prompt,
+                    instructions,
+                    use_fast_model=False,
+                    **common,
+                )
+
         last_report: dict[str, Any] = {}
         last_text = ""
         for attempt in range(2):
@@ -6604,10 +6644,17 @@ class CourseService(AIBase):
                 repair = "\n\n上次输出未通过正式质量门。请保留既定模块顺序，针对问题修复结构、学科产物或格式完整性，然后完整重写。问题：" + json.dumps(
                     last_report.get("blocking_issues") or [], ensure_ascii=False
                 )
-            response = await self._call_llm(
+            max_output_characters = sum(
+                int(item.get("max_characters") or 900)
+                for item in modules
+            )
+            response = await call_script_model(
                 user_prompt,
                 system_prompt + repair,
-                enable_thinking=True,
+                output_tokens=max(
+                    700,
+                    min(6000, int(max_output_characters * 1.1)),
+                ),
             )
             last_text = self.clean_response_text(response) if response else ""
             compiled = compile_teacher_script_section(last_text, contract)
@@ -6624,6 +6671,52 @@ class CourseService(AIBase):
                     require_markdown_structure=True,
                 )
                 return compiled
+        blocking_codes = {
+            str(item.get("code") or "")
+            for item in last_report.get("blocking_issues") or []
+            if isinstance(item, dict)
+        }
+        if last_text and blocking_codes == {"teacher_script:block_too_long"}:
+            length_rules = "\n".join(
+                f"- `## {item.get('title')}` 正文不超过 {item.get('max_characters')} 字"
+                for item in modules
+            )
+            compacted_response = await call_script_model(
+                (
+                    "请压缩下面的教师讲稿。保留正确事实、公式或实验链、"
+                    "必要的课堂指令与核对标准；删掉重复开场、同义反复和教材式展开。\n\n"
+                    + last_text
+                ),
+                (
+                    "你是教师讲稿编辑。只输出压缩后的 Markdown，"
+                    "标题、顺序和教学事实不得改变，严格执行字数上限。\n"
+                    + length_rules
+                ),
+                output_tokens=max(
+                    600,
+                    min(6000, int(max_output_characters * 1.05)),
+                ),
+            )
+            compacted_text = self.clean_response_text(
+                compacted_response
+            ) if compacted_response else ""
+            compacted = compile_teacher_script_section(
+                compacted_text,
+                contract,
+            )
+            if (compacted.get("quality_report") or {}).get("passed"):
+                self._record_generation_quality(
+                    output_type="teacher_script_section",
+                    output_text=compacted.get("content") or "",
+                    context_text=system_prompt,
+                    source="course_service.generate_teacher_script_section.compacted",
+                    course_id=course_id,
+                    node_id=str(outline_section.get("node_id") or ""),
+                    node_name=str(outline_section.get("node_name") or ""),
+                    require_markdown_structure=True,
+                )
+                return compacted
+            last_report = compacted.get("quality_report") or last_report
         issues = "；".join(
             str(item.get("message") or "")
             for item in last_report.get("blocking_issues") or []

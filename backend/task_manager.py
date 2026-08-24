@@ -8377,6 +8377,20 @@ class TaskManager:
             if not task:
                 return
             task["status"] = status
+            if status in {
+                "pending",
+                "running",
+                "waiting_for_review",
+                "completed",
+                "completed_with_warnings",
+            }:
+                # A recovered task must not keep the failure metadata from its
+                # previous attempt.  Otherwise the workbench can render a
+                # successful result together with a stale provider error.
+                task["error"] = None
+                task["error_detail"] = None
+                task["error_code"] = None
+                task["error_user_message"] = None
             if message is not None:
                 task["message"] = message
             if error is not None:

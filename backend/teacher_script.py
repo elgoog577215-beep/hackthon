@@ -15,8 +15,8 @@ from course_pedagogy import MODULES, module_block_role
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-SCRIPT_PIPELINE_VERSION = "structured_teacher_script_v2"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v2"
+SCRIPT_PIPELINE_VERSION = "structured_teacher_script_v3"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v3"
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -106,6 +106,59 @@ def teacher_script_artifact_contract(
     }
 
 
+def teacher_script_length_contract(
+    module_id: str,
+    role: str,
+    planned_minutes: Any,
+) -> dict[str, int]:
+    """Give every module a lightweight, classroom-usable writing budget.
+
+    The script is a compact speaking aid, not a second student textbook.  A
+    minute budget therefore controls density without requiring a verbatim
+    transcript.  Code-heavy engineering blocks receive a little more room so
+    complete runnable artifacts are not truncated.
+    """
+    compact_roles = {
+        "orientation", "prerequisite", "objective", "checkpoint", "summary",
+    }
+    action_roles = {"activity", "feedback", "remediation"}
+    if role in compact_roles:
+        target, maximum = 220, 420
+        upper_bound = 600
+    elif role in action_roles:
+        target, maximum = 420, 750
+        upper_bound = 900
+    else:
+        # Explanation and evidence blocks need enough room for one complete
+        # reasoning chain, formula, example or experiment.  The former 950
+        # character ceiling rejected concise 1,000-character science blocks;
+        # 1,200 still prevents the 4,000-6,000 character textbook expansion
+        # observed in production validation.
+        target, maximum = 650, 1200
+        upper_bound = 1600
+    try:
+        minutes = float(planned_minutes)
+    except (TypeError, ValueError):
+        minutes = 0.0
+    if minutes > 0:
+        target = max(160, min(int(minutes * 45), upper_bound - 180))
+        # The role default is the safety buffer for natural variation in a
+        # concise model response. A short five-minute objective should not
+        # fail for a few useful transition words, while the upper bound still
+        # prevents textbook-length expansion.
+        maximum = min(
+            upper_bound,
+            max(maximum, target + 120, int(minutes * 70)),
+        )
+    if module_id == "engineering_minimal_run":
+        maximum = max(maximum, 1800)
+        target = max(target, 900)
+    return {
+        "target_characters": target,
+        "max_characters": maximum,
+    }
+
+
 def compile_teacher_script_module_contract(
     outline_section: dict[str, Any],
     confirmed_plan_section: dict[str, Any],
@@ -148,6 +201,11 @@ def compile_teacher_script_module_contract(
             or (registry.label if registry else "")
             or module_id
         )
+        length_contract = teacher_script_length_contract(
+            module_id,
+            role,
+            actual.get("planned_minutes"),
+        )
         modules.append({
             "block_id": _stable_block_id(section_id, module_id, index),
             "module_id": module_id,
@@ -174,6 +232,7 @@ def compile_teacher_script_module_contract(
                 module_id,
                 role,
             ),
+            **length_contract,
         })
     archetype = deepcopy(
         confirmed_plan_section.get("lesson_archetype")
@@ -403,6 +462,16 @@ def validate_teacher_script_section(
                 f"“{_text(block.get('title'))}”引用了当前教案范围外的知识。",
             )
         content = _text(block.get("content"))
+        max_characters = int(expected[index].get("max_characters") or 0)
+        if max_characters and len(content) > max_characters:
+            add(
+                blocking,
+                "teacher_script:block_too_long",
+                (
+                    f"“{_text(block.get('title'))}”过长（{len(content)} 字），"
+                    f"轻量讲稿上限为 {max_characters} 字。"
+                ),
+            )
         artifact = expected[index].get("artifact_contract") or {}
         hard_artifact = _text(artifact.get("hard_artifact"))
         if hard_artifact == "fenced_code" and "```" not in content:
@@ -449,6 +518,7 @@ def validate_teacher_script_section(
             )
         if (
             content.count("$$") % 2
+            or len(re.findall(r"(?<!\\)\$", content)) % 2
             or content.count(r"\[") != content.count(r"\]")
             or content.count(r"\(") != content.count(r"\)")
         ):

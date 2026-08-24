@@ -8,6 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from ai_base import AIProviderUnavailable
+
 from course_document import document_from_generation_draft
 from teacher_lesson_authoring import (
     TeacherLessonAuthoringError,
@@ -228,6 +230,8 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
     assert [item["title"] for item in contract["modules"]] == [
         "本节任务", "概念模型", "检查与反馈",
     ]
+    assert 350 < contract["modules"][0]["max_characters"] <= 600
+    assert contract["modules"][1]["max_characters"] <= 1600
 
     compiled = compile_teacher_script_section(
         "## 本节任务\n\n今天我们先明确要解决的问题和课后可验证的成果。\n\n"
@@ -363,14 +367,25 @@ def test_teacher_script_rejects_unclosed_code_and_math_delimiters():
     assert "teacher_script:unclosed_code_fence" in codes
     assert "teacher_script:unclosed_math_delimiter" in codes
 
+    inline = compile_teacher_script_section(
+        f"## {title}\n\n公式在返回前被截断：$F_x=6-3",
+        contract,
+    )
+    inline_codes = {
+        item["code"]
+        for item in inline["quality_report"]["blocking_issues"]
+    }
+    assert "teacher_script:unclosed_math_delimiter" in inline_codes
+
 
 def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrite(monkeypatch):
     service = CourseService()
     captured = {}
 
-    async def fake_call(user_prompt, system_prompt, **_kwargs):
+    async def fake_call(user_prompt, system_prompt, **kwargs):
         captured["user_prompt"] = user_prompt
         captured["system_prompt"] = system_prompt
+        captured["kwargs"] = kwargs
         return "## 核心教学\n\n【板书】围绕定义、条件和边界展开讲解，并用一个正例与反例组织课堂判断。"
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
@@ -411,7 +426,113 @@ def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrit
     assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
     assert "学生自学教材口吻" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
+    assert "轻量的教师讲授支架" in captured["system_prompt"]
+    assert "不得超过" in captured["system_prompt"]
     assert "自学课程的完整小节" not in captured["system_prompt"]
+    assert captured["kwargs"]["use_fast_model"] is True
+    assert captured["kwargs"]["enable_thinking"] is False
+    assert captured["kwargs"]["max_attempts"] == 2
+    assert captured["kwargs"]["reject_truncated"] is True
+
+
+def test_teacher_script_rejects_textbook_length_block():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "轻量讲稿",
+        "module_plan": [{"module_id": "core_explanation"}],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{
+            "module_id": "core_explanation",
+            "planned_minutes": 10,
+        }],
+    }
+    contract = compile_teacher_script_module_contract(outline, plan)
+    module = contract["modules"][0]
+    oversized = "这是重复展开的教材式讲解。" * (module["max_characters"] // 10 + 20)
+    compiled = compile_teacher_script_section(
+        f"## {module['title']}\n\n{oversized}",
+        contract,
+    )
+    assert compiled["quality_report"]["passed"] is False
+    assert "teacher_script:block_too_long" in {
+        item["code"]
+        for item in compiled["quality_report"]["blocking_issues"]
+    }
+
+
+def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
+    service = CourseService()
+    calls = []
+
+    async def fake_call(user_prompt, _system_prompt, **_kwargs):
+        calls.append(user_prompt)
+        if len(calls) < 3:
+            return "## 核心教学\n\n" + "重复讲解。" * 400
+        return (
+            "## 核心教学\n\n"
+            "【板书】简明说明定义、成立条件与适用边界，"
+            "再用一个正例检查学生是否能独立判断。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="course-compact",
+        outline_section={
+            "node_id": "L2-1-1",
+            "node_name": "轻量讲解",
+            "module_plan": [{
+                "module_id": "core_explanation",
+                "label": "核心教学",
+            }],
+        },
+        confirmed_plan_section={
+            "node_id": "L2-1-1",
+            "teaching_modules": [{
+                "module_id": "core_explanation",
+                "planned_minutes": 10,
+            }],
+        },
+    ))
+
+    assert len(calls) == 3
+    assert "请压缩下面的教师讲稿" in calls[-1]
+    assert result["quality_report"]["passed"] is True
+
+
+def test_teacher_script_service_uses_smart_pool_after_fast_pool_failure(monkeypatch):
+    service = CourseService()
+    routes = []
+
+    async def fake_call(_user_prompt, _system_prompt, **kwargs):
+        routes.append(kwargs["use_fast_model"])
+        if kwargs["use_fast_model"]:
+            raise AIProviderUnavailable("fast_pool_exhausted")
+        return (
+            "## 核心教学\n\n"
+            "【板书】简明说明定义、条件和边界，并用一个新情境核对。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="course-smart-fallback",
+        outline_section={
+            "node_id": "L2-1-1",
+            "node_name": "轻量讲解",
+            "module_plan": [{
+                "module_id": "core_explanation",
+                "label": "核心教学",
+            }],
+        },
+        confirmed_plan_section={
+            "node_id": "L2-1-1",
+            "teaching_modules": [{"module_id": "core_explanation"}],
+        },
+    ))
+
+    assert routes == [True, False]
+    assert result["quality_report"]["passed"] is True
 
 
 def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_path):
@@ -503,6 +624,65 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
         "core_explanation",
         "feedback_check",
     ]
+
+
+def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(plan),
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+        }],
+    }
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-invalid-checkpoint",
+    )
+    generated = []
+
+    async def generator(_outline, _plan, module, _completed):
+        generated.append(module["module_id"])
+        return "【板书】完整公式 $F_x=6-3=3$\uff0c并核对方向。"
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=generator,
+        seed_sections=[{
+            "section_node_id": "L2-1-1",
+            "blocks": [{
+                "block_id": compile_teacher_script_module_contract(
+                    outline_section,
+                    plan["sections"][0],
+                )["modules"][0]["block_id"],
+                "module_id": "core_explanation",
+                "title": "核心教学",
+                "content": "被截断的公式 $F_x=6-3",
+            }],
+        }],
+    ))
+
+    assert completed["status"] == "completed", completed.get("error")
+    assert generated == ["core_explanation"]
 
 
 def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
@@ -744,6 +924,42 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
     assert lesson["revisions"][0]["plan"]["sections"][0]["node_id"] == "L2-1-1"
     assert lesson["revisions"][0]["source_refs"][0]["asset_id"] == "asset-1"
     assert "模型内容校验未通过" in completed["message"]
+
+
+def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    service = TeacherLessonAuthoringService(repository)
+    job = repository.create_job(
+        "course-1",
+        "L1-2",
+        request_id="request-scope-revision",
+        source_outline_revision_id="outline-v1",
+    )
+    plan = standard_lesson_plan()
+    plan["sections"][0]["node_id"] = "L2-2-1"
+
+    async def planner(_course, _lesson_id, _on_progress):
+        return {
+            "plan": plan,
+            "warnings": [],
+            "generation_source": "model",
+            "source_outline_revision_id": "knowledge-scope-v2",
+        }
+
+    completed = asyncio.run(service.run_plan_job(
+        course_id="course-1",
+        lesson_unit_id="L1-2",
+        job_id=job["id"],
+        course_data=course_data(),
+        planner=planner,
+    ))
+
+    assert completed["status"] == "completed"
+    revision = repository.lesson("course-1", "L1-2")["revisions"][0]
+    assert revision["source_outline_revision_id"] == "outline-v1"
+    assert revision["source_knowledge_scope_revision_id"] == "knowledge-scope-v2"
+    assert revision["quality_report"]["passed"] is True
 
 
 def test_failed_plan_job_keeps_streamed_working_copy(tmp_path):
@@ -1483,6 +1699,121 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
     rewrite_context = json.loads(FakeCourseService.rewrite_calls[0]["course_context"])
     assert rewrite_context["confirmed_lesson_plan"]["node_id"] == "L2-1-1"
     assert rewrite_context["teacher_requirements"] == "增加案例"
+
+
+def test_teacher_can_save_first_script_draft_without_model_revision(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    source = {**course_data(), "blueprint_revision_id": "outline-v1"}
+    lesson_plan = standard_lesson_plan()
+    second_section = json.loads(json.dumps(lesson_plan["sections"][0]))
+    second_section["node_id"] = "L2-1-2"
+    lesson_plan["sections"].append(second_section)
+    for section in (source["nodes"][1], source["nodes"][2]):
+        section["module_plan"] = [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+            "block_role": "concept",
+            "required": True,
+        }]
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        lesson_plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(
+            lesson_plan,
+            expected_section_ids=["L2-1-1", "L2-1-2"],
+        ),
+    )
+    repository.confirm_plan_revision(
+        "course-1", "L1-1", lesson["working_revision_id"]
+    )
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(_course_id):
+            return source
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    sections = []
+    for outline_section, plan_section in zip(
+        (source["nodes"][1], source["nodes"][2]),
+        lesson_plan["sections"],
+    ):
+        contract = compile_teacher_script_module_contract(
+            outline_section, plan_section
+        )
+        sections.append(compile_teacher_script_section(
+            "## 核心教学\n\n教师手工补全的可编辑讲稿，包含概念、例子与核对结论。",
+            contract,
+        ))
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+    with TestClient(app) as client:
+        saved = client.put(
+            "/api/teacher/courses/course-1/lessons/L1-1/script/draft",
+            json={"base_revision_id": "", "sections": sections},
+            headers={"X-User-Id": "teacher-1"},
+        )
+
+    assert saved.status_code == 200
+    stored = repository.lesson("course-1", "L1-1")
+    assert stored["working_script_revision_id"]
+    assert stored["script_revisions"][-1]["generation_source"] == "teacher_edit"
+
+
+def test_teacher_v6_visual_planner_keeps_base_ppt_available_without_ai():
+    result = asyncio.run(teacher_lesson_router._teacher_v6_visual_planner({
+        "pages": [
+            {
+                "page_id": "page-prose",
+                "template_layout_id": "layout-content",
+                "source_block_ids": ["block-1"],
+                "allowed_decisions": ["diagram", "text_native"],
+                "layout_requires_artifact": False,
+            },
+            {
+                "page_id": "page-table",
+                "template_layout_id": "layout-table",
+                "source_block_ids": ["block-2"],
+                "allowed_decisions": ["data", "table"],
+                "layout_requires_artifact": True,
+            },
+            {
+                "page_id": "page-diagram",
+                "template_layout_id": "layout-diagram",
+                "source_block_ids": ["block-3"],
+                "source_blocks": [{
+                    "block_id": "block-3",
+                    "source_text": "观察现象。建立模型。验证结论。",
+                }],
+                "allowed_decisions": ["diagram"],
+                "layout_requires_artifact": True,
+            },
+        ],
+    }))
+
+    assert result["model"] == "source-native-deterministic"
+    assert [item["decision"] for item in result["decisions"]] == [
+        "text_native", "table", "diagram",
+    ]
+    assert result["decisions"][1]["source_block_ids"] == ["block-2"]
+    diagram = result["decisions"][2]["visual_payload"]
+    assert len(diagram["nodes"]) == 3
+    assert len(diagram["edges"]) == 2
 
 
 def test_legacy_lightweight_ppt_write_chain_is_retired(tmp_path):

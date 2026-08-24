@@ -1075,6 +1075,7 @@ class TeacherLessonAuthoringRepository:
         plan: dict[str, Any],
         *,
         source_outline_revision_id: str,
+        source_knowledge_scope_revision_id: str = "",
         generation_source: str = "model",
         warnings: list[dict[str, Any]] | None = None,
         source_refs: list[dict[str, Any]] | None = None,
@@ -1096,6 +1097,7 @@ class TeacherLessonAuthoringRepository:
                 "revision_id": revision_id,
                 "lesson_unit_id": lesson_unit_id,
                 "source_outline_revision_id": source_outline_revision_id,
+                "source_knowledge_scope_revision_id": source_knowledge_scope_revision_id,
                 "generation_source": generation_source,
                 "status": (
                     "needs_ai_review"
@@ -2062,11 +2064,14 @@ class TeacherLessonAuthoringService:
                 for item in result.get("source_refs") or []
                 if isinstance(item, dict)
             ]
-            outline_revision = str(
-                result.get("source_outline_revision_id")
-                or self.repository.get_job(course_id, job_id).get("source_outline_revision_id")
+            job_source_revision = str(
+                self.repository.get_job(course_id, job_id).get("source_outline_revision_id")
                 or ""
             )
+            knowledge_scope_revision = str(
+                result.get("source_outline_revision_id") or ""
+            )
+            outline_revision = job_source_revision or knowledge_scope_revision
             quality_report = self._quality_report(
                 course_data,
                 lesson_unit_id,
@@ -2088,6 +2093,7 @@ class TeacherLessonAuthoringService:
                 lesson_unit_id,
                 plan,
                 source_outline_revision_id=outline_revision,
+                source_knowledge_scope_revision_id=knowledge_scope_revision,
                 generation_source=generation_source,
                 warnings=warnings,
                 source_refs=source_refs,
@@ -2195,11 +2201,30 @@ class TeacherLessonAuthoringService:
                 block_id = str(module.get("block_id") or "")
                 previous = existing.get(block_id)
                 if previous:
-                    completed.append({
+                    candidate = {
                         **deepcopy(module),
                         "content": str(previous.get("content") or "").strip(),
-                    })
-                    block_states[block_id] = "completed"
+                    }
+                    single_contract = {
+                        **deepcopy(contract),
+                        "modules": [deepcopy(module)],
+                    }
+                    seed_report = validate_teacher_script_section(
+                        {
+                            "section_node_id": section_id,
+                            "title": contract.get("title"),
+                            "blocks": [candidate],
+                        },
+                        single_contract,
+                    )
+                    if seed_report.get("passed"):
+                        completed.append(candidate)
+                        block_states[block_id] = "completed"
+                    else:
+                        # Checkpoints are reusable evidence, not trusted final
+                        # output. A truncated formula or newly tightened
+                        # quality rule must regenerate only the affected block.
+                        block_states[block_id] = "pending"
                 else:
                     block_states[block_id] = "pending"
             completed_by_section[section_id] = completed
@@ -2276,8 +2301,21 @@ class TeacherLessonAuthoringService:
                         module,
                         deepcopy(completed),
                     ) or "").strip()
-                    if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+                    current_after_generation = self.repository.get_job(
+                        course_id,
+                        job_id,
+                    )
+                    if current_after_generation.get("cancel_requested"):
                         raise asyncio.CancelledError
+                    if str(current_after_generation.get("status") or "") not in {
+                        "pending",
+                        "running",
+                    }:
+                        # A process-recovery watcher may have expired this job
+                        # while an uncooperative provider request was still in
+                        # flight. Never let the orphaned coroutine overwrite
+                        # that terminal state or publish a late revision.
+                        return current_after_generation
                     if not content:
                         raise TeacherLessonAuthoringError(
                             "lesson_script_block_empty",

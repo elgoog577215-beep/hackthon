@@ -537,7 +537,10 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
     PedagogyMode.NATURAL_SCIENCE: PedagogyTemplate(
         PedagogyMode.NATURAL_SCIENCE, "自然科学",
         ("解释自然现象", "设计实验", "建立模型", "预测结果"),
-        ("物理", "化学", "天文", "地质", "气象", "环境科学", "力学", "电磁", "量子"),
+        (
+            "物理", "化学", "天文", "地质", "气象", "环境科学", "力学", "电磁", "量子",
+            "牛顿", "受力", "加速度", "动力学", "运动学",
+        ),
         ("观察", "实验", "测量", "解释", "预测", "验证"),
         ("science_phenomenon_path",),
         ("science_phenomenon", "science_model", "science_evidence", "science_boundary", "science_prediction"),
@@ -782,6 +785,24 @@ def resolve_pedagogy_profile(
 def coerce_persisted_profile(course_data: dict[str, Any]) -> SubjectPedagogyProfile:
     raw = course_data.get("subject_pedagogy_profile") or course_data.get("pedagogy_profile") or {}
     if raw:
+        request = course_data.get("generation_request") or {}
+        subject = str(
+            course_data.get("course_name")
+            or request.get("subject")
+            or ""
+        )
+        requirements = str(
+            course_data.get("requirements")
+            or request.get("requirements")
+            or (request.get("course_intent") or {}).get("learning_goal")
+            or ""
+        )
+        if not bool(raw.get("user_locked")):
+            return resolve_pedagogy_profile(
+                subject=subject,
+                requirements=requirements,
+                materials=course_data.get("material_cards") or (),
+            )
         primary = parse_mode(raw.get("primary_mode")) or PedagogyMode.GENERAL
         secondary = parse_mode(raw.get("secondary_mode"))
         if secondary == primary:
@@ -792,8 +813,8 @@ def coerce_persisted_profile(course_data: dict[str, Any]) -> SubjectPedagogyProf
         except ValueError:
             intensity = SecondaryIntensity.LIGHT if secondary else None
         normalized = resolve_pedagogy_profile(
-            subject=str(course_data.get("course_name") or ""),
-            requirements=str(course_data.get("requirements") or ""),
+            subject=subject,
+            requirements=requirements,
             requested_mode=primary.value,
             requested_secondary_mode=secondary.value if secondary else None,
             requested_intensity=intensity.value if intensity else None,

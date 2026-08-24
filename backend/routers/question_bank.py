@@ -41,7 +41,7 @@ from course_document import COURSE_DOCUMENT_SCHEMA
 from course_repository import CourseDocumentRepository
 from course_versioning import stable_hash
 from course_versions import course_version_repository
-from dependencies import get_course_or_404
+from dependencies import get_course_or_404, get_task_manager_optional
 from exam_papers import exam_paper_repository
 from learning_asset_storage import learning_asset_repository
 from learning_assets import compile_learning_assets
@@ -73,6 +73,45 @@ router = APIRouter(
 )
 
 logger = logging.getLogger(__name__)
+
+
+async def _question_bank_course(course_id: str) -> dict[str, Any]:
+    """Project a generated teacher course without exposing drafts globally.
+
+    A newly confirmed outline can still live in the generation workspace while
+    the canonical CourseDocument shell has no published sections.  Question
+    generation is a teacher-only authoring action, so it may consume those
+    nodes, but persistence must keep the canonical shell as the owner.
+    """
+    canonical = await get_course_or_404(course_id)
+    if any(isinstance(item, dict) for item in canonical.get("nodes") or []):
+        return canonical
+    task_manager = get_task_manager_optional()
+    workspace = (
+        task_manager.get_generation_workspace_course(course_id)
+        if task_manager is not None
+        else None
+    )
+    if not isinstance(workspace, dict) or not any(
+        isinstance(item, dict) for item in workspace.get("nodes") or []
+    ):
+        return canonical
+    projected = deepcopy(workspace)
+    projected.update(deepcopy(canonical))
+    projected["nodes"] = deepcopy(workspace.get("nodes") or [])
+    for key in (
+        "course_plan",
+        "course_outline",
+        "subject_pedagogy_profile",
+        "difficulty_profile",
+        "course_difficulty_curve",
+        "course_composition_profile",
+        "course_knowledge_scope_contract",
+    ):
+        if key not in canonical and key in workspace:
+            projected[key] = deepcopy(workspace[key])
+    projected["teacher_generation_workspace_projection"] = True
+    return projected
 
 
 class QuestionBankRebuildRequest(BaseModel):
@@ -626,7 +665,7 @@ async def rebuild_question_bank(
     ),
 ):
     actor_id = require_user_id(x_user_id)
-    course = await get_course_or_404(course_id)
+    course = await _question_bank_course(course_id)
     if payload.material_asset_ids is not None:
         allowed_material_ids = _course_owned_material_asset_ids(
             course_id,

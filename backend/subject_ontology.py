@@ -21,7 +21,16 @@ _SUBJECT_REGISTRY: tuple[dict[str, Any], ...] = (
     {"subject_id": "physics.quantum_mechanics", "library_id": "physics.quantum_mechanics", "canonical_name": "量子力学", "root_name": "物理学", "aliases": ("量子力学", "量子物理", "quantummechanics", "quantumphysics")},
     {"subject_id": "physics.electromagnetism", "library_id": "physics.electromagnetism", "canonical_name": "电磁学", "root_name": "物理学", "aliases": ("电磁学", "电动力学", "electromagnetism")},
     {"subject_id": "physics.thermodynamics_statistical_physics", "library_id": "physics.thermodynamics_statistical_physics", "canonical_name": "热力学与统计物理", "root_name": "物理学", "aliases": ("热力学", "统计物理", "thermodynamics", "statisticalphysics")},
-    {"subject_id": "physics.classical_mechanics", "library_id": "physics.classical_mechanics", "canonical_name": "经典力学", "root_name": "物理学", "aliases": ("经典力学", "classicalmechanics")},
+    {
+        "subject_id": "physics.classical_mechanics",
+        "library_id": "physics.classical_mechanics",
+        "canonical_name": "经典力学",
+        "root_name": "物理学",
+        "aliases": (
+            "经典力学", "牛顿力学", "牛顿定律", "牛顿第二定律", "受力分析",
+            "classicalmechanics", "newtonianmechanics",
+        ),
+    },
     {"subject_id": "computer_science.machine_learning", "library_id": "computer_science.machine_learning", "canonical_name": "机器学习", "root_name": "计算机科学", "aliases": ("机器学习", "machinelearning")},
     {"subject_id": "computer_science.python", "library_id": "computer_science.python", "canonical_name": "Python 程序设计", "root_name": "计算机科学", "aliases": ("python",)},
     {"subject_id": "computer_science.java", "library_id": "computer_science.java", "canonical_name": "Java 程序设计", "root_name": "计算机科学", "aliases": ("java",)},
