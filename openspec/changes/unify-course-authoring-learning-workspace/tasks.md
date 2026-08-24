@@ -171,3 +171,4 @@
 - [ ] 19.5 Add a question-bank adapter only after teacher instructions are part of its rebuild/review contract; do not expose a fake generic editor before then.
 - [ ] 19.6 Replace the generic PPT chat panel with a V6-specific slide candidate adapter before presenting the shared production AI entry in the PPT workspace.
 - [x] 19.7 Add focused state/prompt tests, strict OpenSpec validation, production build, detector output and Chinese desktop verification.
+- [x] 19.8 Make the production AI pane visibly resizable and persistent, and expose six domain-safe quick candidate commands for each supported asset.

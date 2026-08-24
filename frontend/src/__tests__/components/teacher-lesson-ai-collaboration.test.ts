@@ -64,7 +64,50 @@ describe('教案 AI 协作编辑模式', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
+    window.localStorage.clear()
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
+  })
+
+  it('提供当前资产可执行的六项快捷修改，并把完整要求送入教案候选链', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
+      candidate_id: 'candidate-quick-action', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
+      instruction: '', section_node_id: 'section-1', plan: structuredClone(lesson.plan.revisions[0]!.plan), status: 'pending', created_at: '',
+    })
+    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
+    const wrapper = mountWorkbench()
+
+    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+
+    const actions = wrapper.findAll('.lesson-ai-quick-grid button')
+    expect(actions).toHaveLength(6)
+    expect(actions.map(action => action.text())).toEqual([
+      '让目标可观察', '增加课堂互动', '补充检查点', '调整时间节奏', '突出重点难点', '加入课堂案例',
+    ])
+
+    await actions[2]!.trigger('click')
+    await flushPromises()
+
+    expect(createCandidate).toHaveBeenCalledTimes(1)
+    expect(createCandidate.mock.calls[0]![3]).toContain('补充能判断学生是否达成目标的课堂检查点')
+  })
+
+  it('支持键盘调整 AI 面板宽度并保存教师偏好', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const wrapper = mountWorkbench()
+
+    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    const resizer = wrapper.get('.ai-workspace-resizer')
+
+    await resizer.trigger('keydown', { key: 'Home' })
+    expect(resizer.attributes('aria-valuenow')).toBe('360')
+
+    await resizer.trigger('keydown', { key: 'ArrowLeft' })
+    expect(resizer.attributes('aria-valuenow')).toBe('384')
+    expect(wrapper.attributes('style')).toContain('--ai-pane-width: 384px')
+    expect(window.localStorage.getItem('teacher-course-workbench:ai-pane-width')).toBe('384')
   })
 
   it('进入左右分屏，以多轮要求刷新左侧候选并保留确认边界', async () => {
@@ -141,14 +184,14 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(createCandidate).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('你希望优先调整哪一部分')
-    expect(wrapper.get('.lesson-ai-title > span').attributes('data-phase')).toBe('clarifying')
+    expect(wrapper.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
 
     await wrapper.findAll('.lesson-ai-clarification button')[0]!.trigger('click')
     await flushPromises()
 
     expect(createCandidate).toHaveBeenCalledTimes(1)
     expect(createCandidate.mock.calls[0]![3]).toContain('帮我改好一点')
-    expect(createCandidate.mock.calls[0]![3]).toContain('让目标可观察')
+    expect(createCandidate.mock.calls[0]![3]).toContain('具体、可观察、可检查')
   })
 
   it('刷新后恢复当前修订尚未处理的候选', async () => {
@@ -168,7 +211,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
     await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 方案'))!.trigger('click')
     expect(wrapper.text()).toContain('已恢复上次未处理的修改候选')
-    expect(wrapper.get('.lesson-ai-title > span').attributes('data-phase')).toBe('review')
+    expect(wrapper.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('review')
     await wrapper.findAll('.lesson-ai-review button').find(button => button.text().includes('放弃'))!.trigger('click')
     await flushPromises()
 
