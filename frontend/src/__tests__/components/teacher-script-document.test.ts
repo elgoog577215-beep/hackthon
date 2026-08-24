@@ -11,6 +11,12 @@ import zhMessages from '../../../public/locales/zh/translation.json'
 const lesson: TeacherLessonProjection = {
   lesson_unit_id: 'lesson-1', number: 1, title: '第1讲 爬虫概述', duration_minutes: 45,
   sections: [{ section_node_id: 'section-1', title: '1.1 爬虫基础' }],
+  arrangement: {
+    schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1',
+    lesson_unit_id: 'lesson-1', source_outline_revision_id: 'outline-1',
+    lesson_type: 'theory', lesson_type_label: '理论讲授', blocks: [],
+    status: 'confirmed', confirmed: true, source_state: 'current',
+  },
   script: {
     current_revision_id: 'script-1', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
     source_state: 'current', ready: true, confirmed: false, confirmed_at: '',

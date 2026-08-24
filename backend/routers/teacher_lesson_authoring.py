@@ -17,6 +17,12 @@ from dependencies import (
     require_task_manager,
 )
 from learner_context import resolve_user_id
+from lesson_arrangement import (
+    LESSON_TYPES,
+    normalize_lesson_arrangement,
+    recommend_lesson_arrangement,
+    validate_lesson_arrangement,
+)
 from material_storage import MaterialStorageError, material_repository
 from task_manager import TaskManager
 from teacher_lesson_authoring import (
@@ -69,6 +75,11 @@ class GenerateLessonPlanRequest(BaseModel):
     source_asset_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
+
+
+class ConfirmLessonArrangementRequest(BaseModel):
+    lesson_type: str
+    blocks: list[dict[str, Any]] = Field(min_length=1, max_length=32)
 
 
 class SaveLessonPlanDraftRequest(BaseModel):
@@ -271,6 +282,12 @@ def _lesson_projection(
         asset = assets.get(lesson_id) if isinstance(assets, dict) else None
         plan_asset = deepcopy(asset) if isinstance(asset, dict) else {
             "lesson_unit_id": lesson_id,
+            "arrangement": {
+                "working_revision_id": "",
+                "confirmed_revision_id": "",
+                "source_state": "current",
+                "revisions": [],
+            },
             "working_revision_id": "",
             "confirmed_revision_id": "",
             "source_state": "current",
@@ -280,6 +297,26 @@ def _lesson_projection(
             "script_confirmation": {},
             "ppt_assets": [],
         }
+        arrangement_state = plan_asset.get("arrangement") or {}
+        arrangement_revision_id = str(arrangement_state.get("working_revision_id") or "")
+        arrangement_revision = next(
+            (
+                item for item in arrangement_state.get("revisions") or []
+                if isinstance(item, dict) and item.get("revision_id") == arrangement_revision_id
+            ),
+            None,
+        )
+        arrangement = deepcopy(arrangement_revision) if isinstance(arrangement_revision, dict) else recommend_lesson_arrangement(
+            source,
+            lesson_id,
+            source_outline_revision_id=_canonical_outline_revision(source),
+        )
+        arrangement["confirmed"] = bool(
+            arrangement_revision_id
+            and arrangement_state.get("confirmed_revision_id") == arrangement_revision_id
+            and arrangement_state.get("source_state", "current") == "current"
+        )
+        arrangement["source_state"] = str(arrangement_state.get("source_state") or "current")
         working_script_revision_id = str(plan_asset.get("working_script_revision_id") or "")
         script_revision = next(
             (
@@ -349,6 +386,7 @@ def _lesson_projection(
                 }
                 for section in sections
             ],
+            "arrangement": arrangement,
             "script": {
                 "current_revision_id": current_script_revision,
                 "confirmed_revision_id": str(
@@ -575,6 +613,55 @@ async def get_lesson_authoring_view(
             "lessons": _lesson_projection(source, repository),
             "jobs": list((repository.view(course_id).get("jobs") or {}).values()),
         }
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.put("/courses/{course_id}/lessons/{lesson_unit_id}/arrangement/confirm")
+async def confirm_lesson_arrangement(
+    course_id: str,
+    lesson_unit_id: str,
+    body: ConfirmLessonArrangementRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        source = _source_course(tm, course_id)
+        scope = lesson_scope(source, lesson_unit_id)
+        outline_revision = _canonical_outline_revision(source)
+        repository.set_outline(course_id, outline_revision)
+        arrangement = normalize_lesson_arrangement(
+            body.model_dump(mode="json"),
+            lesson_unit_id=lesson_unit_id,
+            source_outline_revision_id=outline_revision,
+        )
+        issues = validate_lesson_arrangement(
+            arrangement,
+            expected_section_ids=[str(item.get("node_id") or "") for item in scope["sections"]],
+        )
+        if issues:
+            raise TeacherLessonAuthoringError(
+                "lesson_arrangement_invalid",
+                issues[0]["message"],
+                details={"blocking_issues": issues},
+            )
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        repository.save_arrangement_revision(
+            course_id,
+            lesson_unit_id,
+            arrangement,
+            source_outline_revision_id=outline_revision,
+            actor=actor,
+            confirm=True,
+        )
+        lesson = next(
+            item for item in _lesson_projection(source, repository)
+            if item["lesson_unit_id"] == lesson_unit_id
+        )
+        return {"lesson": lesson, "lesson_types": LESSON_TYPES}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -1059,6 +1146,12 @@ async def generate_lesson_plan(
         source_evidence.extend(selected_evidence)
         outline_revision = _canonical_outline_revision(source)
         repository.set_outline(course_id, outline_revision)
+        arrangement = repository.confirmed_arrangement(course_id, lesson_unit_id)
+        if not arrangement:
+            raise TeacherLessonAuthoringError(
+                "lesson_arrangement_not_confirmed",
+                "请先确认本讲课型与教学块，再生成教案。",
+            )
         job = repository.create_job(
             course_id,
             lesson_unit_id,
@@ -1124,6 +1217,7 @@ async def generate_lesson_plan(
                 lesson_unit_id=lesson_id,
                 on_phase=on_progress,
                 source_evidence=source_evidence,
+                lesson_arrangement=arrangement,
             )
 
         async def run() -> None:

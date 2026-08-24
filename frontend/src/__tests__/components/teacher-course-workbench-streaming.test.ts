@@ -266,6 +266,44 @@ describe('teacher course workbench outline streaming', () => {
     expect(reload).toHaveBeenCalledWith('course-1')
   })
 
+  it('先确认本讲课型与教学块，再沿原教案引擎生成', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45,
+      sections: [{ section_node_id: 'L2-1-1', title: '1.1 基础概念' }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: 'L1-1',
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'suggested', confirmed: false, source_state: 'current',
+        blocks: [{
+          block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1',
+          section_title: '1.1 基础概念', name: '概念讲解', role: 'concept', purpose: '建立概念',
+          content_summary: '用正反例讲清概念边界', planned_minutes: 45,
+          teacher_activity: '', student_activity: '', expected_output: '', required: true,
+        }],
+      },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }] as any
+    const confirmArrangement = vi.spyOn(lessonStore, 'confirmArrangement').mockResolvedValue(lessonStore.lessons[0]!)
+    const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'job-1' } as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    expect(wrapper.get('[data-testid="lesson-arrangement-editor"]').text()).toContain('确认本讲怎么组织')
+    expect(wrapper.get('[data-testid="lesson-type-select"]').element).toHaveProperty('value', 'theory')
+
+    await wrapper.get('[data-testid="lesson-arrangement-editor"]').trigger('submit')
+    await flushPromises()
+
+    expect(confirmArrangement).toHaveBeenCalledWith(
+      'course-1',
+      'L1-1',
+      expect.objectContaining({ lesson_type: 'theory', blocks: [expect.objectContaining({ block_id: 'block-1' })] }),
+    )
+    expect(generateLesson).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [])
+  })
+
   it('教案任务开始后原位显示真实进度并隐藏重复提交按钮', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{

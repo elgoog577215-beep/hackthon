@@ -499,6 +499,18 @@ const lessons = computed<TeacherLessonProjection[]>(() => {
       title: node.node_name.replace(/^第\s*\d+\s*讲\s*/, ''),
       duration_minutes: Number((node as any).estimated_minutes || 45),
       sections: [],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1',
+        revision_id: '',
+        lesson_unit_id: node.node_id,
+        source_outline_revision_id: '',
+        lesson_type: 'theory',
+        lesson_type_label: '理论讲授',
+        blocks: [],
+        status: 'suggested',
+        confirmed: false,
+        source_state: 'current',
+      },
       script: {
         current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
         source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [],

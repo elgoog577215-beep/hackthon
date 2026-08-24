@@ -29,6 +29,12 @@ from teacher_script import (
 from course_presentation_graph import compile_course_presentation_graph
 from course_service import CourseService
 from dependencies import get_teacher_lesson_authoring_repository, require_task_manager
+from lesson_arrangement import (
+    _lesson_type,
+    apply_lesson_arrangement_to_plan,
+    recommend_lesson_arrangement,
+    validate_lesson_arrangement,
+)
 from routers import teacher_lesson_authoring as teacher_lesson_router
 from routers import courses as courses_router
 
@@ -87,6 +93,81 @@ def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     assert scoped["lesson"]["node_name"] == "第一讲"
     assert [item["node_id"] for item in scoped["sections"]] == ["L2-1-1", "L2-1-2"]
     assert scoped["chapter"]["node_id"] == "L1-1"
+
+
+def test_lesson_arrangement_projects_existing_modules_without_example_exam_collision():
+    arrangement = recommend_lesson_arrangement(
+        course_data(),
+        "L1-2",
+        source_outline_revision_id="outline-v1",
+    )
+
+    assert arrangement["lesson_type"] == "theory"
+    assert arrangement["confirmed"] is False
+    assert {item["section_node_id"] for item in arrangement["blocks"]} == {"L2-2-1"}
+    assert validate_lesson_arrangement(
+        arrangement,
+        expected_section_ids=["L2-2-1"],
+    ) == []
+
+    applied = apply_lesson_arrangement_to_plan(
+        course_data()["course_plan"],
+        {**arrangement, "lesson_type": "case_discussion"},
+    )
+    section = applied["chapters"][1]["sections"][0]
+    assert section["lesson_archetype"]["label"] == "案例研讨"
+    assert [item["arrangement_block_id"] for item in section["module_plan"]] == [
+        item["block_id"] for item in arrangement["blocks"]
+    ]
+
+    assert _lesson_type(
+        ["engineering_debugging_lab", "engineering_guided_build"],
+        ["core_explanation", "engineering_review", "engineering_testing"],
+    ) == "theory_practice"
+
+
+def test_lesson_arrangement_adapts_legacy_node_outline_into_same_recommendation():
+    legacy = course_data()
+    legacy.pop("course_plan")
+
+    arrangement = recommend_lesson_arrangement(
+        legacy,
+        "L1-1",
+        source_outline_revision_id="legacy-outline-v1",
+    )
+
+    assert arrangement["blocks"]
+    assert {item["section_node_id"] for item in arrangement["blocks"]} == {
+        "L2-1-1",
+        "L2-1-2",
+    }
+    assert validate_lesson_arrangement(
+        arrangement,
+        expected_section_ids=["L2-1-1", "L2-1-2"],
+    ) == []
+
+
+def test_lesson_arrangement_compacts_large_legacy_chapter_to_one_row_per_section():
+    legacy = course_data()
+    legacy.pop("course_plan")
+    legacy["nodes"] = [legacy["nodes"][0], *[
+        {
+            "node_id": f"legacy-section-{index}",
+            "parent_node_id": "L1-1",
+            "node_level": 2,
+            "node_name": f"1.{index} 历史小节{index}",
+        }
+        for index in range(1, 7)
+    ]]
+
+    arrangement = recommend_lesson_arrangement(legacy, "L1-1")
+
+    assert len(arrangement["blocks"]) == 6
+    assert {item["section_node_id"] for item in arrangement["blocks"]} == {
+        f"legacy-section-{index}" for index in range(1, 7)
+    }
+    assert all(item["module_id"] == "teacher_section_sequence" for item in arrangement["blocks"])
+    assert all("→" in item["content_summary"] for item in arrangement["blocks"])
 
 
 def test_standard_lesson_plan_quality_gate_is_shared_by_draft_and_confirmation():
@@ -1197,9 +1278,20 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     class FakeCourseService:
         calls = []
 
-        async def prepare_teacher_lesson_plan(self, *, course_data, lesson_unit_id, on_phase, source_evidence=None):
+        async def prepare_teacher_lesson_plan(
+            self,
+            *,
+            course_data,
+            lesson_unit_id,
+            on_phase,
+            source_evidence=None,
+            lesson_arrangement=None,
+        ):
             self.calls.append(lesson_unit_id)
             assert source_evidence == []
+            assert lesson_arrangement["lesson_type"] == "theory"
+            assert lesson_arrangement["status"] == "confirmed"
+            assert {item["section_node_id"] for item in lesson_arrangement["blocks"]} == {"L2-2-1"}
             assert course_data["requirements"] == "突出课堂讨论与案例分析"
             selected = next(
                 item
@@ -1262,6 +1354,27 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
         view = client.get("/api/teacher/courses/course-1/lesson-authoring")
         assert view.status_code == 200
         assert [item["lesson_unit_id"] for item in view.json()["lessons"]] == ["L1-1", "L1-2"]
+
+        blocked = client.post(
+            "/api/teacher/courses/course-1/lessons/L1-2/plan/generate",
+            json={"request_id": "before-arrangement"},
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"]["code"] == "lesson_arrangement_not_confirmed"
+
+        lesson_two = next(
+            item for item in view.json()["lessons"]
+            if item["lesson_unit_id"] == "L1-2"
+        )
+        arrangement_response = client.put(
+            "/api/teacher/courses/course-1/lessons/L1-2/arrangement/confirm",
+            json={
+                "lesson_type": lesson_two["arrangement"]["lesson_type"],
+                "blocks": lesson_two["arrangement"]["blocks"],
+            },
+        )
+        assert arrangement_response.status_code == 200
+        assert arrangement_response.json()["lesson"]["arrangement"]["confirmed"] is True
 
         response = client.post(
             "/api/teacher/courses/course-1/lessons/L1-2/plan/generate",

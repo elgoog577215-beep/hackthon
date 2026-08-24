@@ -42,6 +42,35 @@ export interface TeacherLessonPlanAsset {
   ppt_assets: TeacherLessonPptAsset[]
 }
 
+export interface TeacherLessonArrangementBlock {
+  block_id: string
+  module_id: string
+  section_node_id: string
+  section_title: string
+  name: string
+  role: string
+  purpose: string
+  content_summary: string
+  planned_minutes: number
+  teacher_activity: string
+  student_activity: string
+  expected_output: string
+  required: boolean
+}
+
+export interface TeacherLessonArrangement {
+  schema_version: 'teacher_lesson_arrangement_v1'
+  revision_id: string
+  lesson_unit_id: string
+  source_outline_revision_id: string
+  lesson_type: 'theory' | 'practice' | 'theory_practice' | 'case_discussion' | 'experiment_inquiry' | 'project_workshop' | 'review_assessment'
+  lesson_type_label: string
+  blocks: TeacherLessonArrangementBlock[]
+  status: 'suggested' | 'draft' | 'confirmed'
+  confirmed: boolean
+  source_state: 'current' | 'stale'
+}
+
 export interface TeacherLessonScriptState {
   current_revision_id: string
   confirmed_revision_id: string
@@ -156,6 +185,7 @@ export interface TeacherLessonProjection {
   title: string
   duration_minutes: number
   sections: Array<{ section_node_id: string; title: string }>
+  arrangement: TeacherLessonArrangement
   script: TeacherLessonScriptState
   plan: TeacherLessonPlanAsset
 }
@@ -407,6 +437,31 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         return job
       } catch (error) {
         this.error = errorMessage(error, '本讲教案生成失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
+      }
+    },
+    async confirmArrangement(
+      courseId: string,
+      lessonUnitId: string,
+      arrangement: Pick<TeacherLessonArrangement, 'lesson_type' | 'blocks'>,
+    ) {
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const response = await http.put<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/arrangement/confirm`,
+          {
+            lesson_type: arrangement.lesson_type,
+            blocks: arrangement.blocks,
+          },
+          requestConfig(),
+        )
+        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '本讲课型与教学块确认失败')
         throw error
       } finally {
         this.actionLessonId = ''

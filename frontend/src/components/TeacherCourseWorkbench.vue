@@ -237,11 +237,17 @@
             </article>
             <div v-else class="lesson-stream-waiting">{{ t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…') }}</div>
           </section>
-          <form v-else-if="selectedLesson && !workingLessonRevision" class="stage-form stage-form--lesson" @submit.prevent="generateLessonPlan">
-            <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.lessonFocus', '本讲重点') }}</span><textarea v-model.trim="lessonRequirements" rows="4" :placeholder="t('courseWorkbench.form.lessonFocusPlaceholder', '填写重难点、教学方法或课堂活动要求')" /></label>
+          <div v-else-if="selectedLesson && !workingLessonRevision" class="lesson-arrangement-step">
+            <TeacherLessonArrangementEditor
+              v-model:requirements="lessonRequirements"
+              :arrangement="selectedLesson.arrangement"
+              :sections="selectedLesson.sections"
+              :busy="lessonBusy || lessonGenerationActive"
+              :error="lessonGenerationFailed ? lessonGenerationError : ''"
+              @confirm="confirmArrangementAndGenerate"
+            />
             <AppErrorNotice v-if="lessonGenerationErrorPresentation" class="lesson-generation-error" :presentation="lessonGenerationErrorPresentation" compact />
-            <footer class="lesson-form-actions"><button class="primary" type="submit" :disabled="lessonBusy || lessonGenerationActive || !selectedLessonId"><LoaderCircle v-if="lessonBusy" :size="16" class="spin" /><Sparkles v-else :size="16" />{{ lessonGenerationFailed ? t('courseWorkbench.retryLessonPlan', '重新生成本讲教案') : t('courseWorkbench.generateLessonPlan', '生成本讲教案') }}</button></footer>
-          </form>
+          </div>
           <TeacherLessonPlanDocument
             v-else-if="workingLessonRevision && selectedLesson"
             ref="lessonPlanDocument"
@@ -368,6 +374,7 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction } from './TeacherLessonAiWorkspace.vue'
+import TeacherLessonArrangementEditor from './TeacherLessonArrangementEditor.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import {
@@ -386,7 +393,7 @@ import type { CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
-import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
+import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonArrangement, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 import http, { teacherRequestConfig } from '../utils/http'
 
@@ -952,7 +959,27 @@ function generationBindings(references: CourseReferenceItem[]) { return referenc
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
 async function submitFoundation() { generationRequested.value = true; try { const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }; delete baseTeacherBrief.chapter_count; delete baseTeacherBrief.section_count; await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')); emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { ...baseTeacherBrief, schema_version: 'teacher_course_brief_v1', target_audience: baseTeacherBrief.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: baseTeacherBrief.lesson_duration_minutes || 45, teaching_context: baseTeacherBrief.teaching_context || 'classroom' }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value }) } catch { generationRequested.value = false } }
 async function confirmOutlineShape() { if (!shapeCountsValid.value || shapeConfirming.value) return; shapeConfirming.value = true; shapeConfirmError.value = null; try { const counts = chapterSectionCounts.value.map(count => Number(count)); await courseWorkspaceStore.confirmOutlineShape(props.courseId, counts); generationRequested.value = true; await generationStore.fetchGlobalTasks() } catch (error: any) { shapeConfirmError.value = error } finally { shapeConfirming.value = false } }
-async function generateLessonPlan() { if (!selectedLesson.value || lessonGenerationActive.value) return; lessonBusy.value = true; lessonConfirmError.value = ''; try { await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', selectedLesson.value.title); const primary = activeReferences.value.find(item => item.role === 'primary'); await lessonStore.generateLesson(props.courseId, selectedLessonId.value, primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined, lessonRequirements.value, activeReferences.value.map(item => item.material_asset_id)) } catch { /* The store keeps the teacher-visible reason. */ } finally { lessonBusy.value = false } }
+async function confirmArrangementAndGenerate(arrangement: Pick<TeacherLessonArrangement, 'lesson_type' | 'blocks'>) {
+  if (!selectedLesson.value || lessonBusy.value || lessonGenerationActive.value) return
+  lessonBusy.value = true
+  lessonConfirmError.value = ''
+  try {
+    await lessonStore.confirmArrangement(props.courseId, selectedLessonId.value, arrangement)
+    await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', selectedLesson.value.title)
+    const primary = activeReferences.value.find(item => item.role === 'primary')
+    await lessonStore.generateLesson(
+      props.courseId,
+      selectedLessonId.value,
+      primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined,
+      lessonRequirements.value,
+      activeReferences.value.map(item => item.material_asset_id),
+    )
+  } catch {
+    lessonConfirmError.value = lessonStore.error || t('courseWorkbench.arrangement.confirmFailed', '本讲编排确认失败，请重试。')
+  } finally {
+    lessonBusy.value = false
+  }
+}
 async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision); activeStage.value = 'question-bank' } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
 function selectLesson(lessonId?: string) {
   if (!lessonId) return

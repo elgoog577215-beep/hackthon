@@ -22,6 +22,7 @@ from typing import Any, Awaitable, Callable
 
 from course_document import document_from_generation_draft
 from course_pedagogy import module_block_role
+from lesson_arrangement import normalize_lesson_arrangement
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,
@@ -46,6 +47,27 @@ class TeacherLessonAuthoringError(RuntimeError):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _empty_lesson_asset(lesson_unit_id: str) -> dict[str, Any]:
+    return {
+        "lesson_unit_id": lesson_unit_id,
+        "arrangement": {
+            "working_revision_id": "",
+            "confirmed_revision_id": "",
+            "source_state": "current",
+            "revisions": [],
+        },
+        "working_revision_id": "",
+        "confirmed_revision_id": "",
+        "source_state": "current",
+        "revisions": [],
+        "ai_candidates": [],
+        "working_script_revision_id": "",
+        "script_revisions": [],
+        "script_confirmation": {},
+        "ppt_assets": [],
+    }
 
 
 def _text_list(value: Any) -> list[str]:
@@ -877,7 +899,25 @@ class TeacherLessonAuthoringRepository:
             value = self.load(course_id)
             value["outline_revision_id"] = outline_revision_id
             for lesson in (value.get("lessons") or {}).values():
-                if not isinstance(lesson, dict) or not lesson.get("working_revision_id"):
+                if not isinstance(lesson, dict):
+                    continue
+                arrangement = lesson.get("arrangement") or {}
+                arrangement_revision = next(
+                    (
+                        item for item in arrangement.get("revisions") or []
+                        if isinstance(item, dict)
+                        and item.get("revision_id") == arrangement.get("working_revision_id")
+                    ),
+                    None,
+                )
+                arrangement["source_state"] = (
+                    "current"
+                    if not arrangement_revision
+                    or str(arrangement_revision.get("source_outline_revision_id") or "") == outline_revision_id
+                    else "stale"
+                )
+                lesson["arrangement"] = arrangement
+                if not lesson.get("working_revision_id"):
                     continue
                 working = next(
                     (
@@ -894,6 +934,76 @@ class TeacherLessonAuthoringRepository:
                     else "stale"
                 )
             return self._save(value)
+
+    def save_arrangement_revision(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        arrangement: dict[str, Any],
+        *,
+        source_outline_revision_id: str,
+        actor: str = "teacher",
+        confirm: bool = True,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = value.setdefault("lessons", {}).setdefault(
+                lesson_unit_id,
+                _empty_lesson_asset(lesson_unit_id),
+            )
+            state = lesson.setdefault("arrangement", {
+                "working_revision_id": "",
+                "confirmed_revision_id": "",
+                "source_state": "current",
+                "revisions": [],
+            })
+            normalized = normalize_lesson_arrangement(
+                arrangement,
+                lesson_unit_id=lesson_unit_id,
+                source_outline_revision_id=source_outline_revision_id,
+            )
+            revision_id = f"tlar-{uuid.uuid4().hex}"
+            revision = {
+                **normalized,
+                "revision_id": revision_id,
+                "status": "confirmed" if confirm else "draft",
+                "actor": actor,
+                "created_at": _now(),
+                **({"confirmed_at": _now()} if confirm else {}),
+            }
+            state.setdefault("revisions", []).append(revision)
+            state["working_revision_id"] = revision_id
+            state["source_state"] = (
+                "current"
+                if not value.get("outline_revision_id")
+                or str(value.get("outline_revision_id") or "") == source_outline_revision_id
+                else "stale"
+            )
+            if confirm:
+                state["confirmed_revision_id"] = revision_id
+            lesson["arrangement"] = state
+            if source_outline_revision_id and not value.get("outline_revision_id"):
+                value["outline_revision_id"] = source_outline_revision_id
+            saved = self._save(value)
+            return deepcopy(saved["lessons"][lesson_unit_id])
+
+    def confirmed_arrangement(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+    ) -> dict[str, Any] | None:
+        lesson = self.lesson(course_id, lesson_unit_id)
+        state = lesson.get("arrangement") or {}
+        revision_id = str(state.get("confirmed_revision_id") or "")
+        if not revision_id or state.get("source_state", "current") != "current":
+            return None
+        return deepcopy(next(
+            (
+                item for item in state.get("revisions") or []
+                if isinstance(item, dict) and item.get("revision_id") == revision_id
+            ),
+            None,
+        ))
 
     def create_job(
         self,
@@ -1014,18 +1124,10 @@ class TeacherLessonAuthoringRepository:
             effective_quality = deepcopy(
                 quality_report or validate_teacher_lesson_plan(normalized_plan)
             )
-            lesson = value.setdefault("lessons", {}).setdefault(lesson_unit_id, {
-                "lesson_unit_id": lesson_unit_id,
-                "working_revision_id": "",
-                "confirmed_revision_id": "",
-                "source_state": "current",
-                "revisions": [],
-                "ai_candidates": [],
-                "working_script_revision_id": "",
-                "script_revisions": [],
-                "script_confirmation": {},
-                "ppt_assets": [],
-            })
+            lesson = value.setdefault("lessons", {}).setdefault(
+                lesson_unit_id,
+                _empty_lesson_asset(lesson_unit_id),
+            )
             revision_id = f"tlpr-{uuid.uuid4().hex}"
             revision = {
                 "revision_id": revision_id,
@@ -1331,18 +1433,7 @@ class TeacherLessonAuthoringRepository:
         value = self.load(course_id)
         lesson = (value.get("lessons") or {}).get(lesson_unit_id)
         if not isinstance(lesson, dict):
-            return {
-                "lesson_unit_id": lesson_unit_id,
-                "working_revision_id": "",
-                "confirmed_revision_id": "",
-                "source_state": "current",
-                "revisions": [],
-                "ai_candidates": [],
-                "working_script_revision_id": "",
-                "script_revisions": [],
-                "script_confirmation": {},
-                "ppt_assets": [],
-            }
+            return _empty_lesson_asset(lesson_unit_id)
         return deepcopy(lesson)
 
     def confirm_plan_revision(

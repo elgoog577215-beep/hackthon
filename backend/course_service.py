@@ -159,6 +159,7 @@ from course_teaching_plan_v3 import (
 )
 from course_type_contracts import apply_course_type_brief, resolve_course_type
 from learner_context import DEFAULT_USER_ID
+from lesson_arrangement import apply_lesson_arrangement_to_plan
 from evidence_package import freeze_evidence_package
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
@@ -2043,6 +2044,7 @@ class CourseService(AIBase):
         lesson_unit_id: str,
         on_phase: Callable[..., Awaitable[None] | None] | None = None,
         source_evidence: list[dict[str, Any]] | None = None,
+        lesson_arrangement: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Generate one teacher lesson without entering learner content flow.
 
@@ -2093,6 +2095,11 @@ class CourseService(AIBase):
             scoped_plan,
             coerce_persisted_profile(course_data),
         )
+        if lesson_arrangement:
+            scoped_plan = apply_lesson_arrangement_to_plan(
+                scoped_plan,
+                lesson_arrangement,
+            )
         source_hints = [
             {
                 "evidence_id": str(item.get("evidence_id") or ""),
