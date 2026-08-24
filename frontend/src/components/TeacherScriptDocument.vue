@@ -97,13 +97,40 @@
         <span>{{ String(selectedNodeIndex + 1).padStart(2, '0') }}</span>
         <h4>{{ selectedNode.title }}</h4>
       </header>
+      <div v-if="editing && selectedNode.blocks?.length" class="script-block-editor">
+        <section v-for="block in selectedNode.blocks" :key="block.block_id">
+          <header>
+            <div>
+              <span>{{ blockRoleLabel(block.role) }}</span>
+              <h5>{{ block.title }}</h5>
+            </div>
+            <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
+          </header>
+          <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" />
+        </section>
+      </div>
       <textarea
-        v-if="editing"
+        v-else-if="editing"
         v-model="drafts[selectedNode.section_node_id]"
         rows="24"
         :aria-label="selectedNode.title"
       />
-      <div v-else-if="visibleContent" class="script-content" :data-state="pendingCandidate ? 'candidate' : 'current'">
+      <div v-else-if="pendingCandidate && visibleContent" class="script-content" data-state="candidate">
+        <MarkdownRenderer :content="visibleContent" />
+      </div>
+      <div v-else-if="selectedNode.blocks?.length" class="script-modules">
+        <section v-for="block in selectedNode.blocks" :key="block.block_id" class="script-module">
+          <header>
+            <div>
+              <span>{{ blockRoleLabel(block.role) }}</span>
+              <h5>{{ block.title }}</h5>
+            </div>
+            <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
+          </header>
+          <MarkdownRenderer :content="block.content" />
+        </section>
+      </div>
+      <div v-else-if="visibleContent" class="script-content" data-state="current">
         <MarkdownRenderer :content="visibleContent" />
       </div>
       <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
@@ -169,6 +196,7 @@ const editing = ref(false)
 const saving = ref(false)
 const saveError = ref('')
 const drafts = reactive<Record<string, string>>({})
+const blockDrafts = reactive<Record<string, string>>({})
 const aiOpen = ref(false)
 const aiInstruction = ref('')
 const aiBusy = ref(false)
@@ -206,6 +234,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.generate': '生成本讲讲稿',
   'courseWorkbench.scriptDocument.generating': '正在生成…',
   'courseWorkbench.scriptDocument.planRequired': '请先确认本讲教案',
+  'courseWorkbench.scriptDocument.minutes': '分钟',
   'courseWorkbench.scriptPending': '本讲暂时没有可用讲稿。',
 }
 
@@ -242,7 +271,10 @@ function requestGeneration() {
 }
 
 function beginEditing() {
-  scriptSections.value.forEach(node => { drafts[node.section_node_id] = node.content || '' })
+  scriptSections.value.forEach(node => {
+    drafts[node.section_node_id] = node.content || ''
+    node.blocks?.forEach(block => { blockDrafts[block.block_id] = block.content || '' })
+  })
   aiOpen.value = false
   editing.value = true
   saveError.value = ''
@@ -252,6 +284,7 @@ function cancelEditing() {
   editing.value = false
   saveError.value = ''
   Object.keys(drafts).forEach(key => { delete drafts[key] })
+  Object.keys(blockDrafts).forEach(key => { delete blockDrafts[key] })
 }
 
 async function saveDraft() {
@@ -259,10 +292,17 @@ async function saveDraft() {
   saving.value = true
   saveError.value = ''
   try {
-    const sections = scriptSections.value.map(node => ({
-      ...node,
-      content: drafts[node.section_node_id] ?? node.content ?? '',
-    }))
+    const sections = scriptSections.value.map(node => (
+      node.blocks?.length
+        ? {
+            ...node,
+            blocks: node.blocks.map(block => ({
+              ...block,
+              content: blockDrafts[block.block_id] ?? block.content ?? '',
+            })),
+          }
+        : { ...node, content: drafts[node.section_node_id] ?? node.content ?? '' }
+    ))
     await lessonStore.saveScriptDraft(
       props.courseId,
       props.lesson.lesson_unit_id,
@@ -317,10 +357,11 @@ async function applyCandidate() {
       props.courseId,
       props.lesson.lesson_unit_id,
       props.lesson.script.current_revision_id,
-      scriptSections.value.map(item => ({
-        ...item,
-        content: item.section_node_id === candidate.nodeId ? candidate.content : item.content,
-      })),
+      scriptSections.value.map(item => (
+        item.section_node_id === candidate.nodeId
+          ? { section_node_id: item.section_node_id, title: item.title, content: candidate.content }
+          : item
+      )),
     )
     discardCandidate()
     emit('saved')
@@ -329,6 +370,16 @@ async function applyCandidate() {
   } finally {
     aiBusy.value = false
   }
+}
+
+function blockRoleLabel(role: string) {
+  const fallbacks: Record<string, string> = {
+    orientation: '课堂导向', prerequisite: '前置衔接', objective: '教学目标', concept: '概念讲解',
+    reasoning: '推理过程', example: '示例讲解', counterexample: '反例辨析', application: '应用迁移',
+    activity: '课堂活动', feedback: '检查反馈', misconception: '易错辨析', checkpoint: '课堂检查',
+    remediation: '补充讲解', summary: '课堂小结', transfer: '综合迁移',
+  }
+  return t(`courseWorkbench.scriptDocument.roles.${role}`, fallbacks[role] || '教学环节')
 }
 
 watch(() => props.lesson.lesson_unit_id, () => {
@@ -349,6 +400,6 @@ watch(scriptSections, sections => {
 </script>
 
 <style scoped>
-.script-document{background:#fff}.script-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}.script-title{min-width:0;display:grid;gap:5px}.script-kicker{display:flex;align-items:center;gap:9px;color:#6366f1;font-size:11px;font-weight:800}.script-kicker i{padding:3px 7px;border-radius:999px;color:#92400e;background:#fff7ed;font-style:normal;font-weight:750}.script-kicker i[data-state="confirmed"]{color:#047857;background:#ecfdf5}.script-kicker i[data-state="editing"],.script-kicker i[data-state="candidate"]{color:#4338ca;background:#eef2ff}.script-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.script-title p{margin:0;color:#7a8699;font-size:12px}.script-actions{flex:none;display:flex;align-items:center;gap:2px}.script-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.script-actions button:hover{color:#3730a3;background:#f2f3fa}.script-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-actions button:disabled{opacity:.45;cursor:not-allowed}.script-actions .resolved-action{margin-left:4px;border-color:#d7ddea;background:#fff}.script-ai{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.script-ai textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.5;resize:vertical}.script-ai textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-ai button,.script-footer button,.script-generate button{display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.script-ai button:disabled,.script-footer button:disabled,.script-generate button:disabled{opacity:.45;cursor:not-allowed}.script-error{margin:0;padding:10px 28px;color:#b91c1c;background:#fff1f2;font-size:12px}.script-generate{min-height:320px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-content:start;gap:12px;padding:28px}.script-generate textarea{min-height:112px;box-sizing:border-box;padding:13px 14px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:13px;line-height:1.65;resize:vertical}.script-generate textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-generate button{min-height:42px;padding-inline:18px}.script-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.script-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:12px;white-space:nowrap;cursor:pointer}.script-tabs button span{color:#94a3b8;font-size:10px;font-weight:800}.script-tabs button:hover{color:#3730a3}.script-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.script-tabs button.active span{color:#6366f1}.script-body{min-height:360px;padding:28px}.script-body>header{display:flex;align-items:center;gap:10px;margin-bottom:22px}.script-body>header span{color:#6366f1;font-size:11px;font-weight:850}.script-body>header h4{margin:0;color:#172033;font-size:16px}.script-body>textarea{width:100%;min-height:520px;box-sizing:border-box;padding:14px 15px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:13px;line-height:1.75;resize:vertical}.script-body>textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-content{color:#405068;font-size:13px;line-height:1.75}.script-content[data-state="candidate"]{padding-left:16px;border-left:2px solid #6366f1}.script-empty{min-height:260px;display:grid;place-items:center;color:#7a8699;font-size:13px}.script-footer{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.script-saved{display:flex;align-items:center;gap:7px;color:#047857;font-size:12px;font-weight:700}.script-footer button{min-height:38px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.script-document{background:#fff}.script-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}.script-title{min-width:0;display:grid;gap:5px}.script-kicker{display:flex;align-items:center;gap:9px;color:#6366f1;font-size:11px;font-weight:800}.script-kicker i{padding:3px 7px;border-radius:999px;color:#92400e;background:#fff7ed;font-style:normal;font-weight:750}.script-kicker i[data-state="confirmed"]{color:#047857;background:#ecfdf5}.script-kicker i[data-state="editing"],.script-kicker i[data-state="candidate"]{color:#4338ca;background:#eef2ff}.script-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.script-title p{margin:0;color:#7a8699;font-size:12px}.script-actions{flex:none;display:flex;align-items:center;gap:2px}.script-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.script-actions button:hover{color:#3730a3;background:#f2f3fa}.script-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-actions button:disabled{opacity:.45;cursor:not-allowed}.script-actions .resolved-action{margin-left:4px;border-color:#d7ddea;background:#fff}.script-ai{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.script-ai textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.5;resize:vertical}.script-ai textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-ai button,.script-footer button,.script-generate button{display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.script-ai button:disabled,.script-footer button:disabled,.script-generate button:disabled{opacity:.45;cursor:not-allowed}.script-error{margin:0;padding:10px 28px;color:#b91c1c;background:#fff1f2;font-size:12px}.script-generate{min-height:320px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-content:start;gap:12px;padding:28px}.script-generate textarea{min-height:112px;box-sizing:border-box;padding:13px 14px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:13px;line-height:1.65;resize:vertical}.script-generate textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-generate button{min-height:42px;padding-inline:18px}.script-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.script-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:12px;white-space:nowrap;cursor:pointer}.script-tabs button span{color:#94a3b8;font-size:10px;font-weight:800}.script-tabs button:hover{color:#3730a3}.script-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.script-tabs button.active span{color:#6366f1}.script-body{min-height:360px;padding:28px}.script-body>header{display:flex;align-items:center;gap:10px;margin-bottom:22px}.script-body>header span{color:#6366f1;font-size:11px;font-weight:850}.script-body>header h4{margin:0;color:#172033;font-size:16px}.script-body>textarea,.script-block-editor textarea{width:100%;box-sizing:border-box;padding:14px 15px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:13px;line-height:1.75;resize:vertical}.script-body>textarea{min-height:520px}.script-block-editor textarea{min-height:220px}.script-body>textarea:focus,.script-block-editor textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-content{color:#405068;font-size:13px;line-height:1.75}.script-content[data-state="candidate"]{padding-left:16px;border-left:2px solid #6366f1}.script-modules,.script-block-editor{display:grid}.script-module,.script-block-editor>section{padding:0 0 30px;margin:0 0 30px;border-bottom:1px solid #e8ecf2}.script-module:last-child,.script-block-editor>section:last-child{padding-bottom:0;margin-bottom:0;border-bottom:0}.script-module>header,.script-block-editor>section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:14px}.script-module>header div,.script-block-editor>section>header div{display:grid;gap:4px}.script-module h5,.script-block-editor h5{margin:0;color:#172033;font-size:15px}.script-module header span,.script-block-editor header span{color:#6366f1;font-size:10px;font-weight:800}.script-module header small,.script-block-editor header small{flex:none;color:#7a8699;font-size:11px}.script-module{color:#405068;font-size:13px;line-height:1.75}.script-empty{min-height:260px;display:grid;place-items:center;color:#7a8699;font-size:13px}.script-footer{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.script-saved{display:flex;align-items:center;gap:7px;color:#047857;font-size:12px;font-weight:700}.script-footer button{min-height:38px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.script-footer{padding-inline:18px}}
 </style>

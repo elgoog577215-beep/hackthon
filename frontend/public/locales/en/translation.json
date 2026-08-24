@@ -275,6 +275,11 @@
     "scriptConfirmFailed": "Could not confirm this script. Try again.",
     "scriptGenerationFailed": "Could not generate this script. Try again.",
     "lessonNavigation": "Lesson navigation",
+    "lessonOutline": {
+      "title": "Lesson outline",
+      "collapse": "Collapse lesson outline",
+      "expand": "Expand lesson outline"
+    },
     "previousLesson": "Previous lesson",
     "nextLesson": "Next lesson",
     "nextToScript": "Open script",
@@ -355,7 +360,25 @@
       "generationPlaceholder": "For example: add one classroom example while preserving the confirmed lesson timing",
       "generate": "Generate this script",
       "generating": "Generating…",
-      "planRequired": "Confirm this lesson plan first"
+      "planRequired": "Confirm this lesson plan first",
+      "minutes": "min",
+      "roles": {
+        "orientation": "Orientation",
+        "prerequisite": "Prerequisites",
+        "objective": "Objective",
+        "concept": "Concept",
+        "reasoning": "Reasoning",
+        "example": "Example",
+        "counterexample": "Counterexample",
+        "application": "Application",
+        "activity": "Class activity",
+        "feedback": "Feedback",
+        "misconception": "Misconception",
+        "checkpoint": "Checkpoint",
+        "remediation": "Remediation",
+        "summary": "Summary",
+        "transfer": "Transfer"
+      }
     },
     "completeOutlineFirst": "Generate and confirm the course outline first",
     "backToFoundation": "Back to course foundation",

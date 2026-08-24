@@ -20,6 +20,12 @@ from teacher_lesson_authoring import (
     teacher_lesson_v6_source,
     validate_teacher_lesson_plan,
 )
+from teacher_script import (
+    compile_teacher_script_module_contract,
+    compile_teacher_script_section,
+    normalize_teacher_script_section,
+    validate_teacher_script_section,
+)
 from course_presentation_graph import compile_course_presentation_graph
 from course_service import CourseService
 from dependencies import get_teacher_lesson_authoring_repository, require_task_manager
@@ -106,6 +112,159 @@ def test_standard_lesson_plan_quality_gate_is_shared_by_draft_and_confirmation()
         "lesson_plan:modules",
         "lesson_plan:checks",
     }
+
+
+def test_teacher_script_inherits_confirmed_archetype_and_module_order():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "lesson_archetype": {
+            "archetype_id": "general_concept_building",
+            "label": "概念建构",
+        },
+        "module_plan": [
+            {"module_id": "lesson_goal", "label": "本节任务", "required": True},
+            {"module_id": "general_concept_model", "label": "概念模型", "required": True},
+            {"module_id": "feedback_check", "label": "检查与反馈", "required": True},
+        ],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "learning_objective": "能解释概念并划清边界。",
+        "teaching_modules": [
+            {"module_id": "lesson_goal", "planned_minutes": 3},
+            {"module_id": "general_concept_model", "planned_minutes": 20},
+            {"module_id": "feedback_check", "planned_minutes": 7},
+        ],
+    }
+
+    contract = compile_teacher_script_module_contract(outline, plan)
+    assert contract["lesson_archetype"]["label"] == "概念建构"
+    assert [item["module_id"] for item in contract["modules"]] == [
+        "lesson_goal", "general_concept_model", "feedback_check",
+    ]
+    assert [item["title"] for item in contract["modules"]] == [
+        "本节任务", "概念模型", "检查与反馈",
+    ]
+
+    compiled = compile_teacher_script_section(
+        "## 本节任务\n\n今天我们先明确要解决的问题和课后可验证的成果。\n\n"
+        "## 概念模型\n\n【板书】从定义、条件与边界三个方面逐步建立概念模型，并用正反例核对。\n\n"
+        "## 检查与反馈\n\n【提问】请判断一个新情境并说明依据；随后对照标准定位典型错误。",
+        contract,
+    )
+    assert compiled["quality_report"]["passed"] is True
+    assert [item["module_id"] for item in compiled["blocks"]] == [
+        "lesson_goal", "general_concept_model", "feedback_check",
+    ]
+    source = course_data()
+    source["nodes"][1].update(outline)
+    _document, view, _synthetic_id = teacher_lesson_v6_source(
+        source,
+        lesson_unit_id="L1-1",
+        plan_revision={
+            "revision_id": "plan-1",
+            "plan": {
+                "schema_version": "course_teaching_plan_v3",
+                "sections": [plan],
+            },
+        },
+        script_revision={
+            "revision_id": "script-1",
+            "sections": [compiled],
+        },
+    )
+    projected_blocks = view["nodes"][1]["content_blocks"]
+    assert [item["metadata"]["module_id"] for item in projected_blocks] == [
+        "lesson_goal", "general_concept_model", "feedback_check",
+    ]
+    assert all(
+        item["metadata"]["source_kind"] == "confirmed_teacher_script_block"
+        for item in projected_blocks
+    )
+    assert all(item["title"] != "讲稿正文" for item in projected_blocks)
+
+    generic = compile_teacher_script_section(
+        "## 背景导入\n\n这是一段模型自行增加的通用模板内容。",
+        contract,
+    )
+    report = validate_teacher_script_section(generic, contract)
+    assert report["passed"] is False
+    assert {item["code"] for item in report["blocking_issues"]} >= {
+        "teacher_script:module_contract",
+        "teacher_script:module_heading",
+    }
+
+    tampered = json.loads(json.dumps(compiled))
+    tampered["blocks"][0]["block_id"] = "replacement-block"
+    tampered["blocks"][0]["role"] = "example"
+    tampered["blocks"][0]["knowledge_names"] = ["教案范围外知识"]
+    tampered_report = validate_teacher_script_section(tampered, contract)
+    assert {item["code"] for item in tampered_report["blocking_issues"]} >= {
+        "teacher_script:block_contract",
+        "teacher_script:role_contract",
+        "teacher_script:knowledge_scope",
+    }
+
+
+def test_teacher_script_service_uses_teacher_prompt_instead_of_self_study_rewrite(monkeypatch):
+    service = CourseService()
+    captured = {}
+
+    async def fake_call(user_prompt, system_prompt, **_kwargs):
+        captured["user_prompt"] = user_prompt
+        captured["system_prompt"] = system_prompt
+        return "## 核心教学\n\n【板书】围绕定义、条件和边界展开讲解，并用一个正例与反例组织课堂判断。"
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="course-1",
+        outline_section={
+            "node_id": "L2-1-1",
+            "node_name": "1.1 核心概念",
+            "lesson_archetype": {
+                "archetype_id": "general_concept_building",
+                "label": "概念建构",
+                "purpose": "建立概念、关系和边界。",
+            },
+            "module_plan": [{
+                "module_id": "core_explanation",
+                "label": "核心教学",
+                "required": True,
+            }],
+        },
+        confirmed_plan_section={
+            "node_id": "L2-1-1",
+            "learning_objective": "能解释核心概念并划清边界。",
+            "teaching_modules": [{
+                "module_id": "core_explanation",
+                "knowledge_names": ["核心概念"],
+                "planned_minutes": 20,
+                "teacher_activity": "用正反例讲解。",
+            }],
+        },
+        lesson_context={"lesson_title": "第一讲"},
+        requirements="贴近课堂表达",
+    ))
+
+    assert result["quality_report"]["passed"] is True
+    assert "教师生成可直接在课堂上使用的讲稿" in captured["system_prompt"]
+    assert "本节课型：概念建构" in captured["system_prompt"]
+    assert "## 核心教学" in captured["system_prompt"]
+    assert "自学课程的完整小节" not in captured["system_prompt"]
+
+
+def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
+    original = "## 老师原有标题\n\n老师原本的一整篇课堂讲稿。"
+    migrated = normalize_teacher_script_section({
+        "section_node_id": "L2-1-1",
+        "title": "1.1 核心概念",
+        "content": original,
+    })
+
+    assert len(migrated["blocks"]) == 1
+    assert migrated["blocks"][0]["module_id"] == "legacy_script"
+    assert migrated["blocks"][0]["content"] == original
 
 
 def test_canonical_outline_revision_recovers_current_state_and_blocks_weak_plan(tmp_path):
@@ -759,19 +918,35 @@ def test_script_confirmation_is_required_by_the_only_v6_ppt_api(tmp_path):
 def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain(tmp_path, monkeypatch):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     source = {**course_data(), "blueprint_revision_id": "outline-v1"}
+    for section in (source["nodes"][1], source["nodes"][2]):
+        section["module_plan"] = [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+            "block_role": "concept",
+            "required": True,
+            "lesson_archetype_id": "general_concept_building",
+            "lesson_archetype_label": "概念建构",
+        }]
+    lesson_plan = standard_lesson_plan()
+    second_section = json.loads(json.dumps(lesson_plan["sections"][0]))
+    second_section["node_id"] = "L2-1-2"
+    lesson_plan["sections"].append(second_section)
     lesson = repository.save_plan_revision(
         "course-1",
         "L1-1",
-        standard_lesson_plan(),
+        lesson_plan,
         source_outline_revision_id="outline-v1",
-        quality_report=validate_teacher_lesson_plan(standard_lesson_plan()),
+        quality_report=validate_teacher_lesson_plan(
+            lesson_plan,
+            expected_section_ids=["L2-1-1", "L2-1-2"],
+        ),
     )
     plan_revision = lesson["working_revision_id"]
     repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
 
     class FakeCourseService:
         registered = False
-        redefine_calls = []
+        script_calls = []
         rewrite_calls = []
 
         @classmethod
@@ -781,15 +956,21 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
             cls.registered = True
 
         @staticmethod
-        async def redefine_content(**kwargs):
-            FakeCourseService.redefine_calls.append(kwargs)
-            return f"{kwargs['node']['node_name']} 的正式课堂讲稿，严格遵循已确认教案。"
+        async def generate_teacher_script_section(**kwargs):
+            FakeCourseService.script_calls.append(kwargs)
+            contract = compile_teacher_script_module_contract(
+                kwargs["outline_section"], kwargs["confirmed_plan_section"]
+            )
+            return compile_teacher_script_section(
+                "## 核心教学\n\n这是一段严格遵循已确认教案、可直接用于课堂讲授的正式讲稿。",
+                contract,
+            )
 
         @staticmethod
         async def rewrite_selection(**kwargs):
             FakeCourseService.rewrite_calls.append(kwargs)
             assert "增加一个真实案例" in kwargs["user_requirement"]
-            return {"replacement_text": "AI 候选讲稿，已增加真实案例。"}
+            return {"replacement_text": "## 核心教学\n\nAI 候选讲稿，已增加真实案例并保持原教学模块。"}
 
     class FakeStorage:
         @staticmethod
@@ -848,6 +1029,7 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
 
         edited_sections = first_script["sections"]
         edited_sections[0]["content"] = candidate.json()["replacement_text"]
+        edited_sections[0].pop("blocks", None)
         saved = client.put(
             "/api/teacher/courses/course-1/lessons/L1-1/script/draft",
             json={"base_revision_id": first_revision, "sections": edited_sections},
@@ -878,10 +1060,9 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
         assert "AI 候选讲稿" in payload
 
     assert FakeCourseService.registered is True
-    assert len(FakeCourseService.redefine_calls) == 2
-    assert all("增加案例" in call["requirement"] for call in FakeCourseService.redefine_calls)
-    assert all("需核验" in call["requirement"] for call in FakeCourseService.redefine_calls)
-    generation_context = json.loads(FakeCourseService.redefine_calls[0]["course_context"])
+    assert len(FakeCourseService.script_calls) == 2
+    assert all(call["requirements"] == "增加案例" for call in FakeCourseService.script_calls)
+    generation_context = FakeCourseService.script_calls[0]["lesson_context"]
     assert generation_context["selected_material_evidence"][0]["text"] == "资料中的可靠案例"
     rewrite_context = json.loads(FakeCourseService.rewrite_calls[0]["course_context"])
     assert rewrite_context["confirmed_lesson_plan"]["node_id"] == "L2-1-1"

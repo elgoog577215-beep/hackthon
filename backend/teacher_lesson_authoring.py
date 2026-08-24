@@ -22,6 +22,11 @@ from typing import Any, Awaitable, Callable
 
 from course_document import document_from_generation_draft
 from course_pedagogy import module_block_role
+from teacher_script import (
+    SCRIPT_PIPELINE_VERSION,
+    SCRIPT_QUALITY_VERSION,
+    normalize_teacher_script_section,
+)
 
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
@@ -465,15 +470,43 @@ def teacher_lesson_script_sections_revision(
     sections: list[dict[str, Any]],
 ) -> str:
     """Fingerprint one teacher-script asset without depending on course storage."""
-    payload = [
-        {
+    payload = []
+    for section in sections:
+        if not isinstance(section, dict):
+            continue
+        blocks = [
+            block for block in section.get("blocks") or [] if isinstance(block, dict)
+        ]
+        # Preserve the historic content fingerprint for one-way migrated v1
+        # scripts so existing confirmation links remain valid.
+        legacy_only = bool(blocks) and all(
+            str(block.get("module_id") or "") == "legacy_script" for block in blocks
+        )
+        item = {
             "section_node_id": str(section.get("section_node_id") or ""),
             "title": str(section.get("title") or ""),
-            "content": str(section.get("content") or ""),
         }
-        for section in sections
-        if isinstance(section, dict)
-    ]
+        if blocks and not legacy_only:
+            item["blocks"] = [
+                {
+                    "block_id": str(block.get("block_id") or ""),
+                    "module_id": str(block.get("module_id") or ""),
+                    "role": str(block.get("role") or ""),
+                    "title": str(block.get("title") or ""),
+                    "content": str(block.get("content") or ""),
+                    "knowledge_names": list(block.get("knowledge_names") or []),
+                    "planned_minutes": block.get("planned_minutes"),
+                    "teacher_activity": str(block.get("teacher_activity") or ""),
+                    "student_activity": str(block.get("student_activity") or ""),
+                }
+                for block in blocks
+            ]
+        else:
+            item["content"] = str(
+                (blocks[0].get("content") if legacy_only else section.get("content"))
+                or ""
+            )
+        payload.append(item)
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()[:24]
@@ -598,12 +631,58 @@ def teacher_lesson_v6_source(
             if isinstance(item, dict)
         ]
         blocks: list[dict[str, Any]] = []
+        script_section = script_sections.get(section_id) or {}
+        all_script_blocks = [
+            item for item in script_section.get("blocks") or []
+            if isinstance(item, dict) and str(item.get("content") or "").strip()
+        ]
+        legacy_script_blocks = [
+            item for item in all_script_blocks
+            if str(item.get("module_id") or "") == "legacy_script"
+        ]
+        structured_script_blocks = (
+            []
+            if all_script_blocks and len(legacy_script_blocks) == len(all_script_blocks)
+            else all_script_blocks
+        )
+        for script_block in structured_script_blocks:
+            module_id = str(script_block.get("module_id") or "core_explanation")
+            role = str(script_block.get("role") or module_block_role(module_id))
+            if role not in {
+                "orientation", "prerequisite", "objective", "concept", "reasoning",
+                "example", "counterexample", "application", "activity", "feedback",
+                "misconception", "checkpoint", "remediation", "summary", "transfer",
+            }:
+                role = "concept"
+            knowledge_names = [
+                str(item) for item in script_block.get("knowledge_names") or []
+                if str(item).strip()
+            ]
+            blocks.append({
+                "block_id": str(script_block.get("block_id") or f"{section_id}-{module_id}"),
+                "type": role,
+                "title": str(script_block.get("title") or module_id),
+                "content": str(script_block.get("content") or "").strip(),
+                "metadata": {
+                    "role": role,
+                    "module_id": module_id,
+                    "module_instance_id": str(
+                        script_block.get("block_id") or f"{section_id}:{module_id}"
+                    ),
+                    "concept_refs": knowledge_names,
+                    "planned_minutes": script_block.get("planned_minutes"),
+                    "teacher_activity": str(script_block.get("teacher_activity") or ""),
+                    "student_activity": str(script_block.get("student_activity") or ""),
+                    "source_kind": "confirmed_teacher_script_block",
+                },
+            })
         script_content = str(
-            (script_sections.get(section_id) or {}).get("content")
+            (legacy_script_blocks[0].get("content") if legacy_script_blocks else "")
+            or script_section.get("content")
             or outline_section.get("node_content")
             or ""
         ).strip()
-        if script_content:
+        if script_content and not structured_script_blocks:
             blocks.append({
                 "block_id": f"{section_id}-teacher-script",
                 "type": "concept",
@@ -614,7 +693,10 @@ def teacher_lesson_v6_source(
                     "source_kind": "confirmed_teacher_script",
                 },
             })
-        for module_index, module in enumerate(modules, start=1):
+        for module_index, module in enumerate(
+            [] if structured_script_blocks else modules,
+            start=1,
+        ):
             module_id = str(module.get("module_id") or "core_explanation")
             role = module_block_role(module_id)
             if role not in {
@@ -1335,23 +1417,72 @@ class TeacherLessonAuthoringRepository:
         material_asset_ids: list[str] | None = None,
         actor: str = "teacher",
     ) -> dict[str, Any]:
-        normalized_sections = [
-            {
-                "section_node_id": str(item.get("section_node_id") or "").strip(),
-                "title": str(item.get("title") or "").strip(),
-                "content": str(item.get("content") or "").strip(),
-            }
-            for item in sections
-            if isinstance(item, dict)
-        ]
+        normalized_sections = []
+        for item in sections:
+            if not isinstance(item, dict):
+                continue
+            normalized = normalize_teacher_script_section(item)
+            quality_report = deepcopy(item.get("quality_report") or {})
+            if not quality_report:
+                quality_report = {
+                    "schema_version": SCRIPT_QUALITY_VERSION,
+                    "pipeline_version": "legacy_script_adapter_v1",
+                    "passed": True,
+                    "blocking_issues": [],
+                    "review_issues": [{
+                        "code": "teacher_script:legacy_adapter",
+                        "message": "该讲稿由旧正文兼容迁移，建议教师确认教学块边界。",
+                    }],
+                    "metrics": {"block_count": len(normalized.get("blocks") or [])},
+                }
+            normalized["quality_report"] = quality_report
+            normalized["pipeline_version"] = str(
+                item.get("pipeline_version")
+                or quality_report.get("pipeline_version")
+                or SCRIPT_PIPELINE_VERSION
+            )
+            normalized_sections.append(normalized)
         if not normalized_sections or any(
-            not item["section_node_id"] or not item["content"]
+            not item["section_node_id"]
+            or not item["content"]
+            or not item.get("blocks")
             for item in normalized_sections
         ):
             raise TeacherLessonAuthoringError(
                 "lesson_script_incomplete",
                 "本讲仍有小节没有讲稿内容，暂时不能保存。",
             )
+        blocking_issues = [
+            {
+                **deepcopy(issue),
+                "section_node_id": str(section.get("section_node_id") or ""),
+            }
+            for section in normalized_sections
+            for issue in (section.get("quality_report") or {}).get("blocking_issues") or []
+            if isinstance(issue, dict)
+        ]
+        review_issues = [
+            {
+                **deepcopy(issue),
+                "section_node_id": str(section.get("section_node_id") or ""),
+            }
+            for section in normalized_sections
+            for issue in (section.get("quality_report") or {}).get("review_issues") or []
+            if isinstance(issue, dict)
+        ]
+        revision_quality = {
+            "schema_version": SCRIPT_QUALITY_VERSION,
+            "pipeline_version": SCRIPT_PIPELINE_VERSION,
+            "passed": not blocking_issues,
+            "blocking_issues": blocking_issues,
+            "review_issues": review_issues,
+            "metrics": {
+                "section_count": len(normalized_sections),
+                "block_count": sum(
+                    len(section.get("blocks") or []) for section in normalized_sections
+                ),
+            },
+        }
         revision_id = teacher_lesson_script_sections_revision(normalized_sections)
         with self._lock:
             value = self.load(course_id)
@@ -1387,6 +1518,8 @@ class TeacherLessonAuthoringRepository:
                         if str(value or "").strip()
                     )),
                     "sections": normalized_sections,
+                    "quality_report": revision_quality,
+                    "pipeline_version": SCRIPT_PIPELINE_VERSION,
                     "actor": actor,
                     "created_at": _now(),
                 })
@@ -1443,6 +1576,15 @@ class TeacherLessonAuthoringRepository:
                 raise TeacherLessonAuthoringError(
                     "lesson_plan_revision_conflict",
                     "讲稿对应的教案已经变化，请重新生成讲稿。",
+                )
+            quality_report = revision.get("quality_report") or {}
+            if quality_report and not quality_report.get("passed"):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_quality_blocked",
+                    "讲稿仍有未通过的教学结构检查，请修正后再确认。",
+                    details={
+                        "quality_report": deepcopy(quality_report),
+                    },
                 )
             lesson["script_confirmation"] = {
                 "confirmed_revision_id": revision_id,

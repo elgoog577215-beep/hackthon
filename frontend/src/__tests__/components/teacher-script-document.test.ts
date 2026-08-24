@@ -46,6 +46,38 @@ describe('统一讲稿页面', () => {
     expect(wrapper.find('.script-document').exists()).toBe(true)
   })
 
+  it('按已确认教案的教学块展示和逐块编辑讲稿', async () => {
+    const structuredLesson = structuredClone(lesson)
+    structuredLesson.script.sections[0] = {
+      section_node_id: 'section-1',
+      title: '1.1 爬虫基础',
+      content: '## 本节任务\n\n先说明目标。\n\n## 核心教学\n\n讲清核心概念。',
+      schema_version: 'teacher_script_v2',
+      blocks: [
+        { block_id: 'block-1', module_id: 'lesson_goal', role: 'objective', title: '本节任务', content: '先说明目标。', planned_minutes: 3 },
+        { block_id: 'block-2', module_id: 'core_explanation', role: 'concept', title: '核心教学', content: '讲清核心概念。', planned_minutes: 20 },
+      ],
+    }
+    const store = useTeacherLessonAuthoringStore()
+    const save = vi.spyOn(store, 'saveScriptDraft').mockResolvedValue(structuredLesson as any)
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson: structuredLesson } })
+
+    expect(wrapper.findAll('.script-module')).toHaveLength(2)
+    expect(wrapper.text()).toContain('本节任务')
+    expect(wrapper.text()).toContain('核心教学')
+
+    await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲稿'))!.trigger('click')
+    const editors = wrapper.findAll('.script-block-editor textarea')
+    expect(editors).toHaveLength(2)
+    await editors[1]!.setValue('老师逐块修改后的核心讲解。')
+    await wrapper.findAll('.script-actions button').find(button => button.text().includes('完成编辑'))!.trigger('click')
+    await flushPromises()
+
+    const savedSections = save.mock.calls[0]![3]
+    expect(savedSections[0]!.blocks?.[0]!.content).toBe('先说明目标。')
+    expect(savedSections[0]!.blocks?.[1]!.content).toBe('老师逐块修改后的核心讲解。')
+  })
+
   it('把用户要求生成成页面内候选，采用后才写入正式正文', async () => {
     const store = useTeacherLessonAuthoringStore()
     const rewrite = vi.spyOn(store, 'rewriteScriptSection').mockResolvedValue({ replacement_text: 'AI 候选讲稿' } as any)

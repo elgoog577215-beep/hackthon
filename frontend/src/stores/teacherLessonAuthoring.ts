@@ -50,11 +50,36 @@ export interface TeacherLessonScriptState {
   ready: boolean
   confirmed: boolean
   confirmed_at: string
-  sections: Array<{
-    section_node_id: string
-    title: string
-    content: string
-  }>
+  sections: TeacherLessonScriptSection[]
+}
+
+export interface TeacherLessonScriptBlock {
+  block_id: string
+  module_id: string
+  role: string
+  title: string
+  content: string
+  required?: boolean
+  knowledge_names?: string[]
+  planned_minutes?: number | null
+  teacher_activity?: string
+  student_activity?: string
+}
+
+export interface TeacherLessonScriptSection {
+  section_node_id: string
+  title: string
+  content: string
+  schema_version?: 'teacher_script_v2'
+  lesson_archetype?: Record<string, any>
+  blocks?: TeacherLessonScriptBlock[]
+  pipeline_version?: string
+  quality_report?: {
+    passed: boolean
+    blocking_issues: Array<{ code: string; message: string }>
+    review_issues: Array<{ code: string; message: string }>
+    metrics: Record<string, number>
+  }
 }
 
 export interface TeacherLessonPptRevision {

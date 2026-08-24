@@ -151,3 +151,12 @@
 - [x] 17.2 Persist per-batch stream checkpoints atomically on the existing lesson job and expose reconnectable SSE snapshots without creating a second lesson-plan source of truth.
 - [x] 17.3 Render readable partial lesson-plan content in the original workbench surface and replace it with the quality-gated formal revision on completion.
 - [x] 17.4 Preserve streamed working content on failure, retain polling as transport fallback and cover model, repository, API and workbench behavior with focused tests.
+
+## 18. Structured teacher scripts and semantic V6 handoff
+
+- [x] 18.1 Freeze and validate the vertical teaching contract from pedagogy mode, subject variant and lesson archetype through confirmed teaching modules, script blocks, V6 teaching units and visual layout contracts.
+- [x] 18.2 Replace the self-study section rewrite call with one teacher-script generator that consumes the confirmed module contract, selected evidence and shared old-body quality rules without reselecting the lesson archetype.
+- [x] 18.3 Store ordered structured script blocks as the lesson script truth, derive Markdown deterministically, preserve legacy content through a one-way compatibility adapter and block confirmation on structural quality failures.
+- [x] 18.4 Render and edit the same script blocks in the existing document surface, keep the page visually continuous and route AI candidates through the same working revision.
+- [x] 18.5 Compile V6 source units directly from confirmed script blocks, preserve module/role/knowledge bindings and remove the duplicate giant-script-plus-plan-module projection.
+- [x] 18.6 Add focused backend/frontend tests, validate the active OpenSpec, run the production frontend build and verify the Chinese desktop script-to-PPT flow.

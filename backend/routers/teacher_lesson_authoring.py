@@ -30,6 +30,11 @@ from teacher_lesson_authoring import (
     teacher_lesson_script_revision,
     teacher_lesson_v6_source,
 )
+from teacher_script import (
+    compile_teacher_script_module_contract,
+    normalize_teacher_script_section,
+    validate_teacher_script_section,
+)
 from teacher_course_space import teacher_course_space_repository
 from slide_deck_renderer import export_structured_slide_deck
 from representation_compiler import export_slide_deck_pptx
@@ -1403,45 +1408,31 @@ async def generate_lesson_script(
             section_id = str(section.get("node_id") or "")
             section_title = str(section.get("node_name") or "")
             confirmed_plan = plan_sections.get(section_id) or {}
-            requirement = "\n".join(filter(None, [
-                "基于已确认教案生成可直接用于课堂讲授的教师讲稿。",
-                "严格保持教案中的教学目标、教学重点难点、课堂活动、检查与时间安排，不得自行改变教学结构。",
-                "正文要包含自然导入、核心讲解、例子或提问、活动衔接、检查反馈与小结；不输出本节标题，不编造来源。",
-                "涉及法律、医学、政策或其他高风险事实时必须使用有条件的准确表述；选定资料无法支持时标注“需核验”，不得把案例绝对判定为合法、违法或有效。",
-                f"教师补充要求：{body.requirements.strip()}" if body.requirements.strip() else "",
-            ]))
-            content = await asyncio.wait_for(
-                tm.course_service.redefine_content(
+            generated = await asyncio.wait_for(
+                tm.course_service.generate_teacher_script_section(
                     course_id=course_id,
-                    node={**section, "confirmed_lesson_plan": deepcopy(confirmed_plan)},
-                    requirement=requirement,
-                    original_content="",
-                    course_context=json.dumps({
+                    outline_section=section,
+                    confirmed_plan_section=confirmed_plan,
+                    lesson_context={
                         "lesson_title": str(scope["lesson"].get("node_name") or ""),
                         "lesson_sections": [
                             str(item.get("node_name") or "")
                             for item in scope["sections"]
                         ],
-                        "confirmed_lesson_plan": confirmed_plan,
                         "material_asset_ids": selected_material_ids,
                         "selected_material_evidence": prompt_evidence,
-                    }, ensure_ascii=False),
-                    previous_context="",
+                    },
+                    requirements=body.requirements,
                     user_id=actor,
                 ),
                 timeout=150,
             )
-            cleaned = str(content or "").strip()
-            if not cleaned:
+            if not generated.get("content") or not generated.get("blocks"):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_generation_failed",
                     f"{section_title} 的讲稿没有生成有效内容，请重试。",
                 )
-            return {
-                "section_node_id": section_id,
-                "title": section_title,
-                "content": cleaned,
-            }
+            return generated
 
         generated_sections = await asyncio.gather(*(
             generate_section(section) for section in scope["sections"]
@@ -1505,6 +1496,11 @@ async def save_lesson_script_draft(
         base_revision = _script_revision(
             repository, course_id, lesson_unit_id, body.base_revision_id
         )
+        base_sections = {
+            str(item.get("section_node_id") or ""): item
+            for item in base_revision.get("sections") or []
+            if isinstance(item, dict) and item.get("section_node_id")
+        }
         expected_ids = [str(item.get("node_id") or "") for item in scope["sections"]]
         actual_ids = [str(item.get("section_node_id") or "") for item in body.sections]
         if actual_ids != expected_ids:
@@ -1513,10 +1509,39 @@ async def save_lesson_script_draft(
                 "讲稿小节与当前大纲不一致，请重新载入。",
             )
         plan_revision_id = str(lesson.get("confirmed_revision_id") or "")
+        plan_revision = _plan_revision(
+            repository, course_id, lesson_unit_id, plan_revision_id
+        )
+        plan_sections = {
+            str(item.get("node_id") or ""): item
+            for item in (plan_revision.get("plan") or {}).get("sections") or []
+            if isinstance(item, dict) and item.get("node_id")
+        }
+        outline_sections = {
+            str(item.get("node_id") or ""): item for item in scope["sections"]
+        }
+        normalized_sections = []
+        for item in body.sections:
+            section_id = str(item.get("section_node_id") or "")
+            if not item.get("blocks") and not (
+                base_sections.get(section_id) or {}
+            ).get("blocks"):
+                normalized_sections.append(normalize_teacher_script_section(item))
+                continue
+            contract = compile_teacher_script_module_contract(
+                outline_sections.get(section_id) or {},
+                plan_sections.get(section_id) or {},
+            )
+            normalized = normalize_teacher_script_section(item, contract)
+            normalized["quality_report"] = validate_teacher_script_section(
+                normalized,
+                contract,
+            )
+            normalized_sections.append(normalized)
         repository.save_script_revision(
             course_id,
             lesson_unit_id,
-            body.sections,
+            normalized_sections,
             source_lesson_plan_revision_id=plan_revision_id,
             generation_source="teacher_edit",
             requirements=str(base_revision.get("requirements") or ""),
@@ -1592,6 +1617,11 @@ async def rewrite_lesson_script_candidate(
             ),
             {},
         )
+        script_headings = [
+            str(item.get("title") or "").strip()
+            for item in section.get("blocks") or []
+            if isinstance(item, dict) and str(item.get("title") or "").strip()
+        ]
         result = await tm.course_service.rewrite_selection(
             course_id=course_id,
             node=outline_section,
@@ -1601,6 +1631,10 @@ async def rewrite_lesson_script_candidate(
             user_requirement="\n".join(filter(None, [
                 body.instruction.strip(),
                 "保持已确认教案结构和事实边界；涉及高风险事实而选定资料无法支持时标注“需核验”，不得给出无依据的绝对结论。",
+                (
+                    "完整保留并仅使用这些二级标题，顺序和名称均不得改变："
+                    + "、".join(f"## {title}" for title in script_headings)
+                ) if script_headings else "",
             ])),
             action_type="rewrite",
             course_context=json.dumps({

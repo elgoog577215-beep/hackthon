@@ -164,6 +164,10 @@ from material_evidence import attach_evidence_to_plan, extract_grounding_annotat
 from material_pipeline import prepare_course_materials
 from material_storage import MaterialRepository, material_repository
 from models import NodeGenerationConfig
+from teacher_script import (
+    compile_teacher_script_module_contract,
+    compile_teacher_script_section,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -6545,6 +6549,112 @@ class CourseService(AIBase):
     # ------------------------------------------------------------------
     # 局部内容操作
     # ------------------------------------------------------------------
+
+    async def generate_teacher_script_section(
+        self,
+        *,
+        course_id: str,
+        outline_section: dict[str, Any],
+        confirmed_plan_section: dict[str, Any],
+        lesson_context: dict[str, Any] | None = None,
+        requirements: str = "",
+        user_id: str = DEFAULT_USER_ID,
+    ) -> dict[str, Any]:
+        """Generate one teacher-facing script from the confirmed module contract.
+
+        The outline/plan pipeline has already selected subject mode, lesson
+        archetype and modules. This stage only verbalizes that frozen structure;
+        it must not choose a second generic teaching template.
+        """
+        contract = compile_teacher_script_module_contract(
+            outline_section,
+            confirmed_plan_section,
+        )
+        modules = [
+            item for item in contract.get("modules") or [] if isinstance(item, dict)
+        ]
+        if not modules:
+            raise AIProviderRequestError("已确认教案没有可编译为讲稿的教学模块")
+
+        module_lines = []
+        for index, module in enumerate(modules, start=1):
+            constraints = [
+                f"教学目的：{module.get('teaching_purpose')}"
+                if module.get("teaching_purpose") else "",
+                f"知识范围：{'、'.join(module.get('knowledge_names') or [])}"
+                if module.get("knowledge_names") else "",
+                f"教师活动：{module.get('teacher_activity')}"
+                if module.get("teacher_activity") else "",
+                f"学生活动：{module.get('student_activity')}"
+                if module.get("student_activity") else "",
+                f"预计时间：{module.get('planned_minutes')} 分钟"
+                if module.get("planned_minutes") is not None else "",
+                str(module.get("output_contract") or ""),
+                str(module.get("prompt_instruction") or ""),
+            ]
+            module_lines.append(
+                f"{index}. 只能输出二级标题 `## {module['title']}`，"
+                + "；".join(item for item in constraints if item)
+            )
+
+        archetype = contract.get("lesson_archetype") or {}
+        system_prompt = "\n".join([
+            "你正在为教师生成可直接在课堂上使用的讲稿，不是在写学生自学教材。",
+            "讲稿结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成可讲内容，不能重新套用跨学科通用模板。",
+            f"本节课型：{archetype.get('label') or '沿用已确认教案'}。",
+            f"课型目的：{archetype.get('purpose') or '完成本节已确认教学目标'}。",
+            f"本节目标：{contract.get('learning_objective') or '见已确认教案'}。",
+            f"重点：{'、'.join(contract.get('key_points') or []) or '见已确认教案'}。",
+            f"难点：{'、'.join(contract.get('key_difficulties') or []) or '见已确认教案'}。",
+            "",
+            "必须严格按下面的顺序和标题输出，每个标题恰好出现一次，不得增加、删除、合并或改名：",
+            *module_lines,
+            "",
+            "每个教学块都要写成教师真正会说或会做的内容，而不是教案摘要。可在正文中自然使用【提问】【板书】【演示】【等待回应】【巡视】等轻量课堂提示。",
+            "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和推演；活动块要说明教师指令、学生动作、等待与收束；反馈块要给出核对标准、典型错误和回应方式。",
+            "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",
+            f"教师补充要求：{requirements.strip() or '无'}",
+            "",
+            "课程、讲次与选定资料上下文：",
+            json.dumps(lesson_context or {}, ensure_ascii=False),
+        ])
+        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》的教师讲稿。"
+        last_report: dict[str, Any] = {}
+        last_text = ""
+        for attempt in range(2):
+            repair = ""
+            if attempt:
+                repair = "\n\n上次输出未通过结构检查，请只修复结构并完整重写。问题：" + json.dumps(
+                    last_report.get("blocking_issues") or [], ensure_ascii=False
+                )
+            response = await self._call_llm(
+                user_prompt,
+                system_prompt + repair,
+                enable_thinking=True,
+            )
+            last_text = self.clean_response_text(response) if response else ""
+            compiled = compile_teacher_script_section(last_text, contract)
+            last_report = compiled.get("quality_report") or {}
+            if last_report.get("passed"):
+                self._record_generation_quality(
+                    output_type="teacher_script_section",
+                    output_text=compiled.get("content") or "",
+                    context_text=system_prompt,
+                    source="course_service.generate_teacher_script_section",
+                    course_id=course_id,
+                    node_id=str(outline_section.get("node_id") or ""),
+                    node_name=str(outline_section.get("node_name") or ""),
+                    require_markdown_structure=True,
+                )
+                return compiled
+        issues = "；".join(
+            str(item.get("message") or "")
+            for item in last_report.get("blocking_issues") or []
+            if isinstance(item, dict)
+        )
+        raise AIProviderRequestError(
+            f"讲稿未通过已确认教案的结构检查：{issues or '模型没有返回完整教学块'}"
+        )
 
     async def redefine_content(
         self,

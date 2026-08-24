@@ -275,6 +275,11 @@
     "scriptConfirmFailed": "本讲讲稿确认失败，请重试。",
     "scriptGenerationFailed": "本讲讲稿生成失败，请重试。",
     "lessonNavigation": "课次导航",
+    "lessonOutline": {
+      "title": "教案目录",
+      "collapse": "收起教案目录",
+      "expand": "展开教案目录"
+    },
     "previousLesson": "上一讲",
     "nextLesson": "下一讲",
     "nextToScript": "进入讲稿",
@@ -355,7 +360,25 @@
       "generationPlaceholder": "例如：增加一个贴近学生的课堂案例，保留教案时间安排",
       "generate": "生成本讲讲稿",
       "generating": "正在生成…",
-      "planRequired": "请先确认本讲教案"
+      "planRequired": "请先确认本讲教案",
+      "minutes": "分钟",
+      "roles": {
+        "orientation": "课堂导向",
+        "prerequisite": "前置衔接",
+        "objective": "教学目标",
+        "concept": "概念讲解",
+        "reasoning": "推理过程",
+        "example": "示例讲解",
+        "counterexample": "反例辨析",
+        "application": "应用迁移",
+        "activity": "课堂活动",
+        "feedback": "检查反馈",
+        "misconception": "易错辨析",
+        "checkpoint": "课堂检查",
+        "remediation": "补充讲解",
+        "summary": "课堂小结",
+        "transfer": "综合迁移"
+      }
     },
     "completeOutlineFirst": "请先生成并确认课程大纲",
     "backToFoundation": "返回课程基础",
