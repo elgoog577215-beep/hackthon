@@ -71,11 +71,14 @@ describe('teacher course workbench outline streaming', () => {
     vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'resumed' } })
   })
 
-  it('侧栏只保留放大的工作台标题，不再展示解释性副标题', () => {
+  it('侧栏只保留标题和导航名称，不再展示描述文本', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.get('.stage-rail-title').text()).toBe('课程工作台')
     expect(wrapper.find('.stage-rail > header small').exists()).toBe(false)
+    expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
+    expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
+    expect(wrapper.get('.companion-entry button').text()).toBe('配套文档')
   })
 
   it('能从尚未闭合的 JSON 增量中提前显示教案正文', () => {
