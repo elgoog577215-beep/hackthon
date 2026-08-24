@@ -240,7 +240,7 @@ button:disabled { cursor:not-allowed; opacity:.45; }
 .spin { animation:spin .8s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
-@media (max-width:900px) {
+@media (max-width:640px) {
   .arrangement-editor { padding-right:18px; padding-left:18px; }
   .arrangement-heading { align-items:flex-start; }
   .heading-copy { flex-direction:column; gap:5px; }
