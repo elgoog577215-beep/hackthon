@@ -420,7 +420,8 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1050px) {
-  .workspace-route-actions>button { width:38px; padding:0; font-size:0; }
+  .workspace-route-actions>button:not(.adjustment-action) { width:38px; padding:0; font-size:0; }
+  .workspace-route-actions>.adjustment-action { min-width:108px; padding:0 10px; font-size:12px; }
   .workspace-route-actions>button svg { margin:auto; }
 }
 @media (max-width:720px) {

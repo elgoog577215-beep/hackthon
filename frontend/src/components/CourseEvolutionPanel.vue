@@ -11,8 +11,8 @@
       <button type="button" :title="t('courseEvolution.refresh', '重新分析学习证据')" :aria-label="t('courseEvolution.refresh', '重新分析学习证据')" :disabled="store.loading" @click="store.evaluate(courseId)"><RefreshCw :size="14" :class="{ spinning: store.loading }" /></button>
     </header>
 
-    <div v-if="sectionId" class="section-growth-request">
-      <ol class="growth-steps" :aria-label="t('courseEvolution.sectionGrowth.stepsLabel', '课程生长六步')">
+    <div v-if="sectionId && (props.surface !== 'workspace' || props.workspaceState === 'request')" class="section-growth-request">
+      <ol v-if="props.surface !== 'workspace'" class="growth-steps" :aria-label="t('courseEvolution.sectionGrowth.stepsLabel', '课程生长六步')">
         <li v-for="step in growthSteps" :key="step.index" :class="{ active: step.index === currentGrowthStep, done: step.index < currentGrowthStep }">
           <b>{{ step.index }}</b><span>{{ step.label }}</span>
         </li>
@@ -72,7 +72,7 @@
       <p v-if="store.generationError" class="generation-error"><TriangleAlert :size="12" />{{ store.generationError }}</p>
     </div>
 
-    <div class="growth-insight-switcher">
+    <div v-if="props.surface !== 'workspace'" class="growth-insight-switcher">
       <button type="button" :class="{ active: mapOpen }" @click="mapOpen = !mapOpen; evidenceOpen = false">
         <MapPinned :size="12" />
         <span>{{ t('courseEvolution.personalMap.open', '个人学习地图') }}</span>
@@ -85,7 +85,7 @@
       </button>
     </div>
 
-    <section v-if="mapOpen" class="personal-learning-map" aria-live="polite">
+    <section v-if="props.surface !== 'workspace' && mapOpen" class="personal-learning-map" aria-live="polite">
       <header>
         <span><MapPinned :size="14" /></span>
         <div>
@@ -112,7 +112,7 @@
       <p><ShieldCheck :size="12" />{{ t('courseEvolution.personalMap.guard', '地图只属于当前学生；原始提问、笔记、错题和作答仍保留在证据轨迹中。') }}</p>
     </section>
 
-    <section v-if="evidenceOpen" class="evidence-timeline">
+    <section v-if="props.surface !== 'workspace' && evidenceOpen" class="evidence-timeline">
       <header>
         <span><History :size="14" /></span>
         <div>
@@ -447,11 +447,13 @@ const props = withDefaults(defineProps<{
   sectionId?: string
   focusPlanId?: string
   surface?: 'panel' | 'workspace'
+  workspaceState?: 'request' | 'interpreting' | 'scanning' | 'content' | 'structure' | 'applied'
   showHeading?: boolean
 }>(), {
   sectionId: '',
   focusPlanId: '',
   surface: 'panel',
+  workspaceState: 'request',
   showHeading: true,
 })
 const emit = defineEmits<{
@@ -480,6 +482,7 @@ const reviewSelections = reactive<Record<string, string[]>>({})
 const reviewSeenOperations = reactive<Record<string, string[]>>({})
 const planElements = new Map<string, HTMLElement>()
 const visiblePlans = computed(() => {
+  if (props.surface === 'workspace' && props.workspaceState === 'request') return []
   const matchesSection = (plan: CourseEvolutionPlan) => (
     !props.sectionId
     || plan.target_section_id === props.sectionId

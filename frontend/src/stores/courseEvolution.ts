@@ -102,6 +102,7 @@ export interface TeacherCourseChangePlanning {
     confidence: number
     requires_review: boolean
     candidate_status: 'not_started' | 'ready' | 'failed' | 'not_required'
+    metadata?: Record<string, any>
   }>
   structure_review_status: 'not_required' | 'pending' | 'confirmed'
   status: 'draft' | 'impact_ready' | 'needs_clarification' | 'candidate_ready' | 'blocked'

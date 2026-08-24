@@ -622,6 +622,8 @@ describe('CourseEvolutionPanel', () => {
     })
 
     expect(wrapper.find('.request-scope-control').exists()).toBe(false)
+    expect(wrapper.find('.growth-steps').exists()).toBe(false)
+    expect(wrapper.find('.growth-insight-switcher').exists()).toBe(false)
     expect(wrapper.get('.teacher-scope-policy').text()).toContain('AI 会检查整门课程的真实影响')
     expect(wrapper.get('.teacher-scope-policy').text()).toContain('扫描可以扩展或收缩')
 
