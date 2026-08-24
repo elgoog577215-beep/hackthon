@@ -194,7 +194,16 @@
       </section>
     </main>
 
-    <CourseReferenceTray v-model="activeReferences" :course-id="courseId" :stage="activeStage" :lesson-id="activeReferenceLessonId" />
+    <CourseReferenceTray
+      v-model="activeReferences"
+      :course-id="courseId"
+      :stage="activeStage"
+      :lesson-id="activeReferenceLessonId"
+      :scope-target-id="lessonReferenceTargetId"
+      :scope-target-type="lessonReferenceTargetId ? 'lesson_plan' : ''"
+      :scope-target-label="selectedLesson?.title || ''"
+      :scope-title="lessonReferenceTitle"
+    />
   </section>
 </template>
 
@@ -234,8 +243,16 @@ const editingOutline = computed({
   get: () => props.outlineEditing,
   set: value => emit('update:outlineEditing', value),
 })
-const referencesByStage = reactive<Record<StageId, CourseReferenceItem[]>>({ foundation: [], lesson: [], 'question-bank': [], script: [], ppt: [], companion: [] })
-const activeReferences = computed({ get: () => referencesByStage[activeStage.value], set: value => { referencesByStage[activeStage.value] = value } })
+const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
+const activeReferenceScope = computed(() => (
+  activeStage.value === 'lesson' && selectedLessonId.value
+    ? `lesson:${selectedLessonId.value}`
+    : activeStage.value
+))
+const activeReferences = computed({
+  get: () => referencesByScope[activeReferenceScope.value] || [],
+  set: value => { referencesByScope[activeReferenceScope.value] = value },
+})
 const activeReferenceLessonId = computed(() => ['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
 const foundation = reactive({ goal: '', totalHours: 32, requirements: '' })
 const chapterSectionCounts = ref<number[]>([])
@@ -262,6 +279,16 @@ const activeStageDefinition = computed(() => stages.value.find(item => item.id =
   icon: markRaw(FileCheck2),
 })
 const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
+const lessonReferenceTargetId = computed(() => (
+  activeStage.value === 'lesson' && selectedLessonId.value
+    ? `lesson-plan:${selectedLessonId.value}`
+    : ''
+))
+const lessonReferenceTitle = computed(() => {
+  if (!lessonReferenceTargetId.value || !selectedLesson.value) return ''
+  return t('courseWorkbench.references.lessonTitle', '第 {number} 讲引用资料')
+    .replace('{number}', String(selectedLesson.value.number))
+})
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)

@@ -323,4 +323,34 @@ describe('teacher course workbench outline streaming', () => {
     expect((wrapper.get('.lesson-selector select').element as HTMLSelectElement).value).toBe('L1-2')
     expect(wrapper.findAll('.lesson-navigator>button')[1]!.attributes('disabled')).toBeDefined()
   })
+
+  it('右侧资料随当前讲次切换且不会串到其他讲次', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    })) as any
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    const firstReference = { package_id: 'package-1', asset_id: 'asset-1', material_asset_id: 'mat-1', filename: '第一讲.docx', relative_path: '', size_bytes: 100, role: 'primary' }
+    const secondReference = { package_id: 'package-1', asset_id: 'asset-2', material_asset_id: 'mat-2', filename: '第二讲.pdf', relative_path: '', size_bytes: 100, role: 'reference' }
+
+    let tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
+    expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-1')
+    expect(tray.props('scopeTitle')).toBe('第 1 讲引用资料')
+    tray.vm.$emit('update:modelValue', [firstReference])
+    await flushPromises()
+
+    await wrapper.findAll('.lesson-navigator>button')[1]!.trigger('click')
+    tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
+    expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-2')
+    expect(tray.props('modelValue')).toEqual([])
+    tray.vm.$emit('update:modelValue', [secondReference])
+    await flushPromises()
+
+    await wrapper.findAll('.lesson-navigator>button')[0]!.trigger('click')
+    tray = wrapper.findComponent({ name: 'CourseReferenceTray' })
+    expect(tray.props('scopeTargetId')).toBe('lesson-plan:L1-1')
+    expect(tray.props('modelValue')).toEqual([firstReference])
+  })
 })

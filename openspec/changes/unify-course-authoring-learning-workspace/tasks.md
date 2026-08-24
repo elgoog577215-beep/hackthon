@@ -133,3 +133,17 @@
 - [x] 15.4 Remove active legacy PPT generation/edit candidate APIs and route every teacher PPT creation to the existing `SlideDeckV6` workbench.
 - [x] 15.5 Bind each V6 PPT revision to both the confirmed lesson-plan revision and confirmed script revision; mark it stale when either source changes.
 - [x] 15.6 Run focused backend/frontend tests, production build, strict OpenSpec validation and Chinese desktop real-page verification; then update canonical docs and release evidence.
+
+## 16. Lesson-scoped reference materials
+
+- [x] 16.1 Bind the lesson-plan reference tray to the visible `lesson_unit_id` and label the current lesson explicitly.
+- [x] 16.2 Persist upload, selection and removal immediately through the existing formal-file relationship index without duplicating source assets.
+- [x] 16.3 Restore each lesson's independent primary and supporting references when switching or reloading lessons.
+- [x] 16.4 Add focused frontend tests, strict OpenSpec validation, production-build verification and Chinese desktop real-page verification.
+
+## 16. Durable lesson-plan content streaming
+
+- [x] 16.1 Forward provider-visible content deltas through the existing `CourseTeachingPlanV3` batch callbacks without exposing reasoning content.
+- [x] 16.2 Persist per-batch stream checkpoints atomically on the existing lesson job and expose reconnectable SSE snapshots without creating a second lesson-plan source of truth.
+- [x] 16.3 Render readable partial lesson-plan content in the original workbench surface and replace it with the quality-gated formal revision on completion.
+- [x] 16.4 Preserve streamed working content on failure, retain polling as transport fallback and cover model, repository, API and workbench behavior with focused tests.

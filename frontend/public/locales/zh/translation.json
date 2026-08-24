@@ -427,11 +427,12 @@
     },
     "references": {
       "title": "引用资料", "help": "决定本次生成使用哪些老师资料",
+      "lessonTitle": "第 {number} 讲引用资料", "lessonHelp": "仅用于当前讲次的生成与迭代",
       "systemContext": "课程上下文", "systemContextHelp": "大纲、课次与已确认内容自动加入",
       "primary": "主来源", "primaryLimit": "最多 1 份", "addPrimary": "添加主来源",
       "supporting": "参考资料", "addSupporting": "添加或拖入资料", "courseMaterials": "课程资料",
       "allSelected": "当前资料已全部引用", "loadFailed": "课程资料读取失败",
-      "registerFailed": "资料已上传，但未能加入当前课程", "uploadFailed": "资料上传失败",
+      "registerFailed": "资料已上传，但未能加入当前课程", "uploadFailed": "资料上传失败", "saveFailed": "本讲资料保存失败",
       "webSources": "联网来源", "startWebResearch": "添加联网来源", "continueWebResearch": "继续检索"
     },
     "webResearch": {

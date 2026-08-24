@@ -427,11 +427,12 @@
     },
     "references": {
       "title": "References", "help": "Choose which teacher materials this generation uses",
+      "lessonTitle": "Session {number} references", "lessonHelp": "Used only for the current session's generation and revisions",
       "systemContext": "Course context", "systemContextHelp": "The outline, sessions, and confirmed content are included automatically",
       "primary": "Primary source", "primaryLimit": "Up to 1", "addPrimary": "Add primary source",
       "supporting": "References", "addSupporting": "Add or drop files", "courseMaterials": "Course materials",
       "allSelected": "All current materials are selected", "loadFailed": "Could not load course materials",
-      "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed",
+      "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed", "saveFailed": "Could not save this session's references",
       "webSources": "Web sources", "startWebResearch": "Add web sources", "continueWebResearch": "Continue searching"
     },
     "webResearch": {

@@ -1,8 +1,8 @@
 <template>
   <aside class="reference-tray" :aria-label="t('courseWorkbench.references.title', '引用资料')">
     <header>
-      <div><strong>{{ t('courseWorkbench.references.title', '引用资料') }}</strong><small>{{ t('courseWorkbench.references.help', '决定本次生成使用哪些老师资料') }}</small></div>
-      <button type="button" :aria-label="t('common.refresh', '刷新')" @click="loadAll"><RefreshCw :size="15" :class="{ spin: loading }" /></button>
+      <div><strong>{{ scopeTitle || t('courseWorkbench.references.title', '引用资料') }}</strong><small>{{ scopeTargetId ? t('courseWorkbench.references.lessonHelp', '仅用于当前讲次的生成与迭代') : t('courseWorkbench.references.help', '决定本次生成使用哪些老师资料') }}</small></div>
+      <button type="button" :aria-label="t('common.refresh', '刷新')" @click="loadAll"><RefreshCw :size="15" :class="{ spin: loading || saving }" /></button>
     </header>
 
     <section class="system-context">
@@ -95,14 +95,37 @@ export type CourseReferenceItem = {
   reuse_policy?: 'verbatim_allowed' | 'reference_only' | 'original_generation'
   rights_basis?: 'teacher_asserted' | 'open_license' | 'license_unknown' | 'platform_owned'
   source_metadata?: Record<string, any>
+  usages?: Array<{
+    target_id?: string
+    target_type?: string
+    target_label?: string
+    role?: 'primary' | 'reference'
+  }>
 }
 
-const props = withDefaults(defineProps<{ courseId: string; modelValue: CourseReferenceItem[]; stage?: string; lessonId?: string }>(), { stage: 'foundation', lessonId: '' })
+const props = withDefaults(defineProps<{
+  courseId: string
+  modelValue: CourseReferenceItem[]
+  stage?: string
+  lessonId?: string
+  scopeTargetId?: string
+  scopeTargetType?: string
+  scopeTargetLabel?: string
+  scopeTitle?: string
+}>(), {
+  stage: 'foundation',
+  lessonId: '',
+  scopeTargetId: '',
+  scopeTargetType: '',
+  scopeTargetLabel: '',
+  scopeTitle: '',
+})
 const emit = defineEmits<{ (event: 'update:modelValue', value: CourseReferenceItem[]): void }>()
 const materials = ref<CourseReferenceItem[]>([])
 const selected = ref<CourseReferenceItem[]>([])
 const storedWebReferences = ref<CourseReferenceItem[]>([])
 const loading = ref(false)
+const saving = ref(false)
 const error = ref('')
 const researchVisible = ref(false)
 const dragRole = ref<'' | 'primary' | 'reference'>('')
@@ -117,8 +140,42 @@ const availableMaterials = computed(() => {
 })
 
 watch(() => props.modelValue, value => { selected.value = value.map(item => ({ ...item })) }, { immediate: true, deep: true })
-function commit(value: CourseReferenceItem[]) { selected.value = value; emit('update:modelValue', value) }
+function applySelection(value: CourseReferenceItem[], persist: boolean) {
+  selected.value = value
+  emit('update:modelValue', value)
+  if (persist && props.scopeTargetId && props.scopeTargetType) void persistScopedSelection(value)
+}
+function commit(value: CourseReferenceItem[]) { applySelection(value, true) }
 function fileSize(value: number) { return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB` }
+
+async function resolvePackageId(value: CourseReferenceItem[]) {
+  const direct = value[0]?.package_id || materials.value[0]?.package_id
+  if (direct) return direct
+  const response = await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
+  return String(response.data?.[0]?.package_id || '')
+}
+
+async function persistScopedSelection(value: CourseReferenceItem[]) {
+  const targetId = props.scopeTargetId
+  const targetType = props.scopeTargetType
+  if (!targetId || !targetType) return
+  saving.value = true
+  error.value = ''
+  try {
+    const packageId = await resolvePackageId(value)
+    if (!packageId) return
+    await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, {
+      target_id: targetId,
+      target_type: targetType,
+      target_label: props.scopeTargetLabel || targetId,
+      sources: value.map(item => ({ source_asset_id: item.asset_id, role: item.role })),
+    }, teacherRequestConfig({ silentError: true }))
+  } catch (reason: any) {
+    if (targetId === props.scopeTargetId) error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.saveFailed', '本讲资料保存失败'))
+  } finally {
+    if (targetId === props.scopeTargetId) saving.value = false
+  }
+}
 
 async function loadMaterials() {
   try {
@@ -146,8 +203,25 @@ async function loadWebReferences() {
 }
 
 async function loadAll() {
+  const targetId = props.scopeTargetId
   loading.value = true; error.value = ''
-  try { await loadWebReferences(); await loadMaterials() }
+  try {
+    await loadWebReferences()
+    await loadMaterials()
+    if (targetId && targetId === props.scopeTargetId) {
+      const webByMaterialId = new Map(storedWebReferences.value.map(item => [item.material_asset_id, item]))
+      const scoped = materials.value.flatMap(item => {
+        const usage = item.usages?.find(link => link.target_id === targetId)
+        if (!usage) return []
+        return [{
+          ...item,
+          ...(webByMaterialId.get(item.material_asset_id) || {}),
+          role: usage.role === 'primary' ? 'primary' as const : 'reference' as const,
+        }]
+      })
+      applySelection(scoped, false)
+    }
+  }
   finally { loading.value = false }
 }
 
