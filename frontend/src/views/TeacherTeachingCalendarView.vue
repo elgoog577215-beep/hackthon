@@ -30,38 +30,40 @@
       <aside class="course-rail" :aria-label="t('teacherHome.courseRail')">
         <header>
           <div>
-            <strong>{{ t('teacherHome.myCourses') }}</strong>
-            <span>{{ courseStore.courseList.length }} {{ t('teacherHome.courseUnit') }}</span>
+            <strong>{{ t('teacherHome.recentTeaching') }}</strong>
+            <span>{{ t('teacherHome.recentTeachingCount').replace('{count}', String(recentCourses.length)) }}</span>
           </div>
+          <button v-if="selectedCourseId" type="button" @click="clearCourseFilter">{{ t('teacherHome.allSessions') }}</button>
         </header>
 
-        <div class="course-search" role="search">
-          <Search :size="15" />
-          <input v-model="courseQuery" type="search" :placeholder="t('teacherHome.searchCourse')" :aria-label="t('teacherHome.searchCourse')" />
-          <button v-if="courseQuery" type="button" :aria-label="t('teacherHome.clearSearch')" @click="courseQuery = ''"><X :size="14" /></button>
-        </div>
-
         <nav class="course-list">
-          <button
-            v-for="(course, index) in filteredCourses"
+          <article
+            v-for="(course, index) in recentCourses"
             :key="course.course_id"
-            type="button"
             class="course-entry"
-            @click="openCourse(course.course_id)"
+            :class="{ active: selectedCourseId === course.course_id }"
           >
-            <span class="course-icon" :data-color="index % 4" aria-hidden="true"><BookOpen :size="16" /></span>
-            <span class="course-entry__copy">
-              <strong>{{ course.course_name }}</strong>
-              <small v-if="courseStatus(course.course_id)">{{ courseStatus(course.course_id) }}</small>
-            </span>
-            <ChevronRight :size="15" />
-          </button>
-          <div v-if="courseQuery.trim() && !filteredCourses.length" class="course-search-empty">
-            <SearchX :size="22" />
-            <strong>{{ t('teacherHome.noSearchResults') }}</strong>
-            <button type="button" @click="courseQuery = ''">{{ t('teacherHome.clearSearch') }}</button>
+            <button type="button" class="course-entry__focus" @click="focusCourse(course)">
+              <span class="course-icon" :data-color="index % 4" aria-hidden="true"><BookOpen :size="16" /></span>
+              <span class="course-entry__copy">
+                <strong>{{ course.course_name }}</strong>
+                <small>{{ courseShortcutMeta(course) }}</small>
+                <em>{{ courseShortcutStatus(course) }}</em>
+              </span>
+            </button>
+            <button type="button" class="course-entry__open" :aria-label="t('teacherHome.enterCourseNamed').replace('{name}', course.course_name)" @click="openCourse(course.course_id)">
+              <ArrowUpRight :size="15" />
+            </button>
+          </article>
+          <div v-if="!recentCourses.length" class="course-list-empty">
+            <BookOpen :size="22" />
+            <strong>{{ t('teacherHome.noRecentCourses') }}</strong>
+            <span>{{ t('teacherHome.noRecentCoursesHelp') }}</span>
           </div>
         </nav>
+        <footer>
+          <button type="button" @click="switchHomeTab('courses')">{{ t('teacherHome.viewAllCourses') }}<ChevronRight :size="15" /></button>
+        </footer>
       </aside>
 
       <main class="calendar-surface">
@@ -256,7 +258,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowUpRight, BookOpen, CalendarDays, CalendarRange, CheckCircle2, ChevronLeft, ChevronRight,
   ClipboardCheck, Clock3, Columns3, LibraryBig, ListTodo, ListTree, LoaderCircle, MapPin,
-  Plus, Presentation, RefreshCw, Search, SearchX, UserRound, X,
+  Plus, Presentation, RefreshCw, UserRound, X,
 } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
@@ -264,7 +266,7 @@ import TeachingCalendarMonthGrid from '../components/TeachingCalendarMonthGrid.v
 import TeacherCourseCreateView from './TeacherCourseCreateView.vue'
 import TeacherCourseLibraryView from './TeacherCourseLibraryView.vue'
 import { activeLocale, t } from '../shared/i18n'
-import { useCourseStore } from '../stores/course'
+import { useCourseStore, type Course } from '../stores/course'
 import { useGenerationStore } from '../stores/generation'
 import {
   TEACHING_CALENDAR_SAVED_EVENT, TEACHING_CALENDAR_SAVED_STORAGE_KEY,
@@ -284,9 +286,9 @@ const route = useRoute()
 const courseStore = useCourseStore()
 const generationStore = useGenerationStore()
 const calendarStore = useTeachingCalendarStore()
-const courseQuery = ref('')
 const view = ref<'month' | 'week'>('week')
 const cursor = ref(new Date())
+const selectedCourseId = ref('')
 const selectedSession = ref<ClassSession | null>(null)
 const selectedDate = ref<string | null>(null)
 const workbenchOpen = ref(false)
@@ -317,11 +319,30 @@ const calendarError = computed(() => calendarStore.error ? toAppError(calendarSt
   fallback: t('teacherHome.calendarLoadFailed', '教学日历读取失败'),
 }) : null)
 const courseCreateOpen = computed(() => route.query.create === 'course')
-const filteredCourses = computed(() => {
-  const keyword = courseQuery.value.trim().toLocaleLowerCase()
-  return keyword ? courseStore.courseList.filter(course => course.course_name.toLocaleLowerCase().includes(keyword)) : courseStore.courseList
+const recentCourses = computed(() => {
+  const candidates = new Map(courseStore.courseList.map(course => [course.course_id, course]))
+  calendarStore.totalSessions.forEach(session => {
+    if (!session.course_id || !session.date || session.date < todayIso || candidates.has(session.course_id)) return
+    candidates.set(session.course_id, {
+      course_id: session.course_id,
+      course_name: session.course_title || session.content_summary,
+      node_count: 0,
+    })
+  })
+  const sorted = [...candidates.values()].sort((left, right) => (
+    courseShortcutPriority(left) - courseShortcutPriority(right)
+      || courseNextSessionTime(left) - courseNextSessionTime(right)
+      || courseUpdatedTime(right) - courseUpdatedTime(left)
+  ))
+  const focused = sorted.filter(course => courseShortcutPriority(course) < 3)
+  if (focused.length >= 6) return focused.slice(0, 6)
+  const focusedIds = new Set(focused.map(course => course.course_id))
+  return [...focused, ...sorted.filter(course => !focusedIds.has(course.course_id))].slice(0, 6)
 })
-const visibleSessions = computed(() => calendarStore.totalSessions.filter(item => item.calendar_layer !== 'incomplete'))
+const visibleSessions = computed(() => calendarStore.totalSessions.filter(item => (
+  item.calendar_layer !== 'incomplete'
+  && (!selectedCourseId.value || item.course_id === selectedCourseId.value)
+)))
 const selectedDateSessions = computed(() => selectedDate.value ? visibleSessions.value
   .filter(item => item.date === selectedDate.value)
   .sort((left, right) => String(left.start_time || '').localeCompare(String(right.start_time || ''))) : [])
@@ -367,12 +388,7 @@ const upcomingSessions = computed(() => [...visibleSessions.value]
   .filter(item => String(item.date || '') >= todayIso)
   .sort((left, right) => `${left.date || ''}${left.start_time || ''}`.localeCompare(`${right.date || ''}${right.start_time || ''}`))
   .slice(0, 6))
-const actionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(task => (
-  ['paused', 'waiting_for_review', 'conflict', 'error'].includes(task.status)
-  || (task.status === 'completed_with_warnings'
-    && task.publicationAllowed !== true
-    && task.recovery?.state !== 'completed')
-)).length)
+const actionTaskCount = computed(() => Array.from(generationStore.tasks.values()).filter(taskNeedsAction).length)
 const sessionClassSummary = computed(() => {
   const session = selectedSession.value
   if (!session) return []
@@ -457,6 +473,19 @@ function selectDay(date: string) {
 }
 function switchHomeTab(tab: 'calendar' | 'courses') { void router.replace({ name: 'course-library', query: tab === 'courses' ? { view: 'courses' } : {} }) }
 function openCourse(courseId: string) { if (courseId) void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' } }) }
+function clearCourseFilter() { selectedCourseId.value = ''; clearSelection() }
+function focusCourse(course: Course) {
+  if (selectedCourseId.value === course.course_id) {
+    clearCourseFilter()
+    return
+  }
+  selectedCourseId.value = course.course_id
+  clearSelection()
+  const nextDate = courseShortcutSession(course)?.date
+  if (!nextDate) return
+  const value = new Date(`${nextDate}T12:00:00`)
+  if (!Number.isNaN(value.getTime())) cursor.value = value
+}
 function openCourseCreate() { void router.push({ name: 'course-library', query: { ...route.query, create: 'course' } }) }
 function closeCourseCreate() {
   const query = { ...route.query }
@@ -498,6 +527,57 @@ function latestSessionJob(kind: 'plan' | 'ppt'): TeacherLessonJob | undefined {
   return [...(sessionAuthoringView.value?.jobs || [])].reverse().find(item => (
     item.lesson_unit_id === lessonId && item.type.includes(kind)
   ))
+}
+function taskNeedsAction(task: { status: string; publicationAllowed?: boolean; recovery?: { state?: string } }) {
+  return ['paused', 'waiting_for_review', 'conflict', 'error'].includes(task.status)
+    || (task.status === 'completed_with_warnings'
+      && task.publicationAllowed !== true
+      && task.recovery?.state !== 'completed')
+}
+function courseNextSessionTime(course: Course) {
+  const session = courseShortcutSession(course)
+  if (!session?.date) return Number.POSITIVE_INFINITY
+  return Date.parse(`${session.date}T${session.start_time || '23:59:59'}`) || Number.POSITIVE_INFINITY
+}
+function courseUpdatedTime(course: Course) { return Date.parse(course.updated_at || '') || 0 }
+function courseShortcutSession(course: Course) {
+  const candidates = [
+    course.next_session,
+    ...calendarStore.totalSessions.filter(item => item.course_id === course.course_id && item.date && item.date >= todayIso),
+  ].filter((item): item is NonNullable<typeof item> => Boolean(item?.date))
+  return candidates.sort((left, right) => (
+    Date.parse(`${left.date}T${left.start_time || '23:59:59'}`)
+      - Date.parse(`${right.date}T${right.start_time || '23:59:59'}`)
+  ))[0]
+}
+function courseShortcutPriority(course: Course) {
+  if (courseShortcutSession(course)) return 0
+  const task = generationStore.getTask(course.course_id)
+  if (task && taskNeedsAction(task)) return 1
+  if (task && ['pending', 'running'].includes(task.status)) return 2
+  return 3
+}
+function courseShortcutMeta(course: Course) {
+  const session = courseShortcutSession(course)
+  if (!session?.date) return t('teacherHome.noUpcomingCourseSession')
+  const value = new Date(`${session.date}T12:00:00`)
+  const date = Number.isNaN(value.getTime())
+    ? session.date
+    : new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', weekday: 'short' }).format(value)
+  const time = session.start_time?.slice(0, 5) || t('teacherHome.timePending')
+  return [date, time, session.content_summary].filter(Boolean).join(' · ')
+}
+function courseShortcutStatus(course: Course) {
+  const session = courseShortcutSession(course)
+  if (!session) return courseStatus(course.course_id)
+  if (!session.lesson_plan_status && !session.ppt_status) {
+    return courseStore.courseList.some(item => item.course_id === course.course_id)
+      ? courseStatus(course.course_id)
+      : t('teacherHome.preparationUnchecked')
+  }
+  return t('teacherHome.shortcutPreparation')
+    .replace('{lessonPlan}', session.lesson_plan_status || t('teacherHome.preparationUnchecked'))
+    .replace('{ppt}', session.ppt_status || t('teacherHome.preparationUnchecked'))
 }
 async function loadSessionPreparation(session: ClassSession | null) {
   const request = ++sessionPreparationRequest
@@ -550,7 +630,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .teacher-home,.teacher-home *{box-sizing:border-box}.teacher-home{width:100%;height:100%;min-height:0;overflow:hidden;color:var(--lz-text);background:var(--lz-surface)}button,input{font:inherit}.home-primary-tabs{width:min(100%,360px);height:46px;justify-self:center;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:4px;padding:5px;border:1px solid var(--lz-border);border-radius:16px;background:var(--lz-surface-subtle)}.home-primary-tabs button{min-width:0;height:34px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:0;border-radius:11px;color:var(--lz-text-secondary);background:transparent;font-size:13px;font-weight:750;white-space:nowrap;cursor:pointer;transition:color .16s ease,background-color .16s ease,box-shadow .16s ease}.home-primary-tabs button:hover:not(.active){color:var(--lz-text);background:rgb(255 255 255 / 48%)}.home-primary-tabs button.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 3px 10px rgb(15 23 42 / 10%)}.home-primary-tabs button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.home-header-actions{display:flex;align-items:center;gap:8px}.home-header-actions button{height:38px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}.header-quiet{border:1px solid var(--lz-border);color:var(--lz-text-secondary);background:var(--lz-surface)}.header-quiet b{min-width:20px;padding:1px 6px;border-radius:10px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:12px}.header-primary{border:1px solid var(--lz-brand);color:#fff;background:var(--lz-brand)}
-.home-layout{height:100%;min-height:0;display:grid;grid-template-columns:250px minmax(600px,1fr) 300px}.course-rail{min-width:0;min-height:0;display:grid;grid-template-rows:64px 48px minmax(0,1fr);border-right:1px solid var(--lz-border);background:var(--lz-surface-subtle)}.course-rail>header{display:flex;align-items:center;padding:0 16px}.course-rail>header>div{min-width:0;display:grid;gap:3px}.course-rail>header strong{font-size:15px}.course-rail>header span{color:var(--lz-text-muted);font-size:12px}.course-search{height:40px;display:flex;align-items:center;gap:8px;margin:0 12px;padding:0 9px 0 11px;border:1px solid transparent;border-radius:9px;color:var(--lz-text-muted);background:rgb(226 232 240 / 58%)}.course-search:focus-within{border-color:color-mix(in srgb,var(--lz-brand) 36%,var(--lz-border));background:#fff;box-shadow:0 0 0 3px var(--lz-brand-soft)}.course-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:13px}.course-search input::-webkit-search-cancel-button{display:none}.course-search>button{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.course-search>button:hover{color:var(--lz-text-strong);background:rgb(203 213 225 / 56%)}.course-list{min-height:0;overflow:auto;padding:7px}.course-entry{width:100%;min-height:56px;display:grid;grid-template-columns:34px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:7px 8px;border:0;border-radius:9px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.course-entry:hover,.course-entry:focus-visible{outline:0;background:#fff}.course-entry:focus-visible{box-shadow:inset 0 0 0 2px var(--lz-brand)}.course-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-icon[data-color="1"]{color:var(--lz-success);background:var(--lz-success-soft)}.course-icon[data-color="2"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.course-icon[data-color="3"]{color:var(--lz-danger);background:var(--lz-danger-soft)}.course-entry__copy{min-width:0;display:grid;gap:3px}.course-entry__copy strong,.course-entry__copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-entry__copy strong{color:var(--lz-text-strong);font-size:13px}.course-entry__copy small{color:var(--lz-text-muted);font-size:12px}.course-search-empty{min-height:180px;display:grid;place-content:center;justify-items:center;gap:9px;padding:20px;color:var(--lz-text-muted);text-align:center}.course-search-empty strong{color:var(--lz-text-secondary);font-size:14px}.course-search-empty button{padding:6px 9px;border:0;border-radius:6px;color:var(--lz-brand-strong);background:transparent;font-size:12px;font-weight:700;cursor:pointer}
+.home-layout{height:100%;min-height:0;display:grid;grid-template-columns:250px minmax(600px,1fr) 300px}.course-rail{min-width:0;min-height:0;display:grid;grid-template-rows:64px minmax(0,1fr) 48px;border-right:1px solid var(--lz-border);background:var(--lz-surface-subtle)}.course-rail>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px 0 16px}.course-rail>header>div{min-width:0;display:grid;gap:3px}.course-rail>header strong{font-size:15px}.course-rail>header span{color:var(--lz-text-muted);font-size:12px}.course-rail>header>button{height:28px;padding:0 8px;border:0;border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:11px;font-weight:750;cursor:pointer}.course-rail>header>button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.course-list{min-height:0;overflow:auto;padding:5px 7px 10px}.course-entry{position:relative;min-height:84px;display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:stretch;border-radius:10px;color:var(--lz-text-secondary);background:transparent}.course-entry:hover,.course-entry.active{background:#fff}.course-entry.active{box-shadow:inset 0 0 0 1px var(--lz-brand-border)}.course-entry__focus{min-width:0;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:start;gap:9px;padding:10px 4px 10px 8px;border:0;border-radius:10px 0 0 10px;color:inherit;background:transparent;text-align:left;cursor:pointer}.course-entry__focus:focus-visible,.course-entry__open:focus-visible{outline:2px solid var(--lz-brand);outline-offset:-2px}.course-entry__open{display:grid;place-items:center;margin:6px 4px 6px 0;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.course-entry__open:hover{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-icon[data-color="1"]{color:var(--lz-success);background:var(--lz-success-soft)}.course-icon[data-color="2"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.course-icon[data-color="3"]{color:var(--lz-danger);background:var(--lz-danger-soft)}.course-entry__copy{min-width:0;display:grid;gap:3px}.course-entry__copy strong,.course-entry__copy small,.course-entry__copy em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-entry__copy strong{color:var(--lz-text-strong);font-size:13px}.course-entry__copy small{color:var(--lz-text-secondary);font-size:11px}.course-entry__copy em{color:var(--lz-text-muted);font-size:10px;font-style:normal}.course-list-empty{min-height:190px;display:grid;place-content:center;justify-items:center;gap:7px;padding:20px;color:var(--lz-text-muted);text-align:center}.course-list-empty strong{color:var(--lz-text-secondary);font-size:13px}.course-list-empty span{max-width:180px;font-size:11px;line-height:1.5}.course-rail>footer{display:flex;align-items:center;padding:0 10px;border-top:1px solid var(--lz-border)}.course-rail>footer button{width:100%;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border:0;border-radius:7px;color:var(--lz-brand-strong);background:transparent;font-size:12px;font-weight:750;cursor:pointer}.course-rail>footer button:hover{background:var(--lz-brand-soft)}.course-rail>footer button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:-1px}
 .calendar-surface{min-width:0;min-height:0;display:grid;grid-template-rows:64px auto minmax(0,1fr);background:var(--lz-surface)}
 .calendar-toolbar{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--lz-border);background:rgb(255 255 255 / 72%)}
 .calendar-title{min-width:0;display:flex;align-items:center;gap:9px}.calendar-title>svg{color:var(--lz-brand)}.calendar-title strong{font-size:16px}.toolbar-spacer{flex:1}
@@ -588,7 +668,7 @@ onBeforeUnmount(() => {
 .inspector-actions button{height:38px}
 @media(max-width:1200px){.home-layout{grid-template-columns:220px minmax(0,1fr) 280px}.session-focus,.preparation-summary{padding-left:14px;padding-right:14px}}
 @media(max-width:980px){.teacher-home{overflow:auto}.home-layout{height:auto;min-height:100%;grid-template-columns:220px minmax(580px,1fr)}.course-rail,.calendar-surface{min-height:650px}.day-inspector{grid-column:1/-1;min-height:350px;border-top:1px solid var(--lz-border);border-left:0}}
-@media(max-width:820px){.home-layout{display:block}.course-rail{min-height:0;grid-template-columns:minmax(130px,.7fr) minmax(190px,1.3fr);grid-template-rows:56px 92px;border-right:0;border-bottom:1px solid var(--lz-border)}.course-rail>header{grid-column:1}.course-search{grid-column:2;margin:8px 12px}.course-list{grid-column:1/-1;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,220px);gap:4px;overflow-x:auto;overflow-y:hidden;padding:5px 12px 10px}.course-entry{min-height:72px}.course-search-empty{min-height:72px;display:flex;justify-content:start}.calendar-surface{min-height:650px}}
+@media(max-width:820px){.home-layout{display:block}.course-rail{min-height:0;grid-template-columns:180px minmax(0,1fr);grid-template-rows:92px 42px;border-right:0;border-bottom:1px solid var(--lz-border)}.course-rail>header{grid-column:1;grid-row:1}.course-list{grid-column:2;grid-row:1;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(210px,240px);gap:4px;overflow-x:auto;overflow-y:hidden;padding:5px 10px}.course-entry{min-height:82px}.course-rail>footer{grid-column:1/-1;grid-row:2}.calendar-surface{min-height:650px}}
 @media(max-width:620px){.home-primary-tabs button{gap:6px;padding-inline:8px;font-size:12px}.home-header-actions .header-quiet{display:none}.home-header-actions .header-primary{width:38px;padding:0;justify-content:center;font-size:0}.calendar-surface{min-height:680px;grid-template-rows:auto auto minmax(0,1fr)}.calendar-toolbar{min-height:102px;display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;gap:8px;padding:9px 10px}.calendar-title{grid-column:1}.view-switch{grid-column:2}.toolbar-spacer{display:none}.period-actions{grid-column:1/-1;justify-self:end}.month-canvas{padding:6px}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

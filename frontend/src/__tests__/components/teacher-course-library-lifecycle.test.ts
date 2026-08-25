@@ -101,7 +101,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(wrapper.find('.resume-card').exists()).toBe(false)
-    expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索课程')
+    expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索课程名称或代码')
     expect(wrapper.find('.library-resume').exists()).toBe(false)
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
 
@@ -138,18 +138,20 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
     const statusFilters = wrapper.findAll('.library-status-filters button')
-    expect(statusFilters).toHaveLength(3)
-    expect(statusFilters[1]!.text()).toContain('正在备课')
-    expect(statusFilters[1]!.get('strong').text()).toBe('1')
-    expect(statusFilters[2]!.text()).toContain('备课完成')
-    expect(statusFilters[2]!.get('strong').text()).toBe('0')
+    expect(statusFilters).toHaveLength(4)
+    expect(statusFilters[1]!.text()).toContain('待处理')
+    expect(statusFilters[1]!.get('strong').text()).toBe('0')
+    expect(statusFilters[2]!.text()).toContain('正在备课')
+    expect(statusFilters[2]!.get('strong').text()).toBe('1')
+    expect(statusFilters[3]!.text()).toContain('备课完成')
+    expect(statusFilters[3]!.get('strong').text()).toBe('0')
 
-    await statusFilters[2]!.trigger('click')
+    await statusFilters[3]!.trigger('click')
     expect(wrapper.find('.course-item').exists()).toBe(false)
-    expect(wrapper.get('.library-state').text()).toContain('调整搜索词或备课状态')
+    expect(wrapper.get('.library-state').text()).toContain('调整搜索词、学期或课程状态')
   })
 
-  it('保持原课程卡片结构，并展示备课状态和推荐动作', async () => {
+  it('课程卡片展示身份、学期、下一课次、准备状态和推荐动作', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -182,9 +184,55 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     expect(wrapper.get('.course-grid').attributes('data-view')).toBe('grid')
     expect(wrapper.find('.course-list-columns').exists()).toBe(false)
-    expect(wrapper.find('.course-identity__meta').exists()).toBe(false)
+    expect(wrapper.get('.course-identity__meta').text()).toContain('MATH-221')
+    expect(wrapper.get('.course-term').text()).toContain('2026-2027 秋季')
+    expect(wrapper.get('.course-next').text()).toContain('特征向量')
+    expect(wrapper.get('.course-readiness').text()).toContain('教案')
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('准备下次课')
+  })
+
+  it('列表模式提供字段比较，并可按课程代码和学期筛选', async () => {
+    const courses = useCourseStore()
+    const generation = useGenerationStore()
+    courses.courseList = [
+      {
+        course_id: 'course-math', course_name: '矩阵与线性变换', node_count: 12,
+        academic_year: '2026-2027', term: '秋季', course_code: 'MATH-221', is_published: true,
+        updated_at: '2026-08-24T10:00:00Z',
+      },
+      {
+        course_id: 'course-ai', course_name: '人工智能导论', node_count: 16,
+        academic_year: '2025-2026', term: '春夏', course_code: 'AI-101', is_published: true,
+        updated_at: '2026-06-10T10:00:00Z',
+      },
+    ]
+    vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
+    vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
+    vi.spyOn(generation, 'restoreGenerationState').mockReturnValue(null)
+
+    const wrapper = mount(CourseLibraryView, {
+      global: { plugins: [router], stubs: { CourseWorkbench: true, Teleport: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('button[title="列表"]').trigger('click')
+    expect(wrapper.get('.course-list-columns').text()).toContain('下一讲准备')
+    expect(wrapper.get('.course-grid').attributes('data-view')).toBe('list')
+    expect(wrapper.findAll('.course-item')).toHaveLength(2)
+
+    await wrapper.get('input[type="search"]').setValue('AI-101')
+    expect(wrapper.findAll('.course-item')).toHaveLength(1)
+    expect(wrapper.get('.course-identity h2').text()).toContain('人工智能导论')
+
+    await wrapper.get('input[type="search"]').setValue('')
+    const termSelect = wrapper.get('select[aria-label="按学年学期筛选课程"]')
+    const targetOption = termSelect.findAll('option').find(option => option.text() === '2026-2027 秋季')
+    expect(targetOption).toBeTruthy()
+    await termSelect.setValue(targetOption!.attributes('value'))
+    expect(wrapper.findAll('.course-item')).toHaveLength(1)
+    expect(wrapper.get('.course-identity h2').text()).toContain('矩阵与线性变换')
   })
 
   it('已发布的质量建议不占用待处理任务角标', async () => {
@@ -447,7 +495,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(wrapper.find('.library-resume').exists()).toBe(false)
-    expect(wrapper.findAll('.course-copy h2').map(title => title.text())).toEqual([
+    expect(wrapper.findAll('.course-identity h2').map(title => title.text())).toEqual([
       '《辩论：逻辑构建与实战技巧》',
       '《局部解剖学》',
       '《控制学：从原理到系统设计》',

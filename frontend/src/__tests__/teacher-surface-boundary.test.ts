@@ -6,7 +6,7 @@ const sourceRoot = resolve(process.cwd(), 'src')
 const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
 
 describe('calendar and course file-space boundary', () => {
-  it('keeps both primary home tabs and the calendar course shortcut rail', () => {
+  it('keeps both primary home tabs and turns the calendar rail into a recent-teaching shortcut', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const workbench = source('components/TeacherCourseWorkbench.vue')
     const app = source('App.vue')
@@ -20,9 +20,12 @@ describe('calendar and course file-space boundary', () => {
     expect(home).toContain('<TeacherCourseLibraryView')
     expect(home).toContain('embedded />')
     expect(home).toContain('class="course-rail"')
-    expect(home).toContain('class="course-search" role="search"')
-    expect(home).toContain('v-for="(course, index) in filteredCourses"')
-    expect(home).toContain('@click="openCourse(course.course_id)"')
+    expect(home).not.toContain('class="course-search" role="search"')
+    expect(home).toContain('v-for="(course, index) in recentCourses"')
+    expect(home).toContain('@click="focusCourse(course)"')
+    expect(home).toContain("switchHomeTab('courses')")
+    expect(home).toContain('courseStore.courseList')
+    expect(home).toContain('.slice(0, 6)')
     expect(home).not.toContain('<TeacherCourseCalendarView')
     expect(home).toContain('class="calendar-surface"')
     expect(home).toContain('class="day-inspector"')
@@ -77,11 +80,13 @@ describe('calendar and course file-space boundary', () => {
     expect(workbench).toContain('initialLessonId?: string')
   })
 
-  it('keeps the teacher card view as the dense three-column course grid', () => {
+  it('keeps dense course cards and gives list mode explicit comparison columns', () => {
     const library = source('views/TeacherCourseLibraryView.vue')
 
     expect(library).toContain("grid-template-columns:repeat(3,minmax(0,1fr))")
-    expect(library).toContain(".course-grid[data-view='list'] { --course-cover-width:44px; grid-template-columns:minmax(0,1fr)")
+    expect(library).toContain('class="course-list-columns"')
+    expect(library).toContain(".course-grid[data-view='list'] .course-main")
+    expect(library).toContain("grid-template-areas:'identity term status next readiness updated'")
     expect(library).not.toContain('.course-grid:has(.course-item:only-child)')
   })
 
