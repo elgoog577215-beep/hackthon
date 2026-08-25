@@ -305,6 +305,16 @@ class TeacherCourseSpaceRepository:
         asset = next((item for item in package.get("assets", []) if item.get("asset_id") == asset_id), None)
         if not asset:
             raise FileNotFoundError(asset_id)
+        referenced_targets = [
+            str(item.get("target_label") or item.get("target_id") or "")
+            for item in package.get("relationships", [])
+            if item.get("source_asset_id") == asset_id
+        ]
+        if referenced_targets:
+            target_summary = "、".join(dict.fromkeys(filter(None, referenced_targets)))
+            raise MaterialStorageError(
+                f"该原件仍被正式文件引用（{target_summary}），请先解除引用后再删除"
+            )
         # 引用条目只删引用，**绝不碰底层 mat-* 资产**：那份资料可能已经绑定课程、
         # 带着解析产物在生成链路里用着。底层删除仍走 material_storage.delete_unbound
         # 的绑定保护，不从这里绕过去。
@@ -332,6 +342,17 @@ class TeacherCourseSpaceRepository:
         affected_entries = [item for item in entries if item.get("path", item.get("name")) == normalized or str(item.get("path", item.get("name", ""))).startswith(prefix)]
         if not destination.is_dir() and not affected_assets and not affected_entries:
             raise FileNotFoundError(normalized)
+        affected_ids = {item["asset_id"] for item in affected_assets}
+        referenced_targets = [
+            str(item.get("target_label") or item.get("target_id") or "")
+            for item in package.get("relationships", [])
+            if item.get("source_asset_id") in affected_ids
+        ]
+        if referenced_targets:
+            target_summary = "、".join(dict.fromkeys(filter(None, referenced_targets)))
+            raise MaterialStorageError(
+                f"文件夹中有原件仍被正式文件引用（{target_summary}），请先解除引用后再删除"
+            )
         for asset in affected_assets:
             # 引用条目没有包内副本，跳过（同 delete_asset：不碰底层 mat-* 资产）。
             if asset.get("source_kind") == MATERIAL_REFERENCE_KIND:
@@ -341,7 +362,6 @@ class TeacherCourseSpaceRepository:
                 source.unlink()
         if destination.is_dir():
             shutil.rmtree(destination)
-        affected_ids = {item["asset_id"] for item in affected_assets}
         package["assets"] = [item for item in package.get("assets", []) if item.get("asset_id") not in affected_ids]
         package["relationships"] = [
             item for item in package.get("relationships", [])

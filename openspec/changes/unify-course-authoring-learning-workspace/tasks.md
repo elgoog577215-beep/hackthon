@@ -186,3 +186,11 @@
 - [x] 20.2 Move PDF/DOCX import and AI generation into task states inside that shell, keep import as the primary empty-state action and remove duplicate mode navigation from the import task.
 - [x] 20.3 Keep the import file queue isolated from generic references, and show course references only for the AI-generation task.
 - [x] 20.4 Add zh/en copy, focused component tests, production-build verification and Chinese desktop real-page acceptance.
+
+## 21. Teacher-owned semantic file system
+
+- [x] 21.1 Replace the five technical root folders with deliverables, course-logic files and supporting materials while keeping the preparation workbench unchanged.
+- [x] 21.2 Project one outline revision into its editable logic file and exportable deliverable, group scripts and PPTs by session as one teaching expression, and keep formal question-bank outputs together.
+- [x] 21.3 Classify each teacher-uploaded original once under question banks, exam papers, student work or other context; show source, role, state and bidirectional formal relationships without copying bytes.
+- [x] 21.4 Block deletion of originals and folders that are still referenced by formal files, and preserve the existing explicit relationship update path.
+- [x] 21.5 Add course-wide search, focused frontend/backend tests, zh/en copy, strict OpenSpec validation, production build, design detector and Chinese desktop acceptance.

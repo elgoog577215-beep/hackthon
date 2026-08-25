@@ -192,7 +192,7 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
             repository.relationships_for_source(package, primary["asset_id"]), []
         )
 
-    async def test_deleting_source_asset_removes_only_its_relationships(self):
+    async def test_deleting_referenced_source_asset_is_blocked(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
         created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
         package = repository.load_owned(created["package_id"], "teacher-a")
@@ -208,10 +208,35 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
             sources=[{"source_asset_id": source["asset_id"], "role": "primary"}],
         )
 
-        repository.delete_asset(package, source["asset_id"])
+        with self.assertRaisesRegex(MaterialStorageError, "仍被正式文件引用"):
+            repository.delete_asset(package, source["asset_id"])
 
         loaded = repository.load_owned(created["package_id"], "teacher-a")
-        self.assertEqual(loaded["relationships"], [])
+        self.assertEqual(len(loaded["relationships"]), 1)
+        self.assertEqual([item["asset_id"] for item in loaded["assets"]], [source["asset_id"]])
+
+    async def test_deleting_folder_with_referenced_source_asset_is_blocked(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        source = await repository.import_file(
+            package, FakeUpload(), "辅助资料/试卷/期末真题.pdf", "batch-1"
+        )
+        repository.save(package)
+        repository.replace_formal_relationships(
+            package,
+            target_id="managed:question-bank",
+            target_type="question_bank",
+            target_label="课程题库",
+            sources=[{"source_asset_id": source["asset_id"], "role": "question_source"}],
+        )
+
+        with self.assertRaisesRegex(MaterialStorageError, "文件夹中有原件仍被正式文件引用"):
+            repository.delete_folder(package, "辅助资料/试卷")
+
+        loaded = repository.load_owned(created["package_id"], "teacher-a")
+        self.assertEqual(len(loaded["relationships"]), 1)
+        self.assertEqual([item["asset_id"] for item in loaded["assets"]], [source["asset_id"]])
 
     async def test_question_sources_have_a_dedicated_question_bank_role(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))

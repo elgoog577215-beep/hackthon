@@ -4973,7 +4973,8 @@
     "rootName": "全课文件",
     "exportCourse": "导出整课文件",
     "filePath": "文件路径",
-    "searchCurrent": "搜索当前目录",
+    "searchCurrent": "搜索全部课程文件",
+    "searchResults": "全课搜索结果",
     "clearSearch": "清空搜索",
     "noSearchResults": "没有找到匹配文件",
     "noSearchResultsHelp": "换个文件名关键词，或清空搜索查看当前目录。",
@@ -5014,7 +5015,7 @@
     "exported": "已导出当前课程资产。",
     "downloadOriginal": "下载原件",
     "delete": "删除",
-    "deleteConfirm": "确定删除“{name}”吗？只会移除这个老师上传的文件，不会删除固定课程资产。",
+    "deleteConfirm": "确定删除“{name}”吗？如果原件仍被正式文件引用，系统会阻止删除并提示先解除引用。",
     "deleted": "文件已删除。",
     "created": "已创建，状态会在文件空间中持续更新。",
     "createFolder": "创建文件夹",
@@ -5025,9 +5026,9 @@
     "states": { "preparing": "正在备课", "prepared": "备课完成" },
     "views": {
       "label": "课程空间工作方式",
-      "files": "文件视图",
-      "filesHelp": "按课程文件夹与课次查看完整文件结构",
-      "categories": "工作台",
+      "files": "课程文件",
+      "filesHelp": "管理交差文件、课程逻辑文件与辅助资料",
+      "categories": "备课工作台",
       "categoriesHelp": "按大纲、教案、正文和 PPT 推进课程生产"
     },
     "categories": {
@@ -5151,16 +5152,18 @@
     "columns": { "name": "名称", "type": "类型", "status": "状态", "updated": "修改时间", "size": "大小" },
     "sortBy": "按{name}排序",
     "types": {
-      "root": "课程文件", "foundation": "课程基础", "teaching_content": "教学内容", "assessment": "考核与考试", "course_documents": "课程文档", "library": "资料库", "exam_papers": "试卷", "reference": "参考资料", "outline": "大纲", "teachingCalendar": "教学日历", "lesson": "课次", "lessonPlan": "教案",
-      "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "本讲练习", "question_bank": "题库", "exam_paper": "试卷", "companionDocuments": "配套文档", "companionDocument": "课程文档", "folder": "文件夹", "file": "文件"
+      "root": "课程文件", "deliverables": "交差文件", "course_logic": "课程逻辑文件", "supporting_materials": "辅助资料", "outline_export": "大纲文件", "lesson_plans": "教案", "script_ppt": "讲稿-PPT", "question_bank_files": "题库", "question_practices": "分讲练习", "aux_question_bank": "老师题库", "aux_exam_papers": "试卷", "aux_student_work": "学生作业", "aux_other": "其他资料", "exam_papers": "正式试卷", "outline": "大纲", "teachingCalendar": "教学日历文件", "lesson": "课次", "lessonPlan": "教案",
+      "content": "讲稿", "material": "资料", "ppt": "PPT", "practice": "分讲练习", "question_bank": "正式题库", "exam_paper": "正式试卷", "companionDocuments": "其他交差材料", "companionDocument": "交差文件", "folder": "文件夹", "file": "上传原件"
     },
     "status": { "ready": "已就绪", "draft": "准备中", "missing": "未生成", "working": "生成中", "stale": "待更新", "uploaded": "已上传", "empty": "暂无内容" },
     "statusHelp": {
       "ready": "当前版本可直接使用。", "draft": "部分必备内容尚未完成，可进入后继续准备。", "missing": "当前还没有内容。选中后可在右侧开始生成或创建。",
       "working": "后台正在生成，完成后这里会自动显示新版本。", "stale": "上游大纲、教案或资料已变化，建议检查并更新。", "uploaded": "原始文件已保存到本地课程空间。", "empty": "当前文件夹还没有老师添加的资料。"
     },
-    "names": { "foundation": "课程基础", "teachingContent": "教学内容", "assessment": "考核与考试", "courseDocuments": "课程文档", "library": "资料库", "outline": "课程大纲", "teachingCalendar": "教学日历", "reference": "参考资料", "lessonPlan": "教案", "content": "讲稿", "material": "资料", "lessonMaterials": "本讲资料", "ppt": "PPT", "practice": "题目", "lessonPractice": "本讲练习", "questionBank": "课程题库", "questionBankAndPapers": "题库与试卷", "examPapers": "试卷", "companionDocuments": "配套文档", "other": "其他文件", "newMaterial": "新建资料" },
-    "assetRole": { "required": "课程必备", "companion": "课程配套文件", "teacher": "教师文件" },
+    "names": { "deliverables": "交差文件", "courseLogic": "课程逻辑文件", "supportingMaterials": "辅助资料", "outline": "大纲", "outlineFile": "大纲文件", "teachingCalendar": "教学日历", "teachingCalendarFile": "教学日历文件", "otherDeliverables": "其他交差材料", "lessonPlan": "教案", "lessonPlans": "教案", "content": "讲稿", "scriptPpt": "讲稿-PPT", "ppt": "PPT", "lessonPractice": "练习", "questionBank": "课程题库", "questionBankFiles": "题库", "questionPractices": "分讲练习", "formalExamPapers": "正式试卷", "teacherQuestionBanks": "老师题库", "uploadedExamPapers": "试卷", "studentWork": "学生作业", "otherMaterials": "其他资料", "companionDocuments": "配套文档", "newMaterial": "新建资料" },
+    "descriptions": { "deliverables": "面向学校提交与归档的版本文件", "courseLogic": "持续编辑并驱动课程联动的正式本体", "supportingMaterials": "老师上传的题库、试卷、学生作业与其他依据", "outlineDeliverable": "与课程逻辑中的大纲共用同一正式版本", "scriptPpt": "同一讲次的内容本体与课堂表达" },
+    "assetRole": { "deliverable": "交差文件", "logic": "课程逻辑文件", "auxiliary": "辅助资料原件", "navigation": "文件夹" },
+    "sources": { "teacherUpload": "老师上传原件", "logicProjection": "来自课程逻辑正式版本", "formalTruth": "课程正式真源", "semanticFolder": "系统语义目录" },
     "ppt": {
       "chooseMethodSubtitle": "可 AI 生成，也可上传老师的旧课件",
       "generatedSubtitle": "AI 生成 · 跟随教案同源更新",
@@ -5168,10 +5171,10 @@
       "generatedOrigin": "AI 生成课件",
       "uploadedOrigin": "老师上传的旧课件"
     },
-    "meta": { "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
+    "meta": { "role": "角色", "source": "来源", "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
     "inspector": {
       "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "sourceMaterials": "来源资料", "generatedFiles": "生成文件", "usedBy": "用于", "lessonPlansCount": "教案 · {count} 讲", "practicesCount": "本讲练习 · {count} 讲", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作",
-      "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料", "questionSource": "真题资料",
+      "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料", "questionSource": "真题资料", "sameTruth": "同一正式版本",
       "actionHints": { "managed": "打开对应工作流；导出只生成当前版本的派生文件。", "uploaded": "可预览或下载原件；删除只移除这个上传文件。", "folder": "新增内容将保存到当前资料目录。", "course": "导出当前课程文件包，不会改变正式课程。" },
       "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程讲稿 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "pinnedQuestionRevisions": "已固定引用的题目修订", "schoolTemplate": "学校模板与已填写课程信息", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
       "uses": { "outline": "教学日历、教案、讲稿、PPT、题目", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "讲稿、PPT、题目", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "questionBank": "出题、审核与组卷", "examPaper": "考试与正式导出", "companionDocument": "学校提交、学生说明与课程归档", "ppt": "课堂演示", "material": "教师备课与课堂使用" }
