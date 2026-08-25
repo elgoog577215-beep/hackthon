@@ -89,7 +89,15 @@ def apply_outline_operations(
         else:
             ref = _required_ref(operation, "node_ref")
             categories = touched.setdefault(ref, set())
-            if "node_name" in operation or "learning_objective" in operation:
+            if any(
+                field in operation
+                for field in (
+                    "node_name",
+                    "learning_objective",
+                    "scope_boundary",
+                    "assessment",
+                )
+            ):
                 categories.add("semantic")
             if "prerequisite_refs" in operation:
                 categories.add("dependency")
@@ -164,7 +172,13 @@ def describe_outline_diff(
                 "new_position": new_position,
             })
         changes: dict[str, Any] = {}
-        for field in ("node_name", "learning_objective", "prerequisite_node_ids"):
+        for field in (
+            "node_name",
+            "learning_objective",
+            "scope_boundary",
+            "assessment",
+            "prerequisite_node_ids",
+        ):
             old_value = old.get(field)
             if field == "prerequisite_node_ids":
                 old_value = [
@@ -309,7 +323,15 @@ def _move_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> Non
 
 def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> None:
     node = _known_node(state, ref)
-    allowed = {"op", "node_ref", "node_name", "learning_objective", "prerequisite_refs"}
+    allowed = {
+        "op",
+        "node_ref",
+        "node_name",
+        "learning_objective",
+        "scope_boundary",
+        "assessment",
+        "prerequisite_refs",
+    }
     unexpected = set(operation) - allowed
     if unexpected:
         raise OutlineAdjustmentError(
@@ -323,6 +345,25 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
             if not value:
                 raise OutlineAdjustmentError("node_content_missing", f"{field} 不能为空")
             node[field] = value
+    if "scope_boundary" in operation:
+        scope_boundary = str(operation.get("scope_boundary") or "").strip()
+        if not scope_boundary:
+            raise OutlineAdjustmentError("node_content_missing", "scope_boundary 不能为空")
+        node["scope_boundary"] = scope_boundary
+    if "assessment" in operation:
+        raw_assessment = operation.get("assessment")
+        if isinstance(raw_assessment, (list, tuple)):
+            assessment = [
+                str(item).strip()
+                for item in raw_assessment
+                if str(item).strip()
+            ]
+        else:
+            item = str(raw_assessment or "").strip()
+            assessment = [item] if item else []
+        if not assessment:
+            raise OutlineAdjustmentError("node_content_missing", "assessment 至少需要一项")
+        node["assessment"] = assessment[:8]
     if "prerequisite_refs" in operation:
         if int(node.get("node_level") or 0) == 1 and operation.get("prerequisite_refs"):
             raise OutlineAdjustmentError("chapter_dependency_invalid", "章节不能设置小节前置依赖")

@@ -120,6 +120,7 @@ from course_outline_planning import (
     normalize_outline_skeleton,
     outline_neighbor_chapters,
     outline_request_fingerprint,
+    review_course_outline_document,
     select_chapter_evidence_hints,
     validate_outline_batch,
     validate_outline_skeleton,
@@ -904,6 +905,8 @@ class CourseService(AIBase):
                         "node_level",
                         "node_name",
                         "learning_objective",
+                        "scope_boundary",
+                        "assessment",
                         "prerequisite_node_ids",
                     )
                 }
@@ -932,13 +935,16 @@ class CourseService(AIBase):
 3. move_node: {"op":"move_node","node_ref":"现有引用","parent_ref":"root|章节引用",
    "after_ref":"同级引用或null"}
 4. update_node: {"op":"update_node","node_ref":"现有引用","node_name":"可选",
-   "learning_objective":"可选","prerequisite_refs":["可选"]}
+   "learning_objective":"可选","scope_boundary":"可选",
+   "assessment":["可选的达成检验"],"prerequisite_refs":["可选"]}
 拆章、并章必须组合上述操作。只允许 L1 章节和 L2 小节；每章最终至少一个小节。
 删除非空章节前必须显式移动或删除其小节。不要直接指定最终 L1/L2 ID。
 重构已有章节时优先复用、移动或更新原有小节；如果新增小节覆盖了原有小节的职责，必须同时合并或删除被替代的小节。
 同一章节内不得保留标题不同但学习目标重复的两个小节，尤其不得重复安排打包、调试、发布和交付等收尾职责。
 所有前置依赖必须指向最终顺序中的前序小节，不能删除仍被依赖的节点，不能成环。
 不得改变 immutable_course_contract 中的教学类型、用途、难度、材料边界或锁定规则。
+如果用户要求修复大纲专业性，只修改被点名节点的目标、范围或达成检验；每节的检验
+必须体现该节独有的证据形态和判断标准，不能只替换主题词复用同一句式。
 不要生成课程正文、教案、course_plan、course_outline 或 course_blueprint。
 """.strip()
         response = await self._call_llm(
@@ -1660,6 +1666,7 @@ class CourseService(AIBase):
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
+        outline_quality_report = review_course_outline_document(outline_plan)
         outline_blueprint = build_course_blueprint_from_plan(outline_plan, artifacts)
         outline_blueprint["course_outline_constraint_report"] = plan_constraint_report
         nodes = self._merge_generation_nodes(
@@ -1727,6 +1734,7 @@ class CourseService(AIBase):
             "evidence_package": artifacts.get("evidence_package", {}),
             "course_blueprint": outline_blueprint,
             "course_outline_constraint_report": plan_constraint_report,
+            "course_outline_quality_report": outline_quality_report,
             "blueprint_validation_report": validate_blueprint(outline_blueprint),
             "generation_quality_report": None,
             "generation_status": "outline_ready",
@@ -1741,6 +1749,7 @@ class CourseService(AIBase):
                     ),
                     "schema_version": "course_outline_v1",
                     "actual": deepcopy(plan_constraint_report.get("actual") or {}),
+                    "editorial_review": deepcopy(outline_quality_report),
                     "prompt_chars": outline_prompt_chars,
                     "max_prompt_tokens": outline_prompt_tokens,
                     "prompt_detail_levels": outline_detail_levels,

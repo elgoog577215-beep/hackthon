@@ -150,6 +150,31 @@ def test_atomic_operations_recompile_every_outline_projection_and_remap_ids():
     assert result["id_map"]["tmp-component-composition"] == "L2-2-2"
 
 
+def test_targeted_editorial_operation_can_update_scope_and_assessment():
+    result = apply_outline_operations(
+        _draft(),
+        [{
+            "op": "update_node",
+            "node_ref": "L2-1-2",
+            "scope_boundary": "只比较 Awake、Start 与 Update 的触发时机，不展开协程调度",
+            "assessment": [
+                "为三个给定初始化场景选择回调入口，并逐项说明选择依据",
+            ],
+        }],
+    )
+
+    node = next(
+        item for item in result["draft"]["nodes"]
+        if item["node_id"] == "L2-1-2"
+    )
+    assert node["scope_boundary"].startswith("只比较")
+    assert node["assessment"] == [
+        "为三个给定初始化场景选择回调入口，并逐项说明选择依据",
+    ]
+    updated = result["draft"]["course_plan"]["chapters"][0]["sections"][1]
+    assert updated["assessment"] == node["assessment"]
+
+
 def test_recompile_replaces_stale_numeric_prefixes_in_every_projection():
     draft = _draft()
     draft["nodes"][0]["node_name"] = "第7章 基础"

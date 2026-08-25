@@ -23,6 +23,7 @@ from course_outline_planning import (
     compile_fallback_outline_batch,
     normalize_outline_skeleton,
     outline_request_fingerprint,
+    review_course_outline_document,
     validate_outline_batch,
     validate_outline_skeleton,
 )
@@ -140,6 +141,62 @@ def test_total_course_size_is_not_an_outline_budget_dimension():
         "minimum_chapter_count": 6,
         "minimum_section_count": 18,
     }
+
+
+def test_whole_outline_review_locates_repeated_assessment_templates_without_blocking():
+    sections = []
+    for index, title in enumerate(("极限", "导数", "积分", "级数"), start=1):
+        sections.append({
+            "node_id": f"L2-1-{index}",
+            "title": title,
+            "learning_objective": f"能应用{title}解决典型问题",
+            "assessment": f"能独立完成“{title}”的标准计算、条件判定与结果核验",
+            "scope_boundary": f"只处理{title}的基本问题",
+        })
+    report = review_course_outline_document({
+        "positioning": "面向本科生建立微积分分析与应用能力",
+        "learning_objectives": ["能选择并应用微积分方法解决问题"],
+        "chapters": [{"chapter_number": 1, "title": "核心方法", "sections": sections}],
+    })
+
+    assert report["passed"] is True
+    assert report["non_blocking"] is True
+    repeated = next(
+        issue for issue in report["issues"]
+        if issue["code"] == "outline_editorial:repeated_assessment_template"
+    )
+    assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
+    assert repeated["rule_version"] == "course_outline_editorial_v1"
+    assert "scope_boundary" in repeated["repair_instruction"]
+    assert report["metrics"]["located_section_count"] == 4
+
+
+def test_whole_outline_review_reports_ready_for_distinct_professional_evidence():
+    report = review_course_outline_document({
+        "positioning": "面向工程学习者完成数据分析方案设计",
+        "learning_objectives": ["能解释、比较并设计完整的数据分析方案"],
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "分析方法",
+            "sections": [
+                {
+                    "node_id": "L2-1-1",
+                    "title": "变量关系解释",
+                    "learning_objective": "能用图表与统计量解释两个变量的关系",
+                    "assessment": ["提交一页解释报告，结论须同时引用图表形态与统计量"],
+                },
+                {
+                    "node_id": "L2-1-2",
+                    "title": "模型方案比较",
+                    "learning_objective": "能依据误差与可解释性比较两种模型",
+                    "assessment": ["完成模型对照表，并为目标场景给出有依据的选择"],
+                },
+            ],
+        }],
+    })
+
+    assert report["status"] == "ready"
+    assert report["issues"] == []
 
 
 def test_unspecified_course_rejects_six_section_skeleton():

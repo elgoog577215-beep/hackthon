@@ -177,6 +177,9 @@ def build_blueprint_draft(course_data: dict[str, Any]) -> dict[str, Any]:
         "difficulty_profile": deepcopy(course_data.get("difficulty_profile") or {}),
         "course_generation_brief": deepcopy(course_data.get("course_generation_brief") or {}),
         "course_shape_constraints": deepcopy(course_data.get("course_shape_constraints") or {}),
+        "course_outline_quality_report": deepcopy(
+            course_data.get("course_outline_quality_report") or {}
+        ),
         "base_blueprint_revision_id": blueprint_revision_id(course_data),
         "updated_at": datetime.now().isoformat(),
     }
@@ -209,6 +212,7 @@ def merge_blueprint_draft(course_data: dict[str, Any], draft: dict[str, Any]) ->
         "difficulty_profile",
         "course_generation_brief",
         "course_shape_constraints",
+        "course_outline_quality_report",
     ):
         if field in draft:
             candidate[field] = deepcopy(draft[field])

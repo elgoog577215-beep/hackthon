@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
@@ -737,6 +738,234 @@ def assemble_course_outline(
     }
 
 
+_QUALITY_RULE_VERSION = "course_outline_editorial_v1"
+_QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
+_NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
+_QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
+_GENERIC_OBJECTIVE_PATTERNS = (
+    re.compile(r"完成(?:第)?[^，。；]{0,24}(?:学习)?任务"),
+    re.compile(r"围绕[^，。；]{0,30}完成[^，。；]{0,20}任务"),
+    re.compile(r"掌握[^，。；]{0,30}(?:知识|内容|方法)$"),
+)
+_GENERIC_ASSESSMENT_PATTERNS = (
+    re.compile(r"完成一项可检查的"),
+    re.compile(r"提交并说明第?[^，。；]{0,20}(?:结果|任务)"),
+    re.compile(r"能独立完成[^，。；]{0,40}(?:标准计算|条件判定|结果核验)"),
+)
+
+
+def _editorial_signature(value: Any, *, title: str = "") -> str:
+    """Reduce a sentence to its reusable editorial template."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    text = _QUOTED_TOPIC.sub("主题", text)
+    clean_title = re.sub(r"^\s*\d+(?:\.\d+)?\s*", "", title).strip().lower()
+    if clean_title and len(clean_title) >= 2:
+        text = text.replace(clean_title, "主题")
+    text = _NUMBER_TOKEN.sub("序号", text)
+    return _QUALITY_PUNCTUATION.sub("", text)
+
+
+def _outline_assessment_items(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    item = str(value or "").strip()
+    return [item] if item else []
+
+
+def _editorial_issue(
+    code: str,
+    message: str,
+    *,
+    category: str,
+    node_ids: list[str] | None = None,
+    evidence: dict[str, Any] | None = None,
+    repair_instruction: str = "",
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "rule_version": _QUALITY_RULE_VERSION,
+        "severity": "suggestion",
+        "category": category,
+        "message": message,
+        "node_ids": list(node_ids or []),
+        "evidence": deepcopy(evidence or {}),
+        "repair_instruction": repair_instruction,
+    }
+
+
+def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any]:
+    """Run a deterministic, non-blocking editorial review on one whole outline."""
+    source = plan if isinstance(plan, dict) else {}
+    chapters = [item for item in source.get("chapters") or [] if isinstance(item, dict)]
+    sections = [
+        section
+        for chapter in chapters
+        for section in chapter.get("sections") or []
+        if isinstance(section, dict)
+    ]
+    issues: list[dict[str, Any]] = []
+    if not str(source.get("positioning") or "").strip():
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_positioning",
+            "课程定位还没有说明这门课面向谁、解决什么问题以及最终形成什么能力。",
+            category="document_identity",
+            repair_instruction="补写课程定位：明确学习对象、课程边界与最终可观察成果，不改变章节结构。",
+        ))
+    if not [item for item in source.get("learning_objectives") or [] if str(item).strip()]:
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_course_outcomes",
+            "整门课程缺少可检查的学习成果，章节安排因此没有清晰的共同终点。",
+            category="document_identity",
+            repair_instruction="补充 3—5 条可观察、可评价的全课学习成果，不改变章节结构。",
+        ))
+
+    title_counts = Counter(
+        signature
+        for section in sections
+        if (signature := _editorial_signature(section.get("title")))
+    )
+    duplicate_titles = {
+        signature for signature, count in title_counts.items() if count > 1
+    }
+    duplicate_title_nodes = [
+        str(section.get("node_id") or "")
+        for section in sections
+        if _editorial_signature(section.get("title")) in duplicate_titles
+    ]
+    if duplicate_title_nodes:
+        issues.append(_editorial_issue(
+            "outline_editorial:duplicate_section_titles",
+            f"有 {len(duplicate_title_nodes)} 个小节使用了重复或近似重复的标题，课程推进层次不够清楚。",
+            category="progression",
+            node_ids=duplicate_title_nodes,
+            evidence={"duplicate_template_count": len(duplicate_titles)},
+            repair_instruction="重写这些小节标题与目标，使每节只承担一个不重复的学习责任；保留节点、章节归属和先后顺序。",
+        ))
+
+    overloaded_nodes: list[str] = []
+    generic_objective_nodes: list[str] = []
+    generic_assessment_nodes: list[str] = []
+    missing_assessment_nodes: list[str] = []
+    objective_signatures: dict[str, list[str]] = {}
+    assessment_signatures: dict[str, list[str]] = {}
+    for section in sections:
+        node_id = str(section.get("node_id") or "")
+        title = str(section.get("title") or "")
+        objective = str(section.get("learning_objective") or "").strip()
+        assessments = _outline_assessment_items(section.get("assessment"))
+        if len(title) > 32 and len(re.findall(r"[、/：]|(?:与|及|和|并)", title)) >= 2:
+            overloaded_nodes.append(node_id)
+        if not objective or any(pattern.search(objective) for pattern in _GENERIC_OBJECTIVE_PATTERNS):
+            generic_objective_nodes.append(node_id)
+        objective_signature = _editorial_signature(objective, title=title)
+        if objective_signature:
+            objective_signatures.setdefault(objective_signature, []).append(node_id)
+        if not assessments:
+            missing_assessment_nodes.append(node_id)
+        for assessment in assessments:
+            if any(pattern.search(assessment) for pattern in _GENERIC_ASSESSMENT_PATTERNS):
+                generic_assessment_nodes.append(node_id)
+            signature = _editorial_signature(assessment, title=title)
+            if signature:
+                assessment_signatures.setdefault(signature, []).append(node_id)
+
+    if overloaded_nodes:
+        issues.append(_editorial_issue(
+            "outline_editorial:overloaded_section_titles",
+            f"有 {len(overloaded_nodes)} 个小节标题同时塞入多个主题，建议拆清主任务或收紧命名。",
+            category="progression",
+            node_ids=overloaded_nodes,
+            repair_instruction="收紧这些小节的标题与学习目标，每节只保留一个主任务；不改变节点数量和顺序。",
+        ))
+    if generic_objective_nodes:
+        unique_nodes = list(dict.fromkeys(generic_objective_nodes))
+        issues.append(_editorial_issue(
+            "outline_editorial:generic_objectives",
+            f"有 {len(unique_nodes)} 个小节目标仍是通用任务句，教师难以判断学生究竟要学会什么。",
+            category="outcome_quality",
+            node_ids=unique_nodes,
+            repair_instruction="把这些小节目标改成“动作 + 对象 + 条件/标准”的可观察表达；保持节点、标题、章节归属和顺序不变。",
+        ))
+    if missing_assessment_nodes:
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_assessments",
+            f"有 {len(missing_assessment_nodes)} 个小节没有达成检验，目标还不能被课堂验证。",
+            category="assessment_quality",
+            node_ids=missing_assessment_nodes,
+            repair_instruction="为这些小节各补充一项与目标直接对应的达成检验，写清学生产出与判断标准；不改变结构。",
+        ))
+
+    minimum_repetition = max(3, math.ceil(max(1, len(sections)) * 0.35))
+    repeated_objective_nodes = list(dict.fromkeys(
+        node_id
+        for nodes in objective_signatures.values()
+        if len(nodes) >= minimum_repetition
+        for node_id in nodes
+    ))
+    repeated_assessment_nodes = list(dict.fromkeys(
+        node_id
+        for nodes in assessment_signatures.values()
+        if len(nodes) >= minimum_repetition
+        for node_id in nodes
+    ))
+    if repeated_objective_nodes:
+        issues.append(_editorial_issue(
+            "outline_editorial:repeated_objective_template",
+            f"有 {len(repeated_objective_nodes)} 个小节沿用同一种目标句式，只替换了主题名称。",
+            category="outcome_quality",
+            node_ids=repeated_objective_nodes,
+            evidence={"threshold": minimum_repetition},
+            repair_instruction="重写这些小节的学习目标，让动作、学习对象与完成标准随具体内容变化；保留节点、标题和顺序。",
+        ))
+    combined_assessment_nodes = list(dict.fromkeys([
+        *generic_assessment_nodes,
+        *repeated_assessment_nodes,
+    ]))
+    if combined_assessment_nodes:
+        issues.append(_editorial_issue(
+            "outline_editorial:repeated_assessment_template",
+            f"有 {len(combined_assessment_nodes)} 个小节的达成检验过于模板化，无法体现各节不同的能力要求。",
+            category="assessment_quality",
+            node_ids=combined_assessment_nodes,
+            evidence={"threshold": minimum_repetition},
+            repair_instruction=(
+                "只重写这些小节的 scope_boundary 与 assessment：为每节选择与目标相符的不同证据形态，"
+                "如解释、推导、判错、比较、设计、实作或迁移；写清产出和判断标准，"
+                "保留节点、标题、目标、章节归属与顺序。"
+            ),
+        ))
+
+    metrics = {
+        "chapter_count": len(chapters),
+        "section_count": len(sections),
+        "issue_count": len(issues),
+        "located_section_count": len({
+            node_id
+            for issue in issues
+            for node_id in issue.get("node_ids") or []
+            if node_id
+        }),
+    }
+    report = {
+        "schema_version": "course_outline_editorial_review_v1",
+        "rule_version": _QUALITY_RULE_VERSION,
+        "non_blocking": True,
+        "passed": True,
+        "status": "review_suggested" if issues else "ready",
+        "summary": (
+            f"发现 {len(issues)} 类可改进项，结构可继续使用。"
+            if issues
+            else "整篇大纲未发现高频专业表达问题。"
+        ),
+        "metrics": metrics,
+        "issues": issues,
+    }
+    report["revision_id"] = stable_hash(report, prefix="outline_editorial_")
+    return report
+
+
 def outline_neighbor_chapters(
     skeleton: dict[str, Any],
     chapter_number: int,
@@ -844,6 +1073,7 @@ __all__ = [
     "normalize_outline_skeleton",
     "outline_neighbor_chapters",
     "outline_request_fingerprint",
+    "review_course_outline_document",
     "select_chapter_evidence_hints",
     "validate_outline_batch",
     "validate_outline_skeleton",

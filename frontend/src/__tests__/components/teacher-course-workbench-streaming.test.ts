@@ -215,6 +215,9 @@ describe('teacher course workbench outline streaming', () => {
   it('生成前只展示业务输入和操作，不展示内部流程解释', async () => {
     const wrapper = mountWorkbench()
 
+    expect(wrapper.get('.foundation-presets').text()).toContain('生成偏好')
+    expect(wrapper.get('.foundation-presets').text()).toContain('应用导向')
+    expect(wrapper.get('.foundation-presets').text()).toContain('讲练一体')
     expect(wrapper.find('.chapter-shape-editor').exists()).toBe(false)
     expect(wrapper.find('.course-shape-summary').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('大纲生成顺序')
@@ -228,7 +231,10 @@ describe('teacher course workbench outline streaming', () => {
     const emitted = wrapper.emitted('generateOutline')?.[0]?.[0] as any
     expect(emitted.options.teacher_course_brief).toEqual(expect.objectContaining({
       total_class_hours: 12,
+      additional_requirements: expect.stringContaining('课程定位：'),
     }))
+    expect(emitted.options.requirements).toContain('教学组织：')
+    expect(emitted.options.requirements).toContain('能力重点：')
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('chapter_count')
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('section_count')
   })

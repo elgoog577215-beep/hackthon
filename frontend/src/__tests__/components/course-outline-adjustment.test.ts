@@ -102,6 +102,9 @@ describe('一句话调整课程目录', () => {
     })
     await flushPromises()
 
+    expect(wrapper.find('[data-testid="formal-outline-document"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('Unity 游戏编程')
+    expect(wrapper.get('.outline-view-switch button.active').text()).toContain('正式大纲')
     const outlineElement = wrapper.get('[data-testid="outline-chapter-list"]').element
     const toolbarElement = wrapper.get('.outline-review__list-toolbar').element
     expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('view')
@@ -122,6 +125,8 @@ describe('一句话调整课程目录', () => {
 
     await wrapper.setProps({ editable: true })
 
+    expect(wrapper.find('[data-testid="formal-outline-document"]').exists()).toBe(false)
+    expect(wrapper.get('.outline-view-switch button.active').text()).toContain('课程结构')
     expect(wrapper.get('[data-testid="outline-chapter-list"]').element).toBe(outlineElement)
     expect(wrapper.get('.outline-review__list-toolbar').element).toBe(toolbarElement)
     expect(wrapper.get('.outline-review').attributes('data-mode')).toBe('edit')
@@ -133,6 +138,81 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('[data-testid="add-outline-chapter"]').exists()).toBe(true)
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
+  })
+
+  it('从整篇质量建议直接生成定点修复候选', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const draft = {
+      ...currentDraft(),
+      course_plan: {
+        course_title: 'Unity 游戏编程',
+        positioning: '面向初学者建立组件化游戏开发能力',
+        learning_objectives: ['能设计并实现可运行的游戏原型'],
+        prerequisites: ['基本编程语法'],
+        chapters: [{
+          chapter_number: 1,
+          title: '基础',
+          learning_focus: '建立运行机制认知',
+          sections: [{
+            node_id: 'L2-1-1',
+            section_number: '1.1',
+            title: '生命周期',
+            learning_objective: '理解生命周期',
+            assessment: '完成一项可检查的生命周期任务',
+          }],
+        }],
+      },
+    }
+    const instruction = '只重写这些小节的 assessment，写清产出与判断标准。'
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: draft,
+      quality: {
+        status: 'review_suggested',
+        summary: '发现 2 类可改进项，结构可继续使用。',
+        issues: [
+          {
+            code: 'outline_editorial:missing_positioning',
+            message: '课程定位待完善',
+            node_ids: [],
+            repair_instruction: '补写课程定位。',
+          },
+          {
+            code: 'outline_editorial:repeated_assessment_template',
+            message: '达成检验过于模板化',
+            node_ids: ['L2-1-1'],
+            repair_instruction: instruction,
+          },
+        ],
+      },
+    } as any)
+    const preview = vi.spyOn(workspace, 'previewBlueprintAdjustment').mockResolvedValue(proposal() as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-1',
+        courseName: 'Unity 游戏编程',
+        editable: false,
+        variant: 'inline',
+        requiresConfirmation: true,
+        surface: 'teacher',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('达成检验过于模板化')
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('生命周期')
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('完成一项可检查的生命周期任务')
+    expect(wrapper.findAll('.outline-quality li button')).toHaveLength(1)
+    await wrapper.get('.outline-quality li button').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('open-ai')).toHaveLength(1)
+    expect(preview).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      instruction: `${instruction}\n仅允许修改节点：L2-1-1。`,
+    }))
+    expect(wrapper.emitted('ai-candidate-change')?.[0]?.[0]).toEqual(expect.objectContaining({
+      proposal_id: 'proposal-1',
+    }))
   })
 
   it('新增章和小节后滚动并聚焦标题，避免长大纲看起来没有响应', async () => {

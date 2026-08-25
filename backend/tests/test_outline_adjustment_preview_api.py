@@ -220,6 +220,10 @@ def test_apply_rejects_stale_draft_and_recompiles_instead_of_trusting_client_pla
         "1.2 组件组合",
     ]
     assert saved["course_blueprint"]["sections"] == saved["course_plan"]["chapters"]
+    quality = applied.json()["quality_report"]
+    assert quality["schema_version"] == "course_outline_editorial_review_v1"
+    assert quality["non_blocking"] is True
+    assert saved["course_outline_quality_report"] == quality
 
 
 def test_adjustment_apply_is_bound_to_previewed_operations_and_ignores_tampered_nodes(monkeypatch):
@@ -326,6 +330,9 @@ def test_blueprint_endpoint_exposes_the_coverage_verdict(monkeypatch):
     assert coverage["may_claim_complete_subject"] is False
     assert coverage["uncovered_count"] == 2
     assert "中值定理" in coverage["uncovered_topics"]
+    quality = response.json()["quality"]
+    assert quality["schema_version"] == "course_outline_editorial_review_v1"
+    assert quality["passed"] is True
 
 
 def test_blueprint_endpoint_reports_unknown_coverage_for_pre_d1_courses(monkeypatch):

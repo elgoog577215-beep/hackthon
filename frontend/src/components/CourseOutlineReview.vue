@@ -302,7 +302,124 @@
           </section>
           </div>
 
-          <div class="outline-review__chapters" ref="chaptersRef" data-testid="outline-chapter-list">
+          <nav class="outline-view-switch" :aria-label="t('courseGeneration.outlineReview.viewSwitch', '大纲视图')">
+            <button
+              type="button"
+              :class="{ active: viewMode === 'document' }"
+              :aria-pressed="viewMode === 'document'"
+              @click="viewMode = 'document'"
+            >
+              <FileText :size="14" />
+              {{ t('courseGeneration.outlineReview.documentView', '正式大纲') }}
+            </button>
+            <button
+              type="button"
+              :class="{ active: viewMode === 'structure' }"
+              :aria-pressed="viewMode === 'structure'"
+              @click="viewMode = 'structure'"
+            >
+              <ListTree :size="14" />
+              {{ t('courseGeneration.outlineReview.structureView', '课程结构') }}
+            </button>
+          </nav>
+
+          <article v-if="viewMode === 'document' && blueprintNodes.length" class="formal-outline" data-testid="formal-outline-document">
+            <header class="formal-outline__masthead">
+              <div class="formal-outline__kicker">
+                <FileText :size="15" />
+                <span>{{ t('courseGeneration.outlineReview.documentKicker', '正式教学大纲') }}</span>
+              </div>
+              <h1>{{ documentTitle }}</h1>
+              <p>{{ documentPositioning || t('courseGeneration.outlineReview.positioningPending', '课程定位将在教学目标与章节结构中继续明确。') }}</p>
+              <dl>
+                <div><dt>{{ t('courseGeneration.outlineReview.documentChapters', '章节') }}</dt><dd>{{ documentChapters.length }}</dd></div>
+                <div><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentSectionCount }}</dd></div>
+                <div><dt>{{ t('courseGeneration.outlineReview.documentQuality', '整篇审读') }}</dt><dd :data-ready="qualityReady">{{ qualityReady ? t('courseGeneration.outlineReview.qualityReady', '表达清晰') : t('courseGeneration.outlineReview.qualitySuggested', '建议优化') }}</dd></div>
+              </dl>
+            </header>
+
+            <section class="formal-outline__brief">
+              <div>
+                <h2>{{ t('courseGeneration.outlineReview.courseOutcomes', '课程学习成果') }}</h2>
+                <ol v-if="documentObjectives.length">
+                  <li v-for="(objective, index) in documentObjectives" :key="`${index}-${objective}`">{{ objective }}</li>
+                </ol>
+                <p v-else>{{ t('courseGeneration.outlineReview.outcomesPending', '暂未形成独立的全课成果条目。') }}</p>
+              </div>
+              <div>
+                <h2>{{ t('courseGeneration.outlineReview.prerequisites', '先修要求') }}</h2>
+                <ul v-if="documentPrerequisites.length">
+                  <li v-for="(item, index) in documentPrerequisites" :key="`${index}-${item}`">{{ item }}</li>
+                </ul>
+                <p v-else>{{ t('courseGeneration.outlineReview.noPrerequisites', '无明确先修要求；按课程内学习路径逐步建立基础。') }}</p>
+              </div>
+            </section>
+
+            <section v-if="qualityIssues.length" class="outline-quality" aria-labelledby="outline-quality-title">
+              <header>
+                <div>
+                  <span>{{ t('courseGeneration.outlineReview.qualityEyebrow', '整篇审读') }}</span>
+                  <h2 id="outline-quality-title">{{ t('courseGeneration.outlineReview.qualityTitle', '让每一节都更像专业教学设计') }}</h2>
+                </div>
+                <p>{{ qualityArtifact.summary }}</p>
+              </header>
+              <ol>
+                <li v-for="issue in qualityIssues" :key="issue.code">
+                  <div>
+                    <strong>{{ issue.message }}</strong>
+                    <small>{{ qualityIssueLocation(issue) }}</small>
+                  </div>
+                  <button
+                    v-if="qualityIssueActionable(issue)"
+                    type="button"
+                    :disabled="adjustmentBusy"
+                    @click="repairQualityIssue(issue)"
+                  >
+                    <LoaderCircle v-if="repairingQualityCode === issue.code" :size="14" />
+                    <Sparkles v-else :size="14" />
+                    {{ t('courseGeneration.outlineReview.targetedRepair', '定点优化') }}
+                  </button>
+                </li>
+              </ol>
+              <footer>{{ t('courseGeneration.outlineReview.qualityNonBlocking', '这些是非阻断建议；原大纲仍可继续编辑和确认。') }}</footer>
+            </section>
+
+            <section class="formal-outline__schedule">
+              <header>
+                <div>
+                  <span>{{ t('courseGeneration.outlineReview.scheduleKicker', '教学进度') }}</span>
+                  <h2>{{ t('courseGeneration.outlineReview.scheduleTitle', '章节与学习任务安排') }}</h2>
+                </div>
+                <p>{{ t('courseGeneration.outlineReview.scheduleDescription', '每个小节都对应一项可观察目标与达成检验。') }}</p>
+              </header>
+              <article v-for="(chapter, chapterIndex) in documentChapters" :key="chapter.node_id || chapter.chapter_number || chapterIndex" class="formal-outline__chapter-block">
+                <header>
+                  <span>{{ String(chapterIndex + 1).padStart(2, '0') }}</span>
+                  <div>
+                    <h3>{{ plainOutlineTitle(chapter.title) }}</h3>
+                    <p v-if="chapter.learning_focus || chapter.learning_objective">{{ chapter.learning_focus || chapter.learning_objective }}</p>
+                  </div>
+                  <small>{{ (chapter.sections || []).length }} {{ t('courseWorkbench.form.sectionUnit', '小节') }}</small>
+                </header>
+                <ol>
+                  <li v-for="(section, sectionIndex) in chapter.sections || []" :key="section.node_id || section.section_number || sectionIndex">
+                    <span>{{ section.section_number || `${chapterIndex + 1}.${sectionIndex + 1}` }}</span>
+                    <div>
+                      <h4>{{ plainOutlineTitle(section.title || section.node_name) }}</h4>
+                      <p>{{ section.learning_objective || t('courseGeneration.outlineReview.objectivePending', '学习目标待完善') }}</p>
+                      <p v-if="section.scope_boundary" class="formal-outline__boundary">{{ section.scope_boundary }}</p>
+                      <div v-if="assessmentItems(section.assessment).length" class="formal-outline__assessment">
+                        <strong>{{ t('courseGeneration.outlineReview.assessmentLabel', '达成检验') }}</strong>
+                        <span>{{ assessmentItems(section.assessment).join('；') }}</span>
+                      </div>
+                    </div>
+                  </li>
+                </ol>
+              </article>
+            </section>
+          </article>
+
+          <div class="outline-review__chapters" v-show="viewMode === 'structure'" ref="chaptersRef" data-testid="outline-chapter-list">
             <div class="outline-review__list-toolbar">
               <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
               <div class="outline-review__toolbar-actions">
@@ -471,7 +588,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowDown, ArrowRight, ArrowUp, CircleCheck, LoaderCircle, Plus, Save, Sparkles, Trash2, TriangleAlert } from 'lucide-vue-next'
+import { ArrowDown, ArrowRight, ArrowUp, CircleCheck, FileText, ListTree, LoaderCircle, Plus, Save, Sparkles, Trash2, TriangleAlert } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
@@ -518,6 +635,9 @@ const retrievalArtifact = ref<Record<string, any>>({})
 // D-1：课程规格与覆盖度判定。只在后端真的给出判定时展示——没有判定时保持沉默，
 // 而不是显示"完整"，因为"沉默被当成完整"正是这个问题的由来。
 const coverageArtifact = ref<Record<string, any>>({})
+const qualityArtifact = ref<Record<string, any>>({})
+const viewMode = ref<'document' | 'structure'>('document')
+const repairingQualityCode = ref('')
 const coverageVerdict = computed(() => (
   coverageArtifact.value?.available ? coverageArtifact.value : null
 ))
@@ -645,6 +765,50 @@ const outlineGroups = computed(() => {
 
   return ungrouped.sections.length ? [...chapters, ungrouped] : chapters
 })
+const documentPlan = computed<Record<string, any>>(() => (
+  blueprintDraft.value?.course_plan
+  || blueprintDraft.value?.course_outline
+  || {}
+))
+const documentTitle = computed(() => String(
+  documentPlan.value.course_title
+  || blueprintDraft.value?.course_name
+  || props.courseName
+  || t('courseGeneration.outlineReview.documentFallbackTitle', '课程教学大纲'),
+))
+const documentPositioning = computed(() => String(documentPlan.value.positioning || '').trim())
+const documentObjectives = computed<string[]>(() => (
+  Array.isArray(documentPlan.value.learning_objectives)
+    ? documentPlan.value.learning_objectives.map((item: any) => String(item || '').trim()).filter(Boolean)
+    : []
+))
+const documentPrerequisites = computed<string[]>(() => (
+  Array.isArray(documentPlan.value.prerequisites)
+    ? documentPlan.value.prerequisites.map((item: any) => String(item || '').trim()).filter(Boolean)
+    : []
+))
+const documentChapters = computed<any[]>(() => (
+  Array.isArray(documentPlan.value.chapters) && documentPlan.value.chapters.length
+    ? documentPlan.value.chapters
+    : outlineGroups.value.map((group, chapterIndex) => ({
+      chapter_number: chapterIndex + 1,
+      title: group.chapter?.node.node_name || '',
+      learning_focus: group.chapter?.node.learning_objective || '',
+      sections: group.sections.map(({ node }, sectionIndex) => ({
+        ...node,
+        section_number: `${chapterIndex + 1}.${sectionIndex + 1}`,
+        title: node.node_name,
+      })),
+    }))
+))
+const documentSectionCount = computed(() => documentChapters.value.reduce(
+  (total, chapter) => total + (Array.isArray(chapter.sections) ? chapter.sections.length : 0),
+  0,
+))
+const qualityIssues = computed<any[]>(() => (
+  Array.isArray(qualityArtifact.value?.issues) ? qualityArtifact.value.issues : []
+))
+const qualityReady = computed(() => qualityArtifact.value?.status === 'ready' || !qualityIssues.value.length)
 const courseType = computed(() => String(blueprintDraft.value?.course_type || props.task?.courseType || 'systematic'))
 const isProjectCourse = computed(() => courseType.value === 'project')
 const courseIntent = computed<Record<string, any>>(() => blueprintDraft.value?.course_intent || {})
@@ -664,16 +828,22 @@ const draftSignature = computed(() => JSON.stringify({
     node_name: node.node_name,
     node_level: node.node_level,
     learning_objective: node.learning_objective || '',
+    scope_boundary: node.scope_boundary || '',
+    assessment: node.assessment || [],
     prerequisite_node_ids: node.prerequisite_node_ids || [],
   })),
 }))
 const dirty = computed(() => Boolean(baseline.value && draftSignature.value !== baseline.value))
 
-onMounted(loadBlueprint)
+onMounted(() => {
+  viewMode.value = props.editable ? 'structure' : 'document'
+  void loadBlueprint()
+})
 watch(() => props.courseId, (courseId, previous) => {
   if (courseId && courseId !== previous) void loadBlueprint()
 })
 watch(() => props.editable, editable => {
+  viewMode.value = editable ? 'structure' : 'document'
   if (!editable) inlineToolsOpen.value = false
 })
 
@@ -733,6 +903,12 @@ async function loadBlueprint() {
     const data = await workspace.loadBlueprint(props.courseId)
     retrievalArtifact.value = clone(data.retrieval || {})
     coverageArtifact.value = clone(data.coverage || {})
+    qualityArtifact.value = clone(
+      data.quality
+      || data.draft?.course_outline_quality_report
+      || data.current?.course_outline_quality_report
+      || {},
+    )
     blueprintDraft.value = clone(data.draft || data.current || data || {})
     seedNodesFromCourse()
     if (!blueprintDraft.value.course_name) blueprintDraft.value.course_name = props.courseName
@@ -775,6 +951,7 @@ async function persistDraft(showMessage = true) {
   if (!blueprintNodes.value.length) return
   const result = await workspace.saveBlueprint(props.courseId, draftPayload())
   if (result?.draft) blueprintDraft.value = clone(result.draft)
+  qualityArtifact.value = clone(result?.quality_report || result?.draft?.course_outline_quality_report || {})
   syncNavigationFromDraft()
   baseline.value = draftSignature.value
   if (showMessage) ElMessage.success(t('courseGeneration.outlineReview.savedMessage', '目录修改已保存'))
@@ -828,6 +1005,8 @@ function changedFieldSummary(changes: Record<string, any> | undefined) {
   const labels: Record<string, string> = {
     node_name: t('courseGeneration.outlineReview.changedName', '标题'),
     learning_objective: t('courseGeneration.outlineReview.changedObjective', '学习目标'),
+    scope_boundary: t('courseGeneration.outlineReview.changedScopeBoundary', '范围边界'),
+    assessment: t('courseGeneration.outlineReview.changedAssessment', '达成检验'),
     prerequisite_node_ids: t('courseGeneration.outlineReview.changedDependencies', '前置依赖'),
   }
   return Object.keys(changes || {}).map(field => labels[field] || field).join('、')
@@ -1036,6 +1215,7 @@ async function applyAdjustmentProposal() {
     adjustmentProposal.value = null
     emit('ai-candidate-change', null)
     blueprintDraft.value = clone(result?.draft || candidate)
+    qualityArtifact.value = clone(result?.quality_report || result?.draft?.course_outline_quality_report || {})
     syncNavigationFromDraft()
     baseline.value = draftSignature.value
     proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
@@ -1058,6 +1238,62 @@ async function applyAdjustmentProposal() {
 async function requestAiCandidate(instruction: string) {
   adjustmentInstruction.value = instruction.trim()
   return generateAdjustmentProposal()
+}
+
+function plainOutlineTitle(value: unknown) {
+  return String(value || '')
+    .replace(/^\s*第\s*\d+\s*章\s*/, '')
+    .replace(/^\s*\d+(?:\.\d+)?\s*/, '')
+    .trim()
+}
+
+function assessmentItems(value: unknown) {
+  if (Array.isArray(value)) {
+    return value.map(item => String(item || '').trim()).filter(Boolean)
+  }
+  const item = String(value || '').trim()
+  return item ? [item] : []
+}
+
+function qualityIssueLocation(issue: Record<string, any>) {
+  const ids = Array.isArray(issue.node_ids) ? issue.node_ids.map(item => String(item)) : []
+  const names = ids.map(nodeId => {
+    const node = blueprintNodes.value.find(item => String(item.node_id || '') === nodeId)
+    return plainOutlineTitle(node?.node_name || nodeId)
+  }).filter(Boolean)
+  if (!names.length) return t('courseGeneration.outlineReview.qualityWholeDocument', '整篇大纲')
+  const visible = names.slice(0, 3).join('、')
+  return names.length > 3
+    ? t('courseGeneration.outlineReview.qualityLocationsMore', '{names} 等 {count} 节')
+      .replace('{names}', visible)
+      .replace('{count}', String(names.length))
+    : visible
+}
+
+function qualityIssueActionable(issue: Record<string, any>) {
+  return Boolean(
+    props.requiresConfirmation
+    && String(issue.repair_instruction || '').trim()
+    && Array.isArray(issue.node_ids)
+    && issue.node_ids.length,
+  )
+}
+
+async function repairQualityIssue(issue: Record<string, any>) {
+  const baseInstruction = String(issue.repair_instruction || '').trim()
+  const nodeIds = Array.isArray(issue.node_ids)
+    ? issue.node_ids.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+    : []
+  const instruction = nodeIds.length
+    ? `${baseInstruction}\n仅允许修改节点：${nodeIds.join('、')}。`
+    : baseInstruction
+  if (!instruction || adjustmentBusy.value) return
+  repairingQualityCode.value = String(issue.code || '')
+  adjustmentInstruction.value = instruction
+  emit('open-ai')
+  await nextTick()
+  await generateAdjustmentProposal()
+  repairingQualityCode.value = ''
 }
 
 async function resolveAiCandidate(accept: boolean) {
@@ -1430,6 +1666,189 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   clip:rect(0,0,0,0);
   white-space:nowrap;
 }
+.outline-view-switch {
+  position:sticky;
+  z-index:5;
+  top:0;
+  display:flex;
+  justify-content:flex-end;
+  gap:3px;
+  padding:14px 0 8px;
+  background:rgba(255,255,255,.94);
+  backdrop-filter:saturate(135%) blur(10px);
+}
+.outline-view-switch button {
+  min-height:34px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:0 11px;
+  border:1px solid transparent;
+  border-radius:8px;
+  color:#697386;
+  background:transparent;
+  font-size:12px;
+  font-weight:750;
+  cursor:pointer;
+  transition:color .18s ease,background .18s ease,border-color .18s ease;
+}
+.outline-view-switch button:hover { color:#3f47a8; background:#f7f7ff; }
+.outline-view-switch button:focus-visible { outline:3px solid rgba(79,70,217,.14); outline-offset:1px; }
+.outline-view-switch button.active { border-color:#d9dcf3; color:#3f47a8; background:#f4f4ff; }
+.formal-outline {
+  width:min(980px,100%);
+  margin:0 auto;
+  padding:0 0 56px;
+  color:#20293a;
+  animation:formal-outline-reveal .42s cubic-bezier(.16,1,.3,1) both;
+}
+.formal-outline__masthead {
+  position:relative;
+  overflow:hidden;
+  padding:42px clamp(34px,6vw,70px) 30px;
+  border:1px solid #e5e6f4;
+  border-radius:16px;
+  background:linear-gradient(145deg,#f7f7ff 0%,#fff 62%);
+  box-shadow:0 18px 44px rgba(32,38,89,.08);
+}
+.formal-outline__masthead::after {
+  content:"";
+  position:absolute;
+  top:-58px;
+  right:-34px;
+  width:180px;
+  height:180px;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(99,102,241,.12),rgba(99,102,241,0) 70%);
+  pointer-events:none;
+}
+.formal-outline__kicker {
+  display:flex;
+  align-items:center;
+  gap:7px;
+  color:#4f55b5;
+  font-size:12px;
+  font-weight:800;
+}
+.formal-outline__masthead h1 {
+  max-width:18ch;
+  margin:14px 0 10px;
+  color:#171d31;
+  font-size:clamp(28px,3.2vw,40px);
+  line-height:1.15;
+  letter-spacing:-.025em;
+  text-wrap:balance;
+}
+.formal-outline__masthead > p {
+  max-width:68ch;
+  margin:0;
+  color:#596579;
+  font-size:14px;
+  line-height:1.75;
+}
+.formal-outline__masthead dl {
+  display:flex;
+  flex-wrap:wrap;
+  gap:24px;
+  margin:28px 0 0;
+}
+.formal-outline__masthead dl div { display:flex; align-items:baseline; gap:8px; }
+.formal-outline__masthead dt { color:#81899a; font-size:11px; }
+.formal-outline__masthead dd { margin:0; color:#303a50; font-size:13px; font-weight:800; }
+.formal-outline__masthead dd[data-ready="true"] { color:#087a5b; }
+.formal-outline__masthead dd[data-ready="false"] { color:#9a5b17; }
+.formal-outline__brief {
+  display:grid;
+  grid-template-columns:minmax(0,1.25fr) minmax(240px,.75fr);
+  gap:0;
+  padding:42px clamp(18px,4vw,44px) 38px;
+  border-bottom:1px solid #e7e9ef;
+}
+.formal-outline__brief > div { min-width:0; padding-right:42px; }
+.formal-outline__brief > div + div { padding:0 0 0 42px; border-left:1px solid #e7e9ef; }
+.formal-outline__brief h2,
+.formal-outline__schedule > header h2,
+.outline-quality h2 { margin:0; color:#242d40; font-size:18px; line-height:1.35; letter-spacing:-.012em; }
+.formal-outline__brief ol,
+.formal-outline__brief ul { margin:15px 0 0; padding-left:22px; }
+.formal-outline__brief li { margin:9px 0; padding-left:5px; color:#4f596d; font-size:13px; line-height:1.7; }
+.formal-outline__brief > div > p { margin:15px 0 0; color:#737d8f; font-size:13px; line-height:1.7; }
+.outline-quality {
+  margin:38px clamp(18px,4vw,44px) 8px;
+  padding:24px 0 12px;
+  border-top:1px solid #dfe1f1;
+  border-bottom:1px solid #dfe1f1;
+}
+.outline-quality > header { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; }
+.outline-quality > header span,
+.formal-outline__schedule > header span {
+  display:block;
+  margin-bottom:5px;
+  color:#565db4;
+  font-size:11px;
+  font-weight:800;
+}
+.outline-quality > header > p { max-width:340px; margin:0; color:#717a8c; font-size:12px; line-height:1.6; text-align:right; }
+.outline-quality ol { margin:18px 0 0; padding:0; list-style:none; }
+.outline-quality li {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:18px;
+  padding:13px 0;
+  border-top:1px solid #eff0f5;
+}
+.outline-quality li strong { display:block; color:#3b4559; font-size:12px; line-height:1.55; }
+.outline-quality li small { display:block; margin-top:3px; color:#8a93a3; font-size:11px; }
+.outline-quality li button {
+  min-height:32px;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:0 10px;
+  border:1px solid #d8daf0;
+  border-radius:8px;
+  color:#454ca8;
+  background:#f8f8ff;
+  font-size:11px;
+  font-weight:800;
+  cursor:pointer;
+}
+.outline-quality li button:hover:not(:disabled) { border-color:#bfc3e8; background:#f1f1ff; }
+.outline-quality li button:focus-visible { outline:3px solid rgba(79,70,217,.14); outline-offset:1px; }
+.outline-quality li button:disabled { opacity:.48; cursor:not-allowed; }
+.outline-quality li button svg.lucide-loader-circle { animation:outline-review-spin .9s linear infinite; }
+.outline-quality > footer { padding:9px 0 0; color:#7d8696; font-size:11px; line-height:1.5; }
+.formal-outline__schedule { padding:48px clamp(18px,4vw,44px) 0; }
+.formal-outline__schedule > header { display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:14px; }
+.formal-outline__schedule > header p { max-width:360px; margin:0; color:#727c8e; font-size:12px; line-height:1.6; text-align:right; }
+.formal-outline__chapter-block { border-top:1px solid #dfe3e9; }
+.formal-outline__chapter-block > header {
+  display:grid;
+  grid-template-columns:42px minmax(0,1fr) auto;
+  align-items:start;
+  gap:16px;
+  padding:26px 0 20px;
+}
+.formal-outline__chapter-block > header > span { color:#6068bd; font-size:12px; font-weight:850; }
+.formal-outline__chapter-block h3 { margin:0; color:#1d2639; font-size:20px; line-height:1.35; letter-spacing:-.015em; }
+.formal-outline__chapter-block > header p { max-width:70ch; margin:6px 0 0; color:#707a8d; font-size:12px; line-height:1.6; }
+.formal-outline__chapter-block > header small { color:#8991a0; font-size:11px; white-space:nowrap; }
+.formal-outline__chapter-block > ol { margin:0 0 30px 58px; padding:0; list-style:none; }
+.formal-outline__chapter-block > ol > li {
+  display:grid;
+  grid-template-columns:54px minmax(0,1fr);
+  gap:16px;
+  padding:18px 0;
+  border-top:1px solid #edf0f4;
+}
+.formal-outline__chapter-block > ol > li > span { padding-top:2px; color:#7a83a5; font-size:12px; font-weight:800; }
+.formal-outline__chapter-block h4 { margin:0; color:#2c364b; font-size:15px; line-height:1.45; }
+.formal-outline__chapter-block li p { max-width:72ch; margin:6px 0 0; color:#606b7e; font-size:12px; line-height:1.65; }
+.formal-outline__chapter-block li p.formal-outline__boundary { color:#8790a0; }
+.formal-outline__assessment { display:flex; align-items:flex-start; gap:9px; margin-top:9px; }
+.formal-outline__assessment strong { flex:0 0 auto; color:#4f55b5; font-size:11px; }
+.formal-outline__assessment span { color:#566175; font-size:11px; line-height:1.6; }
 .outline-review__chapters {
   display:grid;
   gap:0;
@@ -1437,6 +1856,10 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   overflow:visible;
   margin:0;
   padding:24px 0 28px;
+}
+@keyframes formal-outline-reveal {
+  from { opacity:.82; clip-path:inset(0 0 18px 0); transform:translateY(8px); }
+  to { opacity:1; clip-path:inset(0); transform:translateY(0); }
 }
 .outline-review__list-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:50px; border-bottom:1px solid #dfe3e9; }.outline-review__list-toolbar strong { color:#273144; font-size:15px; }.outline-review__list-toolbar button { min-height:34px; display:inline-flex; align-items:center; gap:5px; padding:0 10px; border:1px solid #d9dee7; border-radius:7px; color:#454ca8; background:#fff; font-size:12px; font-weight:700; cursor:pointer; }
 .outline-review__chapter {
@@ -1624,6 +2047,8 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   background:transparent;
 }
 .outline-review[data-variant="inline"] .outline-review__body { overflow:visible; }
+.outline-review[data-variant="inline"] .outline-view-switch { padding:14px 20px 8px; }
+.outline-review[data-variant="inline"] .formal-outline { padding-inline:20px; }
 .outline-review[data-variant="inline"] .outline-review__loading,
 .outline-review[data-variant="inline"] .outline-review__load-error { min-height:180px; }
 .outline-review[data-variant="inline"] .outline-review__setup {
@@ -1772,6 +2197,24 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   .outline-review__diff-groups { grid-template-columns:1fr; }
   .outline-review__proposal-actions { display:grid; grid-template-columns:1fr 1.25fr; }
   .outline-review__proposal-actions button { width:100%; }
+  .outline-view-switch { padding-inline:0; }
+  .outline-review[data-variant="inline"] .outline-view-switch { padding-inline:14px; }
+  .outline-review[data-variant="inline"] .formal-outline { padding-inline:14px; }
+  .formal-outline__masthead { padding:30px 24px 24px; }
+  .formal-outline__masthead h1 { font-size:28px; }
+  .formal-outline__masthead dl { gap:12px 20px; margin-top:22px; }
+  .formal-outline__brief { grid-template-columns:1fr; padding:30px 12px; }
+  .formal-outline__brief > div { padding:0; }
+  .formal-outline__brief > div + div { margin-top:28px; padding:28px 0 0; border-top:1px solid #e7e9ef; border-left:0; }
+  .outline-quality,.formal-outline__schedule { margin-inline:12px; padding-inline:0; }
+  .outline-quality > header,.formal-outline__schedule > header { align-items:flex-start; flex-direction:column; gap:8px; }
+  .outline-quality > header > p,.formal-outline__schedule > header p { text-align:left; }
+  .outline-quality li { grid-template-columns:1fr; gap:9px; }
+  .outline-quality li button { justify-self:start; }
+  .formal-outline__chapter-block > header { grid-template-columns:32px minmax(0,1fr); gap:10px; }
+  .formal-outline__chapter-block > header small { grid-column:2; }
+  .formal-outline__chapter-block > ol { margin-left:42px; }
+  .formal-outline__chapter-block > ol > li { grid-template-columns:1fr; gap:5px; }
   .outline-review__chapters { gap:16px; padding:16px 0 20px; }
   .outline-review__chapter-heading { padding:11px 10px; border-radius:8px; }
   .outline-review__chapter-heading input { font-size:16px; }
@@ -1785,6 +2228,8 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
 }
 @media (prefers-reduced-motion:reduce) {
   .outline-review__loading svg,
-  .outline-review__actions svg { animation:none!important; }
+  .outline-review__actions svg,
+  .formal-outline,
+  .outline-quality svg { animation:none!important; }
 }
 </style>

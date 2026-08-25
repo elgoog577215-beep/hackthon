@@ -116,8 +116,39 @@
         <div class="form-grid">
           <label class="form-field"><span>{{ t('courseWorkbench.form.totalHours', '总学时') }}</span><input v-model.number="foundation.totalHours" type="number" min="1" max="1000" /></label>
         </div>
+        <section class="foundation-presets" aria-labelledby="foundation-presets-title">
+          <header>
+            <div>
+              <strong id="foundation-presets-title">{{ t('courseWorkbench.form.generationPreferences', '生成偏好') }}</strong>
+              <span>{{ t('courseWorkbench.form.generationPreferencesHelp', '用几次选择，确定这份大纲的课程气质与能力重点。') }}</span>
+            </div>
+            <small>{{ t('courseWorkbench.form.preferencesSelected', '已选 {count} 项').replace('{count}', String(selectedFoundationPresetCount)) }}</small>
+          </header>
+          <div v-for="group in foundationPresetGroups" :key="group.id" class="foundation-preset-row">
+            <div>
+              <strong>{{ group.label }}</strong>
+              <span>{{ group.description }}</span>
+            </div>
+            <div class="foundation-preset-options">
+              <button
+                v-for="option in group.options"
+                :key="option.id"
+                type="button"
+                :class="{ selected: foundationPresetSelected(group.id, option.id) }"
+                :aria-pressed="foundationPresetSelected(group.id, option.id)"
+                @click="toggleFoundationPreset(group.id, option.id, group.multiple)"
+              >
+                <Check v-if="foundationPresetSelected(group.id, option.id)" :size="13" />
+                <span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+              </button>
+            </div>
+          </div>
+        </section>
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：每章包含案例讨论，兼顾理论与实践')" /></label>
-        <footer><button class="primary" type="submit" :disabled="generationStarting || !foundation.goal"><Sparkles :size="16" />{{ t('courseWorkbench.generateChapterSkeleton', '生成大章节') }}</button></footer>
+        <footer>
+          <span>{{ t('courseWorkbench.form.preferenceHint', '系统会把这些偏好写入正式生成合同，生成后仍可逐项调整。') }}</span>
+          <button class="primary" type="submit" :disabled="generationStarting || !foundation.goal"><Sparkles :size="16" />{{ t('courseWorkbench.generateChapterSkeleton', '生成大章节') }}</button>
+        </footer>
       </form>
 
       <CompanionDocumentStudio
@@ -650,6 +681,58 @@ const aiActiveReferences = computed(() => aiDomain.value === 'question-bank'
   : activeReferences.value)
 const activeReferenceLessonId = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
 const foundation = reactive({ goal: '', totalHours: 32, requirements: '' })
+type FoundationPresetGroupId = 'positioning' | 'organization' | 'capability'
+const foundationPresetSelections = reactive<Record<FoundationPresetGroupId, string[]>>({
+  positioning: ['applied'],
+  organization: ['concept-practice'],
+  capability: ['reasoning', 'transfer'],
+})
+const foundationPresetGroups = computed(() => [
+  {
+    id: 'positioning' as const,
+    label: t('courseWorkbench.form.positioningPreset', '课程定位'),
+    description: t('courseWorkbench.form.positioningPresetHelp', '决定内容从哪里进入、最终落到哪里'),
+    multiple: false,
+    options: [
+      { id: 'academic', label: t('courseWorkbench.form.presets.academic', '学术基础'), description: t('courseWorkbench.form.presets.academicHelp', '概念、原理与推导扎实'), prompt: t('courseWorkbench.form.presets.academicPrompt', '以概念体系、原理解释和必要推导为主线，形成扎实的学术基础') },
+      { id: 'applied', label: t('courseWorkbench.form.presets.applied', '应用导向'), description: t('courseWorkbench.form.presets.appliedHelp', '从真实问题进入方法'), prompt: t('courseWorkbench.form.presets.appliedPrompt', '从真实问题与典型场景进入方法，强调选择、应用与结果解释') },
+      { id: 'outcome', label: t('courseWorkbench.form.presets.outcome', '成果驱动'), description: t('courseWorkbench.form.presets.outcomeHelp', '围绕可交付成果推进'), prompt: t('courseWorkbench.form.presets.outcomePrompt', '围绕一个可展示、可评价的最终成果反向组织章节与学习任务') },
+    ],
+  },
+  {
+    id: 'organization' as const,
+    label: t('courseWorkbench.form.organizationPreset', '教学组织'),
+    description: t('courseWorkbench.form.organizationPresetHelp', '决定每章如何展开与衔接'),
+    multiple: false,
+    options: [
+      { id: 'concept-practice', label: t('courseWorkbench.form.presets.conceptPractice', '讲练一体'), description: t('courseWorkbench.form.presets.conceptPracticeHelp', '解释、示例、练习闭环'), prompt: t('courseWorkbench.form.presets.conceptPracticePrompt', '每个核心概念都通过解释、示例、练习与反馈形成闭环') },
+      { id: 'problem', label: t('courseWorkbench.form.presets.problemDriven', '问题驱动'), description: t('courseWorkbench.form.presets.problemDrivenHelp', '以关键问题串联知识'), prompt: t('courseWorkbench.form.presets.problemDrivenPrompt', '用逐步升级的关键问题串联知识，避免按名词平铺章节') },
+      { id: 'case', label: t('courseWorkbench.form.presets.caseBased', '案例研讨'), description: t('courseWorkbench.form.presets.caseBasedHelp', '在案例比较中形成判断'), prompt: t('courseWorkbench.form.presets.caseBasedPrompt', '通过案例分析、比较与讨论形成判断标准和迁移能力') },
+    ],
+  },
+  {
+    id: 'capability' as const,
+    label: t('courseWorkbench.form.capabilityPreset', '能力重点'),
+    description: t('courseWorkbench.form.capabilityPresetHelp', '可多选，决定目标与达成检验的重心'),
+    multiple: true,
+    options: [
+      { id: 'reasoning', label: t('courseWorkbench.form.presets.reasoning', '解释与推理'), description: t('courseWorkbench.form.presets.reasoningHelp', '说清为什么与如何成立'), prompt: t('courseWorkbench.form.presets.reasoningPrompt', '重点培养概念解释、证据使用与过程推理能力') },
+      { id: 'transfer', label: t('courseWorkbench.form.presets.transfer', '分析与迁移'), description: t('courseWorkbench.form.presets.transferHelp', '面对新情境选择方法'), prompt: t('courseWorkbench.form.presets.transferPrompt', '重点培养比较分析、方法选择与新情境迁移能力') },
+      { id: 'making', label: t('courseWorkbench.form.presets.making', '设计与实作'), description: t('courseWorkbench.form.presets.makingHelp', '完成可验证的作品或方案'), prompt: t('courseWorkbench.form.presets.makingPrompt', '重点培养方案设计、动手实作与可验证成果交付能力') },
+    ],
+  },
+])
+const selectedFoundationPresetCount = computed(() => Object.values(foundationPresetSelections).reduce(
+  (total, values) => total + values.length,
+  0,
+))
+const foundationPresetRequirement = computed(() => foundationPresetGroups.value
+  .map(group => {
+    const selected = group.options.filter(option => foundationPresetSelections[group.id].includes(option.id))
+    return selected.length ? `${group.label}：${selected.map(option => option.prompt).join('；')}` : ''
+  })
+  .filter(Boolean)
+  .join('\n'))
 const chapterSectionCounts = ref<number[]>([])
 const loadedShapeRevision = ref('')
 const shapeConfirming = ref(false)
@@ -1428,9 +1511,65 @@ function resolveLessonPrerequisite() {
   }
   activeStage.value = 'foundation'
 }
+function foundationPresetSelected(groupId: FoundationPresetGroupId, optionId: string) {
+  return foundationPresetSelections[groupId].includes(optionId)
+}
+function toggleFoundationPreset(groupId: FoundationPresetGroupId, optionId: string, multiple: boolean) {
+  const selected = foundationPresetSelections[groupId]
+  if (!multiple) {
+    foundationPresetSelections[groupId] = [optionId]
+    return
+  }
+  const index = selected.indexOf(optionId)
+  if (index >= 0) selected.splice(index, 1)
+  else selected.push(optionId)
+}
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
-async function submitFoundation() { generationRequested.value = true; try { const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }; delete baseTeacherBrief.chapter_count; delete baseTeacherBrief.section_count; await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲')); emit('generateOutline', { subject: props.courseTitle, options: { ...props.generationOptions, requirements: [props.generationOptions.requirements, foundation.requirements].filter(Boolean).join('\n'), course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: foundation.goal }, teacher_course_brief: { ...baseTeacherBrief, schema_version: 'teacher_course_brief_v1', target_audience: baseTeacherBrief.target_audience || '大学生', total_class_hours: foundation.totalHours, lesson_duration_minutes: baseTeacherBrief.lesson_duration_minutes || 45, teaching_context: baseTeacherBrief.teaching_context || 'classroom' }, material_bindings: generationBindings(activeReferences.value) }, references: activeReferences.value }) } catch { generationRequested.value = false } }
+async function submitFoundation() {
+  generationRequested.value = true
+  try {
+    const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }
+    delete baseTeacherBrief.chapter_count
+    delete baseTeacherBrief.section_count
+    const presetRequirement = foundationPresetRequirement.value
+    const requirements = [
+      props.generationOptions.requirements,
+      presetRequirement,
+      foundation.requirements,
+    ].filter(Boolean).join('\n')
+    const additionalRequirements = [
+      baseTeacherBrief.additional_requirements,
+      presetRequirement,
+    ].filter(Boolean).join('\n')
+    await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲'))
+    emit('generateOutline', {
+      subject: props.courseTitle,
+      options: {
+        ...props.generationOptions,
+        requirements,
+        course_intent: {
+          schema_version: 'course_intent_v1',
+          type: 'systematic',
+          learning_goal: foundation.goal,
+        },
+        teacher_course_brief: {
+          ...baseTeacherBrief,
+          schema_version: 'teacher_course_brief_v1',
+          target_audience: baseTeacherBrief.target_audience || '大学生',
+          total_class_hours: foundation.totalHours,
+          lesson_duration_minutes: baseTeacherBrief.lesson_duration_minutes || 45,
+          teaching_context: baseTeacherBrief.teaching_context || 'classroom',
+          additional_requirements: additionalRequirements,
+        },
+        material_bindings: generationBindings(activeReferences.value),
+      },
+      references: activeReferences.value,
+    })
+  } catch {
+    generationRequested.value = false
+  }
+}
 async function confirmOutlineShape() { if (!shapeCountsValid.value || shapeConfirming.value) return; shapeConfirming.value = true; shapeConfirmError.value = null; try { const counts = chapterSectionCounts.value.map(count => Number(count)); await courseWorkspaceStore.confirmOutlineShape(props.courseId, counts); generationRequested.value = true; await generationStore.fetchGlobalTasks() } catch (error: any) { shapeConfirmError.value = error } finally { shapeConfirming.value = false } }
 async function generateLessonPlan() {
   const lesson = selectedLesson.value
@@ -1655,12 +1794,13 @@ onBeforeUnmount(() => {
 <style scoped>
 .teacher-workbench{height:100%;min-height:0;display:grid;grid-template-columns:210px minmax(520px,1fr) 310px;overflow:hidden;background:#f3f5f9}.stage-rail{min-height:0;display:flex;flex-direction:column;border-right:1px solid #e4e9f1;background:#fff}.stage-rail>header{display:grid;gap:4px;padding:21px 18px 16px}.stage-rail>header strong{color:#1f2a40;font-size:15px}.stage-rail>header small{color:#64748b;font-size:12px}.stage-rail nav{display:grid;gap:4px;padding:4px 9px}.stage-rail nav button{min-height:54px;display:grid;grid-template-columns:26px 22px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.stage-rail nav button:hover{background:#f6f7fb}.stage-rail nav button.active{color:#4338ca;background:#eef0ff}.stage-rail nav button>span{font-size:15px;font-weight:800}.stage-rail nav strong{min-width:0;color:#334155;font-size:13px}.stage-rail nav button.active strong{color:#3730a3}.stage-rail nav button>svg:last-child{color:#16a34a}.stage-rail>footer{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:9px;margin-top:auto;padding:16px 18px;color:#64748b;font-size:12px}.stage-rail>footer>div{height:4px;overflow:hidden;border-radius:2px;background:#e8ecf3}.stage-rail>footer i{height:100%;display:block;background:#5b57e8}.workbench-center{min-width:0;min-height:0;overflow:auto;padding:24px 26px 52px}.center-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;max-width:860px;margin:0 auto 18px}.center-heading>div{display:grid;gap:4px}.center-heading small{color:#6366f1;font-size:11px;font-weight:800}.center-heading h2{margin:0;color:#172033;font-size:24px;letter-spacing:-.018em}.center-heading>button,.formal-surface>header button,.generation-surface>header button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.stage-form,.formal-surface,.generation-surface,.lesson-stage{max-width:860px;margin:0 auto;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.stage-form{display:grid;gap:20px;padding:26px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form-field{display:grid;gap:8px}.form-field>span,.lesson-selector>span{color:#334155;font-size:13px;font-weight:700}.form-field b{color:#dc2626}.form-field input,.form-field select,.form-field textarea,.lesson-selector select{width:100%;min-height:44px;padding:10px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical;line-height:1.6}.form-field input:focus,.form-field select:focus,.form-field textarea:focus,.form-field textarea:focus,.lesson-selector select:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.stage-form>footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px}.stage-form>footer>span{color:#64748b;font-size:12px}.primary{min-height:42px;display:flex;align-items:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:13px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}.primary:disabled{opacity:.48;cursor:not-allowed}.generation-surface{overflow:hidden}.generation-surface>header,.formal-surface>header{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid #e7ebf2}.generation-surface>header>div{display:flex;align-items:center;gap:10px;color:#4f46e5}.generation-surface>header span,.formal-surface>header>div{display:grid;gap:3px}.generation-surface>header strong,.formal-surface>header strong{color:#263147;font-size:13px}.generation-surface>header small,.formal-surface>header small{color:#64748b;font-size:11px}.generation-progress{height:3px;background:#e8ebf5}.generation-progress i{width:100%;height:100%;display:block;transform-origin:left;background:#5b57e8;transition:transform .25s ease-out}.stream-content,.formal-surface>article{max-height:calc(100vh - 260px);overflow:auto;padding:22px 28px 42px}.stream-content section,.formal-surface article section{margin-bottom:26px}.stream-content h3,.formal-surface h3{margin:0 0 10px;color:#202b40;font-size:17px}.stream-waiting{min-height:260px;display:flex;align-items:center;justify-content:center;gap:9px;color:#64748b;font-size:13px}.stream-caret{width:2px;height:18px;display:inline-block;background:#5b57e8;animation:blink .8s steps(1) infinite}.generation-error{margin:0;padding:12px 20px;color:#b91c1c;background:#fff1f2;font-size:12px}.generation-error button{border:0;color:inherit;background:transparent;font-weight:750;text-decoration:underline;cursor:pointer}.lesson-stage{padding:0 0 24px}.lesson-selector{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #e7ebf2}.stage-form--lesson{border:0;box-shadow:none}.prerequisite,.empty-asset{min-height:260px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#64748b;font-size:13px}.prerequisite strong{color:#334155}.prerequisite button{padding:7px 10px;border:1px solid #d7dde7;border-radius:7px;color:#4f46e5;background:#fff;font-weight:700;cursor:pointer}.lesson-formal{margin:20px 20px 0;border-radius:10px;box-shadow:none}.lesson-formal>article{max-height:calc(100vh - 360px)}.formal-surface ol{display:grid;gap:8px;padding-left:22px;color:#475569;font-size:13px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes blink{50%{opacity:0}}
 .stage-form>footer{justify-content:flex-end}
+.foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:12px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:11px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:12px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:10px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:11px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:9px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:11px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(560px,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{padding:0;overflow:auto;background:#f3f5f9;scrollbar-width:thin;scrollbar-color:transparent transparent}.is-ai-collaboration>.workbench-center:hover{scrollbar-color:#cbd3df transparent}.is-ai-collaboration>.workbench-center::-webkit-scrollbar{width:6px}.is-ai-collaboration>.workbench-center::-webkit-scrollbar-thumb{border-radius:6px;background:transparent}.is-ai-collaboration>.workbench-center:hover::-webkit-scrollbar-thumb{background:#cbd3df}.is-ai-collaboration>.workbench-center>.center-heading{display:none}.is-ai-collaboration .lesson-stage{max-width:none;min-height:100%;margin:0;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration .lesson-outline,.is-ai-collaboration .lesson-outline-toggle{display:none}.is-ai-collaboration .has-lesson-outline .lesson-workspace{display:block}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration :deep(.lesson-document){min-height:100vh}.ai-workspace-resizer{position:relative;z-index:4;min-height:0;cursor:col-resize;background:#eef1f6;touch-action:none}.ai-workspace-resizer::before{position:absolute;inset:0;content:""}.ai-workspace-resizer::after{position:absolute;inset-block:0;left:50%;width:1px;background:#d9dee8;content:"";transform:translateX(-50%)}.ai-workspace-resizer i{position:absolute;z-index:1;top:50%;left:50%;width:3px;height:52px;border-radius:3px;background:#9aa3b5;opacity:.5;transform:translate(-50%,-50%) scaleY(.8);transition:transform .14s ease,opacity .14s ease,background-color .14s ease}.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:#f5f4ff}.ai-workspace-resizer:hover i,.ai-workspace-resizer:focus-visible i,.ai-workspace-resizer.is-resizing i{background:#625dd7;opacity:1;transform:translate(-50%,-50%) scaleY(1)}.ai-workspace-resizer:focus-visible{outline:2px solid #818cf8;outline-offset:-2px}
 .stage-rail>header{display:block;padding:22px 18px 18px}.stage-rail>header .stage-rail-title{color:#1f2a40;font-size:18px;line-height:1.25}
 .companion-entry{display:grid;gap:7px;margin:10px 9px 0;padding-top:14px;border-top:1px solid #e7ebf2}.companion-entry>small{padding:0 10px;color:#64748b;font-size:11px;font-weight:700}.companion-entry>button{min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.companion-entry>button:hover{background:#f6f7fb}.companion-entry>button.active{color:#4338ca;background:#eef0ff}.companion-entry strong{min-width:0;color:#334155;font-size:13px}.companion-entry>button.active strong{color:#3730a3}
 .question-workbench-surface{max-width:860px;margin:0 auto;padding:0}
 @media(max-width:1050px){.teacher-workbench{grid-template-columns:180px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr)}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
-@media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
+@media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.foundation-preset-row{grid-template-columns:1fr;gap:9px}.foundation-preset-options{grid-template-columns:1fr}.foundation-preset-options>button{min-height:52px}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0}
 .workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-error{margin:-4px 0 0}.lesson-generation-float{position:sticky;z-index:8;top:14px;width:min(760px,calc(100% - 40px));overflow:hidden;margin:14px auto 0;border-radius:12px;background:rgba(255,255,255,.98);box-shadow:0 12px 30px rgba(30,41,59,.14)}.lesson-generation-float>header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 15px 0 17px}.lesson-generation-float>header>div:first-child{min-width:0;display:flex;align-items:center;gap:10px;color:#4f46e5}.lesson-generation-float>header span{min-width:0;display:grid;gap:3px}.lesson-generation-float>header strong{overflow:hidden;color:#263147;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-float>header small{overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-controls{flex:0 0 auto;display:flex;align-items:center;gap:12px}.lesson-generation-controls>span{display:block;color:#6366f1;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-generation-controls>button{min-height:34px;padding:0 11px;border:0;border-radius:8px;color:#475569;background:#f1f3f7;font-size:12px;font-weight:700;cursor:pointer}.lesson-generation-controls>button:hover{color:#3730a3;background:#ececff}.lesson-generation-controls>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-generation-float>.generation-progress{height:3px}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:10px;font-weight:800;letter-spacing:.08em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:13px;line-height:1.85}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px}

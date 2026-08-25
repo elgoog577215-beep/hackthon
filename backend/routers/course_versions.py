@@ -16,6 +16,7 @@ from course_outline_adjustments import (
     apply_outline_operations,
     compile_outline_draft,
 )
+from course_outline_planning import review_course_outline_document
 
 from course_versioning import (
     analyze_blueprint_impact,
@@ -116,6 +117,10 @@ async def get_blueprint(course_id: str):
     current = build_blueprint_draft(course)
     if isinstance(draft, dict):
         draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
+    active = draft if isinstance(draft, dict) else current
+    quality = active.get("course_outline_quality_report") or review_course_outline_document(
+        active.get("course_plan") or active.get("course_outline") or {}
+    )
     return {
         "status": "success",
         "current": current,
@@ -131,6 +136,7 @@ async def get_blueprint(course_id: str):
         # D-1：大纲确认页就在这个端点上，覆盖度判断必须跟目录一起到达前端，
         # 否则用户要等整门课生成完才知道它没覆盖半个学科。
         "coverage": TaskManager.project_course_coverage(course),
+        "quality": quality,
     }
 
 
@@ -217,6 +223,10 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
                 raise HTTPException(status_code=422, detail=exc.as_issue()) from exc
         else:
             _validate_blueprint_draft(draft)
+    quality_report = review_course_outline_document(
+        draft.get("course_plan") or draft.get("course_outline") or {}
+    )
+    draft["course_outline_quality_report"] = quality_report
     draft["base_blueprint_revision_id"] = current_revision
     draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
     impact = analyze_blueprint_impact(course, draft)
@@ -228,7 +238,12 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
             request.adjustment_proposal_id,
             draft["draft_revision_id"],
         )
-    return {"status": "success", "draft": saved, "impact_report": impact}
+    return {
+        "status": "success",
+        "draft": saved,
+        "impact_report": impact,
+        "quality_report": quality_report,
+    }
 
 
 @router.post("/blueprint/adjustments/preview")
