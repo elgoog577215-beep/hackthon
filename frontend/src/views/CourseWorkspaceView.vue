@@ -51,50 +51,56 @@
       </div>
     </Teleport>
 
-    <section v-if="loading" class="workspace-loading" role="status">
-      <LoaderCircle :size="22" class="spin" />{{ t('courseFiles.loading') }}
-    </section>
-    <section v-else-if="loadError" class="workspace-error">
-      <AppErrorNotice :presentation="loadError">
-        <template #action><button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button></template>
-      </AppErrorNotice>
-    </section>
-    <section v-else class="workspace-operating-shell">
-      <TeacherCourseWorkbench
-        v-if="workspaceView === 'categories'"
-        :course-id="courseId"
-        :course-title="courseTitle"
-        :generation-options="courseGenerationOptions"
-        :generation-starting="generationStarting"
-        :initial-stage="requestedWorkbenchStage"
-        :initial-lesson-id="requestedLessonId"
-        v-model:outline-editing="outlineEditing"
-        @generate-outline="startOutlineGeneration"
-        @outline-confirmed="handleOutlineConfirmed"
-        @open-course-information="courseInformationOpen = true"
-      />
-      <TeacherCourseSpaceView
-        v-else
-        embedded
-        :course-id="courseId"
-        :course-title="courseTitle"
-        workspace-view="files"
-        v-model:query="searchQuery"
-        @open-outline="openOutlineEditor"
-        @create-outline="prepareOutlineGeneration"
-        @open-teaching-calendar="calendarOpen = true"
-        @open-teaching-plan="openLessonPlan"
-        @open-tasks="openTasks"
-        @open-practice="openPractice"
-        @open-script="openScript"
-        @open-ppt="openPpt"
-        @open-question-bank="openQuestionBankWorkbench"
-        @open-companion-documents="openCompanionDocuments"
-        @context-change="selectedContext = $event"
-        @readiness-change="readiness = $event"
-        @edit-baseline="courseInformationOpen = true"
-      />
-    </section>
+    <Transition name="workspace-load" mode="out-in">
+      <section v-if="loading" key="loading" class="workspace-loading" role="status">
+        <LoaderCircle :size="22" class="spin" />{{ t('courseFiles.loading') }}
+      </section>
+      <section v-else-if="loadError" key="error" class="workspace-error">
+        <AppErrorNotice :presentation="loadError">
+          <template #action><button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button></template>
+        </AppErrorNotice>
+      </section>
+      <section v-else key="ready" class="workspace-operating-shell">
+        <Transition name="workspace-surface" mode="out-in">
+          <TeacherCourseWorkbench
+            v-if="workspaceView === 'categories'"
+            key="categories"
+            :course-id="courseId"
+            :course-title="courseTitle"
+            :generation-options="courseGenerationOptions"
+            :generation-starting="generationStarting"
+            :initial-stage="requestedWorkbenchStage"
+            :initial-lesson-id="requestedLessonId"
+            v-model:outline-editing="outlineEditing"
+            @generate-outline="startOutlineGeneration"
+            @outline-confirmed="handleOutlineConfirmed"
+            @open-course-information="courseInformationOpen = true"
+          />
+          <TeacherCourseSpaceView
+            v-else
+            key="files"
+            embedded
+            :course-id="courseId"
+            :course-title="courseTitle"
+            workspace-view="files"
+            v-model:query="searchQuery"
+            @open-outline="openOutlineEditor"
+            @create-outline="prepareOutlineGeneration"
+            @open-teaching-calendar="calendarOpen = true"
+            @open-teaching-plan="openLessonPlan"
+            @open-tasks="openTasks"
+            @open-practice="openPractice"
+            @open-script="openScript"
+            @open-ppt="openPpt"
+            @open-question-bank="openQuestionBankWorkbench"
+            @open-companion-documents="openCompanionDocuments"
+            @context-change="selectedContext = $event"
+            @readiness-change="readiness = $event"
+            @edit-baseline="courseInformationOpen = true"
+          />
+        </Transition>
+      </section>
+    </Transition>
 
     <CourseBaselineDialog
       v-model="courseInformationOpen"
@@ -370,6 +376,10 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .course-workspace-page { height:100%; min-height:0; overflow:hidden; color:var(--lz-text-strong); background:transparent; }
 .workspace-operating-shell { position:relative; width:100%; height:100%; min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); overflow:hidden; background:transparent; }
 .workspace-operating-shell > :deep(.file-space) { min-width:0; min-height:0; }
+.workspace-load-enter-active,.workspace-surface-enter-active { transition:opacity .2s cubic-bezier(.16,1,.3,1),transform .22s cubic-bezier(.16,1,.3,1); }
+.workspace-load-leave-active,.workspace-surface-leave-active { transition:opacity .11s ease-in,transform .13s ease-in; }
+.workspace-load-enter-from,.workspace-surface-enter-from { opacity:0; transform:translateY(6px); }
+.workspace-load-leave-to,.workspace-surface-leave-to { opacity:0; transform:translateY(-3px); }
 .workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
 .workspace-route-context>svg { flex:none; color:var(--lz-brand); }
 .workspace-route-context>h1 { min-width:0; margin:0; overflow:hidden; color:var(--lz-text-strong); font-family:inherit; font-size:18px; font-weight:800; letter-spacing:-.012em; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
@@ -427,5 +437,12 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 @media (min-width:721px) and (max-width:1180px) {
   .workspace-route-context>h1 { max-width:280px; }
   .workspace-state { display:none; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .spin { animation:none; }
+  .workspace-load-enter-active,.workspace-load-leave-active,
+  .workspace-surface-enter-active,.workspace-surface-leave-active { transition:none; }
+  .workspace-load-enter-from,.workspace-load-leave-to,
+  .workspace-surface-enter-from,.workspace-surface-leave-to { transform:none; }
 }
 </style>

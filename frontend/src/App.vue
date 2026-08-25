@@ -99,7 +99,14 @@
     </header>
 
     <main class="app-main">
-      <router-view />
+      <RouterView v-slot="{ Component, route: currentRoute }">
+        <Transition name="route-surface" mode="out-in">
+          <component
+            :is="Component"
+            :key="currentRoute.name || currentRoute.path"
+          />
+        </Transition>
+      </RouterView>
     </main>
 
     <AppErrorCenter />
@@ -303,6 +310,15 @@ function changeLocale(locale: string) {
 
 .app-main { min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--lz-radius-surface); }
 
+.route-surface-enter-active {
+  transition: opacity .22s cubic-bezier(.16,1,.3,1), transform .24s cubic-bezier(.16,1,.3,1);
+}
+.route-surface-leave-active {
+  transition: opacity .12s ease-in, transform .14s ease-in;
+}
+.route-surface-enter-from { opacity:0; transform:translateY(7px); }
+.route-surface-leave-to { opacity:0; transform:translateY(-3px); }
+
 .reading-settings { display: grid; gap: 14px; color: var(--lz-text-secondary); font-size: 12px; }
 .reading-settings label { display: grid; grid-template-columns: auto 1fr 24px; align-items: center; gap: 8px; }
 .reading-settings input { accent-color: var(--lz-brand); }
@@ -349,5 +365,12 @@ function changeLocale(locale: string) {
   .header-actions .header-icon-button:nth-of-type(1),
   .header-actions :deep(.el-popover__reference-wrapper),
   .header-actions :deep(.el-dropdown) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-surface-enter-active,
+  .route-surface-leave-active { transition:none; }
+  .route-surface-enter-from,
+  .route-surface-leave-to { transform:none; }
 }
 </style>
