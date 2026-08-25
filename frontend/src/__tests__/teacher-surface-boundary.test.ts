@@ -44,6 +44,8 @@ describe('calendar and course file-space boundary', () => {
     expect(home).toContain('.slice(0, 6)')
     expect(home).not.toContain('<TeacherCourseCalendarView')
     expect(home).toContain('class="calendar-surface"')
+    expect(home).toContain('.week-canvas::-webkit-scrollbar{width:8px;height:8px}')
+    expect(home).toContain('.week-canvas::-webkit-scrollbar-thumb{min-height:56px;border:2px solid transparent;border-radius:999px;background:color-mix(in srgb,var(--lz-brand) 24%,var(--lz-border));background-clip:padding-box}')
     expect(home).toContain('class="day-inspector"')
     expect(home).toContain(':selected-date="selectedDate"')
     expect(home).toContain('@day="selectDay"')
