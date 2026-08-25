@@ -50,7 +50,6 @@
 
     <article v-if="selectedSection" class="document-body">
       <header class="section-title">
-        <span>{{ String(selectedSectionIndex + 1).padStart(2, '0') }}</span>
         <h4>{{ sectionTitle(selectedSection) }}</h4>
       </header>
       <section :class="['document-section', 'objective-section', { 'ai-change-target': candidateChanged('learning_objective') }]">
@@ -378,7 +377,6 @@ const baseSelectedSection = computed<any | null>(() => (
   || basePlanSections.value[0]
   || null
 ))
-const selectedSectionIndex = computed(() => Math.max(0, planSections.value.indexOf(selectedSection.value)))
 const teachingModules = computed<any[]>(() => Array.isArray(selectedSection.value?.teaching_modules)
   ? selectedSection.value.teaching_modules
   : [])

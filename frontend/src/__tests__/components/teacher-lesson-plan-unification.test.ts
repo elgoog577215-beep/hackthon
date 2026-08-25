@@ -174,11 +174,11 @@ describe('统一教案页面', () => {
     })
 
     expect(wrapper.find('.section-tabs').exists()).toBe(false)
-    expect(wrapper.get('.section-title').text()).toContain('1.2 请求与响应')
+    expect(wrapper.get('.section-title').text()).toBe('1.2 请求与响应')
     expect(wrapper.get('.objective-section').text()).toContain('能判断一次请求与响应的边界')
 
     await wrapper.setProps({ activeSectionId: 'section-1' })
-    expect(wrapper.get('.section-title').text()).toContain('1.1 爬虫的定义、原理与应用场景')
+    expect(wrapper.get('.section-title').text()).toBe('1.1 爬虫的定义、原理与应用场景')
   })
 
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {

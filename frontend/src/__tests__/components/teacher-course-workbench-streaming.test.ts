@@ -192,6 +192,7 @@ describe('teacher course workbench outline streaming', () => {
     const sectionInputs = wrapper.findAll('.shape-chapter-list input')
 
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
+    expect(wrapper.find('.shape-chapter-index').exists()).toBe(false)
     expect(wrapper.get('[data-testid="outline-shape-review"]').text()).toContain('程序环境与基础语法')
     expect(wrapper.get('[data-testid="outline-shape-review"]').text()).toContain('流程控制结构')
     expect(sectionInputs).toHaveLength(2)
@@ -429,7 +430,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(currentLessonGroup.element.children).toHaveLength(1)
     expect(wrapper.find('.lesson-selector').exists()).toBe(false)
     expect(wrapper.findAll('.lesson-section-tabs button')).toHaveLength(2)
-    expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('1.1 小节1')
+    expect(wrapper.get('.lesson-section-tabs button.active').text()).toBe('1.1 小节1')
     expect(wrapper.get('.lesson-navigator').text()).toContain('上一讲')
     expect(wrapper.get('.lesson-navigator').text()).toContain('下一讲')
 
@@ -437,7 +438,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.lesson-title-trigger').attributes('aria-expanded')).toBe('true')
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons).toHaveLength(2)
-    expect(chapterButtons[0]!.text()).toContain('01第1章')
+    expect(chapterButtons[0]!.text()).toBe('第1章')
     expect(chapterButtons[0]!.attributes('aria-label')).toContain('待确认')
     expect(chapterButtons[1]!.attributes('aria-label')).toContain('已确认')
     expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
@@ -446,7 +447,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.lesson-outline-popover').exists()).toBe(false)
     expect(wrapper.get('.lesson-title-trigger').text()).toContain('第2章')
     expect(wrapper.get('.lesson-title-trigger').text()).toContain('2/2')
-    expect(wrapper.get('.lesson-section-tabs button.active').text()).toContain('2.1 小节1')
+    expect(wrapper.get('.lesson-section-tabs button.active').text()).toBe('2.1 小节1')
     const secondSection = wrapper.findAll('.lesson-section-tabs button')[1]!
     await secondSection.trigger('click')
     expect(secondSection.classes()).toContain('active')

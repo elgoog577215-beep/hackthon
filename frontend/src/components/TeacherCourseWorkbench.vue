@@ -80,7 +80,6 @@
         <article>
           <ol class="shape-chapter-list">
             <li v-for="(chapter, index) in outlineGrowthChapters" :key="String(chapter.chapter_number || index)">
-              <span class="shape-chapter-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <div><strong>{{ chapter.title }}</strong><small>{{ chapter.learning_focus }}</small></div>
               <label><input v-model.number="chapterSectionCounts[index]" type="number" min="1" max="100" :aria-label="t('courseWorkbench.shapeReview.countLabel', '{chapter}的小节数').replace('{chapter}', String(chapter.title || index + 1))" /><span>{{ t('courseWorkbench.form.sectionUnit', '小节') }}</span></label>
             </li>
@@ -157,7 +156,7 @@
                 @keydown.esc.stop.prevent="closeLessonOutline(true)"
               >
                 <button
-                  v-for="(lesson, lessonIndex) in lessonStore.lessons"
+                  v-for="lesson in lessonStore.lessons"
                   :key="lesson.lesson_unit_id"
                   class="lesson-outline-chapter-button"
                   type="button"
@@ -167,7 +166,6 @@
                   :aria-label="`${lesson.title}，${lessonGenerationStateLabel(lesson)}`"
                   @click="selectLessonFromOutline(lesson.lesson_unit_id)"
                 >
-                  <span class="lesson-outline-chapter-index">{{ String(lessonIndex + 1).padStart(2, '0') }}</span>
                   <strong>{{ lesson.title }}</strong>
                   <span
                     class="lesson-outline-status"
@@ -192,7 +190,7 @@
           :aria-label="t('courseWorkbench.lessonDocument.sectionNavigation', '教案小节')"
         >
           <button
-            v-for="(section, sectionIndex) in selectedLesson.sections"
+            v-for="section in selectedLesson.sections"
             :key="section.section_node_id"
             type="button"
             :class="{ active: selectedLessonSectionId === section.section_node_id }"
@@ -203,7 +201,6 @@
             :aria-current="selectedLessonSectionId === section.section_node_id ? 'page' : undefined"
             @click="selectLessonSection(selectedLesson.lesson_unit_id, section.section_node_id)"
           >
-            <span>{{ String(sectionIndex + 1).padStart(2, '0') }}</span>
             <strong>{{ section.title }}</strong>
           </button>
         </nav>
@@ -1483,6 +1480,7 @@ onBeforeUnmount(() => {
 @media(prefers-reduced-motion:reduce){.has-lesson-outline .lesson-workspace{transition:none}.lesson-outline-chapter-marker[data-state="generating"]{animation:none}}
 
 /* Lesson navigation keeps the document full width; the course outline appears only when requested. */
+.shape-chapter-list li{grid-template-columns:minmax(0,1fr) auto;gap:16px}
 .teacher-workbench{
   --teacher-component-surface:#fff;
   --teacher-component-tint:#f7f7ff;
@@ -1507,7 +1505,7 @@ onBeforeUnmount(() => {
 .lesson-title-chevron{color:#8a95a5;transition:transform .18s cubic-bezier(.16,1,.3,1)}
 .lesson-title-trigger[aria-expanded="true"] .lesson-title-chevron{transform:rotate(180deg)}
 .lesson-outline-popover{position:absolute;z-index:30;top:calc(100% + 8px);left:50%;width:340px;max-width:calc(100vw - 48px);max-height:min(480px,calc(100vh - 190px));overflow:auto;padding:7px;border-radius:11px;background:#fff;box-shadow:0 16px 42px rgba(30,41,59,.16);transform:translateX(-50%);animation:lesson-outline-in .16s cubic-bezier(.16,1,.3,1)}
-.lesson-outline-chapter-button{min-height:44px;display:grid;grid-template-columns:25px minmax(0,1fr) 18px;align-items:center;gap:8px;width:100%;padding:0 9px;border:0;border-radius:8px;color:#536176;background:transparent;text-align:left;cursor:pointer}
+.lesson-outline-chapter-button{min-height:44px;display:grid;grid-template-columns:minmax(0,1fr) 18px;align-items:center;gap:8px;width:100%;padding:0 9px;border:0;border-radius:8px;color:#536176;background:transparent;text-align:left;cursor:pointer}
 .lesson-outline-chapter-button:hover:not(:disabled){background:#f5f7fa}
 .lesson-outline-chapter-button.active{color:#37348c;background:#f0f1ff}
 .lesson-outline-chapter-button:disabled{opacity:.46;cursor:not-allowed}
