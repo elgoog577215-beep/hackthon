@@ -304,26 +304,11 @@ function openTasks() {
   workbenchOpen.value = true
 }
 
-function resolveAdjustmentSectionId(preferred = '') {
-  for (const candidateId of [preferred, selectedContext.value.lessonId, selectedContext.value.nodeId]) {
-    if (!candidateId) continue
-    const candidate = courseStore.nodes.find(node => node.node_id === candidateId)
-    if (candidate && Number(candidate.node_level || 0) >= 2) return candidate.node_id
-    const child = courseStore.nodes.find(node => (
-      node.parent_node_id === candidateId
-      && Number(node.node_level || 0) >= 2
-    ))
-    if (child) return child.node_id
-  }
-  return courseStore.nodes.find(node => (
-    Number(node.node_level || 0) >= 2
-    && Boolean(node.node_content || node.course_blocks?.length || node.content_blocks?.length)
-  ))?.node_id || courseStore.nodes.find(node => Number(node.node_level || 0) >= 2)?.node_id || ''
-}
-
 function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
   courseAdjustmentFocusPlanId.value = payload?.planId || ''
-  courseAdjustmentSectionId.value = resolveAdjustmentSectionId(payload?.sectionId)
+  // Whole-course change planning is anchored to the course and its source
+  // revisions. A preview node must never be invented as a formal section ID.
+  courseAdjustmentSectionId.value = ''
   courseAdjustmentOpen.value = true
 }
 

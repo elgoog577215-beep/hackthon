@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,13 +21,29 @@ from course_evolution_intake import (
     CourseEvolutionRequest,
     record_course_evolution_request,
 )
-from dependencies import get_course_document_repository, get_course_or_404
+from dependencies import (
+    get_course_document_repository,
+    get_course_or_404,
+    get_teacher_lesson_authoring_repository,
+    require_task_manager,
+)
 from learner_context import require_user_id
 from learning_contracts import LearnerCourseScope
 from learning_events import record_learning_event
 from section_evolution import (
     generate_course_adjustment_plan,
     generate_section_evolution_plan,
+)
+from course_service import get_course_service
+from question_bank import question_bank_repository
+from task_manager import TaskManager
+from teaching_representations import teaching_representation_repository
+from teacher_course_change import (
+    build_teacher_course_change_context,
+    context_view,
+    create_teacher_course_change_plan,
+    review_teacher_course_change_scope,
+    TeacherCourseChangeSourceUnavailable,
 )
 
 router = APIRouter(prefix="/courses/{course_id}/evolution", tags=["course_evolution"])
@@ -92,6 +108,48 @@ class GenerateCourseAdjustmentRequest(BaseModel):
         "checkpoint",
         "concept",
     ] | None = None
+
+
+class GenerateTeacherCourseChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(min_length=1, max_length=200)
+    instruction: str = Field(min_length=1, max_length=5000)
+
+
+class ReviewTeacherCourseChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    selected_migration_ids: list[str] = Field(max_length=2000)
+
+
+def _teacher_course_change_context(course_id: str, tm: TaskManager):
+    document, _canonical = get_course_document_repository().load_document(course_id)
+    preview = tm.get_generation_preview(
+        course_id,
+        task_types={"teacher_outline_generation"},
+    )
+    authoring = get_teacher_lesson_authoring_repository().load(course_id)
+    question_bank = question_bank_repository.load_bundle(course_id)
+    synthetic_course_ids = {
+        str(asset.get("synthetic_course_id") or "")
+        for lesson in (authoring.get("lessons") or {}).values()
+        if isinstance(lesson, dict)
+        for asset in lesson.get("ppt_assets") or []
+        if isinstance(asset, dict) and asset.get("synthetic_course_id")
+    }
+    representation_registries = [
+        teaching_representation_repository.load_payload(value)
+        for value in sorted(synthetic_course_ids)
+    ]
+    return build_teacher_course_change_context(
+        course_id=course_id,
+        document=document,
+        preview=preview,
+        authoring=authoring,
+        question_bank=question_bank,
+        representation_registries=representation_registries,
+    )
 
 
 @router.get("")
@@ -190,6 +248,84 @@ async def create_course_adjustment_plan(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={
             "code": "course_adjustment_generation_failed",
+            "message": str(exc),
+        }) from exc
+    return course_evolution_view(state)
+
+
+@router.get("/course-context")
+async def get_teacher_course_change_context(
+    course_id: str,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+) -> dict:
+    """Read-only cross-asset projection for the teacher change workbench."""
+    await get_course_or_404(course_id)
+    require_user_id(request.headers.get("X-User-Id"))
+    context = await run_in_threadpool(_teacher_course_change_context, course_id, tm)
+    return context_view(context)
+
+
+@router.post("/course-plans")
+async def create_teacher_course_plan(
+    course_id: str,
+    body: GenerateTeacherCourseChangeRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+) -> dict:
+    """Analyze a teacher request against the whole course, never a fake section."""
+    await get_course_or_404(course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    context = await run_in_threadpool(_teacher_course_change_context, course_id, tm)
+    try:
+        state = await create_teacher_course_change_plan(
+            context=context,
+            user_id=user_id,
+            request_id=body.request_id,
+            instruction=body.instruction,
+            repository=course_evolution_repository,
+            analyzer=get_course_service().analyze_teacher_course_change,
+        )
+    except TeacherCourseChangeSourceUnavailable as exc:
+        raise HTTPException(status_code=409, detail={
+            "code": "course_change_source_unavailable",
+            "message": str(exc),
+        }) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "course_change_request_invalid",
+            "message": str(exc),
+        }) from exc
+    return course_evolution_view(state)
+
+
+@router.post("/course-plans/{change_set_id}/review")
+async def review_teacher_course_plan(
+    course_id: str,
+    change_set_id: str,
+    body: ReviewTeacherCourseChangeRequest,
+    request: Request,
+) -> dict:
+    """Save the reviewed impact scope; this endpoint never writes course content."""
+    await get_course_or_404(course_id)
+    user_id = require_user_id(request.headers.get("X-User-Id"))
+    try:
+        state = await run_in_threadpool(
+            review_teacher_course_change_scope,
+            repository=course_evolution_repository,
+            user_id=user_id,
+            course_id=course_id,
+            change_set_id=change_set_id,
+            selected_migration_ids=body.selected_migration_ids,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={
+            "code": "course_change_plan_not_found",
+            "message": "课程修改方案不存在",
+        }) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "course_change_scope_invalid",
             "message": str(exc),
         }) from exc
     return course_evolution_view(state)

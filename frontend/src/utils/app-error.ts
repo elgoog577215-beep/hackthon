@@ -122,6 +122,9 @@ function operationName(method: string, url: string): string {
 }
 
 function titleFor(code: string, status: number | null, method: string, url: string): string {
+  if (/course_change_source_unavailable/.test(code)) {
+    return t('appError.names.courseChangeSource', '课程修改条件不足')
+  }
   if (/lesson_sections_empty|sections_missing|outline_empty/.test(code)) {
     return t('appError.names.lessonPrerequisite', '教案生成条件不足')
   }
@@ -129,7 +132,7 @@ function titleFor(code: string, status: number | null, method: string, url: stri
     return t('appError.names.aiService', 'AI 服务调用失败')
   }
   if (/quality_gate|quality_failed/.test(code)) return t('appError.names.quality', '质量检查未通过')
-  if (/conflict|revision_changed|stale/.test(code) || status === 409) {
+  if (/conflict|revision_changed|stale/.test(code) || (status === 409 && !code)) {
     return t('appError.names.conflict', '内容版本冲突')
   }
   if (/permission|forbidden|unauthorized/.test(code) || status === 401 || status === 403) {
@@ -156,6 +159,7 @@ function reasonFor(
 ): string {
   if (networkFailure) return t('appError.reasons.network', '请求没有收到服务响应，请检查网络连接后重试。')
   const known: Array<[RegExp, string]> = [
+    [/course_change_source_unavailable/i, t('appError.reasons.courseChangeSource', '当前课程还没有可分析的大纲或教学资产，请先完成课程大纲。')],
     [/lesson_sections_empty|sections_missing|outline_empty/i, t('appError.reasons.lessonPrerequisite', '当前讲次没有可生成教案的小节，请先补全课程大纲或课次小节。')],
     [/provider_rate_limited|too_many_requests|rate.?limit|\b429\b/i, t('appError.reasons.rateLimit', '服务请求过于频繁，当前操作尚未完成，请稍后重试。')],
     [/provider_quota_exhausted|insufficient_quota/i, t('appError.reasons.quota', 'AI 服务额度已用尽，继续重试不会成功，请先检查服务配置。')],
@@ -171,7 +175,7 @@ function reasonFor(
   if (match) return match[1]
   if ((status === 401 || status === 403)) return t('appError.reasons.permission', '当前身份没有完成此操作的权限。')
   if (status === 404) return t('appError.reasons.notFound', '请求的内容不存在，或已经被删除。')
-  if (status === 409) return t('appError.reasons.conflict', '内容已被其他操作更新，请重新载入最新版本后再继续。')
+  if (status === 409 && !code) return t('appError.reasons.conflict', '内容已被其他操作更新，请重新载入最新版本后再继续。')
   if (status === 429) return t('appError.reasons.rateLimit', '服务请求过于频繁，当前操作尚未完成，请稍后重试。')
   if (status && status >= 500) return t('appError.reasons.service', '服务端处理本次请求时发生异常，请稍后重试。')
   if (rawMessage && rawMessage !== 'Request failed' && !looksLikeTechnicalText(rawMessage)) return rawMessage

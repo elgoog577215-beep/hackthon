@@ -7959,6 +7959,62 @@ class CourseService(AIBase):
             raise AIProviderRequestError("AI PPT 优化没有产生可见修改")
         return {"page": candidate, "changed_fields": changed_fields}
 
+    async def analyze_teacher_course_change(
+        self,
+        overview: dict[str, Any],
+        ranked_candidates: list[dict[str, Any]],
+        instruction: str,
+    ) -> dict[str, Any] | None:
+        """Judge whole-course impact after the local index has reduced the corpus.
+
+        The index is only a speed layer. The model receives cross-asset
+        candidates and decides which units are genuinely affected; returned
+        IDs must come from the supplied candidate set and are validated again
+        by the orchestration service.
+        """
+        prompt = (
+            "请分析老师对整门课程的修改要求，只输出一个 JSON 对象。\n"
+            f"老师原话：{instruction}\n\n"
+            "课程与资产概况：\n"
+            f"{json.dumps(overview, ensure_ascii=False)[:12000]}\n\n"
+            "经过索引与关系扩展后的候选单元：\n"
+            f"{json.dumps(ranked_candidates, ensure_ascii=False)[:28000]}\n\n"
+            "返回字段：interpreted_goal、signal_kind、signal_confidence、"
+            "hard_constraints、soft_preferences、protected_requirements、assumptions、"
+            "blocking_questions、affected_units、structure。"
+            "signal_kind 只能是 semantic、structural、mixed、uncertain。"
+            "affected_units 每项只能包含候选中真实存在的 unit_id，以及 disposition、"
+            "reason、confidence；disposition 只能是 reuse_exact、reuse_rebind、"
+            "rewrite_partial、regenerate、retire、blocked。"
+            "structure 包含 required、reason、affected_node_ids、proposed_outline。"
+            "若结构不变，required=false 且 proposed_outline=[]；若章节要合并、删除、"
+            "拆分、移动或重建，先给可审阅的新结构，proposed_outline 每项包含 title、"
+            "parent_ref、source_node_ids、learning_focus。"
+            "不要因为老师措辞不专业就机械缩小范围；要从目标推断可能受影响的资产，"
+            "但不要把仅仅同词出现的单元判为必改。无法安全推断且会改变结构时，"
+            "把问题放入 blocking_questions。正式内容不会在本步骤被修改。"
+        )
+        response = await self._call_llm(
+            prompt,
+            system_prompt=(
+                "你是高校课程总编与变更影响分析师。你在课程大纲、教案、讲稿、"
+                "PPT、题库之间追踪因果与依赖。索引负责召回，你负责最终语义判断；"
+                "保持老师原话、解释判断原因，并把结构调整与内容调整分开。"
+            ),
+            use_fast_model=True,
+            retry_count=1,
+            enable_thinking=False,
+            max_tokens=4200,
+            max_input_tokens=11000,
+            max_attempts=1,
+            reject_truncated=True,
+            raise_on_failure=False,
+            json_mode=True,
+            model_role="teacher_course_change_impact",
+        )
+        parsed = self._extract_json(response or "")
+        return parsed if isinstance(parsed, dict) else None
+
 
 # ---------------------------------------------------------------------------
 # 工厂函数

@@ -4,24 +4,56 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseEvolutionWorkspace from '@/components/CourseEvolutionWorkspace.vue'
 import zhMessages from '@/../public/locales/zh/translation.json'
 import { setLocale } from '@/shared/i18n'
-import { useCourseEvolutionStore, type CourseEvolutionPlan, type TeacherCourseChangePlanning } from '@/stores/courseEvolution'
+import {
+  useCourseEvolutionStore,
+  type CourseEvolutionPlan,
+  type TeacherCourseChangeContext,
+  type TeacherCourseChangePlanning,
+} from '@/stores/courseEvolution'
+
+function context(): TeacherCourseChangeContext {
+  return {
+    schema_version: 'teacher_course_change_context_v1',
+    index_schema_version: 'teacher_course_change_index_v1',
+    course_id: 'course-1',
+    course_title: '大学物理',
+    source_mode: 'authoring_workspace',
+    ready: true,
+    readiness_message: '已连接课程结构与现有教学资产',
+    base_revision_vector: { teacher_outline: 'outline-1' },
+    assets: [
+      { asset_type: 'outline', label: '课程大纲', state: 'available', count: 24, source: 'teacher_generation_workspace', revision: 'outline-1' },
+      { asset_type: 'lesson_plan', label: '教案', state: 'partial', count: 3, source: 'teacher_lesson_authoring', revision: '12' },
+      { asset_type: 'script', label: '讲稿', state: 'available', count: 23, source: 'teacher_lesson_authoring', revision: '12' },
+      { asset_type: 'ppt', label: 'PPT', state: 'available', count: 44, source: 'teaching_representation', revision: '12' },
+      { asset_type: 'question_bank', label: '题库', state: 'missing', count: 0, source: 'question_bank', revision: '' },
+    ],
+    outline: [
+      { node_id: 'c1', parent_node_id: 'root', node_name: '第一章 原理', node_level: 1 },
+      { node_id: 's1', parent_node_id: 'c1', node_name: '1.1 力与加速度', node_level: 2 },
+    ],
+    units: [],
+    updated_at: '2026-08-25T10:00:00Z',
+    summary: { available_assets: 4, missing_assets: 1, indexed_units: 94, outline_nodes: 24 },
+  }
+}
 
 function planning(overrides: Partial<TeacherCourseChangePlanning> = {}): TeacherCourseChangePlanning {
   return {
     schema_version: 'course_change_plan_v1',
     scenario_matrix_version: 'course_change_scenario_matrix_v1',
-    plan_id: 'teacher-plan-1',
+    plan_id: 'change-1',
     course_id: 'course-1',
     intent: {
       schema_version: 'course_change_intent_v1',
       intent_id: 'intent-1',
       course_id: 'course-1',
-      raw_request: '把第三章讲得更适合项目课，但保留原案例。',
-      interpreted_goal: '重写第三章相关内容并保留原项目案例。',
+      raw_request: '所有案例都补充完整推导，但保留原始资料。',
+      interpreted_goal: '扩写全课案例，并同步讲稿与 PPT。',
       scope_hint: {},
       hard_constraints: [],
       soft_preferences: [],
-      protected_requirements: ['保留原项目案例'],
+      protected_requirements: ['保留原始资料'],
       source_refs: [],
       signals: [],
       assumptions: [],
@@ -29,7 +61,7 @@ function planning(overrides: Partial<TeacherCourseChangePlanning> = {}): Teacher
       can_proceed_without_clarification: true,
       interpretation_revision: 'intent-1',
     },
-    base_revision_vector: { outline: 'r1' },
+    base_revision_vector: { teacher_outline: 'outline-1' },
     execution_strategies: ['semantic_impact'],
     strategy_status: 'resolved',
     scenario_tags: [],
@@ -48,13 +80,15 @@ function planning(overrides: Partial<TeacherCourseChangePlanning> = {}): Teacher
 function plan(overrides: Partial<CourseEvolutionPlan> = {}): CourseEvolutionPlan {
   return {
     change_set_id: 'change-1',
-    hypothesis_id: 'hypothesis-1',
+    hypothesis_id: '',
     evidence_ids: [],
     operations: [],
-    allowed_scopes: ['current', 'current_and_next'],
+    allowed_scopes: [],
     impact_summary: {},
-    expected_effect: '',
+    expected_effect: '扩写全课案例',
     status: 'pending',
+    application_receipt: {},
+    undo_receipt: {},
     effect_evaluation: {},
     teacher_change_planning: planning(),
     ...overrides,
@@ -62,26 +96,14 @@ function plan(overrides: Partial<CourseEvolutionPlan> = {}): CourseEvolutionPlan
 }
 
 function mountWorkspace(pinia: Pinia) {
+  const store = useCourseEvolutionStore(pinia)
+  store.courseContext = store.courseContext || context()
+  vi.spyOn(store, 'refreshProgress').mockResolvedValue({} as any)
+  vi.spyOn(store, 'loadCourseContext').mockResolvedValue(store.courseContext)
   return mount(CourseEvolutionWorkspace, {
     attachTo: document.body,
-    props: {
-      modelValue: true,
-      courseId: 'course-1',
-      courseTitle: '大学物理',
-      sectionId: 'section-1',
-      sectionTitle: '第一章 质点力学基础',
-    },
-    global: {
-      plugins: [pinia],
-      stubs: {
-        Teleport: true,
-        Transition: false,
-        CourseEvolutionPanel: {
-          props: ['courseId', 'sectionId', 'focusPlanId', 'surface', 'workspaceState', 'showHeading'],
-          template: '<div class="evolution-workspace-stub" :data-state="workspaceState" :data-surface="surface" />',
-        },
-      },
-    },
+    props: { modelValue: true, courseId: 'course-1', courseTitle: '大学物理' },
+    global: { plugins: [pinia], stubs: { Teleport: true, Transition: false } },
   })
 }
 
@@ -91,124 +113,84 @@ describe('CourseEvolutionWorkspace', () => {
     await setLocale('zh')
   })
 
-  it('尚未提出要求时只显示自然语言入口和最近记录', async () => {
+  it('首屏同时给出自然语言入口、贯通流程和真实课程索引', async () => {
     const wrapper = mountWorkspace(createPinia())
 
-    expect(wrapper.find('.workspace-state-request').exists()).toBe(true)
-    expect(wrapper.findAll('.course-change-journey li')).toHaveLength(4)
-    expect(wrapper.get('.course-change-journey li.active').text()).toContain('说出要求')
-    expect(wrapper.find('.workspace-context-strip').exists()).toBe(false)
-    expect(wrapper.get('.evolution-workspace-stub').attributes('data-state')).toBe('request')
-    expect(wrapper.get('.recent-course-changes').text()).toContain('还没有课程修改记录')
-    expect(wrapper.find('.impact-navigation').exists()).toBe(false)
-    expect(wrapper.find('.migration-summary').exists()).toBe(false)
+    expect(wrapper.findAll('.journey li')).toHaveLength(4)
+    expect(wrapper.get('.journey li.active').text()).toContain('说出要求')
+    expect(wrapper.get('.request-composer').text()).toContain('这次想让课程怎么变')
+    expect(wrapper.get('.asset-ledger').text()).toContain('24')
+    expect(wrapper.get('.asset-ledger').text()).toContain('44')
+    expect(wrapper.get('.asset-ledger').text()).toContain('尚未生成')
+    expect(wrapper.find('.request-context').exists()).toBe(false)
 
-    await wrapper.get('.course-adjustment-close').trigger('click')
+    await wrapper.findAll('.icon-action')[1]!.trigger('click')
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
     wrapper.unmount()
   })
 
-  it('AI 正在理解时通过贯通上下文保留原话、AI 理解和修正入口', async () => {
+  it('分析中只展示实际存在的资产和索引处理链', () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
-    store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification' }) })]
+    store.generating = true
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.course-change-journey li.active').text()).toContain('分析影响')
-    expect(wrapper.get('.workspace-context-strip').text()).toContain('把第三章讲得更适合项目课')
-    expect(wrapper.get('.workspace-context-strip').text()).toContain('重写第三章相关内容')
-    expect(wrapper.get('.workspace-context-strip').text()).toContain('保留原项目案例')
-    expect(wrapper.get('.context-correct-action').text()).toContain('调整理解')
-    await wrapper.get('.context-correct-action').trigger('click')
-    expect(wrapper.find('.workspace-context-correction textarea').exists()).toBe(true)
+    expect(wrapper.get('.journey li.active').text()).toContain('分析影响')
+    expect(wrapper.get('.scan-main').text()).toContain('索引召回')
+    expect(wrapper.get('.scan-main').text()).toContain('AI 判断')
+    expect(wrapper.findAll('.scanning-state aside li')).toHaveLength(4)
+    expect(wrapper.get('.scanning-state aside').text()).not.toContain('题库')
     wrapper.unmount()
   })
 
-  it('扫描时只渐进展示已经发现的资产，不预先铺满五类', () => {
-    const pinia = createPinia()
-    const store = useCourseEvolutionStore(pinia)
-    store.plans = [plan({ teacher_change_planning: planning({
-      strategy_status: 'provisional',
-      unit_migrations: [
-        { migration_id: 'm1', asset_type: 'outline', unit_type: 'section', source_unit_ids: ['s1'], target_unit_ids: ['s2'], disposition: 'rewrite_partial', reason: '目标变化', confidence: 0.9, requires_review: false, candidate_status: 'not_started' },
-        { migration_id: 'm2', asset_type: 'slide_deck', unit_type: 'slide', source_unit_ids: ['p1'], target_unit_ids: ['p2'], disposition: 'regenerate', reason: '来源变化', confidence: 0.8, requires_review: false, candidate_status: 'not_started' },
-      ],
-    }) })]
-    const wrapper = mountWorkspace(pinia)
-
-    expect(wrapper.get('.course-change-journey li.active').text()).toContain('分析影响')
-    expect(wrapper.find('.workspace-context-strip').exists()).toBe(true)
-    expect(wrapper.findAll('.discovered-impact li')).toHaveLength(2)
-    expect(wrapper.get('.discovered-impact').text()).toContain('课程大纲')
-    expect(wrapper.get('.discovered-impact').text()).toContain('PPT')
-    expect(wrapper.get('.discovered-impact').text()).not.toContain('题库')
-    wrapper.unmount()
-  })
-
-  it('内容变化时用左侧影响导航切换右侧真实差异', async () => {
-    const pinia = createPinia()
-    const store = useCourseEvolutionStore(pinia)
-    store.plans = [plan({ teacher_change_planning: planning({
-      unit_migrations: [
-        { migration_id: 'm1', asset_type: 'teacher_script', unit_type: 'block', source_unit_ids: ['讲稿 3.1'], target_unit_ids: ['讲稿 3.1'], disposition: 'rewrite_partial', reason: '补齐项目背景', confidence: 0.9, requires_review: false, candidate_status: 'ready', metadata: { before_preview: '原讲稿只介绍方法。', after_preview: '新讲稿先交代项目背景，再介绍方法。' } },
-        { migration_id: 'm2', asset_type: 'slide_deck', unit_type: 'slide', source_unit_ids: ['P12'], target_unit_ids: ['P12'], disposition: 'regenerate', reason: '同步讲稿', confidence: 0.9, requires_review: false, candidate_status: 'ready', metadata: { before_preview: '旧页面', after_preview: '新页面' } },
-      ],
-    }) })]
-    const wrapper = mountWorkspace(pinia)
-
-    expect(wrapper.get('.course-change-journey li.active').text()).toContain('审阅修改')
-    expect(wrapper.find('.workspace-context-strip').exists()).toBe(true)
-    expect(wrapper.findAll('.impact-navigation nav button')).toHaveLength(2)
-    expect(wrapper.get('.content-diff-card').text()).toContain('原讲稿只介绍方法')
-    expect(wrapper.get('.content-diff-card').text()).toContain('新讲稿先交代项目背景')
-    await wrapper.findAll('.impact-navigation nav button')[1]!.trigger('click')
-    expect(wrapper.get('.content-diff-card').text()).toContain('旧页面')
-    expect(wrapper.get('.evolution-workspace-stub').attributes('data-state')).toBe('content')
-    wrapper.unmount()
-  })
-
-  it('结构变化时主区域核对新旧课程树，侧栏统计迁移与冲突', () => {
-    const pinia = createPinia()
-    const store = useCourseEvolutionStore(pinia)
-    store.plans = [plan({ teacher_change_planning: planning({
-      execution_strategies: ['structural_regeneration', 'semantic_impact'],
-      structural_operations: [{ operation_type: 'SPLIT_OUTLINE_NODE', source_titles: ['第三章 原理与项目'], proposed_nodes: [{ provisional_id: 'n1', title: '第三章 原理' }, { provisional_id: 'n2', title: '第四章 项目实践' }] }],
-      structure_review_status: 'pending',
-      unit_migrations: [
-        { migration_id: 'm1', asset_type: 'outline', unit_type: 'section', source_unit_ids: ['s1'], target_unit_ids: ['n1'], disposition: 'reuse_rebind', reason: '移动到原理章', confidence: 0.9, requires_review: false, candidate_status: 'ready' },
-        { migration_id: 'm2', asset_type: 'lesson_plan', unit_type: 'lesson', source_unit_ids: ['l1'], target_unit_ids: ['n2'], disposition: 'blocked', reason: '课时总量冲突', confidence: 0.5, requires_review: true, candidate_status: 'not_started' },
-      ],
-    }) })]
-    const wrapper = mountWorkspace(pinia)
-
-    expect(wrapper.get('.course-change-journey li.active').text()).toContain('审阅修改')
-    expect(wrapper.get('.course-tree-comparison').text()).toContain('第三章 原理与项目')
-    expect(wrapper.get('.course-tree-comparison').text()).toContain('第四章 项目实践')
-    expect(wrapper.get('.migration-summary').text()).toContain('迁移重绑')
-    expect(wrapper.get('.migration-conflicts').text()).toContain('课时总量冲突')
-    expect(wrapper.get('.evolution-workspace-stub').attributes('data-state')).toBe('structure')
-    wrapper.unmount()
-  })
-
-  it('应用完成后只显示实际回执并支持整次撤销', async () => {
+  it('内容变化用资产导航、原因和勾选范围完成精细审阅', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
     store.plans = [plan({
-      status: 'applied',
-      applied_block_ids: ['b1', 'b2'],
-      application_receipt: { applied_count: 2, failed_items: ['PPT 第 12 页'], unchanged_items: ['保留案例 A'] },
+      impact_summary: {
+        analysis_mode: 'ai_ranked',
+        affected_units: [
+          { migration_id: 'm1', unit_id: 'script:b1', asset_type: 'script', unit_type: 'script_block', title: '应用场景', before_preview: '原讲稿只介绍方法。', section_ids: ['s1'], source_state: 'current', disposition: 'rewrite_partial', reason: '老师要求所有案例补充推导', confidence: .91, candidate_status: 'not_started' },
+          { migration_id: 'm2', unit_id: 'ppt:p1', asset_type: 'ppt', unit_type: 'slide', title: '第 12 页', before_preview: '旧页面只有结论。', section_ids: ['s1'], source_state: 'current', disposition: 'regenerate', reason: 'PPT 需要同步新的案例推导', confidence: .86, candidate_status: 'not_started' },
+        ],
+      },
     })]
-    const undo = vi.spyOn(store, 'undo').mockResolvedValue({} as any)
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.course-change-journey li.active').text()).toContain('应用完成')
-    expect(wrapper.get('.workspace-context-strip').text()).toContain('把第三章讲得更适合项目课')
-    expect(wrapper.find('.context-correct-action').exists()).toBe(false)
-    expect(wrapper.get('.application-receipt').text()).toContain('课程已按确认结果更新')
-    expect(wrapper.get('.application-receipt').text()).toContain('PPT 第 12 页')
-    expect(wrapper.get('.application-receipt').text()).toContain('保留案例 A')
-    await wrapper.get('.undo-action').trigger('click')
-    expect(undo).toHaveBeenCalledWith('change-1')
+    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改')
+    expect(wrapper.get('.request-context').text()).toContain('老师原话')
+    expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
+    expect(wrapper.get('.impact-list').text()).toContain('原讲稿只介绍方法')
+    await wrapper.get('.impact-check input').setValue(false)
+    expect(wrapper.get('.scope-counts').text()).toContain('排除1')
+    await wrapper.get('.review-actionbar .button-primary').trigger('click')
+    expect(review).toHaveBeenCalledWith('change-1', ['m2'])
+    wrapper.unmount()
+  })
+
+  it('结构变化独立展示新旧课程树和迁移决策', () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      teacher_change_planning: planning({
+        execution_strategies: ['structural_regeneration', 'semantic_impact'],
+        structural_operations: [{ operation_id: 'op1', operation_type: 'REBUILD_OUTLINE', base_blueprint_revision_id: 'outline-1', idempotency_key: 'k1', source_node_ids: ['c1'], target_parent_id: '', target_position: null, proposed_nodes: [], reason: '章节重构', assumptions: [], confidence: .9, requires_teacher_checkpoint: true }],
+      }),
+      impact_summary: {
+        current_outline: [{ node_id: 'c1', parent_node_id: 'root', node_name: '第三章 原理与项目', node_level: 1 }],
+        proposed_outline: [{ provisional_id: 'n1', title: '第三章 原理', parent_ref: 'root' }, { provisional_id: 'n2', title: '第四章 项目实践', parent_ref: 'root' }],
+        affected_units: [{ migration_id: 'm1', unit_id: 'lesson:l1', asset_type: 'lesson_plan', unit_type: 'lesson', title: '第三章教案', before_preview: '', section_ids: ['c1'], source_state: 'current', disposition: 'regenerate', reason: '需要按新结构重组', confidence: .8, candidate_status: 'not_started' }],
+      },
+    })]
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改')
+    expect(wrapper.get('.tree-comparison').text()).toContain('第三章 原理与项目')
+    expect(wrapper.get('.tree-comparison').text()).toContain('第四章 项目实践')
+    expect(wrapper.get('.migration-panel').text()).toContain('重新生成')
+    expect(wrapper.get('.migration-panel').text()).toContain('需要按新结构重组')
+    expect(wrapper.get('.migration-panel .button-primary').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 })

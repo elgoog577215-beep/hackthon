@@ -93,6 +93,24 @@ describe('application error presentation', () => {
     expect(result.summary).toContain('补全课程大纲或课次小节')
   })
 
+  it('不会把课程源缺失的 409 误报为内容版本冲突', () => {
+    const result = toAppError(axiosError({
+      config: { method: 'post', url: '/api/courses/course-1/evolution/course-plans' },
+      response: {
+        status: 409,
+        headers: {},
+        data: { detail: {
+          code: 'course_change_source_unavailable',
+          message: '当前课程尚未形成可分析的大纲或教学资产',
+        } },
+      },
+    }))
+
+    expect(result.title).toBe('课程修改条件不足')
+    expect(result.summary).toContain('先完成课程大纲')
+    expect(result.title).not.toContain('版本冲突')
+  })
+
   it('发布结构化错误事件供全局错误层消费', () => {
     const listener = vi.fn<(event: AppErrorEvent) => void>()
     const unsubscribe = subscribeAppErrors(listener)

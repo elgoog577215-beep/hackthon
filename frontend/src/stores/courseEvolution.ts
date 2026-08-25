@@ -48,6 +48,53 @@ export interface CreateCourseAdjustmentInput {
   requestId?: string
 }
 
+export interface TeacherCourseChangeContext {
+  schema_version: 'teacher_course_change_context_v1'
+  index_schema_version: 'teacher_course_change_index_v1'
+  course_id: string
+  course_title: string
+  source_mode: 'formal_course' | 'authoring_workspace' | 'mixed' | 'unavailable'
+  ready: boolean
+  readiness_message: string
+  base_revision_vector: Record<string, string>
+  assets: Array<{
+    asset_type: string
+    label: string
+    state: 'available' | 'partial' | 'missing' | 'stale'
+    count: number
+    source: string
+    revision: string
+  }>
+  outline: Array<{
+    node_id: string
+    parent_node_id: string
+    node_name: string
+    node_level: number
+    learning_objective?: string
+    source?: string
+  }>
+  units: Array<{
+    unit_id: string
+    asset_type: string
+    unit_type: string
+    title: string
+    text: string
+    section_ids: string[]
+    parent_id: string
+    role: string
+    source_revision: string
+    source_state: string
+    metadata: Record<string, any>
+  }>
+  updated_at: string
+  summary: {
+    available_assets: number
+    missing_assets: number
+    indexed_units: number
+    outline_nodes: number
+  }
+}
+
 export interface AdaptationHypothesis {
   hypothesis_id: string
   claim: string
@@ -168,12 +215,14 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     evidenceItems: [] as EvolutionEvidence[],
     hypotheses: [] as AdaptationHypothesis[],
     plans: [] as CourseEvolutionPlan[],
+    courseContext: null as TeacherCourseChangeContext | null,
     permissions: null as Record<string, any> | null,
     summary: {} as Record<string, number>,
     loading: false,
     actingId: '',
     generating: false,
     generationError: '',
+    contextLoading: false,
     applicationVisual: null as CourseEvolutionApplicationVisual | null,
     applicationVisualCounter: 0,
   }),
@@ -245,6 +294,66 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         return response.data
       } finally {
         this.loading = false
+      }
+    },
+    async loadCourseContext(courseId?: string) {
+      const targetCourseId = courseId || this.courseId
+      if (!targetCourseId) return null
+      if (this.courseId !== targetCourseId) {
+        this.courseId = targetCourseId
+        this.courseContext = null
+      }
+      this.contextLoading = true
+      try {
+        const response = await http.get(
+          `/api/courses/${targetCourseId}/evolution/course-context`,
+          { silentError: true },
+        )
+        this.courseContext = response.data
+        return response.data as TeacherCourseChangeContext
+      } finally {
+        this.contextLoading = false
+      }
+    },
+    async createCoursePlan(input: { instruction: string; requestId?: string }) {
+      if (!this.courseId) throw new Error('course_change_course_required')
+      this.generating = true
+      this.generationError = ''
+      try {
+        const response = await http.post(
+          `/api/courses/${this.courseId}/evolution/course-plans`,
+          {
+            request_id: input.requestId
+              || globalThis.crypto?.randomUUID?.()
+              || `teacher-course-change-${Date.now()}`,
+            instruction: input.instruction,
+          },
+        )
+        this.applyPayload(this.courseId, response.data)
+        return response.data
+      } catch (error: any) {
+        this.generationError = String(
+          error?.response?.data?.detail?.message
+          || error?.response?.data?.detail
+          || error?.message
+          || 'course_change_analysis_failed',
+        )
+        throw error
+      } finally {
+        this.generating = false
+      }
+    },
+    async reviewCoursePlan(planId: string, selectedMigrationIds: string[]) {
+      this.actingId = planId
+      try {
+        const response = await http.post(
+          `/api/courses/${this.courseId}/evolution/course-plans/${planId}/review`,
+          { selected_migration_ids: selectedMigrationIds },
+        )
+        this.applyPayload(this.courseId, response.data)
+        return response.data
+      } finally {
+        this.actingId = ''
       }
     },
     async createPlan(input: CreateCourseAdjustmentInput) {

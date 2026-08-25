@@ -59,6 +59,66 @@ describe('course evolution store', () => {
     expect(store.pendingPlans).toHaveLength(1)
   })
 
+  it('loads the teacher whole-course index from its course-level source projection', async () => {
+    httpMock.get.mockResolvedValue({ data: {
+      schema_version: 'teacher_course_change_context_v1',
+      course_id: 'course-1',
+      ready: true,
+      assets: [],
+      outline: [],
+      units: [],
+      summary: { indexed_units: 94 },
+    } })
+    const store = useCourseEvolutionStore()
+
+    await store.loadCourseContext('course-1')
+
+    expect(httpMock.get).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/course-context',
+      { silentError: true },
+    )
+    expect(store.courseContext?.summary.indexed_units).toBe(94)
+  })
+
+  it('clears a previous course projection before loading a different course', async () => {
+    let resolveRequest: ((value: any) => void) | undefined
+    httpMock.get.mockImplementation(() => new Promise(resolve => { resolveRequest = resolve }))
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-old'
+    store.courseContext = { course_id: 'course-old' } as any
+
+    const pending = store.loadCourseContext('course-new')
+
+    expect(store.courseId).toBe('course-new')
+    expect(store.courseContext).toBeNull()
+    expect(store.contextLoading).toBe(true)
+    resolveRequest?.({ data: { course_id: 'course-new', summary: {} } })
+    await pending
+    expect(store.courseContext?.course_id).toBe('course-new')
+  })
+
+  it('creates and reviews a whole-course plan without inventing a section id', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.createCoursePlan({
+      instruction: '所有例子都补充完整推导',
+      requestId: 'request-1',
+    })
+    await store.reviewCoursePlan('plan-1', ['migration-1'])
+
+    expect(httpMock.post.mock.calls[0]).toEqual([
+      '/api/courses/course-1/evolution/course-plans',
+      { request_id: 'request-1', instruction: '所有例子都补充完整推导' },
+    ])
+    expect(httpMock.post.mock.calls[0]?.[1]).not.toHaveProperty('section_id')
+    expect(httpMock.post.mock.calls[1]).toEqual([
+      '/api/courses/course-1/evolution/course-plans/plan-1/review',
+      { selected_migration_ids: ['migration-1'] },
+    ])
+  })
+
   it('accepts a reviewed plan through the canonical course-evolution endpoint', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     httpMock.post.mockResolvedValue({ data: payload('applied') })
