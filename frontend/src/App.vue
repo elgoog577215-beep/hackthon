@@ -57,22 +57,25 @@
             </label>
             <div>
               <span>{{ t('app.fontFamily', '字体') }}</span>
-              <div class="segmented-control">
-                <button v-for="font in fontOptions" :key="font.value" type="button" :class="{ active: courseStore.uiSettings.fontFamily === font.value }" @click="courseStore.setUiSettings({ fontFamily: font.value })">
-                  {{ font.label }}
-                </button>
-              </div>
+              <UiSegmentedControl
+                class="reading-setting-control"
+                size="compact"
+                :model-value="courseStore.uiSettings.fontFamily"
+                :options="fontOptions"
+                :accessibility-label="t('app.fontFamily', '字体')"
+                @update:model-value="setFontFamily"
+              />
             </div>
             <div>
               <span>{{ t('app.language', '语言') }}</span>
-              <div class="segmented-control language-control">
-                <button type="button" :class="{ active: activeLocale === 'zh' }" :aria-pressed="activeLocale === 'zh'" @click="changeLocale('zh')">
-                  {{ t('app.languageChinese', '中文') }}
-                </button>
-                <button type="button" :class="{ active: activeLocale === 'en' }" :aria-pressed="activeLocale === 'en'" @click="changeLocale('en')">
-                  {{ t('app.languageEnglish', 'English') }}
-                </button>
-              </div>
+              <UiSegmentedControl
+                class="reading-setting-control"
+                size="compact"
+                :model-value="activeLocale"
+                :options="localeOptions"
+                :accessibility-label="t('app.language', '语言')"
+                @update:model-value="changeLocale"
+              />
             </div>
           </div>
         </el-popover>
@@ -110,6 +113,7 @@ import { useRoute } from 'vue-router'
 import { Download, Scan, Search, Settings2, X } from 'lucide-vue-next'
 import AppErrorCenter from './components/AppErrorCenter.vue'
 import KnowledgeLibrary from './components/KnowledgeLibrary.vue'
+import UiSegmentedControl from './components/UiSegmentedControl.vue'
 import { useCourseStore } from './stores/course'
 import { GENERATION_STATE_KEY, useGenerationStore } from './stores/generation'
 import { activeLocale, setLocale, t } from './shared/i18n'
@@ -156,6 +160,10 @@ const fontOptions = computed(() => [
   { value: 'serif' as const, label: t('app.fontSerif', '宋体') },
   { value: 'mono' as const, label: t('app.fontMono', '等宽') },
 ])
+const localeOptions = computed(() => [
+  { value: 'zh', label: t('app.languageChinese', '中文') },
+  { value: 'en', label: t('app.languageEnglish', 'English') },
+])
 
 function handleExport(command: string) {
   if (command === 'json') courseStore.exportCourseJson()
@@ -167,8 +175,12 @@ function updateFontSize(event: Event) {
   courseStore.setUiSettings({ fontSize })
 }
 
-function changeLocale(locale: 'zh' | 'en') {
-  void setLocale(locale)
+function setFontFamily(value: string) {
+  if (value === 'sans' || value === 'serif' || value === 'mono') courseStore.setUiSettings({ fontFamily: value })
+}
+
+function changeLocale(locale: string) {
+  if (locale === 'zh' || locale === 'en') void setLocale(locale)
 }
 </script>
 
@@ -215,8 +227,7 @@ function changeLocale(locale: 'zh' | 'en') {
 
 .brand-button,
 .header-icon-button,
-.header-search button,
-.segmented-control button {
+.header-search button {
   border: 0;
   cursor: pointer;
 }
@@ -295,10 +306,7 @@ function changeLocale(locale: 'zh' | 'en') {
 .reading-settings { display: grid; gap: 14px; color: var(--lz-text-secondary); font-size: 12px; }
 .reading-settings label { display: grid; grid-template-columns: auto 1fr 24px; align-items: center; gap: 8px; }
 .reading-settings input { accent-color: var(--lz-brand); }
-.segmented-control { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 6px; padding: 3px; border-radius: 7px; background: var(--lz-surface-muted); }
-.segmented-control button { min-height: 28px; border-radius: 5px; color: var(--lz-text-secondary); background: transparent; font-size: 11px; }
-.segmented-control button.active { color: var(--lz-brand-strong); background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
-.language-control { grid-template-columns: repeat(2, 1fr); }
+.reading-setting-control { margin-top:6px; }
 
 @media (max-width: 900px) {
   .app-header { grid-template-columns: auto minmax(180px, 1fr) auto; gap: 8px; padding: 0 10px; }

@@ -64,7 +64,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.library-header').exists()).toBe(false)
     expect(wrapper.classes()).not.toContain('course-library--empty')
     expect(wrapper.find('.library-toolbar').exists()).toBe(true)
-    expect(wrapper.find('select[aria-label="按备课状态筛选课程"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="按备课状态筛选课程"]').exists()).toBe(true)
     expect(wrapper.find('.library-status-filters').exists()).toBe(false)
     expect(wrapper.get('.library-state').text()).toContain('还没有课程')
   })
@@ -138,12 +138,14 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.course-status').text()).toContain('正在备课')
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
-    const statusSelect = wrapper.get('select[aria-label="按备课状态筛选课程"]')
-    expect(statusSelect.findAll('option').map(option => option.text())).toEqual([
-      '全部 · 1', '待处理 · 0', '正在备课 · 1', '备课完成 · 0',
+    const statusMenu = wrapper.get('[data-testid="course-status-filter"]')
+    expect(statusMenu.text()).toContain('状态全部课程1')
+    await statusMenu.get('.ui-select-menu__trigger').trigger('click')
+    expect(statusMenu.findAll('[role="option"]').map(option => option.text())).toEqual([
+      '全部课程1', '待处理0', '备课中1', '备课完成0',
     ])
 
-    await statusSelect.setValue('prepared')
+    await statusMenu.get('[data-option-value="prepared"]').trigger('click')
     expect(wrapper.find('.course-item').exists()).toBe(false)
     expect(wrapper.get('.library-state').text()).toContain('调整搜索词、学期或课程状态')
   })
@@ -233,10 +235,11 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.course-identity h2').text()).toContain('人工智能导论')
 
     await wrapper.get('input[type="search"]').setValue('')
-    const termSelect = wrapper.get('select[aria-label="按学年学期筛选课程"]')
-    const targetOption = termSelect.findAll('option').find(option => option.text() === '2026-2027 秋季')
+    const termMenu = wrapper.get('[data-testid="course-term-filter"]')
+    await termMenu.get('.ui-select-menu__trigger').trigger('click')
+    const targetOption = termMenu.findAll('[role="option"]').find(option => option.text() === '2026-2027 秋季')
     expect(targetOption).toBeTruthy()
-    await termSelect.setValue(targetOption!.attributes('value'))
+    await targetOption!.trigger('click')
     expect(wrapper.findAll('.course-item')).toHaveLength(1)
     expect(wrapper.get('.course-identity h2').text()).toContain('矩阵与线性变换')
   })
