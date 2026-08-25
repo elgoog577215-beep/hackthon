@@ -1735,7 +1735,7 @@ onBeforeUnmount(() => {
 /* Lesson identity lives above the document; document actions stay with the document itself. */
 .workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
 .workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
-.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:minmax(0,1fr) auto;gap:16px;min-height:64px;padding:0 4px 12px;border:0;border-radius:0;background:transparent}
+.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:minmax(0,1fr) auto;gap:16px;min-height:64px;padding:0 4px 12px;border:0;border-bottom:1px solid #e7ebf2;border-radius:0;background:var(--teacher-component-surface)}
 .lesson-heading-cluster{min-width:0;display:flex;align-items:center;gap:12px}
 .lesson-navigator.has-document-actions .lesson-current-group{min-width:0;justify-content:flex-start}
 .lesson-navigator.has-document-actions .lesson-outline-control{width:min(100%,720px);justify-content:flex-start}
