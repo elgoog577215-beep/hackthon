@@ -314,8 +314,6 @@ def adapt_v6_page_to_slide_spec(page: SlidePageV6 | dict[str, Any]) -> SlideSpec
         ),
         "",
     )
-    if slug == "cover-minimal":
-        subtitle = ""
     eyebrow = next(
         (
             region.content

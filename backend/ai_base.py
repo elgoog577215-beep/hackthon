@@ -245,6 +245,8 @@ class AIBase:
         }
         self._provider_failure: str | None = None
         self._modelscope_fallback_failure: str | None = None
+        self._provider_failure_until = 0.0
+        self._modelscope_fallback_failure_until = 0.0
         self._request_spacing_lock = asyncio.Lock()
         self._last_request_started = 0.0
         self._minimum_request_interval = max(
@@ -742,7 +744,7 @@ class AIBase:
         return bool(
             self.modelscope_fallback_api_key
             and self.modelscope_fallback_client
-            and not self._modelscope_fallback_failure
+            and not self._active_modelscope_fallback_failure()
             and self._modelscope_fallback_models_for()
         )
 
@@ -820,9 +822,56 @@ class AIBase:
             "permission_denied",
         ))
 
+    def _active_provider_failure(self) -> str | None:
+        if (
+            self._provider_failure
+            and time.monotonic() < self._provider_failure_until
+        ):
+            return self._provider_failure
+        self._provider_failure = None
+        self._provider_failure_until = 0.0
+        return None
+
+    def _active_modelscope_fallback_failure(self) -> str | None:
+        if (
+            self._modelscope_fallback_failure
+            and time.monotonic() < self._modelscope_fallback_failure_until
+        ):
+            return self._modelscope_fallback_failure
+        self._modelscope_fallback_failure = None
+        self._modelscope_fallback_failure_until = 0.0
+        return None
+
+    @staticmethod
+    def _provider_failure_cooldown_seconds(reason: str) -> float:
+        default = "60" if reason == "authentication_failed" else "90"
+        try:
+            return max(
+                1.0,
+                float(os.getenv("AI_PROVIDER_FAILURE_COOLDOWN_SECONDS", default)),
+            )
+        except (TypeError, ValueError):
+            return float(default)
+
     def _block_provider(self, reason: str) -> None:
         self._provider_failure = reason
-        logger.error("AI provider disabled for current process: %s", reason)
+        cooldown = self._provider_failure_cooldown_seconds(reason)
+        self._provider_failure_until = time.monotonic() + cooldown
+        logger.error(
+            "AI provider temporarily disabled (reason=%s, cooldown=%ss)",
+            reason,
+            int(cooldown),
+        )
+
+    def _block_modelscope_fallback(self, reason: str) -> None:
+        self._modelscope_fallback_failure = reason
+        cooldown = self._provider_failure_cooldown_seconds(reason)
+        self._modelscope_fallback_failure_until = time.monotonic() + cooldown
+        logger.error(
+            "ModelScope fallback temporarily disabled (reason=%s, cooldown=%ss)",
+            reason,
+            int(cooldown),
+        )
 
     @staticmethod
     def _should_try_next_model(error: Exception) -> bool:
@@ -1292,7 +1341,7 @@ class AIBase:
         if not self._modelscope_fallback_available():
             if raise_on_failure:
                 raise AIProviderUnavailable(
-                    self._modelscope_fallback_failure
+                    self._active_modelscope_fallback_failure()
                     or "modelscope_fallback_unavailable"
                 )
             return None
@@ -1538,7 +1587,7 @@ class AIBase:
                     if isinstance(error, ModelCapacityCoolingDown):
                         break
                     if self._is_authentication_error(error):
-                        self._modelscope_fallback_failure = (
+                        self._block_modelscope_fallback(
                             "authentication_failed"
                         )
                         break
@@ -1591,13 +1640,14 @@ class AIBase:
                         await asyncio.sleep(2 ** (attempt - 1))
                     else:
                         break
-            if self._modelscope_fallback_failure:
+            if self._active_modelscope_fallback_failure():
                 break
 
         if raise_on_failure:
-            if self._modelscope_fallback_failure:
+            fallback_failure = self._active_modelscope_fallback_failure()
+            if fallback_failure:
                 raise AIProviderUnavailable(
-                    self._modelscope_fallback_failure
+                    fallback_failure
                 ) from last_error
             if last_error is not None:
                 raise AIProviderRequestError(str(last_error)) from last_error
@@ -1629,7 +1679,7 @@ class AIBase:
     ) -> AsyncIterator[str]:
         if not self._modelscope_fallback_available():
             raise AIProviderUnavailable(
-                self._modelscope_fallback_failure
+                self._active_modelscope_fallback_failure()
                 or "modelscope_fallback_unavailable"
             )
 
@@ -1721,7 +1771,7 @@ class AIBase:
                 if isinstance(error, ModelCapacityCoolingDown):
                     continue
                 if self._is_authentication_error(error):
-                    self._modelscope_fallback_failure = (
+                    self._block_modelscope_fallback(
                         "authentication_failed"
                     )
                     break
@@ -1746,9 +1796,10 @@ class AIBase:
                         raise
                     raise AIProviderRequestError(str(error)) from error
 
-        if self._modelscope_fallback_failure:
+        fallback_failure = self._active_modelscope_fallback_failure()
+        if fallback_failure:
             raise AIProviderUnavailable(
-                self._modelscope_fallback_failure
+                fallback_failure
             ) from last_error
         if isinstance(last_error, AIProviderRequestError):
             raise last_error
@@ -1813,12 +1864,10 @@ class AIBase:
             if raise_on_failure:
                 raise AIProviderUnavailable("not_configured")
             return None
-        if (
-            self._provider_failure
-            and not self._modelscope_fallback_available()
-        ):
+        provider_failure = self._active_provider_failure()
+        if provider_failure and not self._modelscope_fallback_available():
             if raise_on_failure:
-                raise AIProviderUnavailable(self._provider_failure)
+                raise AIProviderUnavailable(provider_failure)
             return None
 
         last_error: Exception | None = None
@@ -1835,7 +1884,7 @@ class AIBase:
         )
         primary_models = (
             self._models_for(use_fast_model, model_role)
-            if self.api_key and not self._provider_failure
+            if self.api_key and not self._active_provider_failure()
             else []
         )
         fallback_eligible = not primary_models
@@ -2246,7 +2295,7 @@ class AIBase:
                     else:
                         break
 
-            if self._provider_failure:
+            if self._active_provider_failure():
                 break
 
         if fallback_eligible and self._modelscope_fallback_available():
@@ -2268,9 +2317,10 @@ class AIBase:
             )
 
         if raise_on_failure:
-            if self._provider_failure:
+            provider_failure = self._active_provider_failure()
+            if provider_failure:
                 raise AIProviderUnavailable(
-                    self._provider_failure
+                    provider_failure
                 ) from last_error
             if last_error is not None:
                 raise AIProviderRequestError(str(last_error)) from last_error
@@ -2316,17 +2366,15 @@ class AIBase:
         )
         if not self.api_key and not self.modelscope_fallback_api_key:
             raise AIProviderUnavailable("not_configured")
-        if (
-            self._provider_failure
-            and not self._modelscope_fallback_available()
-        ):
-            raise AIProviderUnavailable(self._provider_failure)
+        provider_failure = self._active_provider_failure()
+        if provider_failure and not self._modelscope_fallback_available():
+            raise AIProviderUnavailable(provider_failure)
 
         last_error: Exception | None = None
         attempts = 0
         primary_models = (
             self._models_for(use_fast_model)
-            if self.api_key and not self._provider_failure
+            if self.api_key and not self._active_provider_failure()
             else []
         )
         fallback_eligible = not primary_models
@@ -2550,7 +2598,7 @@ class AIBase:
                 AIProviderRequestError,
             ):
                 fallback_eligible = True
-            if self._provider_failure:
+            if self._active_provider_failure():
                 break
 
         if fallback_eligible and self._modelscope_fallback_available():
@@ -2564,9 +2612,10 @@ class AIBase:
             ):
                 yield chunk
             return
-        if self._provider_failure:
+        provider_failure = self._active_provider_failure()
+        if provider_failure:
             raise AIProviderUnavailable(
-                self._provider_failure
+                provider_failure
             ) from last_error
         if isinstance(last_error, AIProviderRequestError):
             raise last_error

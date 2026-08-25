@@ -40,6 +40,7 @@ class CoursePresentationUnitV1(_StrictModel):
     primary_block_ids: list[str] = Field(min_length=1)
     primary_block_kinds: dict[str, str] = Field(default_factory=dict)
     primary_block_roles: dict[str, str] = Field(default_factory=dict)
+    primary_block_titles: dict[str, str] = Field(default_factory=dict)
     primary_block_artifacts: dict[str, list[ArtifactKind]] = Field(default_factory=dict)
     primary_block_texts: dict[str, str] = Field(default_factory=dict)
     primary_block_presentation_texts: dict[str, str] = Field(default_factory=dict)
@@ -122,6 +123,29 @@ _DELIVERY_ONLY_SEGMENT_RE = re.compile(
     r"把它写在黑板上|板书|投影)(?:[^。！？；;]{0,80})[。！？；;]?$"
 )
 _LOW_INFORMATION_LABEL_RE = re.compile(r"^[^:：\n]{1,14}[:：]$")
+_PRESENTATION_SECTION_LABEL_RE = re.compile(
+    r"^(?:内容与方法|展开过程|任务与检验)\s*[:：]\s*"
+)
+_PRESENTATION_META_SEGMENT_RE = re.compile(
+    r"^(?:本节任务|核心教学|学习者行动|检查与反馈|直觉入口|多重表征|"
+    r"正式定义|证明与推导|数学论证|例题推演|策略选择|变式练习)"
+    r"围绕.+(?:展开|核心机制展开)[。！？；;]?$|"
+    r"^(?:结果需逐项核对条件、过程与结论|若出现错误，依据同一标准修正并再次验证|"
+    r"形式化检查锦标|公式中的对象、条件和结论必须与当前知识范围一致)"
+)
+_PRESENTATION_DELIVERY_SEGMENT_RE = re.compile(
+    r"^(?:口头陈述|听讲|抄录|抄写|跟随讲解过程|记录(?:定义|目标|对比表)|"
+    r"请\s*\d*\s*名|请学习者|发放|巡视|逐题公布答案|在笔记本|"
+    r"对答案|用红笔|观察讲解过程|回答讲解过程提问|"
+    r"让学习者|要求学习者|学习者回答答案|系统讲解|选取\s*\d|"
+    r"\d+\s*名学习者|"
+    r"不要直接|在黑板)"
+)
+_PRESENTATION_DELIVERY_PREFIX_WITH_COLON_RE = re.compile(
+    r"^(?:逐条讲解并板书性质|发放或板书练习题|在黑板完整推演\s*\d*\s*道例题|"
+    r"请\s*\d*\s*名学习者[^:：]{0,80}(?:重点演示|重点指出)|"
+    r"板书(?:二阶行列式定义|推导|证明)|投影并讲解)[：:]\s*"
+)
 _ROLE_PRESENTATION_BUDGET: dict[str, tuple[int, int]] = {
     "objective": (3, 120),
     "concept": (5, 280),
@@ -149,6 +173,40 @@ def block_source_text(block: CourseBlock) -> str:
         or payload.get("summary")
         or ""
     ).strip()
+
+
+def _split_presentation_clauses(line: str) -> list[str]:
+    """Split prose without cutting matrices, tuples, or grouped formula text."""
+
+    pairs = {"(": ")", "[": "]", "{": "}", "（": "）", "【": "】"}
+    closers = set(pairs.values())
+    stack: list[str] = []
+    quote: str = ""
+    clauses: list[str] = []
+    start = 0
+    for index, char in enumerate(line):
+        if char in {"'", '"', "“", "”", "‘", "’"}:
+            if quote:
+                if char == quote or (quote == "“" and char == "”") or (
+                    quote == "‘" and char == "’"
+                ):
+                    quote = ""
+            elif char in {"'", '"', "“", "‘"}:
+                quote = char
+            continue
+        if char in pairs:
+            stack.append(pairs[char])
+        elif char in closers and stack and char == stack[-1]:
+            stack.pop()
+        if char in "。！？；;" and not stack and not quote:
+            candidate = line[start:index + 1].strip()
+            if candidate:
+                clauses.append(candidate)
+            start = index + 1
+    tail = line[start:].strip()
+    if tail:
+        clauses.append(tail)
+    return clauses
 
 
 def _presentation_segments(value: str) -> list[str]:
@@ -179,8 +237,43 @@ def _presentation_segments(value: str) -> list[str]:
         line = re.sub(r"^\s*(?:[-+*]\s+|\d+[.)]\s+)", "", line).strip()
         if not line:
             continue
-        for segment in re.split(r"(?<=[。！？；;])\s*", line):
+        for segment in _split_presentation_clauses(line):
             clean = segment.strip()
+            clean = _PRESENTATION_SECTION_LABEL_RE.sub("", clean).strip()
+            clean = _PRESENTATION_DELIVERY_PREFIX_WITH_COLON_RE.sub(
+                "", clean
+            ).strip()
+            example_goal = re.match(
+                r"^用.+?呈现(?:学习)?目标\s*[,\uff0c]\s*例如['‘“\"](.+?)['’”\"]\s*[.。]?$",
+                clean,
+            )
+            if example_goal:
+                clean = example_goal.group(1).strip()
+            clean = re.sub(r"^重点突出\s*[:\uff1a]\s*", "", clean).strip()
+            clean = re.sub(r"^(?:给出|提供|展示|选取)\s*", "", clean).strip()
+            clean = re.sub(
+                r"^在形式化定义之前\s*[,\uff0c]?\s*(?:先)?(?:建立)?\s*",
+                "",
+                clean,
+            ).strip()
+            clean = re.sub(
+                r"^(?:板书并讲解|板书证明|板书推导|板书|投影并讲解)\s*",
+                "",
+                clean,
+            ).strip()
+            clean = clean.replace("板书：", "").replace("板书:", "").strip()
+            clean = clean.lstrip("：: ")
+            clean = re.sub(r"^\d+[.)]\s*", "", clean).strip()
+            clean = re.sub(
+                r"^明确本节(?:的)?学习(?:任务与检验标准|目标)，"
+                r"让学习者知道",
+                "",
+                clean,
+            ).strip()
+            if "常见错误（如" in clean and (
+                "请" in clean or "讲解过程" in clean
+            ):
+                clean = clean[clean.index("常见错误（如"):]
             if _DELIVERY_ONLY_SEGMENT_RE.match(clean):
                 continue
             spoken_lead = _LOW_VALUE_SPOKEN_LEAD_RE.match(clean)
@@ -193,7 +286,7 @@ def _presentation_segments(value: str) -> list[str]:
                     break
             if _DELIVERY_ONLY_SEGMENT_RE.match(clean):
                 continue
-            if clean:
+            if clean and not _PRESENTATION_META_SEGMENT_RE.match(clean):
                 segments.append(clean)
     return segments
 
@@ -225,6 +318,7 @@ def block_presentation_text(block: CourseBlock) -> str:
         segment
         for segment in _presentation_segments(source)
         if not _LOW_INFORMATION_LABEL_RE.fullmatch(segment)
+        and not _PRESENTATION_DELIVERY_SEGMENT_RE.match(segment)
     ]
     if not candidates:
         return source
@@ -250,6 +344,10 @@ def block_presentation_text(block: CourseBlock) -> str:
             score -= 3
         if "等待" in segment or "巡视" in segment or "举手" in segment:
             score -= 4
+        if _PRESENTATION_DELIVERY_SEGMENT_RE.match(segment):
+            score -= 6
+        if "讲解过程" in segment or "学习者知道" in segment:
+            score -= 3
         if block.role == "objective":
             if any(
                 term in segment
@@ -545,6 +643,12 @@ def compile_course_presentation_graph(
                 },
                 primary_block_roles={
                     block.block_id: block.role for block in blocks
+                },
+                primary_block_titles={
+                    block.block_id: str(
+                        block.payload.get("title") or ""
+                    ).strip()
+                    for block in blocks
                 },
                 primary_block_artifacts={
                     block.block_id: _artifact_kinds(block) for block in blocks

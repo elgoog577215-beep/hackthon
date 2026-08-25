@@ -31,6 +31,31 @@ from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
 SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v11"
+_PPT_VISIBLE_DELIVERY_PATTERN = re.compile(
+    r"口头陈述|板书|讲解过程|抄录|抄写|巡视|逐题公布答案|"
+    r"请\s*\d*\s*名学习者|让学习者|要求学习者|发放或板书"
+)
+_PPT_TITLE_PRODUCTION_CUE_PATTERN = re.compile(
+    r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u91cd\u70b9\u7a81\u51fa\s*[:\uff1a]?|"
+    r"\u5728\u5f62\u5f0f\u5316\u5b9a\u4e49\u4e4b\u524d(?:\u5148)?(?:\u5efa\u7acb)?|"
+    r"\u4e0e\u53d8\u5f0f\u7ec3\u4e60\u5408\u5e76|\u7528.{2,18}\u5efa\u7acb.{2,24}$)"
+)
+_GENERIC_TEACHING_PAGE_TITLES = frozenset({
+    "本节任务",
+    "核心教学",
+    "学习者行动",
+    "检查与反馈",
+    "直觉入口",
+    "多重表征",
+    "正式定义",
+    "证明与推导",
+    "数学论证",
+    "例题推演",
+    "策略选择",
+    "变式练习",
+    "在形式化定义之前",
+    "从二阶出发",
+})
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
@@ -604,6 +629,20 @@ def _ppt_manuscript_quality_issues(
                 message="PPT 文书每页都必须包含台上可见文案。",
                 page_id=page.page_id,
             ))
+        elif _PPT_VISIBLE_DELIVERY_PATTERN.search("\n".join(page.visible_copy)):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_delivery_cue_visible",
+                message="PPT 文书的台上文案不得混入板书、巡视或口头组织语。",
+                page_id=page.page_id,
+            ))
+        if _PPT_TITLE_PRODUCTION_CUE_PATTERN.match(page.title.strip()):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_title_not_audience_ready",
+                message="PPT 文书标题必须直接呈现学习主题，不能保留‘给出’、‘重点突出’等生产指令。",
+                page_id=page.page_id,
+            ))
         avoidable_formula_title = bool(
             ("$" in page.title or re.search(r"\\[A-Za-z]+", page.title))
             and page.primary_claim
@@ -1027,6 +1066,7 @@ def _semantic_grounding_ratio(claim: str, source: str) -> float:
 _DANGLING_TITLE_END_RE = re.compile(
     r"(?:[：:；;，,、/\\]|[（(《〈【\[]|"
     r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的)|"
+    r"(?:[一二三四五六七八九十\d]+阶、[一二三四五六七八九十\d]+阶)|"
     r"\b(?:and|or|to|of|with|versus|vs\.?)\b)\s*$",
     re.IGNORECASE,
 )
@@ -1035,6 +1075,33 @@ _DANGLING_TITLE_END_RE = re.compile(
 def _title_is_incomplete(value: str) -> bool:
     title = " ".join(str(value or "").split()).strip()
     return bool(title and _DANGLING_TITLE_END_RE.search(title))
+
+
+def _audience_ready_title_fragment(value: str) -> str:
+    """Remove production directions before a source phrase becomes a title."""
+
+    candidate = " ".join(str(value or "").split()).strip("　 ,，。：:;|")
+    candidate = re.sub(r"^重点突出\s*[:：]\s*", "", candidate).strip()
+    candidate = re.sub(r"^(?:给出|提供|选取)\s*", "", candidate).strip()
+    candidate = re.sub(
+        r"^在形式化定义之前(?:先)?(?:建立)?\s*",
+        "",
+        candidate,
+    ).strip()
+    candidate = re.sub(
+        r"^与变式练习合并\s*[,，]?\s*(?:学习者)?",
+        "",
+        candidate,
+    ).strip()
+    geometric = re.fullmatch(r"用(.{2,18})建立(.{2,24})", candidate)
+    if geometric:
+        candidate = f"{geometric.group(2)}的{geometric.group(1)}"
+    single_matrix = re.fullmatch(r"一个(.{2,24}矩阵)", candidate)
+    if single_matrix:
+        candidate = f"{single_matrix.group(1)}示例"
+    if candidate == "一组难度递进的题目":
+        candidate = "难度递进练习"
+    return candidate
 
 
 def _title_semantic_source_text(value: str) -> str:
@@ -1063,9 +1130,15 @@ def _unit_source_text_for_blocks(
 ) -> str:
     selected_ids = [str(block_id) for block_id in block_ids]
     texts = [
-        str(unit.primary_block_texts.get(block_id) or "").strip()
+        "\n".join(filter(None, [
+            str(unit.primary_block_titles.get(block_id) or "").strip(),
+            str(unit.primary_block_texts.get(block_id) or "").strip(),
+        ]))
         for block_id in selected_ids
-        if str(unit.primary_block_texts.get(block_id) or "").strip()
+        if (
+            str(unit.primary_block_titles.get(block_id) or "").strip()
+            or str(unit.primary_block_texts.get(block_id) or "").strip()
+        )
     ]
     # A lesson/chapter opening is allowed to use its formal section title. The
     # title belongs to the frozen course source even though it is not duplicated
@@ -1096,6 +1169,7 @@ def graph_page_source_blocks(
             source_text,
         )
         payload: dict[str, Any] = {
+            "title": unit.primary_block_titles.get(block_id, ""),
             "text": source_text,
             "_v6_artifact_kinds": unit.primary_block_artifacts.get(
                 block_id,
@@ -1220,6 +1294,22 @@ def validate_slide_story_plan_v3(
                 stage="story",
                 code="story_title_incomplete",
                 message="Visible page title ends with an incomplete connector or delimiter",
+                page_id=page.page_id,
+            )
+        if (
+            re.sub(r"\s+", "", page.title) in {
+            re.sub(r"\s+", "", item)
+            for item in _GENERIC_TEACHING_PAGE_TITLES
+            }
+            or _PPT_TITLE_PRODUCTION_CUE_PATTERN.match(page.title.strip())
+        ):
+            raise V6BuildError(
+                stage="story",
+                code="story_title_lacks_specificity",
+                message=(
+                    "Visible page title must name the teaching subject, not "
+                    "repeat an internal lesson-module label"
+                ),
                 page_id=page.page_id,
             )
         summary_body_slots = [
@@ -5075,7 +5165,7 @@ def _replace_math_for_title(value: str) -> str:
 def _bounded_source_title_windows(value: str, limit: int) -> list[str]:
     """Extract several complete, source-native title windows from long prose."""
 
-    fragment = " ".join(str(value or "").split()).strip("，,：:、| ")
+    fragment = _audience_ready_title_fragment(value).strip("，,：:、| ")
     fragment = re.sub(r"^\d+[.)、]\s*", "", fragment)
     if len(fragment) < 4:
         return []
@@ -5195,7 +5285,7 @@ def _continuation_title_candidates(
         cleaned = re.sub(r"(?m)^\s*#{1,6}\s+", "", cleaned)
         cleaned = re.sub(r"(?<!\\)(?:\*\*|__|`)", "", cleaned)
         for fragment in re.split(r"[\n。！？!?；;：:，,]", cleaned):
-            candidate = " ".join(fragment.split()).strip("，,：:、| ")
+            candidate = _audience_ready_title_fragment(fragment).strip("，,：:、| ")
             candidate = re.sub(r"^\d+[.)、]\s*", "", candidate)
             if (
                 4 <= len(candidate) <= limit
@@ -5251,7 +5341,7 @@ def _source_prose_claim_candidates(
         cleaned = re.sub(r"(?m)^\s*#{1,6}\s+", "", cleaned)
         cleaned = re.sub(r"(?<!\\)(?:\*\*|__|`)", "", cleaned)
         for fragment in re.split(r"[\n。！？!?；;]", cleaned):
-            candidate = " ".join(fragment.split()).strip("，,：:、| ")
+            candidate = _audience_ready_title_fragment(fragment).strip("，,：:、| ")
             candidate = re.sub(r"^\d+[.)、]\s*", "", candidate)
             if not (4 <= len(candidate) <= limit):
                 windows = _bounded_source_title_windows(candidate, limit)
@@ -5314,6 +5404,32 @@ def _continuation_title(
             ),
             "",
         )
+        if selected == "难度递进练习":
+            subject = next(
+                (
+                    match.group(1).strip()
+                    for block in blocks
+                    if (match := re.search(
+                        r"围绕\s*\d+(?:\.\d+)+\s*(.{2,32}?)的核心机制",
+                        block_source_text(block),
+                    ))
+                ),
+                "",
+            )
+            compact_subject = re.sub(
+                r"的(?:定义与计算|基本概念与运算)$",
+                "",
+                subject,
+            )
+            contextual_title = (
+                f"{compact_subject}进阶练习"
+                if subject
+                else str(title) if str(title).endswith("进阶练习") else ""
+            )
+            if contextual_title and (
+                title_slot is None or _title_fits_slot(contextual_title, title_slot)
+            ):
+                selected = contextual_title
         if not selected:
             raise V6BuildError(
                 stage="quality",

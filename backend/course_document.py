@@ -200,6 +200,9 @@ def document_from_legacy_course(course_data: dict[str, Any]) -> CourseDocument:
             for trace_key in (
                 "module_id",
                 "module_instance_id",
+                "planned_minutes",
+                "content_perspective",
+                "ppt_page_group_id",
                 "composition_source",
                 "composition_style",
                 "selection_reasons",

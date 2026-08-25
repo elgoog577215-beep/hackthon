@@ -899,6 +899,23 @@ def test_course_cover_adapter_keeps_the_title_page_minimal_and_internal_labels_h
     ]
 
 
+def test_cover_minimal_adapter_preserves_a_declared_source_subtitle() -> None:
+    document, _deck = _code_deck()
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    page = _compile_course_cover_page(document, template)
+    title_region = page.regions[0]
+    page.regions.append(title_region.model_copy(update={
+        "region_id": f"{page.page_id}:subtitle",
+        "slot_id": "subtitle",
+        "content_kind": "body",
+        "content": "本节结束后能计算二阶、三阶行列式。",
+    }))
+
+    adapted = adapt_v6_page_to_slide_spec(page)
+
+    assert adapted.subtitle == "本节结束后能计算二阶、三阶行列式。"
+
+
 def test_course_cover_title_only_contract_survives_pptx_frame_audit(tmp_path: Path) -> None:
     document, deck = _code_deck()
     template = compile_builtin_template_layout_contract_v1("qizhi-classroom")

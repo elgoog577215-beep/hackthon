@@ -13,6 +13,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ai_base import AIProviderRequestError, AIProviderUnavailable
 from dependencies import (
     get_teacher_lesson_authoring_repository,
     require_task_manager,
@@ -42,6 +43,7 @@ from teacher_lesson_authoring import (
 )
 from question_bank import question_bank_repository
 from teacher_script import (
+    compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     normalize_teacher_script_section,
     validate_teacher_script_section,
@@ -3154,6 +3156,8 @@ async def generate_lesson_script(
             str(item.get("node_name") or "") for item in scope["sections"]
         ]
 
+        fallback_warnings: list[dict[str, Any]] = []
+
         async def generate_block(
             outline_section: dict[str, Any],
             confirmed_plan: dict[str, Any],
@@ -3171,6 +3175,7 @@ async def generate_lesson_script(
                 **deepcopy(module),
                 "label": str(module.get("title") or module_id),
             }]
+            generation_error: Exception | None = None
             try:
                 generated = await asyncio.wait_for(
                     tm.course_service.generate_teacher_script_section(
@@ -3205,11 +3210,23 @@ async def generate_lesson_script(
                     ),
                     timeout=150,
                 )
-            except asyncio.TimeoutError as exc:
-                raise TeacherLessonAuthoringError(
-                    "lesson_script_block_timeout",
-                    f"“{module.get('title') or module_id}”生成超时，已保留前面完成的教学块。",
-                ) from exc
+            except (
+                asyncio.TimeoutError,
+                AIProviderRequestError,
+                AIProviderUnavailable,
+            ) as exc:
+                generation_error = exc
+                generated = {}
+            if generation_error is not None:
+                fallback_warnings.append({
+                    "code": "lesson_script_block_local_fallback",
+                    "block_id": str(module.get("block_id") or ""),
+                    "module_id": module_id,
+                    "title": str(module.get("title") or module_id),
+                    "reason": type(generation_error).__name__,
+                    "message": "提供方调用失败，已从教师确认教案编译可编辑基础稿。",
+                })
+                return compile_teacher_script_fallback_content(module)
             blocks = [
                 item for item in generated.get("blocks") or [] if isinstance(item, dict)
             ]
@@ -3235,6 +3252,7 @@ async def generate_lesson_script(
                     requirements=body.requirements,
                     material_asset_ids=selected_material_ids,
                     actor=actor,
+                    generation_warnings=fallback_warnings,
                 )
             except asyncio.CancelledError:
                 raise

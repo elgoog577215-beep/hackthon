@@ -18,6 +18,20 @@ describe('SlideDeckGeneratorDialog', () => {
     expect(wrapper.text()).toContain('课程正文将原样进入课件')
   })
 
+  it('estimates a 45-minute teacher manuscript from lesson time instead of tripled fragments', () => {
+    const wrapper = mount(SlideDeckGeneratorDialog, {
+      props: {
+        open: true,
+        manuscriptFirst: true,
+        durationMinutes: 45,
+        fragmentCount: 29,
+      },
+    })
+
+    expect(wrapper.text()).toContain('预计 12–18 页')
+    expect(wrapper.text()).not.toContain('30–34 页')
+  })
+
   it('emits the selected mode and theme without generating body text', async () => {
     const wrapper = mount(SlideDeckGeneratorDialog, {
       props: { open: true },

@@ -40,6 +40,7 @@
       :busy="store.building"
       :confirming="pptManuscriptConfirming"
       :error="pptManuscriptConfirmError || buildErrorLabel"
+      :failure="effectiveBuildFailure"
       @back="backToCourse"
       @generate-manuscript="openGenerator(false)"
       @confirm-manuscript="confirmPptManuscript"
@@ -216,6 +217,7 @@
       :closable="Boolean(slideRepresentation || pptManuscriptState)"
       :manuscript-first="isTeacherSurface"
       :fragment-count="estimatedFragmentCount"
+      :duration-minutes="lessonDurationMinutes"
       :personal-templates="templatePacksStore.personal"
       :personal-templates-enabled="templateStore.personalTemplatesEnabled"
       @close="closeGenerator"
@@ -582,8 +584,15 @@ const displaySlides = computed(() => (
 ))
 const estimatedFragmentCount = computed(() => (
   Number(content.value?.fragment_manifest?.length)
-  || (documentEnvelope.value?.document?.blocks || []).length * 3
+  || (documentEnvelope.value?.document?.blocks || []).length
 ))
+const lessonDurationMinutes = computed(() => {
+  const blocks = documentEnvelope.value?.document?.blocks || []
+  const total = blocks.reduce((sum: number, block: Record<string, any>) => (
+    sum + Math.max(0, Number(block?.metadata?.planned_minutes || 0))
+  ), 0)
+  return total || 45
+})
 const displayQuality = computed(() => (
   store.buildError && store.draftSlideQuality
     ? store.draftSlideQuality

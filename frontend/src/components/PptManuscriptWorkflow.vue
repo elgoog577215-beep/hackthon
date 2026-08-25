@@ -40,7 +40,19 @@
         <TriangleAlert :size="18" />
         <span>{{ t('pptWorkspace.manuscriptStale', '教案、讲稿或资料已经变化，请重新生成 PPT 文书。') }}</span>
       </div>
-      <div v-if="error" class="ppt-manuscript-workflow__warning is-error">{{ error }}</div>
+      <div
+        v-if="failureView"
+        class="ppt-manuscript-workflow__warning is-error"
+        role="alert"
+        data-testid="ppt-manuscript-failure"
+      >
+        <TriangleAlert :size="18" />
+        <div>
+          <strong>{{ failureView.title }}</strong>
+          <p>{{ failureView.message }}</p>
+          <small v-if="failureView.code">{{ t('pptWorkspace.failureCode', '问题代码') }}：<code>{{ failureView.code }}</code></small>
+        </div>
+      </div>
 
       <main v-if="manuscript" class="ppt-manuscript-workflow__content">
         <div class="ppt-manuscript-workflow__summary">
@@ -84,7 +96,7 @@
           data-testid="generate-ppt-manuscript"
           @click="emit('generate-manuscript')"
         >
-          <Sparkles :size="17" />{{ busy ? t('pptWorkspace.generatingManuscript', '正在生成文书…') : t('pptWorkspace.generateManuscript', '生成 PPT 文书') }}
+          <Sparkles :size="17" />{{ busy ? t('pptWorkspace.generatingManuscript', '正在生成文书…') : retryLabel }}
         </button>
         <button
           v-else-if="state.status === 'draft'"
@@ -122,6 +134,7 @@ const props = defineProps<{
   busy?: boolean
   confirming?: boolean
   error?: string
+  failure?: Record<string, any> | null
 }>()
 
 const emit = defineEmits<{
@@ -132,6 +145,58 @@ const emit = defineEmits<{
 }>()
 
 const manuscript = computed(() => props.state.manuscript || null)
+const failureView = computed(() => {
+  const failure = props.failure || null
+  const code = String(failure?.code || '')
+  if (code === 'story_ai_batch_request_budget_exceeded') {
+    return {
+      code,
+      title: t('pptWorkspace.manuscriptBudgetRecoveredTitle', '文书输入已自动压缩'),
+      message: t('pptWorkspace.manuscriptBudgetRecoveredMessage', '系统已移除重复上下文并保留全部讲稿块，可直接重新生成当前 PPT 文书。'),
+    }
+  }
+  if (code.startsWith('story_title_') || code === 'duplicate_slide_title') {
+    return {
+      code,
+      title: t('pptWorkspace.manuscriptTitleRecoveryTitle', '页面标题候选不足'),
+      message: t('pptWorkspace.manuscriptTitleRecoveryMessage', '系统会优先使用已确认讲稿块标题重新规划，不会发布重复或残缺标题页。'),
+    }
+  }
+  if (code.endsWith('_rate_limited')) {
+    return {
+      code,
+      title: t('pptWorkspace.manuscriptRateLimitedTitle', 'PPT 文书模型暂时繁忙'),
+      message: t('pptWorkspace.manuscriptRateLimitedMessage', '已完成内容和旧版本均已保留，稍后可直接重试。'),
+    }
+  }
+  if (code.endsWith('_authentication') || code.endsWith('_balance_unavailable')) {
+    return {
+      code,
+      title: t('pptWorkspace.manuscriptProviderBlockedTitle', 'PPT 文书模型当前不可用'),
+      message: String(failure?.message || t('pptWorkspace.manuscriptProviderBlockedMessage', '请检查模型凭证或额度后再重试；系统没有发布不完整文书。')),
+    }
+  }
+  if (failure) {
+    return {
+      code,
+      title: t('pptWorkspace.manuscriptGenerationFailedTitle', 'PPT 文书未生成'),
+      message: String(failure.message || t('pptWorkspace.manuscriptGenerationFailedMessage', '系统已保留现有内容，可重新生成。')),
+    }
+  }
+  if (props.error) {
+    return {
+      code: '',
+      title: t('pptWorkspace.manuscriptOperationFailedTitle', '当前操作未完成'),
+      message: props.error,
+    }
+  }
+  return null
+})
+const retryLabel = computed(() => (
+  failureView.value
+    ? t('pptWorkspace.retryManuscript', '重新生成 PPT 文书')
+    : t('pptWorkspace.generateManuscript', '生成 PPT 文书')
+))
 const manuscriptStepStatus = computed(() => {
   if (props.state.source_state === 'stale') return t('pptWorkspace.stepStale', '需要重新生成')
   if (props.state.status === 'confirmed') return t('pptWorkspace.stepConfirmed', '已确认')
@@ -187,7 +252,11 @@ function pageTypeLabel(value: string) {
 .ppt-manuscript-workflow__steps li.is-active > span { color:white; background:#3857d6; }
 .ppt-manuscript-workflow__steps li.is-complete > span { background:#16845b; }
 .ppt-manuscript-workflow__warning, .ppt-manuscript-workflow__original { max-width:1120px; margin:0 auto 16px; padding:13px 16px; border-radius:10px; background:#fff7e8; color:#8a5a08; display:flex; gap:9px; align-items:center; }
-.ppt-manuscript-workflow__warning.is-error { background:#fff0f0; color:#b42318; }
+.ppt-manuscript-workflow__warning.is-error { align-items:flex-start; background:#fff0f0; color:#8f1712; }
+.ppt-manuscript-workflow__warning.is-error > div { display:flex; flex-direction:column; gap:4px; }
+.ppt-manuscript-workflow__warning.is-error p { max-width:72ch; margin:0; line-height:1.5; }
+.ppt-manuscript-workflow__warning.is-error small { color:#a23a32; }
+.ppt-manuscript-workflow__warning.is-error code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
 .ppt-manuscript-workflow__content, .ppt-manuscript-workflow__empty, .ppt-manuscript-workflow__original { max-width:1120px; margin-left:auto; margin-right:auto; background:white; border:1px solid #e1e5ec; border-radius:14px; }
 .ppt-manuscript-workflow__summary { display:flex; justify-content:space-between; align-items:center; padding:20px 22px; border-bottom:1px solid #e8ebf0; }
 .ppt-manuscript-workflow__summary h2 { margin:3px 0 0; font-size:19px; }

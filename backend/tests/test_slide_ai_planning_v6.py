@@ -17,6 +17,7 @@ from slide_ai_planning_v6 import (
     AIPlannerInvocationError,
     _grounded_title_candidates,
     build_ai_base_story_planner_v6,
+    build_ai_base_visual_planner_v2,
     plan_slide_story_v3,
     plan_slide_visuals_v2,
     repair_slide_visuals_v2,
@@ -73,6 +74,56 @@ def test_v6_rejects_retired_deterministic_teacher_planner_provenance(
             model=model,
             stage=stage,
         )
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("给出 3 道练习题", "3 道练习题"),
+        ("重点突出：三角行列式的值为对角线元素乘积", "三角行列式的值为对角线元素乘积"),
+        ("在形式化定义之前建立矩阵运算的直觉感知", "矩阵运算的直觉感知"),
+        ("用几何直观建立行列式", "行列式的几何直观"),
+        ("选取一个二阶可逆矩阵", "二阶可逆矩阵示例"),
+        ("提供一组难度递进的题目", "难度递进练习"),
+    ],
+)
+def test_story_title_projection_removes_production_language(
+    source: str,
+    expected: str,
+) -> None:
+    assert planning_module._audience_facing_title_candidate(source) == expected
+    assert not planning_module._generic_teaching_page_title(expected)
+
+
+def test_story_title_candidates_add_the_confirmed_section_subject_to_practice() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="math-practice-title",
+        title="线性代数",
+        sections=[CourseSection(
+            section_id="matrix",
+            title="1.1 矩阵的基本概念与运算",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="matrix-practice",
+            section_id="matrix",
+            position=0,
+            role="activity",
+            payload={
+                "title": "给出 3 道练习题",
+                "markdown": "给出 3 道练习题，覆盖矩阵加法、数乘和乘法。",
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    request_unit = planning_module._story_unit_request(graph.units[0], template)
+
+    assert (
+        "矩阵的基本概念与运算练习"
+        in request_unit["primary_blocks"][0]["title_candidates"]
+    )
 
 
 @pytest.mark.asyncio
@@ -994,6 +1045,130 @@ def test_story_model_request_removes_repeated_layout_and_source_contracts() -> N
     assert model_request["teaching_units"][0]["safe_partition_options"]
     assert "allowed_template_layouts" not in model_request["teaching_units"][0]
     assert "source_text" not in model_request["teaching_units"][0]
+
+
+def test_story_model_request_preflight_compacts_oversized_chapter_without_losing_blocks() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    full_request = planning_module._story_requests(graph, template)[0]
+    unit = full_request["teaching_units"][0]
+    original_block_ids = list(unit["primary_block_ids"])
+    for block in unit["primary_blocks"]:
+        block["presentation_text"] = (
+            "这是用于课堂展示的完整来源句。" * 1200
+        )
+        block["reference_evidence_summaries"] = ["重复证据摘要" * 800]
+    full_request["repair_feedback"] = {
+        "attempt": 2,
+        "code": "story_title_not_grounded",
+        "message": "标题需要修复",
+        "repair_targets": [],
+        "instruction": "重复修复说明" * 5000,
+    }
+    assert len(json.dumps(full_request, ensure_ascii=False)) > 45000
+
+    model_request = planning_module._story_model_request(full_request)
+    model_unit = model_request["teaching_units"][0]
+
+    assert len(json.dumps(model_request, ensure_ascii=False)) <= 20000
+    assert model_unit["primary_block_ids"] == original_block_ids
+    assert [
+        block["block_id"] for block in model_unit["primary_blocks"]
+    ] == original_block_ids
+    assert all(
+        "reference_evidence_summaries" not in block
+        for block in model_unit["primary_blocks"]
+    )
+    assert len(model_unit["safe_partition_options"]) <= 2
+    assert len(model_request["repair_feedback"]["instruction"]) < 320
+
+
+def test_story_model_request_keeps_balanced_partition_for_each_page_count() -> None:
+    document = _document()
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    full_request = planning_module._story_requests(graph, template)[0]
+    unit = full_request["teaching_units"][0]
+    layout_id = unit["allowed_template_layout_ids"][0]
+
+    def option(partition_id: str, groups: list[list[str]]) -> dict:
+        return {
+            "partition_id": partition_id,
+            "page_count": len(groups),
+            "pages": [
+                {
+                    "source_block_ids": group,
+                    "template_layout_ids": [layout_id],
+                }
+                for group in groups
+            ],
+        }
+
+    unit["safe_partition_options"] = [
+        option("two-pages", [["b1"], ["b2", "b3", "b4", "b5", "b6", "b7"]]),
+        option("three-unbalanced", [["b1"], ["b2", "b3", "b4", "b5", "b6"], ["b7"]]),
+        option("three-balanced", [["b1"], ["b2", "b3", "b4"], ["b5", "b6", "b7"]]),
+    ]
+
+    model_request = planning_module._story_model_request(full_request)
+    retained = model_request["teaching_units"][0]["safe_partition_options"]
+
+    assert [item["partition_id"] for item in retained] == [
+        "two-pages",
+        "three-balanced",
+    ]
+
+
+def test_story_title_candidates_use_confirmed_script_block_titles() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="script-title-source",
+        title="线性代数",
+        sections=[CourseSection(
+            section_id="determinant",
+            title="行列式",
+            position=0,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id="det-definition",
+                section_id="determinant",
+                position=0,
+                role="concept",
+                payload={
+                    "title": "二阶行列式的定义",
+                    "markdown": "本页给出定义、条件与计算边界。",
+                },
+            ),
+            CourseBlock(
+                block_id="det-expansion",
+                section_id="determinant",
+                position=1,
+                role="reasoning",
+                payload={
+                    "title": "按行展开的符号规律",
+                    "markdown": "本页给出定义、条件与计算边界。",
+                },
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    primary_blocks = [
+        block
+        for unit in request["teaching_units"]
+        for block in unit["primary_blocks"]
+    ]
+
+    assert [block["source_title"] for block in primary_blocks] == [
+        "二阶行列式的定义",
+        "按行展开的符号规律",
+    ]
+    assert [block["title_candidates"][0] for block in primary_blocks] == [
+        "二阶行列式的定义",
+        "按行展开的符号规律",
+    ]
 
 
 def test_story_model_request_uses_slide_projection_instead_of_teacher_transcript() -> None:
@@ -2035,6 +2210,62 @@ async def test_shared_ai_story_planner_preserves_safe_failure_telemetry(monkeypa
         "error_code": "QuotaError",
     }]
     assert "api_key" not in str(captured.value.telemetry)
+
+
+@pytest.mark.asyncio
+async def test_shared_ai_visual_planner_compiles_degraded_source_bound_decisions_on_balance_failure(
+    monkeypatch,
+) -> None:
+    class FailedSharedAI:
+        def __init__(self, *, provider_profile=None):
+            assert provider_profile == "ppt"
+
+        async def _call_llm(self, *_args, telemetry_sink, **_kwargs):
+            telemetry_sink({
+                "provider_route": "rotating-pool",
+                "model_id": "generic-provider-model",
+                "provider_attempt": 1,
+                "status": "failed",
+                "error_code": "BalanceError",
+                "failure_kind": "quota_exhausted",
+            })
+            raise RuntimeError("insufficient balance")
+
+    monkeypatch.setattr(planning_module, "AIBase", FailedSharedAI)
+    planner = build_ai_base_visual_planner_v2()
+    response = await planner({
+        "schema_version": "slide_visual_batch_request_v2",
+        "chapter_id": "chapter-a",
+        "pages": [
+            {
+                "page_id": "page-text",
+                "template_layout_id": "layout-text",
+                "source_block_ids": ["block-text"],
+                "allowed_decisions": ["diagram", "text_native"],
+                "source_asset_ids": [],
+            },
+            {
+                "page_id": "page-formula",
+                "template_layout_id": "layout-formula",
+                "source_block_ids": ["block-formula"],
+                "allowed_decisions": ["formula"],
+                "source_asset_ids": [],
+            },
+        ],
+    })
+
+    assert response["provider"] == "codex-structured-fallback"
+    assert response["model"] == "deterministic-source-bound-visual"
+    assert [item["decision"] for item in response["decisions"]] == [
+        "text_native",
+        "formula",
+    ]
+    assert all(item["degraded"] for item in response["decisions"])
+    assert all(
+        item["degradation_reason"] == "visual_ai_batch_balance_unavailable"
+        for item in response["decisions"]
+    )
+    assert response.telemetry[0]["failure_kind"] == "quota_exhausted"
 
 
 @pytest.mark.asyncio

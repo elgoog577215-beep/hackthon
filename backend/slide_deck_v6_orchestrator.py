@@ -54,8 +54,10 @@ SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v26"
 
 def _manuscript_planning_quality_issues(
     story: SlideStoryPlanV3,
+    *,
+    allow_reviewable_fallback: bool = False,
 ) -> list[V6Failure]:
-    """Deterministic partitions are recovery evidence, not publishable writing."""
+    """Keep deterministic planning behind the explicit manuscript review gate."""
 
     fallback_batches = [
         batch
@@ -64,6 +66,12 @@ def _manuscript_planning_quality_issues(
         or "deterministic-safe-partition" in batch.model.casefold()
     ]
     if not fallback_batches:
+        return []
+    if allow_reviewable_fallback:
+        # The safe partition has already passed the same source coverage,
+        # title, layout and capacity validators as model output.  It may form
+        # a reviewable manuscript, but direct deck publication remains blocked
+        # below unless the teacher explicitly confirms that manuscript first.
         return []
     return [V6Failure(
         stage="manuscript",
@@ -995,7 +1003,8 @@ class SlideDeckV6Orchestrator:
                             teacher_lesson_source.get("material_bindings") or []
                         ),
                         external_quality_issues=_manuscript_planning_quality_issues(
-                            story
+                            story,
+                            allow_reviewable_fallback=manuscript_only,
                         ),
                     ),
                     tracker=tracker,

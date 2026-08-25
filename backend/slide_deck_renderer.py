@@ -2324,7 +2324,7 @@ def _render_authored_cover(
     if unit.subtitle:
         subtitle_y = 3.80 if minimal else 3.86
         subtitle_width = 7.55 if minimal else 6.85
-        subtitle_height = 1.02 if minimal else 0.58
+        subtitle_height = 1.26 if minimal else 0.58
         _text(
             slide,
             unit.subtitle,
@@ -2427,7 +2427,7 @@ def _render_cover_minimal(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
     )
     _shape(slide, 0.88, 5.5, 3.25, 0.06, theme["accent"], radius=False)
     if unit.subtitle:
-        _text(slide, unit.subtitle, 0.9, 5.72, 10.9, 0.92, 16, theme["muted"])
+        _text(slide, unit.subtitle, 0.9, 5.66, 10.9, 1.18, 16, theme["muted"])
 
 
 def _render_cover_editorial(slide: Any, unit: SlideSpec, theme: dict[str, str]) -> None:
@@ -2548,7 +2548,7 @@ def _render_agenda_linear(slide: Any, unit: SlideSpec, theme: dict[str, str]) ->
             title,
             1.78,
             y + 0.08,
-            4.15,
+            9.95 if not description else 4.15,
             row_h - 0.12,
             18 if len(title) <= 24 else 16,
             theme["ink"],

@@ -599,6 +599,77 @@ async def test_outline_resume_only_requests_missing_chapter_batch(monkeypatch):
     )
 
 
+@pytest.mark.asyncio
+async def test_outline_resume_keeps_teacher_confirmed_shape_when_brief_drifts(
+    monkeypatch,
+):
+    first_service = CourseService(planning_concurrency=3)
+
+    async def first_call(prompt, system_prompt="", **kwargs):
+        assert "全课章节骨架 V2" in system_prompt
+        return _outline_skeleton_payload(
+            chapter_count=6,
+            sections_per_chapter=4,
+        )
+
+    monkeypatch.setattr(first_service, "_call_llm", first_call)
+    checkpoint = await first_service.build_course_draft(
+        course_id="course-confirmed-shape-resume",
+        topic="并行系统",
+        requirements="先生成全课程骨架",
+        stop_after_skeleton=True,
+    )
+    stage = checkpoint["generation_stage_artifacts"]["outline"]
+    chapters = deepcopy(stage["skeleton"]["chapters"])
+    confirmed_counts = [4, 5, 6, 4, 5, 6]
+    for chapter, count in zip(chapters, confirmed_counts, strict=True):
+        chapter["section_count"] = count
+    confirmed = normalize_outline_skeleton(
+        {**deepcopy(stage["skeleton"]), "chapters": chapters},
+        topic="并行系统",
+        request_fingerprint=stage["request_fingerprint"],
+    )
+    stage.update({
+        "shape_confirmed": True,
+        "confirmed_shape_constraints": {
+            "chapter_count": 6,
+            "section_count": 30,
+        },
+        "skeleton": confirmed,
+        "skeleton_revision_id": confirmed["revision_id"],
+        "batches": {},
+    })
+
+    resumed_calls: list[str] = []
+    resumed_service = CourseService(planning_concurrency=3)
+
+    async def resumed_call(prompt, system_prompt="", **kwargs):
+        resumed_calls.append(system_prompt)
+        assert "章节小节目录批次 V2" in system_prompt
+        return _outline_batch_payload(system_prompt)
+
+    monkeypatch.setattr(resumed_service, "_call_llm", resumed_call)
+    resumed = await resumed_service.build_course_draft(
+        course_id="course-confirmed-shape-resume",
+        topic="并行系统",
+        # Simulate a reconstructed brief whose derived fingerprint differs
+        # after restart.  The confirmed skeleton remains authoritative.
+        requirements="恢复后的派生需求文本已变化",
+        existing_course_data=checkpoint,
+        stop_after_outline=True,
+    )
+
+    assert resumed_calls
+    assert all("全课章节骨架 V2" not in item for item in resumed_calls)
+    assert [
+        len(chapter["sections"])
+        for chapter in resumed["course_outline"]["chapters"]
+    ] == confirmed_counts
+    resumed_stage = resumed["generation_stage_artifacts"]["outline"]
+    assert resumed_stage["shape_confirmed"] is True
+    assert resumed_stage["confirmed_shape_constraints"]["section_count"] == 30
+
+
 def test_outline_fingerprint_ignores_ephemeral_brief_id():
     from course_outline_planning import outline_request_fingerprint
 

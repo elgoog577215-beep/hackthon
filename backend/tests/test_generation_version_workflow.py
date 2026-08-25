@@ -892,6 +892,67 @@ async def test_generation_workspace_survives_manager_restart(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
+async def test_failed_teacher_outline_resume_hydrates_request_from_workspace(
+    tmp_path,
+    monkeypatch,
+):
+    import task_manager as task_manager_module
+
+    monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
+    storage = MemoryStorage()
+    workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
+    documents = CourseDocumentRepository(storage)
+    versions = CourseVersionRepository(tmp_path / "versions")
+    manager = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+    job = await manager.create_generation_job({
+        "subject": "线性代数",
+        "requirements": "完整学期课",
+        "teacher_authoring_mode": "lesson_assets_v1",
+        "teacher_course_brief": {
+            "chapter_count": 7,
+            "lesson_duration_minutes": 45,
+        },
+    })
+    assert await manager._task_queue.get() == job["job_id"]
+    manager.tasks[job["job_id"]].update({
+        "status": "failed",
+        "phase": "outline_generation",
+        "error": "provider unavailable",
+    })
+    manager.save_tasks(strict=True)
+
+    persisted = json.loads((tmp_path / "tasks.json").read_text(encoding="utf-8"))
+    assert "request_snapshot" not in persisted[job["job_id"]]
+
+    restored = TaskManager(
+        storage,
+        BlueprintService(),
+        None,
+        version_repository=versions,
+        workspace_repository=workspaces,
+        document_repository=documents,
+    )
+    assert restored.tasks[job["job_id"]].get("request_snapshot") == {}
+    assert restored.tasks[job["job_id"]].get("legacy_read_only") is not True
+
+    resumed = await restored.resume_task(job["job_id"])
+
+    assert resumed["status"] == "resumed"
+    restored_request = restored.tasks[job["job_id"]]["request_snapshot"]
+    assert restored_request["subject"] == "线性代数"
+    assert restored_request["requirements"] == "完整学期课"
+    assert restored_request["teacher_course_brief"]["chapter_count"] == 7
+    assert await restored._task_queue.get() == job["job_id"]
+
+
+@pytest.mark.asyncio
 async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_path, monkeypatch):
     import task_manager as task_manager_module
 

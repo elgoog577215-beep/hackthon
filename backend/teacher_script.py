@@ -16,8 +16,8 @@ from course_pedagogy import MODULES, module_block_role
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-SCRIPT_PIPELINE_VERSION = "neutral_course_script_v4"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v4"
+SCRIPT_PIPELINE_VERSION = "neutral_course_script_v5"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v5"
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -72,6 +72,119 @@ def _stable_block_id(section_id: str, module_id: str, index: int) -> str:
         f"{section_id}:{module_id}:{index}".encode("utf-8")
     ).hexdigest()[:12]
     return f"tsb-{digest}"
+
+
+def _markdown_math_delimiter_state(content: str) -> dict[str, Any]:
+    """Inspect math delimiters without counting dollars inside ``$$`` twice.
+
+    The previous quality gate counted every dollar in ``$$`` as an inline
+    delimiter too.  A valid display formula could therefore be reported as
+    broken, and a single truncated delimiter caused the whole durable script
+    job to stop at block one.  Fenced code is excluded because shell examples
+    and programming strings may legitimately contain dollar signs.
+    """
+    segments = re.split(r"(```[\s\S]*?```)", str(content or ""))
+    text = "\n".join(
+        segment for index, segment in enumerate(segments) if index % 2 == 0
+    )
+    display_open = False
+    inline_open = False
+    inline_cross_line = False
+    latex_stack: list[str] = []
+    unexpected: list[str] = []
+    index = 0
+    while index < len(text):
+        if text[index] == "\\" and index + 1 < len(text):
+            token = text[index:index + 2]
+            if token in {r"\(", r"\["}:
+                latex_stack.append(token)
+                index += 2
+                continue
+            if token in {r"\)", r"\]"}:
+                expected = r"\(" if token == r"\)" else r"\["
+                if latex_stack and latex_stack[-1] == expected:
+                    latex_stack.pop()
+                else:
+                    unexpected.append(token)
+                index += 2
+                continue
+            index += 2
+            continue
+        if text.startswith("$$", index):
+            display_open = not display_open
+            index += 2
+            continue
+        if text[index] == "\n" and inline_open and not display_open:
+            # Inline dollar math cannot cross Markdown block boundaries.  The
+            # old even-count gate accepted `$x` on one line and `y$` several
+            # lines later, which rendered the literal delimiters seen in the
+            # failed PPT manuscript.
+            inline_cross_line = True
+            inline_open = False
+            index += 1
+            continue
+        if text[index] == "$" and not display_open:
+            inline_open = not inline_open
+        index += 1
+    return {
+        "display_open": display_open,
+        "inline_open": inline_open,
+        "inline_cross_line": inline_cross_line,
+        "latex_stack": latex_stack,
+        "unexpected": unexpected,
+    }
+
+
+def repair_teacher_script_math_delimiters(content: str) -> tuple[str, list[str]]:
+    """Close only unambiguous trailing math delimiters from a model response."""
+    raw_value = str(content or "")
+    repaired_lines: list[str] = []
+    repairs: list[str] = []
+    in_fence = False
+    display_open = False
+    for raw_line in raw_value.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        ending = raw_line[len(line):]
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            repaired_lines.append(raw_line)
+            continue
+        if in_fence:
+            repaired_lines.append(raw_line)
+            continue
+        scan = re.sub(r"\\\$", "", line)
+        display_count = scan.count("$$")
+        single_scan = scan.replace("$$", "")
+        single_count = single_scan.count("$") if not display_open else 0
+        if not display_open and single_count % 2:
+            stripped = line.strip()
+            if stripped.endswith("$") and not stripped.startswith("$"):
+                indentation = line[:len(line) - len(line.lstrip())]
+                line = f"{indentation}${line[len(indentation):]}"
+                repairs.append("open:$:line")
+            else:
+                line = f"{line}$"
+                repairs.append("close:$:line")
+        if display_count % 2:
+            display_open = not display_open
+        repaired_lines.append(f"{line}{ending}")
+
+    value = "".join(repaired_lines).rstrip()
+    state = _markdown_math_delimiter_state(value)
+    if state["unexpected"]:
+        return value, []
+    suffix = ""
+    for token in reversed(state["latex_stack"]):
+        closer = r"\)" if token == r"\(" else r"\]"
+        suffix += closer
+        repairs.append(f"close:{closer}")
+    if state["inline_open"]:
+        suffix += "$"
+        repairs.append("close:$")
+    if state["display_open"]:
+        suffix += "\n$$"
+        repairs.append("close:$$")
+    return value + suffix, repairs
 
 
 def teacher_script_artifact_contract(
@@ -286,6 +399,69 @@ def teacher_script_blocks_to_markdown(blocks: list[dict[str, Any]]) -> str:
         and _text(block.get("title"))
         and _text(block.get("content"))
     )
+
+
+def compile_teacher_script_fallback_content(
+    module: dict[str, Any],
+) -> str:
+    """Compile an explicit editable baseline when the provider is unavailable.
+
+    The confirmed lesson plan already owns the teaching purpose, knowledge
+    scope, guidance and activity contract.  A quota or authentication outage
+    should therefore not leave 0/N blank blocks.  This compiler never invents
+    a new module or fact; it turns that confirmed contract into neutral course
+    prose and is always reported as a local fallback by the job orchestrator.
+    """
+
+    def neutral(value: Any) -> str:
+        text = _text(value)
+        replacements = {
+            "教师": "讲解过程",
+            "学生": "学习者",
+            "请大家": "学习者需",
+            "请同学": "学习者需",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+        return text
+
+    title = neutral(module.get("title")) or "当前教学块"
+    purpose = neutral(module.get("teaching_purpose"))
+    guidance = neutral(module.get("teaching_guidance"))
+    knowledge = "、".join(_text_list(module.get("knowledge_names")))
+    source_context = module.get("source_plan_context") or {}
+    activity = neutral(source_context.get("student_activity"))
+    explanation = neutral(source_context.get("teacher_activity"))
+    role = _text(module.get("role"))
+    artifact = module.get("artifact_contract") or {}
+
+    paragraphs = [
+        f"{title}围绕{knowledge or '已确认的当前知识范围'}展开。"
+        f"{purpose or '本块用于形成一个完整、可检查的学习结果'}。",
+    ]
+    if guidance:
+        paragraphs.append(f"内容与方法：{guidance}。")
+    if explanation:
+        paragraphs.append(f"展开过程：{explanation}。")
+    if activity or role in {"activity", "feedback", "checkpoint"}:
+        paragraphs.append(
+            f"任务与检验：{activity or '根据已知条件完成当前任务'}。"
+            "结果需逐项核对条件、过程与结论；若出现错误，"
+            "依据同一标准修正并再次验证。"
+        )
+    if _text(artifact.get("hard_artifact")) == "formula":
+        paragraphs.append(
+            "形式化检查锦标："
+            r"\(\mathrm{given}\Rightarrow\mathrm{derivation}"
+            r"\Rightarrow\mathrm{verified\ result}\)"
+            "。公式中的对象、条件和结论必须与当前知识范围一致。"
+        )
+
+    content = "\n\n".join(paragraphs)
+    max_characters = int(module.get("max_characters") or 0)
+    if max_characters and len(content) > max_characters:
+        content = content[: max(20, max_characters - 1)].rstrip("，、：； ") + "。"
+    return content
 
 
 def _segments(markdown: str) -> list[tuple[str, str]]:
@@ -553,11 +729,13 @@ def validate_teacher_script_section(
                 "teacher_script:unclosed_code_fence",
                 f"“{_text(block.get('title'))}”存在未闭合的代码围栏。",
             )
+        delimiter_state = _markdown_math_delimiter_state(content)
         if (
-            content.count("$$") % 2
-            or len(re.findall(r"(?<!\\)\$", content)) % 2
-            or content.count(r"\[") != content.count(r"\]")
-            or content.count(r"\(") != content.count(r"\)")
+            delimiter_state["display_open"]
+            or delimiter_state["inline_open"]
+            or delimiter_state["inline_cross_line"]
+            or delimiter_state["latex_stack"]
+            or delimiter_state["unexpected"]
         ):
             add(
                 blocking,
@@ -625,6 +803,23 @@ def compile_teacher_script_section(
         },
         contract,
     )
+    format_repairs: list[dict[str, Any]] = []
+    for block in section.get("blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        repaired, repairs = repair_teacher_script_math_delimiters(
+            str(block.get("content") or "")
+        )
+        if repairs:
+            block["content"] = repaired
+            format_repairs.append({
+                "block_id": str(block.get("block_id") or ""),
+                "repairs": repairs,
+            })
+    section["content"] = teacher_script_blocks_to_markdown(
+        section.get("blocks") or []
+    )
+    section["format_repairs"] = format_repairs
     section["quality_report"] = validate_teacher_script_section(section, contract)
     section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
     return section

@@ -636,7 +636,7 @@ const props = withDefaults(defineProps<{
   planningStatus?: Record<string, any> | null
   pptManuscript?: Record<string, any> | null
   storyboard?: Record<string, any> | null
-  manuscriptStatus?: '' | 'draft' | 'confirmed'
+  manuscriptStatus?: '' | 'not_generated' | 'draft' | 'confirmed'
   manuscriptConfirming?: boolean
   manuscriptConfirmationRequired?: boolean
   manuscriptConfirmError?: string

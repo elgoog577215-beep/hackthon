@@ -165,6 +165,7 @@ const props = withDefaults(defineProps<{
   busy?: boolean
   closable?: boolean
   fragmentCount?: number
+  durationMinutes?: number
   webImageRetrieval?: boolean
   personalTemplates?: PersonalPptTemplatePack[]
   personalTemplatesEnabled?: boolean
@@ -175,6 +176,7 @@ const props = withDefaults(defineProps<{
   busy: false,
   closable: true,
   fragmentCount: 0,
+  durationMinutes: 0,
   webImageRetrieval: false,
   personalTemplates: () => [],
   personalTemplatesEnabled: true,
@@ -285,6 +287,19 @@ const previewSlides = [
 ] as any[]
 
 const pageEstimate = computed(() => {
+  if (props.manuscriptFirst && props.durationMinutes > 0) {
+    const duration = props.durationMinutes
+    if (modelMode.value === 'full') {
+      const center = Math.max(8, Math.round(duration / 2.8) + 2)
+      return `预计 ${Math.max(6, center - 3)}–${center + 5} 页`
+    }
+    if (modelMode.value === 'teaching') {
+      const center = Math.max(7, Math.round(duration / 3.5) + 2)
+      return `预计 ${Math.max(6, center - 3)}–${center + 3} 页`
+    }
+    const center = Math.max(6, Math.round(duration / 5) + 2)
+    return `预计 ${Math.max(5, center - 3)}–${center + 3} 页`
+  }
   const base = Math.max(6, Math.ceil(props.fragmentCount / 3) + 3)
   if (modelMode.value === 'full') return `预计 ${base}–${base + 5} 页`
   if (modelMode.value === 'teaching') return `预计 ${Math.max(6, base - 2)}–${base + 2} 页`

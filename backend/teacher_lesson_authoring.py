@@ -229,12 +229,158 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def align_teacher_lesson_plan_to_arrangement(
+    plan: dict[str, Any],
+    arrangement: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Make the confirmed lesson arrangement authoritative for order and time.
+
+    The model owns the substantive explanation.  It does not own the lesson
+    clock: real-model responses have assigned the full lesson duration to each
+    section, omitted early sections, and silently changed module order.  This
+    boundary preserves usable model content while deterministically restoring
+    the teacher-confirmed block identities, sequence and minute allocation.
+    Missing classroom fields are completed only from the same confirmed block
+    and the section's already-grounded knowledge, never from a second model.
+    """
+    normalized = normalize_teacher_lesson_plan(plan)
+    blocks = [
+        deepcopy(item)
+        for item in (arrangement or {}).get("blocks") or []
+        if isinstance(item, dict)
+        and str(item.get("section_node_id") or "").strip()
+    ]
+    if not blocks:
+        return normalized
+
+    blocks_by_section: dict[str, list[dict[str, Any]]] = {}
+    for block in blocks:
+        blocks_by_section.setdefault(
+            str(block.get("section_node_id") or ""), []
+        ).append(block)
+
+    for section in normalized.get("sections") or []:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("node_id") or "")
+        arranged = blocks_by_section.get(section_id) or []
+        if not arranged:
+            continue
+        existing_modules = [
+            deepcopy(item)
+            for item in section.get("teaching_modules") or []
+            if isinstance(item, dict)
+        ]
+        used_indexes: set[int] = set()
+        aligned_modules: list[dict[str, Any]] = []
+
+        for block in arranged:
+            module_id = str(block.get("module_id") or "core_explanation")
+            matched_index = next(
+                (
+                    index
+                    for index, item in enumerate(existing_modules)
+                    if index not in used_indexes
+                    and str(item.get("module_id") or "") == module_id
+                ),
+                None,
+            )
+            source_module = (
+                existing_modules[matched_index]
+                if matched_index is not None
+                else {}
+            )
+            if matched_index is not None:
+                used_indexes.add(matched_index)
+            knowledge_names = _text_list(source_module.get("knowledge_names"))
+            if not knowledge_names:
+                knowledge_names = _text_list(section.get("key_points"))
+            block_name = str(block.get("name") or module_id).strip()
+            purpose = str(
+                block.get("purpose")
+                or block.get("content_summary")
+                or source_module.get("teaching_purpose")
+                or ""
+            ).strip()
+            expected_output = str(block.get("expected_output") or "").strip()
+            teacher_activity = str(
+                source_module.get("teacher_activity")
+                or block.get("teacher_activity")
+                or (f"围绕“{block_name}”完成讲解、示范与要点收束。" if block_name else "")
+            ).strip()
+            student_activity = str(
+                source_module.get("student_activity")
+                or block.get("student_activity")
+                or (f"完成“{expected_output}”，并说明判断依据。" if expected_output else "记录关键步骤并完成当堂自检。")
+            ).strip()
+            aligned_modules.append({
+                **source_module,
+                "module_id": module_id,
+                "label": str(source_module.get("label") or block_name),
+                "teaching_purpose": str(
+                    source_module.get("teaching_purpose") or purpose
+                ),
+                "teaching_guidance": str(
+                    source_module.get("teaching_guidance")
+                    or block.get("content_summary")
+                    or purpose
+                ),
+                "knowledge_names": knowledge_names,
+                "planned_minutes": max(
+                    1, int(block.get("planned_minutes") or 1)
+                ),
+                "arrangement_block_id": str(block.get("block_id") or ""),
+                "teacher_activity": teacher_activity,
+                "student_activity": student_activity,
+            })
+
+        section["teaching_modules"] = aligned_modules
+        section["planned_minutes"] = sum(
+            int(item.get("planned_minutes") or 0)
+            for item in aligned_modules
+        )
+        section["teacher_activities"] = _unique_text([
+            str(item.get("teacher_activity") or "")
+            for item in aligned_modules
+        ])
+        section["student_activities"] = _unique_text([
+            str(item.get("student_activity") or "")
+            for item in aligned_modules
+        ])
+        if not _text_list(section.get("key_difficulties")):
+            section["key_difficulties"] = _text_list(
+                section.get("key_points")
+            )
+        if not _text_list(section.get("in_class_checks")):
+            section["in_class_checks"] = _unique_text([
+                str(item.get("expected_output") or "")
+                for item in arranged
+            ]) or ["根据本节目标完成一次当堂自检并说明依据。"]
+        if not _text_list(section.get("homework")):
+            anchor = next(
+                iter(_text_list(section.get("key_points"))),
+                str(section.get("learning_objective") or "本节目标").strip(),
+            )
+            section["homework"] = [
+                f"围绕“{anchor}”完成一次课后巩固与迁移练习。"
+            ]
+        section["timing_source"] = "confirmed_lesson_arrangement"
+
+    normalized["lesson_duration_minutes"] = sum(
+        max(1, int(item.get("planned_minutes") or 1))
+        for item in blocks
+    )
+    normalized["timing_source"] = "confirmed_lesson_arrangement"
+    return normalize_teacher_lesson_plan(normalized)
+
+
 def validate_teacher_lesson_plan(
     plan: dict[str, Any],
     *,
     expected_section_ids: list[str] | None = None,
     expected_outline_revision_id: str = "",
     source_outline_revision_id: str = "",
+    expected_total_minutes: int | None = None,
 ) -> dict[str, Any]:
     """Validate the one teacher-facing standard lesson-plan contract.
 
@@ -339,6 +485,19 @@ def validate_teacher_lesson_plan(
                 issue(blocking, "lesson_plan:knowledge_statement", f"知识点「{name}」缺少准确陈述。", section_id)
             if point.get("conflict") or point.get("needs_manual_review"):
                 issue(blocking, "lesson_plan:knowledge_conflict", f"知识点「{name or '未命名'}」存在待核实冲突。", section_id)
+
+    if (
+        expected_total_minutes is not None
+        and total_minutes != int(expected_total_minutes)
+    ):
+        issue(
+            blocking,
+            "lesson_plan:total_timing",
+            (
+                f"本讲教案共 {total_minutes} 分钟，与已确认的 "
+                f"{int(expected_total_minutes)} 分钟编排不一致。"
+            ),
+        )
 
     return {
         "schema_version": "teacher_lesson_plan_quality_v1",
@@ -857,6 +1016,9 @@ def teacher_lesson_v6_source(
                 "已确认讲稿仍有空白小节，不能生成 PPT。",
                 details={"section_node_id": section_id},
             )
+        ppt_group_index = 1
+        ppt_group_minutes = 0
+        ppt_group_size = 0
         for script_block in all_script_blocks:
             module_id = str(script_block.get("module_id") or "core_explanation")
             role = str(script_block.get("role") or module_block_role(module_id))
@@ -870,8 +1032,24 @@ def teacher_lesson_v6_source(
                 str(item) for item in script_block.get("knowledge_names") or []
                 if str(item).strip()
             ]
+            try:
+                block_minutes = max(
+                    1, int(script_block.get("planned_minutes") or 2)
+                )
+            except (TypeError, ValueError):
+                block_minutes = 2
+            if ppt_group_size and (
+                ppt_group_minutes >= 4 or ppt_group_size >= 3
+            ):
+                ppt_group_index += 1
+                ppt_group_minutes = 0
+                ppt_group_size = 0
+            ppt_page_group_id = (
+                f"{section_id}:ppt-page-group:{ppt_group_index}"
+            )
             blocks.append({
                 "block_id": str(script_block.get("block_id") or f"{section_id}-{module_id}"),
+                "parent_block_id": ppt_page_group_id,
                 "type": role,
                 "title": str(script_block.get("title") or module_id),
                 "content": str(script_block.get("content") or "").strip(),
@@ -883,11 +1061,14 @@ def teacher_lesson_v6_source(
                     ),
                     "concept_refs": knowledge_names,
                     "planned_minutes": script_block.get("planned_minutes"),
+                    "ppt_page_group_id": ppt_page_group_id,
                     "content_perspective": "neutral",
                     "source_kind": "confirmed_teacher_script_block",
                     "legacy_adapter": module_id == "legacy_script",
                 },
             })
+            ppt_group_minutes += block_minutes
+            ppt_group_size += 1
         node = deepcopy(outline_section)
         node.update({
             "node_id": section_id,
@@ -2438,6 +2619,7 @@ class TeacherLessonAuthoringRepository:
         *,
         accept: bool,
         quality_report: dict[str, Any] | None = None,
+        accepted_plan: dict[str, Any] | None = None,
         actor: str = "teacher",
     ) -> dict[str, Any]:
         with self._lock:
@@ -2464,7 +2646,8 @@ class TeacherLessonAuthoringRepository:
                 saved = self._save(value)
                 return deepcopy(saved["lessons"][lesson_unit_id])
             source_outline_revision_id = str(value.get("outline_revision_id") or "")
-            plan = deepcopy(candidate.get("plan") or {})
+            plan = deepcopy(accepted_plan or candidate.get("plan") or {})
+            candidate["plan"] = deepcopy(plan)
             self._save(value)
         return self.save_plan_revision(
             course_id,
@@ -2487,8 +2670,8 @@ class TeacherLessonAuthoringService:
     def __init__(self, repository: TeacherLessonAuthoringRepository):
         self.repository = repository
 
-    @staticmethod
     def _quality_report(
+        self,
         course_data: dict[str, Any],
         lesson_unit_id: str,
         plan: dict[str, Any],
@@ -2497,6 +2680,19 @@ class TeacherLessonAuthoringService:
         source_outline_revision_id: str,
     ) -> dict[str, Any]:
         scope = lesson_scope(course_data, lesson_unit_id)
+        arrangement = self.repository.confirmed_arrangement(
+            str(course_data.get("course_id") or ""),
+            lesson_unit_id,
+        )
+        expected_total_minutes = (
+            sum(
+                max(1, int(item.get("planned_minutes") or 1))
+                for item in arrangement.get("blocks") or []
+                if isinstance(item, dict)
+            )
+            if arrangement
+            else None
+        )
         return validate_teacher_lesson_plan(
             plan,
             expected_section_ids=[
@@ -2505,6 +2701,7 @@ class TeacherLessonAuthoringService:
             ],
             expected_outline_revision_id=expected_outline_revision_id,
             source_outline_revision_id=source_outline_revision_id,
+            expected_total_minutes=expected_total_minutes,
         )
 
     def save_plan_draft(
@@ -2522,6 +2719,10 @@ class TeacherLessonAuthoringService:
         )
         effective_source_revision = (
             source_outline_revision_id or canonical_outline_revision
+        )
+        plan = align_teacher_lesson_plan_to_arrangement(
+            plan,
+            self.repository.confirmed_arrangement(course_id, lesson_unit_id),
         )
         quality_report = self._quality_report(
             course_data,
@@ -2610,10 +2811,14 @@ class TeacherLessonAuthoringService:
         canonical_outline_revision = str(
             self.repository.view(course_id).get("outline_revision_id") or ""
         )
+        aligned_plan = align_teacher_lesson_plan_to_arrangement(
+            candidate.get("plan") or {},
+            self.repository.confirmed_arrangement(course_id, lesson_unit_id),
+        )
         quality_report = self._quality_report(
             course_data,
             lesson_unit_id,
-            candidate.get("plan") or {},
+            aligned_plan,
             expected_outline_revision_id=canonical_outline_revision,
             source_outline_revision_id=canonical_outline_revision,
         )
@@ -2623,6 +2828,7 @@ class TeacherLessonAuthoringService:
             candidate_id,
             accept=True,
             quality_report=quality_report,
+            accepted_plan=aligned_plan,
             actor=actor,
         )
 
@@ -2689,7 +2895,12 @@ class TeacherLessonAuthoringService:
                     "lesson_plan_empty",
                     "本讲教案生成结果为空。",
                 )
-            plan = normalize_teacher_lesson_plan(plan)
+            plan = align_teacher_lesson_plan_to_arrangement(
+                plan,
+                self.repository.confirmed_arrangement(
+                    course_id, lesson_unit_id
+                ),
+            )
             warnings = list(result.get("warnings") or [])
             generation_source = str(result.get("generation_source") or ("deterministic_local_fallback" if warnings else "model"))
             source_refs = [
@@ -2784,6 +2995,7 @@ class TeacherLessonAuthoringService:
         requirements: str = "",
         material_asset_ids: list[str] | None = None,
         actor: str = "teacher",
+        generation_warnings: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate and persist one teacher script block at a time.
 
@@ -2998,12 +3210,21 @@ class TeacherLessonAuthoringService:
                     )
                 final_sections.append(section)
 
+            fallback_warnings = [
+                deepcopy(item)
+                for item in generation_warnings or []
+                if isinstance(item, dict)
+            ]
             lesson = self.repository.save_script_revision(
                 course_id,
                 lesson_unit_id,
                 final_sections,
                 source_lesson_plan_revision_id=source_plan_revision_id,
-                generation_source="model_block_pipeline",
+                generation_source=(
+                    "model_block_pipeline_with_local_fallback"
+                    if fallback_warnings
+                    else "model_block_pipeline"
+                ),
                 requirements=requirements,
                 material_asset_ids=material_asset_ids or [],
                 actor=actor,
@@ -3012,13 +3233,22 @@ class TeacherLessonAuthoringService:
             return self.repository.update_job(
                 course_id,
                 job_id,
-                status="completed",
+                status=(
+                    "completed_with_warnings"
+                    if fallback_warnings
+                    else "completed"
+                ),
                 phase="lesson_script_ready",
                 progress=100,
-                message="本讲讲稿已生成，等待确认",
+                message=(
+                    "本讲讲稿已完整生成；提供方失败的教学块已从确认教案编译，请审核后确认"
+                    if fallback_warnings
+                    else "本讲讲稿已生成，等待确认"
+                ),
                 completed_blocks=total_blocks,
                 result_sections=final_sections,
                 result_revision_id=str(lesson.get("working_script_revision_id") or ""),
+                warnings=fallback_warnings,
                 current_block_id="",
                 current_block_title="",
                 stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,

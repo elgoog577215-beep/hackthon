@@ -2252,6 +2252,15 @@ class CourseService(AIBase):
             scoped_course.get("generation_stage_artifacts") or {}
         ).get("course_teaching_plan") or {}
         lesson_plan = deepcopy(scoped_course.get("course_teaching_plan") or {})
+        if lesson_arrangement:
+            from teacher_lesson_authoring import (
+                align_teacher_lesson_plan_to_arrangement,
+            )
+
+            lesson_plan = align_teacher_lesson_plan_to_arrangement(
+                lesson_plan,
+                lesson_arrangement,
+            )
         warnings = deepcopy(teaching_stage.get("fallback_units") or [])
         source_kinds = {
             str(item.get("source_kind") or "course_material")
@@ -4941,12 +4950,25 @@ class CourseService(AIBase):
             brief=brief,
             difficulty_profile=difficulty_profile,
         )
-        stage = (
-            deepcopy(existing_stage)
-            if existing_stage.get("request_fingerprint")
-            == request_fingerprint
-            else {}
-        )
+        shape_was_confirmed = bool(existing_stage.get("shape_confirmed"))
+        if shape_was_confirmed:
+            # Confirmation freezes chapter identity and section counts.  A
+            # resumed task may reconstruct a semantically equivalent brief
+            # with a different derived fingerprint (for example after a
+            # process restart).  That must never discard the confirmed
+            # skeleton or its completed chapter batches.
+            stage = deepcopy(existing_stage)
+            request_fingerprint = str(
+                existing_stage.get("request_fingerprint")
+                or request_fingerprint
+            )
+        else:
+            stage = (
+                deepcopy(existing_stage)
+                if existing_stage.get("request_fingerprint")
+                == request_fingerprint
+                else {}
+            )
         if stage.get("shape_confirmed"):
             confirmed_shape = stage.get("confirmed_shape_constraints")
             if isinstance(confirmed_shape, dict):
@@ -6599,7 +6621,7 @@ class CourseService(AIBase):
             "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
             "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；不复制学生个性化、课堂调度或旧整课流程。",
-            "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式必须使用成对闭合的 `$...$`、`$$...$$`、`\\(...\\)` 或 `\\[...\\]`，不得把公式拆断。",
+            "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式优先使用成对闭合的 `\\(...\\)` 或 `\\[...\\]`，也可使用完整的 `$...$`、`$$...$$`，不得把公式拆断。",
             "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
             "资料只用于支持课堂内容。必须区分资料事实、学科通识和教学情境；不能编造资料未给出的来源、数据或结论。",
             "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",

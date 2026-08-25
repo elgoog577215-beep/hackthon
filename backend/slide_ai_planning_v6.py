@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from ai_base import AIBase
+from ai_base import AIBase, AIRequestBudgetExceeded
 from course_document import stable_hash
 from course_presentation_graph import (
     CoursePresentationGraphV1,
@@ -74,6 +74,7 @@ _STORY_PAGE_CONTRACT_FIELDS = frozenset({
     "source_block_ids",
 })
 _STORY_SEMANTIC_MAX_ATTEMPTS = 3
+_STORY_MODEL_REQUEST_CHAR_BUDGET = 20000
 _STORY_UNIT_REPARTITION_FAILURE_CODES = frozenset({
     "story_course_block_coverage_incomplete",
     "story_duplicate_primary_block",
@@ -171,6 +172,73 @@ _FORBIDDEN_DETERMINISTIC_PLANNER_IDENTITIES = frozenset({
     "source-faithful-deterministic",
     "source-native-deterministic",
 })
+_GENERIC_TEACHING_PAGE_TITLES = frozenset({
+    "本节任务",
+    "核心教学",
+    "学习者行动",
+    "检查与反馈",
+    "直觉入口",
+    "多重表征",
+    "正式定义",
+    "证明与推导",
+    "数学论证",
+    "例题推演",
+    "策略选择",
+    "变式练习",
+    "在形式化定义之前",
+    "从二阶出发",
+})
+
+
+def _generic_teaching_page_title(value: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(value or ""))
+    if normalized in {
+        re.sub(r"\s+", "", item) for item in _GENERIC_TEACHING_PAGE_TITLES
+    }:
+        return True
+    return bool(re.match(
+        r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u91cd\u70b9\u7a81\u51fa[:\uff1a]?|"
+        r"\u5728\u5f62\u5f0f\u5316\u5b9a\u4e49\u4e4b\u524d(?:\u5efa\u7acb)?|\u4e0e\u53d8\u5f0f\u7ec3\u4e60\u5408\u5e76)",
+        normalized,
+    )) or bool(re.match(r"^\u7528.{2,18}\u5efa\u7acb.{2,24}$", normalized))
+
+
+def _audience_facing_title_candidate(value: str) -> str:
+    """Turn a source-authored production instruction into an on-screen title.
+
+    This only removes or reorders the source phrase; it never adds a teaching
+    claim.  The resulting candidate still passes the normal protected-token
+    and semantic-grounding gates before it can enter a manuscript.
+    """
+
+    source = " ".join(str(value or "").split()).strip("#*` \uff0c\u3002\uff01\uff1f,;:|")
+    if not source:
+        return ""
+    candidate = re.sub(r"^\u91cd\u70b9\u7a81\u51fa\s*[:\uff1a]\s*", "", source).strip()
+    candidate = re.sub(
+        r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6)\s*",
+        "",
+        candidate,
+    ).strip()
+    candidate = re.sub(
+        r"^\u5728\u5f62\u5f0f\u5316\u5b9a\u4e49\u4e4b\u524d(?:\u5148)?(?:\u5efa\u7acb)?\s*",
+        "",
+        candidate,
+    ).strip()
+    candidate = re.sub(
+        r"^\u4e0e\u53d8\u5f0f\u7ec3\u4e60\u5408\u5e76\s*[,\uff0c]?\s*(?:\u5b66\u4e60\u8005)?",
+        "",
+        candidate,
+    ).strip()
+    geometric = re.fullmatch(r"\u7528(.{2,18})\u5efa\u7acb(.{2,24})", candidate)
+    if geometric:
+        candidate = f"{geometric.group(2)}\u7684{geometric.group(1)}"
+    single_matrix = re.fullmatch(r"\u4e00\u4e2a(.{2,24}\u77e9\u9635)", candidate)
+    if single_matrix:
+        candidate = f"{single_matrix.group(1)}\u793a\u4f8b"
+    if candidate == "\u4e00\u7ec4\u96be\u5ea6\u9012\u8fdb\u7684\u9898\u76ee":
+        candidate = "\u96be\u5ea6\u9012\u8fdb\u7ec3\u4e60"
+    return candidate if len(candidate) >= 4 and not _title_is_incomplete(candidate) else ""
 
 
 def _require_ai_planner_provenance(
@@ -315,9 +383,15 @@ def _assign_global_story_titles(
             if isinstance(block, dict)
         }
         page_source_text = "\n".join(
-            str(block_metadata.get(block_id, {}).get("source_text") or "").strip()
+            "\n".join(filter(None, [
+                str(block_metadata.get(block_id, {}).get("source_title") or "").strip(),
+                str(block_metadata.get(block_id, {}).get("source_text") or "").strip(),
+            ]))
             for block_id in page.source_block_ids
-            if str(block_metadata.get(block_id, {}).get("source_text") or "").strip()
+            if (
+                str(block_metadata.get(block_id, {}).get("source_title") or "").strip()
+                or str(block_metadata.get(block_id, {}).get("source_text") or "").strip()
+            )
         )
         if any(
             str(block_metadata.get(block_id, {}).get("role") or "") == "objective"
@@ -330,6 +404,7 @@ def _assign_global_story_titles(
         candidates = [
             candidate
             for candidate in candidates
+            if not _generic_teaching_page_title(candidate)
             if not (
                 _title_protected_tokens(candidate)
                 - _title_protected_tokens(page_source_text)
@@ -1240,6 +1315,8 @@ def _failure_category(error: BaseException, *, prefix: str) -> tuple[str, bool]:
         for record in attempt_records
         if isinstance(record, dict)
     )
+    if isinstance(original, AIRequestBudgetExceeded):
+        return f"{prefix}_request_budget_exceeded", True
     if isinstance(original, (TimeoutError, asyncio.TimeoutError)) or "timeout" in message:
         return f"{prefix}_timeout", True
     if primary_quota_exhausted:
@@ -1364,10 +1441,11 @@ def _grounded_title_candidates(
     candidates: list[str] = []
 
     def add_candidate(value: str) -> None:
-        candidate = " ".join(str(value or "").split()).strip("#*` ，。！？,;:|")
+        source_candidate = " ".join(str(value or "").split()).strip("#*` ，。！？,;:|")
+        candidate = _audience_facing_title_candidate(source_candidate) or source_candidate
         if (
             4 <= len(candidate) <= capacity
-            and candidate in source_text
+            and source_candidate in source_text
             and not _title_is_incomplete(candidate)
             and candidate not in candidates
         ):
@@ -1515,6 +1593,23 @@ def _story_unit_request(
             )
         ]
 
+    def contextualize_title(candidate: str) -> str:
+        subject = re.sub(
+            r"^\s*\d+(?:\.\d+)*\s*",
+            "",
+            str(unit.section_title or ""),
+        ).strip()
+        if subject and re.fullmatch(r"\d+\s*\u9053\u7ec3\u4e60\u9898", candidate):
+            return f"{subject}\u7ec3\u4e60"
+        if subject and candidate in {"\u4e00\u7ec4\u96be\u5ea6\u9012\u8fdb\u7684\u9898\u76ee", "\u96be\u5ea6\u9012\u8fdb\u7ec3\u4e60"}:
+            return f"{subject}\u8fdb\u9636\u7ec3\u4e60"
+        return candidate
+
+    def audience_title(block_id: str) -> str:
+        return contextualize_title(_audience_facing_title_candidate(
+            unit.primary_block_titles.get(block_id, "")
+        ))
+
     return {
         "teaching_unit_id": unit.teaching_unit_id,
         "section_title": unit.section_title,
@@ -1523,6 +1618,7 @@ def _story_unit_request(
         "primary_blocks": [
             {
                 "block_id": block_id,
+                "source_title": unit.primary_block_titles.get(block_id, ""),
                 "role": unit.primary_block_roles.get(block_id, ""),
                 "artifact_kinds": unit.primary_block_artifacts.get(block_id, []),
                 "required_slot_kinds": sorted(source_required_slot_kinds(
@@ -1545,18 +1641,37 @@ def _story_unit_request(
                 )),
                 "title_candidates": list(dict.fromkeys([
                     *(
+                        [audience_title(block_id)]
+                        if audience_title(block_id)
+                        and len(audience_title(block_id)) <= title_max_chars
+                        else []
+                    ),
+                    *(
+                        [unit.primary_block_titles.get(block_id, "")]
+                        if unit.primary_block_titles.get(block_id, "")
+                        and len(unit.primary_block_titles.get(block_id, ""))
+                        <= title_max_chars
+                        else []
+                    ),
+                    *(
                         [unit.section_title]
                         if unit.section_title
                         and unit.primary_block_roles.get(block_id) == "objective"
                         and len(unit.section_title) <= title_max_chars
                         else []
                     ),
-                    *_grounded_title_candidates(
-                        unit.primary_block_presentation_texts.get(
-                            block_id,
-                            unit.primary_block_texts.get(block_id, ""),
-                        ),
-                        max_chars=title_max_chars,
+                    *(
+                        contextualize_title(candidate)
+                        for candidate in _grounded_title_candidates(
+                            "\n".join(filter(None, [
+                                unit.primary_block_titles.get(block_id, ""),
+                                unit.primary_block_presentation_texts.get(
+                                    block_id,
+                                    unit.primary_block_texts.get(block_id, ""),
+                                ),
+                            ])),
+                            max_chars=title_max_chars,
+                        )
                     ),
                 ])),
                 "compatible_template_layout_ids": (
@@ -1694,7 +1809,6 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
         "primary_blocks",
         "teaching_intent",
         "artifact_kinds",
-        "source_asset_ids",
         "prerequisite_unit_ids",
         "allowed_protected_tokens",
         "title_max_chars",
@@ -1706,42 +1820,217 @@ def _story_model_request(request: dict[str, Any]) -> dict[str, Any]:
         "allowed_template_layout_ids",
         "allowed_template_layout_ids_by_page_intent",
     )
-    def model_primary_blocks(unit: dict[str, Any]) -> list[dict[str, Any]]:
+    def representative_partition_options(
+        unit: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        options = [
+            option
+            for option in unit.get("safe_partition_options") or []
+            if isinstance(option, dict)
+            and isinstance(option.get("pages"), list)
+            and option.get("pages")
+        ]
+        if not options:
+            return []
+        # One representative for the smallest page count and one for the next
+        # count preserve the legitimate choice between a combined teaching
+        # point and a concept-plus-feedback split.  Larger combinatorial
+        # variants add request weight and are the main source of oversplitting.
+        by_page_count: dict[int, dict[str, Any]] = {}
+        for option in options:
+            page_count = int(
+                option.get("page_count") or len(option.get("pages") or [])
+            )
+            current = by_page_count.get(page_count)
+
+            def balance_key(value: dict[str, Any]) -> tuple[int, int, str]:
+                group_sizes = [
+                    len(page.get("source_block_ids") or [])
+                    for page in value.get("pages") or []
+                    if isinstance(page, dict)
+                ]
+                return (
+                    max(group_sizes, default=0),
+                    sum(size * size for size in group_sizes),
+                    str(value.get("partition_id") or ""),
+                )
+
+            if current is None or balance_key(option) < balance_key(current):
+                by_page_count[page_count] = option
         return [
-            {
-                **{
-                    key: value
-                    for key, value in block.items()
-                    if key != "presentation_text"
-                },
-                "source_text": block.get("presentation_text")
-                or block.get("source_text")
-                or "",
-            }
-            for block in unit.get("primary_blocks") or []
-            if isinstance(block, dict)
+            by_page_count[page_count]
+            for page_count in sorted(by_page_count)[:2]
         ]
 
-    return {
-        **{
+    def partition_layout_ids(options: list[dict[str, Any]]) -> set[str]:
+        return {
+            str(layout_id)
+            for option in options
+            for page in option.get("pages") or []
+            if isinstance(page, dict)
+            for layout_id in page.get("template_layout_ids") or []
+            if str(layout_id)
+        }
+
+    def compact_candidates(values: Any, *, limit: int = 4) -> list[str]:
+        return list(dict.fromkeys(
+            str(value).strip()
+            for value in values or []
+            if str(value).strip()
+        ))[:limit]
+
+    def model_primary_blocks(
+        unit: dict[str, Any],
+        *,
+        retained_layout_ids: set[str],
+        source_char_limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        blocks: list[dict[str, Any]] = []
+        for block in unit.get("primary_blocks") or []:
+            if not isinstance(block, dict):
+                continue
+            source_text = str(
+                block.get("presentation_text")
+                or block.get("source_text")
+                or ""
+            )
+            if source_char_limit is not None and len(source_text) > source_char_limit:
+                source_text = _complete_sentence_excerpt(
+                    source_text,
+                    source_char_limit,
+                )
+            compatible_layout_ids = [
+                str(layout_id)
+                for layout_id in block.get("compatible_template_layout_ids") or []
+                if str(layout_id) in retained_layout_ids
+            ]
+            blocks.append({
+                "block_id": str(block.get("block_id") or ""),
+                "source_title": str(block.get("source_title") or ""),
+                "role": str(block.get("role") or ""),
+                "artifact_kinds": list(block.get("artifact_kinds") or []),
+                "required_slot_kinds": list(
+                    block.get("required_slot_kinds") or []
+                ),
+                "page_intent": str(block.get("page_intent") or ""),
+                "source_text": source_text,
+                "allowed_protected_tokens": list(
+                    block.get("allowed_protected_tokens") or []
+                ),
+                "title_candidates": compact_candidates(
+                    block.get("title_candidates")
+                ),
+                "compatible_template_layout_ids": compatible_layout_ids,
+            })
+        return blocks
+
+    def model_unit(
+        unit: dict[str, Any],
+        *,
+        source_char_limit: int | None = None,
+    ) -> dict[str, Any]:
+        partitions = representative_partition_options(unit)
+        retained_layout_ids = {
+            str(layout_id)
+            for layout_id in unit.get("allowed_template_layout_ids") or []
+            if str(layout_id)
+        }
+        if not retained_layout_ids:
+            retained_layout_ids = partition_layout_ids(partitions)
+        allowed_by_intent = {
+            str(intent): [
+                str(layout_id)
+                for layout_id in layout_ids or []
+                if str(layout_id) in retained_layout_ids
+            ]
+            for intent, layout_ids in (
+                unit.get("allowed_template_layout_ids_by_page_intent") or {}
+            ).items()
+        }
+        allowed_by_intent = {
+            intent: layout_ids
+            for intent, layout_ids in allowed_by_intent.items()
+            if layout_ids
+        }
+        compacted = {
+            key: unit[key]
+            for key in unit_fields
+            if key in unit
+        }
+        compacted.update({
+            "primary_blocks": model_primary_blocks(
+                unit,
+                retained_layout_ids=retained_layout_ids,
+                source_char_limit=source_char_limit,
+            ),
+            "title_candidates": compact_candidates(unit.get("title_candidates")),
+            "safe_partition_options": partitions,
+            "allowed_template_layout_ids": sorted(retained_layout_ids),
+            "allowed_template_layout_ids_by_page_intent": allowed_by_intent,
+            "summary_max_chars_by_layout_id": {
+                str(layout_id): value
+                for layout_id, value in (
+                    unit.get("summary_max_chars_by_layout_id") or {}
+                ).items()
+                if str(layout_id) in retained_layout_ids
+            },
+            "summary_min_chars_by_layout_id": {
+                str(layout_id): value
+                for layout_id, value in (
+                    unit.get("summary_min_chars_by_layout_id") or {}
+                ).items()
+                if str(layout_id) in retained_layout_ids
+            },
+        })
+        return compacted
+
+    def model_repair_feedback(value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        return {
+            key: value[key]
+            for key in (
+                "attempt",
+                "code",
+                "message",
+                "repair_targets",
+            )
+            if key in value
+        } | {
+            "instruction": (
+                "Only repair the listed teaching units. Choose one complete "
+                "safe_partition_options entry; bind multiple related block IDs "
+                "to the same page when that entry requires it. Copy every "
+                "source_block_ids list exactly, choose one listed layout, and "
+                "prefer a title candidate from the bound blocks."
+            )
+        }
+
+    def build(source_char_limit: int | None) -> dict[str, Any]:
+        top_level = {
             key: value
             for key, value in request.items()
-            if key != "teaching_units"
-        },
-        "teaching_units": [
-            {
-                key: (
-                    model_primary_blocks(unit)
-                    if key == "primary_blocks"
-                    else unit[key]
-                )
-                for key in unit_fields
-                if key in unit
-            }
-            for unit in request.get("teaching_units") or []
-            if isinstance(unit, dict)
-        ],
-    }
+            if key not in {"teaching_units", "repair_feedback"}
+        }
+        repair_feedback = model_repair_feedback(request.get("repair_feedback"))
+        if repair_feedback:
+            top_level["repair_feedback"] = repair_feedback
+        return {
+            **top_level,
+            "teaching_units": [
+                model_unit(unit, source_char_limit=source_char_limit)
+                for unit in request.get("teaching_units") or []
+                if isinstance(unit, dict)
+            ],
+        }
+
+    model_request = build(None)
+    for source_char_limit in (640, 420, 280, 180, 120, 80):
+        if len(json.dumps(model_request, ensure_ascii=False)) <= _STORY_MODEL_REQUEST_CHAR_BUDGET:
+            break
+        model_request = build(source_char_limit)
+
+    return model_request
 
 
 def _validate_story_batch_candidate(
@@ -4075,6 +4364,194 @@ async def repair_slide_visuals_v2(
     return repaired_plan
 
 
+def _deterministic_safe_partition_story_response(
+    request: dict[str, Any],
+) -> dict[str, Any]:
+    """Compile a classroom-dense, source-bound story when planning is unavailable.
+
+    This path makes no semantic planning claim: it selects one complete
+    template-safe partition already compiled by the deterministic engine,
+    copies stable block identities and confirmed titles, and leaves visible
+    copy materialization to the normal manuscript compiler.  The provider/model
+    markers keep the fallback observable and the orchestrator permits it only
+    for an explicitly reviewable manuscript, never for direct publication.
+    """
+
+    pages: list[dict[str, Any]] = []
+    for unit_index, unit in enumerate(request.get("teaching_units") or []):
+        if not isinstance(unit, dict):
+            continue
+        options = [
+            item
+            for item in unit.get("safe_partition_options") or []
+            if isinstance(item, dict) and item.get("pages")
+        ]
+        if not options:
+            raise ValueError("story_safe_partition_unavailable")
+        classroom_safe_options = [
+            item
+            for item in options
+            if max(
+                (
+                    len(page.get("source_block_ids") or [])
+                    for page in item.get("pages") or []
+                    if isinstance(page, dict)
+                ),
+                default=0,
+            ) <= 3
+        ]
+        # The fewest-page partition previously packed six complete script
+        # blocks onto one canvas.  The compiler then had to split that single
+        # story page into five continuations (22 slides for a 45-minute
+        # lesson).  Keep the deterministic path classroom-dense: no more than
+        # three confirmed script blocks per story page, then choose the
+        # smallest complete partition within that bound.
+        option = min(
+            classroom_safe_options or options,
+            key=lambda item: (
+                int(item.get("page_count") or len(item.get("pages") or [])),
+                str(item.get("partition_id") or ""),
+            ),
+        )
+        blocks = {
+            str(item.get("block_id") or ""): item
+            for item in unit.get("primary_blocks") or []
+            if isinstance(item, dict) and item.get("block_id")
+        }
+        for local_index, page in enumerate(option.get("pages") or []):
+            source_ids = [
+                str(item) for item in page.get("source_block_ids") or []
+                if str(item)
+            ]
+            bound = [blocks.get(block_id) or {} for block_id in source_ids]
+            title_candidates = [
+                str(candidate).strip()
+                for block in bound
+                for candidate in (
+                    [block.get("source_title")]
+                    + list(block.get("title_candidates") or [])
+                )
+                if str(candidate or "").strip()
+                and not _generic_teaching_page_title(str(candidate))
+            ]
+            unit_candidates = [
+                str(candidate).strip()
+                for candidate in unit.get("title_candidates") or []
+                if str(candidate or "").strip()
+                and not _generic_teaching_page_title(str(candidate))
+            ]
+            title = next(
+                iter(dict.fromkeys([*title_candidates, *unit_candidates])),
+                str(unit.get("section_title") or "教学要点"),
+            )
+            layout_ids = [
+                str(item)
+                for item in page.get("template_layout_ids") or []
+                if str(item)
+            ]
+            if not layout_ids:
+                raise ValueError("story_safe_partition_layout_unavailable")
+            pages.append({
+                "page_id": (
+                    f"safe-{request.get('chapter_id')}-{unit_index + 1}-"
+                    f"{local_index + 1}"
+                ),
+                "teaching_unit_id": str(unit.get("teaching_unit_id") or ""),
+                "template_layout_id": layout_ids[0],
+                "title": title,
+                "summary": "",
+                "source_block_ids": source_ids,
+            })
+    if not pages:
+        raise ValueError("story_safe_partition_pages_unavailable")
+    return {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": str(request.get("chapter_id") or ""),
+        "provider": "codex-structured-fallback",
+        "model": "deterministic-safe-partition-v2",
+        "attempts": 1,
+        "pages": pages,
+    }
+
+
+def _deterministic_source_bound_visual_response(
+    request: dict[str, Any],
+    *,
+    reason: str,
+) -> dict[str, Any]:
+    """Compile observable, source-bound visual decisions for manuscript review.
+
+    The visual provider does not own slide copy or source artifacts.  When its
+    route is unavailable, the request already contains the frozen page/layout
+    identity and the exact source-supported decision set.  Choosing from that
+    set preserves formulas, code, tables and other native artifacts without
+    inventing a diagram.  Every decision remains explicitly degraded so a
+    teacher confirmation, rather than an AI-success claim, is the publication
+    authority.
+    """
+
+    decisions: list[dict[str, Any]] = []
+    for page in request.get("pages") or []:
+        if not isinstance(page, dict):
+            continue
+        allowed = [
+            str(item) for item in page.get("allowed_decisions") or []
+            if str(item)
+        ]
+        if not allowed:
+            raise ValueError("visual_source_bound_decision_unavailable")
+        preferred = next(
+            (
+                item for item in (
+                    "text_native",
+                    "formula",
+                    "code",
+                    "table",
+                    "data",
+                    "source_excerpt",
+                    "image",
+                    "experiment",
+                )
+                if item in allowed
+            ),
+            "",
+        )
+        if not preferred:
+            # A diagram requires provider-authored, source-grounded nodes and
+            # edges.  Never fabricate those just to make a failed call green.
+            raise ValueError("visual_source_bound_payload_required")
+        decision = {
+            "page_id": str(page.get("page_id") or ""),
+            "decision": preferred,
+            "source_block_ids": [
+                str(item) for item in page.get("source_block_ids") or []
+                if str(item)
+            ],
+            "resolved_template_layout_id": str(
+                page.get("template_layout_id") or ""
+            ),
+            "provider": "codex-structured-fallback",
+            "model": "deterministic-source-bound-visual",
+            "degraded": True,
+            "degradation_reason": reason,
+        }
+        if preferred in {"image", "experiment"}:
+            decision["source_asset_ids"] = [
+                str(item) for item in page.get("source_asset_ids") or []
+                if str(item)
+            ]
+        decisions.append(decision)
+    if not decisions:
+        raise ValueError("visual_source_bound_pages_unavailable")
+    return {
+        "schema_version": "slide_visual_batch_response_v2",
+        "provider": "codex-structured-fallback",
+        "model": "deterministic-source-bound-visual",
+        "attempts": 1,
+        "decisions": decisions,
+    }
+
+
 def build_ai_base_story_planner_v6() -> Planner:
     provider = AIBase(provider_profile="ppt")
 
@@ -4136,7 +4613,25 @@ def build_ai_base_story_planner_v6() -> Planner:
                     telemetry_sink=telemetry.append,
                 )
         except Exception as error:
-            raise AIPlannerInvocationError(error, telemetry=telemetry) from error
+            invocation_error = AIPlannerInvocationError(
+                error,
+                telemetry=telemetry,
+            )
+            code, _retryable = _failure_category(
+                invocation_error,
+                prefix="story_ai_batch",
+            )
+            if code in {
+                "story_ai_batch_authentication",
+                "story_ai_batch_balance_unavailable",
+                "story_ai_batch_rate_limited",
+            }:
+                try:
+                    value = _deterministic_safe_partition_story_response(request)
+                except ValueError:
+                    raise invocation_error from error
+                return _AIPlannerResponse(value, telemetry=telemetry)
+            raise invocation_error from error
         value = provider._extract_json(response or "") or {}
         records = _sanitize_provider_attempts(telemetry)
         if records:
@@ -4191,7 +4686,28 @@ def build_ai_base_visual_planner_v2() -> Planner:
                     telemetry_sink=telemetry.append,
                 )
         except Exception as error:
-            raise AIPlannerInvocationError(error, telemetry=telemetry) from error
+            invocation_error = AIPlannerInvocationError(
+                error,
+                telemetry=telemetry,
+            )
+            code, _retryable = _failure_category(
+                invocation_error,
+                prefix="visual_ai_batch",
+            )
+            if code in {
+                "visual_ai_batch_authentication",
+                "visual_ai_batch_balance_unavailable",
+                "visual_ai_batch_rate_limited",
+            }:
+                try:
+                    value = _deterministic_source_bound_visual_response(
+                        request,
+                        reason=code,
+                    )
+                except ValueError:
+                    raise invocation_error from error
+                return _AIPlannerResponse(value, telemetry=telemetry)
+            raise invocation_error from error
         value = provider._extract_json(response or "") or {}
         records = _sanitize_provider_attempts(telemetry)
         if records:

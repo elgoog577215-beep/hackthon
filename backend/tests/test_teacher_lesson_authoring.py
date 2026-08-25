@@ -15,6 +15,7 @@ from teacher_lesson_authoring import (
     TeacherLessonAuthoringError,
     TeacherLessonAuthoringRepository,
     TeacherLessonAuthoringService,
+    align_teacher_lesson_plan_to_arrangement,
     build_uploaded_ppt_review_report,
     extract_uploaded_pptx_evidence,
     extract_uploaded_pptx_review,
@@ -26,6 +27,7 @@ from teacher_lesson_authoring import (
     validate_teacher_lesson_plan,
 )
 from teacher_script import (
+    compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     compile_teacher_script_section,
     normalize_teacher_script_section,
@@ -200,6 +202,82 @@ def test_standard_lesson_plan_quality_gate_is_shared_by_draft_and_confirmation()
     }
 
 
+def test_lesson_plan_clock_and_module_order_follow_confirmed_arrangement():
+    arrangement = {
+        "blocks": [
+            {
+                "block_id": "a-1",
+                "section_node_id": "L2-1-1",
+                "module_id": "lesson_goal",
+                "name": "目标",
+                "planned_minutes": 10,
+            },
+            {
+                "block_id": "a-2",
+                "section_node_id": "L2-1-1",
+                "module_id": "core_explanation",
+                "name": "讲解",
+                "planned_minutes": 11,
+            },
+            {
+                "block_id": "a-3",
+                "section_node_id": "L2-1-2",
+                "module_id": "worked_example",
+                "name": "例题",
+                "planned_minutes": 11,
+            },
+            {
+                "block_id": "a-4",
+                "section_node_id": "L2-1-2",
+                "module_id": "feedback_check",
+                "name": "检查",
+                "planned_minutes": 13,
+            },
+        ],
+    }
+    drifting = {
+        "schema_version": "course_teaching_plan_v3",
+        "sections": [
+            {
+                "node_id": "L2-1-1",
+                "learning_objective": "理解第一部分。",
+                "key_points": ["第一部分"],
+                "teaching_modules": [{
+                    "module_id": "core_explanation",
+                    "planned_minutes": 65,
+                    "teacher_activity": "讲解第一部分。",
+                    "student_activity": "完成判断。",
+                }],
+            },
+            {
+                "node_id": "L2-1-2",
+                "learning_objective": "理解第二部分。",
+                "key_points": ["第二部分"],
+                "teaching_modules": [],
+            },
+        ],
+    }
+
+    aligned = align_teacher_lesson_plan_to_arrangement(drifting, arrangement)
+
+    assert aligned["lesson_duration_minutes"] == 45
+    assert [
+        module["module_id"]
+        for section in aligned["sections"]
+        for module in section["teaching_modules"]
+    ] == ["lesson_goal", "core_explanation", "worked_example", "feedback_check"]
+    assert [
+        module["planned_minutes"]
+        for section in aligned["sections"]
+        for module in section["teaching_modules"]
+    ] == [10, 11, 11, 13]
+    assert validate_teacher_lesson_plan(
+        aligned,
+        expected_section_ids=["L2-1-1", "L2-1-2"],
+        expected_total_minutes=45,
+    )["passed"] is True
+
+
 def test_teacher_script_inherits_confirmed_archetype_and_module_order():
     outline = {
         "node_id": "L2-1-1",
@@ -316,6 +394,71 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
     }
 
 
+def test_confirmed_script_blocks_compile_into_teaching_page_groups():
+    section_ids = [f"L2-1-{index}" for index in range(1, 5)]
+    source = {
+        "course_id": "linear-algebra-chapter-one",
+        "nodes": [
+            {
+                "node_id": "L1-1",
+                "parent_node_id": "root",
+                "node_level": 1,
+                "node_name": "第1章 行列式",
+            },
+            *[
+                {
+                    "node_id": section_id,
+                    "parent_node_id": "L1-1",
+                    "node_level": 2,
+                    "node_name": f"1.{index} 小节",
+                }
+                for index, section_id in enumerate(section_ids, start=1)
+            ],
+        ],
+    }
+    block_counts = [8, 7, 7, 7]
+    script_sections = []
+    for section_id, block_count in zip(section_ids, block_counts):
+        script_sections.append({
+            "section_node_id": section_id,
+            "blocks": [
+                {
+                    "block_id": f"{section_id}-block-{index}",
+                    "module_id": "core_explanation",
+                    "role": "concept",
+                    "title": f"{section_id} 教学点 {index}",
+                    "content": f"这是第 {index} 个完整教学点的定义、条件与边界。",
+                    "planned_minutes": 2 if index <= 4 else 1,
+                }
+                for index in range(1, block_count + 1)
+            ],
+        })
+    document, _view, _synthetic_id = teacher_lesson_v6_source(
+        source,
+        lesson_unit_id="L1-1",
+        plan_revision={
+            "revision_id": "plan-linear-algebra",
+            "plan": {
+                "schema_version": "course_teaching_plan_v3",
+                "sections": [
+                    {"node_id": section_id, "teaching_modules": []}
+                    for section_id in section_ids
+                ],
+            },
+        },
+        script_revision={
+            "revision_id": "script-linear-algebra",
+            "sections": script_sections,
+        },
+    )
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+
+    assert len(document.blocks) == 29
+    assert 10 <= len(graph.units) <= 14
+    assert sum(len(unit.primary_block_ids) for unit in graph.units) == 29
+    assert all(len(unit.primary_block_ids) <= 3 for unit in graph.units)
+
+
 @pytest.mark.parametrize(
     ("module_id", "content", "missing_code"),
     [
@@ -356,7 +499,7 @@ def test_teacher_script_enforces_discipline_artifacts(module_id, content, missin
     }
 
 
-def test_teacher_script_rejects_unclosed_code_and_math_delimiters():
+def test_teacher_script_repairs_unambiguous_math_but_still_rejects_code_fence():
     outline = {
         "node_id": "L2-1-1",
         "node_name": "完整性检查",
@@ -376,7 +519,7 @@ def test_teacher_script_rejects_unclosed_code_and_math_delimiters():
         item["code"] for item in compiled["quality_report"]["blocking_issues"]
     }
     assert "teacher_script:unclosed_code_fence" in codes
-    assert "teacher_script:unclosed_math_delimiter" in codes
+    assert "teacher_script:unclosed_math_delimiter" not in codes
 
     inline = compile_teacher_script_section(
         f"## {title}\n\n公式在返回前被截断：$F_x=6-3",
@@ -386,7 +529,20 @@ def test_teacher_script_rejects_unclosed_code_and_math_delimiters():
         item["code"]
         for item in inline["quality_report"]["blocking_issues"]
     }
-    assert "teacher_script:unclosed_math_delimiter" in inline_codes
+    assert "teacher_script:unclosed_math_delimiter" not in inline_codes
+    assert inline["blocks"][0]["content"].endswith("$")
+    assert inline["format_repairs"]
+
+    cross_line = compile_teacher_script_section(
+        f"## {title}\n\n$u > 0\n\n随后得到结论。\n\nx^2 < 1$",
+        contract,
+    )
+    assert "$u > 0$" in cross_line["blocks"][0]["content"]
+    assert "$x^2 < 1$" in cross_line["blocks"][0]["content"]
+    assert "teacher_script:unclosed_math_delimiter" not in {
+        item["code"]
+        for item in cross_line["quality_report"]["blocking_issues"]
+    }
 
 
 def test_teacher_script_rejects_classroom_cues_internal_language_and_truncation():
@@ -731,6 +887,63 @@ def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
 
     assert completed["status"] == "completed", completed.get("error")
     assert generated == ["core_explanation"]
+
+
+def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(plan),
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [{
+            "module_id": "core_explanation",
+            "label": "核心教学",
+        }],
+    }
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-provider-fallback",
+    )
+    warnings = [{
+        "code": "lesson_script_block_local_fallback",
+        "block_id": "block-1",
+        "reason": "AIProviderUnavailable",
+    }]
+
+    async def fallback_generator(_outline, _plan, module, _completed):
+        return compile_teacher_script_fallback_content(module)
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=fallback_generator,
+        generation_warnings=warnings,
+    ))
+
+    assert completed["status"] == "completed_with_warnings"
+    assert completed["completed_blocks"] == completed["total_blocks"] == 1
+    assert completed["warnings"] == warnings
+    revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
+    assert revision["generation_source"] == (
+        "model_block_pipeline_with_local_fallback"
+    )
+    assert revision["sections"][0]["quality_report"]["passed"] is True
 
 
 def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
@@ -2426,8 +2639,20 @@ def test_teacher_lesson_api_generates_only_requested_lesson(tmp_path):
     assert set(assets) == {"L1-2"}
     generated_section = assets["L1-2"]["revisions"][0]["plan"]["sections"][0]
     assert generated_section["node_id"] == "L2-2-1"
-    assert generated_section["teaching_modules"] == []
-    assert generated_section["teacher_activities"] == []
+    assert generated_section["teaching_modules"]
+    assert all(
+        item["arrangement_block_id"]
+        for item in generated_section["teaching_modules"]
+    )
+    confirmed_arrangement = repository.confirmed_arrangement("course-1", "L1-2")
+    assert sum(
+        item["planned_minutes"]
+        for item in generated_section["teaching_modules"]
+    ) == sum(
+        item["planned_minutes"]
+        for item in confirmed_arrangement["blocks"]
+    )
+    assert generated_section["teacher_activities"]
     generated_revision = assets["L1-2"]["revisions"][0]
     assert generated_revision["status"] == "needs_ai_review"
     assert generated_revision["quality_report"]["passed"] is False

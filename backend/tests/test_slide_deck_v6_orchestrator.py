@@ -840,6 +840,42 @@ async def test_deterministic_story_fallback_is_saved_as_blocked_manuscript(
 
 
 @pytest.mark.asyncio
+async def test_deterministic_story_fallback_can_form_reviewable_manuscript(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    async def fallback_story(request):
+        payload = await _story_planner(request)
+        payload["provider"] = "codex-structured-fallback"
+        payload["model"] = "deterministic-safe-partition"
+        return payload
+
+    result = await orchestrator.build(
+        task_id="task-v6-fallback-reviewable-manuscript",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=fallback_story,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+        publish_result=False,
+        manuscript_only=True,
+    )
+
+    assert result["status"] == "manuscript_ready"
+    assert result["published"] is False
+    assert result["ppt_manuscript"]["quality_status"] == "passed"
+    assert representations.load(document.course_id).representations == []
+    candidate = candidates.load("task-v6-fallback-reviewable-manuscript")
+    assert candidate["story_plan"]["batches"][0]["provider"] == (
+        "codex-structured-fallback"
+    )
+
+
+@pytest.mark.asyncio
 async def test_manuscript_only_then_confirmed_build_are_two_distinct_tasks(
     tmp_path: Path,
 ) -> None:

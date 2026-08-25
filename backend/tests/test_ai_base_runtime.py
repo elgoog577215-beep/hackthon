@@ -84,6 +84,25 @@ def test_account_balance_failure_is_provider_wide() -> None:
     ) is False
 
 
+def test_provider_authentication_circuit_expires_for_task_resume(monkeypatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER_FAILURE_COOLDOWN_SECONDS", "1")
+    service = AIBase()
+
+    service._block_provider("authentication_failed")
+    service._block_modelscope_fallback("authentication_failed")
+
+    assert service._active_provider_failure() == "authentication_failed"
+    assert (
+        service._active_modelscope_fallback_failure()
+        == "authentication_failed"
+    )
+    service._provider_failure_until = time.monotonic() - 1
+    service._modelscope_fallback_failure_until = time.monotonic() - 1
+
+    assert service._active_provider_failure() is None
+    assert service._active_modelscope_fallback_failure() is None
+
+
 @pytest.mark.asyncio
 async def test_call_llm_does_not_print_reasoning_content(monkeypatch, capsys, caplog):
     monkeypatch.setenv("AI_API_KEY", "test-key")

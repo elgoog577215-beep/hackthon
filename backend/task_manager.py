@@ -2084,7 +2084,10 @@ class TaskManager:
             chapter["section_count"] = count
 
         request_fingerprint = str(outline_stage.get("request_fingerprint") or "")
-        request = task.get("request_snapshot") or {}
+        request = {
+            **deepcopy(course_data.get("generation_request") or {}),
+            **deepcopy(task.get("request_snapshot") or {}),
+        }
         topic = str(
             request.get("subject")
             or course_data.get("course_name")
@@ -4877,9 +4880,28 @@ class TaskManager:
                 recovery=recovery,
             )
 
+        checkpoint_course = self._load_task_course(task_id) or {}
+        checkpoint_request = checkpoint_course.get("generation_request") or {}
         async with self._lock:
             if task.get("status") in {"pending", "running"}:
                 return {"status": "already_active", "task": self._task_view(task)}
+            # Terminal task summaries intentionally omit the large request
+            # snapshot.  A resumed generation task must hydrate that request
+            # from its isolated workspace before it becomes active again;
+            # otherwise defaults silently replace the teacher's confirmed
+            # course shape and can regenerate a different outline.
+            if (
+                task.get("type") in {
+                    "course_generation",
+                    "teacher_outline_generation",
+                }
+                and isinstance(checkpoint_request, dict)
+                and checkpoint_request
+            ):
+                task["request_snapshot"] = {
+                    **deepcopy(checkpoint_request),
+                    **deepcopy(task.get("request_snapshot") or {}),
+                }
             task["status"] = "pending"
             task["phase"] = "quality_repair" if quality_repair else "resuming"
             task["current_phase"] = task["phase"]
@@ -6728,7 +6750,10 @@ class TaskManager:
             )
             return
 
-        request = task.get("request_snapshot") or course_data.get("generation_request") or {}
+        request = {
+            **deepcopy(course_data.get("generation_request") or {}),
+            **deepcopy(task.get("request_snapshot") or {}),
+        }
         guided_workflow = task.get("guided_workflow")
         guided = isinstance(guided_workflow, dict)
         # Teacher authoring owns everything after the confirmed outline through
@@ -8002,6 +8027,7 @@ class TaskManager:
                 request_snapshot = task.get("request_snapshot")
                 if (
                     isinstance(request_snapshot, dict)
+                    and request_snapshot
                     and (
                         str(task.get("type") or "") in {
                             "course_generation",
@@ -8046,6 +8072,7 @@ class TaskManager:
                         )
                 if task.get("type") not in {
                     "course_generation",
+                    "teacher_outline_generation",
                     "teaching_representation_build",
                     "slide_deck_variant_build",
                 }:

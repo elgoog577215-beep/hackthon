@@ -18,6 +18,7 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    _audience_ready_title_fragment,
     _bounded_slot_content,
     _bounded_source_title_windows,
     _compile_course_agenda_pages,
@@ -25,6 +26,7 @@ from slide_deck_v6 import (
     _continuation_title_candidates,
     _display_excerpt,
     _ellipsis_maps_to_frozen_source,
+    _ppt_manuscript_quality_issues,
     _protected_tokens,
     build_signature_v6,
     classify_v6_failure,
@@ -78,6 +80,12 @@ def test_sentence_excerpt_never_exceeds_its_template_budget():
     assert len(excerpt) <= 35
     assert excerpt.endswith("…")
     assert excerpt[:-1] in source
+
+
+def test_continuation_title_projection_removes_production_language() -> None:
+    assert _audience_ready_title_fragment("提供一组难度递进的题目") == "难度递进练习"
+    assert _audience_ready_title_fragment("用几何直观建立行列式") == "行列式的几何直观"
+    assert _audience_ready_title_fragment("选取一个二阶可逆矩阵") == "二阶可逆矩阵示例"
 
 
 def test_continuation_title_compacts_a_long_formula_chain() -> None:
@@ -583,6 +591,32 @@ def test_teacher_script_projection_removes_spoken_setup_but_keeps_direct_task() 
     assert "展示标准解答" not in projected
 
 
+def test_teacher_script_projection_turns_production_copy_into_learner_copy() -> None:
+    source = (
+        "用具体任务而非抽象描述呈现目标，例如'课结束前你能正确计算矩阵乘法'。"
+        "给出 3 道练习题，覆盖加法、数乘和乘法。"
+        "请 2 名学习者上台写答案，逐题点评。"
+    )
+    block = CourseBlock(
+        block_id="learner-ready-copy",
+        section_id="source",
+        position=0,
+        role="activity",
+        payload={
+            "markdown": source,
+            "module_id": "learner_action",
+        },
+    )
+
+    projected = block_presentation_text(block)
+
+    assert "课结束前你能正确计算矩阵乘法" in projected
+    assert "3 道练习题，覆盖加法、数乘和乘法" in projected
+    assert "用具体任务" not in projected
+    assert "给出" not in projected
+    assert "2 名学习者" not in projected
+
+
 def test_source_authored_ellipsis_survives_noncontiguous_classroom_projection() -> None:
     source = (
         "教师补充一段只进入讲者备注的说明。"
@@ -610,6 +644,31 @@ def test_teacher_script_projection_accepts_explicit_slide_copy_without_rewriting
 
     assert block_presentation_text(block) == "任务：独立画出受力图，并标注所有力的方向。"
     assert block_source_text(block).startswith("请大家")
+
+
+def test_teacher_script_projection_preserves_matrix_rows_inside_semicolons() -> None:
+    source = (
+        "展开过程：板书例2：A=[1,2,3;0,1,4;5,6,0]，"
+        "构造增广矩阵 [A|I]，逐步进行初等行变换，完成验算。"
+        "任务与检验：抄录例2，跟随讲解过程计算。"
+    )
+    block = CourseBlock(
+        block_id="matrix-example",
+        section_id="source",
+        position=0,
+        role="example",
+        payload={
+            "markdown": source,
+            "module_id": "math_worked_example",
+        },
+    )
+
+    projected = block_presentation_text(block)
+
+    assert "A=[1,2,3;0,1,4;5,6,0]" in projected
+    assert "展开过程" not in projected
+    assert "板书" not in projected
+    assert "抄录例2" not in projected
 
 
 def test_inline_formula_teacher_block_is_a_formula_artifact() -> None:
@@ -1009,6 +1068,66 @@ def test_manuscript_is_frozen_before_deck_compilation() -> None:
     ]
 
 
+def test_manuscript_quality_rejects_teacher_delivery_cues_on_canvas() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="table" if page.template_layout_id.endswith("/evidence-table") else "text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    manuscript.pages[0].visible_copy = ["板书并等待学习者回答。"]
+
+    issues = _ppt_manuscript_quality_issues(manuscript.pages)
+
+    assert any(
+        issue.code == "ppt_manuscript_delivery_cue_visible"
+        for issue in issues
+    )
+
+
+def test_manuscript_quality_rejects_production_instructions_as_titles() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="table" if page.template_layout_id.endswith("/evidence-table") else "text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    manuscript.pages[0].title = "给出 3 道练习题"
+
+    issues = _ppt_manuscript_quality_issues(manuscript.pages)
+
+    assert any(
+        issue.code == "ppt_manuscript_title_not_audience_ready"
+        for issue in issues
+    )
+
+
 def test_deck_compilation_rejects_a_manuscript_changed_after_freeze() -> None:
     document = _cross_subject_document()
     graph, template, story = _valid_story(document)
@@ -1158,6 +1277,15 @@ def test_story_plan_rejects_a_title_that_ends_on_a_dangling_connector() -> None:
         validate_slide_story_plan_v3(story, graph, template)
 
 
+def test_story_plan_rejects_a_title_that_ends_mid_enumeration() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "依次给出二阶、三阶"
+
+    with pytest.raises(V6BuildError, match="story_title_incomplete"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
 def test_story_plan_rejects_a_structural_label_instead_of_a_specific_title() -> None:
     document = refresh_document_revision(CourseDocument(
         course_id="generic-field-title-specificity",
@@ -1176,6 +1304,24 @@ def test_story_plan_rejects_a_structural_label_instead_of_a_specific_title() -> 
     ))
     graph, template, story = _valid_story(document)
     story.batches[0].pages[0].title = "项目名称"
+
+    with pytest.raises(V6BuildError, match="story_title_lacks_specificity"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_an_internal_lesson_module_label_as_title() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "核心教学"
+
+    with pytest.raises(V6BuildError, match="story_title_lacks_specificity"):
+        validate_slide_story_plan_v3(story, graph, template)
+
+
+def test_story_plan_rejects_a_production_instruction_as_title() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    story.batches[0].pages[0].title = "给出 3 道练习题"
 
     with pytest.raises(V6BuildError, match="story_title_lacks_specificity"):
         validate_slide_story_plan_v3(story, graph, template)
