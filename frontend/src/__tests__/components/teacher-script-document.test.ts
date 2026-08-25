@@ -144,6 +144,18 @@ describe('统一讲稿页面', () => {
     expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
+  it('允许课程工作台接管标题与操作栏，正文只保留小节和内容', () => {
+    const wrapper = mount(TeacherScriptDocument, {
+      props: { courseId: 'course-1', lesson, externalToolbar: true },
+      slots: { toolbar: '<div class="external-script-toolbar">讲稿操作</div>' },
+    })
+
+    expect(wrapper.find('.script-header').exists()).toBe(false)
+    expect(wrapper.find('.script-footer').exists()).toBe(false)
+    expect(wrapper.get('.external-script-toolbar').text()).toBe('讲稿操作')
+    expect(wrapper.find('.script-body').exists()).toBe(true)
+  })
+
   it('无讲稿时先收集需求并只触发一条生成链路', async () => {
     const emptyLesson = structuredClone(lesson)
     emptyLesson.script = { ...emptyLesson.script, current_revision_id: '', ready: false, sections: [] }

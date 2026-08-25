@@ -33,7 +33,7 @@
         'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
       }"
     >
-      <header v-if="activeStage !== 'lesson'" class="center-heading">
+      <header v-if="!['lesson', 'question-bank', 'script'].includes(activeStage)" class="center-heading">
         <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
         <button
           v-if="showOutlineWorkspace"
@@ -126,13 +126,13 @@
         @saved="handleCompanionSaved"
       />
 
-      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': activeStage === 'lesson' && lessonStore.lessons.length && !outlineGatePending }">
+      <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': ['lesson', 'script'].includes(activeStage) && lessonStore.lessons.length && !outlineGatePending }">
         <div class="lesson-workspace">
           <div class="lesson-stage-content">
         <nav
           v-if="lessonStore.lessons.length && !outlineGatePending"
           class="lesson-navigator"
-          :class="{ 'has-document-actions': lessonToolbarVisible }"
+          :class="{ 'has-document-actions': lessonPageHeaderVisible }"
           :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
         >
           <div class="lesson-heading-cluster">
@@ -186,20 +186,30 @@
               </nav>
               </div>
             </div>
-            <div v-if="lessonToolbarVisible" class="lesson-toolbar-status" role="status">
-              <LoaderCircle v-if="lessonConfirming" :size="14" class="spin" />
+            <div v-if="lessonPageHeaderVisible" class="lesson-toolbar-status" role="status">
+              <LoaderCircle v-if="activeStage === 'script' ? scriptGenerationBusy || scriptConfirming : lessonConfirming" :size="14" class="spin" />
               <Sparkles v-else-if="aiCandidatePending" :size="14" />
-              <Pencil v-else-if="lessonDocumentEditing" :size="14" />
-              <Check v-else-if="lessonPlanConfirmed" :size="14" />
-              <span>{{ lessonConfirming
-                ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+              <Pencil v-else-if="activeStage === 'script' ? scriptDocumentEditing : lessonDocumentEditing" :size="14" />
+              <Check v-else-if="activeStage === 'script' ? scriptConfirmed : lessonPlanConfirmed" :size="14" />
+              <span>{{ activeStage === 'script' && scriptGenerationBusy
+                ? t('courseWorkbench.scriptDocument.generating', '正在生成…')
+                : activeStage === 'script' && scriptConfirming
+                  ? t('courseWorkbench.scriptDocument.confirming', '正在确认…')
+                  : activeStage === 'lesson' && lessonConfirming
+                    ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
                 : aiCandidatePending
                   ? t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
-                  : lessonDocumentEditing
-                    ? t('courseWorkbench.lessonDocument.editing', '编辑中')
-                    : lessonPlanConfirmed
-                      ? t('courseWorkbench.lessonPlanConfirmed', '已确认')
-                      : t('courseWorkbench.lessonPlanPendingReview', '待确认') }}</span>
+                  : activeStage === 'script' && scriptDocumentEditing
+                    ? t('courseWorkbench.scriptDocument.editing', '编辑中')
+                    : activeStage === 'lesson' && lessonDocumentEditing
+                      ? t('courseWorkbench.lessonDocument.editing', '编辑中')
+                      : activeStage === 'script' && scriptConfirmed
+                        ? t('courseWorkbench.scriptDocument.confirmed', '已确认')
+                        : activeStage === 'lesson' && lessonPlanConfirmed
+                          ? t('courseWorkbench.lessonPlanConfirmed', '已确认')
+                          : activeStage === 'script' && !selectedLesson?.script.ready
+                            ? t('courseWorkbench.scriptPending', '待生成')
+                            : t('courseWorkbench.lessonPlanPendingReview', '待确认') }}</span>
             </div>
           </div>
           <div class="lesson-switch-actions">
@@ -381,6 +391,7 @@
             :generation-job="scriptJob"
             :generation-error="effectiveScriptGenerationError"
             :can-generate="Boolean(confirmedLessonRevision)"
+            external-toolbar
             @generate="generateScript"
             @cancel-generation="cancelScriptGeneration"
             @saved="handleScriptSaved"
@@ -391,7 +402,40 @@
             @ai-resolved="handleAiResolved"
             @ai-error="handleAiError"
             @ai-scope-change="handleScriptAiScopeChange"
-          />
+          >
+            <template #toolbar>
+              <div v-if="scriptToolbarVisible" class="lesson-document-toolbar" :aria-label="t('courseWorkbench.scriptDocument.actions', '讲稿操作')">
+                <div class="lesson-toolbar-actions">
+                  <template v-if="aiCandidatePending">
+                    <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiCandidate', 'AI 方案') }}</button>
+                    <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.scriptDocument.discardAi', '放弃') }}</button>
+                    <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
+                      <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
+                      <Check v-else :size="15" />
+                      {{ aiCollaborationBusy ? t('courseWorkbench.scriptDocument.applyingAi', '正在采用…') : t('courseWorkbench.scriptDocument.applyAi', '采用') }}
+                    </button>
+                  </template>
+                  <template v-else-if="scriptDocumentEditing">
+                    <button type="button" :disabled="scriptDocumentSaving" @click="cancelScriptEditing"><X :size="15" />{{ t('courseWorkbench.scriptDocument.cancel', '取消') }}</button>
+                    <button class="primary-action" type="button" :disabled="scriptDocumentSaving" @click="saveScriptDraft">
+                      <LoaderCircle v-if="scriptDocumentSaving" :size="15" class="spin" />
+                      <Check v-else :size="15" />
+                      {{ scriptDocumentSaving ? t('courseWorkbench.scriptDocument.saving', '正在保存…') : t('courseWorkbench.scriptDocument.finishEditing', '完成编辑') }}
+                    </button>
+                  </template>
+                  <template v-else>
+                    <button type="button" :disabled="scriptDocumentAiBusy || scriptConfirming" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
+                    <button type="button" :disabled="scriptConfirming" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲稿') }}</button>
+                    <button v-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming" @click="confirmScript">
+                      <LoaderCircle v-if="scriptConfirming" :size="15" class="spin" />
+                      <Check v-else :size="15" />
+                      {{ scriptConfirming ? t('courseWorkbench.scriptDocument.confirming', '正在确认…') : t('courseWorkbench.scriptDocument.confirm', '确认本讲讲稿') }}
+                    </button>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </TeacherScriptDocument>
         </template>
 
         <template v-else-if="activeStage === 'ppt'">
@@ -538,6 +582,14 @@ type ProductionAiDocumentHandle = {
   focusReferenceSources?: () => void
   selectAiScope?: (scopeId: string) => boolean
 }
+type ScriptDocumentHandle = ProductionAiDocumentHandle & {
+  editing: boolean
+  saving: boolean
+  aiBusy: boolean
+  beginEditing: () => void
+  cancelEditing: () => void
+  saveDraft: () => Promise<void>
+}
 type AiLessonPlanModule = {
   module_id?: string
   planned_minutes?: number | null
@@ -571,7 +623,7 @@ const lessonOutlineTrigger = ref<HTMLButtonElement | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const workbenchCenter = ref<HTMLElement | null>(null)
 const lessonPlanDocument = ref<LessonPlanDocumentHandle | null>(null)
-const scriptDocument = ref<ProductionAiDocumentHandle | null>(null)
+const scriptDocument = ref<ScriptDocumentHandle | null>(null)
 const questionBankPanel = ref<ProductionAiDocumentHandle | null>(null)
 const aiCollaborationOpen = ref(false)
 const aiSourcesOpen = ref(false)
@@ -872,12 +924,17 @@ const aiCandidateImpacts = computed(() => {
 })
 const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const lessonToolbarVisible = computed(() => activeStage.value === 'lesson' && Boolean(workingLessonRevision.value && selectedLesson.value) && !lessonGenerationActive.value)
+const lessonPageHeaderVisible = computed(() => ['lesson', 'script'].includes(activeStage.value) && Boolean(selectedLesson.value))
 const lessonDocumentEditing = computed(() => Boolean(lessonPlanDocument.value?.editing))
 const lessonDocumentSaving = computed(() => Boolean(lessonPlanDocument.value?.saving))
 const lessonDocumentAiBusy = computed(() => Boolean(lessonPlanDocument.value?.aiBusy))
 const lessonDocumentQualityBlocked = computed(() => Boolean(lessonPlanDocument.value?.qualityBlocked))
 const lessonDocumentQualityBlockMessage = computed(() => String(lessonPlanDocument.value?.qualityBlockMessage || ''))
 const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.confirmed))
+const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Boolean(selectedLesson.value?.script?.ready) && !scriptGenerationBusy.value)
+const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
+const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving))
+const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy))
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskStatus = computed(() => String(generationTask.value?.status || ''))
 const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.value))
@@ -1402,6 +1459,9 @@ async function confirmLessonPlan() { const revision = workingLessonRevision.valu
 function beginLessonPlanEditing() { lessonPlanDocument.value?.beginEditing() }
 function cancelLessonPlanEditing() { lessonPlanDocument.value?.cancelEditing() }
 async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft() }
+function beginScriptEditing() { scriptDocument.value?.beginEditing() }
+function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
+async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
 function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
@@ -1698,6 +1758,8 @@ onBeforeUnmount(() => {
 .lesson-toolbar-actions .primary-action{margin-left:3px;border-color:#d7ddea;color:#3730a3;background:#fff}
 .lesson-toolbar-actions .primary-action:hover:not(:disabled){border-color:#c6cbe0;background:#f7f7ff}
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
+.workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff}
+.workbench-center.is-lesson-workspace :deep(.script-document .lesson-document-toolbar){border-right:0;border-left:0}
 @media(max-width:1320px){.lesson-toolbar-actions button:not(.primary-action){width:34px;padding:0;font-size:0}.lesson-toolbar-actions button:not(.primary-action) svg{display:block}}
 @media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
 </style>

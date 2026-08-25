@@ -4,9 +4,19 @@
     :class="`is-${workspaceMode}`"
     :aria-label="t('courseWorkbench.stages.questionBank', '题库')"
   >
+    <header class="question-bank-page-heading">
+      <strong>{{ t('questionBank.workspace.courseBank', '课程题库') }}</strong>
+      <span role="status">
+        <LoaderCircle v-if="loading || rebuilding" :size="14" class="spin" />
+        <WandSparkles v-else-if="pendingAiCandidate" :size="14" />
+        <CircleCheck v-else-if="items.length" :size="14" />
+        <LibraryBig v-else :size="14" />
+        {{ workspaceStatus }}
+      </span>
+    </header>
+    <div class="question-bank-document-surface">
     <header class="question-bank-workspace-header">
       <div class="question-bank-workspace-identity">
-        <small>{{ t('questionBank.workspace.courseBank', '课程题库') }}</small>
         <strong>{{ workspaceTitle }}</strong>
         <span>{{ workspaceSummary }}</span>
       </div>
@@ -873,6 +883,7 @@
     </aside>
     </template>
     </div>
+    </div>
   </section>
 </template>
 
@@ -1095,9 +1106,14 @@ const workspaceSummary = computed(() => {
   if (workspaceMode.value === 'import') return t('questionBank.workspace.importSummary', '识别外部试卷，确认后写入课程题库')
   if (workspaceMode.value === 'generate') return t('questionBank.workspace.generateSummary', '按课程范围与资料生成可审阅题目')
   if (loading.value) return t('questionBank.loading', '正在读取题库')
-  return t('questionBank.workspace.bankSummary', '{total} 道题目 · {published} 道已发布')
-    .replace('{total}', String(activeItems.value.length))
-    .replace('{published}', String(publishedCount.value))
+  return t('questionBank.workspace.bankSummary', '浏览、审核并组卷当前课程题目')
+})
+const workspaceStatus = computed(() => {
+  if (loading.value) return t('questionBank.loading', '正在读取题库')
+  if (rebuilding.value) return t('questionBank.studio.generating', '正在智能出题')
+  if (pendingAiCandidate.value) return t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
+  if (items.value.length) return t('questionBank.workspace.publishedStatus', '{count} 道已发布').replace('{count}', String(publishedCount.value))
+  return t('questionBank.workspace.emptyStatus', '尚无题目')
 })
 const totalChapters = computed(() => Number(
   chapterRebuild.value.total_chapters || 0,
@@ -1955,10 +1971,14 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 </script>
 
 <style scoped>
-.question-bank-panel { height:calc(100vh - 196px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; padding:0; border:1px solid #dfe5ee; border-radius:14px; color:#263147; background:#fff; box-shadow:0 8px 24px rgba(30,41,59,.045); }
+.question-bank-panel { height:calc(100vh - 128px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:12px; overflow:visible; padding:0; color:#263147; background:transparent; }
+.question-bank-page-heading { min-height:52px; display:flex; align-items:center; gap:12px; padding:0 4px; }
+.question-bank-page-heading>strong { min-width:0; overflow:hidden; color:#202a3d; font-size:16px; font-weight:760; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.question-bank-page-heading>span { flex:none; display:inline-flex; align-items:center; gap:5px; color:#687386; font-size:11.5px; font-weight:680; white-space:nowrap; }
+.question-bank-page-heading>span svg { color:#667085; }
+.question-bank-document-surface { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr); overflow:hidden; border:1px solid #dfe5ee; border-radius:14px; background:#fff; box-shadow:0 8px 24px rgba(30,41,59,.045); }
 .question-bank-workspace-header { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:10px 18px 10px 20px; border-bottom:1px solid #e7ebf2; background:#fff; }
-.question-bank-workspace-identity { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:baseline; gap:3px 10px; }
-.question-bank-workspace-identity small { grid-row:1/3; align-self:center; padding-right:10px; border-right:1px solid #e2e7ef; color:#6864d9; font-size:10px; font-weight:800; letter-spacing:.03em; white-space:nowrap; }
+.question-bank-workspace-identity { min-width:0; display:grid; gap:3px; }
 .question-bank-workspace-identity strong { overflow:hidden; color:#202a3d; font-size:14px; font-weight:750; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
 .question-bank-workspace-identity span { overflow:hidden; color:#7a8699; font-size:10.5px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
 .question-bank-workspace-actions { flex:0 0 auto; display:flex; align-items:center; gap:7px; }
@@ -2171,6 +2191,6 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .spin { animation: question-bank-spin .9s linear infinite; }
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
 @media (max-width: 900px) { .question-review-item__summary-main { grid-template-columns:auto minmax(0,1fr); }.question-review-item__meta { grid-column:1/-1; max-width:none; } }
-@media (max-width: 720px) { .question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-scope,.question-intelligence-grid,.question-generation-option-list { grid-template-columns:1fr; }.question-intelligence-grid article,.question-generation-toggle { padding:8px 0; }.question-intelligence-grid article+article,.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
+@media (max-width: 720px) { .question-bank-page-heading { min-height:44px; }.question-bank-page-heading>span { font-size:0; }.question-bank-workspace-header { align-items:flex-start; flex-direction:column; gap:8px; }.question-bank-workspace-actions { width:100%; flex-wrap:wrap; justify-content:flex-end; }.question-generation-studio__header { align-items:flex-start; }.question-generation-flow { padding-inline:16px; }.question-generation-step { grid-template-columns:1fr; gap:10px; }.question-generation-scope,.question-intelligence-grid,.question-generation-option-list { grid-template-columns:1fr; }.question-intelligence-grid article,.question-generation-toggle { padding:8px 0; }.question-intelligence-grid article+article,.question-generation-toggle+.question-generation-toggle { border-top:1px solid #edf0f4; border-left:0; }.question-generation-studio>footer { padding-inline:16px; }.question-bank-panel__header-action { align-items:stretch; flex-direction:column; gap:10px; }.question-bank-panel__header-buttons { width:100%; flex-wrap:wrap; }.question-bank-panel__header-buttons button { flex:1; }.question-bank-summary { grid-template-columns:repeat(2,minmax(0,1fr)); padding:0; }.question-bank-summary article { padding:9px 10px; }.question-bank-summary article + article { border-left:0; }.question-bank-summary article:nth-child(even) { border-left:1px solid var(--lz-border); }.question-bank-summary article:nth-child(n+3) { border-top:1px solid var(--lz-border); }.assessment-matrix>header { align-items:flex-start; flex-direction:column; }.assessment-matrix__summary { text-align:left; }.assessment-matrix__rows article { grid-template-columns:minmax(0,1fr) auto auto; }.assessment-matrix__group--issues .assessment-matrix__rows article { grid-template-columns:1fr auto; }.assessment-matrix__group--issues .assessment-matrix__rows article>button { grid-column:1/-1; justify-self:start; }.assessment-matrix__covered-toggle { align-items:flex-start; flex-direction:column; }.assessment-matrix__pagination { grid-template-columns:1fr; justify-items:start; }.assessment-matrix__page-buttons { max-width:100%; flex-wrap:wrap; }.question-solution-diff { grid-template-columns:1fr; }.question-browser>header,.question-browser__controls { align-items:stretch; flex-direction:column; }.question-browser__controls label { min-width:0; }.question-review-item__summary { grid-template-columns:1fr; gap:8px; }.question-review-item__summary-action { justify-content:space-between; }.question-review-item__preview { white-space:normal; display:-webkit-box; overflow:hidden; -webkit-box-orient:vertical; -webkit-line-clamp:2; } }
 @media (max-width: 720px) { .exam-paper-bar { align-items:stretch; flex-direction:column; }.exam-paper-bar__actions { justify-content:space-between; }.exam-paper-bar__actions>span { max-width:160px; } }
 </style>

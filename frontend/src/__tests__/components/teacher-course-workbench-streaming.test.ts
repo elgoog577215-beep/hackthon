@@ -52,7 +52,11 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       CourseReferenceTray: true,
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
-      TeacherScriptDocument: true,
+      TeacherScriptDocument: {
+        name: 'TeacherScriptDocument',
+        template: '<section data-testid="script-document-stub"><slot name="toolbar" /></section>',
+        emits: ['confirm'],
+      },
       MarkdownRenderer: true,
       CourseOutlineReview: {
         props: ['editable', 'variant', 'requiresConfirmation'],
@@ -406,11 +410,16 @@ describe('teacher course workbench outline streaming', () => {
     const confirmScript = vi.spyOn(lessonStore, 'confirmScript').mockResolvedValue({} as any)
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    wrapper.findComponent({ name: 'TeacherScriptDocument' }).vm.$emit('confirm')
+    expect(wrapper.find('.center-heading').exists()).toBe(false)
+    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第一讲')
+    expect(wrapper.get('.lesson-toolbar-status').text()).toContain('待确认')
+    expect(wrapper.find('.lesson-toolbar-status button').exists()).toBe(false)
+    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('确认本讲讲稿')
+    await wrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
     await flushPromises()
 
     expect(confirmScript).toHaveBeenCalledWith('course-1', 'L1-1', 'script-1')
-    expect(wrapper.get('.center-heading h2').text()).toBe('讲稿')
+    expect(wrapper.get('.stage-rail button.active').text()).toContain('讲稿')
   })
 
   it('大章目录以浮层按需展开，小节在正文顶部横向切换', async () => {

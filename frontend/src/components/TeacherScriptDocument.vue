@@ -1,6 +1,6 @@
 <template>
   <section class="script-document">
-    <header class="script-header">
+    <header v-if="!externalToolbar" class="script-header">
       <div class="script-title">
         <h3>{{ lesson.title }}</h3>
       </div>
@@ -87,6 +87,8 @@
       </button>
     </nav>
 
+    <slot v-if="externalToolbar" name="toolbar" />
+
     <article v-if="selectedNode" class="script-body" :data-state="lesson.script.ready ? 'ready' : 'partial'">
       <header>
         <span>{{ String(selectedNodeIndex + 1).padStart(2, '0') }}</span>
@@ -135,7 +137,7 @@
       <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
     </article>
 
-    <footer v-if="lesson.script.ready && !pendingCandidate && !editing && !confirmed" class="script-footer">
+    <footer v-if="!externalToolbar && lesson.script.ready && !pendingCandidate && !editing && !confirmed" class="script-footer">
       <button
         type="button"
         :disabled="confirming || !lesson.script.ready"
@@ -174,6 +176,7 @@ const props = withDefaults(defineProps<{
   canGenerate?: boolean
   assistantOpen?: boolean
   materialAssetIds?: string[]
+  externalToolbar?: boolean
 }>(), {
   confirmed: false,
   confirming: false,
@@ -184,6 +187,7 @@ const props = withDefaults(defineProps<{
   canGenerate: false,
   assistantOpen: false,
   materialAssetIds: () => [],
+  externalToolbar: false,
 })
 
 const emit = defineEmits<{
@@ -461,7 +465,18 @@ watch(() => props.generationJob, job => {
 
 watch(selectedNode, node => emit('ai-scope-change', { id: node?.section_node_id || '', title: node?.title || '' }), { immediate: true })
 
-defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, selectAiScope })
+defineExpose({
+  requestAiCandidate,
+  resolveAiCandidate,
+  focusAiCandidate,
+  selectAiScope,
+  editing,
+  saving,
+  aiBusy,
+  beginEditing,
+  cancelEditing,
+  saveDraft,
+})
 </script>
 
 <style scoped>
