@@ -1886,6 +1886,7 @@ onBeforeUnmount(() => {
 .is-ppt-stage .lesson-stage{overflow:hidden;border-radius:14px}
 .is-question-bank-workspace>.workbench-center{padding:24px 30px 0}
 .is-question-bank-workspace>.workbench-center>.center-heading,.is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .question-workbench-surface{width:100%;max-width:none}
+.is-question-bank-workspace>.workbench-center.is-lesson-workspace>.lesson-stage{width:100%;max-width:none;margin-inline:0}
 .is-question-bank-workspace>.workbench-center>.center-heading{margin-bottom:14px}
 .is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .lesson-stage-content{overflow:visible;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
 .is-question-bank-workspace .lesson-navigator{display:none}

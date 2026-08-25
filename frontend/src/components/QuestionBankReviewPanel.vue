@@ -460,7 +460,7 @@
 
       <section class="question-browser">
         <header>
-          <div>
+          <div class="visually-hidden">
             <strong>{{ t('questionBank.browseTitle', '浏览全部题目') }}</strong>
             <small>{{ browseItems.length }} / {{ activeItems.length }}</small>
           </div>
@@ -484,24 +484,20 @@
         </header>
       </section>
 
-      <section class="exam-paper-bar" aria-labelledby="exam-paper-bar-title">
+      <section
+        v-if="selectedQuestions.length"
+        class="exam-paper-bar"
+        aria-labelledby="exam-paper-bar-title"
+      >
         <div>
-          <FileCheck2 :size="17" />
+          <FilePlus2 :size="16" />
           <span>
-            <strong id="exam-paper-bar-title">{{ t('questionBank.examPaper.titlePlural') }}</strong>
-            <small v-if="selectedQuestions.length">
+            <strong id="exam-paper-bar-title">
               {{ t('questionBank.examPaper.selectedCount').replace('{count}', String(selectedQuestions.length)) }}
-            </small>
-            <small v-else-if="examPapers.length">
-              {{ t('questionBank.examPaper.savedCount').replace('{count}', String(examPapers.length)) }}
-            </small>
-            <small v-else>{{ t('questionBank.examPaper.selectionHint') }}</small>
+            </strong>
           </span>
         </div>
         <div class="exam-paper-bar__actions">
-          <span v-if="examPapers[0]" :title="examPapers[0].title">
-            {{ t('questionBank.examPaper.latest') }}：{{ examPapers[0].title }}
-          </span>
           <button
             type="button"
             :disabled="!selectedQuestions.length || !bundleRevisionId"
@@ -543,8 +539,14 @@
               :aria-controls="`question-details-${item.revision_id}`"
               @click="toggleQuestionDetails(item)"
             >
-            <span class="question-review-item__summary-main">
-              <span class="question-review-item__role">
+            <span
+              class="question-review-item__summary-main"
+              :class="{ 'has-role': showQuestionRole(item) }"
+            >
+              <span
+                v-if="showQuestionRole(item)"
+                class="question-review-item__role"
+              >
                 {{ roleLabel(item.assessment_role) }}
               </span>
               <strong class="question-review-item__preview">
@@ -552,14 +554,17 @@
               </strong>
               <span class="question-review-item__meta">
                 {{ sourceLabel(item.source_records) }}
-                · {{ item.validation_mode || '-' }}
+                · {{ validationModeLabel(item.validation_mode) }}
               </span>
             </span>
             <span class="question-review-item__summary-action">
-              <small :data-status="item.lifecycle_status">
+              <small
+                v-if="item.lifecycle_status !== 'approved'"
+                :data-status="item.lifecycle_status"
+              >
                 {{ itemStatusLabel(item) }}
               </small>
-              <span>
+              <span class="question-review-item__toggle-label">
                 {{ isQuestionExpanded(item)
                   ? t('questionBank.collapseReview', '收起审核')
                   : t('questionBank.expandReview', '展开审核') }}
@@ -588,7 +593,7 @@
               </div>
               <div>
                 <dt>{{ t('questionBank.validator', '验证器') }}</dt>
-                <dd>{{ item.validation_mode || '-' }}</dd>
+                <dd>{{ validationModeLabel(item.validation_mode) }}</dd>
               </div>
             </dl>
             <section
@@ -882,7 +887,6 @@ import {
   CircleCheck,
   Ellipsis,
   Eye,
-  FileCheck2,
   FileUp,
   FilePlus2,
   LibraryBig,
@@ -1868,6 +1872,23 @@ function roleLabel(role: string) {
   return labels[role] || t('questionBank.role.candidate', '候选题')
 }
 
+function showQuestionRole(item: QuestionBankItem) {
+  return ['cross_chapter_transfer', 'coverage_task', 'reference']
+    .includes(item.assessment_role)
+}
+
+function validationModeLabel(mode = '') {
+  const labels: Record<string, string> = {
+    exact_validator: t('questionBank.validationMode.exact', '精确答案校验'),
+    numeric_unit_validator: t('questionBank.validationMode.numericUnit', '数值与单位校验'),
+    symbolic_validator: t('questionBank.validationMode.symbolic', '公式校验'),
+    code_validator: t('questionBank.validationMode.code', '代码校验'),
+    rubric_validator: t('questionBank.validationMode.rubric', '量规校验'),
+    expert_rubric_validator: t('questionBank.validationMode.expertRubric', '专家量规审核'),
+  }
+  return labels[mode] || t('questionBank.validationMode.automatic', '自动校验')
+}
+
 function riskLabel(risks: string[] = []) {
   const labels: Record<string, string> = {
     comprehensive_task: t('questionBank.risk.comprehensive', '综合题需确认'),
@@ -1954,8 +1975,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-workspace-actions button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-workspace-actions .question-bank-ai-action { border-color:transparent; color:#5552c8; background:transparent; }
 .question-bank-workspace-actions .question-bank-back { border-color:transparent; padding-left:4px; }
-.question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 310px; }
-.question-bank-workspace-main { min-width:0; min-height:0; display:grid; align-content:start; gap:12px; overflow:auto; padding:18px 20px 24px; background:#fff; }
+.question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 280px; }
+.question-bank-workspace-main { min-width:0; min-height:0; display:grid; align-content:start; gap:0; overflow:auto; padding:0 22px 24px; background:#fff; }
 .question-bank-workspace-side { min-width:0; min-height:0; overflow:hidden; border-left:1px solid #e4e9f1; background:#fbfcfe; }
 .question-bank-empty-state { min-height:340px; display:grid; place-content:center; justify-items:center; gap:9px; padding:28px; text-align:center; }
 .question-bank-empty-state>span { width:48px; height:48px; display:grid; place-items:center; border-radius:12px; color:#5b57d9; background:#f0f1ff; }
@@ -2005,14 +2026,14 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel__header-buttons button:disabled { opacity:.5; cursor:not-allowed; }
 .question-bank-panel__header-buttons .question-generation-primary { border-color:#4f46e5; color:#fff; background:#4f46e5; }
 .question-bank-panel__header-buttons .question-generation-primary:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
-.question-quality-details { overflow:hidden; border:1px solid var(--lz-border); border-radius:10px; background:#fff; }
-.question-quality-details>summary { min-height:46px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 13px; color:var(--lz-text-secondary); cursor:pointer; list-style:none; }
+.question-quality-details { overflow:hidden; border:0; border-radius:0; background:transparent; }
+.question-quality-details>summary { min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0; border-bottom:1px solid #edf0f5; color:var(--lz-text-secondary); cursor:pointer; list-style:none; }
 .question-quality-details>summary::-webkit-details-marker { display:none; }
-.question-quality-details>summary:hover { background:#fafbff; }
+.question-quality-details>summary:hover { color:#4338ca; }
 .question-quality-details>summary>span { display:flex; align-items:center; gap:7px; color:#4338ca; }
 .question-quality-details>summary strong { color:var(--lz-text-strong); font-size:11px; }
 .question-quality-details>summary small { color:var(--lz-text-muted); font-size:10px; }
-.question-quality-details__body { display:grid; gap:12px; padding:0 12px 12px; border-top:1px solid var(--lz-border); }
+.question-quality-details__body { display:grid; gap:0; padding:0 0 12px; border-bottom:1px solid #edf0f5; background:#fbfcfe; }
 .question-bank-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:10px 0; border-block:1px solid var(--lz-border); }
 .question-bank-summary article { min-width:0; display:grid; align-content:start; gap:4px; padding:0 12px; }
 .question-bank-summary article + article { border-left:1px solid var(--lz-border); }
@@ -2020,7 +2041,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-summary strong { color: var(--lz-text-strong); font-size: 14px; }
 .question-bank-progress { display:grid; grid-template-columns:1fr auto; gap:8px 12px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; }.question-bank-progress div { display:grid; gap:2px; }.question-bank-progress strong { color:#1e3a8a; font-size:12px; }.question-bank-progress span,.question-bank-progress b { color:#475569; font-size:10px; }.question-bank-progress i { grid-column:1/-1; height:6px; overflow:hidden; border-radius:999px; background:#dbeafe; }.question-bank-progress i span { display:block; width:100%; height:100%; border-radius:inherit; background:#2563eb; transform-origin:left center; transition:transform .25s ease; }.question-bank-progress[data-status="completed"],.question-bank-progress[data-status="waiting_review"] { border-color:#a7f3d0; background:#ecfdf5; }.question-bank-progress[data-status="completed"] strong,.question-bank-progress[data-status="waiting_review"] strong { color:#065f46; }.question-bank-progress[data-status="completed"] i,.question-bank-progress[data-status="waiting_review"] i { background:#d1fae5; }.question-bank-progress[data-status="completed"] i span,.question-bank-progress[data-status="waiting_review"] i span { background:#059669; }.question-bank-progress[data-status="failed"] { border-color:#fecaca; background:#fff7ed; }.question-bank-progress[data-status="failed"] strong,.question-bank-progress__error { color:#b91c1c; }.question-bank-progress__error { grid-column:1/-1; font-size:10px; }
 .question-bank-progress__chapter { color:#1d4ed8; font-size:10px; }
-.assessment-profile,.assessment-matrix { display:grid; gap:10px; padding:13px; border:1px solid var(--lz-border); border-radius:11px; background:#fff; }
+.assessment-profile,.assessment-matrix { display:grid; gap:10px; padding:13px 12px; border:0; border-radius:0; background:transparent; }
+.assessment-profile+.assessment-matrix { border-top:1px solid #edf0f5; }
 .assessment-profile header,.assessment-matrix>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
 .assessment-profile header div,.assessment-matrix>header div { display:grid; gap:3px; }
 .assessment-profile span,.assessment-matrix span { color:var(--lz-text-muted); font-size:10px; }
@@ -2067,16 +2089,16 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .assessment-matrix__page-jump input { width:48px; height:34px; padding:0 6px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; font-size:11px; text-align:center; }
 .assessment-matrix__page-jump button { min-width:auto; }
 .assessment-matrix__empty { min-height:54px; display:grid; place-items:center; color:var(--lz-text-muted); font-size:10px; }
-.question-browser { position:sticky; top:0; z-index:2; padding:10px 12px; border:1px solid var(--lz-border); border-radius:10px; background:rgba(255,255,255,.96); backdrop-filter:blur(8px); }
-.question-browser>header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.question-browser { position:sticky; top:0; z-index:3; padding:11px 0; border-bottom:1px solid #e5eaf1; background:rgba(255,255,255,.97); backdrop-filter:blur(10px); }
+.question-browser>header { display:flex; align-items:center; justify-content:flex-end; gap:12px; }
 .question-browser>header>div:first-child { display:flex; align-items:baseline; gap:7px; }
 .question-browser strong { color:var(--lz-text-strong); font-size:12px; }
 .question-browser small { color:var(--lz-text-muted); font-size:10px; }
-.question-browser__controls { display:flex; align-items:center; gap:8px; }
-.question-browser__controls label { min-width:220px; display:flex; align-items:center; gap:7px; padding:0 9px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-muted); background:#fff; }
+.question-browser__controls { width:100%; display:flex; align-items:center; justify-content:flex-end; gap:8px; }
+.question-browser__controls label { min-width:240px; max-width:420px; flex:1 1 300px; display:flex; align-items:center; gap:7px; padding:0 10px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-muted); background:#fff; }
 .question-browser__controls input { min-width:0; width:100%; height:31px; border:0; outline:0; color:var(--lz-text); background:transparent; font-size:11px; }
 .question-browser__controls select { height:33px; padding:0 28px 0 9px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-secondary); background:#fff; font-size:11px; }
-.question-browser__pagination { min-width:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 10px; padding:10px 12px; border:1px solid var(--lz-border); border-radius:10px; color:var(--lz-text-muted); background:#fff; font-size:10px; }
+.question-browser__pagination { min-width:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 10px; padding:14px 0 0; border-top:1px solid #e5eaf1; color:var(--lz-text-muted); background:#fff; font-size:10px; }
 .question-browser__page-range { flex:1 1 140px; color:var(--lz-text-secondary); }
 .question-browser__page-buttons,.question-browser__page-jump { min-width:0; display:flex; align-items:center; gap:5px; }
 .question-browser__page-buttons { flex-wrap:wrap; }
@@ -2087,7 +2109,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-browser__page-jump label,.question-browser__page-jump span { color:var(--lz-text-muted); font-size:10px; }
 .question-browser__page-jump input { width:48px; height:34px; padding:0 6px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; font-size:11px; text-align:center; }
 .question-browser__page-jump button { min-width:auto; }
-.exam-paper-bar { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:9px 12px; border:1px solid #dbe3f2; border-radius:10px; background:#fff; }
+.exam-paper-bar { position:sticky; top:56px; z-index:2; min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:6px 10px; border-bottom:1px solid #dfe2f5; color:#4338ca; background:#f7f7ff; }
 .exam-paper-bar>div:first-child { min-width:0; display:flex; align-items:center; gap:9px; color:#4f46e5; }
 .exam-paper-bar>div:first-child>span { min-width:0; display:grid; gap:2px; }
 .exam-paper-bar strong { color:var(--lz-text-strong); font-size:12px; }
@@ -2096,18 +2118,19 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .exam-paper-bar__actions>span { max-width:230px; overflow:hidden; color:var(--lz-text-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
 .exam-paper-bar button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #c7d2fe; border-radius:8px; color:#4338ca; background:#eef2ff; font-size:12px; font-weight:750; cursor:pointer; }
 .exam-paper-bar button:disabled { opacity:.45; cursor:not-allowed; }
-.question-review-list { display:grid; gap:5px; }
-.question-review-item { overflow:hidden; border:1px solid var(--lz-border); border-radius:10px; background:#fff; transition:border-color .15s ease,box-shadow .15s ease; }
-.question-review-item:hover { border-color:#c7d2fe; }
-.question-review-item.is-expanded { border-color:#c7d2fe; box-shadow:0 8px 22px rgba(30,41,59,.06); }
-.question-review-item__top { display:grid; grid-template-columns:42px minmax(0,1fr); align-items:stretch; }
-.question-review-item__select { display:grid; place-items:center; border-right:1px solid var(--lz-border); background:#fafbff; cursor:pointer; }
+.question-review-list { display:grid; gap:0; }
+.question-review-item { overflow:hidden; border-bottom:1px solid #e5eaf1; border-radius:0; background:#fff; transition:background-color .15s ease; }
+.question-review-item:hover { background:#fafbff; }
+.question-review-item.is-expanded { background:#fbfcff; }
+.question-review-item__top { display:grid; grid-template-columns:36px minmax(0,1fr); align-items:stretch; }
+.question-review-item__select { display:grid; place-items:center; border:0; background:transparent; cursor:pointer; }
 .question-review-item__select input { width:16px; height:16px; accent-color:#4f46e5; }
 .question-review-item__select.disabled { cursor:not-allowed; opacity:.45; }
-.question-review-item__summary { width:100%; min-height:53px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; padding:7px 12px; border:0; color:inherit; background:#fff; text-align:left; cursor:pointer; }
-.question-review-item__summary:hover { background:#fafbff; }
+.question-review-item__summary { width:100%; min-height:54px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; padding:7px 6px 7px 2px; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.question-review-item__summary:hover { background:transparent; }
 .question-review-item__summary:focus-visible { position:relative; z-index:1; outline:2px solid var(--lz-brand); outline-offset:-2px; }
-.question-review-item__summary-main { min-width:0; display:grid; grid-template-columns:auto minmax(0,1fr) minmax(120px,auto); align-items:center; gap:10px; }
+.question-review-item__summary-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(132px,auto); align-items:center; gap:10px; }
+.question-review-item__summary-main.has-role { grid-template-columns:auto minmax(0,1fr) minmax(132px,auto); }
 .question-review-item__role { color:var(--lz-brand-strong); font-size:10px; font-weight:750; white-space:nowrap; }
 .question-review-item__preview { min-width:0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:600; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
 .question-review-item__meta { max-width:210px; overflow:hidden; color:var(--lz-text-muted); font-size:10px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
@@ -2115,8 +2138,9 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-review-item__summary-action>small { padding:3px 7px; border-radius:999px; color:#b45309; background:#fef3c7; font-size:10px; white-space:nowrap; }
 .question-review-item__summary-action>small[data-status="approved"] { color:#047857; background:#d1fae5; }
 .question-review-item__summary-action>small[data-status="rejected"] { color:#b91c1c; background:#fee2e2; }
-.question-review-item__summary-action>span { display:inline-flex; align-items:center; gap:4px; color:var(--lz-brand-strong); font-size:10px; font-weight:700; white-space:nowrap; }
-.question-review-item__details { display:grid; gap:10px; padding:13px; border-top:1px solid var(--lz-border); background:#fff; }
+.question-review-item__summary-action>span { display:inline-flex; align-items:center; gap:4px; color:#7b8798; font-size:10px; font-weight:700; white-space:nowrap; }
+.question-review-item__toggle-label { font-size:0!important; }
+.question-review-item__details { display:grid; gap:10px; padding:14px 16px 16px 38px; border-top:1px solid #edf0f5; background:#fbfcff; }
 .question-review-item p { margin:0; color:var(--lz-text); font-size:12px; line-height:1.65; white-space:pre-line; }
 .question-review-item dl { display:flex; flex-wrap:wrap; gap:14px; margin:0; }
 .question-review-item dl div { display: flex; gap: 5px; font-size: 10px; }
@@ -2133,6 +2157,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel__empty { flex-direction: column; text-align: center; }
 .question-bank-panel__empty strong { color: var(--lz-text-strong); }
 .question-bank-panel__empty span { max-width: 420px; font-size: 11px; }
+.visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
 .question-generation-audit { display:grid; gap:8px; padding:10px; border:1px solid #dbeafe; border-radius:9px; background:#f8fbff; }
 .question-generation-audit>header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .question-generation-audit>header strong { color:#1e3a5f; font-size:11px; }

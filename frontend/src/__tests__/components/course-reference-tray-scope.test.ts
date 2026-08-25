@@ -115,8 +115,8 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
-    expect(wrapper.get('.source-group--question-bank').text()).toContain('真题资料')
+    expect(wrapper.get('.reference-tray__header').text()).toContain('真题资料')
+    expect(wrapper.get('.reference-tray__header').text()).toContain('1 份')
     expect(wrapper.get('.source-group--question-bank').text()).toContain('2025年期末真题.pdf')
     expect(wrapper.find('.system-context').exists()).toBe(false)
     expect(wrapper.find('.source-group--references').exists()).toBe(false)
