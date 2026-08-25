@@ -344,6 +344,15 @@ def _source_binding_with_course_logic(
         document,
         block_id=block_id,
         section_id=section_id,
+        material_evidence_ids=list(dict.fromkeys(
+            evidence_id
+            for block in document.blocks
+            if (
+                (block_id and block.block_id == block_id)
+                or (section_id and block.section_id == section_id)
+            )
+            for evidence_id in block.evidence_refs
+        )),
     )
     vector = revision_vector_for_course(document, course_data).revisions
     for key in (
@@ -693,6 +702,7 @@ class SlideDeckV6Orchestrator:
             graph = compile_course_presentation_graph(
                 document,
                 teaching_plan=dict(course_data.get("course_teaching_plan") or {}),
+                evidence_catalog=list(course_data.get("evidence_catalog") or []),
             )
             if graph.primary_block_coverage != 1.0 or graph.diagnostics:
                 raise V6BuildError(
@@ -923,6 +933,10 @@ class SlideDeckV6Orchestrator:
                 ),
                 source_script_revision_id=str(
                     teacher_lesson_source.get("script_revision_id") or ""
+                ),
+                source_document=document,
+                material_bindings=list(
+                    teacher_lesson_source.get("material_bindings") or []
                 ),
             )
             save_checkpoint(

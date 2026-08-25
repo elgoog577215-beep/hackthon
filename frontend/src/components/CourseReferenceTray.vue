@@ -24,7 +24,7 @@
     </button>
 
     <section v-if="variant === 'default'" class="source-group">
-      <div class="group-heading"><strong>{{ t('courseWorkbench.references.primary', '主来源') }}</strong><small>{{ t('courseWorkbench.references.primaryLimit', '最多 1 份') }}</small></div>
+      <div class="group-heading"><strong>{{ stage === 'ppt' ? t('courseWorkbench.references.pptPrimary', '主参考') : t('courseWorkbench.references.primary', '主来源') }}</strong><small>{{ t('courseWorkbench.references.primaryLimit', '最多 1 份') }}</small></div>
       <div
         class="drop-zone"
         :class="{ 'has-file': primarySource, dragging: dragRole === 'primary' }"
@@ -37,7 +37,7 @@
           <div><strong>{{ primarySource.filename }}</strong><small>{{ fileSize(primarySource.size_bytes) }}</small></div>
           <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(primarySource.asset_id)"><X :size="15" /></button>
         </template>
-        <button v-else type="button" class="empty-drop" @click="primaryInput?.click()"><Plus :size="18" /><span>{{ t('courseWorkbench.references.addPrimary', '添加主来源') }}</span></button>
+        <button v-else type="button" class="empty-drop" @click="primaryInput?.click()"><Plus :size="18" /><span>{{ stage === 'ppt' ? t('courseWorkbench.references.addPptPrimary', '添加主参考') : t('courseWorkbench.references.addPrimary', '添加主来源') }}</span></button>
       </div>
       <input ref="primaryInput" class="visually-hidden" type="file" @change="handleInput($event, 'primary')" />
     </section>

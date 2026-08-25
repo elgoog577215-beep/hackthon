@@ -687,6 +687,8 @@ def test_candidate_metrics_report_v6_outcomes_degradation_and_stage_time(tmp_pat
 @pytest.mark.asyncio
 async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path: Path) -> None:
     document = _document()
+    document.blocks[0].evidence_refs = ["ev-observation-checklist"]
+    document = refresh_document_revision(document)
     orchestrator, representations, candidates = _orchestrator(tmp_path)
 
     result = await orchestrator.build(
@@ -695,6 +697,20 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
         course_data={
             "course_teaching_plan": {"revision": "plan-r1"},
             "course_knowledge_base": {"revision": "knowledge-r1"},
+            "evidence_catalog": [{
+                "evidence_id": "ev-observation-checklist",
+                "summary": "现场观察记录应包含对象、时间和环境条件。",
+            }],
+            "teacher_lesson_source": {
+                "lesson_plan_revision_id": "plan-r1",
+                "script_revision_id": "script-r1",
+                "material_bindings": [{
+                    "material_asset_id": "mat-observation",
+                    "source_asset_id": "tca-observation",
+                    "source_label": "现场观察手册.pdf",
+                    "role": "primary",
+                }],
+            },
         },
         mode="teaching",
         theme="qizhi-classroom",
@@ -768,6 +784,15 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
     assert manuscript["pages"][0]["source_script_block_ids"] == (
         spec.payload["content"]["pages"][0]["source_block_ids"]
     )
+    assert manuscript["material_bindings"] == [{
+        "material_asset_id": "mat-observation",
+        "source_asset_id": "tca-observation",
+        "source_label": "现场观察手册.pdf",
+        "role": "primary",
+    }]
+    assert manuscript["pages"][0]["source_material_evidence_ids"] == [
+        "ev-observation-checklist"
+    ]
     assert spec.payload["content"]["build_signature"]["signature"].startswith(
         "slidebuildv6_"
     )

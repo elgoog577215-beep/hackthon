@@ -635,6 +635,14 @@ def export_slide_deck_v6_pptx(
                 manuscript.source_lesson_plan_revision_id
             ),
             source_script_revision_id=manuscript.source_script_revision_id,
+            material_bindings=[
+                item.model_dump(mode="json")
+                for item in manuscript.material_bindings
+            ],
+            page_material_evidence_ids={
+                page.page_id: list(page.source_material_evidence_ids)
+                for page in manuscript.pages
+            },
         )
         if current.manuscript_revision != manuscript.manuscript_revision:
             raise SlideDeckQualityError({

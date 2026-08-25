@@ -1530,6 +1530,12 @@ def _story_unit_request(
                 )),
                 "page_intent": page_teaching_intent(unit, [block_id]),
                 "source_text": unit.primary_block_texts.get(block_id, ""),
+                "reference_evidence_ids": unit.primary_block_evidence_refs.get(
+                    block_id, []
+                ),
+                "reference_evidence_summaries": (
+                    unit.primary_block_evidence_summaries.get(block_id, [])
+                ),
                 "presentation_text": unit.primary_block_presentation_texts.get(
                     block_id,
                     unit.primary_block_texts.get(block_id, ""),
@@ -4104,7 +4110,10 @@ def build_ai_base_story_planner_v6() -> Planner:
                 "practice layouts for tasks and checks, and repair layouts for misconceptions when "
                 "those choices are supplied. Titles, "
                 "summaries, transitions, facts, numbers, formulas and identifiers must be supported "
-                "by that unit's source_text. Copy every identifier and number exactly from the "
+                "by that unit's source_text. Reference evidence summaries may guide example choice, "
+                "emphasis and layout only; they are supporting context, not a second content source, "
+                "and must not introduce visible claims absent from the bound source_text. Copy every "
+                "identifier and number exactly from the "
                 "allowed_protected_tokens of its bound primary_blocks; never shorten, approximate, "
                 "autocorrect or synthesize a protected token. Every page must contain exactly page_id, "
                 "teaching_unit_id, template_layout_id, title, summary and source_block_ids at the "

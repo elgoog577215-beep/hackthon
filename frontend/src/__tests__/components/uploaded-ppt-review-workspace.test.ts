@@ -65,4 +65,32 @@ describe('uploaded PPT review workspace', () => {
     )
     expect(wrapper.get('.ppt-slide-canvas h3').text()).toBe('新标题')
   })
+
+  it('根据 PPT 阶段资料切换生成分支，并隐藏 502 技术错误', async () => {
+    vi.spyOn(http, 'get').mockResolvedValueOnce({ data: { review: null } })
+    const wrapper = mount(UploadedPptReviewWorkspace, {
+      props: {
+        courseId: 'course-1',
+        courseTitle: 'C 语言',
+        lessonId: 'L1-1',
+        lessonTitle: '第一讲',
+        canGenerate: true,
+        referenceCount: 2,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('结合讲稿与资料生成')
+    expect(wrapper.text()).toContain('已选 2 份额外资料')
+    expect(wrapper.text()).toContain('先生成 PPT 文书，再生成 PPT')
+
+    vi.mocked(http.get).mockRejectedValueOnce({
+      response: { status: 502, data: { detail: 'Request failed with status code 502' } },
+    })
+    await wrapper.setProps({ lessonId: 'L1-2' })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('PPT 服务暂时不可用')
+    expect(wrapper.text()).not.toContain('Request failed with status code 502')
+  })
 })

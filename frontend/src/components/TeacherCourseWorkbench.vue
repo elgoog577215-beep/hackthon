@@ -345,6 +345,8 @@
             :lesson-id="selectedLesson.lesson_unit_id"
             :lesson-title="selectedLesson.title"
             :can-generate="Boolean(confirmedLessonRevision && scriptConfirmed)"
+            :reference-count="activeReferences.length"
+            :prepare-sources="preparePptSources"
             @generate="openPptWorkspace"
             @confirmed="lessonStore.load(courseId)"
           />
@@ -404,7 +406,7 @@
     />
 
     <CourseReferenceTray
-      v-if="activeStage !== 'ppt' && (activeStage !== 'question-bank' || !questionBankImportMode) && (!aiCollaborationOpen || aiSourcesOpen)"
+      v-if="(activeStage !== 'question-bank' || !questionBankImportMode) && (!aiCollaborationOpen || aiSourcesOpen)"
       v-model="activeReferences"
       :class="{ 'ai-source-drawer': aiCollaborationOpen }"
       :course-id="courseId"
@@ -413,7 +415,7 @@
       :stage="activeStage"
       :lesson-id="activeReferenceLessonId"
       :scope-target-id="lessonReferenceTargetId"
-      :scope-target-type="lessonReferenceTargetId ? 'lesson_plan' : ''"
+      :scope-target-type="lessonReferenceTargetType"
       :scope-target-label="selectedLesson?.title || ''"
       :previous-scope-target-id="previousLessonReferenceTargetId"
       @close="aiSourcesOpen = false"
@@ -533,7 +535,7 @@ const editingOutline = computed({
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const activeReferenceScope = computed(() => (
   ['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
-    ? `lesson:${selectedLessonId.value}`
+    ? `${activeStage.value === 'ppt' ? 'ppt' : 'lesson'}:${selectedLessonId.value}`
     : activeStage.value
 ))
 const activeReferences = computed({
@@ -691,16 +693,31 @@ const aiPlaceholder = computed(() => aiDomain.value === 'outline'
     : '说说你想怎么调整教案…')
 const currentAiScopeKey = computed(() => [props.courseId, aiDomain.value, selectedLessonId.value, currentAiScopeId.value].join(':'))
 const lessonReferenceTargetId = computed(() => (
-  ['lesson', 'script'].includes(activeStage.value) && selectedLessonId.value
-    ? `lesson-plan:${selectedLessonId.value}`
-    : ''
+  !selectedLessonId.value
+    ? ''
+    : activeStage.value === 'ppt'
+      ? `ppt-v6:${selectedLessonId.value}`
+      : ['lesson', 'script'].includes(activeStage.value)
+        ? `lesson-plan:${selectedLessonId.value}`
+        : ''
+))
+const lessonReferenceTargetType = computed(() => (
+  !lessonReferenceTargetId.value
+    ? ''
+    : activeStage.value === 'ppt'
+      ? 'ppt'
+      : 'lesson_plan'
 ))
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
 const previousLessonReferenceTargetId = computed(() => (
-  ['lesson', 'script'].includes(activeStage.value) && previousLesson.value?.lesson_unit_id
-    ? `lesson-plan:${previousLesson.value.lesson_unit_id}`
-    : ''
+  !previousLesson.value?.lesson_unit_id
+    ? ''
+    : activeStage.value === 'ppt'
+      ? `ppt-v6:${previousLesson.value.lesson_unit_id}`
+      : ['lesson', 'script'].includes(activeStage.value)
+        ? `lesson-plan:${previousLesson.value.lesson_unit_id}`
+        : ''
 ))
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
@@ -1380,8 +1397,16 @@ async function confirmScript() {
 }
 async function openPptWorkspace() {
   if (!selectedLesson.value || !confirmedLessonRevision.value || !scriptConfirmed.value) return
-  await saveRelationships(`ppt-v6:${selectedLessonId.value}`, 'ppt', `${selectedLesson.value.title} PPT`)
+  await preparePptSources()
   window.location.assign(`/course/${props.courseId}/ppt?lesson=${selectedLessonId.value}`)
+}
+async function preparePptSources() {
+  if (!selectedLesson.value) return
+  await saveRelationships(
+    `ppt-v6:${selectedLessonId.value}`,
+    'ppt',
+    `${selectedLesson.value.title} PPT`,
+  )
 }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
 function handleInlineOutlineConfirmed() { editingOutline.value = false; emit('outlineConfirmed') }
@@ -1523,7 +1548,6 @@ onBeforeUnmount(() => {
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
 .teacher-workbench.is-question-bank-import:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
-.teacher-workbench.is-ppt-stage:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
 .is-ppt-stage>.workbench-center{padding:24px 30px 0}
 .is-ppt-stage>.workbench-center>.center-heading,.is-ppt-stage .lesson-stage{width:100%;max-width:none}
 .is-ppt-stage .lesson-stage{overflow:hidden;border-radius:14px}

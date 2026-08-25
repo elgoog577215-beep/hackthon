@@ -30,7 +30,7 @@ from slide_layout_geometry import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v9"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v10"
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
@@ -433,12 +433,20 @@ class PptManuscriptPageV1(_StrictModel):
     source_script_block_ids: list[str] = Field(default_factory=list)
     source_section_ids: list[str] = Field(default_factory=list)
     speaker_note_source_block_ids: list[str] = Field(default_factory=list)
+    source_material_evidence_ids: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def require_source_binding(self) -> PptManuscriptPageV1:
         if not self.source_script_block_ids and not self.source_section_ids:
             raise ValueError("ppt_manuscript_source_binding_missing")
         return self
+
+
+class PptManuscriptMaterialBindingV1(_StrictModel):
+    material_asset_id: str
+    source_asset_id: str = ""
+    source_label: str
+    role: Literal["primary", "reference"] = "reference"
 
 
 class PptManuscriptV1(_StrictModel):
@@ -449,6 +457,9 @@ class PptManuscriptV1(_StrictModel):
     source_document_revision: str
     source_lesson_plan_revision_id: str = ""
     source_script_revision_id: str = ""
+    material_bindings: list[PptManuscriptMaterialBindingV1] = Field(
+        default_factory=list
+    )
     template_id: str
     template_version: str
     template_digest: str
@@ -491,6 +502,9 @@ def compile_ppt_manuscript_v1(
     *,
     source_lesson_plan_revision_id: str = "",
     source_script_revision_id: str = "",
+    source_document: CourseDocument | None = None,
+    material_bindings: list[dict[str, Any]] | None = None,
+    page_material_evidence_ids: dict[str, list[str]] | None = None,
 ) -> PptManuscriptV1:
     """把已通过内容门的页面规格固化为 PPT 文书。
 
@@ -498,6 +512,11 @@ def compile_ppt_manuscript_v1(
     不会在渲染前再生成、摘要或改写知识。
     """
 
+    evidence_by_block = {
+        block.block_id: list(block.evidence_refs)
+        for block in (source_document.blocks if source_document is not None else [])
+    }
+    preserved_page_evidence = page_material_evidence_ids or {}
     pages: list[PptManuscriptPageV1] = []
     for page in sorted(deck.pages, key=lambda item: item.page_ordinal):
         visible_copy = list(dict.fromkeys(
@@ -535,11 +554,34 @@ def compile_ppt_manuscript_v1(
             speaker_note_source_block_ids=[
                 note.block_id for note in page.speaker_notes.source_blocks
             ],
+            source_material_evidence_ids=list(dict.fromkeys([
+                *preserved_page_evidence.get(page.page_id, []),
+                *(
+                    evidence_id
+                    for block_id in page.source_block_ids
+                    for evidence_id in evidence_by_block.get(block_id, [])
+                ),
+            ])),
         ))
+    frozen_material_bindings = [
+        PptManuscriptMaterialBindingV1.model_validate({
+            "material_asset_id": str(item.get("material_asset_id") or ""),
+            "source_asset_id": str(item.get("source_asset_id") or ""),
+            "source_label": str(item.get("source_label") or ""),
+            "role": str(item.get("role") or "reference"),
+        })
+        for item in (material_bindings or [])
+        if isinstance(item, dict)
+        and str(item.get("material_asset_id") or "")
+        and str(item.get("source_label") or "")
+    ]
     payload = {
         "source_document_revision": deck.source_document_revision,
         "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
         "source_script_revision_id": source_script_revision_id,
+        "material_bindings": [
+            item.model_dump(mode="json") for item in frozen_material_bindings
+        ],
         "template_id": deck.template_id,
         "template_version": deck.template_version,
         "template_digest": deck.template_digest,
@@ -687,6 +729,15 @@ def build_signature_v6(
         "mode": mode,
         "theme": theme,
         "compiler_version": SLIDE_DECK_V6_COMPILER_VERSION,
+        "material_binding_digest": stable_hash(
+            list(
+                (course_data.get("teacher_lesson_source") or {}).get(
+                    "material_bindings"
+                )
+                or []
+            ),
+            prefix="pptmaterials_",
+        ),
     }
     return {**fields, "signature": stable_hash(fields, prefix="slidebuildv6_")}
 

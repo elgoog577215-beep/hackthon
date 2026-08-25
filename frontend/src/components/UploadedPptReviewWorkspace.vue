@@ -12,9 +12,12 @@
         <div class="ppt-review-start-icon"><Presentation :size="24" /></div>
         <div>
           <h3>{{ t('courseWorkbench.pptReview.startTitle', '准备本讲 PPT') }}</h3>
-          <p>{{ t('courseWorkbench.pptReview.startDescription', '上传现有 PPT 会立即对照当前大纲、教案、题库和讲稿生成审阅报告。') }}</p>
+          <p>{{ startDescription }}</p>
         </div>
       </header>
+      <p class="ppt-source-mode">
+        {{ sourceModeLabel }}
+      </p>
       <div class="ppt-review-start-actions">
         <button class="ppt-upload-primary" type="button" :disabled="busy" @click="fileInput?.click()">
           <LoaderCircle v-if="busy" :size="16" class="spin" />
@@ -24,7 +27,7 @@
         <span>{{ t('courseWorkbench.pptReview.or', '或') }}</span>
         <button class="ppt-generate-secondary" type="button" :disabled="!canGenerate || busy" @click="emit('generate')">
           <Sparkles :size="15" />
-          {{ t('courseWorkbench.pptReview.generate', '根据已确认讲稿生成') }}
+          {{ generateLabel }}
         </button>
       </div>
       <small v-if="!canGenerate">{{ t('courseWorkbench.pptReview.generateDisabled', '上传自有 PPT 不受限制；AI 生成需先确认教案和讲稿。') }}</small>
@@ -166,7 +169,9 @@ type PptReview = {
   ai_candidates: AiCandidate[]
 }
 
-const props = defineProps<{ courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; canGenerate: boolean }>()
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; lessonId: string; lessonTitle: string; canGenerate: boolean; referenceCount?: number; prepareSources?: () => Promise<void> }>(), {
+  referenceCount: 0,
+})
 const emit = defineEmits<{ generate: []; confirmed: [] }>()
 const fileInput = ref<HTMLInputElement | null>(null)
 const review = ref<PptReview | null>(null)
@@ -184,9 +189,21 @@ const openFindings = computed(() => review.value?.report.findings.filter(item =>
 const selectedFindings = computed(() => openFindings.value.filter(item => !item.slide_id || item.slide_id === selectedSlideId.value))
 const pendingCandidate = computed(() => review.value?.ai_candidates.find(item => item.status === 'pending') || null)
 const changedCandidateBlocks = computed(() => pendingCandidate.value?.proposed_blocks.filter(item => item.text !== originalBlockText(item.block_id)) || [])
+const startDescription = computed(() => props.referenceCount
+  ? t('courseWorkbench.pptReview.startWithReferences', '没有现成 PPT 时，系统会把已确认讲稿与右侧资料冻结为同一组来源，先生成 PPT 文书，再生成 PPT。')
+  : t('courseWorkbench.pptReview.startWithoutReferences', '没有现成 PPT 时，系统会从已确认讲稿先生成 PPT 文书，再生成 PPT。'))
+const sourceModeLabel = computed(() => props.referenceCount
+  ? t('courseWorkbench.pptReview.referenceMode', '已选 {count} 份额外资料：讲稿负责知识内容，资料用于案例、依据与表达规划。').replace('{count}', String(props.referenceCount))
+  : t('courseWorkbench.pptReview.aiMode', '未选额外资料：按已确认讲稿生成。'))
+const generateLabel = computed(() => props.referenceCount
+  ? t('courseWorkbench.pptReview.generateWithReferences', '结合讲稿与资料生成')
+  : t('courseWorkbench.pptReview.generate', '根据已确认讲稿生成'))
 
 function apiError(value: unknown, fallback: string) {
-  const candidate = value as { response?: { data?: { detail?: { message?: string } | string } }; message?: string }
+  const candidate = value as { response?: { status?: number; data?: { detail?: { message?: string } | string } }; message?: string }
+  if (candidate?.response?.status === 502) {
+    return t('courseWorkbench.pptReview.serviceUnavailable', 'PPT 服务暂时不可用，请稍后重试。')
+  }
   const detail = candidate?.response?.data?.detail
   return (typeof detail === 'object' ? detail?.message : detail) || candidate?.message || fallback
 }
@@ -239,6 +256,7 @@ async function handleFile(event: Event) {
   busy.value = true
   error.value = ''
   try {
+    if (props.prepareSources) await props.prepareSources()
     const coursePackage = await ensurePackage()
     const relativePath = `资料库/${props.lessonTitle}/PPT/${file.name}`
     const data = new FormData(); data.append('files', file); data.append('relative_paths', relativePath)
@@ -325,6 +343,7 @@ onMounted(loadReview)
 <style scoped>
 .ppt-review{min-height:0;color:#263147;background:#fff}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .ppt-review-state,.ppt-review-start{min-height:340px;display:flex;align-items:center;justify-content:center;flex-direction:column}.ppt-review-state{gap:10px;color:#64748b;font-size:13px}.ppt-review-start{gap:18px;padding:44px;text-align:center}.ppt-review-start>header{display:flex;align-items:center;gap:15px;max-width:660px;text-align:left}.ppt-review-start-icon{width:48px;height:48px;display:grid;place-items:center;flex:0 0 auto;border-radius:12px;color:#514bdc;background:#efefff}.ppt-review-start h3{margin:0 0 6px;font-size:20px}.ppt-review-start p{margin:0;color:#64748b;font-size:13px;line-height:1.65}.ppt-review-start-actions{display:flex;align-items:center;gap:12px}.ppt-review-start-actions>span{color:#94a3b8;font-size:11px}.ppt-review-start-actions button,.ppt-review-toolbar button,.ppt-slide-workarea>header button,.ppt-slide-canvas footer button,.ppt-ai-candidate button,.ppt-finding-list button{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 13px;border:1px solid #d8dee8;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.ppt-review-start-actions button:disabled,.ppt-review-toolbar button:disabled,.ppt-slide-workarea button:disabled,.ppt-finding-list button:disabled{opacity:.48;cursor:not-allowed}.ppt-upload-primary{border-color:#514bdc!important;color:#fff!important;background:#514bdc!important}.ppt-review-start>small{color:#7b8798;font-size:11px}.ppt-review-error,.ppt-review-warning{display:flex;align-items:center;gap:7px;margin:0;padding:10px 16px;color:#b42335;background:#fff1f2;font-size:12px}.ppt-review-warning{color:#9a6700;background:#fff8e5}
+.ppt-source-mode{max-width:660px;padding:8px 12px;border:1px solid #e4e7f2;border-radius:9px;color:#4f5d73!important;background:#f8f9fd;font-size:12px!important;text-align:left}
 .ppt-review-toolbar{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 18px;border-bottom:1px solid #e5eaf1}.ppt-review-toolbar>div:first-child{min-width:0;display:grid;gap:3px}.ppt-review-toolbar strong{overflow:hidden;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.ppt-review-toolbar span{color:#7b8798;font-size:11px}.ppt-review-toolbar-actions{display:flex;gap:8px}.ppt-review-toolbar .confirm{border-color:#514bdc;color:#fff;background:#514bdc}.ppt-review-layout{min-height:calc(100vh - 224px);display:grid;grid-template-columns:190px minmax(420px,1fr) 320px}.ppt-slide-list{min-width:0;overflow:auto;padding:10px 8px;border-right:1px solid #e5eaf1;background:#f8f9fb}.ppt-slide-list button{width:100%;min-height:48px;display:grid;grid-template-columns:25px minmax(0,1fr) 19px;align-items:center;gap:7px;padding:6px 8px;border:0;border-radius:7px;color:#657286;background:transparent;text-align:left;cursor:pointer}.ppt-slide-list button:hover{background:#f0f2f7}.ppt-slide-list button.active{color:#37348c;background:#eaeaff}.ppt-slide-list button>span{font-size:10px;font-weight:750}.ppt-slide-list strong{overflow:hidden;font-size:11.5px;font-weight:620;text-overflow:ellipsis;white-space:nowrap}.ppt-slide-list i{width:18px;height:18px;display:grid;place-items:center;border-radius:50%;color:#8a4b00;background:#fff0c2;font-size:9px;font-style:normal;font-weight:800}.ppt-slide-list svg{color:#219653}
 .ppt-slide-workarea{min-width:0;overflow:auto;padding:18px 24px 34px;background:#f3f5f9}.ppt-slide-workarea>header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}.ppt-slide-workarea>header>div{display:grid;gap:3px}.ppt-slide-workarea>header small{color:#5c6678;font-size:11px;font-weight:750}.ppt-slide-workarea>header span{color:#8a96a8;font-size:10px}.ppt-slide-workarea>header button.active{color:#4338ca;background:#f0efff}.ppt-slide-canvas{box-sizing:border-box;width:min(100%,780px);min-height:420px;margin:0 auto;padding:52px 58px;border:1px solid #dfe4eb;background:#fff;box-shadow:0 12px 30px rgba(30,41,59,.08)}.ppt-slide-canvas h3{margin:0 0 30px;color:#172033;font-size:26px;line-height:1.3}.ppt-slide-canvas>div{margin-bottom:18px}.ppt-slide-canvas p{margin:0 0 9px;color:#465469;font-size:15px;line-height:1.7}.ppt-slide-canvas label{display:grid;gap:7px;margin-bottom:16px}.ppt-slide-canvas label>span{color:#566276;font-size:11px;font-weight:750}.ppt-slide-canvas textarea{box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fbfcfe;font:inherit;font-size:13px;line-height:1.55;resize:vertical}.ppt-slide-canvas textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.ppt-slide-canvas footer,.ppt-ai-candidate footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.ppt-slide-canvas .save,.ppt-ai-candidate .accept{border-color:#514bdc;color:#fff;background:#514bdc}.ppt-slide-empty{display:block;padding-top:90px;color:#8a96a8;font-size:12px;text-align:center}.ppt-ai-candidate{width:min(100%,780px);margin:14px auto 0;border:1px solid #d9d7fa;border-radius:10px;background:#fff}.ppt-ai-candidate>header{min-height:44px;display:flex;align-items:center;gap:7px;padding:0 14px;border-bottom:1px solid #ecebfa;color:#4f46e5}.ppt-ai-candidate>header strong{font-size:12px}.ppt-ai-candidate>header span{margin-left:auto;color:#8a96a8;font-size:10px}.ppt-ai-candidate>div{padding:12px 14px}.ppt-ai-candidate p{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:0 0 8px}.ppt-ai-candidate del,.ppt-ai-candidate ins{padding:8px 10px;border-radius:6px;font-size:11px;line-height:1.5;text-decoration:none;white-space:pre-wrap}.ppt-ai-candidate del{color:#9f4450;background:#fff1f2}.ppt-ai-candidate ins{color:#2c6e49;background:#edf8f1}.ppt-ai-candidate footer{margin:0;padding:0 14px 12px}
 .ppt-review-report{min-width:0;overflow:auto;border-left:1px solid #e5eaf1;background:#fff}.ppt-review-report>header{min-height:61px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 16px;border-bottom:1px solid #e5eaf1}.ppt-review-report>header>div{display:flex;align-items:center;gap:7px}.ppt-review-report>header strong{font-size:13px}.ppt-review-report>header span{color:#7b8798;font-size:10px}.ppt-review-sources{padding:14px 16px;border-bottom:1px solid #e9edf3}.ppt-review-sources>small{color:#7b8798;font-size:10px;font-weight:750}.ppt-review-sources>p{margin:8px 0 0;color:#7b8798;font-size:11px;line-height:1.5}.ppt-review-sources ul{display:grid;gap:7px;margin:9px 0 0;padding:0;list-style:none}.ppt-review-sources li{display:grid;grid-template-columns:15px minmax(0,1fr) auto;align-items:center;gap:5px;color:#526075;font-size:11px}.ppt-review-sources li svg{color:#219653}.ppt-review-sources li small{color:#8a96a8;font-size:9px}.ppt-finding-list{display:grid}.ppt-finding-list article{padding:16px;border-bottom:1px solid #edf0f4}.ppt-finding-list article>header{display:flex;justify-content:space-between;gap:10px;margin-bottom:9px}.ppt-finding-list article>header span{color:#6b5e1a;font-size:9px;font-weight:750}.ppt-finding-list article>header small{color:#8a96a8;font-size:9px}.ppt-finding-list article>strong{display:block;color:#2c374a;font-size:12.5px;line-height:1.45}.ppt-finding-list article>p{margin:7px 0 12px;color:#657286;font-size:11px;line-height:1.65}.ppt-finding-list footer{display:flex;gap:7px}.ppt-finding-list button{min-height:32px;padding-inline:9px;font-size:10px}.ppt-review-clear{min-height:210px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:7px;padding:24px;color:#219653;text-align:center}.ppt-review-clear strong{color:#465469;font-size:12px}.ppt-review-clear span{max-width:230px;color:#8a96a8;font-size:10px;line-height:1.5}

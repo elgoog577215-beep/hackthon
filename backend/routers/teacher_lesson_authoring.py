@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from copy import deepcopy
@@ -67,7 +68,12 @@ from teaching_representations import (
     teaching_representation_repository,
 )
 from template_layout_contract import compile_builtin_template_layout_contract_v1
-from course_document import course_view_from_document, stable_hash
+from course_document import (
+    CourseDocument,
+    course_view_from_document,
+    refresh_document_revision,
+    stable_hash,
+)
 from slide_deck_v6 import SlideDeckV6, compile_ppt_manuscript_v1
 
 
@@ -291,10 +297,27 @@ def _refresh_v6_ppt_manuscript(
         if key in content
     })
     teacher_source = dict(course_view.get("teacher_lesson_source") or {})
+    previous = (
+        dict(content.get("ppt_manuscript") or {})
+        if isinstance(content.get("ppt_manuscript"), dict)
+        else {}
+    )
     manuscript = compile_ppt_manuscript_v1(
         deck,
         source_lesson_plan_revision_id=source_lesson_plan_revision_id,
         source_script_revision_id=str(teacher_source.get("script_revision_id") or ""),
+        material_bindings=list(
+            teacher_source.get("material_bindings")
+            or previous.get("material_bindings")
+            or []
+        ),
+        page_material_evidence_ids={
+            str(page.get("page_id") or ""): list(
+                page.get("source_material_evidence_ids") or []
+            )
+            for page in previous.get("pages") or []
+            if isinstance(page, dict) and str(page.get("page_id") or "")
+        },
     )
     content["ppt_manuscript"] = manuscript.model_dump(mode="json")
     return content["ppt_manuscript"]
@@ -408,6 +431,145 @@ def _course_material_evidence(
                 "source_kind": "course_material",
             })
     return selected_ids, evidence
+
+
+def _ppt_material_bundle(
+    course_id: str,
+    actor: str,
+    lesson_unit_id: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Resolve the PPT stage's frozen, teacher-owned material relationships."""
+    target_id = f"ppt-v6:{lesson_unit_id}"
+    bindings: list[dict[str, Any]] = []
+    seen_material_ids: set[str] = set()
+    for summary in teacher_course_space_repository.list_owned(actor, course_id):
+        try:
+            package = teacher_course_space_repository.load_owned(
+                str(summary.get("package_id") or ""), actor
+            )
+        except (FileNotFoundError, MaterialStorageError):
+            continue
+        for relationship in teacher_course_space_repository.relationships_for_target(
+            package, target_id
+        ):
+            material_asset_id = str(
+                relationship.get("material_asset_id") or ""
+            )
+            if not material_asset_id or material_asset_id in seen_material_ids:
+                continue
+            seen_material_ids.add(material_asset_id)
+            bindings.append({
+                "material_asset_id": material_asset_id,
+                "source_asset_id": str(
+                    relationship.get("source_asset_id") or ""
+                ),
+                "source_label": str(
+                    relationship.get("source_label") or material_asset_id
+                ),
+                "role": (
+                    "primary"
+                    if relationship.get("role") == "primary"
+                    else "reference"
+                ),
+            })
+    material_ids, evidence = _course_material_evidence(
+        course_id,
+        actor,
+        [item["material_asset_id"] for item in bindings],
+    )
+    binding_by_material = {
+        item["material_asset_id"]: item for item in bindings
+    }
+    normalized_evidence: list[dict[str, Any]] = []
+    for index, item in enumerate(evidence):
+        material_asset_id = str(item.get("asset_id") or "")
+        binding = binding_by_material.get(material_asset_id) or {}
+        evidence_id = str(
+            item.get("evidence_id")
+            or item.get("unit_id")
+            or stable_hash(
+                {
+                    "material_asset_id": material_asset_id,
+                    "index": index,
+                    "text": str(
+                        item.get("summary")
+                        or item.get("source_text")
+                        or item.get("text")
+                        or item.get("content")
+                        or ""
+                    ),
+                },
+                prefix="pptev_",
+            )
+        )
+        normalized_evidence.append({
+            **item,
+            "evidence_id": evidence_id,
+            "asset_id": material_asset_id,
+            "source_label": str(binding.get("source_label") or material_asset_id),
+            "source_role": str(binding.get("role") or "reference"),
+        })
+    if set(material_ids) != set(binding_by_material):
+        raise TeacherLessonAuthoringError(
+            "lesson_material_source_not_found",
+            "部分 PPT 资料来源无法读取。",
+        )
+    return bindings, normalized_evidence
+
+
+def _ppt_reference_terms(value: str) -> set[str]:
+    text = str(value or "").lower()
+    terms = set(re.findall(r"[a-z][a-z0-9_+-]{1,30}", text))
+    for group in re.findall(r"[\u4e00-\u9fff]{2,20}", text):
+        terms.add(group)
+        terms.update(
+            group[index:index + width]
+            for width in (2, 3, 4)
+            for index in range(max(0, len(group) - width + 1))
+        )
+    return terms
+
+
+def _attach_ppt_reference_evidence(
+    document: CourseDocument,
+    evidence: list[dict[str, Any]],
+) -> CourseDocument:
+    """Bind relevant selected evidence to confirmed script blocks without rewriting them."""
+    if not evidence:
+        return document
+    evidence_terms = {
+        str(item.get("evidence_id") or ""): _ppt_reference_terms(" ".join([
+            " ".join(str(value) for value in item.get("keywords") or []),
+            str(item.get("summary") or ""),
+            str(item.get("source_text") or item.get("text") or item.get("content") or ""),
+        ]))
+        for item in evidence
+        if str(item.get("evidence_id") or "")
+    }
+    section_titles = {
+        section.section_id: section.title for section in document.sections
+    }
+    changed = False
+    for block in document.blocks:
+        block_query = " ".join([
+            str((block.payload or {}).get("title") or ""),
+            json.dumps(block.payload or {}, ensure_ascii=False),
+        ])
+        query_terms = _ppt_reference_terms(
+            block_query or section_titles.get(block.section_id, "")
+        )
+        ranked = sorted(
+            (
+                (evidence_id, len(query_terms & terms))
+                for evidence_id, terms in evidence_terms.items()
+            ),
+            key=lambda pair: (-pair[1], pair[0]),
+        )
+        selected = [evidence_id for evidence_id, score in ranked if score > 0][:4]
+        if selected != block.evidence_refs:
+            block.evidence_refs = selected
+            changed = True
+    return refresh_document_revision(document) if changed else document
 
 
 def _prompt_material_evidence(
@@ -636,6 +798,8 @@ def _imported_ppt_review_context(
     repository: TeacherLessonAuthoringRepository,
     course_id: str,
     lesson_unit_id: str,
+    *,
+    actor: str = "",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, str]]:
     """Compile the exact upstream revisions used by one imported-deck review."""
     scoped = lesson_scope(source, lesson_unit_id)
@@ -734,6 +898,38 @@ def _imported_ppt_review_context(
                     str(item.get("stem") or item.get("prompt") or item.get("question") or "")
                     for item in items[:30]
                 ),
+            })
+    if actor:
+        material_bindings, material_evidence = _ppt_material_bundle(
+            course_id, actor, lesson_unit_id
+        )
+        for binding in material_bindings:
+            role = str(binding.get("role") or "reference")
+            sources.append({
+                "kind": "primary_material" if role == "primary" else "reference_material",
+                "label": (
+                    f"主参考：{binding['source_label']}"
+                    if role == "primary"
+                    else f"参考：{binding['source_label']}"
+                ),
+                "revision_id": stable_hash(binding, prefix="pptref_"),
+                "status": "current",
+            })
+        for item in material_evidence[:48]:
+            text = str(
+                item.get("summary")
+                or item.get("source_text")
+                or item.get("text")
+                or item.get("content")
+                or ""
+            ).strip()
+            if not text:
+                continue
+            units.append({
+                "kind": "reference_material",
+                "label": str(item.get("source_label") or "PPT 参考资料"),
+                "revision_id": str(item.get("evidence_id") or ""),
+                "text": text[:2400],
             })
     return sources, units, revisions
 
@@ -963,7 +1159,11 @@ async def create_imported_ppt_review(
         )
         source = _source_course(tm, course_id)
         sources, units, revisions = _imported_ppt_review_context(
-            source, repository, course_id, lesson_unit_id
+            source,
+            repository,
+            course_id,
+            lesson_unit_id,
+            actor=actor,
         )
         report = build_uploaded_ppt_review_report(
             parsed["slides"], sources=sources, reference_units=units
@@ -1014,7 +1214,13 @@ async def update_imported_ppt_slide(
             raise TeacherLessonAuthoringError("uploaded_ppt_review_not_found", "PPT 审阅记录不存在。")
         slides = _updated_imported_ppt_slides(review, slide_id, body.blocks)
         source = _source_course(tm, course_id)
-        sources, units, _revisions = _imported_ppt_review_context(source, repository, course_id, lesson_unit_id)
+        sources, units, _revisions = _imported_ppt_review_context(
+            source,
+            repository,
+            course_id,
+            lesson_unit_id,
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+        )
         report = build_uploaded_ppt_review_report(slides, sources=sources, reference_units=units)
         updated = repository.replace_imported_ppt_review(
             course_id,
@@ -1108,7 +1314,13 @@ async def resolve_imported_ppt_ai_candidate(
             editable = [item for item in candidate.get("proposed_blocks") or [] if isinstance(item, dict) and item.get("editable")]
             slides = _updated_imported_ppt_slides(review, str(candidate.get("slide_id") or ""), editable)
             source = _source_course(tm, course_id)
-            sources, units, _revisions = _imported_ppt_review_context(source, repository, course_id, lesson_unit_id)
+            sources, units, _revisions = _imported_ppt_review_context(
+                source,
+                repository,
+                course_id,
+                lesson_unit_id,
+                actor=resolve_user_id(request.headers.get("X-User-Id")),
+            )
             report = build_uploaded_ppt_review_report(slides, sources=sources, reference_units=units)
             repository.replace_imported_ppt_review(
                 course_id,
@@ -1570,6 +1782,7 @@ async def build_teacher_lesson_v6(
     course_id: str,
     lesson_unit_id: str,
     body: TeacherLessonV6BuildRequest,
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
@@ -1579,11 +1792,23 @@ async def build_teacher_lesson_v6(
         document, course_view, synthetic_id, lesson, revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        material_bindings, material_evidence = _ppt_material_bundle(
+            course_id, actor, lesson_unit_id
+        )
+        document = _attach_ppt_reference_evidence(document, material_evidence)
+        teacher_source = dict(course_view.get("teacher_lesson_source") or {})
+        teacher_source["material_bindings"] = material_bindings
+        course_view["teacher_lesson_source"] = teacher_source
+        course_view["evidence_catalog"] = material_evidence
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
     source_plan_revision = str(revision.get("revision_id") or lesson.get("confirmed_revision_id") or "")
     source_script_revision = str(
         (course_view.get("teacher_lesson_source") or {}).get("script_revision_id") or ""
+    )
+    source_material_revision = stable_hash(
+        material_bindings, prefix="pptrefs_"
     )
     task_id = f"teacher-v6-{uuid.uuid4().hex}"
     template = compile_builtin_template_layout_contract_v1(body.theme)
@@ -1604,7 +1829,11 @@ async def build_teacher_lesson_v6(
                 "event": "slide_build_progress_v2",
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
-                "message": "正在从已确认讲稿编译 PPT 文书与页面表达",
+                "message": (
+                    f"正在结合已确认讲稿与 {len(material_bindings)} 份资料编译 PPT 文书"
+                    if material_bindings
+                    else "正在从已确认讲稿编译 PPT 文书与页面表达"
+                ),
                 "slide_build_progress_v2": deepcopy(payload),
                 "target_schema": "slide_deck_v6",
             })
@@ -1612,12 +1841,23 @@ async def build_teacher_lesson_v6(
         def source_revision_provider() -> str:
             current = repository.lesson(course_id, lesson_unit_id)
             confirmation = current.get("script_confirmation") or {}
+            try:
+                current_bindings, _current_evidence = _ppt_material_bundle(
+                    course_id, actor, lesson_unit_id
+                )
+                materials_current = (
+                    stable_hash(current_bindings, prefix="pptrefs_")
+                    == source_material_revision
+                )
+            except TeacherLessonAuthoringError:
+                materials_current = False
             return (
                 str(document.document_revision or "")
                 if current.get("confirmed_revision_id") == source_plan_revision
                 and current.get("working_script_revision_id") == source_script_revision
                 and confirmation.get("confirmed_revision_id") == source_script_revision
                 and confirmation.get("source_state", "current") == "current"
+                and materials_current
                 else ""
             )
 

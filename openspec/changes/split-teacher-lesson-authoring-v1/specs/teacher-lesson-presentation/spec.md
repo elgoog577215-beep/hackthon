@@ -24,6 +24,24 @@
 - **THEN** 每个教学单元以讲稿块为内容语义来源并保留教案块追溯
 - **AND** 学生 CourseDocument 与学习数据保持不变
 
+### Requirement: PPT必须按额外资料与现有PPTX分流
+系统 MUST 以当前讲次是否存在额外资料和现有 PPTX 选择生成方案。无额外资料时从确认讲稿生成 PPT 文书；有额外资料但无 PPTX 时冻结资料关系并参与文书规划；已有 PPTX 时必须保留原文件并生成审阅报告，不得默认重生成整套 PPT。
+
+#### Scenario: 只有确认讲稿
+- **WHEN** 当前讲次无额外资料且未上传 PPTX
+- **THEN** 主操作显示“根据已确认讲稿生成”
+- **AND** 产物为 `确认讲稿 → ppt_manuscript_v1 → PPT`
+
+#### Scenario: 有额外资料但无PPTX
+- **WHEN** 教师为当前讲 PPT 选择主参考、参考资料或联网来源
+- **THEN** 主操作显示“结合讲稿与资料生成”
+- **AND** `ppt_manuscript_v1` 冻结资料关系与每页实际使用的证据 ID
+
+#### Scenario: 已有PPTX
+- **WHEN** 教师上传当前讲 PPTX
+- **THEN** 系统保留原 PPTX 并对照当前讲稿、教学资产和 PPT 资料生成审阅报告
+- **AND** 只有教师显式选择重做时才进入生成链
+
 ### Requirement: 确认讲稿必须先投影为可审阅PPT文书
 系统 MUST 在最终 PPT 渲染前生成一份按页组织的 PPT 文书。每页 MUST 包含页号、内容块类型、页型、标题、台上可见文案、版式、构图说明、视觉类型和精确讲稿块来源。PPT 文书 MUST 绑定 `source_lesson_plan_revision_id`、`source_script_revision_id` 和自身修订。
 

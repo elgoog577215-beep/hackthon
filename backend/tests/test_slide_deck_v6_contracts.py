@@ -883,10 +883,48 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
             update={"template_digest": "tmpl_changed"}
         ),
     )
+    changed_materials = build_signature_v6(
+        document=document,
+        course_data={
+            **course_data,
+            "teacher_lesson_source": {
+                "material_bindings": [{
+                    "material_asset_id": "mat-1",
+                    "source_label": "reference.pdf",
+                    "role": "reference",
+                }],
+            },
+        },
+        mode="teaching",
+        theme="qizhi-classroom",
+        template_contract=template,
+    )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v9"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v10"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
+    assert baseline["signature"] != changed_materials["signature"]
+
+
+def test_course_presentation_graph_exposes_only_bound_reference_evidence() -> None:
+    document = _cross_subject_document()
+    document.blocks[0].evidence_refs = ["ev-ecology"]
+    document = refresh_document_revision(document)
+
+    graph = compile_course_presentation_graph(
+        document,
+        evidence_catalog=[{
+            "evidence_id": "ev-ecology",
+            "summary": "样方调查要记录空间范围和时间窗口。",
+        }],
+    )
+
+    unit = graph.units[0]
+    assert unit.primary_block_evidence_refs["b1"] == ["ev-ecology"]
+    assert unit.primary_block_evidence_summaries["b1"] == [
+        "样方调查要记录空间范围和时间窗口。"
+    ]
+    assert unit.primary_block_evidence_refs["b2"] == []
 
 
 def _valid_story(document: CourseDocument):

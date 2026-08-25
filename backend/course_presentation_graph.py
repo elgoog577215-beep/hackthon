@@ -44,6 +44,8 @@ class CoursePresentationUnitV1(_StrictModel):
     primary_block_texts: dict[str, str] = Field(default_factory=dict)
     primary_block_presentation_texts: dict[str, str] = Field(default_factory=dict)
     primary_block_asset_refs: dict[str, list[str]] = Field(default_factory=dict)
+    primary_block_evidence_refs: dict[str, list[str]] = Field(default_factory=dict)
+    primary_block_evidence_summaries: dict[str, list[str]] = Field(default_factory=dict)
     supporting_block_ids: list[str] = Field(default_factory=list)
     teaching_intent: str
     artifact_kinds: list[ArtifactKind] = Field(default_factory=list)
@@ -494,6 +496,7 @@ def compile_course_presentation_graph(
     document: CourseDocument,
     *,
     teaching_plan: dict[str, Any] | None = None,
+    evidence_catalog: list[dict[str, Any]] | None = None,
 ) -> CoursePresentationGraphV1:
     """Compile complete source-ordered teaching units without text pagination."""
 
@@ -510,6 +513,12 @@ def compile_course_presentation_graph(
     section_titles = {
         section.section_id: section.title
         for section in document.sections
+    }
+    evidence_by_id = {
+        str(item.get("evidence_id") or item.get("unit_id") or ""): item
+        for item in (evidence_catalog or [])
+        if isinstance(item, dict)
+        and str(item.get("evidence_id") or item.get("unit_id") or "")
     }
     previous_unit_id = ""
     for section_id in section_sequence:
@@ -549,6 +558,30 @@ def compile_course_presentation_graph(
                 },
                 primary_block_asset_refs={
                     block.block_id: list(block.asset_refs) for block in blocks
+                },
+                primary_block_evidence_refs={
+                    block.block_id: list(block.evidence_refs) for block in blocks
+                },
+                primary_block_evidence_summaries={
+                    block.block_id: [
+                        str(
+                            evidence_by_id[evidence_id].get("summary")
+                            or evidence_by_id[evidence_id].get("source_text")
+                            or evidence_by_id[evidence_id].get("text")
+                            or evidence_by_id[evidence_id].get("content")
+                            or ""
+                        )[:600]
+                        for evidence_id in block.evidence_refs
+                        if evidence_id in evidence_by_id
+                        and str(
+                            evidence_by_id[evidence_id].get("summary")
+                            or evidence_by_id[evidence_id].get("source_text")
+                            or evidence_by_id[evidence_id].get("text")
+                            or evidence_by_id[evidence_id].get("content")
+                            or ""
+                        ).strip()
+                    ]
+                    for block in blocks
                 },
                 teaching_intent=_teaching_intent(blocks),
                 artifact_kinds=list(
