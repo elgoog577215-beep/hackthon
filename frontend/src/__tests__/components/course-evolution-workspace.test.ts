@@ -95,6 +95,9 @@ describe('CourseEvolutionWorkspace', () => {
     const wrapper = mountWorkspace(createPinia())
 
     expect(wrapper.find('.workspace-state-request').exists()).toBe(true)
+    expect(wrapper.findAll('.course-change-journey li')).toHaveLength(4)
+    expect(wrapper.get('.course-change-journey li.active').text()).toContain('说出要求')
+    expect(wrapper.find('.workspace-context-strip').exists()).toBe(false)
     expect(wrapper.get('.evolution-workspace-stub').attributes('data-state')).toBe('request')
     expect(wrapper.get('.recent-course-changes').text()).toContain('还没有课程修改记录')
     expect(wrapper.find('.impact-navigation').exists()).toBe(false)
@@ -105,17 +108,19 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('AI 正在理解时并列保留老师原话、AI 理解和修正入口', async () => {
+  it('AI 正在理解时通过贯通上下文保留原话、AI 理解和修正入口', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
     store.plans = [plan({ teacher_change_planning: planning({ status: 'needs_clarification' }) })]
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.workspace-state-interpreting').text()).toContain('把第三章讲得更适合项目课')
-    expect(wrapper.get('.workspace-state-interpreting').text()).toContain('重写第三章相关内容')
-    expect(wrapper.get('.secondary-action').text()).toContain('修正 AI 的理解')
-    await wrapper.get('.secondary-action').trigger('click')
-    expect(wrapper.find('.understanding-correction textarea').exists()).toBe(true)
+    expect(wrapper.get('.course-change-journey li.active').text()).toContain('分析影响')
+    expect(wrapper.get('.workspace-context-strip').text()).toContain('把第三章讲得更适合项目课')
+    expect(wrapper.get('.workspace-context-strip').text()).toContain('重写第三章相关内容')
+    expect(wrapper.get('.workspace-context-strip').text()).toContain('保留原项目案例')
+    expect(wrapper.get('.context-correct-action').text()).toContain('调整理解')
+    await wrapper.get('.context-correct-action').trigger('click')
+    expect(wrapper.find('.workspace-context-correction textarea').exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -131,6 +136,8 @@ describe('CourseEvolutionWorkspace', () => {
     }) })]
     const wrapper = mountWorkspace(pinia)
 
+    expect(wrapper.get('.course-change-journey li.active').text()).toContain('分析影响')
+    expect(wrapper.find('.workspace-context-strip').exists()).toBe(true)
     expect(wrapper.findAll('.discovered-impact li')).toHaveLength(2)
     expect(wrapper.get('.discovered-impact').text()).toContain('课程大纲')
     expect(wrapper.get('.discovered-impact').text()).toContain('PPT')
@@ -149,6 +156,8 @@ describe('CourseEvolutionWorkspace', () => {
     }) })]
     const wrapper = mountWorkspace(pinia)
 
+    expect(wrapper.get('.course-change-journey li.active').text()).toContain('审阅修改')
+    expect(wrapper.find('.workspace-context-strip').exists()).toBe(true)
     expect(wrapper.findAll('.impact-navigation nav button')).toHaveLength(2)
     expect(wrapper.get('.content-diff-card').text()).toContain('原讲稿只介绍方法')
     expect(wrapper.get('.content-diff-card').text()).toContain('新讲稿先交代项目背景')
@@ -172,6 +181,7 @@ describe('CourseEvolutionWorkspace', () => {
     }) })]
     const wrapper = mountWorkspace(pinia)
 
+    expect(wrapper.get('.course-change-journey li.active').text()).toContain('审阅修改')
     expect(wrapper.get('.course-tree-comparison').text()).toContain('第三章 原理与项目')
     expect(wrapper.get('.course-tree-comparison').text()).toContain('第四章 项目实践')
     expect(wrapper.get('.migration-summary').text()).toContain('迁移重绑')
@@ -191,6 +201,9 @@ describe('CourseEvolutionWorkspace', () => {
     const undo = vi.spyOn(store, 'undo').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
+    expect(wrapper.get('.course-change-journey li.active').text()).toContain('应用完成')
+    expect(wrapper.get('.workspace-context-strip').text()).toContain('把第三章讲得更适合项目课')
+    expect(wrapper.find('.context-correct-action').exists()).toBe(false)
     expect(wrapper.get('.application-receipt').text()).toContain('课程已按确认结果更新')
     expect(wrapper.get('.application-receipt').text()).toContain('PPT 第 12 页')
     expect(wrapper.get('.application-receipt').text()).toContain('保留案例 A')

@@ -49,13 +49,6 @@
           <span><b>{{ t('courseEvolution.scope.currentChapter', '影响本章相关内容') }}</b><small>{{ t('courseEvolution.scope.currentChapterHint', 'AI 在本章范围内匹配相关节点；确认前不会修改课程') }}</small></span>
         </button>
       </div>
-      <p v-else class="teacher-scope-policy">
-        <Network :size="13" />
-        <span>
-          <b>{{ t('courseEvolution.scope.teacherWholeCourse', 'AI 会检查整门课程的真实影响') }}</b>
-          <small>{{ t('courseEvolution.scope.teacherWholeCourseHint', '当前位置只是理解上下文的起点；扫描可以扩展或收缩，由你在影响预览中逐项纳入或排除。') }}</small>
-        </span>
-      </p>
       <button type="button" class="generate-plan" :disabled="store.generating || !sectionInstruction.trim()" @click="createSectionPlan">
         <LoaderCircle v-if="store.generating" :size="13" class="spinning" />
         <Sparkles v-else :size="13" />
@@ -63,7 +56,7 @@
           store.generating
             ? t('courseEvolution.sectionGrowth.generating', '正在生成候选')
             : props.surface === 'workspace'
-              ? t('courseEvolution.sectionGrowth.generateWholeCourse', '分析全课影响并生成候选')
+              ? t('courseEvolution.sectionGrowth.generateWholeCourse', '开始分析')
               : requestScope === 'current_chapter'
               ? t('courseEvolution.sectionGrowth.generateChapter', '解析并生成本章影响预览')
               : t('courseEvolution.sectionGrowth.generate', '生成本节调整方案')
@@ -1318,10 +1311,6 @@ onUnmounted(clearProgressPoll)
    tells the learner a broad scope is still safe to pick. */
 .request-scope-control small { min-width:0; color:#94a3b8; font-size:7px; line-height:1.4; overflow-wrap:anywhere; }
 .request-scope-control button.active small { color:#6366f1; }
-.teacher-scope-policy { display:grid; grid-template-columns:18px minmax(0,1fr); gap:8px; margin:0; padding:10px; border:1px solid #d7d9ff; border-radius:8px; color:#5148dc; background:#f6f6ff; }
-.teacher-scope-policy span { display:grid; gap:3px; }
-.teacher-scope-policy b { color:#3730a3; font-size:10px; }
-.teacher-scope-policy small { color:#667085; font-size:8px; line-height:1.5; }
 .generate-plan,.challenge-suggestion button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid #7c3aed; border-radius:6px; color:#fff; background:#7c3aed; font-size:9px; font-weight:700; cursor:pointer; }
 .generate-plan:disabled,.challenge-suggestion button:disabled { opacity:.55; cursor:not-allowed; }
 .generation-error { display:flex; align-items:flex-start; gap:5px; margin:0; color:#b91c1c; font-size:8px; line-height:1.4; }
@@ -1473,9 +1462,6 @@ article[data-effect="ineffective"] .applied-growth,article[data-effect="harmful"
 .evolution-panel--workspace .request-scope-control>button.active { border-color:#8580f5; background:#f1f2ff; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
 .evolution-panel--workspace .request-scope-control b { font-size:13px; }
 .evolution-panel--workspace .request-scope-control small { margin-top:3px; color:#758198; font-size:11px; line-height:1.5; }
-.evolution-panel--workspace .teacher-scope-policy { grid-template-columns:22px minmax(0,1fr); gap:10px; padding:14px; border-radius:11px; }
-.evolution-panel--workspace .teacher-scope-policy b { font-size:13px; }
-.evolution-panel--workspace .teacher-scope-policy small { font-size:11px; }
 .evolution-panel--workspace .generate-plan,.evolution-panel--workspace .challenge-suggestion button { min-height:46px; border-color:#5148dc; border-radius:10px; background:#5148dc; font-size:13px; }
 .evolution-panel--workspace .generate-plan:hover:not(:disabled),.evolution-panel--workspace .challenge-suggestion button:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
 .evolution-panel--workspace .generate-plan:focus-visible,.evolution-panel--workspace button:focus-visible,.evolution-panel--workspace input:focus-visible { outline:3px solid rgba(99,102,241,.22); outline-offset:2px; }

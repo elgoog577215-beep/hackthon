@@ -609,7 +609,7 @@ describe('CourseEvolutionPanel', () => {
     )
   })
 
-  it('教师全课工作台不要求先选模式或硬影响范围', async () => {
+  it('教师全课工作台只保留要求输入，不要求先读系统规则', async () => {
     const store = useCourseEvolutionStore()
     store.applyPayload('course-1', {
       evidence_items: [],
@@ -624,8 +624,8 @@ describe('CourseEvolutionPanel', () => {
     expect(wrapper.find('.request-scope-control').exists()).toBe(false)
     expect(wrapper.find('.growth-steps').exists()).toBe(false)
     expect(wrapper.find('.growth-insight-switcher').exists()).toBe(false)
-    expect(wrapper.get('.teacher-scope-policy').text()).toContain('AI 会检查整门课程的真实影响')
-    expect(wrapper.get('.teacher-scope-policy').text()).toContain('扫描可以扩展或收缩')
+    expect(wrapper.find('.teacher-scope-policy').exists()).toBe(false)
+    expect(wrapper.get('.generate-plan').text()).toContain('开始分析')
 
     await wrapper.get('.section-growth-request input').setValue('第三章太散了，但保留原项目案例')
     await wrapper.get('.generate-plan').trigger('click')
