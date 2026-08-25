@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http, { learnerIdentityHeaders, withApiBase } from '../utils/http'
+import http, { identityScopeHeaders, withApiBase } from '../utils/http'
 import {
   advanceSlideBuildStep,
   isFinalV5CandidateReplay,
@@ -32,6 +32,7 @@ export interface SlideDeckBuildOptions {
   templatePackId?: string
   templatePackVersion?: number
   forceRebuild?: boolean
+  manuscriptOnly?: boolean
   webImageRetrieval?: {
     enabled: boolean
     mode?: 'wide_safe'
@@ -139,6 +140,7 @@ export interface TeachingRepresentationBuildEvent {
   repair_attempt?: number
   repair_attempts?: number
   slide_build_progress_v2?: SlideBuildProgressV2
+  ppt_manuscript_state?: Record<string, any>
 }
 
 export interface SlideBuildWorkItemV2 {
@@ -635,13 +637,15 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       try {
         const response = await fetch(
           withApiBase(this.teacherLessonId
-            ? `${this.representationBase(courseId)}/build/stream`
+            ? options?.manuscriptOnly
+              ? `${this.representationBase(courseId)}/manuscript/build/stream`
+              : `${this.representationBase(courseId)}/build/stream`
             : options
               ? `/api/courses/${courseId}/teaching-representations/slide-decks/build/stream`
               : `/api/courses/${courseId}/teaching-representations/build/stream`),
           {
             method: 'POST',
-            headers: learnerIdentityHeaders({
+            headers: identityScopeHeaders(this.teacherLessonId ? 'teacher' : 'learner', {
               Accept: 'text/event-stream',
               ...(options ? { 'Content-Type': 'application/json' } : {}),
             }),
@@ -823,6 +827,12 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
         if (this.buildPaused) return completedRef.value
         if (this.buildError) throw new Error(this.buildError)
         const completed = completedRef.value
+        if (options?.manuscriptOnly && completed?.ppt_manuscript_state) {
+          this.buildProgress = 100
+          this.buildStage = 'manuscript_complete'
+          this.buildFailure = null
+          return completed
+        }
         if (!completed?.registry) throw new Error('Teaching representation build ended without a registry')
         this.registry = completed.registry
         this.slideTargetSchema = String(

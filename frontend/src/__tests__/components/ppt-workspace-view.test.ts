@@ -74,6 +74,154 @@ describe('PptWorkspaceView', () => {
     })
   })
 
+  it('无原版 PPT 时先显示 PPT 文书步骤，不直接生成 PPT', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher' },
+    })
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.endsWith('/ppt-v6/manuscript')) {
+        return Promise.resolve({
+          data: {
+            ppt_manuscript_state: {
+              generation_branch: 'manuscript_first',
+              revision: '',
+              status: 'not_generated',
+              source_state: 'current',
+              confirmable: false,
+              can_generate_ppt: false,
+              manuscript: null,
+            },
+          },
+        })
+      }
+      return Promise.resolve({ data: courseEnvelope('canonical') })
+    })
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null as any)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="ppt-manuscript-workflow"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('生成 PPT 文书')
+    expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
+  })
+
+  it('文书确认后才解锁根据文书生成 PPT', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher' },
+    })
+    const draftState = {
+      generation_branch: 'manuscript_first',
+      revision: 'pptman-1',
+      status: 'draft',
+      source_state: 'current',
+      confirmable: true,
+      can_generate_ppt: false,
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      manuscript: {
+        schema_version: 'ppt_manuscript_v1',
+        page_count: 1,
+        pages: [{
+          page_id: 'page-1',
+          page_number: 1,
+          page_type: 'concept',
+          layout_id: 'L03',
+          title: '函数复合的定义域',
+          page_goal: '先确认内层函数输出可进入外层函数',
+          primary_claim: '复合函数的定义域由两层约束共同决定',
+          visible_copy: ['先求 g(x)', '再检查 f 的输入条件'],
+        }],
+      },
+    }
+    httpMock.get.mockImplementation((url: string) => (
+      Promise.resolve({
+        data: url.endsWith('/ppt-v6/manuscript')
+          ? { ppt_manuscript_state: draftState }
+          : courseEnvelope('canonical'),
+      })
+    ))
+    httpMock.post.mockResolvedValue({
+      data: {
+        ppt_manuscript_state: {
+          ...draftState,
+          status: 'confirmed',
+          confirmable: false,
+          can_generate_ppt: true,
+        },
+      },
+    })
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null as any)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('函数复合的定义域')
+    expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="confirm-ppt-manuscript"]').trigger('click')
+    await flushPromises()
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/confirm',
+      { manuscript_revision: 'pptman-1' },
+    )
+    expect(wrapper.get('[data-testid="generate-ppt-from-manuscript"]').text()).toContain('根据已确认文书生成 PPT')
+  })
+
+  it('已有原版 PPT 时不进入文书两步生成链', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher' },
+    })
+    httpMock.get.mockImplementation((url: string) => Promise.resolve({
+      data: url.endsWith('/ppt-v6/manuscript')
+        ? {
+            ppt_manuscript_state: {
+              generation_branch: 'original_ppt_review',
+              revision: '',
+              status: 'not_generated',
+              source_state: 'current',
+              confirmable: false,
+              can_generate_ppt: false,
+              manuscript: null,
+            },
+          }
+        : courseEnvelope('canonical'),
+    }))
+    const store = useTeachingRepresentationsStore()
+    vi.spyOn(store, 'ensure').mockImplementation(async () => {
+      store.registry = { slide_deck_target_schema: 'slide_deck_v6', representations: [] }
+    })
+    vi.spyOn(store, 'recoverDurableBuild').mockResolvedValue(null as any)
+
+    const wrapper = mount(PptWorkspaceView, {
+      global: { stubs: { SideAIPanel: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('本讲已有原版 PPT')
+    expect(wrapper.text()).toContain('继续原版 PPT 的审阅与确认')
+    expect(wrapper.find('[data-testid="generate-ppt-manuscript"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
+  })
+
   it('loads the CourseDocument envelope and teaching registry in parallel', async () => {
     const calls: string[] = []
     let resolveDocument!: (value: { data: ReturnType<typeof courseEnvelope> }) => void

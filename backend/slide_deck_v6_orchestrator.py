@@ -24,6 +24,7 @@ from slide_build_progress_v2 import (
 from slide_deck_renderer import audit_exported_pptx
 from slide_deck_v6 import (
     AIBatchDiagnosticV1,
+    PptManuscriptV1,
     SlideStoryBatchV3,
     SlideStoryPlanV3,
     SlideVisualDecisionV2,
@@ -131,6 +132,17 @@ class SlideDeckV6CandidateRepository:
         if not path.is_file():
             raise FileNotFoundError(task_id)
         return json.loads(path.read_text(encoding="utf-8"))
+
+    def clone_checkpoint(self, source_task_id: str, target_task_id: str) -> dict[str, Any]:
+        """为确认后的 PPT 编译创建新任务，同时复用已冻结的文书规划证据。"""
+        payload = self.load_checkpoint(source_task_id)
+        cloned = {
+            **payload,
+            "task_id": target_task_id,
+            "updated_at": _utc_now(),
+        }
+        self.save_checkpoint(target_task_id, cloned)
+        return cloned
 
     def summarize(
         self,
@@ -580,6 +592,8 @@ class SlideDeckV6Orchestrator:
         template_contract: TemplateLayoutPackContractV1 | None = None,
         template_digest_provider: Callable[[], str] | None = None,
         publish_result: bool = True,
+        manuscript_only: bool = False,
+        confirmed_manuscript: PptManuscriptV1 | None = None,
         shadow_context: dict[str, Any] | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> dict[str, Any]:
@@ -641,7 +655,11 @@ class SlideDeckV6Orchestrator:
         story = None
         visual = None
         ppt_manuscript = None
-        finalize_item_id = "publish" if publish_result else "finalize-shadow"
+        finalize_item_id = (
+            "manuscript-finalize"
+            if manuscript_only
+            else "publish" if publish_result else "finalize-shadow"
+        )
         checkpoint: dict[str, Any] = {
             "schema_version": "slide_deck_v6_checkpoint_v1",
             "build_contract_version": SLIDE_DECK_V6_BUILD_CONTRACT_VERSION,
@@ -705,8 +723,16 @@ class SlideDeckV6Orchestrator:
             SlideWorkItemV2(
                 item_id=finalize_item_id,
                 kind="local",
-                stage="publish" if publish_result else "shadow_finalize",
-                label="Publish atomically" if publish_result else "Finalize read-only shadow",
+                stage=(
+                    "manuscript" if manuscript_only
+                    else "publish" if publish_result else "shadow_finalize"
+                ),
+                label=(
+                    "Freeze reviewable PPT manuscript"
+                    if manuscript_only
+                    else "Publish atomically" if publish_result
+                    else "Finalize read-only shadow"
+                ),
             ),
         ])
         await _emit(progress_callback, tracker.snapshot())
@@ -819,16 +845,17 @@ class SlideDeckV6Orchestrator:
                     batch.model_dump(mode="json") for batch in story.batches
                 ],
             )
-            tracker.add_work([
-                SlideWorkItemV2(
-                    item_id=f"render-{page.page_id}",
-                    kind="render_page",
-                    stage="render",
-                    label=f"Compile planned page {page.page_ordinal + 1}",
-                    page_id=page.page_id,
-                )
-                for page in story.pages
-            ])
+            if not manuscript_only:
+                tracker.add_work([
+                    SlideWorkItemV2(
+                        item_id=f"render-{page.page_id}",
+                        kind="render_page",
+                        stage="render",
+                        label=f"Compile planned page {page.page_ordinal + 1}",
+                        page_id=page.page_id,
+                    )
+                    for page in story.pages
+                ])
             tracker.add_work([
                 SlideWorkItemV2(
                     item_id=f"visual-{index + 1}",
@@ -923,8 +950,16 @@ class SlideDeckV6Orchestrator:
                 SlideWorkItemV2(
                     item_id=finalize_item_id,
                     kind="local",
-                    stage="publish" if publish_result else "shadow_finalize",
-                    label="原子发布正式课件" if publish_result else "完成只读影子候选",
+                    stage=(
+                        "manuscript" if manuscript_only
+                        else "publish" if publish_result else "shadow_finalize"
+                    ),
+                    label=(
+                        "冻结可审阅 PPT 文书"
+                        if manuscript_only
+                        else "原子发布正式课件" if publish_result
+                        else "完成只读影子候选"
+                    ),
                 ),
             ])
             await _emit(progress_callback, tracker.snapshot())
@@ -940,30 +975,32 @@ class SlideDeckV6Orchestrator:
             teacher_lesson_source = dict(
                 course_data.get("teacher_lesson_source") or {}
             )
-            ppt_manuscript = await _await_with_heartbeats(
-                asyncio.to_thread(
-                    compile_ppt_manuscript_v1,
-                    document,
-                    graph,
-                    story,
-                    visual,
-                    template,
-                    source_lesson_plan_revision_id=str(
-                        teacher_lesson_source.get("lesson_plan_revision_id") or ""
+            ppt_manuscript = confirmed_manuscript
+            if ppt_manuscript is None:
+                ppt_manuscript = await _await_with_heartbeats(
+                    asyncio.to_thread(
+                        compile_ppt_manuscript_v1,
+                        document,
+                        graph,
+                        story,
+                        visual,
+                        template,
+                        source_lesson_plan_revision_id=str(
+                            teacher_lesson_source.get("lesson_plan_revision_id") or ""
+                        ),
+                        source_script_revision_id=str(
+                            teacher_lesson_source.get("script_revision_id") or ""
+                        ),
+                        material_bindings=list(
+                            teacher_lesson_source.get("material_bindings") or []
+                        ),
+                        external_quality_issues=_manuscript_planning_quality_issues(
+                            story
+                        ),
                     ),
-                    source_script_revision_id=str(
-                        teacher_lesson_source.get("script_revision_id") or ""
-                    ),
-                    material_bindings=list(
-                        teacher_lesson_source.get("material_bindings") or []
-                    ),
-                    external_quality_issues=_manuscript_planning_quality_issues(
-                        story
-                    ),
-                ),
-                tracker=tracker,
-                callback=progress_callback,
-            )
+                    tracker=tracker,
+                    callback=progress_callback,
+                )
             save_checkpoint(
                 ppt_manuscript=ppt_manuscript.model_dump(mode="json")
             )
@@ -984,6 +1021,65 @@ class SlideDeckV6Orchestrator:
                     page_id=first_issue.page_id if first_issue else "",
                     batch_id=first_issue.batch_id if first_issue else "",
                 )
+            if manuscript_only:
+                tracker.complete("materialize")
+                tracker.start("quality")
+                tracker.complete("quality")
+                current_work = finalize_item_id
+                tracker.start(finalize_item_id)
+                if (
+                    str(source_revision_provider() or "")
+                    != source_contract.course_document_revision
+                ):
+                    raise V6BuildError(
+                        stage="manuscript",
+                        code="source_revision_changed",
+                        message="课程源在 PPT 文书生成期间发生变化。",
+                        retryable=True,
+                    )
+                current_template_digest = (
+                    str(template_digest_provider() or "")
+                    if template_digest_provider
+                    else template.template_digest
+                )
+                if current_template_digest != source_contract.template_digest:
+                    raise V6BuildError(
+                        stage="manuscript",
+                        code="template_revision_changed",
+                        message="模板在 PPT 文书生成期间发生变化。",
+                        retryable=True,
+                    )
+                candidate_payload = {
+                    "schema_version": "slide_deck_v6_candidate_v1",
+                    "task_id": task_id,
+                    "course_id": document.course_id,
+                    "status": "manuscript_ready",
+                    "source_contract": source_contract.model_dump(mode="json"),
+                    "course_presentation_graph": graph.model_dump(mode="json"),
+                    "story_plan": story.model_dump(mode="json"),
+                    "ppt_manuscript": ppt_manuscript.model_dump(mode="json"),
+                    "visual_plan": visual.model_dump(mode="json"),
+                    "ai_batch_diagnostics": serialized_ai_batch_diagnostics(),
+                    "deck": None,
+                    "published": False,
+                    "shadow_context": dict(shadow_context or {}),
+                    "failure": None,
+                    "updated_at": _utc_now(),
+                }
+                self.candidates.save(task_id, candidate_payload)
+                tracker.complete(finalize_item_id)
+                tracker.mark_completed(published=False)
+                progress = tracker.snapshot()
+                await _emit(progress_callback, progress)
+                return {
+                    "status": "manuscript_ready",
+                    "candidate_status": "manuscript_ready",
+                    "published": False,
+                    "task_id": task_id,
+                    "ppt_manuscript": ppt_manuscript.model_dump(mode="json"),
+                    "ppt_manuscript_revision": ppt_manuscript.manuscript_revision,
+                    "progress": progress,
+                }
             deck = await _await_with_heartbeats(
                 asyncio.to_thread(
                     compile_slide_deck_v6_from_manuscript,

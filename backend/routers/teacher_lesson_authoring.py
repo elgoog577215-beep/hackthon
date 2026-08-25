@@ -74,7 +74,11 @@ from course_document import (
     refresh_document_revision,
     stable_hash,
 )
-from slide_deck_v6 import SlideDeckV6, project_ppt_manuscript_from_deck_v1
+from slide_deck_v6 import (
+    PptManuscriptV1,
+    SlideDeckV6,
+    project_ppt_manuscript_from_deck_v1,
+)
 
 
 router = APIRouter(prefix="/teacher", tags=["teacher-lesson-authoring"])
@@ -219,6 +223,57 @@ def _assert_ppt_manuscript_confirmable(manuscript: dict) -> None:
             "PPT 文书质量未通过，修改后才能确认并生成正式 PPT。",
             details={"quality_issues": issues},
         )
+
+
+def _ppt_manuscript_state_payload(
+    state: dict[str, Any] | None,
+    *,
+    generation_branch: str,
+    current_material_revision: str = "",
+) -> dict[str, Any]:
+    if not state:
+        return {
+            "generation_branch": generation_branch,
+            "revision": "",
+            "status": "not_generated",
+            "source_state": "current",
+            "confirmable": False,
+            "can_generate_ppt": False,
+            "manuscript": None,
+        }
+    source_state = str(state.get("source_state") or "current")
+    if (
+        current_material_revision
+        and state.get("source_material_revision")
+        and state.get("source_material_revision") != current_material_revision
+    ):
+        source_state = "stale"
+    manuscript = state.get("manuscript")
+    manuscript_payload = manuscript if isinstance(manuscript, dict) else None
+    quality_passed = bool(
+        manuscript_payload
+        and manuscript_payload.get("quality_status") == "passed"
+    )
+    status = str(state.get("status") or "draft")
+    return {
+        "generation_branch": generation_branch,
+        "revision": str(state.get("revision") or ""),
+        "status": status,
+        "source_state": source_state,
+        "confirmable": bool(
+            quality_passed and source_state == "current" and status == "draft"
+        ),
+        "can_generate_ppt": bool(
+            quality_passed and source_state == "current" and status == "confirmed"
+        ),
+        "task_id": str(state.get("task_id") or ""),
+        "mode": str(state.get("mode") or "teaching"),
+        "theme": str(state.get("theme") or "qizhi-classroom"),
+        "generated_representation_id": str(
+            state.get("generated_representation_id") or ""
+        ),
+        "manuscript": manuscript_payload,
+    }
 
 
 _V6_KEY_REGION_SLOTS = (
@@ -1469,6 +1524,101 @@ async def get_teacher_lesson_v6_registry(
         _raise(exc)
 
 
+@router.get("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/manuscript")
+async def get_teacher_lesson_v6_manuscript(
+    course_id: str,
+    lesson_unit_id: str,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
+        if repository.current_imported_ppt_review(course_id, lesson_unit_id):
+            return {
+                "ppt_manuscript_state": _ppt_manuscript_state_payload(
+                    None, generation_branch="original_ppt_review"
+                )
+            }
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        material_bindings, _material_evidence = _ppt_material_bundle(
+            course_id, actor, lesson_unit_id
+        )
+        material_revision = stable_hash(material_bindings, prefix="pptrefs_")
+        state = repository.current_v6_ppt_manuscript(
+            course_id, lesson_unit_id
+        )
+        return {
+            "ppt_manuscript_state": _ppt_manuscript_state_payload(
+                state,
+                generation_branch="manuscript_first",
+                current_material_revision=material_revision,
+            )
+        }
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/manuscript/confirm")
+async def confirm_teacher_lesson_v6_manuscript_draft(
+    course_id: str,
+    lesson_unit_id: str,
+    body: ConfirmTeacherLessonPptManuscriptRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        _teacher_v6_source(tm, repository, course_id, lesson_unit_id)
+        if repository.current_imported_ppt_review(course_id, lesson_unit_id):
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_original_branch_active",
+                "本讲已有原版 PPT，请在原版 PPT 审阅流程中处理。",
+            )
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        material_bindings, _material_evidence = _ppt_material_bundle(
+            course_id, actor, lesson_unit_id
+        )
+        material_revision = stable_hash(material_bindings, prefix="pptrefs_")
+        current = repository.current_v6_ppt_manuscript(
+            course_id, lesson_unit_id
+        )
+        state_payload = _ppt_manuscript_state_payload(
+            current,
+            generation_branch="manuscript_first",
+            current_material_revision=material_revision,
+        )
+        manuscript = state_payload.get("manuscript")
+        if not isinstance(manuscript, dict):
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_manuscript_not_found", "请先生成 PPT 文书。"
+            )
+        _assert_ppt_manuscript_confirmable(manuscript)
+        if state_payload.get("source_state") != "current":
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_source_stale",
+                "上游教学内容或资料已经变化，请重新生成 PPT 文书。",
+            )
+        confirmed = repository.confirm_v6_ppt_manuscript_draft(
+            course_id,
+            lesson_unit_id,
+            manuscript_revision=body.manuscript_revision,
+        )
+        return {
+            "ppt_manuscript_state": _ppt_manuscript_state_payload(
+                confirmed,
+                generation_branch="manuscript_first",
+                current_material_revision=material_revision,
+            )
+        }
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
 @router.get("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/{representation_id}/spec")
 async def get_teacher_lesson_v6_spec(
     course_id: str,
@@ -1793,6 +1943,178 @@ async def resolve_teacher_lesson_v6_ai_candidate(
         ) from exc
 
 
+@router.post(
+    "/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/manuscript/build/stream"
+)
+async def build_teacher_lesson_v6_manuscript(
+    course_id: str,
+    lesson_unit_id: str,
+    body: TeacherLessonV6BuildRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        document, course_view, _synthetic_id, lesson, revision = _teacher_v6_source(
+            tm, repository, course_id, lesson_unit_id
+        )
+        if repository.current_imported_ppt_review(course_id, lesson_unit_id):
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_original_branch_active",
+                "本讲已有原版 PPT，请在原版 PPT 审阅流程中处理。",
+            )
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        material_bindings, material_evidence = _ppt_material_bundle(
+            course_id, actor, lesson_unit_id
+        )
+        document = _attach_ppt_reference_evidence(document, material_evidence)
+        teacher_source = dict(course_view.get("teacher_lesson_source") or {})
+        teacher_source["material_bindings"] = material_bindings
+        course_view["teacher_lesson_source"] = teacher_source
+        course_view["evidence_catalog"] = material_evidence
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+    source_plan_revision = str(
+        revision.get("revision_id") or lesson.get("confirmed_revision_id") or ""
+    )
+    source_script_revision = str(
+        (course_view.get("teacher_lesson_source") or {}).get("script_revision_id")
+        or ""
+    )
+    source_material_revision = stable_hash(material_bindings, prefix="pptrefs_")
+    task_id = f"teacher-v6-manuscript-{uuid.uuid4().hex}"
+    template = compile_builtin_template_layout_contract_v1(body.theme)
+    candidate_repository = SlideDeckV6CandidateRepository(
+        repository.root / "v6_candidates"
+    )
+    orchestrator = SlideDeckV6Orchestrator(
+        representation_repository=teaching_representation_repository,
+        candidate_repository=candidate_repository,
+        progress_root=repository.root / "v6_progress",
+    )
+    story_planner = build_ai_base_story_planner_v6()
+    visual_planner = build_ai_base_visual_planner_v2()
+
+    async def event_stream():
+        queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        sequence = 0
+
+        async def progress(payload: dict[str, object]) -> None:
+            await queue.put({
+                "event": "slide_build_progress_v2",
+                "progress": int(payload.get("percent") or 0),
+                "stage": str(payload.get("stage") or "building"),
+                "message": "正在生成可逐页审阅的 PPT 文书",
+                "slide_build_progress_v2": deepcopy(payload),
+                "target_schema": "ppt_manuscript_v1",
+            })
+
+        def source_revision_provider() -> str:
+            current = repository.lesson(course_id, lesson_unit_id)
+            confirmation = current.get("script_confirmation") or {}
+            try:
+                current_bindings, _current_evidence = _ppt_material_bundle(
+                    course_id, actor, lesson_unit_id
+                )
+                materials_current = (
+                    stable_hash(current_bindings, prefix="pptrefs_")
+                    == source_material_revision
+                )
+            except TeacherLessonAuthoringError:
+                materials_current = False
+            return (
+                str(document.document_revision or "")
+                if current.get("confirmed_revision_id") == source_plan_revision
+                and current.get("working_script_revision_id") == source_script_revision
+                and confirmation.get("confirmed_revision_id")
+                == source_script_revision
+                and confirmation.get("source_state", "current") == "current"
+                and materials_current
+                else ""
+            )
+
+        async def run() -> None:
+            try:
+                result = await orchestrator.build(
+                    task_id=task_id,
+                    document=document,
+                    course_data=course_view,
+                    mode=body.mode,
+                    theme=body.theme,
+                    story_planner=story_planner,
+                    visual_planner=visual_planner,
+                    source_revision_provider=source_revision_provider,
+                    template_contract=template,
+                    template_digest_provider=lambda: template.template_digest,
+                    publish_result=False,
+                    manuscript_only=True,
+                    progress_callback=progress,
+                )
+                state = repository.save_v6_ppt_manuscript(
+                    course_id,
+                    lesson_unit_id,
+                    source_lesson_plan_revision_id=source_plan_revision,
+                    source_script_revision_id=source_script_revision,
+                    source_material_revision=source_material_revision,
+                    task_id=task_id,
+                    mode=body.mode,
+                    theme=body.theme,
+                    manuscript=dict(result.get("ppt_manuscript") or {}),
+                )
+                await queue.put({
+                    "event": "build_complete",
+                    "progress": 100,
+                    "stage": "manuscript_complete",
+                    "target_schema": "ppt_manuscript_v1",
+                    "build": result,
+                    "ppt_manuscript_state": _ppt_manuscript_state_payload(
+                        state,
+                        generation_branch="manuscript_first",
+                        current_material_revision=source_material_revision,
+                    ),
+                })
+            except V6BuildError as exc:
+                failure = exc.failure.model_dump(mode="json")
+                await queue.put({
+                    "event": "build_failed",
+                    "progress": 100,
+                    "stage": failure.get("stage") or "failed",
+                    **failure,
+                })
+            except Exception as exc:
+                await queue.put({
+                    "event": "build_failed",
+                    "progress": 100,
+                    "stage": "failed",
+                    "code": "teacher_lesson_v6_manuscript_failed",
+                    "message": str(exc),
+                    "retryable": True,
+                })
+            finally:
+                await queue.put(None)
+
+        worker = asyncio.create_task(run())
+        while True:
+            payload = await queue.get()
+            if payload is None:
+                break
+            sequence += 1
+            name = str(payload.get("event") or "message")
+            yield (
+                f"id: {sequence}\nevent: {name}\ndata: "
+                f"{json.dumps({**payload, 'sequence': sequence}, ensure_ascii=False)}\n\n"
+            )
+        await worker
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/build/stream")
 async def build_teacher_lesson_v6(
     course_id: str,
@@ -1808,10 +2130,40 @@ async def build_teacher_lesson_v6(
         document, course_view, synthetic_id, lesson, revision = _teacher_v6_source(
             tm, repository, course_id, lesson_unit_id
         )
+        if repository.current_imported_ppt_review(course_id, lesson_unit_id):
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_original_branch_active",
+                "本讲已有原版 PPT，请在原版 PPT 审阅流程中处理。",
+            )
         actor = resolve_user_id(request.headers.get("X-User-Id"))
         material_bindings, material_evidence = _ppt_material_bundle(
             course_id, actor, lesson_unit_id
         )
+        source_material_revision = stable_hash(
+            material_bindings, prefix="pptrefs_"
+        )
+        manuscript_state = repository.current_v6_ppt_manuscript(
+            course_id, lesson_unit_id
+        )
+        manuscript_state_payload = _ppt_manuscript_state_payload(
+            manuscript_state,
+            generation_branch="manuscript_first",
+            current_material_revision=source_material_revision,
+        )
+        if not manuscript_state_payload.get("can_generate_ppt"):
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_manuscript_not_confirmed",
+                "请先生成并确认当前版本的 PPT 文书，再生成 PPT。",
+            )
+        try:
+            confirmed_manuscript = PptManuscriptV1.model_validate(
+                manuscript_state_payload.get("manuscript")
+            )
+        except ValueError as exc:
+            raise TeacherLessonAuthoringError(
+                "lesson_ppt_manuscript_invalid",
+                "PPT 文书结构无效，请重新生成文书。",
+            ) from exc
         document = _attach_ppt_reference_evidence(document, material_evidence)
         teacher_source = dict(course_view.get("teacher_lesson_source") or {})
         teacher_source["material_bindings"] = material_bindings
@@ -1819,18 +2171,36 @@ async def build_teacher_lesson_v6(
         course_view["evidence_catalog"] = material_evidence
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
-    source_plan_revision = str(revision.get("revision_id") or lesson.get("confirmed_revision_id") or "")
-    source_script_revision = str(
-        (course_view.get("teacher_lesson_source") or {}).get("script_revision_id") or ""
+    source_plan_revision = str(
+        manuscript_state.get("source_lesson_plan_revision_id") or ""
     )
-    source_material_revision = stable_hash(
-        material_bindings, prefix="pptrefs_"
+    source_script_revision = str(
+        manuscript_state.get("source_script_revision_id") or ""
+    )
+    manuscript_mode = str(manuscript_state.get("mode") or "teaching")
+    manuscript_theme = str(
+        manuscript_state.get("theme") or "qizhi-classroom"
     )
     task_id = f"teacher-v6-{uuid.uuid4().hex}"
-    template = compile_builtin_template_layout_contract_v1(body.theme)
+    template = compile_builtin_template_layout_contract_v1(manuscript_theme)
+    candidate_repository = SlideDeckV6CandidateRepository(
+        repository.root / "v6_candidates"
+    )
+    try:
+        candidate_repository.clone_checkpoint(
+            str(manuscript_state.get("task_id") or ""), task_id
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "lesson_ppt_manuscript_checkpoint_missing",
+                "message": "PPT 文书的生成检查点不可用，请重新生成文书。",
+            },
+        ) from exc
     orchestrator = SlideDeckV6Orchestrator(
         representation_repository=teaching_representation_repository,
-        candidate_repository=SlideDeckV6CandidateRepository(repository.root / "v6_candidates"),
+        candidate_repository=candidate_repository,
         progress_root=repository.root / "v6_progress",
     )
     story_planner = build_ai_base_story_planner_v6()
@@ -1845,11 +2215,7 @@ async def build_teacher_lesson_v6(
                 "event": "slide_build_progress_v2",
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
-                "message": (
-                    f"正在结合已确认讲稿与 {len(material_bindings)} 份资料编译 PPT 文书"
-                    if material_bindings
-                    else "正在从已确认讲稿编译 PPT 文书与页面表达"
-                ),
+                "message": "正在从已确认的 PPT 文书编译可编辑页面",
                 "slide_build_progress_v2": deepcopy(payload),
                 "target_schema": "slide_deck_v6",
             })
@@ -1883,14 +2249,15 @@ async def build_teacher_lesson_v6(
                     task_id=task_id,
                     document=document,
                     course_data=course_view,
-                    mode=body.mode,
-                    theme=body.theme,
+                    mode=manuscript_mode,
+                    theme=manuscript_theme,
                     story_planner=story_planner,
                     visual_planner=visual_planner,
                     source_revision_provider=source_revision_provider,
                     template_contract=template,
                     template_digest_provider=lambda: template.template_digest,
                     publish_result=True,
+                    confirmed_manuscript=confirmed_manuscript,
                     progress_callback=progress,
                 )
                 repository.bind_v6_ppt_revision(
@@ -1905,7 +2272,13 @@ async def build_teacher_lesson_v6(
                     ppt_manuscript_revision=str(
                         result.get("ppt_manuscript_revision") or ""
                     ),
-                    ppt_manuscript_status="draft",
+                    ppt_manuscript_status="confirmed",
+                )
+                repository.bind_v6_ppt_manuscript_result(
+                    course_id,
+                    lesson_unit_id,
+                    manuscript_revision=confirmed_manuscript.manuscript_revision,
+                    representation_id=str(result.get("representation_id") or ""),
                 )
                 await queue.put({
                     "event": "build_complete",

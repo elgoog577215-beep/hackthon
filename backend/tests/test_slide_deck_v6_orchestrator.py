@@ -14,7 +14,7 @@ from slide_build_progress_v2 import (
     SlideBuildProgressRepositoryV2,
     SlideWorkItemV2,
 )
-from slide_deck_v6 import V6BuildError
+from slide_deck_v6 import PptManuscriptV1, V6BuildError
 from slide_deck_v6_orchestrator import (
     SlideDeckV6CandidateRepository,
     SlideDeckV6Orchestrator,
@@ -837,6 +837,65 @@ async def test_deterministic_story_fallback_is_saved_as_blocked_manuscript(
     assert candidate["failure"]["stage"] == "manuscript"
     assert candidate["failure"]["retryable"] is True
     assert representations.load(document.course_id).representations == []
+
+
+@pytest.mark.asyncio
+async def test_manuscript_only_then_confirmed_build_are_two_distinct_tasks(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    manuscript_result = await orchestrator.build(
+        task_id="task-v6-manuscript-only",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=_story_planner,
+        visual_planner=_visual_planner,
+        source_revision_provider=lambda: document.document_revision,
+        publish_result=False,
+        manuscript_only=True,
+    )
+
+    assert manuscript_result["status"] == "manuscript_ready"
+    assert manuscript_result["published"] is False
+    assert representations.load(document.course_id).representations == []
+    candidate = candidates.load("task-v6-manuscript-only")
+    assert candidate["deck"] is None
+    assert candidate["ppt_manuscript"]["quality_status"] == "passed"
+
+    candidates.clone_checkpoint(
+        "task-v6-manuscript-only", "task-v6-confirmed-deck"
+    )
+
+    async def planner_must_not_run(_request):
+        raise AssertionError("confirmed manuscript build must reuse frozen planning")
+
+    confirmed = PptManuscriptV1.model_validate(
+        manuscript_result["ppt_manuscript"]
+    )
+    deck_result = await orchestrator.build(
+        task_id="task-v6-confirmed-deck",
+        document=document,
+        course_data={},
+        mode="teaching",
+        theme="qizhi-classroom",
+        story_planner=planner_must_not_run,
+        visual_planner=planner_must_not_run,
+        source_revision_provider=lambda: document.document_revision,
+        confirmed_manuscript=confirmed,
+    )
+
+    assert deck_result["published"] is True
+    published = representations.load(document.course_id)
+    representation = published.representations[0]
+    spec = next(item for item in published.specs if item.spec_id == representation.spec_id)
+    assert (
+        spec.payload["content"]["ppt_manuscript"]["manuscript_revision"]
+        == confirmed.manuscript_revision
+    )
 
 
 @pytest.mark.asyncio

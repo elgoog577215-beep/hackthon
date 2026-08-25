@@ -7,6 +7,11 @@ vi.mock('@/utils/http', () => ({
   default: httpMock,
   withApiBase: (path: string) => path,
   learnerIdentityHeaders: (initial: HeadersInit = {}) => new Headers(initial),
+  identityScopeHeaders: (scope: 'teacher' | 'learner', initial: HeadersInit = {}) => {
+    const headers = new Headers(initial)
+    headers.set('X-User-Id', scope === 'teacher' ? 'teacher-local-workbench-v1' : 'learner-local-preview-v1')
+    return headers
+  },
 }))
 
 import {
@@ -281,6 +286,50 @@ describe('teaching representation progressive build', () => {
         target_count: 7,
       },
     })
+  })
+
+  it('uses the independent teacher manuscript stream without requiring a deck registry', async () => {
+    const manuscriptState = {
+      generation_branch: 'manuscript_first',
+      revision: 'pptman-1',
+      status: 'draft',
+      source_state: 'current',
+      confirmable: true,
+      can_generate_ppt: false,
+      manuscript: { schema_version: 'ppt_manuscript_v1', page_count: 1, pages: [] },
+    }
+    const fetchMock = vi.fn().mockResolvedValue(streamResponse([{
+      event: 'build_complete',
+      progress: 100,
+      stage: 'manuscript_complete',
+      ppt_manuscript_state: manuscriptState,
+      build: { status: 'manuscript_ready' },
+    }]))
+    vi.stubGlobal('fetch', fetchMock)
+    const store = useTeachingRepresentationsStore()
+    store.setTeacherLessonScope('L1-1')
+
+    const completed = await store.buildSlideDeckVariant('course-1', {
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      manuscriptOnly: true,
+    })
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe(
+      '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/build/stream',
+    )
+    expect(JSON.parse(String(init.body))).toEqual({
+      mode: 'teaching',
+      theme: 'qizhi-classroom',
+      force_rebuild: false,
+    })
+    expect((init.headers as Headers).get('X-User-Id')).toBe(
+      'teacher-local-workbench-v1',
+    )
+    expect(completed?.ppt_manuscript_state).toEqual(manuscriptState)
+    expect(store.buildStage).toBe('manuscript_complete')
   })
 
   it('queues a durable repair for degraded V6 visual pages without rebuilding the deck', async () => {

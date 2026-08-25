@@ -33,6 +33,19 @@
       <p>{{ documentLoadError }}</p>
     </div>
 
+    <PptManuscriptWorkflow
+      v-else-if="showManuscriptWorkflow && pptManuscriptState"
+      :title="courseTitle"
+      :state="pptManuscriptState"
+      :busy="store.building"
+      :confirming="pptManuscriptConfirming"
+      :error="pptManuscriptConfirmError || buildErrorLabel"
+      @back="backToCourse"
+      @generate-manuscript="openGenerator(false)"
+      @confirm-manuscript="confirmPptManuscript"
+      @generate-ppt="generatePptFromConfirmedManuscript"
+    />
+
     <div v-else-if="documentEnvelope?.source_format !== 'legacy_projection' && !slideRepresentation && !store.liveSlides.length" class="ppt-workspace-state is-empty">
       <button type="button" class="ppt-workspace-state__back" @click="backToCourse"><ArrowLeft :size="18" /></button>
       <div class="ppt-workspace-state__mark"><Presentation :size="34" /></div>
@@ -200,7 +213,8 @@
       :theme="selectedTheme"
       :web-image-retrieval="selectedWebImageRetrieval"
       :busy="store.building"
-      :closable="Boolean(slideRepresentation)"
+      :closable="Boolean(slideRepresentation || pptManuscriptState)"
+      :manuscript-first="isTeacherSurface"
       :fragment-count="estimatedFragmentCount"
       :personal-templates="templatePacksStore.personal"
       :personal-templates-enabled="templateStore.personalTemplatesEnabled"
@@ -225,6 +239,7 @@ import TeacherLessonAiWorkspace, { type TeacherAiQuickAction } from '../componen
 import SlideDeckBuildProgress from '../components/SlideDeckBuildProgress.vue'
 import SlideDeckWorkbench from '../components/SlideDeckWorkbench.vue'
 import SlideDeckGeneratorDialog from '../components/SlideDeckGeneratorDialog.vue'
+import PptManuscriptWorkflow from '../components/PptManuscriptWorkflow.vue'
 import PptTemplateCreatorDialog from '../components/PptTemplateCreatorDialog.vue'
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
@@ -306,10 +321,17 @@ const pptAiMessages = ref<TeacherProductionAiMessage[]>([])
 const pptAiPhase = ref<TeacherProductionAiPhase>('ready')
 const pptAiLastInstruction = ref('')
 const pptManuscriptState = ref<{
+  generation_branch: 'manuscript_first' | 'original_ppt_review'
   revision: string
-  status: 'draft' | 'confirmed'
+  status: 'not_generated' | 'draft' | 'confirmed'
   source_state: string
   confirmable: boolean
+  can_generate_ppt: boolean
+  task_id?: string
+  mode?: SlideDeckMode
+  theme?: V3Theme
+  generated_representation_id?: string
+  manuscript?: Record<string, any> | null
 } | null>(null)
 const pptManuscriptConfirming = ref(false)
 const pptManuscriptConfirmError = ref('')
@@ -370,6 +392,17 @@ const slideRepresentation = computed(() => (
   || targetSlideRepresentations.value[0]
   || null
 ))
+const showManuscriptWorkflow = computed(() => {
+  if (!isTeacherSurface.value || !pptManuscriptState.value) return false
+  if (pptManuscriptState.value.generation_branch === 'original_ppt_review') return true
+  if (!slideRepresentation.value) return true
+  if (pptManuscriptState.value.status === 'not_generated') return false
+  return (
+    !pptManuscriptState.value.generated_representation_id
+    || pptManuscriptState.value.generated_representation_id
+      !== slideRepresentation.value.representation_id
+  )
+})
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const pptAiPage = computed<Record<string, any> | null>(() => {
   const pages = Array.isArray(content.value?.pages) ? content.value.pages : []
@@ -592,6 +625,7 @@ async function loadWorkspace() {
   const attempt = ++workspaceAttempt
   initializing.value = true
   documentEnvelope.value = null
+  pptManuscriptState.value = null
   migrating.value = false
   migrationMessage.value = ''
   logicUpgrading.value = false
@@ -603,7 +637,14 @@ async function loadWorkspace() {
       loadSelectedSpec: false,
       handleMissingRepresentations: false,
     })
-    const [envelope] = await Promise.all([documentPromise, registryPromise])
+    const manuscriptPromise = isTeacherSurface.value
+      ? loadPptManuscriptState(id, attempt)
+      : Promise.resolve(null)
+    const [envelope] = await Promise.all([
+      documentPromise,
+      registryPromise,
+      manuscriptPromise,
+    ])
     if (!envelope || !isCurrentAttempt(id, attempt) || envelope.source_format !== 'canonical') return
     if (store.courseId === id && !store.representations.length) {
       await store.recoverDurableBuild(id)
@@ -616,6 +657,8 @@ async function loadWorkspace() {
       applyVariantSelection(preferred)
       await store.select(preferred.representation_id)
     } else if (
+      !isTeacherSurface.value
+      &&
       !store.liveSlides.length
       && slideEngineStatus.value !== 'blocked'
     ) {
@@ -628,6 +671,16 @@ async function loadWorkspace() {
   } finally {
     if (isCurrentAttempt(id, attempt)) initializing.value = false
   }
+}
+
+async function loadPptManuscriptState(id: string, attempt: number) {
+  if (!teacherLessonId.value) return null
+  const response = await http.get(
+    `/api/teacher/courses/${id}/lessons/${teacherLessonId.value}/ppt-v6/manuscript`,
+  )
+  if (!isCurrentAttempt(id, attempt)) return null
+  pptManuscriptState.value = response.data?.ppt_manuscript_state || null
+  return pptManuscriptState.value
 }
 
 function isCurrentAttempt(id: string, attempt: number) {
@@ -815,15 +868,22 @@ async function generateVariant(value: {
   selectedTemplatePackVersion.value = value.templatePackVersion
   generatorOpen.value = false
   try {
-    await store.buildSlideDeckVariant(courseId.value, {
+    const manuscriptOnly = isTeacherSurface.value
+    const completed = await store.buildSlideDeckVariant(courseId.value, {
       mode: value.mode,
       theme: value.theme,
       engineVersion: slideEngineStatus.value === 'slide_deck_v6' ? 'v6' : undefined,
       templatePackId: value.templatePackId,
       templatePackVersion: value.templatePackVersion,
       forceRebuild: forceGeneratorBuild.value,
+      manuscriptOnly,
       webImageRetrieval: value.webImageRetrieval,
     })
+    if (manuscriptOnly && completed?.ppt_manuscript_state) {
+      pptManuscriptState.value = completed.ppt_manuscript_state as any
+      pptManuscriptConfirmError.value = ''
+      return
+    }
   } catch {
     return
   } finally {
@@ -960,7 +1020,6 @@ async function loadPptAiCandidate() {
       `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/spec`,
     )
     if (attempt !== pptAiCandidateAttempt || store.selectedId !== representationId) return
-    pptManuscriptState.value = response.data.ppt_manuscript_state || null
     const candidate = (response.data.ai_candidate || null) as TeacherV6AiCandidate | null
     const previousCandidateId = pptAiCandidate.value?.candidate_id
     pptAiCandidate.value = candidate
@@ -975,19 +1034,16 @@ async function loadPptAiCandidate() {
   } catch {
     if (attempt === pptAiCandidateAttempt) {
       pptAiCandidate.value = null
-      pptManuscriptState.value = null
     }
   }
 }
 
 async function confirmPptManuscript() {
   const state = pptManuscriptState.value
-  const representationId = store.selectedId
   if (
     !isTeacherSurface.value
     || !courseId.value
     || !teacherLessonId.value
-    || !representationId
     || !state?.revision
     || !state.confirmable
     || state.status === 'confirmed'
@@ -997,7 +1053,7 @@ async function confirmPptManuscript() {
   pptManuscriptConfirmError.value = ''
   try {
     const response = await http.post(
-      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/manuscript/confirm`,
+      `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/manuscript/confirm`,
       { manuscript_revision: state.revision },
     )
     pptManuscriptState.value = response.data.ppt_manuscript_state
@@ -1009,6 +1065,29 @@ async function confirmPptManuscript() {
     )
   } finally {
     pptManuscriptConfirming.value = false
+  }
+}
+
+async function generatePptFromConfirmedManuscript() {
+  const state = pptManuscriptState.value
+  if (
+    !state?.can_generate_ppt
+    || store.building
+    || !courseId.value
+  ) return
+  pptManuscriptConfirmError.value = ''
+  try {
+    await store.buildSlideDeckVariant(courseId.value, {
+      mode: state.mode || selectedMode.value,
+      theme: state.theme || selectedTheme.value,
+      engineVersion: 'v6',
+    })
+    await loadPptManuscriptState(courseId.value, workspaceAttempt)
+    const representation = preferredVariantRepresentation()
+      || targetSlideRepresentations.value[0]
+    if (representation) await store.select(representation.representation_id)
+  } catch {
+    return
   }
 }
 

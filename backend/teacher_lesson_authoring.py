@@ -71,6 +71,7 @@ def _empty_lesson_asset(lesson_unit_id: str) -> dict[str, Any]:
         "working_script_revision_id": "",
         "script_revisions": [],
         "script_confirmation": {},
+        "ppt_manuscript": {},
         "ppt_assets": [],
         "imported_ppt_reviews": [],
     }
@@ -1334,6 +1335,13 @@ class TeacherLessonAuthoringRepository:
                 source_revision = str(asset.get("source_lesson_plan_revision_id") or "")
                 if source_revision and source_revision != revision_id:
                     asset["source_state"] = "stale"
+            manuscript = lesson.get("ppt_manuscript")
+            if (
+                isinstance(manuscript, dict)
+                and manuscript.get("source_lesson_plan_revision_id")
+                != revision_id
+            ):
+                manuscript["source_state"] = "stale"
             for review in lesson.get("imported_ppt_reviews") or []:
                 if not isinstance(review, dict):
                     continue
@@ -1413,6 +1421,131 @@ class TeacherLessonAuthoringRepository:
             asset["source_state"] = "current"
             saved = self._save(value)
             return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
+
+    def save_v6_ppt_manuscript(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        source_lesson_plan_revision_id: str,
+        source_script_revision_id: str,
+        source_material_revision: str,
+        task_id: str,
+        mode: str,
+        theme: str,
+        manuscript: dict[str, Any],
+    ) -> dict[str, Any]:
+        """保存无原版 PPT 分支的独立文书工作稿，不提前创建 PPT 资产。"""
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_not_found", "请先生成并确认本讲教案。"
+                )
+            confirmation = lesson.get("script_confirmation") or {}
+            if (
+                lesson.get("confirmed_revision_id")
+                != source_lesson_plan_revision_id
+                or lesson.get("working_script_revision_id")
+                != source_script_revision_id
+                or confirmation.get("confirmed_revision_id")
+                != source_script_revision_id
+                or confirmation.get("source_state", "current") != "current"
+            ):
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_source_stale",
+                    "教案或讲稿已经变化，请基于已确认的最新内容重新生成 PPT 文书。",
+                )
+            state = {
+                "revision": str(manuscript.get("manuscript_revision") or ""),
+                "status": "draft",
+                "source_state": "current",
+                "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+                "source_script_revision_id": source_script_revision_id,
+                "source_material_revision": source_material_revision,
+                "task_id": task_id,
+                "mode": mode,
+                "theme": theme,
+                "manuscript": deepcopy(manuscript),
+                "created_at": _now(),
+                "confirmed_at": "",
+                "generated_representation_id": "",
+            }
+            lesson["ppt_manuscript"] = state
+            saved = self._save(value)
+            return deepcopy(
+                saved["lessons"][lesson_unit_id]["ppt_manuscript"]
+            )
+
+    def current_v6_ppt_manuscript(
+        self, course_id: str, lesson_unit_id: str
+    ) -> dict[str, Any] | None:
+        lesson = self.lesson(course_id, lesson_unit_id)
+        state = lesson.get("ppt_manuscript")
+        return deepcopy(state) if isinstance(state, dict) and state else None
+
+    def confirm_v6_ppt_manuscript_draft(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        manuscript_revision: str,
+    ) -> dict[str, Any]:
+        """确认独立 PPT 文书；确认后才可进入 PPT 编译。"""
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            state = (lesson or {}).get("ppt_manuscript")
+            if not isinstance(state, dict) or not state:
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_not_found", "请先生成 PPT 文书。"
+                )
+            if state.get("source_state") != "current":
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_source_stale",
+                    "教案或讲稿已经变化，请重新生成 PPT 文书。",
+                )
+            if str(state.get("revision") or "") != manuscript_revision:
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_revision_conflict",
+                    "PPT 文书已更新，请刷新后再确认。",
+                )
+            state["status"] = "confirmed"
+            state["confirmed_at"] = _now()
+            saved = self._save(value)
+            return deepcopy(
+                saved["lessons"][lesson_unit_id]["ppt_manuscript"]
+            )
+
+    def bind_v6_ppt_manuscript_result(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        *,
+        manuscript_revision: str,
+        representation_id: str,
+    ) -> dict[str, Any]:
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            state = (lesson or {}).get("ppt_manuscript")
+            if (
+                not isinstance(state, dict)
+                or state.get("status") != "confirmed"
+                or state.get("source_state") != "current"
+                or state.get("revision") != manuscript_revision
+            ):
+                raise TeacherLessonAuthoringError(
+                    "lesson_ppt_manuscript_not_confirmed",
+                    "PPT 文书尚未确认，不能登记生成结果。",
+                )
+            state["generated_representation_id"] = representation_id
+            state["generated_at"] = _now()
+            saved = self._save(value)
+            return deepcopy(
+                saved["lessons"][lesson_unit_id]["ppt_manuscript"]
+            )
 
     def confirm_v6_ppt_manuscript(
         self,
@@ -2069,6 +2202,12 @@ class TeacherLessonAuthoringRepository:
                     continue
                 if asset.get("source_script_revision_id") != revision_id:
                     asset["source_state"] = "stale"
+            manuscript = lesson.get("ppt_manuscript")
+            if (
+                isinstance(manuscript, dict)
+                and manuscript.get("source_script_revision_id") != revision_id
+            ):
+                manuscript["source_state"] = "stale"
             for review in lesson.get("imported_ppt_reviews") or []:
                 if not isinstance(review, dict):
                     continue
@@ -2245,6 +2384,12 @@ class TeacherLessonAuthoringRepository:
                 source_revision = str(asset.get("source_script_revision_id") or "")
                 if asset.get("engine") == "slide_deck_v6" and source_revision != revision_id:
                     asset["source_state"] = "stale"
+            manuscript = lesson.get("ppt_manuscript")
+            if (
+                isinstance(manuscript, dict)
+                and manuscript.get("source_script_revision_id") != revision_id
+            ):
+                manuscript["source_state"] = "stale"
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
 
