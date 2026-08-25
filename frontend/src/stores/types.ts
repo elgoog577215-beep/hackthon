@@ -553,6 +553,7 @@ export interface Course {
     academic_year?: string
     term?: string
     course_code?: string
+    current_course_version_id?: string
     updated_at?: string
     next_session?: {
         session_id: string

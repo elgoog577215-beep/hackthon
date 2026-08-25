@@ -4,19 +4,6 @@
     :class="{ 'course-library--paginated': totalPages > 1, 'course-library--embedded': embedded }"
   >
     <div class="library-toolbar">
-      <div class="library-status-filters" role="group" :aria-label="t('teacherCourseLibrary.statusFilter')">
-        <button
-          v-for="option in statusFilterOptions"
-          :key="option.value"
-          type="button"
-          :class="{ active: statusFilter === option.value }"
-          :aria-pressed="statusFilter === option.value"
-          @click="statusFilter = option.value"
-        >
-          <span>{{ option.label }}</span>
-          <strong>{{ option.count }}</strong>
-        </button>
-      </div>
       <label class="library-search">
         <Search :size="16" />
         <input
@@ -25,6 +12,14 @@
           :aria-label="t('teacherCourseLibrary.searchPlaceholder')"
           :placeholder="t('teacherCourseLibrary.searchPlaceholder')"
         />
+      </label>
+      <label class="library-select">
+        <span class="sr-only">{{ t('teacherCourseLibrary.statusFilter') }}</span>
+        <select v-model="statusFilter" :aria-label="t('teacherCourseLibrary.statusFilter')">
+          <option v-for="option in statusFilterOptions" :key="option.value" :value="option.value">
+            {{ statusOptionLabel(option) }}
+          </option>
+        </select>
       </label>
       <label class="library-select">
         <span class="sr-only">{{ t('teacherCourseLibrary.termFilter') }}</span>
@@ -38,7 +33,7 @@
         <select v-model="sortMode" :aria-label="t('teacherCourseLibrary.sortBy')">
           <option value="priority">{{ t('teacherCourseLibrary.sortPriority') }}</option>
           <option value="nextSession">{{ t('teacherCourseLibrary.sortNextSession') }}</option>
-          <option value="updated">{{ t('teacherCourseLibrary.sortUpdated') }}</option>
+          <option value="term">{{ t('teacherCourseLibrary.sortTerm') }}</option>
           <option value="name">{{ t('teacherCourseLibrary.sortName') }}</option>
         </select>
       </label>
@@ -67,11 +62,11 @@
       <p class="sr-only" aria-live="polite">{{ t('teacherCourseLibrary.collectionSummary').replace('{count}', String(filteredCourses.length)) }}</p>
       <div v-if="displayMode === 'list'" class="course-list-columns" aria-hidden="true">
         <span>{{ t('teacherCourseLibrary.columns.course') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.term') }}</span>
         <span>{{ t('teacherCourseLibrary.columns.status') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.nextSession') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.preparation') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.updated') }}</span>
+        <span>{{ t('teacherCourseLibrary.columns.time') }}</span>
+        <span>{{ t('teacherCourseLibrary.columns.location') }}</span>
+        <span>{{ t('teacherCourseLibrary.columns.term') }}</span>
+        <span>{{ t('teacherCourseLibrary.columns.version') }}</span>
         <span>{{ t('teacherCourseLibrary.columns.actions') }}</span>
       </div>
       <div ref="courseGridRef" class="course-grid" :data-view="displayMode" data-layout="responsive-three-column">
@@ -89,18 +84,11 @@
             @click="handleCoursePrimary(course.course_id)"
           >
             <span class="course-identity">
-              <CourseCover :course-id="course.course_id" :title="course.course_name" />
+              <CourseCover :course-id="course.course_id" :title="course.course_name" variant="glyph" />
               <span class="course-identity__copy">
                 <h2>{{ formatCourseTitle(course.course_name) }}</h2>
-                <span class="course-identity__meta">
-                  <span v-if="course.course_code">{{ course.course_code }}</span>
-                  <span>{{ courseLifecycleLabel(course) }}</span>
-                </span>
+                <span v-if="course.course_code" class="course-identity__meta">{{ course.course_code }}</span>
               </span>
-            </span>
-            <span class="course-term course-field">
-              <small>{{ t('teacherCourseLibrary.columns.term') }}</small>
-              <strong>{{ courseTermLabel(course) }}</strong>
             </span>
             <span class="course-status" :class="`course-status--${status.tone}`">
               <span class="course-status__dot" aria-hidden="true"></span>
@@ -110,19 +98,32 @@
               </span>
               <strong v-if="status.inProgress">{{ Math.round(status.progress) }}%</strong>
             </span>
-            <span class="course-next course-field">
-              <small>{{ t('teacherCourseLibrary.columns.nextSession') }}</small>
-              <strong>{{ courseNextSessionWhen(course) }}</strong>
-              <span>{{ courseNextSessionDetail(course) }}</span>
+            <span class="course-time course-field">
+              <Clock3 class="course-field__icon" :size="17" aria-hidden="true" />
+              <span class="course-field__copy">
+                <small>{{ t('teacherCourseLibrary.columns.time') }}</small>
+                <strong>{{ courseNextSessionWhen(course) }}</strong>
+              </span>
             </span>
-            <span class="course-readiness course-field">
-              <small>{{ t('teacherCourseLibrary.columns.preparation') }}</small>
-              <strong>{{ coursePreparationSummary(course) }}</strong>
+            <span class="course-location course-field">
+              <MapPin class="course-field__icon" :size="17" aria-hidden="true" />
+              <span class="course-field__copy">
+                <small>{{ t('teacherCourseLibrary.columns.location') }}</small>
+                <strong>{{ courseLocation(course) }}</strong>
+              </span>
             </span>
-            <time class="course-updated course-field" :datetime="course.updated_at || undefined">
-              <small>{{ t('teacherCourseLibrary.columns.updated') }}</small>
-              <strong>{{ formatUpdatedAt(course.updated_at) }}</strong>
-            </time>
+            <span class="course-term course-field">
+              <span class="course-field__copy">
+                <small>{{ t('teacherCourseLibrary.columns.term') }}</small>
+                <strong>{{ courseTermLabel(course) }}</strong>
+              </span>
+            </span>
+            <span class="course-version course-field">
+              <span class="course-field__copy">
+                <small>{{ t('teacherCourseLibrary.columns.version') }}</small>
+                <strong>{{ courseVersionLabel(course) }}</strong>
+              </span>
+            </span>
             <span
                 v-if="status.inProgress"
                 class="generation-progress"
@@ -173,16 +174,6 @@
               role="menu"
               @click.stop
             >
-              <button
-                type="button"
-                class="course-menu__item"
-                role="menuitem"
-                :data-testid="`open-course-production-${course.course_id}`"
-                @click="openCourseProduction(course.course_id)"
-              >
-                <Workflow :size="15" />
-                <span>{{ t('courseLibrary.productionEntry', '课程生产') }}</span>
-              </button>
               <button
                 type="button"
                 class="course-menu__item course-menu__item--danger"
@@ -245,27 +236,6 @@
             <span>{{ t('courseLibrary.pagination.next', '下一页') }}</span>
             <ChevronRight :size="17" />
           </button>
-
-          <form class="pagination-jump" @submit.prevent="jumpToPage">
-            <label for="course-page-jump">{{ t('courseLibrary.pagination.jumpTo', '跳至') }}</label>
-            <input
-              id="course-page-jump"
-              v-model="pageJumpInput"
-              type="number"
-              inputmode="numeric"
-              min="1"
-              :max="totalPages"
-              :aria-label="t('courseLibrary.pagination.jumpInput', '跳转页码')"
-            />
-            <span>{{ t('courseLibrary.pagination.pageUnit', '页') }}</span>
-            <button
-              type="submit"
-              class="pagination-jump__submit"
-              :aria-label="t('courseLibrary.pagination.jump', '跳转')"
-            >
-              {{ t('courseLibrary.pagination.jump', '跳转') }}
-            </button>
-          </form>
         </nav>
       </Transition>
     </Teleport>
@@ -282,7 +252,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, ChevronLeft, ChevronRight, Ellipsis, Grid2X2, List, LoaderCircle, Search, Trash2, Workflow } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, ChevronLeft, ChevronRight, Clock3, Ellipsis, Grid2X2, List, LoaderCircle, MapPin, Search, Trash2 } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
@@ -297,14 +267,13 @@ const { embedded = false } = defineProps<{ embedded?: boolean }>()
 const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
 type CourseStatusFilter = 'all' | 'attention' | 'preparing' | 'prepared'
-type CourseSortMode = 'priority' | 'nextSession' | 'updated' | 'name'
+type CourseSortMode = 'priority' | 'nextSession' | 'term' | 'name'
 const query = ref('')
 const statusFilter = ref<CourseStatusFilter>('all')
 const termFilter = ref('all')
 const sortMode = ref<CourseSortMode>('priority')
 const displayMode = ref<'grid' | 'list'>(localStorage.getItem('teacher_course_library_view') === 'list' ? 'list' : 'grid')
 const currentPage = ref(1)
-const pageJumpInput = ref('')
 const courseGridRef = ref<HTMLElement | null>(null)
 const openCourseMenuId = ref('')
 const workbenchOpen = ref(false)
@@ -412,6 +381,10 @@ function closeCourseMenu() {
   openCourseMenuId.value = ''
 }
 
+function statusOptionLabel(option: { label: string; count: number }) {
+  return `${option.label} · ${option.count}`
+}
+
 function pageNumberLabel(page: number) {
   return t('courseLibrary.pagination.pageNumber', '第 {page} 页').replace('{page}', String(page))
 }
@@ -420,16 +393,9 @@ async function selectPage(page: number) {
   const nextPage = Math.max(1, Math.min(totalPages.value, page))
   if (nextPage === currentPage.value) return
   currentPage.value = nextPage
-  pageJumpInput.value = ''
   closeCourseMenu()
   await nextTick()
   courseGridRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-}
-
-function jumpToPage() {
-  const page = Number.parseInt(pageJumpInput.value, 10)
-  if (!Number.isFinite(page)) return
-  void selectPage(page)
 }
 
 function localeTag() {
@@ -445,13 +411,6 @@ function courseTermKey(course: Course) {
 function courseTermLabel(course: Course) {
   return [course.academic_year, course.term].map(value => String(value || '').trim()).filter(Boolean).join(' ')
     || t('teacherCourseLibrary.termUnset')
-}
-
-function courseLifecycleLabel(course: Course) {
-  if (course.course_status === 'archived') return t('teacherCourseLibrary.lifecycle.archived')
-  if (course.course_status === 'draft' && course.is_published !== true) return t('teacherCourseLibrary.lifecycle.draft')
-  if (course.is_published) return t('teacherCourseLibrary.lifecycle.published')
-  return t('teacherCourseLibrary.lifecycle.building')
 }
 
 function parseCourseDate(value?: string) {
@@ -471,30 +430,15 @@ function courseNextSessionWhen(course: Course) {
   return t('teacherCourseLibrary.sessionWhen').replace('{date}', date).replace('{time}', time)
 }
 
-function courseNextSessionDetail(course: Course) {
-  const session = course.next_session
-  if (!session) return t('teacherCourseLibrary.noUpcomingSessionHelp')
-  const sequence = session.sequence
-    ? t('teacherHome.sessionNumber').replace('{number}', String(session.sequence))
-    : ''
-  return [sequence, session.content_summary, session.location].filter(Boolean).join(' · ')
-    || t('teacherHome.contentPending')
+function courseLocation(course: Course) {
+  return course.next_session?.location || t('teacherCourseLibrary.locationPending')
 }
 
-function coursePreparationSummary(course: Course) {
-  const session = course.next_session
-  if (!session) return t('teacherCourseLibrary.preparationNotApplicable')
-  const lessonPlan = session.lesson_plan_status || t('teacherCourseLibrary.preparationUnchecked')
-  const ppt = session.ppt_status || t('teacherCourseLibrary.preparationUnchecked')
-  return t('teacherCourseLibrary.preparationSummary')
-    .replace('{lessonPlan}', lessonPlan)
-    .replace('{ppt}', ppt)
-}
-
-function formatUpdatedAt(value?: string) {
-  const parsed = parseCourseDate(value)
-  if (!parsed) return t('teacherCourseLibrary.updatedUnknown')
-  return new Intl.DateTimeFormat(localeTag(), { year: 'numeric', month: 'short', day: 'numeric' }).format(parsed)
+function courseVersionLabel(course: Course) {
+  const versionId = String(course.current_course_version_id || '').trim()
+  const numbered = /^cv(\d+)$/i.exec(versionId)
+  if (numbered) return `V${numbered[1]}`
+  return versionId ? t('teacherCourseLibrary.currentVersion') : t('teacherCourseLibrary.versionPending')
 }
 
 function courseNextSessionTime(course: Course) {
@@ -516,7 +460,7 @@ function coursePriority(course: Course) {
 function sortCourses(courses: Course[]) {
   return [...courses].sort((left, right) => {
     if (sortMode.value === 'name') return left.course_name.localeCompare(right.course_name, localeTag())
-    if (sortMode.value === 'updated') return courseUpdatedTime(right) - courseUpdatedTime(left)
+    if (sortMode.value === 'term') return courseTermLabel(right).localeCompare(courseTermLabel(left), localeTag())
     if (sortMode.value === 'nextSession') {
       return courseNextSessionTime(left) - courseNextSessionTime(right)
         || courseUpdatedTime(right) - courseUpdatedTime(left)
@@ -591,11 +535,6 @@ function handleCoursePrimary(courseId: string) {
   openCourse(courseId)
 }
 
-function openCourseProduction(courseId: string) {
-  closeCourseMenu()
-  void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' }, query: { returnTo: '/courses?view=courses' } })
-}
-
 function openTaskCenter(courseId = '') {
   closeCourseMenu()
   selectedWorkbenchCourseId.value = courseId
@@ -618,59 +557,49 @@ async function deleteCourse(courseId: string, courseName: string) {
 </script>
 
 <style scoped>
-.course-library { --course-content-width:1320px; --course-grid-width:1320px; --course-grid-gap:14px; --course-cover-width:62px; width:100%; height:100%; overflow:auto; padding:18px clamp(18px,3vw,36px) 40px; border:1px solid rgba(255,255,255,.82); border-radius:var(--lz-radius-surface); background:rgba(255,255,255,.76); box-shadow:var(--lz-shadow-panel); backdrop-filter:none; -webkit-backdrop-filter:none; }
+.course-library { --course-content-width:1320px; --course-grid-width:1320px; --course-grid-gap:18px; --course-cover-width:52px; width:100%; height:100%; overflow:auto; padding:24px clamp(20px,3.2vw,44px) 48px; border:0; border-radius:var(--lz-radius-surface); background:#fbfcff; box-shadow:none; }
 .course-library--embedded { border:0; border-radius:0; background:var(--lz-surface); box-shadow:none; }
-.library-toolbar { max-width:var(--course-content-width); margin:0 auto 14px; display:grid; grid-template-columns:minmax(280px,1fr) minmax(220px,320px) 142px 150px auto; align-items:center; gap:10px; }
-.library-search { width:100%; height:38px; display:flex; align-items:center; gap:8px; padding:0 12px; border:1px solid rgba(203,213,225,.76); border-radius:10px; color:var(--lz-text-muted); background:var(--lz-surface); }
-.library-search:focus-within { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.1); }
-.library-toolbar input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; font-size: 12px; }
-.library-select{height:38px;display:flex;align-items:center;padding:0 8px;border:1px solid rgba(203,213,225,.76);border-radius:10px;background:var(--lz-surface)}
-.library-select:focus-within{border-color:#a5b4fc;box-shadow:0 0 0 3px rgba(99,102,241,.1)}
-.library-select select{width:100%;min-width:0;border:0;outline:0;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:650;cursor:pointer}
-.library-status-filters { min-width:0; display:flex; align-items:center; gap:3px; overflow-x:auto; scrollbar-width:none; }
-.library-status-filters::-webkit-scrollbar { display:none; }
-.library-status-filters button { min-height:34px; flex:0 0 auto; display:inline-flex; align-items:center; gap:5px; padding:0 9px; border:0; border-radius:8px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; white-space:nowrap; cursor:pointer; }
-.library-status-filters button:hover { color:var(--lz-text-strong); background:var(--lz-fill); }
-.library-status-filters button.active { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
-.library-status-filters button:focus-visible { outline:3px solid rgba(99,102,241,.14); outline-offset:-1px; }
-.library-status-filters strong { min-width:18px; color:var(--lz-text-muted); font-size:11px; font-weight:750; text-align:center; }
-.library-status-filters button.active strong { color:inherit; }
-.library-view-switch { flex:0 0 auto; height:38px; display:flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:10px; background:var(--lz-fill); }
-.library-view-switch button { height:30px; display:flex; align-items:center; gap:6px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text-muted); background:transparent; font-size:11px; font-weight:700; cursor:pointer; }
-.library-view-switch button.active { color:var(--lz-brand-strong); background:var(--lz-surface); box-shadow:0 2px 7px rgb(79 70 229 / 10%); }
+.library-toolbar { max-width:var(--course-content-width); margin:0 auto 22px; display:grid; grid-template-columns:minmax(320px,1fr) 156px 156px 156px auto; align-items:center; gap:10px; }
+.library-search { width:100%; height:42px; display:flex; align-items:center; gap:9px; padding:0 14px; border:1px solid #dbe2ee; border-radius:12px; color:#64748b; background:#fff; transition:border-color .16s ease,box-shadow .16s ease; }
+.library-search:focus-within,.library-select:focus-within { border-color:#a5b4fc; box-shadow:0 4px 14px rgba(79,70,229,.08),0 0 0 3px rgba(99,102,241,.09); }
+.library-toolbar input { min-width:0; flex:1; border:0; outline:0; color:#334155; background:transparent; font-size:13px; }
+.library-toolbar input::placeholder { color:#64748b; }
+.library-select{height:42px;display:flex;align-items:center;padding:0 10px;border:1px solid #dbe2ee;border-radius:12px;background:#fff;transition:border-color .16s ease,box-shadow .16s ease}
+.library-select select{width:100%;min-width:0;border:0;outline:0;color:#475569;background:transparent;font-size:12px;font-weight:680;cursor:pointer}
+.library-view-switch { flex:0 0 auto; height:42px; display:flex; align-items:center; gap:2px; padding:4px; border:1px solid #dbe2ee; border-radius:12px; background:#f8fafc; }
+.library-view-switch button { height:32px; display:flex; align-items:center; gap:6px; padding:0 10px; border:0; border-radius:8px; color:#64748b; background:transparent; font-size:12px; font-weight:700; cursor:pointer; }
+.library-view-switch button.active { color:#4f46e5; background:#fff; box-shadow:0 3px 9px rgba(51,65,85,.09); }
 .library-view-switch button:focus-visible { outline:3px solid var(--lz-brand-soft); }
 .course-collection { width:100%; max-width:var(--course-grid-width); margin:0 auto; }
 .course-grid { width:100%; margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
-.course-list-columns{min-width:1180px;display:grid;grid-template-columns:minmax(280px,1.35fr) 130px 120px minmax(210px,1fr) 150px 120px 132px;gap:0;padding:0 0 7px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:11px;font-weight:750}
-.course-list-columns span{padding:0 12px}.course-list-columns span:last-child{padding-left:14px}
-.course-grid[data-view='list'] { --course-cover-width:38px; min-width:1180px; display:block; }
-.course-item { position:relative; min-width:0; min-height:246px; display:grid; grid-template-rows:minmax(0,1fr) 48px; overflow:visible; border:1px solid rgba(203,213,225,.74); border-radius:15px; background:rgba(255,255,255,.9); box-shadow:0 5px 16px rgba(79,70,229,.045); transition:border-color .18s ease,box-shadow .18s ease,transform .18s ease; backdrop-filter:none; -webkit-backdrop-filter:none; }
-.course-item:hover { border-color:rgba(165,180,252,.92); box-shadow:0 12px 28px rgba(79,70,229,.085); transform:translateY(-1px); }
+.course-list-columns{min-width:1120px;display:grid;grid-template-columns:minmax(280px,1.45fr) 130px 150px 150px 140px 90px 118px;gap:0;padding:0 0 10px;border-bottom:1px solid #e6eaf2;color:#64748b;font-size:11px;font-weight:750}
+.course-list-columns span{padding:0 14px}.course-list-columns span:last-child{padding-left:16px}
+.course-grid[data-view='list'] { --course-cover-width:38px; min-width:1120px; display:block; }
+.course-item { position:relative; min-width:0; min-height:198px; display:grid; grid-template-rows:minmax(0,1fr) 46px; overflow:visible; border:1px solid #e1e6ef; border-radius:15px; background:#fff; box-shadow:none; transition:border-color .18s ease,background .18s ease,transform .18s cubic-bezier(.2,.8,.2,1); }
+.course-item:hover { border-color:#bfc8f7; background:#fefeff; transform:translateY(-2px); }
 .course-item--menu-open { z-index:30; }
-.course-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,.72fr); grid-template-areas:'identity identity' 'term status' 'next next' 'readiness updated' 'progress progress'; align-content:start; gap:10px 14px; padding:14px 16px 12px; border:0; border-radius:15px 15px 0 0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.course-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:'identity status' 'time time' 'location location' 'progress progress'; align-content:start; gap:14px 12px; padding:20px 20px 16px; border:0; border-radius:15px 15px 0 0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
 .course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
 .course-identity{grid-area:identity;min-width:0;display:grid;grid-template-columns:var(--course-cover-width) minmax(0,1fr);align-items:center;gap:13px}
-.course-identity__copy{min-width:0;display:grid;gap:6px}.course-identity h2{margin:0;overflow:hidden;display:-webkit-box;color:var(--lz-text-strong);font-size:16px;font-weight:800;line-height:1.36;-webkit-box-orient:vertical;-webkit-line-clamp:2}
-.course-identity__meta{min-width:0;display:flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:11px}.course-identity__meta span+span::before{margin-right:6px;content:'·'}
-.course-field{min-width:0;display:grid;align-content:start;gap:3px}.course-field small,.course-status__copy small{color:var(--lz-text-muted);font-size:10px;font-weight:650}.course-field strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:750;text-overflow:ellipsis;white-space:nowrap}
-.course-term{grid-area:term}.course-status{grid-area:status;min-width:0;display:flex;align-items:center;gap:7px;color:var(--lz-text-secondary)}
-.course-status__copy{min-width:0;display:grid;gap:3px}.course-status__copy strong{overflow:hidden;color:inherit;font-size:12px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.course-status>strong{margin-left:auto;color:inherit;font-size:12px;font-weight:800}
+.course-identity__copy{min-width:0;display:grid;gap:5px}.course-identity h2{margin:0;overflow:hidden;display:-webkit-box;color:#1e293b;font-size:16px;font-weight:800;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.course-identity__meta{display:none;overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.course-field{min-width:0;display:flex;align-items:center;gap:9px;color:#64748b}.course-field__icon{flex:0 0 auto;color:#94a3b8}.course-field__copy{min-width:0;display:grid;gap:2px}.course-field small,.course-status__copy small{color:#64748b;font-size:10px;font-weight:650}.course-field strong{overflow:hidden;color:#475569;font-size:12px;font-weight:720;text-overflow:ellipsis;white-space:nowrap}
+.course-time{grid-area:time}.course-location{grid-area:location}.course-term{grid-area:term;display:none}.course-version{grid-area:version;display:none}
+.course-status{grid-area:status;min-width:0;display:flex;align-items:center;align-self:start;gap:7px;padding:6px 9px;border-radius:999px;color:#166534;background:#f0fdf4}
+.course-status__copy{min-width:0;display:grid}.course-status__copy small{display:none}.course-status__copy strong{overflow:hidden;color:inherit;font-size:11px;font-weight:780;text-overflow:ellipsis;white-space:nowrap}.course-status>strong{margin-left:0;color:inherit;font-size:11px;font-weight:800}
 .course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
-.course-status--processing { color:var(--lz-brand-strong); }
+.course-status--processing { color:#4338ca; background:#eef2ff; }
 .course-status--processing .course-status__dot { background:var(--lz-brand); }
-.course-status--danger { color:var(--lz-danger); }
+.course-status--danger { color:#b91c1c; background:#fef2f2; }
 .course-status--danger .course-status__dot { background:var(--lz-danger); }
-.course-status--warning { color:#a16207; }
+.course-status--warning { color:#a16207; background:#fffbeb; }
 .course-status--warning .course-status__dot { background:#d97706; }
-.course-status--draft { color:var(--lz-text-muted); }
+.course-status--draft { color:#64748b; background:#f1f5f9; }
 .course-status--draft .course-status__dot { background:#94a3b8; }
-.course-next{grid-area:next;padding-top:9px;border-top:1px solid color-mix(in srgb,var(--lz-border) 76%,transparent)}.course-next>span{overflow:hidden;color:var(--lz-text-muted);font-size:11px;line-height:1.4;text-overflow:ellipsis;white-space:nowrap}
-.course-readiness{grid-area:readiness}.course-updated{grid-area:updated}
 .generation-progress { grid-area:progress; display:block; width:100%; }
 .progress-track { display:block; height:4px; overflow:hidden; border-radius:999px; background:var(--lz-surface-muted); }
 .progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
 .course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
-.course-actions { position:relative; min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:7px 10px 7px 14px; border-top:1px solid color-mix(in srgb,var(--lz-border) 78%,transparent); }
+.course-actions { position:relative; min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:6px 10px 6px 14px; border-top:1px solid #edf0f5; }
 .course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 9px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; white-space:nowrap; cursor:pointer; }
 .course-primary-action:hover,.course-primary-action:focus-visible { color:#4f46e5; background:var(--lz-brand-soft); outline:none; }
 .course-menu-trigger { width:32px; height:32px; flex:0 0 auto; display:grid; place-items:center; border:1px solid transparent; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
@@ -678,15 +607,15 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-menu { position:absolute; z-index:50; right:10px; bottom:42px; width:160px; overflow:hidden; padding:4px; border:1px solid rgba(203,213,225,.82); border-radius:10px; background:#fff; box-shadow:0 12px 28px rgba(51,65,85,.16),0 3px 8px rgba(79,70,229,.07); }
 .course-menu__item { width:100%; min-height:36px; display:flex; align-items:center; gap:8px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
 .course-menu__item:hover,.course-menu__item:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
-.course-menu__item--danger { margin-top:3px; border-top:1px solid rgba(226,232,240,.9); border-radius:0 0 7px 7px; color:var(--lz-danger); }
+.course-menu__item--danger { color:var(--lz-danger); }
 .course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
-.course-grid[data-view='list'] .course-item{min-height:84px;display:grid;grid-template-columns:minmax(0,1fr) 132px;grid-template-rows:none;margin:0;border:0;border-bottom:1px solid var(--lz-border);border-radius:0;background:transparent;box-shadow:none;transform:none}
-.course-grid[data-view='list'] .course-item:hover{background:var(--lz-brand-soft);box-shadow:none}
-.course-grid[data-view='list'] .course-main{min-height:83px;grid-template-columns:minmax(280px,1.35fr) 130px 120px minmax(210px,1fr) 150px 120px;grid-template-areas:'identity term status next readiness updated';align-items:center;gap:0;padding:8px 0;border-radius:0}
+.course-grid[data-view='list'] .course-item{min-height:82px;display:grid;grid-template-columns:minmax(0,1fr) 118px;grid-template-rows:none;margin:0;border:0;border-bottom:1px solid #e6eaf2;border-radius:0;background:transparent;box-shadow:none;transform:none}
+.course-grid[data-view='list'] .course-item:hover{background:#f8faff;box-shadow:none}
+.course-grid[data-view='list'] .course-main{min-height:81px;grid-template-columns:minmax(280px,1.45fr) 130px 150px 150px 140px 90px;grid-template-areas:'identity status time location term version';align-items:center;gap:0;padding:8px 0;border-radius:0}
 .course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field,.course-grid[data-view='list'] .course-status{padding:0 12px}
-.course-grid[data-view='list'] .course-identity{grid-template-columns:var(--course-cover-width) minmax(0,1fr);gap:10px}.course-grid[data-view='list'] .course-identity h2{display:block;overflow:hidden;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.course-grid[data-view='list'] .course-identity__meta{font-size:10px}
-.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{white-space:normal}.course-grid[data-view='list'] .course-updated strong{white-space:nowrap}.course-grid[data-view='list'] .course-next{border-top:0}.course-grid[data-view='list'] .course-next>span{white-space:normal}.course-grid[data-view='list'] .generation-progress{display:none}
-.course-grid[data-view='list'] .course-actions{justify-content:flex-start;padding:8px 8px 8px 14px;border-top:0;border-left:1px solid color-mix(in srgb,var(--lz-border) 72%,transparent)}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:66px}
+.course-grid[data-view='list'] .course-identity{grid-template-columns:var(--course-cover-width) minmax(0,1fr);gap:10px}.course-grid[data-view='list'] .course-identity h2{display:block;overflow:hidden;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.course-grid[data-view='list'] .course-identity__meta{display:block;font-size:10px}
+.course-grid[data-view='list'] .course-field{display:block}.course-grid[data-view='list'] .course-field__icon,.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{display:block;white-space:normal}.course-grid[data-view='list'] .course-status{align-self:center;padding:0 12px;border-radius:0;background:transparent}.course-grid[data-view='list'] .course-term,.course-grid[data-view='list'] .course-version{display:block}.course-grid[data-view='list'] .generation-progress{display:none}
+.course-grid[data-view='list'] .course-actions{justify-content:flex-start;padding:8px 8px 8px 16px;border-top:0;border-left:1px solid #edf0f5}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:64px}
 .course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
 .course-library--paginated { padding-bottom:118px; }
@@ -699,14 +628,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 .pagination-button--page { width:34px; padding:0; }
 .pagination-button--page.active { border-color:transparent; color:#fff; background:linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow:0 5px 12px rgba(99,102,241,.22); }
 .pagination-ellipsis { width:22px; color:var(--lz-text-muted,#94a3b8); font-size:13px; text-align:center; }
-.pagination-jump { display:flex; align-items:center; gap:5px; margin-left:3px; padding-left:11px; border-left:1px solid rgba(226,232,240,.92); color:var(--lz-text-muted,#94a3b8); font-size:11px; white-space:nowrap; }
-.pagination-jump input { width:46px; height:32px; padding:0 5px; border:1px solid rgba(203,213,225,.84); border-radius:8px; color:var(--lz-text,#334155); background:#fff; font-size:12px; font-weight:700; text-align:center; outline:none; }
-.pagination-jump input:focus { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.12); }
-.pagination-jump__submit { height:32px; padding:0 10px; border:0; border-radius:8px; color:var(--lz-brand-strong,#4f46e5); background:var(--lz-brand-soft,#eef2ff); font-size:11px; font-weight:800; cursor:pointer; }
-.library-view-switch button,
-.pagination-jump,
-.pagination-jump__submit { font-size:12px; }
-.pagination-jump__submit:hover,.pagination-jump__submit:focus-visible { color:#fff; background:var(--lz-brand,#6366f1); outline:none; }
+.library-view-switch button { font-size:12px; }
 .pagination-dock-enter-active,.pagination-dock-leave-active { transition:opacity .16s ease,transform .16s ease; }
 .pagination-dock-enter-from,.pagination-dock-leave-to { opacity:0; transform:translate(-50%,8px); }
 .library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
@@ -720,25 +642,40 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-grid { max-width:1040px; grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:1100px) {
-  .library-toolbar { grid-template-columns:minmax(220px,1fr) 142px 150px auto; }
-  .library-status-filters { grid-column:1/-1; }
-  .library-search { grid-column:1; }
-  .library-view-switch { grid-column:4; }
+  .library-toolbar { grid-template-columns:minmax(260px,1fr) repeat(3,minmax(132px,1fr)) auto; }
 }
 @media (max-width:860px) {
   .course-collection { max-width:620px; }
   .course-grid:not([data-view='list']) { grid-template-columns:minmax(0,1fr); }
+  .library-toolbar { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .library-search { grid-column:1/-1; }
+  .course-list-columns { display:none; }
+  .course-grid[data-view='list'] { min-width:0; }
+  .course-grid[data-view='list'] .course-item { min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto 44px; margin:0 0 12px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
+  .course-grid[data-view='list'] .course-main { min-height:0; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:'identity identity' 'status term' 'time location' 'version version'; align-items:start; gap:15px 12px; padding:16px; border-radius:14px 14px 0 0; }
+  .course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field,.course-grid[data-view='list'] .course-status { padding:0; }
+  .course-grid[data-view='list'] .course-field { display:flex; align-items:flex-start; }
+  .course-grid[data-view='list'] .course-field__copy { gap:3px; }
+  .course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small { display:block; }
+  .course-grid[data-view='list'] .course-field strong { white-space:normal; }
+  .course-grid[data-view='list'] .course-status { align-self:start; gap:7px; }
+  .course-grid[data-view='list'] .course-status__dot { margin-top:5px; }
+  .course-grid[data-view='list'] .course-actions { justify-content:flex-end; padding:5px 9px; border-top:1px solid #edf0f5; border-left:0; }
+  .course-grid[data-view='list'] .course-menu { right:8px; top:auto; bottom:40px; }
 }
 @media (max-width:700px) {
-  .course-library { --course-cover-width:58px; padding:14px 16px 40px; border:0; border-radius:0; box-shadow:none; }
+  .course-library { --course-cover-width:48px; padding:16px 14px 40px; border:0; border-radius:0; box-shadow:none; }
   .course-library--paginated { padding-bottom:126px; }
-  .library-toolbar { grid-template-columns:minmax(0,1fr) auto; gap:9px; }
-  .library-status-filters,.library-search{grid-column:1/-1}.library-select{grid-column:auto}.library-view-switch{grid-column:2}
+  .library-toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:16px; }
+  .library-search{grid-column:1/-1}.library-view-switch{grid-column:2;justify-self:end}
   .library-view-switch button span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-  .course-main{grid-template-columns:minmax(0,1fr);grid-template-areas:'identity' 'term' 'status' 'next' 'readiness' 'updated' 'progress'}
+  .course-main{padding:18px 16px 14px;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'identity status' 'time time' 'location location' 'progress progress'}
+  .course-status{padding:5px 8px}.course-status__dot{width:6px;height:6px}
   .library-pagination-dock { width:calc(100vw - 24px); max-width:none; flex-wrap:wrap; gap:6px; padding:7px 8px; border-radius:14px; }
   .pagination-button--direction { min-width:34px; width:34px; padding:0; }
   .pagination-button--direction > span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-  .pagination-jump { width:100%; justify-content:center; margin-left:0; padding:5px 0 0; border-top:1px solid rgba(226,232,240,.92); border-left:0; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .course-item,.library-search,.library-select { transition:none; }
 }
 </style>

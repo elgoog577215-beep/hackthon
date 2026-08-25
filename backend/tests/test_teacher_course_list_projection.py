@@ -14,6 +14,7 @@ async def test_course_summary_projects_teacher_identity_metadata(tmp_path):
         "academic_year": "2026-2027",
         "term": "秋季",
         "course_profile": {"course_code": "MATH-221"},
+        "current_course_version_id": "cv3",
         "course_document": {"sections": [{"section_id": "L1", "level": 2}]},
     })
 
@@ -22,6 +23,7 @@ async def test_course_summary_projects_teacher_identity_metadata(tmp_path):
     assert summary["academic_year"] == "2026-2027"
     assert summary["term"] == "秋季"
     assert summary["course_code"] == "MATH-221"
+    assert summary["current_course_version_id"] == "cv3"
 
 
 def test_calendar_session_projection_keeps_term_metadata(tmp_path):

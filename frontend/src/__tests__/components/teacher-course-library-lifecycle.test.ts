@@ -64,7 +64,8 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.library-header').exists()).toBe(false)
     expect(wrapper.classes()).not.toContain('course-library--empty')
     expect(wrapper.find('.library-toolbar').exists()).toBe(true)
-    expect(wrapper.find('.library-status-filters').exists()).toBe(true)
+    expect(wrapper.find('select[aria-label="按备课状态筛选课程"]').exists()).toBe(true)
+    expect(wrapper.find('.library-status-filters').exists()).toBe(false)
     expect(wrapper.get('.library-state').text()).toContain('还没有课程')
   })
 
@@ -137,21 +138,17 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.course-status').text()).toContain('正在备课')
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
-    const statusFilters = wrapper.findAll('.library-status-filters button')
-    expect(statusFilters).toHaveLength(4)
-    expect(statusFilters[1]!.text()).toContain('待处理')
-    expect(statusFilters[1]!.get('strong').text()).toBe('0')
-    expect(statusFilters[2]!.text()).toContain('正在备课')
-    expect(statusFilters[2]!.get('strong').text()).toBe('1')
-    expect(statusFilters[3]!.text()).toContain('备课完成')
-    expect(statusFilters[3]!.get('strong').text()).toBe('0')
+    const statusSelect = wrapper.get('select[aria-label="按备课状态筛选课程"]')
+    expect(statusSelect.findAll('option').map(option => option.text())).toEqual([
+      '全部 · 1', '待处理 · 0', '正在备课 · 1', '备课完成 · 0',
+    ])
 
-    await statusFilters[3]!.trigger('click')
+    await statusSelect.setValue('prepared')
     expect(wrapper.find('.course-item').exists()).toBe(false)
     expect(wrapper.get('.library-state').text()).toContain('调整搜索词、学期或课程状态')
   })
 
-  it('课程卡片展示身份、学期、下一课次、准备状态和推荐动作', async () => {
+  it('课程卡片只保留备课状态、上课时间和地点', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -185,21 +182,27 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.course-grid').attributes('data-view')).toBe('grid')
     expect(wrapper.find('.course-list-columns').exists()).toBe(false)
     expect(wrapper.get('.course-identity__meta').text()).toContain('MATH-221')
-    expect(wrapper.get('.course-term').text()).toContain('2026-2027 秋季')
-    expect(wrapper.get('.course-next').text()).toContain('特征向量')
-    expect(wrapper.get('.course-readiness').text()).toContain('教案')
+    expect(wrapper.get('.course-status').text()).toContain('备课完成')
+    expect(wrapper.get('.course-time').text()).toContain('14:00')
+    expect(wrapper.get('.course-location').text()).toContain('理科楼 A108')
+    expect(wrapper.find('.course-readiness').exists()).toBe(false)
+    expect(wrapper.find('.course-updated').exists()).toBe(false)
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('准备下次课')
   })
 
-  it('列表模式提供字段比较，并可按课程代码和学期筛选', async () => {
+  it('列表模式展示学期、版本、上课时间和地点，并可按代码和学期筛选', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [
       {
         course_id: 'course-math', course_name: '矩阵与线性变换', node_count: 12,
         academic_year: '2026-2027', term: '秋季', course_code: 'MATH-221', is_published: true,
-        updated_at: '2026-08-24T10:00:00Z',
+        updated_at: '2026-08-24T10:00:00Z', current_course_version_id: 'cv3',
+        next_session: {
+          session_id: 'session-math', sequence: 3, date: '2026-09-02', start_time: '10:00', end_time: '11:35',
+          content_summary: '特征向量', location: '理科楼 A108',
+        },
       },
       {
         course_id: 'course-ai', course_name: '人工智能导论', node_count: 16,
@@ -218,9 +221,12 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     await wrapper.get('button[title="列表"]').trigger('click')
-    expect(wrapper.get('.course-list-columns').text()).toContain('下一讲准备')
+    expect(wrapper.get('.course-list-columns').text()).toContain('课程版本')
+    expect(wrapper.get('.course-list-columns').text()).toContain('上课地点')
     expect(wrapper.get('.course-grid').attributes('data-view')).toBe('list')
     expect(wrapper.findAll('.course-item')).toHaveLength(2)
+    expect(wrapper.findAll('.course-version')[0]!.text()).toContain('V3')
+    expect(wrapper.findAll('.course-location')[0]!.text()).toContain('理科楼 A108')
 
     await wrapper.get('input[type="search"]').setValue('AI-101')
     expect(wrapper.findAll('.course-item')).toHaveLength(1)
@@ -305,7 +311,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('[data-testid="course-menu-course-review"]').text()).not.toContain('题库管理')
   })
 
-  it('从课程更多操作进入真实课程生产工作台', async () => {
+  it('主操作直接进入课程工作台，更多菜单只保留低频危险操作', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-authoring', course_name: '设计思维', node_count: 18 }]
@@ -327,7 +333,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     await wrapper.get('[data-testid="course-actions-course-authoring"]').trigger('click')
-    await wrapper.get('[data-testid="open-course-production-course-authoring"]').trigger('click')
+    expect(wrapper.find('[data-testid="open-course-production-course-authoring"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="course-menu-course-authoring"]').text()).toContain('删除课程')
+
+    await wrapper.get('.course-primary-action').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('course-workspace')
@@ -370,7 +379,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(deleteCourse).toHaveBeenCalledWith('course-delete')
   })
 
-  it('每页最多展示九门课程，并提供完整的翻页与跳转操作', async () => {
+  it('每页最多展示九门课程，并提供简洁的翻页操作', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = Array.from({ length: 11 }, (_, index) => ({
@@ -416,8 +425,8 @@ describe('CourseLibraryView generation lifecycle', () => {
     const secondPagePagination = wrapper.get('[aria-label="课程分页"]')
     expect((secondPagePagination.get('button[aria-label="下一页"]').element as HTMLButtonElement).disabled).toBe(true)
 
-    await secondPagePagination.get('input[aria-label="跳转页码"]').setValue('1')
-    await secondPagePagination.get('form.pagination-jump').trigger('submit')
+    expect(secondPagePagination.find('input[aria-label="跳转页码"]').exists()).toBe(false)
+    await secondPagePagination.get('button[aria-label="第 1 页"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.findAll('.course-item')).toHaveLength(9)

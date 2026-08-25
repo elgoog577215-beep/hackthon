@@ -327,6 +327,7 @@ class Storage:
                 "academic_year": str(data.get("academic_year") or ""),
                 "term": str(data.get("term") or ""),
                 "course_code": str(course_profile.get("course_code") or ""),
+                "current_course_version_id": str(data.get("current_course_version_id") or ""),
                 "updated_at": str(data.get("updated_at") or ""),
             })
         return courses

@@ -86,7 +86,7 @@ describe('calendar and course file-space boundary', () => {
     expect(library).toContain("grid-template-columns:repeat(3,minmax(0,1fr))")
     expect(library).toContain('class="course-list-columns"')
     expect(library).toContain(".course-grid[data-view='list'] .course-main")
-    expect(library).toContain("grid-template-areas:'identity term status next readiness updated'")
+    expect(library).toContain("grid-template-areas:'identity status time location term version'")
     expect(library).not.toContain('.course-grid:has(.course-item:only-child)')
   })
 

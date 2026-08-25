@@ -54,7 +54,9 @@ describe('course library density contract', () => {
     expect(coverSource.match(/class="course-cover__book"/g)).toHaveLength(1)
     expect(coverSource).toMatch(/:src="bookTexture"/)
     expect(coverSource).toMatch(/const bookTextures:\s*Record<CourseCoverPreset,\s*string>/)
-    expect(coverSource).not.toMatch(/lucide-vue-next/)
+    expect(coverSource).toMatch(/BookOpenText/)
+    expect(coverSource).toContain("variant === 'glyph'")
+    expect(coverSource).toMatch(/\.course-cover--glyph\s*\{/)
     expect(coverSource).not.toMatch(/course-cover__(?:artwork|pattern|symbol|detail)/)
   })
 
