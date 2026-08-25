@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import { defineStore } from 'pinia'
 import http, {
+  getActiveRequestIdentityScope,
   identityRequestConfig,
   learnerIdentityHeaders,
   withApiBase,
@@ -1043,7 +1044,11 @@ export const useGenerationStore = defineStore('generation', {
         const cs = this._courseStore()
         const now = Date.now()
         const currentTask = cs.currentCourseId ? this.tasks.get(cs.currentCourseId) : undefined
-        const currentSurface = currentTask?.taskType === 'teacher_outline_generation'
+        // The route owns the active identity domain. Inferring it from the
+        // selected task fails on collection pages because they intentionally
+        // clear currentCourseId, allowing a background poll to replace the
+        // teacher library with the learner library.
+        const currentSurface = getActiveRequestIdentityScope() === 'teacher'
           ? 'teacher'
           : 'student'
         if (publishedCourseIds.size) {

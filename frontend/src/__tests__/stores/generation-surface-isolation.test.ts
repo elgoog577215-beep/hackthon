@@ -1,16 +1,18 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import http from '../../utils/http'
+import http, { setActiveRequestIdentityScope } from '../../utils/http'
 import {
   globalTaskRetryDelayMs,
   isCourseLifecycleBackendTask,
   useGenerationStore,
 } from '../../stores/generation'
+import { useCourseStore } from '../../stores/course'
 import { teacherPptRoute } from '../../features/teacher-course/useTeacherCourseRuntime'
 
 describe('teacher/student shared capability isolation', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    setActiveRequestIdentityScope('learner')
   })
 
   afterEach(() => {
@@ -58,6 +60,27 @@ describe('teacher/student shared capability isolation', () => {
     resolveRequest({ data: [] })
     await Promise.all([first, second])
     expect(generation.globalTasksLoading).toBe(false)
+  })
+
+  it('keeps a background task discovery inside the active teacher course library', async () => {
+    setActiveRequestIdentityScope('teacher')
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    vi.spyOn(http, 'get').mockResolvedValue({
+      data: [{
+        id: 'legacy-job',
+        course_id: 'legacy-course',
+        course_name: '历史课程',
+        type: 'course_generation',
+        status: 'running',
+        progress: 10,
+      }],
+    })
+    const refreshList = vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
+
+    await generation.fetchGlobalTasks()
+
+    expect(refreshList).toHaveBeenCalledWith({ surface: 'teacher' })
   })
 
   it('backs off global task refresh after a 429 response', async () => {
