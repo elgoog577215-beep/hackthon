@@ -57,7 +57,12 @@
       <span>{{ hasActiveFilters ? t('teacherCourseLibrary.noFilterMatchBody') : t('teacherCourseLibrary.emptyBody', '新建课程后，从教学大纲开始组织教学。') }}</span>
     </div>
 
-    <section v-else class="course-collection" :aria-label="t('teacherCourseLibrary.collectionTitle')">
+    <section
+      v-else
+      class="course-collection"
+      :class="{ 'course-collection--list': displayMode === 'list' }"
+      :aria-label="t('teacherCourseLibrary.collectionTitle')"
+    >
       <p class="sr-only" aria-live="polite">{{ t('teacherCourseLibrary.collectionSummary').replace('{count}', String(filteredCourses.length)) }}</p>
       <div v-if="displayMode === 'list'" class="course-list-columns" aria-hidden="true">
         <span>{{ t('teacherCourseLibrary.columns.course') }}</span>
@@ -98,27 +103,30 @@
               </span>
               <strong v-if="status.inProgress">{{ Math.round(status.progress) }}%</strong>
             </span>
-            <span class="course-time course-field">
+            <span class="course-time course-field" :class="{ 'course-field--muted': !course.next_session?.date }">
               <Clock3 class="course-field__icon" :size="17" aria-hidden="true" />
               <span class="course-field__copy">
                 <small>{{ t('teacherCourseLibrary.columns.time') }}</small>
                 <strong>{{ courseNextSessionWhen(course) }}</strong>
               </span>
             </span>
-            <span class="course-location course-field">
+            <span class="course-location course-field" :class="{ 'course-field--muted': !course.next_session?.location }">
               <MapPin class="course-field__icon" :size="17" aria-hidden="true" />
               <span class="course-field__copy">
                 <small>{{ t('teacherCourseLibrary.columns.location') }}</small>
                 <strong>{{ courseLocation(course) }}</strong>
               </span>
             </span>
-            <span class="course-term course-field">
+            <span
+              class="course-term course-field"
+              :class="{ 'course-field--muted': !course.academic_year && !course.term }"
+            >
               <span class="course-field__copy">
                 <small>{{ t('teacherCourseLibrary.columns.term') }}</small>
                 <strong>{{ courseTermLabel(course) }}</strong>
               </span>
             </span>
-            <span class="course-version course-field">
+            <span class="course-version course-field" :class="{ 'course-field--muted': !course.current_course_version_id }">
               <span class="course-field__copy">
                 <small>{{ t('teacherCourseLibrary.columns.version') }}</small>
                 <strong>{{ courseVersionLabel(course) }}</strong>
@@ -589,11 +597,12 @@ async function deleteCourse(courseId: string, courseName: string) {
 .library-toolbar input::placeholder { color:#64748b; }
 .library-view-control { width:154px; }
 .course-collection { width:100%; max-width:var(--course-grid-width); margin:0 auto; }
+.course-collection--list { --course-list-main-columns:minmax(260px,1.55fr) 124px 144px 130px 126px 94px; --course-list-action-column:148px; min-width:1120px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
 .course-grid-anchor { width:100%; scroll-margin-top:18px; }
 .course-grid { position:relative; width:100%; margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
-.course-list-columns{min-width:1120px;display:grid;grid-template-columns:minmax(280px,1.45fr) 130px 150px 150px 140px 90px 118px;gap:0;padding:0 0 10px;border-bottom:1px solid #e6eaf2;color:#64748b;font-size:11px;font-weight:750}
-.course-list-columns span{padding:0 14px}.course-list-columns span:last-child{padding-left:16px}
-.course-grid[data-view='list'] { --course-cover-width:38px; min-width:1120px; display:block; }
+.course-list-columns{min-width:1120px;height:38px;display:grid;grid-template-columns:var(--course-list-main-columns) var(--course-list-action-column);align-items:center;gap:0;border-bottom:1px solid #e1e6ef;border-radius:13px 13px 0 0;color:#64748b;background:#f8fafc;font-size:11px;font-weight:750}
+.course-list-columns span{padding:0 14px}.course-list-columns span:first-child{padding-left:16px}.course-list-columns span:last-child{padding-left:10px}
+.course-grid[data-view='list'] { --course-cover-width:34px; min-width:1120px; max-width:none; display:block; }
 .course-item { position:relative; min-width:0; min-height:198px; display:grid; grid-template-rows:minmax(0,1fr) 46px; overflow:visible; border:1px solid #e1e6ef; border-radius:15px; background:#fff; box-shadow:none; transition:border-color .18s ease,background .18s ease,transform .18s cubic-bezier(.2,.8,.2,1); }
 .course-item:hover { border-color:#bfc8f7; background:#fefeff; transform:translateY(-2px); }
 .course-item--menu-open { z-index:30; }
@@ -628,13 +637,15 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-menu__item:hover,.course-menu__item:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
 .course-menu__item--danger { color:var(--lz-danger); }
 .course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
-.course-grid[data-view='list'] .course-item{min-height:82px;display:grid;grid-template-columns:minmax(0,1fr) 118px;grid-template-rows:none;margin:0;border:0;border-bottom:1px solid #e6eaf2;border-radius:0;background:transparent;box-shadow:none;transform:none}
-.course-grid[data-view='list'] .course-item:hover{background:#f8faff;box-shadow:none}
-.course-grid[data-view='list'] .course-main{min-height:81px;grid-template-columns:minmax(280px,1.45fr) 130px 150px 150px 140px 90px;grid-template-areas:'identity status time location term version';align-items:center;gap:0;padding:8px 0;border-radius:0}
-.course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field,.course-grid[data-view='list'] .course-status{padding:0 12px}
-.course-grid[data-view='list'] .course-identity{grid-template-columns:var(--course-cover-width) minmax(0,1fr);gap:10px}.course-grid[data-view='list'] .course-identity h2{display:block;overflow:hidden;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.course-grid[data-view='list'] .course-identity__meta{display:block;font-size:10px}
-.course-grid[data-view='list'] .course-field{display:block}.course-grid[data-view='list'] .course-field__icon,.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{display:block;white-space:normal}.course-grid[data-view='list'] .course-status{align-self:center;padding:0 12px;border-radius:0;background:transparent}.course-grid[data-view='list'] .course-term,.course-grid[data-view='list'] .course-version{display:block}.course-grid[data-view='list'] .generation-progress{display:none}
-.course-grid[data-view='list'] .course-actions{justify-content:flex-start;padding:8px 8px 8px 16px;border-top:0;border-left:1px solid #edf0f5}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:64px}
+.course-grid[data-view='list'] .course-item{min-height:66px;display:grid;grid-template-columns:minmax(0,1fr) var(--course-list-action-column);grid-template-rows:none;margin:0;border:0;border-bottom:1px solid #e8ecf3;border-radius:0;background:#fff;box-shadow:none;transform:none;transition:background .16s ease,box-shadow .16s ease}
+.course-grid[data-view='list'] .course-item:last-child{border-bottom:0;border-radius:0 0 13px 13px}
+.course-grid[data-view='list'] .course-item:hover{background:#f8faff;box-shadow:inset 0 1px 0 rgba(99,102,241,.04),inset 0 -1px 0 rgba(99,102,241,.04)}
+.course-grid[data-view='list'] .course-main{min-height:65px;grid-template-columns:var(--course-list-main-columns);grid-template-areas:'identity status time location term version';align-items:center;gap:0;padding:0;border-radius:0}
+.course-grid[data-view='list'] .course-main:focus-visible{position:relative;z-index:1;outline:2px solid rgba(99,102,241,.34);outline-offset:-2px}
+.course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field{padding:0 14px}
+.course-grid[data-view='list'] .course-identity{grid-template-columns:var(--course-cover-width) minmax(0,1fr);gap:10px;padding-left:16px}.course-grid[data-view='list'] .course-identity__copy{gap:3px}.course-grid[data-view='list'] .course-identity h2{display:block;overflow:hidden;color:#24324a;font-size:13px;font-weight:780;text-overflow:ellipsis;white-space:nowrap}.course-grid[data-view='list'] .course-identity__meta{display:block;color:#64748b;font-size:10px}
+.course-grid[data-view='list'] .course-field{display:block}.course-grid[data-view='list'] .course-field__icon,.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{display:block;color:#526079;font-size:11.5px;font-weight:680;line-height:1.45;white-space:normal}.course-grid[data-view='list'] .course-field--muted strong{color:#64748b;font-weight:620}.course-grid[data-view='list'] .course-status{max-width:calc(100% - 20px);align-self:center;justify-self:start;margin:0 10px;padding:5px 8px}.course-grid[data-view='list'] .course-status__copy strong{font-size:11px}.course-grid[data-view='list'] .course-term,.course-grid[data-view='list'] .course-version{display:block}.course-grid[data-view='list'] .generation-progress{display:none}
+.course-grid[data-view='list'] .course-actions{justify-content:flex-end;gap:2px;padding:0 10px 0 6px;border:0}.course-grid[data-view='list'] .course-primary-action{min-height:30px;padding:0 8px;border:1px solid #e0e7ff;background:#f8faff;font-size:11.5px}.course-grid[data-view='list'] .course-primary-action svg{transition:transform .16s ease}.course-grid[data-view='list'] .course-primary-action:hover svg,.course-grid[data-view='list'] .course-primary-action:focus-visible svg{transform:translateX(2px)}.course-grid[data-view='list'] .course-menu-trigger{width:30px;height:30px}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:52px}
 .course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
 .course-result-enter-active,.course-result-leave-active { transition:opacity .18s ease-out,transform .24s cubic-bezier(.16,1,.3,1),filter .18s ease-out; }
@@ -670,6 +681,7 @@ async function deleteCourse(courseId: string, courseName: string) {
 }
 @media (max-width:860px) {
   .course-collection { max-width:620px; }
+  .course-collection--list { min-width:0; border:0; border-radius:0; background:transparent; }
   .course-grid:not([data-view='list']) { grid-template-columns:minmax(0,1fr); }
   .course-grid:not([data-view='list']) .course-result-leave-active { width:100%; }
   .library-toolbar { grid-template-columns:repeat(4,minmax(0,1fr)); }
