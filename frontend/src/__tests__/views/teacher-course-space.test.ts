@@ -77,7 +77,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-layout')).toBeTruthy()
     expect(wrapper.get('.file-tree-pane').text()).toContain('课程文件夹')
     expect(wrapper.get('.file-tree-pane').text()).not.toContain('数据结构')
-    expect(wrapper.get('.file-list-pane').text()).toContain('交差文件')
+    expect(wrapper.get('.file-list-pane').text()).toContain('教务材料')
     expect(wrapper.get('.file-list-pane').text()).toContain('课程逻辑文件')
     expect(wrapper.get('.file-list-pane').text()).toContain('辅助资料')
     expect(wrapper.findAll('.file-row')).toHaveLength(3)
@@ -110,7 +110,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.emitted('createOutline')).toBeTruthy()
 
     await wrapper.get('.list-toolbar nav button').trigger('click')
-    await wrapper.findAll('.file-row').find(row => row.text().includes('交差文件'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('教务材料'))!.trigger('click')
     const calendarRow = wrapper.findAll('.file-row').find(row => row.text().includes('教学日历文件'))!
     expect(calendarRow.text()).toContain('未生成')
     await calendarRow.trigger('click')
@@ -204,7 +204,7 @@ describe('TeacherCourseSpaceView', () => {
     mountedWrappers.push(wrapper)
     await flushPromises()
 
-    await wrapper.findAll('.file-row').find(row => row.text().includes('交差文件'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('教务材料'))!.trigger('click')
     const calendarRow = wrapper.findAll('.file-row').find(row => row.text().includes('教学日历文件'))!
     expect(calendarRow.text()).toContain('未生成')
     await calendarRow.trigger('click')
@@ -367,7 +367,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain("pptImportAction: 'derive_plan'")
     expect(storeSource).toContain('source_package_id: source?.packageId')
     expect(zhMessages.courseFiles.status.missing).toBe('未生成')
-    expect(zhMessages.courseFiles.assetRole.deliverable).toBe('交差文件')
+    expect(zhMessages.courseFiles.assetRole.deliverable).toBe('教务材料')
     expect(zhMessages.courseFiles.assetRole.logic).toBe('课程逻辑文件')
     expect(zhMessages.courseFiles.assetRole.auxiliary).toBe('辅助资料原件')
     expect(zhMessages.courseFiles.form.derivePlanFromPpt).toContain('生成教案草稿')

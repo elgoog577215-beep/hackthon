@@ -544,8 +544,8 @@ const textSize = (value: string) => new TextEncoder().encode(value).byteLength |
 const displayPath = (value: string) => {
   if (!value) return t('courseFiles.rootName')
   const labels = activeLocale.value === 'en'
-    ? { 交差文件: 'Deliverables', 课程逻辑文件: 'Course logic', 辅助资料: 'Supporting materials', 大纲文件: 'Outline file', 教学日历文件: 'Teaching calendar file', 其他交差材料: 'Other deliverables', 大纲: 'Outline', 教案: 'Lesson plans', '讲稿-PPT': 'Scripts & PPTs', 题库: 'Question bank', 分讲练习: 'Session practice', 正式试卷: 'Formal exam papers', 老师题库: 'Teacher question banks', 试卷: 'Exam papers', 学生作业: 'Student work', 其他资料: 'Other materials', 课次: 'Sessions', 讲稿: 'Script', 练习: 'Practice' }
-    : { 交差文件: '交差文件', 课程逻辑文件: '课程逻辑文件', 辅助资料: '辅助资料', 大纲文件: '大纲文件', 教学日历文件: '教学日历文件', 其他交差材料: '其他交差材料', 大纲: '大纲', 教案: '教案', '讲稿-PPT': '讲稿-PPT', 题库: '题库', 分讲练习: '分讲练习', 正式试卷: '正式试卷', 老师题库: '老师题库', 试卷: '试卷', 学生作业: '学生作业', 其他资料: '其他资料', 课次: '课次', 讲稿: '讲稿', 练习: '练习' }
+    ? { 教务材料: 'Course administration', 课程逻辑文件: 'Course logic', 辅助资料: 'Supporting materials', 大纲文件: 'Outline file', 教学日历文件: 'Teaching calendar file', 其他教务材料: 'Other administration materials', 大纲: 'Outline', 教案: 'Lesson plans', '讲稿-PPT': 'Scripts & PPTs', 题库: 'Question bank', 分讲练习: 'Session practice', 正式试卷: 'Formal exam papers', 老师题库: 'Teacher question banks', 试卷: 'Exam papers', 学生作业: 'Student work', 其他资料: 'Other materials', 课次: 'Sessions', 讲稿: 'Script', 练习: 'Practice' }
+    : { 教务材料: '教务材料', 课程逻辑文件: '课程逻辑文件', 辅助资料: '辅助资料', 大纲文件: '大纲文件', 教学日历文件: '教学日历文件', 其他教务材料: '其他教务材料', 大纲: '大纲', 教案: '教案', '讲稿-PPT': '讲稿-PPT', 题库: '题库', 分讲练习: '分讲练习', 正式试卷: '正式试卷', 老师题库: '老师题库', 试卷: '试卷', 学生作业: '学生作业', 其他资料: '其他资料', 课次: '课次', 讲稿: '讲稿', 练习: '练习' }
   return value.split('/').filter(Boolean).map(part => (labels as Record<string, string>)[part] || part.replace(/^(\d+)_/, '$1 ')).join(' / ')
 }
 
@@ -664,7 +664,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
     status: outlineStatus, revision: outlineRevision, parentId: 'folder:course-logic', sizeBytes: outlineSize, order: 1,
   }
   const outlineDeliverable: WorkspaceNode = {
-    id: 'deliverable:outline', label: t('courseFiles.names.outlineFile'), kind: 'managed', type: 'outline_export', path: '交差文件/大纲文件',
+    id: 'deliverable:outline', label: t('courseFiles.names.outlineFile'), kind: 'managed', type: 'outline_export', path: '教务材料/大纲文件',
     status: outlineStatus, revision: outlineRevision, parentId: 'folder:deliverables', sizeBytes: outlineSize, order: 1,
     description: t('courseFiles.descriptions.outlineDeliverable'),
   }
@@ -677,7 +677,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
       ? 'ready'
       : 'draft'
   const teachingCalendar: WorkspaceNode = {
-    id: 'managed:teaching-calendar', label: t('courseFiles.names.teachingCalendarFile'), kind: 'managed', type: 'teaching_calendar', path: '交差文件/教学日历文件',
+    id: 'managed:teaching-calendar', label: t('courseFiles.names.teachingCalendarFile'), kind: 'managed', type: 'teaching_calendar', path: '教务材料/教学日历文件',
     status: calendarStore.loading && !calendar ? 'working' : calendarStatus, revision: calendar?.revision ? `r${calendar.revision}` : '', updatedAt: calendar?.updated_at, parentId: 'folder:deliverables',
     sizeBytes: calendarSessions.length ? textSize(JSON.stringify(calendarSessions)) : undefined, order: 2,
   }
@@ -699,7 +699,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
     label: document.title,
     kind: 'managed',
     type: 'companion_document',
-    path: `交差文件/其他交差材料/${safePart(document.title)}`,
+    path: `教务材料/其他教务材料/${safePart(document.title)}`,
     status: document.status === 'ready' ? 'ready' : 'draft',
     revision: document.revision_id,
     updatedAt: document.updated_at,
@@ -745,11 +745,11 @@ const treeData = computed<WorkspaceNode[]>(() => {
   })
 
   const otherDeliverables: WorkspaceNode = {
-    id: 'folder:other-deliverables', label: t('courseFiles.names.otherDeliverables'), kind: 'folder', type: 'companion_documents', path: '交差文件/其他交差材料',
+    id: 'folder:other-deliverables', label: t('courseFiles.names.otherDeliverables'), kind: 'folder', type: 'companion_documents', path: '教务材料/其他教务材料',
     status: companionDocumentNodes.length ? 'ready' : 'empty', parentId: 'folder:deliverables', order: 3, children: companionDocumentNodes,
   }
   const deliverables: WorkspaceNode = {
-    id: 'folder:deliverables', label: t('courseFiles.names.deliverables'), kind: 'folder', type: 'deliverables', path: '交差文件',
+    id: 'folder:deliverables', label: t('courseFiles.names.deliverables'), kind: 'folder', type: 'deliverables', path: '教务材料',
     status: aggregateStatus([outlineDeliverable, teachingCalendar]), parentId: 'root', order: 1, description: t('courseFiles.descriptions.deliverables'),
     children: [outlineDeliverable, teachingCalendar, ...(companionDocumentNodes.length ? [otherDeliverables] : [])],
   }

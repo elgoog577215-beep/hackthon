@@ -189,7 +189,7 @@
 
 ## 21. Teacher-owned semantic file system
 
-- [x] 21.1 Replace the five technical root folders with deliverables, course-logic files and supporting materials while keeping the preparation workbench unchanged.
+- [x] 21.1 Replace the five technical root folders with course-administration materials, course-logic files and supporting materials while keeping the preparation workbench unchanged.
 - [x] 21.2 Project one outline revision into its editable logic file and exportable deliverable, group scripts and PPTs by session as one teaching expression, and keep formal question-bank outputs together.
 - [x] 21.3 Classify each teacher-uploaded original once under question banks, exam papers, student work or other context; show source, role, state and bidirectional formal relationships without copying bytes.
 - [x] 21.4 Block deletion of originals and folders that are still referenced by formal files, and preserve the existing explicit relationship update path.
