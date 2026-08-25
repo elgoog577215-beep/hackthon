@@ -135,9 +135,9 @@
           :class="{ 'has-document-actions': lessonToolbarVisible }"
           :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
         >
-          <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
-          <div class="lesson-current-group">
-            <div ref="lessonOutlineRoot" class="lesson-outline-control">
+          <div class="lesson-heading-cluster">
+            <div class="lesson-current-group">
+              <div ref="lessonOutlineRoot" class="lesson-outline-control">
               <button
                 ref="lessonOutlineTrigger"
                 class="lesson-title-trigger"
@@ -184,53 +184,27 @@
                   </span>
                 </button>
               </nav>
+              </div>
+            </div>
+            <div v-if="lessonToolbarVisible" class="lesson-toolbar-status" role="status">
+              <LoaderCircle v-if="lessonConfirming" :size="14" class="spin" />
+              <Sparkles v-else-if="aiCandidatePending" :size="14" />
+              <Pencil v-else-if="lessonDocumentEditing" :size="14" />
+              <Check v-else-if="lessonPlanConfirmed" :size="14" />
+              <span>{{ lessonConfirming
+                ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+                : aiCandidatePending
+                  ? t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
+                  : lessonDocumentEditing
+                    ? t('courseWorkbench.lessonDocument.editing', '编辑中')
+                    : lessonPlanConfirmed
+                      ? t('courseWorkbench.lessonPlanConfirmed', '已确认')
+                      : t('courseWorkbench.lessonPlanPendingReview', '待确认') }}</span>
             </div>
           </div>
-          <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
-          <div v-if="lessonToolbarVisible" class="lesson-toolbar-status" role="status">
-            <LoaderCircle v-if="lessonConfirming" :size="15" class="spin" />
-            <Sparkles v-else-if="aiCandidatePending" :size="15" />
-            <Pencil v-else-if="lessonDocumentEditing" :size="15" />
-            <Check v-else-if="lessonPlanConfirmed" :size="15" />
-            <span>{{ lessonConfirming
-              ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
-              : aiCandidatePending
-                ? t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
-                : lessonDocumentEditing
-                  ? t('courseWorkbench.lessonDocument.editing', '编辑中')
-                  : lessonPlanConfirmed
-                    ? t('courseWorkbench.lessonPlanConfirmed', '已确认')
-                    : t('courseWorkbench.lessonPlanPendingReview', '待确认') }}</span>
-            <button
-              v-if="!lessonPlanConfirmed && !lessonConfirming && !aiCandidatePending && !lessonDocumentEditing"
-              type="button"
-              :disabled="lessonDocumentQualityBlocked"
-              :title="lessonDocumentQualityBlocked ? lessonDocumentQualityBlockMessage : ''"
-              @click="confirmLessonPlan"
-            >{{ t('courseWorkbench.confirmLessonPlan', '确认本讲教案') }}</button>
-          </div>
-          <div v-if="lessonToolbarVisible" class="lesson-toolbar-actions">
-            <template v-if="aiCandidatePending">
-              <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiCandidate', 'AI 方案') }}</button>
-              <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.lessonDocument.discardAi', '放弃') }}</button>
-              <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
-                <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
-                <Check v-else :size="15" />
-                {{ aiCollaborationBusy ? t('courseWorkbench.lessonDocument.applyingAi', '正在采用…') : t('courseWorkbench.lessonDocument.applyAi', '采用') }}
-              </button>
-            </template>
-            <template v-else-if="lessonDocumentEditing">
-              <button type="button" :disabled="lessonDocumentSaving" @click="cancelLessonPlanEditing"><X :size="15" />{{ t('courseWorkbench.lessonDocument.cancel', '取消') }}</button>
-              <button class="primary-action" type="button" :disabled="lessonDocumentSaving" @click="saveLessonPlanDraft">
-                <LoaderCircle v-if="lessonDocumentSaving" :size="15" class="spin" />
-                <Check v-else :size="15" />
-                {{ lessonDocumentSaving ? t('courseWorkbench.lessonDocument.saving', '正在保存…') : t('courseWorkbench.lessonDocument.finishEditing', '完成编辑') }}
-              </button>
-            </template>
-            <template v-else>
-              <button type="button" :disabled="lessonDocumentAiBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}</button>
-              <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
-            </template>
+          <div class="lesson-switch-actions">
+            <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
+            <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
           </div>
         </nav>
         <nav
@@ -253,6 +227,45 @@
             <strong>{{ section.title }}</strong>
           </button>
         </nav>
+        <div v-if="activeStage === 'lesson' && lessonToolbarVisible" class="lesson-document-toolbar" :aria-label="t('courseWorkbench.lessonDocument.actions', '教案操作')">
+          <div class="lesson-toolbar-actions">
+            <template v-if="aiCandidatePending">
+              <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiCandidate', 'AI 方案') }}</button>
+              <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.lessonDocument.discardAi', '放弃') }}</button>
+              <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
+                <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
+                <Check v-else :size="15" />
+                {{ aiCollaborationBusy ? t('courseWorkbench.lessonDocument.applyingAi', '正在采用…') : t('courseWorkbench.lessonDocument.applyAi', '采用') }}
+              </button>
+            </template>
+            <template v-else-if="lessonDocumentEditing">
+              <button type="button" :disabled="lessonDocumentSaving" @click="cancelLessonPlanEditing"><X :size="15" />{{ t('courseWorkbench.lessonDocument.cancel', '取消') }}</button>
+              <button class="primary-action" type="button" :disabled="lessonDocumentSaving" @click="saveLessonPlanDraft">
+                <LoaderCircle v-if="lessonDocumentSaving" :size="15" class="spin" />
+                <Check v-else :size="15" />
+                {{ lessonDocumentSaving ? t('courseWorkbench.lessonDocument.saving', '正在保存…') : t('courseWorkbench.lessonDocument.finishEditing', '完成编辑') }}
+              </button>
+            </template>
+            <template v-else>
+              <button type="button" :disabled="lessonDocumentAiBusy || lessonConfirming" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}</button>
+              <button type="button" :disabled="lessonConfirming" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
+              <button
+                v-if="!lessonPlanConfirmed"
+                class="primary-action"
+                type="button"
+                :disabled="lessonConfirming || lessonDocumentQualityBlocked"
+                :title="lessonDocumentQualityBlocked ? lessonDocumentQualityBlockMessage : ''"
+                @click="confirmLessonPlan"
+              >
+                <LoaderCircle v-if="lessonConfirming" :size="15" class="spin" />
+                <Check v-else :size="15" />
+                {{ lessonConfirming
+                  ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+                  : t('courseWorkbench.confirmLessonPlan', '确认本讲教案') }}
+              </button>
+            </template>
+          </div>
+        </div>
         <AppErrorNotice v-if="lessonStageBlocked && lessonPrerequisiteError" class="prerequisite-error" :presentation="lessonPrerequisiteError" compact>
           <template #action><button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button></template>
         </AppErrorNotice>
@@ -1659,22 +1672,32 @@ onBeforeUnmount(() => {
 @media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 14px 340px;padding:10px}.ai-workspace-resizer::after{inset-block:12px}.ai-source-drawer{top:10px;right:364px;bottom:10px;width:min(320px,calc(100% - 442px))}}
 @media(prefers-reduced-motion:reduce){.ai-workspace-resizer>svg{transition:none}.ai-source-drawer{animation:none}}
 
-/* The lesson page uses one compact toolbar: lesson navigation, editing, AI, and workflow actions. */
+/* Lesson identity lives above the document; document actions stay with the document itself. */
 .workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
-.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:auto minmax(180px,1fr) auto auto auto;gap:8px}
-.lesson-toolbar-status{min-height:34px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#667085;font-size:11.5px;font-weight:700;white-space:nowrap}
-.lesson-toolbar-status>button{min-height:28px;padding:0 8px;border:0;border-radius:6px;color:#3730a3;background:#f0f1f8;font:inherit;cursor:pointer}
-.lesson-toolbar-status>button:hover:not(:disabled){background:#e5e7f6}
-.lesson-toolbar-status>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.lesson-toolbar-status>button:disabled{opacity:.48;cursor:not-allowed}
-.lesson-toolbar-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-left:8px;border-left:1px solid #e2e6ee;white-space:nowrap}
+.workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
+.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:minmax(0,1fr) auto;gap:16px;min-height:64px;padding:0 4px 12px;border:0;border-radius:0;background:transparent}
+.lesson-heading-cluster{min-width:0;display:flex;align-items:center;gap:12px}
+.lesson-navigator.has-document-actions .lesson-current-group{min-width:0;justify-content:flex-start}
+.lesson-navigator.has-document-actions .lesson-outline-control{width:min(100%,720px);justify-content:flex-start}
+.lesson-navigator.has-document-actions .lesson-title-trigger{padding-left:0}
+.lesson-navigator.has-document-actions .lesson-title-trigger strong{font-size:16px;font-weight:760}
+.lesson-toolbar-status{flex:none;min-height:30px;display:flex;align-items:center;gap:5px;color:#687386;font-size:11.5px;font-weight:680;white-space:nowrap}
+.lesson-toolbar-status svg{color:#667085}
+.lesson-switch-actions{flex:none;display:flex;align-items:center;gap:6px}
+.lesson-switch-actions button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 10px;border:1px solid #dfe3eb;border-radius:7px;color:#59667a;background:#fff;font-size:11.5px;font-weight:700;cursor:pointer}
+.lesson-switch-actions button:hover:not(:disabled){border-color:#c9cfe0;color:#3730a3;background:#f7f7fb}
+.lesson-switch-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-switch-actions button:disabled{border-color:transparent;color:#a3acba;background:transparent;opacity:.55;cursor:not-allowed}
+.workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
+.lesson-document-toolbar{min-height:52px;display:flex;align-items:center;justify-content:flex-end;padding:0 20px;border-right:1px solid #e0e6ef;border-left:1px solid #e0e6ef;background:#fff}
+.lesson-toolbar-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:2px;white-space:nowrap}
 .lesson-toolbar-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:11.5px;font-weight:750;cursor:pointer}
 .lesson-toolbar-actions button:hover:not(:disabled){color:#3730a3;background:#f0f1f8}
 .lesson-toolbar-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-toolbar-actions button:disabled{opacity:.48;cursor:not-allowed}
 .lesson-toolbar-actions .primary-action{margin-left:3px;border-color:#d7ddea;color:#3730a3;background:#fff}
 .lesson-toolbar-actions .primary-action:hover:not(:disabled){border-color:#c6cbe0;background:#f7f7ff}
+.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
 @media(max-width:1320px){.lesson-toolbar-actions button:not(.primary-action){width:34px;padding:0;font-size:0}.lesson-toolbar-actions button:not(.primary-action) svg{display:block}}
-@media(max-width:1000px){.lesson-toolbar-status>span{display:none}.lesson-toolbar-status{padding-inline:4px}}
-@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:auto minmax(120px,1fr) auto auto auto}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
+@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
 </style>
