@@ -103,7 +103,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('.resume-card').exists()).toBe(false)
     expect(wrapper.get('input[type="search"]').attributes('aria-label')).toBe('搜索课程')
     expect(wrapper.find('.library-resume').exists()).toBe(false)
-    expect(wrapper.get('.teacher-asset-summary').text()).toContain('教学单元')
+    expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
 
     await wrapper.get('.course-main').trigger('click')
     await flushPromises()
@@ -112,7 +112,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
   })
 
-  it('把新建空课程归入正在备课，并给出建立大纲的下一步', async () => {
+  it('把新建空课程归入正在备课，并提供开始备课入口', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -135,8 +135,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     expect(wrapper.get('.course-status').text()).toContain('正在备课')
-    expect(wrapper.get('.teacher-asset-summary').text()).toContain('尚无教学大纲')
-    expect(wrapper.get('.teacher-asset-summary').text()).toContain('下一步建立课程大纲')
+    expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
     const statusFilters = wrapper.findAll('.library-status-filters button')
     expect(statusFilters).toHaveLength(3)
@@ -150,7 +149,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.library-state').text()).toContain('调整搜索词或备课状态')
   })
 
-  it('保持原课程卡片结构，并展示真实教学单元、近期课次和推荐动作', async () => {
+  it('保持原课程卡片结构，并展示备课状态和推荐动作', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -184,8 +183,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.course-grid').attributes('data-view')).toBe('grid')
     expect(wrapper.find('.course-list-columns').exists()).toBe(false)
     expect(wrapper.find('.course-identity__meta').exists()).toBe(false)
-    expect(wrapper.get('.teacher-asset-summary').text()).toContain('12 个教学单元')
-    expect(wrapper.get('.teacher-asset-summary').text()).toContain('8月25日 14:00 · 第 7 讲')
+    expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
     expect(wrapper.get('.course-primary-action').text()).toContain('准备下次课')
   })
 

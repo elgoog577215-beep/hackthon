@@ -82,7 +82,6 @@
             >
               <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
             </span>
-            <span class="teacher-asset-summary">{{ teacherAssetSummary(course, status) }}</span>
           </span>
         </button>
 
@@ -236,7 +235,7 @@ import { ArrowRight, BookOpenText, ChevronLeft, ChevronRight, Ellipsis, Grid2X2,
 import CourseCover from '../components/CourseCover.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
-import { activeLocale, t } from '../shared/i18n'
+import { t } from '../shared/i18n'
 import { courseProductionTaskDetail } from '../utils/course-production'
 import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
 import { formatCourseTitle } from '../utils/course-presentation'
@@ -395,34 +394,6 @@ function taskRequiresAction(task: { status: string; publicationAllowed?: boolean
   return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
 }
 
-function teacherAssetSummary(course: Course, status: ReturnType<typeof courseStatus>) {
-  if (status.inProgress) {
-    return t('teacherCourseLibrary.teacherSummary.generating')
-      .replace('{progress}', String(Math.round(status.progress)))
-  }
-  if (course.course_status === 'draft' && !course.is_published) {
-    return t('teacherCourseLibrary.teacherSummary.empty')
-  }
-  if (course.next_session?.date) {
-    const dateValue = new Date(`${course.next_session.date}T00:00:00`)
-    const dateLabel = Number.isNaN(dateValue.getTime())
-      ? course.next_session.date
-      : new Intl.DateTimeFormat(activeLocale.value === 'en' ? 'en-US' : 'zh-CN', {
-          month: 'short',
-          day: 'numeric',
-        }).format(dateValue)
-    return t('teacherCourseLibrary.teacherSummary.scheduled')
-      .replace('{count}', String(course.node_count || 0))
-      .replace('{date}', dateLabel)
-      .replace('{time}', String(course.next_session.start_time || '').slice(0, 5))
-      .replace('{sequence}', String(course.next_session.sequence || 0))
-  }
-  return t(course.is_published
-    ? 'teacherCourseLibrary.teacherSummary.published'
-    : 'teacherCourseLibrary.teacherSummary.draft')
-    .replace('{count}', String(course.node_count || 0))
-}
-
 function recommendedAction(course: Course, status: ReturnType<typeof courseStatus>) {
   if (status.needsAction) {
     return { label: t('teacherCourseLibrary.actions.resolve') }
@@ -506,9 +477,8 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-grid[data-view='list'] { --course-cover-width:44px; grid-template-columns:minmax(0,1fr); gap:8px; }
 .course-grid[data-view='list'] .course-item { min-height:86px; grid-template-columns:minmax(0,1fr) 132px; border-radius:12px; }
 .course-grid[data-view='list'] .course-main { min-height:84px; grid-template-columns:52px minmax(0,1fr); gap:14px; padding:10px 8px 10px 14px; border-radius:12px 0 0 12px; }
-.course-grid[data-view='list'] .course-copy { display:grid; grid-template-columns:minmax(180px,1fr) minmax(170px,.72fr) minmax(220px,1fr); align-items:center; gap:18px; }
+.course-grid[data-view='list'] .course-copy { display:grid; grid-template-columns:minmax(180px,1fr) minmax(170px,.72fr); align-items:center; gap:18px; }
 .course-grid[data-view='list'] .course-copy h2 { min-height:0; margin:0; display:block; overflow:hidden; font-size:14px; text-overflow:ellipsis; white-space:nowrap; }
-.course-grid[data-view='list'] .teacher-asset-summary { margin:0; font-size:11px; }
 .course-grid[data-view='list'] .generation-progress { grid-column:2; width:100%; margin-top:6px; }
 .course-grid[data-view='list'] .course-actions { flex-direction:row; align-items:center; justify-content:flex-start; padding:10px 48px 10px 10px; }
 .course-grid[data-view='list'] .course-menu-trigger { top:50%; right:12px; transform:translateY(-50%); }
@@ -520,7 +490,6 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
 .course-copy { min-width:0; display:flex; flex-direction:column; align-items:stretch; }
 .course-copy h2 { min-height:43px; margin:0 0 8px; overflow:hidden; display:-webkit-box; color:var(--lz-text-strong); font-size:16px; font-weight:800; line-height:1.35; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
-.teacher-asset-summary { display:block; margin-top:6px; overflow:hidden; color:var(--lz-text-muted); font-size:9px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
 .course-status { display:flex; align-items:center; gap:7px; color:var(--lz-text-secondary); font-size:12px; line-height:1; }
 .course-status strong { margin-left:2px; color:inherit; font-size:12px; font-weight:800; }
 .course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
@@ -563,8 +532,6 @@ async function deleteCourse(courseId: string, courseName: string) {
 .pagination-jump input:focus { border-color:#a5b4fc; box-shadow:0 0 0 3px rgba(99,102,241,.12); }
 .pagination-jump__submit { height:32px; padding:0 10px; border:0; border-radius:8px; color:var(--lz-brand-strong,#4f46e5); background:var(--lz-brand-soft,#eef2ff); font-size:11px; font-weight:800; cursor:pointer; }
 .library-view-switch button,
-.course-grid[data-view='list'] .teacher-asset-summary,
-.teacher-asset-summary,
 .pagination-jump,
 .pagination-jump__submit { font-size:12px; }
 .pagination-jump__submit:hover,.pagination-jump__submit:focus-visible { color:#fff; background:var(--lz-brand,#6366f1); outline:none; }
@@ -590,7 +557,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-collection { max-width:620px; }
   .course-grid { grid-template-columns:minmax(0,1fr); }
   .course-grid[data-view='list'] .course-copy { grid-template-columns:minmax(0,1fr); gap:5px; }
-  .course-grid[data-view='list'] .course-status,.course-grid[data-view='list'] .teacher-asset-summary { display:none; }
+  .course-grid[data-view='list'] .course-status { display:none; }
 }
 @media (max-width:700px) {
   .course-library { --course-card-height:150px; --course-cover-width:72px; padding:14px 16px 40px; border:0; border-radius:0; box-shadow:none; }
