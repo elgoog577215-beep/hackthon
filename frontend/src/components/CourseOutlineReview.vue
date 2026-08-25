@@ -345,8 +345,12 @@
                     :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                     @input="invalidateProposal"
                   />
+                  <p
+                    v-if="'learning_objective' in group.chapter.node && isInline && !editable"
+                    class="outline-review__objective-text"
+                  >{{ group.chapter.node.learning_objective || t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）') }}</p>
                   <textarea
-                    v-if="'learning_objective' in group.chapter.node"
+                    v-else-if="'learning_objective' in group.chapter.node"
                     v-model="group.chapter.node.learning_objective"
                     rows="1"
                     :disabled="adjustmentBusy"
@@ -389,7 +393,12 @@
                       :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
                       @input="invalidateProposal"
                     />
+                    <p
+                      v-if="isInline && !editable"
+                      class="outline-review__objective-text"
+                    >{{ item.node.learning_objective || t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）') }}</p>
                     <textarea
+                      v-else
                       v-model="item.node.learning_objective"
                       rows="1"
                       :disabled="adjustmentBusy"
@@ -1698,6 +1707,15 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   font-size:11px;
   line-height:1.45;
 }
+.outline-review[data-variant="inline"] .outline-review__objective-text {
+  min-width:0;
+  margin:0;
+  color:#64748b;
+  font-size:11px;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+  white-space:pre-wrap;
+}
 .outline-review[data-variant="inline"] .outline-review__section-list { margin:0; padding:0 14px 10px 55px; }
 .outline-review[data-variant="inline"] .outline-review__section {
   grid-template-columns:46px minmax(0,1fr) auto;
@@ -1728,6 +1746,10 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   color:#64748b;
   font-size:11px;
   line-height:1.45;
+}
+.outline-review[data-variant="inline"].is-editing .outline-review__node-fields textarea {
+  field-sizing:content;
+  overflow-y:hidden;
 }
 .outline-review[data-variant="inline"] input[readonly],
 .outline-review[data-variant="inline"] textarea[readonly] {
