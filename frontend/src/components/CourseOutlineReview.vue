@@ -423,15 +423,6 @@
             <div class="outline-review__list-toolbar">
               <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
               <div class="outline-review__toolbar-actions">
-                <button
-                  v-if="isInline"
-                  type="button"
-                  :aria-expanded="assistantOpen || inlineToolsOpen"
-                  :disabled="adjustmentBusy"
-                  @click="emit('open-ai')"
-                >
-                  <Sparkles :size="14" />{{ t('courseWorkbench.aiAdjustOutline', 'AI 调整') }}
-                </button>
                 <button v-if="!isInline || editable" data-testid="add-outline-chapter" type="button" :disabled="adjustmentBusy" @click="addChapter">
                   <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
                 </button>

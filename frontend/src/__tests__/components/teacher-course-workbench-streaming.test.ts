@@ -128,16 +128,35 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('已保存完整章节结构')
     expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
     expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
-    expect(wrapper.get('.center-heading>button').text()).toContain('编辑大纲')
+    expect(wrapper.get('[data-testid="outline-ai-action"]').text()).toContain('AI 编辑')
+    expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
     const outlineElement = wrapper.get('[data-testid="inline-outline-editor"]').element
-    await wrapper.get('.center-heading>button').trigger('click')
+    await wrapper.get('[data-testid="outline-manual-action"]').trigger('click')
     expect(wrapper.emitted('update:outlineEditing')).toEqual([[true]])
 
     await wrapper.setProps({ outlineEditing: true })
     expect(wrapper.get('[data-testid="inline-outline-editor"]').element).toBe(outlineElement)
     expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
     expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
-    expect(wrapper.get('.center-heading>button').text()).toContain('完成编辑')
+    expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('完成编辑')
+  })
+
+  it('正式大纲首屏可直接打开 AI 编辑工作区', async () => {
+    useCourseStore().nodes = [
+      {
+        node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
+        node_content: '', node_type: 'original', generation_status: 'pending', generated_chars: 0,
+      },
+    ] as any
+
+    const wrapper = mountWorkbench()
+
+    const aiAction = wrapper.get('[data-testid="outline-ai-action"]')
+    expect(aiAction.attributes('aria-expanded')).toBe('false')
+    await aiAction.trigger('click')
+
+    expect(wrapper.get('.teacher-workbench').classes()).toContain('is-ai-collaboration')
+    expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
   })
 
   it('最终检查点暂时没有投影时保留审阅状态而不退回初始表单', () => {
