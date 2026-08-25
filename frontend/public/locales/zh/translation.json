@@ -4822,7 +4822,7 @@
       "firstGenerationHelp": "首次生成后，合格题目会自动进入课程题库",
       "generating": "正在生成",
       "generate": "开始生成",
-      "qualityReview": "质量与覆盖检查",
+      "qualityReview": "质量检查",
       "issues": "{count} 项待处理"
     },
     "examPaper": {

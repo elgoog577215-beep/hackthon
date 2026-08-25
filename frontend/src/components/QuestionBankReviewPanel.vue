@@ -8,13 +8,32 @@
       <div class="question-bank-page-identity">
         <strong>{{ t('questionBank.workspace.courseBank', '课程题库') }}</strong>
         <span v-if="workspaceMode !== 'bank'" class="question-bank-workspace-context">{{ workspaceTitle }}</span>
-        <span class="question-bank-workspace-status" role="status">
+        <span
+          v-if="workspaceMode !== 'bank' || loading || rebuilding || pendingAiCandidate"
+          class="question-bank-workspace-status"
+          role="status"
+        >
           <LoaderCircle v-if="loading || rebuilding" :size="14" class="spin" />
           <WandSparkles v-else-if="pendingAiCandidate" :size="14" />
           <CircleCheck v-else-if="items.length" :size="14" />
           <LibraryBig v-else :size="14" />
           {{ workspaceStatus }}
         </span>
+        <button
+          v-else-if="items.length"
+          type="button"
+          class="question-bank-quality-trigger"
+          :aria-expanded="qualityPanelOpen"
+          @click="qualityPanelOpen = !qualityPanelOpen"
+        >
+          <ShieldCheck :size="14" />
+          <span>{{ t('questionBank.studio.qualityReview', '质量检查') }}</span>
+          <small>{{ issueObjectiveRows.length
+            ? t('questionBank.studio.issues', '{count} 项待处理').replace('{count}', String(issueObjectiveRows.length))
+            : t('questionBank.objective.allCovered', '全部已覆盖') }}</small>
+          <ChevronUp v-if="qualityPanelOpen" :size="14" />
+          <ChevronDown v-else :size="14" />
+        </button>
       </div>
       <nav class="question-bank-workspace-actions" :aria-label="t('questionBank.workspace.actions', '题库操作')">
         <button v-if="workspaceMode !== 'bank'" type="button" class="question-bank-back" @click="workspaceMode = 'bank'">
@@ -212,16 +231,18 @@
     </section>
 
     <template v-else-if="!questionBankMissing">
-      <details class="question-quality-details">
-        <summary>
+      <section v-show="qualityPanelOpen" class="question-quality-details">
+        <header class="question-quality-details__header">
           <span>
             <ShieldCheck :size="15" />
             <strong>{{ t('questionBank.studio.qualityReview', '质量与覆盖检查') }}</strong>
           </span>
-          <small>{{ issueObjectiveRows.length
-            ? t('questionBank.studio.issues', '{count} 项待处理').replace('{count}', String(issueObjectiveRows.length))
-            : t('questionBank.objective.allCovered', '全部已覆盖') }}</small>
-        </summary>
+          <button
+            type="button"
+            :aria-label="t('common.close', '关闭')"
+            @click="qualityPanelOpen = false"
+          ><X :size="15" /></button>
+        </header>
         <div class="question-quality-details__body">
       <div class="question-bank-summary">
         <article>
@@ -456,13 +477,14 @@
         </div>
       </section>
         </div>
-      </details>
+      </section>
 
       <section class="question-browser">
         <header>
-          <div class="visually-hidden">
+          <div class="question-browser__identity">
             <strong>{{ t('questionBank.browseTitle', '浏览全部题目') }}</strong>
-            <small>{{ browseItems.length }} / {{ activeItems.length }}</small>
+            <small v-if="browseItems.length === activeItems.length">{{ activeItems.length }} 道</small>
+            <small v-else>{{ browseItems.length }} / {{ activeItems.length }}</small>
           </div>
           <div class="question-browser__controls">
             <label>
@@ -579,21 +601,10 @@
             :id="`question-details-${item.revision_id}`"
             class="question-review-item__details"
           >
-            <p class="question-review-item__prompt">
-              {{ item.prompt }}
-            </p>
             <dl>
               <div>
                 <dt>{{ t('questionBank.quality', '质量') }}</dt>
                 <dd>{{ item.quality_report?.passed ? t('questionBank.qualityPassed', '自动检查通过') : t('questionBank.qualityFailed', '需要修正') }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('questionBank.source', '来源') }}</dt>
-                <dd>{{ sourceLabel(item.source_records) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('questionBank.validator', '验证器') }}</dt>
-                <dd>{{ validationModeLabel(item.validation_mode) }}</dd>
               </div>
             </dl>
             <section
@@ -1039,6 +1050,7 @@ const items = ref<QuestionBankItem[]>([])
 const examPapers = ref<ExamPaperSummary[]>([])
 const selectedQuestionRevisions = ref<string[]>([])
 const paperComposerOpen = ref(false)
+const qualityPanelOpen = ref(false)
 const reviewNotes = reactive<Record<string, string>>({})
 const expandedQuestionRevision = ref('')
 const rebuildJob = ref<QuestionBankRebuildJob | null>(null)
@@ -1961,22 +1973,27 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 </script>
 
 <style scoped>
-.question-bank-panel { height:calc(100vh - 128px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:12px; overflow:visible; padding:0; color:#263147; background:transparent; }
-.question-bank-page-heading { min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 4px; }
+.question-bank-panel { height:calc(100vh - 128px); min-height:500px; display:grid; grid-template-rows:auto minmax(0,1fr); gap:14px; overflow:visible; padding:0; color:#263147; background:transparent; }
+.question-bank-page-heading { min-height:54px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 2px; }
 .question-bank-page-identity { min-width:0; display:flex; align-items:center; gap:10px; }
-.question-bank-page-identity>strong { min-width:0; overflow:hidden; color:#202a3d; font-size:16px; font-weight:760; line-height:1.35; text-overflow:ellipsis; white-space:nowrap; }
+.question-bank-page-identity>strong { min-width:0; overflow:hidden; color:#202a3d; font-size:18px; font-weight:760; line-height:1.35; letter-spacing:-.015em; text-overflow:ellipsis; white-space:nowrap; }
 .question-bank-workspace-context { flex:none; color:#5552c8; font-size:11.5px; font-weight:700; white-space:nowrap; }
 .question-bank-workspace-status { flex:none; display:inline-flex; align-items:center; gap:5px; color:#687386; font-size:11.5px; font-weight:680; white-space:nowrap; }
 .question-bank-workspace-status svg { color:#667085; }
-.question-bank-document-surface { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr); overflow:hidden; border:1px solid #dfe5ee; border-radius:14px; background:#fff; box-shadow:0 8px 24px rgba(30,41,59,.045); }
+.question-bank-quality-trigger { min-height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 8px; border:0; border-radius:7px; color:#596579; background:transparent; font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; }
+.question-bank-quality-trigger svg { color:#5552c8; }
+.question-bank-quality-trigger small { color:#8a94a5; font-size:10.5px; font-weight:600; }
+.question-bank-quality-trigger:hover,.question-bank-quality-trigger[aria-expanded="true"] { color:#3f3b9d; background:#f0f1ff; }
+.question-bank-quality-trigger:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-bank-document-surface { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr); overflow:hidden; border:1px solid #dfe5ee; border-radius:10px; background:#fff; }
 .question-bank-workspace-actions { flex:0 0 auto; display:flex; align-items:center; gap:7px; }
 .question-bank-workspace-actions button { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border:1px solid #d7dde7; border-radius:8px; color:#475569; background:#fff; font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; }
 .question-bank-workspace-actions button:hover { border-color:#a5b4fc; color:#4338ca; background:#fafaff; }
 .question-bank-workspace-actions button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-workspace-actions .question-bank-ai-action { border-color:transparent; color:#5552c8; background:transparent; }
 .question-bank-workspace-actions .question-bank-back { border-color:transparent; padding-left:4px; }
-.question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 280px; }
-.question-bank-workspace-main { min-width:0; min-height:0; display:grid; align-content:start; gap:0; overflow:auto; padding:0 22px 24px; background:#fff; }
+.question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 260px; }
+.question-bank-workspace-main { min-width:0; min-height:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:0; overflow:auto; padding:0 28px 28px; background:#fff; }
 .question-bank-workspace-side { min-width:0; min-height:0; overflow:hidden; border-left:1px solid #e4e9f1; background:#fbfcfe; }
 .question-bank-empty-state { min-height:340px; display:grid; place-content:center; justify-items:center; gap:9px; padding:28px; text-align:center; }
 .question-bank-empty-state>span { width:48px; height:48px; display:grid; place-items:center; border-radius:12px; color:#5b57d9; background:#f0f1ff; }
@@ -2026,14 +2043,14 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel__header-buttons button:disabled { opacity:.5; cursor:not-allowed; }
 .question-bank-panel__header-buttons .question-generation-primary { border-color:#4f46e5; color:#fff; background:#4f46e5; }
 .question-bank-panel__header-buttons .question-generation-primary:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
-.question-quality-details { overflow:hidden; border:0; border-radius:0; background:transparent; }
-.question-quality-details>summary { min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0; border-bottom:1px solid #edf0f5; color:var(--lz-text-secondary); cursor:pointer; list-style:none; }
-.question-quality-details>summary::-webkit-details-marker { display:none; }
-.question-quality-details>summary:hover { color:#4338ca; }
-.question-quality-details>summary>span { display:flex; align-items:center; gap:7px; color:#4338ca; }
-.question-quality-details>summary strong { color:var(--lz-text-strong); font-size:11px; }
-.question-quality-details>summary small { color:var(--lz-text-muted); font-size:10px; }
-.question-quality-details__body { display:grid; gap:0; padding:0 0 12px; border-bottom:1px solid #edf0f5; background:#fbfcfe; }
+.question-quality-details { overflow:hidden; margin:0 -28px; border-bottom:1px solid #e5eaf1; background:#fafbfe; }
+.question-quality-details__header { min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 28px; }
+.question-quality-details__header>span { display:flex; align-items:center; gap:8px; color:#5552c8; }
+.question-quality-details__header strong { color:#2c374b; font-size:13px; }
+.question-quality-details__header button { width:30px; height:30px; display:grid; place-items:center; border:0; border-radius:7px; color:#778397; background:transparent; cursor:pointer; }
+.question-quality-details__header button:hover { color:#334155; background:#eef1f6; }
+.question-quality-details__header button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-quality-details__body { display:grid; gap:0; padding:0 28px 18px; background:#fafbfe; }
 .question-bank-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); padding:10px 0; border-block:1px solid var(--lz-border); }
 .question-bank-summary article { min-width:0; display:grid; align-content:start; gap:4px; padding:0 12px; }
 .question-bank-summary article + article { border-left:1px solid var(--lz-border); }
@@ -2089,16 +2106,17 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .assessment-matrix__page-jump input { width:48px; height:34px; padding:0 6px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; font-size:11px; text-align:center; }
 .assessment-matrix__page-jump button { min-width:auto; }
 .assessment-matrix__empty { min-height:54px; display:grid; place-items:center; color:var(--lz-text-muted); font-size:10px; }
-.question-browser { position:sticky; top:0; z-index:3; padding:11px 0; border-bottom:1px solid #e5eaf1; background:rgba(255,255,255,.97); backdrop-filter:blur(10px); }
-.question-browser>header { display:flex; align-items:center; justify-content:flex-end; gap:12px; }
-.question-browser>header>div:first-child { display:flex; align-items:baseline; gap:7px; }
-.question-browser strong { color:var(--lz-text-strong); font-size:12px; }
-.question-browser small { color:var(--lz-text-muted); font-size:10px; }
-.question-browser__controls { width:100%; display:flex; align-items:center; justify-content:flex-end; gap:8px; }
-.question-browser__controls label { min-width:240px; max-width:420px; flex:1 1 300px; display:flex; align-items:center; gap:7px; padding:0 10px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-muted); background:#fff; }
-.question-browser__controls input { min-width:0; width:100%; height:31px; border:0; outline:0; color:var(--lz-text); background:transparent; font-size:11px; }
-.question-browser__controls select { height:33px; padding:0 28px 0 9px; border:1px solid var(--lz-border); border-radius:8px; color:var(--lz-text-secondary); background:#fff; font-size:11px; }
-.question-browser__pagination { min-width:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 10px; padding:14px 0 0; border-top:1px solid #e5eaf1; color:var(--lz-text-muted); background:#fff; font-size:10px; }
+.question-browser { position:sticky; top:0; z-index:3; min-height:64px; display:flex; align-items:center; border-bottom:1px solid #e5eaf1; background:rgba(255,255,255,.98); backdrop-filter:blur(10px); }
+.question-browser>header { width:100%; display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.question-browser__identity { min-width:0; display:flex; align-items:baseline; gap:9px; }
+.question-browser__identity strong { color:#253047; font-size:14px; font-weight:760; }
+.question-browser__identity small { color:#8a94a5; font-size:11.5px; }
+.question-browser__controls { min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:8px; }
+.question-browser__controls label { width:min(28vw,360px); min-width:240px; display:flex; align-items:center; gap:8px; padding:0 11px; border:1px solid #dce2eb; border-radius:8px; color:#8a94a5; background:#fff; }
+.question-browser__controls label:focus-within { border-color:#9c9af0; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
+.question-browser__controls input { min-width:0; width:100%; height:35px; border:0; outline:0; color:var(--lz-text); background:transparent; font-size:12px; }
+.question-browser__controls select { height:37px; padding:0 30px 0 11px; border:1px solid #dce2eb; border-radius:8px; color:#4b576b; background:#fff; font-size:12px; }
+.question-browser__pagination { min-width:0; min-height:56px; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 10px; border-top:1px solid #e5eaf1; color:var(--lz-text-muted); background:#fff; font-size:11px; }
 .question-browser__page-range { flex:1 1 140px; color:var(--lz-text-secondary); }
 .question-browser__page-buttons,.question-browser__page-jump { min-width:0; display:flex; align-items:center; gap:5px; }
 .question-browser__page-buttons { flex-wrap:wrap; }
@@ -2119,31 +2137,32 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .exam-paper-bar button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #c7d2fe; border-radius:8px; color:#4338ca; background:#eef2ff; font-size:12px; font-weight:750; cursor:pointer; }
 .exam-paper-bar button:disabled { opacity:.45; cursor:not-allowed; }
 .question-review-list { display:grid; gap:0; }
-.question-review-item { overflow:hidden; border-bottom:1px solid #e5eaf1; border-radius:0; background:#fff; transition:background-color .15s ease; }
+.question-review-item { overflow:hidden; border-bottom:1px solid #e7ebf1; border-radius:0; background:#fff; transition:background-color .15s ease; }
 .question-review-item:hover { background:#fafbff; }
-.question-review-item.is-expanded { background:#fbfcff; }
-.question-review-item__top { display:grid; grid-template-columns:36px minmax(0,1fr); align-items:stretch; }
+.question-review-item.is-expanded { background:#f9faff; }
+.question-review-item__top { display:grid; grid-template-columns:42px minmax(0,1fr); align-items:stretch; }
 .question-review-item__select { display:grid; place-items:center; border:0; background:transparent; cursor:pointer; }
 .question-review-item__select input { width:16px; height:16px; accent-color:#4f46e5; }
 .question-review-item__select.disabled { cursor:not-allowed; opacity:.45; }
-.question-review-item__summary { width:100%; min-height:54px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; padding:7px 6px 7px 2px; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.question-review-item__summary { width:100%; min-height:72px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:24px; padding:11px 6px 11px 0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
 .question-review-item__summary:hover { background:transparent; }
 .question-review-item__summary:focus-visible { position:relative; z-index:1; outline:2px solid var(--lz-brand); outline-offset:-2px; }
-.question-review-item__summary-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) minmax(132px,auto); align-items:center; gap:10px; }
-.question-review-item__summary-main.has-role { grid-template-columns:auto minmax(0,1fr) minmax(132px,auto); }
-.question-review-item__role { color:var(--lz-brand-strong); font-size:10px; font-weight:750; white-space:nowrap; }
-.question-review-item__preview { min-width:0; overflow:hidden; color:var(--lz-text); font-size:12px; font-weight:600; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
-.question-review-item__meta { max-width:210px; overflow:hidden; color:var(--lz-text-muted); font-size:10px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.question-review-item__summary-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
+.question-review-item__summary-main.has-role { grid-template-columns:auto minmax(0,1fr); }
+.question-review-item__role { grid-row:2; color:#5552c8; font-size:11px; font-weight:720; white-space:nowrap; }
+.question-review-item__preview { grid-column:1/-1; min-width:0; max-width:92ch; overflow:hidden; color:#253047; font-size:14px; font-weight:650; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
+.question-review-item__meta { grid-row:2; min-width:0; overflow:hidden; color:#8a94a5; font-size:11px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
 .question-review-item__summary-action { display:flex; align-items:center; gap:10px; }
 .question-review-item__summary-action>small { padding:3px 7px; border-radius:999px; color:#b45309; background:#fef3c7; font-size:10px; white-space:nowrap; }
 .question-review-item__summary-action>small[data-status="approved"] { color:#047857; background:#d1fae5; }
 .question-review-item__summary-action>small[data-status="rejected"] { color:#b91c1c; background:#fee2e2; }
-.question-review-item__summary-action>span { display:inline-flex; align-items:center; gap:4px; color:#7b8798; font-size:10px; font-weight:700; white-space:nowrap; }
-.question-review-item__toggle-label { font-size:0!important; }
-.question-review-item__details { display:grid; gap:10px; padding:14px 16px 16px 38px; border-top:1px solid #edf0f5; background:#fbfcff; }
-.question-review-item p { margin:0; color:var(--lz-text); font-size:12px; line-height:1.65; white-space:pre-line; }
-.question-review-item dl { display:flex; flex-wrap:wrap; gap:14px; margin:0; }
-.question-review-item dl div { display: flex; gap: 5px; font-size: 10px; }
+.question-review-item__summary-action>span { display:inline-flex; align-items:center; gap:5px; color:#667085; font-size:11.5px; font-weight:700; white-space:nowrap; }
+.question-review-item__toggle-label { width:28px; height:28px; justify-content:center; border-radius:6px; font-size:0!important; }
+.question-review-item__summary:hover .question-review-item__toggle-label { color:#4338ca; background:#eeefff; }
+.question-review-item__details { display:grid; gap:14px; padding:18px 20px 20px 42px; border-top:1px solid #edf0f5; background:#f9faff; }
+.question-review-item p { max-width:76ch; margin:0; color:var(--lz-text); font-size:13px; line-height:1.7; white-space:pre-line; }
+.question-review-item dl { display:flex; flex-wrap:wrap; gap:18px; margin:0; }
+.question-review-item dl div { display:flex; gap:6px; font-size:11px; }
 .question-review-item dt { color: var(--lz-text-muted); }
 .question-review-item dd { margin: 0; color: var(--lz-text-secondary); }
 .question-review-item textarea { min-height: 54px; padding: 8px 9px; border: 1px solid var(--lz-border); border-radius: 8px; resize: vertical; color: var(--lz-text); font: inherit; font-size: 11px; }
