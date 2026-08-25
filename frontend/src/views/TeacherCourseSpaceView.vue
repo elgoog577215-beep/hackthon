@@ -390,7 +390,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer.vue'
 import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; material_asset_id?: string; uploaded_at?: string; updated_at?: string }
-type FileRelationship = { link_id: string; source_asset_id: string; source_label: string; target_id: string; target_type: string; target_label: string; role: 'primary' | 'reference' }
+type FileRelationship = { link_id: string; source_asset_id: string; source_label: string; target_id: string; target_type: string; target_label: string; role: 'primary' | 'reference' | 'question_source' }
 type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; relationships?: FileRelationship[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
 type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; rendered_markdown: string; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
@@ -922,7 +922,11 @@ const inspectedOutputs = computed<InspectorOutput[]>(() => {
   }
   return []
 })
-function relationshipRoleLabel(role: string) { return role === 'primary' ? t('courseFiles.inspector.primarySource', '主来源') : t('courseFiles.inspector.referenceSource', '参考资料') }
+function relationshipRoleLabel(role: string) {
+  if (role === 'primary') return t('courseFiles.inspector.primarySource', '主来源')
+  if (role === 'question_source') return t('courseFiles.inspector.questionSource', '真题资料')
+  return t('courseFiles.inspector.referenceSource', '参考资料')
+}
 function formalTypeLabel(type: string) { return t(`courseFiles.formalTypes.${type}`, type) }
 const sortColumns = computed<Array<{ key: SortKey; label: string }>>(() => [
   { key: 'name', label: t('courseFiles.columns.name') },

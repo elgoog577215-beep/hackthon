@@ -851,37 +851,18 @@
       @created="handlePaperCreated"
     />
     </main>
+    </template>
     <aside ref="workspaceSideRef" class="question-bank-workspace-side">
       <CourseReferenceTray
-        v-if="workspaceMode === 'generate'"
         v-model="questionReferences"
         :course-id="courseId"
         stage="question-bank"
+        variant="question-bank"
         scope-target-id="managed:question-bank"
         scope-target-type="question_bank"
         :scope-target-label="t('questionBank.workspace.courseBank', '课程题库')"
       />
-      <template v-else>
-        <header><strong>{{ t('questionBank.workspace.overview', '题库概况') }}</strong></header>
-        <section class="question-bank-overview" aria-label="题库概况">
-          <article><span>{{ t('questionBank.workspace.totalQuestions', '全部题目') }}</span><strong>{{ items.length }}</strong></article>
-          <article><span>{{ t('questionBank.workspace.publishedQuestions', '已发布') }}</span><strong>{{ publishedCount }}</strong></article>
-          <article><span>{{ t('questionBank.workspace.pendingReview', '待审核') }}</span><strong>{{ Number(reviewQueue.blocking_count || 0) }}</strong></article>
-          <article><span>{{ t('questionBank.workspace.coverage', '目标覆盖') }}</span><strong>{{ Math.round(Number(coverage.coverage_ratio || 0) * 100) }}%</strong></article>
-        </section>
-        <section class="question-bank-overview-section">
-          <div><strong>{{ t('questionBank.examPaper.titlePlural', '试卷') }}</strong><small>{{ examPapers.length }}</small></div>
-          <p>{{ selectedQuestions.length
-            ? t('questionBank.workspace.selectedForPaper', '已选择 {count} 道可用题目').replace('{count}', String(selectedQuestions.length))
-            : t('questionBank.workspace.selectForPaper', '勾选已发布题目后即可组成试卷') }}</p>
-        </section>
-        <section class="question-bank-overview-section">
-          <div><strong>{{ t('questionBank.workspace.sourceModel', '题目来源') }}</strong></div>
-          <p>{{ t('questionBank.workspace.sourceHint', '导入文件与 AI 生成题目统一进入这份课程题库，并保留各自来源。') }}</p>
-        </section>
-      </template>
     </aside>
-    </template>
     </div>
     </div>
   </section>
@@ -1004,13 +985,11 @@ const props = withDefaults(defineProps<{
   courseId: string
   initialNodeIds?: string[]
   initialScopeLabel?: string
-  materialAssetIds?: string[]
   assistantOpen?: boolean
   initialWorkspaceMode?: 'import' | 'bank' | 'generate'
 }>(), {
   initialNodeIds: () => [],
   initialScopeLabel: '',
-  materialAssetIds: () => [],
   assistantOpen: false,
   initialWorkspaceMode: 'bank',
 })
@@ -1038,10 +1017,9 @@ const emit = defineEmits<{
 const workspaceMode = ref<'import' | 'bank' | 'generate'>(props.initialWorkspaceMode)
 const questionReferences = ref<CourseReferenceItem[]>([])
 const workspaceSideRef = ref<HTMLElement | null>(null)
-const effectiveMaterialAssetIds = computed(() => [...new Set([
-  ...props.materialAssetIds,
-  ...questionReferences.value.map(item => item.material_asset_id),
-])])
+const effectiveMaterialAssetIds = computed(() => [...new Set(
+  questionReferences.value.map(item => item.material_asset_id).filter(Boolean),
+)])
 const loading = ref(false)
 const rebuilding = ref(false)
 const actingRevision = ref('')
@@ -1989,18 +1967,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-workspace-actions .question-bank-back { border-color:transparent; padding-left:4px; }
 .question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 310px; }
 .question-bank-workspace-main { min-width:0; min-height:0; display:grid; align-content:start; gap:12px; overflow:auto; padding:18px 20px 24px; background:#fff; }
-.question-bank-workspace-side { min-width:0; min-height:0; overflow:auto; border-left:1px solid #e4e9f1; background:#fbfcfe; }
-.question-bank-workspace-side>header { min-height:58px; display:flex; align-items:center; padding:0 16px; border-bottom:1px solid #e7ebf2; background:#fff; }
-.question-bank-workspace-side>header strong { color:#243047; font-size:14px; }
-.question-bank-overview { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin:16px; overflow:hidden; border:1px solid #e3e8f0; border-radius:10px; background:#e3e8f0; }
-.question-bank-overview article { min-width:0; display:grid; gap:5px; padding:13px 12px; background:#fff; }
-.question-bank-overview span { color:#7a8699; font-size:10px; }
-.question-bank-overview strong { color:#243047; font-size:18px; font-variant-numeric:tabular-nums; }
-.question-bank-overview-section { display:grid; gap:8px; margin:0 16px; padding:15px 0; border-top:1px solid #e6ebf2; }
-.question-bank-overview-section>div { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.question-bank-overview-section strong { color:#334155; font-size:12px; }
-.question-bank-overview-section small { min-width:20px; height:20px; display:grid; place-items:center; padding:0 6px; border-radius:999px; color:#5b57d9; background:#eeeeff; font-size:10px; font-weight:750; }
-.question-bank-overview-section p { margin:0; color:#7a8699; font-size:10.5px; line-height:1.65; }
+.question-bank-workspace-side { min-width:0; min-height:0; overflow:hidden; border-left:1px solid #e4e9f1; background:#fbfcfe; }
 .question-bank-empty-state { min-height:340px; display:grid; place-content:center; justify-items:center; gap:9px; padding:28px; text-align:center; }
 .question-bank-empty-state>span { width:48px; height:48px; display:grid; place-items:center; border-radius:12px; color:#5b57d9; background:#f0f1ff; }
 .question-bank-empty-state>strong { color:#263147; font-size:16px; }

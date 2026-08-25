@@ -38,7 +38,7 @@ export interface TeacherProductionAiScope {
   references?: Array<{
     id: string
     label: string
-    role: 'primary' | 'reference'
+    role: 'primary' | 'reference' | 'question_source'
     origin?: 'material' | 'web_search'
   }>
 }

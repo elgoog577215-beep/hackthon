@@ -269,7 +269,7 @@ async def commit_question_import(
                 target_revision=str(bundle.get("bundle_revision_id") or ""),
                 sources=[
                     *existing_sources,
-                    {"source_asset_id": course_asset_id, "role": "reference"},
+                    {"source_asset_id": course_asset_id, "role": "question_source"},
                 ],
             )
     except (CourseSpaceError, FileNotFoundError, ValueError) as exc:

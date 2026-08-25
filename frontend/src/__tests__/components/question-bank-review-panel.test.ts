@@ -22,9 +22,10 @@ vi.mock('@/utils/question-bank-rebuild', () => ({
 }))
 vi.mock('@/components/CourseReferenceTray.vue', () => ({
   default: {
-    props: ['modelValue'],
+    name: 'CourseReferenceTray',
+    props: ['modelValue', 'variant'],
     emits: ['update:modelValue'],
-    template: '<aside data-testid="question-bank-generation-sources">生成依据</aside>',
+    template: '<aside data-testid="question-bank-generation-sources" :data-variant="variant">真题资料</aside>',
   },
 }))
 vi.mock('@/components/QuestionBankImportWorkspace.vue', () => ({
@@ -181,17 +182,19 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.get('.question-bank-workspace-header').text()).toContain('全部题目')
     expect(wrapper.get('.question-bank-workspace-header').text()).not.toContain('课程题库')
     expect(wrapper.find('.question-bank-workspace-main').exists()).toBe(true)
-    expect(wrapper.get('.question-bank-workspace-side').text()).toContain('题库概况')
+    expect(wrapper.get('[data-testid="question-bank-generation-sources"]').attributes('data-variant')).toBe('question-bank')
+    expect(wrapper.get('.question-bank-workspace-side').text()).toContain('真题资料')
 
     await wrapper.get('.question-bank-import-action').trigger('click')
     expect(wrapper.get('.question-bank-workspace-header').text()).toContain('导入与校对')
     expect(wrapper.find('[data-testid="question-import-workspace"]').exists()).toBe(true)
+    expect(wrapper.get('.question-bank-workspace-side').text()).toContain('真题资料')
 
     await wrapper.get('.question-bank-back').trigger('click')
     await wrapper.get('.question-bank-ai-action').trigger('click')
     expect(wrapper.get('.question-bank-workspace-header').text()).toContain('AI 生成题目')
     expect(wrapper.find('[data-testid="question-generation-studio"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="question-bank-generation-sources"]').text()).toBe('生成依据')
+    expect(wrapper.get('[data-testid="question-bank-generation-sources"]').text()).toBe('真题资料')
     await wrapper.get('.question-generation-studio__ai').trigger('click')
     expect(wrapper.emitted('open-ai')).toHaveLength(1)
   })
@@ -612,9 +615,14 @@ describe('QuestionBankReviewPanel', () => {
         initialWorkspaceMode: 'generate',
         initialNodeIds: ['section-1', 'section-2'],
         initialScopeLabel: '1. 内存管理',
-        materialAssetIds: ['mat-primary', 'mat-reference'],
       },
     })
+    await flushPromises()
+    wrapper.getComponent({ name: 'CourseReferenceTray' }).vm.$emit('update:modelValue', [{
+      package_id: 'package-1', asset_id: 'asset-primary', material_asset_id: 'mat-primary', filename: '期末真题.pdf', relative_path: '', size_bytes: 100, role: 'question_source',
+    }, {
+      package_id: 'package-1', asset_id: 'asset-reference', material_asset_id: 'mat-reference', filename: '历年题库.docx', relative_path: '', size_bytes: 100, role: 'question_source',
+    }])
     await flushPromises()
 
     expect(wrapper.get('[data-testid="question-generation-studio"]').text())
@@ -888,9 +896,12 @@ describe('QuestionBankReviewPanel', () => {
         courseId: 'course-1',
         initialWorkspaceMode: 'generate',
         initialNodeIds: ['section-1'],
-        materialAssetIds: ['material-1'],
       },
     })
+    await flushPromises()
+    wrapper.getComponent({ name: 'CourseReferenceTray' }).vm.$emit('update:modelValue', [{
+      package_id: 'package-1', asset_id: 'asset-1', material_asset_id: 'material-1', filename: '期末真题.pdf', relative_path: '', size_bytes: 100, role: 'question_source',
+    }])
     await flushPromises()
 
     const candidate = await (wrapper.vm as any).requestAiCandidate('增加一道应用题')

@@ -19,6 +19,11 @@ const assets = [
     filename: '第二讲主教材.docx', relative_path: '生成资料/第二讲主教材.docx', size_bytes: 1800,
     role: 'reference', usages: [{ target_id: 'lesson-plan:L1-2', target_type: 'lesson_plan', role: 'primary' }],
   },
+  {
+    package_id: 'package-1', asset_id: 'asset-4', material_asset_id: 'mat-4',
+    filename: '2025年期末真题.pdf', relative_path: '生成资料/2025年期末真题.pdf', size_bytes: 3600,
+    role: 'reference', usages: [{ target_id: 'managed:question-bank', target_type: 'question_bank', role: 'reference' }],
+  },
 ]
 
 describe('CourseReferenceTray lesson scope', () => {
@@ -90,6 +95,52 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
       expect.objectContaining({ target_id: 'lesson-plan:L1-2', target_type: 'lesson_plan', sources: [] }),
+      expect.any(Object),
+    )
+  })
+
+  it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {
+    const post = vi.spyOn(http, 'post').mockResolvedValue({
+      data: {
+        asset_id: 'mat-5', filename: '2024年期中真题.pdf', size_bytes: 4200,
+        course_space: { package_id: 'package-1', course_asset_id: 'asset-5', relative_path: '生成资料/2024年期中真题.pdf' },
+      },
+    } as any)
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [], stage: 'question-bank', variant: 'question-bank',
+        scopeTargetId: 'managed:question-bank', scopeTargetType: 'question_bank', scopeTargetLabel: '课程题库',
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
+    expect(wrapper.get('.source-group--question-bank').text()).toContain('真题资料')
+    expect(wrapper.get('.source-group--question-bank').text()).toContain('2025年期末真题.pdf')
+    expect(wrapper.find('.system-context').exists()).toBe(false)
+    expect(wrapper.find('.source-group--references').exists()).toBe(false)
+    expect(wrapper.find('.source-group--web').exists()).toBe(false)
+    expect(http.get).not.toHaveBeenCalledWith(expect.stringContaining('/web-research'), expect.anything())
+
+    const input = wrapper.get('input[type="file"]')
+    Object.defineProperty(input.element, 'files', {
+      value: [new File(['exam'], '2024年期中真题.pdf', { type: 'application/pdf' })],
+    })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(post).toHaveBeenCalledWith('/api/materials', expect.any(FormData), expect.any(Object))
+    expect(http.put).toHaveBeenLastCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'managed:question-bank',
+        target_type: 'question_bank',
+        sources: expect.arrayContaining([
+          expect.objectContaining({ source_asset_id: 'asset-4', role: 'question_source' }),
+          expect.objectContaining({ source_asset_id: 'asset-5', role: 'question_source' }),
+        ]),
+      }),
       expect.any(Object),
     )
   })

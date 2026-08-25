@@ -407,7 +407,7 @@ def test_rebuild_api_freezes_explicit_teacher_material_scope(
     client, _, executor = _client(monkeypatch, tmp_path)
     monkeypatch.setattr(
         question_bank,
-        "_course_owned_material_asset_ids",
+        "_question_bank_source_material_asset_ids",
         lambda _course_id, _actor_id: {"mat-1", "mat-2"},
     )
 
@@ -446,3 +446,28 @@ def test_rebuild_api_freezes_explicit_teacher_material_scope(
     assert rejected.json()["detail"]["code"] == (
         "question_bank_materials_unknown"
     )
+
+
+def test_question_bank_material_binding_is_scoped_as_question_source():
+    selected = question_bank._selected_material_bindings(
+        [{
+            "asset_id": "mat-exam",
+            "purpose": "content_source",
+            "priority": "core",
+            "authority": "primary",
+        }, {
+            "asset_id": "mat-textbook",
+            "purpose": "content_source",
+        }],
+        ["mat-exam"],
+    )
+
+    assert selected == [{
+        "asset_id": "mat-exam",
+        "purpose": "question_source",
+        "priority": "supporting",
+        "authority": "secondary",
+        "usage_policy": "prefer",
+        "reuse_policy": "reference_only",
+        "rights_basis": "teacher_asserted",
+    }]

@@ -666,13 +666,16 @@ async def rebuild_question_bank(
 ):
     actor_id = require_user_id(x_user_id)
     course = await _question_bank_course(course_id)
+    question_source_material_ids = _question_bank_source_material_asset_ids(
+        course_id,
+        actor_id,
+    )
+    course["_question_bank_source_material_asset_ids"] = sorted(
+        question_source_material_ids
+    )
     if payload.material_asset_ids is not None:
-        allowed_material_ids = _course_owned_material_asset_ids(
-            course_id,
-            actor_id,
-        )
         unknown_material_ids = sorted(
-            set(payload.material_asset_ids) - allowed_material_ids
+            set(payload.material_asset_ids) - question_source_material_ids
         )
         if unknown_material_ids:
             raise HTTPException(
@@ -1239,7 +1242,9 @@ async def _execute_question_bank_rebuild(
     )
     selected_bindings = _selected_material_bindings(
         course.get("material_bindings") or [],
-        payload.material_asset_ids,
+        payload.material_asset_ids
+        if payload.material_asset_ids is not None
+        else course.get("_question_bank_source_material_asset_ids") or [],
     )
     selected_material_asset_ids = sorted({
         str(binding.get("asset_id") or "")
@@ -2794,28 +2799,27 @@ def _selected_material_bindings(
     bindings: list[dict[str, Any]],
     material_asset_ids: list[str] | None,
 ) -> list[dict[str, Any]]:
-    if material_asset_ids is None:
-        return deepcopy(bindings)
     existing = {
         str(binding.get("asset_id") or ""): deepcopy(binding)
         for binding in bindings
         if str(binding.get("asset_id") or "")
     }
     return [
-        existing.get(asset_id, {
+        {
+            **existing.get(asset_id, {}),
             "asset_id": asset_id,
-            "purpose": "supplement",
+            "purpose": "question_source",
             "priority": "supporting",
             "authority": "secondary",
             "usage_policy": "prefer",
             "reuse_policy": "reference_only",
             "rights_basis": "teacher_asserted",
-        })
-        for asset_id in material_asset_ids
+        }
+        for asset_id in material_asset_ids or []
     ]
 
 
-def _course_owned_material_asset_ids(
+def _question_bank_source_material_asset_ids(
     course_id: str,
     actor_id: str,
 ) -> set[str]:
@@ -2832,9 +2836,14 @@ def _course_owned_material_asset_ids(
         except (FileNotFoundError, ValueError):
             continue
         result.update(
-            str(asset.get("material_asset_id") or "")
-            for asset in package.get("assets") or []
-            if str(asset.get("material_asset_id") or "")
+            str(link.get("material_asset_id") or "")
+            for link in teacher_course_space_repository.relationships_for_target(
+                package,
+                "managed:question-bank",
+            )
+            if str(link.get("role") or "")
+            in {"question_source", "reference"}
+            and str(link.get("material_asset_id") or "")
         )
     return result
 

@@ -1,7 +1,7 @@
 """HTTP API for teacher course work packages."""
 from __future__ import annotations
 import io, json, mimetypes, urllib.parse, zipfile
-from typing import Any
+from typing import Any, Literal
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -14,7 +14,9 @@ class PackageCreate(BaseModel): course_name: str; academic_year: str; term: str;
 class PackageBinding(BaseModel): course_id: str
 class CategoryUpdate(BaseModel): category: str
 class FolderCreate(BaseModel): name: str
-class RelationshipSource(BaseModel): source_asset_id: str; role: str = "reference"
+class RelationshipSource(BaseModel):
+    source_asset_id: str
+    role: Literal["primary", "reference", "question_source"] = "reference"
 class RelationshipUpdate(BaseModel):
     target_id: str
     target_type: str

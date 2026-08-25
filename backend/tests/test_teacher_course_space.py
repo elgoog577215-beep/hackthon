@@ -212,3 +212,38 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
 
         loaded = repository.load_owned(created["package_id"], "teacher-a")
         self.assertEqual(loaded["relationships"], [])
+
+    async def test_question_sources_have_a_dedicated_question_bank_role(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package(
+            "teacher-a", "数据结构", "2025-2026", "春季", course_id="course-1"
+        )
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        source = await repository.import_file(
+            package, FakeUpload(), "实际考卷/2025年期末真题.pdf", "batch-1"
+        )
+        repository.save(package)
+
+        links = repository.replace_formal_relationships(
+            package,
+            target_id="managed:question-bank",
+            target_type="question_bank",
+            target_label="课程题库",
+            sources=[{
+                "source_asset_id": source["asset_id"],
+                "role": "question_source",
+            }],
+        )
+
+        self.assertEqual(links[0]["role"], "question_source")
+        with self.assertRaises(MaterialStorageError):
+            repository.replace_formal_relationships(
+                package,
+                target_id="lesson-plan:lesson-1",
+                target_type="lesson_plan",
+                target_label="第 1 讲教案",
+                sources=[{
+                    "source_asset_id": source["asset_id"],
+                    "role": "question_source",
+                }],
+            )

@@ -687,6 +687,7 @@
       "pptAddSources": "添加资料", "pptWebResearch": "联网查找",
       "primary": "主来源", "pptPrimary": "主参考", "primaryLimit": "最多 1 份", "addPrimary": "添加主来源", "addPptPrimary": "添加主参考",
       "supporting": "参考资料", "addSupporting": "添加或拖入资料", "courseMaterials": "课程资料",
+      "questionSources": "真题资料", "questionSourcesHelp": "上传历年试卷或已有题库，作为导入与智能出题依据", "addQuestionSources": "添加或拖入真题", "questionSourcesSaveFailed": "真题资料保存失败",
       "allSelected": "当前资料已全部引用", "loadFailed": "课程资料读取失败",
       "registerFailed": "资料已上传，但未能加入当前课程", "uploadFailed": "资料上传失败", "saveFailed": "本讲资料保存失败",
       "webSources": "联网来源", "startWebResearch": "添加联网来源", "continueWebResearch": "继续检索"
@@ -5078,7 +5079,7 @@
     "meta": { "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
     "inspector": {
       "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "sourceMaterials": "来源资料", "generatedFiles": "生成文件", "usedBy": "用于", "lessonPlansCount": "教案 · {count} 讲", "practicesCount": "本讲练习 · {count} 讲", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作",
-      "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料",
+      "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料", "questionSource": "真题资料",
       "actionHints": { "managed": "打开对应工作流；导出只生成当前版本的派生文件。", "uploaded": "可预览或下载原件；删除只移除这个上传文件。", "folder": "新增内容将保存到当前资料目录。", "course": "导出当前课程文件包，不会改变正式课程。" },
       "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程讲稿 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "pinnedQuestionRevisions": "已固定引用的题目修订", "schoolTemplate": "学校模板与已填写课程信息", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },
       "uses": { "outline": "教学日历、教案、讲稿、PPT、题目", "teachingCalendar": "学校排课、课次同步与正式文件导出", "lessonPlan": "讲稿、PPT、题目", "content": "学生预览、Markdown 导出", "practice": "课堂检查、作业、学生预览", "questionBank": "出题、审核与组卷", "examPaper": "考试与正式导出", "companionDocument": "学校提交、学生说明与课程归档", "ppt": "课堂演示", "material": "教师备课与课堂使用" }

@@ -534,8 +534,10 @@ class TeacherCourseSpaceRepository:
         for source in sources:
             source_asset_id = str(source.get("source_asset_id") or "").strip()
             role = str(source.get("role") or "reference").strip()
-            if role not in {"primary", "reference"}:
+            if role not in {"primary", "reference", "question_source"}:
                 raise MaterialStorageError("引用角色不合法")
+            if role == "question_source" and normalized_target_type != "question_bank":
+                raise MaterialStorageError("真题资料只能关联课程题库")
             if source_asset_id in seen:
                 continue
             asset = assets.get(source_asset_id)
