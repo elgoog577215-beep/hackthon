@@ -300,7 +300,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('分页题目 01')
     expect(wrapper.text()).not.toContain('分页题目 11')
     expect(wrapper.get('[data-testid="question-pagination"]').text()).toContain(
-      '第 1–10 条，共 23 条',
+      '第 1–10 题，共 23 题',
     )
     const detailToggles = wrapper.findAll(
       '[data-testid="toggle-question-details"]',
@@ -316,17 +316,16 @@ describe('QuestionBankReviewPanel', () => {
     expect(detailToggles[1]!.attributes('aria-expanded')).toBe('true')
     expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
 
-    await wrapper.get('[data-testid="question-page-2"]').trigger('click')
+    await wrapper.get('[data-testid="question-page-select"]').setValue('2')
     expect(wrapper.find('.question-review-item__details').exists()).toBe(false)
     expect(wrapper.text()).toContain('分页题目 11')
     expect(wrapper.text()).not.toContain('分页题目 01')
 
-    await wrapper.get('[data-testid="question-page-jump-input"]').setValue('3')
-    await wrapper.get('[data-testid="question-page-jump-form"]').trigger('submit')
+    await wrapper.get('[data-testid="question-page-select"]').setValue('3')
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('分页题目 23')
     expect(wrapper.get('[data-testid="question-pagination"]').text()).toContain(
-      '第 21–23 条，共 23 条',
+      '第 21–23 题，共 23 题',
     )
 
     await wrapper.get('[data-testid="question-search-input"]').setValue('分页题目 12')
@@ -424,19 +423,18 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.text()).toContain('已覆盖目标 01')
     expect(wrapper.text()).not.toContain('已覆盖目标 11')
     expect(wrapper.get('[data-testid="objective-pagination"]').text()).toContain(
-      '第 1–10 条，共 23 条',
+      '第 1–10 项，共 23 项',
     )
 
-    await wrapper.get('[data-testid="objective-page-2"]').trigger('click')
+    await wrapper.get('[data-testid="objective-page-select"]').setValue('2')
     expect(wrapper.text()).toContain('已覆盖目标 11')
     expect(wrapper.text()).not.toContain('已覆盖目标 01')
 
-    await wrapper.get('[data-testid="objective-page-jump-input"]').setValue('3')
-    await wrapper.get('[data-testid="objective-page-jump-form"]').trigger('submit')
+    await wrapper.get('[data-testid="objective-page-select"]').setValue('3')
     expect(wrapper.findAll('[data-testid="objective-covered-row"]')).toHaveLength(3)
     expect(wrapper.text()).toContain('已覆盖目标 23')
     expect(wrapper.get('[data-testid="objective-pagination"]').text()).toContain(
-      '第 21–23 条，共 23 条',
+      '第 21–23 项，共 23 项',
     )
   })
 

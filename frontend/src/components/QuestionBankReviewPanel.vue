@@ -407,68 +407,19 @@
               </article>
             </div>
 
-            <nav
+            <CompactPagination
               v-if="coveredObjectivePageCount > 1"
               class="assessment-matrix__pagination"
-              data-testid="objective-pagination"
-              :aria-label="t('questionBank.objective.pagination', '已覆盖目标分页')"
-            >
-              <span class="assessment-matrix__page-range">
-                第 {{ coveredObjectivePageStart }}–{{ coveredObjectivePageEnd }} 条，共 {{ coveredObjectiveRows.length }} 条
-              </span>
-              <div class="assessment-matrix__page-buttons">
-                <button
-                  type="button"
-                  :disabled="coveredObjectivePage === 1"
-                  @click="setCoveredObjectivePage(coveredObjectivePage - 1)"
-                >
-                  {{ t('common.previousPage', '上一页') }}
-                </button>
-                <template v-for="item in coveredObjectivePageItems" :key="item.key">
-                  <span v-if="item.page === null" aria-hidden="true">…</span>
-                  <button
-                    v-else
-                    type="button"
-                    :class="{ active: item.page === coveredObjectivePage }"
-                    :aria-current="item.page === coveredObjectivePage ? 'page' : undefined"
-                    :data-testid="`objective-page-${item.page}`"
-                    @click="setCoveredObjectivePage(item.page)"
-                  >
-                    {{ item.page }}
-                  </button>
-                </template>
-                <button
-                  type="button"
-                  :disabled="coveredObjectivePage === coveredObjectivePageCount"
-                  @click="setCoveredObjectivePage(coveredObjectivePage + 1)"
-                >
-                  {{ t('common.nextPage', '下一页') }}
-                </button>
-              </div>
-              <form
-                class="assessment-matrix__page-jump"
-                data-testid="objective-page-jump-form"
-                @submit.prevent="jumpToCoveredObjectivePage"
-              >
-                <label for="assessment-matrix-page-input">
-                  {{ t('common.jumpTo', '跳至') }}
-                </label>
-                <input
-                  id="assessment-matrix-page-input"
-                  v-model="coveredObjectivePageInput"
-                  data-testid="objective-page-jump-input"
-                  type="number"
-                  inputmode="numeric"
-                  min="1"
-                  :max="coveredObjectivePageCount"
-                  :aria-label="t('questionBank.objective.jumpToPage', '跳转到页码')"
-                />
-                <span>页</span>
-                <button type="submit" data-testid="objective-page-jump">
-                  {{ t('common.jump', '跳转') }}
-                </button>
-              </form>
-            </nav>
+              :label="t('questionBank.objective.pagination', '已覆盖目标分页')"
+              :page="coveredObjectivePage"
+              :page-count="coveredObjectivePageCount"
+              :range-text="objectivePageRangeText"
+              :previous-label="t('common.previousPage', '上一页')"
+              :next-label="t('common.nextPage', '下一页')"
+              :page-select-label="t('questionBank.objective.jumpToPage', '选择页码')"
+              test-id-prefix="objective"
+              @update:page="setCoveredObjectivePage"
+            />
           </div>
         </section>
 
@@ -532,6 +483,14 @@
       </section>
 
       <div v-if="browseItems.length" class="question-review-list">
+        <div class="question-review-list__head" role="row">
+          <span aria-hidden="true"></span>
+          <span>{{ t('questionBank.table.question', '题目') }}</span>
+          <span>{{ t('questionBank.table.source', '来源') }}</span>
+          <span>{{ t('questionBank.table.validation', '校验方式') }}</span>
+          <span>{{ t('questionBank.table.status', '状态') }}</span>
+          <span aria-hidden="true"></span>
+        </div>
         <article
           v-for="item in paginatedBrowseItems"
           :key="item.revision_id"
@@ -561,10 +520,7 @@
               :aria-controls="`question-details-${item.revision_id}`"
               @click="toggleQuestionDetails(item)"
             >
-            <span
-              class="question-review-item__summary-main"
-              :class="{ 'has-role': showQuestionRole(item) }"
-            >
+            <span class="question-review-item__question">
               <span
                 v-if="showQuestionRole(item)"
                 class="question-review-item__role"
@@ -574,25 +530,28 @@
               <strong class="question-review-item__preview">
                 {{ item.prompt }}
               </strong>
-              <span class="question-review-item__meta">
-                {{ sourceLabel(item.source_records) }}
-                · {{ validationModeLabel(item.validation_mode) }}
-              </span>
             </span>
-            <span class="question-review-item__summary-action">
-              <small
-                v-if="item.lifecycle_status !== 'approved'"
-                :data-status="item.lifecycle_status"
-              >
-                {{ itemStatusLabel(item) }}
-              </small>
-              <span class="question-review-item__toggle-label">
-                {{ isQuestionExpanded(item)
-                  ? t('questionBank.collapseReview', '收起审核')
-                  : t('questionBank.expandReview', '展开审核') }}
-                <ChevronUp v-if="isQuestionExpanded(item)" :size="15" />
-                <ChevronDown v-else :size="15" />
-              </span>
+            <span class="question-review-item__source">
+              {{ sourceLabel(item.source_records) }}
+            </span>
+            <span class="question-review-item__validator">
+              {{ validationModeLabel(item.validation_mode) }}
+            </span>
+            <span
+              class="question-review-item__status"
+              :data-status="item.lifecycle_status"
+            >
+              <i aria-hidden="true"></i>
+              {{ itemStatusLabel(item) }}
+            </span>
+            <span
+              class="question-review-item__toggle-label"
+              :title="isQuestionExpanded(item)
+                ? t('questionBank.collapseReview', '收起审核')
+                : t('questionBank.expandReview', '展开审核')"
+            >
+              <ChevronUp v-if="isQuestionExpanded(item)" :size="15" />
+              <ChevronDown v-else :size="15" />
             </span>
             </button>
           </div>
@@ -788,68 +747,19 @@
           </div>
         </article>
       </div>
-      <nav
+      <CompactPagination
         v-if="questionPageCount > 1"
         class="question-browser__pagination"
-        data-testid="question-pagination"
-        :aria-label="t('questionBank.questionPagination', '题目列表分页')"
-      >
-        <span class="question-browser__page-range">
-          第 {{ questionPageStart }}–{{ questionPageEnd }} 条，共 {{ browseItems.length }} 条
-        </span>
-        <div class="question-browser__page-buttons">
-          <button
-            type="button"
-            :disabled="questionPage === 1"
-            @click="setQuestionPage(questionPage - 1)"
-          >
-            {{ t('common.previousPage', '上一页') }}
-          </button>
-          <template v-for="item in questionPageItems" :key="item.key">
-            <span v-if="item.page === null" aria-hidden="true">…</span>
-            <button
-              v-else
-              type="button"
-              :class="{ active: item.page === questionPage }"
-              :aria-current="item.page === questionPage ? 'page' : undefined"
-              :data-testid="`question-page-${item.page}`"
-              @click="setQuestionPage(item.page)"
-            >
-              {{ item.page }}
-            </button>
-          </template>
-          <button
-            type="button"
-            :disabled="questionPage === questionPageCount"
-            @click="setQuestionPage(questionPage + 1)"
-          >
-            {{ t('common.nextPage', '下一页') }}
-          </button>
-        </div>
-        <form
-          class="question-browser__page-jump"
-          data-testid="question-page-jump-form"
-          @submit.prevent="jumpToQuestionPage"
-        >
-          <label for="question-browser-page-input">
-            {{ t('common.jumpTo', '跳至') }}
-          </label>
-          <input
-            id="question-browser-page-input"
-            v-model="questionPageInput"
-            data-testid="question-page-jump-input"
-            type="number"
-            inputmode="numeric"
-            min="1"
-            :max="questionPageCount"
-            :aria-label="t('questionBank.jumpToQuestionPage', '跳转到题目页码')"
-          />
-          <span>页</span>
-          <button type="submit" data-testid="question-page-jump">
-            {{ t('common.jump', '跳转') }}
-          </button>
-        </form>
-      </nav>
+        :label="t('questionBank.questionPagination', '题目列表分页')"
+        :page="questionPage"
+        :page-count="questionPageCount"
+        :range-text="questionPageRangeText"
+        :previous-label="t('common.previousPage', '上一页')"
+        :next-label="t('common.nextPage', '下一页')"
+        :page-select-label="t('questionBank.jumpToQuestionPage', '选择题目页码')"
+        test-id-prefix="question"
+        @update:page="setQuestionPage"
+      />
       <div v-if="!browseItems.length" class="question-bank-panel__empty">
         <CircleCheck :size="21" />
         <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
@@ -912,6 +822,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import ExamPaperComposer from './ExamPaperComposer.vue'
+import CompactPagination from './CompactPagination.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import http from '@/utils/http'
@@ -1059,10 +970,8 @@ const solutions = reactive<Record<string, Record<string, any>>>({})
 const browserQuery = ref('')
 const browserStatus = ref<'all' | 'published' | 'mandatory' | 'rework'>('all')
 const questionPage = ref(1)
-const questionPageInput = ref('1')
 const coveredObjectivesExpanded = ref(false)
 const coveredObjectivePage = ref(1)
-const coveredObjectivePageInput = ref('1')
 const generationScope = ref<'lesson' | 'course'>(props.initialNodeIds.length ? 'lesson' : 'course')
 const retrievalEnabled = ref(false)
 const keepPublished = ref(true)
@@ -1162,28 +1071,12 @@ const questionPageEnd = computed(() => Math.min(
   browseItems.value.length,
   questionPage.value * QUESTION_PAGE_SIZE,
 ))
-const questionPageItems = computed(() => {
-  const total = questionPageCount.value
-  const current = questionPage.value
-  const pages = new Set<number>([1, total])
-  for (
-    let page = Math.max(1, current - 2);
-    page <= Math.min(total, current + 2);
-    page += 1
-  ) {
-    pages.add(page)
-  }
-  const sorted = [...pages].sort((left, right) => left - right)
-  const result: Array<{ key: string; page: number | null }> = []
-  sorted.forEach((page, index) => {
-    const previous = sorted[index - 1]
-    if (previous && page - previous > 1) {
-      result.push({ key: `gap-${previous}-${page}`, page: null })
-    }
-    result.push({ key: `page-${page}`, page })
-  })
-  return result
-})
+const questionPageRangeText = computed(() => t(
+  'questionBank.pagination.questionRange',
+  '第 {start}–{end} 题，共 {total} 题',
+).replace('{start}', String(questionPageStart.value))
+  .replace('{end}', String(questionPageEnd.value))
+  .replace('{total}', String(browseItems.value.length)))
 const objectiveRows = computed(() => assessmentObjectives.value.map(objective => {
   const related = items.value.filter(item => (
     item.objective_id === objective.objective_id
@@ -1238,28 +1131,12 @@ const coveredObjectivePageEnd = computed(() => Math.min(
   coveredObjectiveRows.value.length,
   coveredObjectivePage.value * COVERED_OBJECTIVE_PAGE_SIZE,
 ))
-const coveredObjectivePageItems = computed(() => {
-  const total = coveredObjectivePageCount.value
-  const current = coveredObjectivePage.value
-  const pages = new Set<number>([1, total])
-  for (
-    let page = Math.max(1, current - 2);
-    page <= Math.min(total, current + 2);
-    page += 1
-  ) {
-    pages.add(page)
-  }
-  const sorted = [...pages].sort((left, right) => left - right)
-  const result: Array<{ key: string; page: number | null }> = []
-  sorted.forEach((page, index) => {
-    const previous = sorted[index - 1]
-    if (previous && page - previous > 1) {
-      result.push({ key: `gap-${previous}-${page}`, page: null })
-    }
-    result.push({ key: `page-${page}`, page })
-  })
-  return result
-})
+const objectivePageRangeText = computed(() => t(
+  'questionBank.pagination.objectiveRange',
+  '第 {start}–{end} 项，共 {total} 项',
+).replace('{start}', String(coveredObjectivePageStart.value))
+  .replace('{end}', String(coveredObjectivePageEnd.value))
+  .replace('{total}', String(coveredObjectiveRows.value.length)))
 const profileCapabilities = computed(() => {
   const archetypes = assessmentProfile.value.allowed_archetype_ids || []
   const validators = assessmentProfile.value.validator_ids || assessmentProfile.value.validation_modes || []
@@ -1394,12 +1271,6 @@ function setQuestionPage(page: number) {
     questionPageCount.value,
     Math.max(1, normalizedPage),
   )
-  questionPageInput.value = String(questionPage.value)
-}
-
-function jumpToQuestionPage() {
-  const requestedPage = Number.parseInt(questionPageInput.value, 10)
-  setQuestionPage(requestedPage)
 }
 
 function isQuestionExpanded(item: QuestionBankItem) {
@@ -1431,15 +1302,6 @@ function setCoveredObjectivePage(page: number) {
     coveredObjectivePageCount.value,
     Math.max(1, normalizedPage),
   )
-  coveredObjectivePageInput.value = String(coveredObjectivePage.value)
-}
-
-function jumpToCoveredObjectivePage() {
-  const requestedPage = Number.parseInt(
-    coveredObjectivePageInput.value,
-    10,
-  )
-  setCoveredObjectivePage(requestedPage)
 }
 
 async function recoverActiveRebuild() {
@@ -1985,7 +1847,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-quality-trigger small { color:#8a94a5; font-size:10.5px; font-weight:600; }
 .question-bank-quality-trigger:hover,.question-bank-quality-trigger[aria-expanded="true"] { color:#3f3b9d; background:#f0f1ff; }
 .question-bank-quality-trigger:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
-.question-bank-document-surface { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr); overflow:hidden; border:1px solid #dfe5ee; border-radius:10px; background:#fff; }
+.question-bank-document-surface { min-width:0; min-height:0; display:grid; grid-template-rows:minmax(0,1fr); overflow:hidden; border-block:1px solid #dfe5ee; background:#fff; }
 .question-bank-workspace-actions { flex:0 0 auto; display:flex; align-items:center; gap:7px; }
 .question-bank-workspace-actions button { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border:1px solid #d7dde7; border-radius:8px; color:#475569; background:#fff; font:inherit; font-size:11.5px; font-weight:700; cursor:pointer; }
 .question-bank-workspace-actions button:hover { border-color:#a5b4fc; color:#4338ca; background:#fafaff; }
@@ -1993,7 +1855,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-workspace-actions .question-bank-ai-action { border-color:transparent; color:#5552c8; background:transparent; }
 .question-bank-workspace-actions .question-bank-back { border-color:transparent; padding-left:4px; }
 .question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 260px; }
-.question-bank-workspace-main { min-width:0; min-height:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:0; overflow:auto; padding:0 28px 28px; background:#fff; }
+.question-bank-workspace-main { min-width:0; min-height:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:0; overflow:auto; padding:0 24px 18px; background:#fff; }
 .question-bank-workspace-side { min-width:0; min-height:0; overflow:hidden; border-left:1px solid #e4e9f1; background:#fbfcfe; }
 .question-bank-empty-state { min-height:340px; display:grid; place-content:center; justify-items:center; gap:9px; padding:28px; text-align:center; }
 .question-bank-empty-state>span { width:48px; height:48px; display:grid; place-items:center; border-radius:12px; color:#5b57d9; background:#f0f1ff; }
@@ -2085,7 +1947,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .assessment-matrix__covered-toggle>span { display:inline-flex; align-items:center; gap:7px; color:inherit; font-size:10px; }
 .assessment-matrix__covered-toggle>span:last-child { color:var(--lz-brand-strong); font-weight:700; }
 .assessment-matrix__covered-toggle:hover { border-color:#6ee7b7; background:#d1fae5; }
-.assessment-matrix__covered-toggle:focus-visible,.assessment-matrix__pagination button:focus-visible,.assessment-matrix__page-jump input:focus-visible,.assessment-matrix__menu summary:focus-visible,.question-browser__pagination button:focus-visible,.question-browser__page-jump input:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
+.assessment-matrix__covered-toggle:focus-visible,.assessment-matrix__menu summary:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .assessment-matrix__covered-content { display:grid; gap:9px; }
 .assessment-matrix__rows--covered article { min-height:42px; padding-block:5px; background:#f8fafc; }
 .assessment-matrix__menu { position:relative; }
@@ -2094,17 +1956,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .assessment-matrix__menu summary:hover,.assessment-matrix__menu[open] summary { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .assessment-matrix__menu>div { position:absolute; top:38px; right:0; z-index:4; min-width:112px; padding:5px; border:1px solid var(--lz-border); border-radius:8px; background:#fff; box-shadow:0 10px 24px rgba(15,23,42,.12); }
 .assessment-matrix__menu>div button { width:100%; justify-content:flex-start; border:0; }
-.assessment-matrix__pagination { min-width:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 10px; padding:9px 10px; border-top:1px solid var(--lz-border); color:var(--lz-text-muted); font-size:10px; }
-.assessment-matrix__page-range { flex:1 1 140px; color:var(--lz-text-secondary)!important; }
-.assessment-matrix__page-buttons,.assessment-matrix__page-jump { min-width:0; display:flex; align-items:center; gap:5px; }
-.assessment-matrix__page-buttons { flex-wrap:wrap; }
-.assessment-matrix__page-jump { flex:0 0 auto; }
-.assessment-matrix__pagination button { min-width:34px; height:34px; padding:0 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }
-.assessment-matrix__pagination button.active { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
-.assessment-matrix__pagination button:disabled { opacity:.45; cursor:not-allowed; }
-.assessment-matrix__page-jump label,.assessment-matrix__page-jump span { color:var(--lz-text-muted); font-size:10px; }
-.assessment-matrix__page-jump input { width:48px; height:34px; padding:0 6px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; font-size:11px; text-align:center; }
-.assessment-matrix__page-jump button { min-width:auto; }
+.assessment-matrix__pagination { padding:6px 2px 0; border-top:1px solid var(--lz-border); }
 .assessment-matrix__empty { min-height:54px; display:grid; place-items:center; color:var(--lz-text-muted); font-size:10px; }
 .question-browser { position:sticky; top:0; z-index:3; min-height:64px; display:flex; align-items:center; border-bottom:1px solid #e5eaf1; background:rgba(255,255,255,.98); backdrop-filter:blur(10px); }
 .question-browser>header { width:100%; display:flex; align-items:center; justify-content:space-between; gap:24px; }
@@ -2116,17 +1968,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-browser__controls label:focus-within { border-color:#9c9af0; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
 .question-browser__controls input { min-width:0; width:100%; height:35px; border:0; outline:0; color:var(--lz-text); background:transparent; font-size:12px; }
 .question-browser__controls select { height:37px; padding:0 30px 0 11px; border:1px solid #dce2eb; border-radius:8px; color:#4b576b; background:#fff; font-size:12px; }
-.question-browser__pagination { min-width:0; min-height:56px; display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:8px 10px; border-top:1px solid #e5eaf1; color:var(--lz-text-muted); background:#fff; font-size:11px; }
-.question-browser__page-range { flex:1 1 140px; color:var(--lz-text-secondary); }
-.question-browser__page-buttons,.question-browser__page-jump { min-width:0; display:flex; align-items:center; gap:5px; }
-.question-browser__page-buttons { flex-wrap:wrap; }
-.question-browser__page-jump { flex:0 0 auto; }
-.question-browser__pagination button { min-width:34px; height:34px; padding:0 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; cursor:pointer; }
-.question-browser__pagination button.active { border-color:var(--lz-brand); color:#fff; background:var(--lz-brand); }
-.question-browser__pagination button:disabled { opacity:.45; cursor:not-allowed; }
-.question-browser__page-jump label,.question-browser__page-jump span { color:var(--lz-text-muted); font-size:10px; }
-.question-browser__page-jump input { width:48px; height:34px; padding:0 6px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text); background:#fff; font-size:11px; text-align:center; }
-.question-browser__page-jump button { min-width:auto; }
+.question-browser__pagination { border-top:1px solid #e5eaf1; }
 .exam-paper-bar { position:sticky; top:56px; z-index:2; min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:6px 10px; border-bottom:1px solid #dfe2f5; color:#4338ca; background:#f7f7ff; }
 .exam-paper-bar>div:first-child { min-width:0; display:flex; align-items:center; gap:9px; color:#4f46e5; }
 .exam-paper-bar>div:first-child>span { min-width:0; display:grid; gap:2px; }
@@ -2137,6 +1979,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .exam-paper-bar button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #c7d2fe; border-radius:8px; color:#4338ca; background:#eef2ff; font-size:12px; font-weight:750; cursor:pointer; }
 .exam-paper-bar button:disabled { opacity:.45; cursor:not-allowed; }
 .question-review-list { display:grid; gap:0; }
+.question-review-list__head { min-height:38px; display:grid; grid-template-columns:42px minmax(280px,1fr) 112px 132px 82px 30px; align-items:center; gap:14px; border-bottom:1px solid #e7ebf1; color:#8a94a5; font-size:10.5px; font-weight:680; }
 .question-review-item { overflow:hidden; border-bottom:1px solid #e7ebf1; border-radius:0; background:#fff; transition:background-color .15s ease; }
 .question-review-item:hover { background:#fafbff; }
 .question-review-item.is-expanded { background:#f9faff; }
@@ -2144,20 +1987,20 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-review-item__select { display:grid; place-items:center; border:0; background:transparent; cursor:pointer; }
 .question-review-item__select input { width:16px; height:16px; accent-color:#4f46e5; }
 .question-review-item__select.disabled { cursor:not-allowed; opacity:.45; }
-.question-review-item__summary { width:100%; min-height:72px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:24px; padding:11px 6px 11px 0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.question-review-item__summary { width:100%; min-height:58px; display:grid; grid-template-columns:minmax(280px,1fr) 112px 132px 82px 30px; align-items:center; gap:14px; padding:8px 0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
 .question-review-item__summary:hover { background:transparent; }
 .question-review-item__summary:focus-visible { position:relative; z-index:1; outline:2px solid var(--lz-brand); outline-offset:-2px; }
-.question-review-item__summary-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr); gap:6px; }
-.question-review-item__summary-main.has-role { grid-template-columns:auto minmax(0,1fr); }
-.question-review-item__role { grid-row:2; color:#5552c8; font-size:11px; font-weight:720; white-space:nowrap; }
-.question-review-item__preview { grid-column:1/-1; min-width:0; max-width:92ch; overflow:hidden; color:#253047; font-size:14px; font-weight:650; line-height:1.5; text-overflow:ellipsis; white-space:nowrap; }
-.question-review-item__meta { grid-row:2; min-width:0; overflow:hidden; color:#8a94a5; font-size:11px; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
-.question-review-item__summary-action { display:flex; align-items:center; gap:10px; }
-.question-review-item__summary-action>small { padding:3px 7px; border-radius:999px; color:#b45309; background:#fef3c7; font-size:10px; white-space:nowrap; }
-.question-review-item__summary-action>small[data-status="approved"] { color:#047857; background:#d1fae5; }
-.question-review-item__summary-action>small[data-status="rejected"] { color:#b91c1c; background:#fee2e2; }
-.question-review-item__summary-action>span { display:inline-flex; align-items:center; gap:5px; color:#667085; font-size:11.5px; font-weight:700; white-space:nowrap; }
-.question-review-item__toggle-label { width:28px; height:28px; justify-content:center; border-radius:6px; font-size:0!important; }
+.question-review-item__question { min-width:0; display:flex; align-items:center; gap:8px; }
+.question-review-item__role { flex:0 0 auto; padding:2px 6px; border-radius:5px; color:#5552c8; background:#f0f1ff; font-size:9.5px; font-weight:720; white-space:nowrap; }
+.question-review-item__preview { min-width:0; overflow:hidden; color:#253047; font-size:13px; font-weight:650; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
+.question-review-item__source,.question-review-item__validator { min-width:0; overflow:hidden; color:#748095; font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
+.question-review-item__status { display:inline-flex; align-items:center; gap:6px; color:#596579; font-size:10.5px; font-weight:680; white-space:nowrap; }
+.question-review-item__status i { width:6px; height:6px; flex:0 0 auto; border-radius:999px; background:#22a06b; }
+.question-review-item__status[data-status="needs_review"] { color:#9a6700; }
+.question-review-item__status[data-status="needs_review"] i { background:#f0a202; }
+.question-review-item__status[data-status="rejected"] { color:#c9372c; }
+.question-review-item__status[data-status="rejected"] i { background:#e2483d; }
+.question-review-item__toggle-label { width:28px; height:28px; display:grid; place-items:center; border-radius:6px; color:#7b8798; }
 .question-review-item__summary:hover .question-review-item__toggle-label { color:#4338ca; background:#eeefff; }
 .question-review-item__details { display:grid; gap:14px; padding:18px 20px 20px 42px; border-top:1px solid #edf0f5; background:#f9faff; }
 .question-review-item p { max-width:76ch; margin:0; color:var(--lz-text); font-size:13px; line-height:1.7; white-space:pre-line; }

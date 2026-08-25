@@ -4716,6 +4716,8 @@
     "regeneratingCourse": "正在重新生成课程题目",
     "regenerateCourse": "重新生成整门课程题目",
     "validationMode": { "exact": "精确答案校验", "numericUnit": "数值与单位校验", "symbolic": "公式校验", "code": "代码校验", "rubric": "量规校验", "expertRubric": "专家量规审核", "automatic": "自动校验" },
+    "table": { "question": "题目", "source": "来源", "validation": "校验方式", "status": "状态" },
+    "pagination": { "questionRange": "第 {start}–{end} 题，共 {total} 题", "objectiveRange": "第 {start}–{end} 项，共 {total} 项" },
     "workspace": {
       "courseBank": "课程题库",
       "actions": "题库操作",

@@ -4716,6 +4716,8 @@
     "regeneratingCourse": "Rebuilding course questions",
     "regenerateCourse": "Regenerate course questions",
     "validationMode": { "exact": "Exact-answer check", "numericUnit": "Numeric and unit check", "symbolic": "Formula check", "code": "Code check", "rubric": "Rubric check", "expertRubric": "Expert rubric review", "automatic": "Automatic check" },
+    "table": { "question": "Question", "source": "Source", "validation": "Validation", "status": "Status" },
+    "pagination": { "questionRange": "Questions {start}–{end} of {total}", "objectiveRange": "Objectives {start}–{end} of {total}" },
     "workspace": {
       "courseBank": "Course question bank",
       "actions": "Question bank actions",
