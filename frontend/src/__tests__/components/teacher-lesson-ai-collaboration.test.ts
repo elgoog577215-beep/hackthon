@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { defineComponent, h, onMounted } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
@@ -66,6 +67,68 @@ function mountWorkbench() {
   })
 }
 
+function mountQuestionBankWorkbench(focusReferenceSources: () => void) {
+  const QuestionBankReviewPanel = defineComponent({
+    name: 'QuestionBankReviewPanel',
+    emits: ['open-ai', 'references-change'],
+    setup(_props, { emit, expose }) {
+      expose({ focusReferenceSources })
+      onMounted(() => emit('references-change', [{
+        asset_id: 'asset-course-1',
+        material_asset_id: 'material-course-1',
+        filename: '整课讲义.pdf',
+        source_label: '整课讲义',
+        role: 'primary',
+      }]))
+      return () => h('section', { class: 'question-bank-stub' }, [
+        h('button', {
+          type: 'button',
+          class: 'open-question-ai',
+          onClick: () => emit('open-ai'),
+        }, 'AI 生成题目'),
+      ])
+    },
+  })
+  return mount(TeacherCourseWorkbench, {
+    props: {
+      courseId: 'course-1',
+      courseTitle: '人工智能通识课',
+      generationOptions: {} as any,
+      initialStage: 'question-bank',
+    },
+    global: {
+      stubs: {
+        CourseReferenceTray: true,
+        CompanionDocumentStudio: true,
+        QuestionBankReviewPanel,
+        TeacherScriptDocument: true,
+        CourseOutlineReview: true,
+        MarkdownRenderer: true,
+      },
+    },
+  })
+}
+
+function mountActualQuestionBankWorkbench() {
+  return mount(TeacherCourseWorkbench, {
+    props: {
+      courseId: 'course-1',
+      courseTitle: '人工智能通识课',
+      generationOptions: {} as any,
+      initialStage: 'question-bank',
+    },
+    global: {
+      stubs: {
+        CourseReferenceTray: true,
+        CompanionDocumentStudio: true,
+        TeacherScriptDocument: true,
+        CourseOutlineReview: true,
+        MarkdownRenderer: true,
+      },
+    },
+  })
+}
+
 describe('教案 AI 协作编辑模式', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -97,6 +160,51 @@ describe('教案 AI 协作编辑模式', () => {
 
     expect(createCandidate).toHaveBeenCalledTimes(1)
     expect(createCandidate.mock.calls[0]![3]).toContain('补充能判断学生是否达成目标的课堂检查点')
+  })
+
+  it('题库 AI 固定使用整门课程范围和题库内部资料', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const focusReferenceSources = vi.fn()
+    const wrapper = mountQuestionBankWorkbench(focusReferenceSources)
+    await flushPromises()
+
+    await wrapper.get('.open-question-ai').trigger('click')
+
+    expect(wrapper.classes()).toContain('is-ai-collaboration')
+    expect(wrapper.text()).toContain('整门课程题库')
+    expect(wrapper.text()).toContain('人工智能通识课')
+    expect(wrapper.text()).not.toContain('当前讲次题库')
+    const sources = wrapper.get('.lesson-ai-sources')
+    expect(sources.text()).toContain('1')
+    expect(sources.attributes('title')).toContain('整课讲义')
+    expect(sources.attributes('aria-expanded')).toBe('true')
+
+    await sources.trigger('click')
+    expect(focusReferenceSources).toHaveBeenCalledTimes(1)
+    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
+
+    await wrapper.get('.lesson-ai-composer textarea').setValue('重新弄一下')
+    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    await flushPromises()
+
+    expect(window.localStorage.getItem('teacher-course-workbench:ai-session:course-1:question-bank:course')).toContain('重新弄一下')
+    expect([...Array(window.localStorage.length)].map((_, index) => window.localStorage.key(index)))
+      .not.toContain('teacher-course-workbench:ai-session:course-1:question-bank:lesson-1:question-bank')
+  })
+
+  it('真实题库面板可以打开同一工作台的 AI 助手', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const wrapper = mountActualQuestionBankWorkbench()
+    await flushPromises()
+
+    await wrapper.get('.question-bank-ai-action').trigger('click')
+    await wrapper.get('.question-generation-studio__ai').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.classes()).toContain('is-ai-collaboration')
+    expect(wrapper.get('.lesson-ai-workspace').text()).toContain('整门课程题库')
   })
 
   it('支持键盘调整 AI 面板宽度并保存教师偏好', async () => {

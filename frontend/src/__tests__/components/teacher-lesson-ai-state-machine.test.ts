@@ -83,7 +83,7 @@ describe('教师课程生产 AI 领域适配', () => {
       domain: 'script', courseTitle: '测试课程', primaryTitle: '第一讲', secondaryTitle: '导入', referenceCount: 1,
     })
     const questionPrompt = buildTeacherProductionAiInstruction(messages, {
-      domain: 'question-bank', courseTitle: '测试课程', primaryTitle: '第一讲', secondaryTitle: '题库', referenceCount: 1,
+      domain: 'question-bank', courseTitle: '测试课程', primaryTitle: '测试课程', secondaryTitle: '整门课程题库', referenceCount: 1,
       references: [{ id: 'material-1', label: '课程讲义', role: 'primary', origin: 'material' }],
     })
     const pptPrompt = buildTeacherProductionAiInstruction(messages, {
@@ -96,6 +96,10 @@ describe('教师课程生产 AI 领域适配', () => {
     expect(scriptPrompt).toContain('保持已确认教案')
     expect(scriptPrompt).toContain('不确认、不发布')
     expect(questionPrompt).toContain('重建任务候选')
+    expect(questionPrompt).toContain('整门课程题库')
+    expect(questionPrompt).toContain('冻结课程范围')
+    expect(questionPrompt).not.toContain('当前讲次')
+    expect(questionPrompt).not.toContain('当前节点')
     expect(questionPrompt).toContain('答案事实、验证器和质量门')
     expect(questionPrompt).toContain('课程讲义 (material-1)')
     expect(pptPrompt).toContain('V6 PPT 页面')

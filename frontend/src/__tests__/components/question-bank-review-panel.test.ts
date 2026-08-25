@@ -20,6 +20,19 @@ vi.mock('@/utils/question-bank-rebuild', () => ({
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
 }))
+vi.mock('@/components/CourseReferenceTray.vue', () => ({
+  default: {
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    template: '<aside data-testid="question-bank-generation-sources">生成依据</aside>',
+  },
+}))
+vi.mock('@/components/QuestionBankImportWorkspace.vue', () => ({
+  default: {
+    emits: ['show-bank', 'imported'],
+    template: '<section data-testid="question-import-workspace">导入文件队列</section>',
+  },
+}))
 
 describe('QuestionBankReviewPanel', () => {
   beforeEach(async () => {
@@ -155,6 +168,29 @@ describe('QuestionBankReviewPanel', () => {
       })
       return { status: 'completed', progress: 100 }
     })
+  })
+
+  it('用同一个课程题库外壳承载管理、导入和 AI 生成任务', async () => {
+    const wrapper = mount(QuestionBankReviewPanel, {
+      props: { courseId: 'course-1' },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.question-bank-workspace-header').text()).toContain('全部题目')
+    expect(wrapper.find('.question-bank-workspace-main').exists()).toBe(true)
+    expect(wrapper.get('.question-bank-workspace-side').text()).toContain('题库概况')
+
+    await wrapper.get('.question-bank-import-action').trigger('click')
+    expect(wrapper.get('.question-bank-workspace-header').text()).toContain('导入与校对')
+    expect(wrapper.find('[data-testid="question-import-workspace"]').exists()).toBe(true)
+
+    await wrapper.get('.question-bank-back').trigger('click')
+    await wrapper.get('.question-bank-ai-action').trigger('click')
+    expect(wrapper.get('.question-bank-workspace-header').text()).toContain('AI 生成题目')
+    expect(wrapper.find('[data-testid="question-generation-studio"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="question-bank-generation-sources"]').text()).toBe('生成依据')
+    await wrapper.get('.question-generation-studio__ai').trigger('click')
+    expect(wrapper.emitted('open-ai')).toHaveLength(1)
   })
 
   it('shows why web retrieval fell back to local question sources', async () => {

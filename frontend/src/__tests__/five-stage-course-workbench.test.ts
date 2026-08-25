@@ -11,6 +11,7 @@ describe('five-stage course workbench boundary', () => {
   it('keeps the question bank optional and places paper composition inside it', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     const questionBank = source('components/QuestionBankReviewPanel.vue')
+    const questionBankUsage = workbench.match(/<QuestionBankReviewPanel[\s\S]*?\/>/)?.[0] || ''
 
     expect(workbench).toContain("type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'")
     expect(workbench).toContain("type StageId = CoreStageId | 'companion'")
@@ -18,9 +19,12 @@ describe('five-stage course workbench boundary', () => {
       workbench.indexOf("id: 'script'"),
     )
     expect(workbench).toContain('<QuestionBankReviewPanel')
-    expect(workbench).toContain(':material-asset-ids="activeReferences.map')
+    expect(questionBankUsage).not.toContain('initial-node-ids')
+    expect(questionBankUsage).not.toContain('material-asset-ids')
+    expect(questionBankUsage).toContain('@references-change="handleQuestionBankReferencesChange"')
+    expect(questionBank).toContain('v-model="questionReferences"')
     expect(questionBank).toContain('<ExamPaperComposer')
-    expect(questionBank).toContain('material_asset_ids: props.materialAssetIds')
+    expect(questionBank).toContain('material_asset_ids: [...effectiveMaterialAssetIds.value]')
   })
 
   it('keeps companion documents outside the numbered teaching chain', () => {

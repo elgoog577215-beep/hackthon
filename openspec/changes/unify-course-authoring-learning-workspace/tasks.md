@@ -179,3 +179,10 @@
 - [x] 19.10 Persist script and V6 slide candidates with base revisions so refresh recovery and revision conflicts share the same safety boundary.
 - [x] 19.11 Show downstream script, question-bank and PPT impact before a teacher confirms an upstream AI candidate; never auto-apply downstream changes.
 - [x] 19.12 Replace fixed-only clarification choices with content-aware domain recommendations while keeping the visible interface compact.
+
+## 20. Unified course question-bank workspace
+
+- [x] 20.1 Present one stable course question-bank shell with all questions as the default state; keep course identity, outer boundary and stage navigation unchanged across task switches.
+- [x] 20.2 Move PDF/DOCX import and AI generation into task states inside that shell, keep import as the primary empty-state action and remove duplicate mode navigation from the import task.
+- [x] 20.3 Keep the import file queue isolated from generic references, and show course references only for the AI-generation task.
+- [x] 20.4 Add zh/en copy, focused component tests, production-build verification and Chinese desktop real-page acceptance.

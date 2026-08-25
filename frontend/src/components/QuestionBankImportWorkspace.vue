@@ -22,14 +22,6 @@
             </small>
           </div>
         </div>
-        <div class="question-import__actions">
-          <button v-if="hasQuestionBank || sessionCommitted" type="button" class="quiet-button" @click="emit('show-bank')">
-            <LibraryBig :size="15" />{{ t('questionBank.importFlow.existingBank', '已有题库') }}
-          </button>
-          <button type="button" class="quiet-button quiet-button--ai" @click="emit('show-ai')">
-            <WandSparkles :size="15" />{{ t('questionBank.importFlow.aiGenerate', 'AI 生成题目') }}
-          </button>
-        </div>
       </header>
 
       <div v-if="errorMessage" class="question-import__error" role="alert">
@@ -163,9 +155,9 @@
       </footer>
     </main>
 
-    <aside class="question-import__sources" :aria-label="t('courseWorkbench.references.title', '信息来源')">
+    <aside class="question-import__sources" :aria-label="t('questionBank.workspace.importQueue', '导入文件')">
       <header>
-        <strong>{{ t('courseWorkbench.references.title', '信息来源') }}</strong>
+        <strong>{{ t('questionBank.workspace.importQueue', '导入文件') }}</strong>
       </header>
       <div class="question-import__sources-scroll">
         <section
@@ -228,16 +220,6 @@
             <pre>{{ activeSourcePage?.text || t('questionBank.importFlow.noSourceText', '本页没有可显示的文字') }}</pre>
           </div>
         </section>
-
-        <CourseReferenceTray
-          v-model="questionReferences"
-          variant="question-bank"
-          :course-id="courseId"
-          stage="question-bank"
-          scope-target-id="managed:question-bank"
-          scope-target-type="question_bank"
-          :scope-target-label="t('courseWorkbench.stages.questionBank', '题库')"
-        />
       </div>
     </aside>
   </section>
@@ -259,9 +241,7 @@ import {
   Plus,
   TriangleAlert,
   Upload,
-  WandSparkles,
 } from 'lucide-vue-next'
-import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import http, { teacherRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 
@@ -297,15 +277,11 @@ interface ImportSummary extends Omit<ImportSession, 'questions' | 'source_pages'
 const props = withDefaults(defineProps<{
   courseId: string
   initialNodeIds?: string[]
-  hasQuestionBank?: boolean
 }>(), {
   initialNodeIds: () => [],
-  hasQuestionBank: false,
 })
 const emit = defineEmits<{
-  'show-ai': []
   'show-bank': []
-  'references-change': [materialAssetIds: string[]]
   imported: [bundleRevisionId: string]
 }>()
 
@@ -326,7 +302,6 @@ const batchResultMessage = ref('')
 const errorMessage = ref('')
 const editing = ref(false)
 const editDraft = ref<ImportQuestion | null>(null)
-const questionReferences = ref<CourseReferenceItem[]>([])
 
 const selectedQuestion = computed(() => session.value?.questions[selectedIndex.value] || null)
 const activeSourcePage = computed(() => session.value?.source_pages[sourcePageIndex.value] || null)
@@ -344,9 +319,6 @@ watch(() => props.courseId, () => {
   void loadWorkspace()
 })
 watch(selectedIndex, () => syncSourcePage())
-watch(questionReferences, value => {
-  emit('references-change', value.map(item => item.material_asset_id).filter(Boolean))
-}, { deep: true })
 
 function apiError(error: any, fallback: string) {
   const detail = error?.response?.data?.detail
@@ -697,12 +669,6 @@ function documentStateLabel(item: ImportSummary) {
   font-size: 10.5px;
   line-height: 1.35;
 }
-.question-import__actions {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 .quiet-button,
 .primary-action {
   min-height: 34px;
@@ -724,11 +690,6 @@ function documentStateLabel(item: ImportSummary) {
   border-color: #b8b6ed;
   color: #4338ca;
   background: #f8f8ff;
-}
-.quiet-button--ai {
-  border-color: transparent;
-  color: #5552c8;
-  background: transparent;
 }
 .primary-action {
   border-color: #514bdc;
@@ -1220,17 +1181,16 @@ function documentStateLabel(item: ImportSummary) {
   .question-import {
     grid-template-columns: minmax(0, 1fr) 286px;
   }
-  .question-import__actions .quiet-button {
-    padding-inline: 8px;
-  }
 }
 
 /* Keep the same mental model as the other production stages: result in the center, sources on the right. */
 .question-import {
+  height:100%;
+  min-height:0;
   grid-template-columns: minmax(0, 1fr) 310px;
-  border-color: #dfe5ee;
-  border-radius: 14px;
-  box-shadow: 0 8px 24px rgba(30, 41, 59, .045);
+  border:0;
+  border-radius:0;
+  box-shadow:none;
 }
 .question-import__empty-review {
   grid-row: 3;
@@ -1295,7 +1255,6 @@ function documentStateLabel(item: ImportSummary) {
 .source-preview > header { min-height: 44px; padding: 0 16px; }
 .source-preview__paper { max-height: 250px; overflow: auto; padding: 12px 16px 18px; background: #f7f8fa; }
 .source-preview__paper pre { min-height: 0; padding: 15px 14px; box-shadow: none; font-size: 10.5px; line-height: 1.75; }
-.question-import__sources :deep(.reference-tray.is-question-bank) { min-height: auto; }
 @media (max-width: 1180px) {
   .question-import { grid-template-columns: minmax(0, 1fr) 286px; }
   .question-view { padding-inline: 26px; }

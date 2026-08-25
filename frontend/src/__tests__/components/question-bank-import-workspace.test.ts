@@ -13,14 +13,6 @@ vi.mock('@/utils/http', () => ({
   default: { get, post, patch },
   teacherRequestConfig: (config = {}) => config,
 }))
-vi.mock('@/components/CourseReferenceTray.vue', () => ({
-  default: {
-    props: ['modelValue'],
-    emits: ['update:modelValue'],
-    template: '<aside class="reference-tray is-question-bank">联网来源</aside>',
-  },
-}))
-
 const session = {
   import_id: 'qimp-1',
   filename: 'HTTP 测试题.docx',
@@ -65,7 +57,7 @@ describe('QuestionBankImportWorkspace', () => {
     patch.mockReset()
   })
 
-  it('中间保持题目审阅，上传与资料入口统一放在右侧', async () => {
+  it('中间保持题目审阅，右侧只承载导入文件队列', async () => {
     get.mockResolvedValueOnce({ data: { imports: [] } })
     const wrapper = mount(QuestionBankImportWorkspace, {
       props: { courseId: 'course-http' },
@@ -77,10 +69,9 @@ describe('QuestionBankImportWorkspace', () => {
     expect(wrapper.text()).toContain('题库文件')
     expect(wrapper.text()).toContain('还没有导入文档')
     expect(wrapper.get('.question-import__sources [data-testid="add-question-files"]').text()).toContain('选择多份文件')
-    expect(wrapper.get('.question-import__sources').text()).toContain('联网来源')
+    expect(wrapper.get('.question-import__sources').text()).toContain('导入文件')
+    expect(wrapper.get('.question-import__sources').text()).not.toContain('联网来源')
     expect(wrapper.get('[data-testid="question-import-file"]').attributes('multiple')).toBeDefined()
-    await wrapper.get('.quiet-button--ai').trigger('click')
-    expect(wrapper.emitted('show-ai')).toHaveLength(1)
   })
 
   it('一次选择多份文件并逐份建立可恢复导入记录', async () => {

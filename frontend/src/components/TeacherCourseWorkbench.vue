@@ -4,7 +4,7 @@
     class="teacher-workbench"
     :class="{
       'is-ai-collaboration': aiCollaborationOpen,
-      'is-question-bank-import': activeStage === 'question-bank' && questionBankImportMode,
+      'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
     }"
     :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
@@ -268,17 +268,15 @@
             ref="questionBankPanel"
             class="question-workbench-surface"
             :course-id="courseId"
-            :initial-node-ids="selectedLessonQuestionNodeIds"
-            :initial-scope-label="selectedLesson?.title || ''"
-            :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
             :assistant-open="aiCollaborationOpen && aiDomain === 'question-bank'"
-            @updated="questionBankReady = true"
+            @updated="handleQuestionBankUpdated"
             @open-ai="openAiCollaboration('question-bank')"
             @ai-candidate-change="handleAiCandidateChange"
             @ai-resolving="handleAiResolving"
             @ai-resolved="handleAiResolved"
             @ai-error="handleAiError"
             @import-mode-change="questionBankImportMode = $event"
+            @references-change="handleQuestionBankReferencesChange"
           />
         </template>
 
@@ -427,9 +425,9 @@
       :scope-detail="aiScopeDetail"
       :scope-options="aiScopeOptions"
       :scope-value="currentAiScopeId"
-      :reference-count="activeReferences.length"
-      :reference-labels="activeReferences.map(item => item.source_label || item.filename)"
-      :sources-open="aiSourcesOpen"
+      :reference-count="aiActiveReferences.length"
+      :reference-labels="aiActiveReferences.map(item => item.source_label || item.filename)"
+      :sources-open="aiDomain === 'question-bank' || aiSourcesOpen"
       :messages="aiMessages"
       :phase="aiPhase"
       :busy="aiCollaborationBusy"
@@ -442,7 +440,7 @@
       :can-retry="Boolean(lastAiOperation)"
       @close="closeAiCollaboration"
       @change-scope="changeAiScope"
-      @open-sources="aiSourcesOpen = !aiSourcesOpen"
+      @open-sources="handleAiSourcesOpen"
       @send="handleAiRequest"
       @clarify="handleAiClarification"
       @retry="retryAiAction"
@@ -452,7 +450,7 @@
     />
 
     <CourseReferenceTray
-      v-if="(activeStage !== 'question-bank' || !questionBankImportMode) && (!aiCollaborationOpen || aiSourcesOpen)"
+      v-if="activeStage !== 'question-bank' && (!aiCollaborationOpen || aiSourcesOpen)"
       v-model="activeReferences"
       :class="{ 'ai-source-drawer': aiCollaborationOpen }"
       :course-id="courseId"
@@ -524,6 +522,7 @@ type ProductionAiDocumentHandle = {
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusAiCandidate?: () => void
   focusCandidate?: () => void
+  focusReferenceSources?: () => void
   selectAiScope?: (scopeId: string) => boolean
 }
 type AiLessonPlanModule = {
@@ -588,7 +587,7 @@ const editingOutline = computed({
 })
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const activeReferenceScope = computed(() => (
-  ['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
+  ['lesson', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
     ? `${activeStage.value === 'ppt' ? 'ppt' : 'lesson'}:${selectedLessonId.value}`
     : activeStage.value
 ))
@@ -596,7 +595,11 @@ const activeReferences = computed({
   get: () => referencesByScope[activeReferenceScope.value] || [],
   set: value => { referencesByScope[activeReferenceScope.value] = value },
 })
-const activeReferenceLessonId = computed(() => ['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
+const questionBankReferences = ref<CourseReferenceItem[]>([])
+const aiActiveReferences = computed(() => aiDomain.value === 'question-bank'
+  ? questionBankReferences.value
+  : activeReferences.value)
+const activeReferenceLessonId = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
 const foundation = reactive({ goal: '', totalHours: 32, requirements: '' })
 const chapterSectionCounts = ref<number[]>([])
 const loadedShapeRevision = ref('')
@@ -608,6 +611,7 @@ const lessonBusy = ref(false); const lessonConfirming = ref(false); const lesson
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
 const questionBankImportMode = ref(false)
+const questionBankRevisionId = ref('')
 const stages = computed(() => [
   { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '课程基础'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
@@ -631,10 +635,12 @@ const selectedLessonSectionTitle = computed(() => selectedLesson.value?.sections
 )?.title || '')
 const aiScriptSectionId = ref('')
 const aiScriptSectionTitle = ref('')
-const aiScopeTitle = computed(() => aiDomain.value === 'outline' ? props.courseTitle : selectedLesson.value?.title || props.courseTitle)
+const aiScopeTitle = computed(() => ['outline', 'question-bank'].includes(aiDomain.value)
+  ? props.courseTitle
+  : selectedLesson.value?.title || props.courseTitle)
 const aiScopeDetail = computed(() => {
   if (aiDomain.value === 'outline') return t('courseWorkbench.aiCollaboration.outlineScope', '课程大纲')
-  if (aiDomain.value === 'question-bank') return t('courseWorkbench.aiCollaboration.questionBankScope', '当前讲次题库')
+  if (aiDomain.value === 'question-bank') return t('courseWorkbench.aiCollaboration.questionBankScope', '整门课程题库')
   if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲稿小节')
   return selectedLessonSectionTitle.value || t('courseWorkbench.aiCollaboration.lessonScope', '整讲教案')
 })
@@ -649,7 +655,7 @@ const aiScopeOptions = computed<TeacherAiScopeOption[]>(() => {
 })
 const currentAiScopeId = computed(() => {
   if (aiDomain.value === 'outline') return 'outline'
-  if (aiDomain.value === 'question-bank') return selectedLessonId.value || 'question-bank'
+  if (aiDomain.value === 'question-bank') return 'question-bank'
   if (aiDomain.value === 'script') return aiScriptSectionId.value || aiScopeOptions.value[0]?.id || 'script'
   return selectedLessonSectionId.value || aiScopeOptions.value[0]?.id || 'lesson'
 })
@@ -700,9 +706,9 @@ const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
   }
   if (aiDomain.value === 'question-bank') {
     const actions: TeacherAiQuickAction[] = [
-    { id: 'question-application', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickQuestionApplication', '补应用题'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionApplicationPrompt', '为当前讲次补充能检查知识迁移的应用题') },
+    { id: 'question-application', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickQuestionApplication', '补应用题'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionApplicationPrompt', '为整门课程补充能检查知识迁移的应用题') },
     { id: 'question-diagnosis', icon: 'diagnose', label: t('courseWorkbench.aiCollaboration.quickQuestionDiagnosis', '强化错因诊断'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionDiagnosisPrompt', '增加能区分典型错因的诊断性题目和干扰项') },
-    { id: 'question-coverage', icon: 'check', label: t('courseWorkbench.aiCollaboration.quickQuestionCoverage', '补齐目标覆盖'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionCoveragePrompt', '补齐当前讲次尚未覆盖的必需学习目标') },
+    { id: 'question-coverage', icon: 'check', label: t('courseWorkbench.aiCollaboration.quickQuestionCoverage', '补齐目标覆盖'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionCoveragePrompt', '补齐整门课程尚未覆盖的必需学习目标') },
     { id: 'question-difficulty', icon: 'timing', label: t('courseWorkbench.aiCollaboration.quickQuestionDifficulty', '拉开难度梯度'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionDifficultyPrompt', '调整题组，使基础、应用与迁移难度形成清晰梯度') },
     { id: 'question-diversity', icon: 'split', label: t('courseWorkbench.aiCollaboration.quickQuestionDiversity', '增加题组多样性'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionDiversityPrompt', '增加题型、材料和推理路径多样性，避免仅换措辞或数字') },
     { id: 'question-explanation', icon: 'focus', label: t('courseWorkbench.aiCollaboration.quickQuestionExplanation', '完善教学解析'), prompt: t('courseWorkbench.aiCollaboration.quickQuestionExplanationPrompt', '完善标准答案、逐步解析、错误选项说明和结果检查') },
@@ -745,7 +751,9 @@ const aiPlaceholder = computed(() => aiDomain.value === 'outline'
   : aiDomain.value === 'script'
     ? '说说你想怎么改这段讲稿…'
     : '说说你想怎么调整教案…')
-const currentAiScopeKey = computed(() => [props.courseId, aiDomain.value, selectedLessonId.value, currentAiScopeId.value].join(':'))
+const currentAiScopeKey = computed(() => aiDomain.value === 'question-bank'
+  ? [props.courseId, aiDomain.value, 'course'].join(':')
+  : [props.courseId, aiDomain.value, selectedLessonId.value, currentAiScopeId.value].join(':'))
 const lessonReferenceTargetId = computed(() => (
   !selectedLessonId.value
     ? ''
@@ -778,7 +786,7 @@ const workingLessonRevision = computed(() => selectedLesson.value?.plan.revision
 const confirmedLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const currentAiBaseRevision = computed(() => {
   if (aiDomain.value === 'lesson') return String(workingLessonRevision.value?.revision_id || '')
-  if (aiDomain.value === 'question-bank') return String(aiCandidate.value?.base_bundle_revision_id || selectedLessonId.value || '')
+  if (aiDomain.value === 'question-bank') return String(aiCandidate.value?.base_bundle_revision_id || questionBankRevisionId.value || 'course-question-bank')
   if (aiDomain.value === 'script') return String(selectedLesson.value?.script?.current_revision_id || '')
   return String(generationTask.value?.phaseDetail?.skeleton_revision_id || '')
 })
@@ -923,7 +931,6 @@ const effectiveScriptGenerationError = computed(() => String(
     ? scriptJob.value.error?.message || scriptGenerationError.value
     : scriptGenerationError.value,
 ))
-const selectedLessonQuestionNodeIds = computed(() => selectedLesson.value?.sections.map(item => item.section_node_id).filter(Boolean) || [])
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
@@ -1087,6 +1094,20 @@ function closeAiCollaboration() {
   aiCollaborationOpen.value = false
   aiSourcesOpen.value = false
 }
+function handleAiSourcesOpen() {
+  if (aiDomain.value === 'question-bank') {
+    questionBankPanel.value?.focusReferenceSources?.()
+    return
+  }
+  aiSourcesOpen.value = !aiSourcesOpen.value
+}
+function handleQuestionBankReferencesChange(references: CourseReferenceItem[]) {
+  questionBankReferences.value = references
+}
+function handleQuestionBankUpdated(bundleRevisionId: string) {
+  questionBankReady.value = true
+  questionBankRevisionId.value = bundleRevisionId
+}
 function handleScriptAiScopeChange(scope: { id: string; title: string }) {
   aiScriptSectionId.value = scope.id
   aiScriptSectionTitle.value = scope.title
@@ -1112,8 +1133,8 @@ function buildAiInstruction(): string {
     courseTitle: props.courseTitle,
     primaryTitle: aiScopeTitle.value,
     secondaryTitle: aiScopeDetail.value,
-    referenceCount: activeReferences.value.length,
-    references: activeReferences.value.map(item => ({
+    referenceCount: aiActiveReferences.value.length,
+    references: aiActiveReferences.value.map(item => ({
       id: item.material_asset_id,
       label: item.source_label || item.filename,
       role: item.role,
@@ -1472,7 +1493,7 @@ async function preparePptSources() {
 }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
 function handleInlineOutlineConfirmed() { editingOutline.value = false; emit('outlineConfirmed') }
-async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0 } catch { questionBankReady.value = false } }
+async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0; questionBankRevisionId.value = String(response.data?.bundle_revision_id || '') } catch { questionBankReady.value = false; questionBankRevisionId.value = '' } }
 
 watch(() => props.generationOptions, options => { const intent = options.course_intent as any; const brief = options.teacher_course_brief; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(brief?.total_class_hours || 32); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
 watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = null }, { immediate: true })
@@ -1609,16 +1630,16 @@ onBeforeUnmount(() => {
 .is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto;border-radius:0}
 @keyframes lesson-outline-in{from{opacity:.5;transform:translateX(-50%) translateY(-5px) scale(.985)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
 @media(min-width:1051px){.teacher-workbench:not(.is-ai-collaboration){grid-template-columns:196px minmax(520px,1fr) 310px}}
-.teacher-workbench.is-question-bank-import:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
+.teacher-workbench.is-question-bank-workspace:not(.is-ai-collaboration){grid-template-columns:196px minmax(0,1fr)}
 .is-ppt-stage>.workbench-center{padding:24px 30px 0}
 .is-ppt-stage>.workbench-center>.center-heading,.is-ppt-stage .lesson-stage{width:100%;max-width:none}
 .is-ppt-stage .lesson-stage{overflow:hidden;border-radius:14px}
 .is-ppt-stage .lesson-navigator{display:none}
-.is-question-bank-import>.workbench-center{padding:24px 30px 0}
-.is-question-bank-import>.workbench-center>.center-heading,.is-question-bank-import .lesson-stage,.is-question-bank-import .question-workbench-surface{width:100%;max-width:none}
-.is-question-bank-import>.workbench-center>.center-heading{margin-bottom:14px}
-.is-question-bank-import .lesson-stage,.is-question-bank-import .lesson-stage-content{overflow:visible;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
-.is-question-bank-import .lesson-navigator{display:none}
+.is-question-bank-workspace>.workbench-center{padding:24px 30px 0}
+.is-question-bank-workspace>.workbench-center>.center-heading,.is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .question-workbench-surface{width:100%;max-width:none}
+.is-question-bank-workspace>.workbench-center>.center-heading{margin-bottom:14px}
+.is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .lesson-stage-content{overflow:visible;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+.is-question-bank-workspace .lesson-navigator{display:none}
 @media(prefers-reduced-motion:reduce){.lesson-outline-popover{animation:none}}
 
 .teacher-workbench{position:relative;background:transparent}
