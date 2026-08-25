@@ -6,7 +6,7 @@ const sourceRoot = resolve(process.cwd(), 'src')
 const source = (path: string) => readFileSync(resolve(sourceRoot, path), 'utf8')
 
 describe('calendar and course file-space boundary', () => {
-  it('keeps both primary home tabs and turns the calendar rail into a recent-teaching shortcut', () => {
+  it('keeps both primary home tabs and makes the calendar rail an explicit course filter', () => {
     const workspace = source('views/CourseWorkspaceView.vue')
     const workbench = source('components/TeacherCourseWorkbench.vue')
     const app = source('App.vue')
@@ -21,8 +21,15 @@ describe('calendar and course file-space boundary', () => {
     expect(home).toContain('embedded />')
     expect(home).toContain('class="course-rail"')
     expect(home).not.toContain('class="course-search" role="search"')
+    expect(home).toContain('class="course-list" role="radiogroup"')
+    expect(home).toContain('class="course-filter-all"')
+    expect(home).toContain(':aria-checked="!selectedCourseId"')
+    expect(home).toContain("t('teacherHome.courseFilterTitle')")
+    expect(home).toContain("t('teacherHome.courseFilterSelectedHint')")
+    expect(home).toContain("t('teacherHome.courseFilterEmpty')")
     expect(home).toContain('v-for="(course, index) in recentCourses"')
     expect(home).toContain('@click="focusCourse(course)"')
+    expect(home).toContain("t('teacherHome.openCourse')")
     expect(home).toContain("switchHomeTab('courses')")
     expect(home).toContain('courseStore.courseList')
     expect(home).toContain('.slice(0, 6)')
@@ -36,6 +43,10 @@ describe('calendar and course file-space boundary', () => {
     expect(home).not.toContain('<CreateCourseSpaceDialog')
     expect(home).not.toContain('<CourseGenerationDialog')
     expect(home).not.toContain('v-if="!visibleSessions.length" class="calendar-empty"')
+    const focusCourse = home.match(/function focusCourse\(course: Course\) \{[\s\S]*?\n\}/)?.[0] || ''
+    expect(focusCourse).toContain('selectedCourseId.value = course.course_id')
+    expect(focusCourse).not.toContain('cursor.value')
+    expect(focusCourse).not.toContain('clearCourseFilter()')
     expect(workspace).toContain('<TeacherCourseSpaceView')
     expect(workspace).not.toContain('<CourseOutlineReview')
     expect(workbench).toContain('<CourseOutlineReview')

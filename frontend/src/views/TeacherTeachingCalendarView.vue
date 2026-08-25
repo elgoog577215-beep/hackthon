@@ -31,29 +31,51 @@
       <aside class="course-rail" :aria-label="t('teacherHome.courseRail')">
         <header>
           <div>
-            <strong>{{ t('teacherHome.recentTeaching') }}</strong>
-            <span>{{ t('teacherHome.recentTeachingCount').replace('{count}', String(recentCourses.length)) }}</span>
+            <strong>{{ t('teacherHome.courseFilterTitle') }}</strong>
+            <span v-if="selectedCourse">{{ t('teacherHome.courseFilterSelectedHint').replace('{course}', selectedCourse.course_name) }}</span>
+            <span v-else>{{ t('teacherHome.courseFilterHint') }}</span>
           </div>
-          <button v-if="selectedCourseId" type="button" @click="clearCourseFilter">{{ t('teacherHome.allSessions') }}</button>
         </header>
 
-        <nav class="course-list">
+        <div class="course-list" role="radiogroup" :aria-label="t('teacherHome.courseFilterAria')">
+          <button
+            type="button"
+            class="course-filter-all"
+            :class="{ active: !selectedCourseId }"
+            role="radio"
+            :aria-checked="!selectedCourseId"
+            @click="clearCourseFilter"
+          >
+            <span class="course-filter-marker" aria-hidden="true"><span /></span>
+            <span class="course-filter-all__copy">
+              <strong>{{ t('teacherHome.allCourses') }}</strong>
+              <small>{{ t('teacherHome.allCoursesHint') }}</small>
+            </span>
+            <span class="course-entry__count" :aria-label="courseSessionCountLabel(allPeriodSessionCount)">{{ allPeriodSessionCount }}</span>
+          </button>
           <article
             v-for="(course, index) in recentCourses"
             :key="course.course_id"
             class="course-entry"
             :class="{ active: selectedCourseId === course.course_id }"
           >
-            <button type="button" class="course-entry__focus" @click="focusCourse(course)">
-              <span class="course-icon" :data-color="index % 4" aria-hidden="true"><BookOpen :size="16" /></span>
+            <button
+              type="button"
+              class="course-entry__focus"
+              role="radio"
+              :aria-checked="selectedCourseId === course.course_id"
+              @click="focusCourse(course)"
+            >
+              <span class="course-filter-marker" :data-color="index % 4" aria-hidden="true"><span /></span>
               <span class="course-entry__copy">
                 <strong>{{ course.course_name }}</strong>
                 <small>{{ courseShortcutMeta(course) }}</small>
                 <em>{{ courseShortcutStatus(course) }}</em>
               </span>
+              <span class="course-entry__count" :aria-label="courseSessionCountLabel(coursePeriodSessionCount(course.course_id))">{{ coursePeriodSessionCount(course.course_id) }}</span>
             </button>
-            <button type="button" class="course-entry__open" :aria-label="t('teacherHome.enterCourseNamed').replace('{name}', course.course_name)" @click="openCourse(course.course_id)">
-              <ArrowUpRight :size="15" />
+            <button v-if="selectedCourseId === course.course_id" type="button" class="course-entry__open" @click="openCourse(course.course_id)">
+              {{ t('teacherHome.openCourse') }}<ArrowUpRight :size="14" />
             </button>
           </article>
           <div v-if="!recentCourses.length" class="course-list-empty">
@@ -61,7 +83,7 @@
             <strong>{{ t('teacherHome.noRecentCourses') }}</strong>
             <span>{{ t('teacherHome.noRecentCoursesHelp') }}</span>
           </div>
-        </nav>
+        </div>
         <footer>
           <button type="button" @click="switchHomeTab('courses')">{{ t('teacherHome.viewAllCourses') }}<ChevronRight :size="15" /></button>
         </footer>
@@ -99,6 +121,10 @@
         </div>
 
         <div v-else-if="view === 'month'" class="month-canvas">
+          <div v-if="selectedCourse && !visibleSessions.length" class="calendar-filter-empty" role="status">
+            <span>{{ t('teacherHome.courseFilterEmpty').replace('{course}', selectedCourse.course_name) }}</span>
+            <button type="button" @click="clearCourseFilter">{{ t('teacherHome.courseFilterEmptyAction') }}</button>
+          </div>
           <TeachingCalendarMonthGrid
             :month="monthCursor"
             :sessions="visibleSessions"
@@ -116,6 +142,10 @@
           </button>
 
           <div class="week-canvas">
+            <div v-if="selectedCourse && !visibleSessions.length" class="calendar-filter-empty" role="status">
+              <span>{{ t('teacherHome.courseFilterEmpty').replace('{course}', selectedCourse.course_name) }}</span>
+              <button type="button" @click="clearCourseFilter">{{ t('teacherHome.courseFilterEmptyAction') }}</button>
+            </div>
             <div class="total-week-grid" :aria-label="t('teacherCalendar.standardWeekAria', '浙江大学标准周课表')">
             <div class="week-corner">{{ t('teacherCalendar.periodAxis', '节次') }}</div>
             <div
@@ -341,6 +371,20 @@ const recentCourses = computed(() => {
   const focusedIds = new Set(focused.map(course => course.course_id))
   return [...focused, ...sorted.filter(course => !focusedIds.has(course.course_id))].slice(0, 6)
 })
+const periodCourseSessionCounts = computed(() => {
+  const counts = new Map<string, number>()
+  calendarStore.totalSessions.forEach(session => {
+    if (!session.course_id || session.calendar_layer === 'incomplete') return
+    counts.set(session.course_id, (counts.get(session.course_id) || 0) + 1)
+  })
+  return counts
+})
+const allPeriodSessionCount = computed(() => [...periodCourseSessionCounts.value.values()].reduce((total, count) => total + count, 0))
+const selectedCourse = computed(() => {
+  if (!selectedCourseId.value) return undefined
+  return recentCourses.value.find(course => course.course_id === selectedCourseId.value)
+    || courseStore.courseList.find(course => course.course_id === selectedCourseId.value)
+})
 const visibleSessions = computed(() => calendarStore.totalSessions.filter(item => (
   item.calendar_layer !== 'incomplete'
   && (!selectedCourseId.value || item.course_id === selectedCourseId.value)
@@ -477,16 +521,9 @@ function switchHomeTab(tab: 'calendar' | 'courses') { void router.replace({ name
 function openCourse(courseId: string) { if (courseId) void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' } }) }
 function clearCourseFilter() { selectedCourseId.value = ''; clearSelection() }
 function focusCourse(course: Course) {
-  if (selectedCourseId.value === course.course_id) {
-    clearCourseFilter()
-    return
-  }
+  if (selectedCourseId.value === course.course_id) return
   selectedCourseId.value = course.course_id
   clearSelection()
-  const nextDate = courseShortcutSession(course)?.date
-  if (!nextDate) return
-  const value = new Date(`${nextDate}T12:00:00`)
-  if (!Number.isNaN(value.getTime())) cursor.value = value
 }
 function openCourseCreate() { void router.push({ name: 'course-library', query: { ...route.query, create: 'course' } }) }
 function closeCourseCreate() {
@@ -542,6 +579,8 @@ function courseNextSessionTime(course: Course) {
   return Date.parse(`${session.date}T${session.start_time || '23:59:59'}`) || Number.POSITIVE_INFINITY
 }
 function courseUpdatedTime(course: Course) { return Date.parse(course.updated_at || '') || 0 }
+function coursePeriodSessionCount(courseId: string) { return periodCourseSessionCounts.value.get(courseId) || 0 }
+function courseSessionCountLabel(count: number) { return t('teacherHome.courseSessionCount').replace('{count}', String(count)) }
 function courseShortcutSession(course: Course) {
   const candidates = [
     course.next_session,
@@ -634,6 +673,7 @@ onBeforeUnmount(() => {
 .teacher-home,.teacher-home *{box-sizing:border-box}.teacher-home{width:100%;height:100%;min-height:0;overflow:hidden;color:var(--lz-text);background:var(--lz-surface)}button,input{font:inherit}.home-primary-tabs{width:min(100%,360px);height:46px;justify-self:center;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:4px;padding:5px;border:1px solid var(--lz-border);border-radius:16px;background:var(--lz-surface-subtle)}.home-primary-tabs button{min-width:0;height:34px;display:flex;align-items:center;justify-content:center;gap:8px;padding:0 16px;border:0;border-radius:11px;color:var(--lz-text-secondary);background:transparent;font-size:13px;font-weight:750;white-space:nowrap;cursor:pointer;transition:color .16s ease,background-color .16s ease,box-shadow .16s ease}.home-primary-tabs button:hover:not(.active){color:var(--lz-text);background:rgb(255 255 255 / 48%)}.home-primary-tabs button.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 3px 10px rgb(15 23 42 / 10%)}.home-primary-tabs button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.home-header-actions{display:flex;align-items:center;gap:8px}.home-header-actions button{height:38px;display:inline-flex;align-items:center;gap:7px;padding:0 13px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}.header-quiet{border:1px solid var(--lz-border);color:var(--lz-text-secondary);background:var(--lz-surface)}.header-quiet b{min-width:20px;padding:1px 6px;border-radius:10px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:12px}.header-primary{border:1px solid var(--lz-brand);color:#fff;background:var(--lz-brand)}
 .home-surface-enter-active{transition:opacity .22s cubic-bezier(.16,1,.3,1),transform .24s cubic-bezier(.16,1,.3,1)}.home-surface-leave-active{transition:opacity .12s ease-in,transform .14s ease-in}.home-surface-enter-from{opacity:0;transform:translateY(7px)}.home-surface-leave-to{opacity:0;transform:translateY(-3px)}
 .home-layout{height:100%;min-height:0;display:grid;grid-template-columns:250px minmax(600px,1fr) 300px}.course-rail{min-width:0;min-height:0;display:grid;grid-template-rows:64px minmax(0,1fr) 48px;border-right:1px solid var(--lz-border);background:var(--lz-surface-subtle)}.course-rail>header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px 0 16px}.course-rail>header>div{min-width:0;display:grid;gap:3px}.course-rail>header strong{font-size:15px}.course-rail>header span{color:var(--lz-text-muted);font-size:12px}.course-rail>header>button{height:28px;padding:0 8px;border:0;border-radius:7px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:11px;font-weight:750;cursor:pointer}.course-rail>header>button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.course-list{min-height:0;overflow:auto;padding:5px 7px 10px}.course-entry{position:relative;min-height:84px;display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:stretch;border-radius:10px;color:var(--lz-text-secondary);background:transparent}.course-entry:hover,.course-entry.active{background:#fff}.course-entry.active{box-shadow:inset 0 0 0 1px var(--lz-brand-border)}.course-entry__focus{min-width:0;display:grid;grid-template-columns:34px minmax(0,1fr);align-items:start;gap:9px;padding:10px 4px 10px 8px;border:0;border-radius:10px 0 0 10px;color:inherit;background:transparent;text-align:left;cursor:pointer}.course-entry__focus:focus-visible,.course-entry__open:focus-visible{outline:2px solid var(--lz-brand);outline-offset:-2px}.course-entry__open{display:grid;place-items:center;margin:6px 4px 6px 0;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.course-entry__open:hover{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-icon[data-color="1"]{color:var(--lz-success);background:var(--lz-success-soft)}.course-icon[data-color="2"]{color:var(--lz-warning);background:var(--lz-warning-soft)}.course-icon[data-color="3"]{color:var(--lz-danger);background:var(--lz-danger-soft)}.course-entry__copy{min-width:0;display:grid;gap:3px}.course-entry__copy strong,.course-entry__copy small,.course-entry__copy em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-entry__copy strong{color:var(--lz-text-strong);font-size:13px}.course-entry__copy small{color:var(--lz-text-secondary);font-size:11px}.course-entry__copy em{color:var(--lz-text-muted);font-size:10px;font-style:normal}.course-list-empty{min-height:190px;display:grid;place-content:center;justify-items:center;gap:7px;padding:20px;color:var(--lz-text-muted);text-align:center}.course-list-empty strong{color:var(--lz-text-secondary);font-size:13px}.course-list-empty span{max-width:180px;font-size:11px;line-height:1.5}.course-rail>footer{display:flex;align-items:center;padding:0 10px;border-top:1px solid var(--lz-border)}.course-rail>footer button{width:100%;height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border:0;border-radius:7px;color:var(--lz-brand-strong);background:transparent;font-size:12px;font-weight:750;cursor:pointer}.course-rail>footer button:hover{background:var(--lz-brand-soft)}.course-rail>footer button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:-1px}
+.course-rail{grid-template-rows:72px minmax(0,1fr) 48px}.course-rail>header{padding:0 16px}.course-rail>header span{line-height:1.4}.course-list{padding:5px 8px 10px}.course-filter-all{width:100%;min-height:58px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:9px;margin-bottom:5px;padding:8px 10px;border:1px solid transparent;border-radius:10px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.course-filter-all:hover,.course-filter-all.active{background:#fff}.course-filter-all.active{border-color:var(--lz-brand-border)}.course-filter-all:focus-visible,.course-entry__focus:focus-visible,.course-entry__open:focus-visible{outline:2px solid var(--lz-brand);outline-offset:-2px}.course-filter-all__copy{min-width:0;display:grid;gap:3px}.course-filter-all__copy strong{color:var(--lz-text-strong);font-size:13px}.course-filter-all__copy small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.course-entry{min-height:0;display:grid;grid-template-columns:minmax(0,1fr);margin-bottom:3px;border:1px solid transparent;border-radius:10px}.course-entry:hover{background:rgb(255 255 255 / 68%)}.course-entry.active{border-color:var(--lz-brand-border);background:#fff;box-shadow:none}.course-entry__focus{width:100%;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:9px;padding:10px;border-radius:9px;color:inherit}.course-filter-marker{width:16px;height:16px;display:grid;place-items:center;border:1.5px solid var(--lz-border-strong);border-radius:50%;background:#fff}.course-filter-marker>span{width:8px;height:8px;border-radius:50%;background:transparent}.course-filter-all.active .course-filter-marker,.course-entry.active .course-filter-marker{border-color:var(--lz-brand)}.course-filter-all.active .course-filter-marker>span,.course-entry.active .course-filter-marker>span{background:var(--lz-brand)}.course-filter-marker[data-color="1"]{border-color:color-mix(in srgb,var(--lz-success) 48%,var(--lz-border))}.course-filter-marker[data-color="2"]{border-color:color-mix(in srgb,var(--lz-warning) 48%,var(--lz-border))}.course-filter-marker[data-color="3"]{border-color:color-mix(in srgb,var(--lz-danger) 48%,var(--lz-border))}.course-entry__count{min-width:23px;height:23px;display:grid;place-items:center;padding:0 6px;border-radius:7px;color:var(--lz-text-muted);background:var(--lz-surface-muted);font-size:11px;font-weight:750;font-variant-numeric:tabular-nums}.course-filter-all.active .course-entry__count,.course-entry.active .course-entry__count{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.course-entry__open{justify-self:end;height:28px;display:inline-flex;align-items:center;gap:4px;margin:-4px 8px 8px;padding:0 7px;border:0;border-radius:6px;color:var(--lz-brand-strong);background:transparent;font-size:11px;font-weight:750}.course-entry__open:hover{background:var(--lz-brand-soft)}
 .calendar-surface{min-width:0;min-height:0;display:grid;grid-template-rows:64px auto minmax(0,1fr);background:var(--lz-surface)}
 .calendar-toolbar{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--lz-border);background:rgb(255 255 255 / 72%)}
 .calendar-title{min-width:0;display:flex;align-items:center;gap:9px}.calendar-title>svg{color:var(--lz-brand)}.calendar-title strong{font-size:16px}.toolbar-spacer{flex:1}
@@ -642,6 +682,7 @@ onBeforeUnmount(() => {
 .calendar-issue{margin:10px 12px 0}
 .calendar-loading{height:100%;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);font-size:13px}
 .month-canvas{position:relative;min-width:0;min-height:0;overflow:auto;padding:10px;animation:calendar-view-arrive .22s cubic-bezier(.16,1,.3,1)}.month-canvas :deep(.month-grid){min-height:100%;overflow:hidden}
+.calendar-filter-empty{min-height:38px;display:flex;align-items:center;gap:9px;margin-bottom:8px;padding:7px 10px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:12px}.calendar-filter-empty>span{flex:1}.calendar-filter-empty>button{height:26px;padding:0 8px;border:0;border-radius:6px;color:var(--lz-brand-strong);background:var(--lz-brand-soft);font-size:11px;font-weight:750;cursor:pointer}.calendar-filter-empty>button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}
 .week-unmatched{min-height:38px;display:flex;align-items:center;gap:7px;padding:7px 12px;border:0;border-bottom:1px solid var(--lz-warning-border);color:var(--lz-text-secondary);background:var(--lz-warning-soft);font-size:12px;text-align:left;cursor:pointer}.week-unmatched svg{color:var(--lz-warning)}.week-unmatched span{flex:1}.week-unmatched strong{color:var(--lz-warning);font-size:12px}
 .week-canvas{grid-row:3;min-width:0;min-height:0;overflow:auto;padding:10px 12px 16px;background:#f7f8fb;scrollbar-gutter:stable;animation:calendar-view-arrive .22s cubic-bezier(.16,1,.3,1)}
 @keyframes calendar-view-arrive{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}

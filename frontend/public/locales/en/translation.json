@@ -742,7 +742,7 @@
       "pptAddSources": "Add sources", "pptWebResearch": "Search the web",
       "primary": "Primary source", "pptPrimary": "Primary reference", "primaryLimit": "Up to 1", "addPrimary": "Add primary source", "addPptPrimary": "Add primary reference",
       "supporting": "References", "addSupporting": "Add or drop files", "courseMaterials": "Course materials",
-      "questionSources": "Past exams", "questionSourcesHelp": "Upload past exams or an existing question bank for import and AI generation", "addQuestionSources": "Add or drop past exams", "questionSourcesSaveFailed": "Could not save past exam sources",
+      "questionSources": "Past exams", "questionSourcesHelp": "Upload past exams or an existing question bank for import and AI generation", "questionSourcesCount": "{count} files", "questionSourcesEmpty": "No past exams yet", "addQuestionSources": "Add or drop past exams", "addQuestionSourcesCompact": "Add past exams", "questionSourcesSaveFailed": "Could not save past exam sources",
       "allSelected": "All current materials are selected", "loadFailed": "Could not load course materials",
       "registerFailed": "The file uploaded but could not be added to this course", "uploadFailed": "File upload failed", "saveFailed": "Could not save this session's references",
       "webSources": "Web sources", "startWebResearch": "Add web sources", "continueWebResearch": "Continue searching"
@@ -4715,6 +4715,7 @@
     "rebuildMissing": "Build question bank",
     "regeneratingCourse": "Rebuilding course questions",
     "regenerateCourse": "Regenerate course questions",
+    "validationMode": { "exact": "Exact-answer check", "numericUnit": "Numeric and unit check", "symbolic": "Formula check", "code": "Code check", "rubric": "Rubric check", "expertRubric": "Expert rubric review", "automatic": "Automatic check" },
     "workspace": {
       "courseBank": "Course question bank",
       "actions": "Question bank actions",
@@ -4936,7 +4937,7 @@
     }
   },
   "teacherHome": {
-    "tasks": "Task center", "newCourse": "New course", "primaryNavigation": "Teacher home navigation", "myCalendar": "My calendar", "courseRail": "Recent courses", "myCourses": "My courses", "courseUnit": "courses", "recentTeaching": "Recent teaching", "recentTeachingCount": "Showing {count}", "allSessions": "All classes", "enterCourseNamed": "Open course: {name}", "noRecentCourses": "No recent courses", "noRecentCoursesHelp": "Open My courses to create or manage every course.", "viewAllCourses": "View all courses", "noUpcomingCourseSession": "No upcoming class", "shortcutPreparation": "Plan {lessonPlan} · PPT {ppt}", "preparationUnchecked": "Check needed", "searchCourse": "Search courses", "clearSearch": "Clear search", "noSearchResults": "No matching courses", "noSearchResultsHelp": "Try another keyword or clear the search to see every course.", "createAnother": "New course",
+    "tasks": "Task center", "newCourse": "New course", "primaryNavigation": "Teacher home navigation", "myCalendar": "My calendar", "courseRail": "Calendar course filters", "myCourses": "My courses", "courseUnit": "courses", "recentTeaching": "Recent teaching", "recentTeachingCount": "Showing {count}", "allSessions": "All classes", "courseFilterTitle": "Filter courses", "courseFilterHint": "Choose a course to show its classes", "courseFilterSelectedHint": "Filtered by: {course}", "courseFilterAria": "Filter calendar by course", "allCourses": "All courses", "allCoursesHint": "Show every class in this period", "courseSessionCount": "{count} classes", "courseFilterEmpty": "{course} has no classes in this period", "courseFilterEmptyAction": "View all courses", "openCourse": "Open course", "enterCourseNamed": "Open course: {name}", "noRecentCourses": "No recent courses", "noRecentCoursesHelp": "Open My courses to create or manage every course.", "viewAllCourses": "View all courses", "noUpcomingCourseSession": "No upcoming class", "shortcutPreparation": "Plan {lessonPlan} · PPT {ppt}", "preparationUnchecked": "Check needed", "searchCourse": "Search courses", "clearSearch": "Clear search", "noSearchResults": "No matching courses", "noSearchResultsHelp": "Try another keyword or clear the search to see every course.", "createAnother": "New course",
     "calendarSubtitle": "School schedule and preparation status", "calendarView": "Calendar view", "month": "Month", "week": "Week", "previousPeriod": "Previous period", "nextPeriod": "Next period", "today": "Today",
     "loadingCalendar": "Loading teaching calendar", "calendarLoadFailed": "Could not load the teaching calendar", "emptyCalendar": "No classes in this period", "emptyCalendarHelp": "Open a course file space to continue planning lessons and materials.",
     "timePending": "Time pending", "untitledCourse": "Untitled course", "contentPending": "Content pending", "noClass": "No class", "dayInspector": "Course status", "selectedSession": "Selected session", "selectedDate": "Selected date", "daySchedule": "Classes on this date", "noClassOnDate": "No classes on this date",
