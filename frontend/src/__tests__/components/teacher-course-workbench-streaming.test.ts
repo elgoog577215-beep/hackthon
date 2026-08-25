@@ -382,8 +382,10 @@ describe('teacher course workbench outline streaming', () => {
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
-    expect(pptWrapper.get('.ppt-upload-primary').attributes('disabled')).toBeUndefined()
-    expect(pptWrapper.get('.ppt-generate-secondary').attributes('disabled')).toBeDefined()
+    expect(pptWrapper.get('.lesson-navigator').text()).toContain('第一讲')
+    expect(pptWrapper.get('.lesson-toolbar-status').text()).toContain('待生成')
+    expect(pptWrapper.get('.ppt-upload-secondary').attributes('disabled')).toBeUndefined()
+    expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
   })
 
   it('讲稿确认成功后停留当前阶段，由左侧五步流程负责切换', async () => {

@@ -33,7 +33,7 @@
         'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
       }"
     >
-      <header v-if="!['lesson', 'question-bank', 'script'].includes(activeStage)" class="center-heading">
+      <header v-if="!['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage)" class="center-heading">
         <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
         <button
           v-if="showOutlineWorkspace"
@@ -187,29 +187,13 @@
               </div>
             </div>
             <div v-if="lessonPageHeaderVisible" class="lesson-toolbar-status" role="status">
-              <LoaderCircle v-if="activeStage === 'script' ? scriptGenerationBusy || scriptConfirming : lessonConfirming" :size="14" class="spin" />
+              <LoaderCircle v-if="lessonHeaderBusy" :size="14" class="spin" />
               <Sparkles v-else-if="aiCandidatePending" :size="14" />
-              <Pencil v-else-if="activeStage === 'script' ? scriptDocumentEditing : lessonDocumentEditing" :size="14" />
-              <Check v-else-if="activeStage === 'script' ? scriptConfirmed : lessonPlanConfirmed" :size="14" />
-              <span>{{ activeStage === 'script' && scriptGenerationBusy
-                ? t('courseWorkbench.scriptDocument.generating', '正在生成…')
-                : activeStage === 'script' && scriptConfirming
-                  ? t('courseWorkbench.scriptDocument.confirming', '正在确认…')
-                  : activeStage === 'lesson' && lessonConfirming
-                    ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
-                : aiCandidatePending
-                  ? t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
-                  : activeStage === 'script' && scriptDocumentEditing
-                    ? t('courseWorkbench.scriptDocument.editing', '编辑中')
-                    : activeStage === 'lesson' && lessonDocumentEditing
-                      ? t('courseWorkbench.lessonDocument.editing', '编辑中')
-                      : activeStage === 'script' && scriptConfirmed
-                        ? t('courseWorkbench.scriptDocument.confirmed', '已确认')
-                        : activeStage === 'lesson' && lessonPlanConfirmed
-                          ? t('courseWorkbench.lessonPlanConfirmed', '已确认')
-                          : activeStage === 'script' && !selectedLesson?.script.ready
-                            ? t('courseWorkbench.scriptPending', '待生成')
-                            : t('courseWorkbench.lessonPlanPendingReview', '待确认') }}</span>
+              <Pencil v-else-if="lessonHeaderEditing" :size="14" />
+              <Check v-else-if="lessonHeaderConfirmed" :size="14" />
+              <TriangleAlert v-else-if="activeStage === 'ppt' && pptNeedsRefresh" :size="14" />
+              <Presentation v-else-if="activeStage === 'ppt'" :size="14" />
+              <span>{{ lessonHeaderStatusLabel }}</span>
             </div>
           </div>
           <div class="lesson-switch-actions">
@@ -924,7 +908,7 @@ const aiCandidateImpacts = computed(() => {
 })
 const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const lessonToolbarVisible = computed(() => activeStage.value === 'lesson' && Boolean(workingLessonRevision.value && selectedLesson.value) && !lessonGenerationActive.value)
-const lessonPageHeaderVisible = computed(() => ['lesson', 'script'].includes(activeStage.value) && Boolean(selectedLesson.value))
+const lessonPageHeaderVisible = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) && Boolean(selectedLesson.value))
 const lessonDocumentEditing = computed(() => Boolean(lessonPlanDocument.value?.editing))
 const lessonDocumentSaving = computed(() => Boolean(lessonPlanDocument.value?.saving))
 const lessonDocumentAiBusy = computed(() => Boolean(lessonPlanDocument.value?.aiBusy))
@@ -935,6 +919,40 @@ const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Bo
 const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
 const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving))
 const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy))
+const currentPptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(asset => (
+  ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current'
+)))
+const pptNeedsRefresh = computed(() => Boolean(
+  !currentPptAsset.value && selectedLesson.value?.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || ''))),
+))
+const lessonHeaderBusy = computed(() => activeStage.value === 'script'
+  ? scriptGenerationBusy.value || scriptConfirming.value
+  : activeStage.value === 'lesson' && lessonConfirming.value)
+const lessonHeaderEditing = computed(() => activeStage.value === 'script'
+  ? scriptDocumentEditing.value
+  : activeStage.value === 'lesson' && lessonDocumentEditing.value)
+const lessonHeaderConfirmed = computed(() => activeStage.value === 'ppt'
+  ? Boolean(currentPptAsset.value)
+  : activeStage.value === 'script'
+    ? scriptConfirmed.value
+    : lessonPlanConfirmed.value)
+const lessonHeaderStatusLabel = computed(() => {
+  if (activeStage.value === 'ppt') {
+    if (currentPptAsset.value) return t('courseWorkbench.pptReview.currentStatus', '已有当前 PPT')
+    if (pptNeedsRefresh.value) return t('courseWorkbench.pptReview.refreshRequired', '待更新')
+    return t('courseWorkbench.pptReview.pendingStatus', '待生成')
+  }
+  if (activeStage.value === 'script' && scriptGenerationBusy.value) return t('courseWorkbench.scriptDocument.generating', '正在生成…')
+  if (activeStage.value === 'script' && scriptConfirming.value) return t('courseWorkbench.scriptDocument.confirming', '正在确认…')
+  if (activeStage.value === 'lesson' && lessonConfirming.value) return t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+  if (aiCandidatePending.value) return t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
+  if (activeStage.value === 'script' && scriptDocumentEditing.value) return t('courseWorkbench.scriptDocument.editing', '编辑中')
+  if (activeStage.value === 'lesson' && lessonDocumentEditing.value) return t('courseWorkbench.lessonDocument.editing', '编辑中')
+  if (activeStage.value === 'script' && scriptConfirmed.value) return t('courseWorkbench.scriptDocument.confirmed', '已确认')
+  if (activeStage.value === 'lesson' && lessonPlanConfirmed.value) return t('courseWorkbench.lessonPlanConfirmed', '已确认')
+  if (activeStage.value === 'script' && !selectedLesson.value?.script.ready) return t('courseWorkbench.scriptPending', '待生成')
+  return t('courseWorkbench.lessonPlanPendingReview', '待确认')
+})
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskStatus = computed(() => String(generationTask.value?.status || ''))
 const taskInFlight = computed(() => ['pending', 'running'].includes(taskStatus.value))
@@ -1707,7 +1725,6 @@ onBeforeUnmount(() => {
 .is-ppt-stage>.workbench-center{padding:24px 30px 0}
 .is-ppt-stage>.workbench-center>.center-heading,.is-ppt-stage .lesson-stage{width:100%;max-width:none}
 .is-ppt-stage .lesson-stage{overflow:hidden;border-radius:14px}
-.is-ppt-stage .lesson-navigator{display:none}
 .is-question-bank-workspace>.workbench-center{padding:24px 30px 0}
 .is-question-bank-workspace>.workbench-center>.center-heading,.is-question-bank-workspace .lesson-stage,.is-question-bank-workspace .question-workbench-surface{width:100%;max-width:none}
 .is-question-bank-workspace>.workbench-center>.center-heading{margin-bottom:14px}

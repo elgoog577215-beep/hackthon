@@ -47,9 +47,12 @@ describe('uploaded PPT review workspace', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('已确认教案')
-    expect(wrapper.text()).toContain('已确认讲稿')
-    expect(wrapper.text()).toContain('高置信建议')
+    expect(wrapper.find('.ppt-review-report').exists()).toBe(false)
+    expect(wrapper.get('.ppt-report-toggle').text()).toContain('1')
+    await wrapper.get('.ppt-report-toggle').trigger('click')
+    expect(wrapper.get('.ppt-review-report').text()).toContain('已确认教案')
+    expect(wrapper.get('.ppt-review-report').text()).toContain('已确认讲稿')
+    expect(wrapper.get('.ppt-review-report').text()).toContain('高置信建议')
     expect(wrapper.text()).not.toContain('100%')
 
     await wrapper.get('.ppt-slide-workarea>header button').trigger('click')
