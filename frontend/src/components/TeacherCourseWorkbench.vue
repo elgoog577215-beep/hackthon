@@ -33,7 +33,7 @@
         'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
       }"
     >
-      <header class="center-heading">
+      <header v-if="activeStage !== 'lesson'" class="center-heading">
         <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
         <button
           v-if="showOutlineWorkspace"
@@ -130,7 +130,12 @@
       <section v-else class="lesson-stage" :class="{ 'has-lesson-outline': activeStage === 'lesson' && lessonStore.lessons.length && !outlineGatePending }">
         <div class="lesson-workspace">
           <div class="lesson-stage-content">
-        <nav v-if="lessonStore.lessons.length && !outlineGatePending" class="lesson-navigator" :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')">
+        <nav
+          v-if="lessonStore.lessons.length && !outlineGatePending"
+          class="lesson-navigator"
+          :class="{ 'has-document-actions': lessonToolbarVisible }"
+          :aria-label="t('courseWorkbench.lessonNavigation', '课次导航')"
+        >
           <button type="button" :disabled="!previousLesson || aiCandidatePending" @click="selectLesson(previousLesson?.lesson_unit_id)"><ChevronLeft :size="15" />{{ t('courseWorkbench.previousLesson', '上一讲') }}</button>
           <div class="lesson-current-group">
             <div ref="lessonOutlineRoot" class="lesson-outline-control">
@@ -183,6 +188,44 @@
             </div>
           </div>
           <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
+          <div v-if="lessonToolbarVisible" class="lesson-toolbar-actions">
+            <template v-if="aiCandidatePending">
+              <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiCandidate', 'AI 方案') }}</button>
+              <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.lessonDocument.discardAi', '放弃') }}</button>
+              <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
+                <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
+                <Check v-else :size="15" />
+                {{ aiCollaborationBusy ? t('courseWorkbench.lessonDocument.applyingAi', '正在采用…') : t('courseWorkbench.lessonDocument.applyAi', '采用') }}
+              </button>
+            </template>
+            <template v-else-if="lessonDocumentEditing">
+              <button type="button" :disabled="lessonDocumentSaving" @click="cancelLessonPlanEditing"><X :size="15" />{{ t('courseWorkbench.lessonDocument.cancel', '取消') }}</button>
+              <button class="primary-action" type="button" :disabled="lessonDocumentSaving" @click="saveLessonPlanDraft">
+                <LoaderCircle v-if="lessonDocumentSaving" :size="15" class="spin" />
+                <Check v-else :size="15" />
+                {{ lessonDocumentSaving ? t('courseWorkbench.lessonDocument.saving', '正在保存…') : t('courseWorkbench.lessonDocument.finishEditing', '完成编辑') }}
+              </button>
+            </template>
+            <template v-else>
+              <button type="button" :disabled="lessonDocumentAiBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}</button>
+              <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
+              <button
+                class="primary-action"
+                type="button"
+                :disabled="lessonConfirming || lessonDocumentQualityBlocked"
+                :title="lessonDocumentQualityBlocked ? lessonDocumentQualityBlockMessage : ''"
+                @click="continueLessonPlanWorkflow"
+              >
+                <LoaderCircle v-if="lessonConfirming" :size="15" class="spin" />
+                <ArrowRight v-else :size="15" />
+                {{ lessonConfirming
+                  ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+                  : lessonPlanConfirmed
+                    ? t('courseWorkbench.lessonDocument.next', '进入题库')
+                    : t('courseWorkbench.confirmLessonPlanAndContinue', '确认并进入题库') }}
+              </button>
+            </template>
+          </div>
         </nav>
         <nav
           v-if="activeStage === 'lesson' && selectedLesson?.sections.length && !lessonStageBlocked"
@@ -256,7 +299,6 @@
             </aside>
             <article v-if="lessonStreamSegments.length" class="lesson-stream-document" :aria-label="t('courseWorkbench.lessonStreamDraft', 'AI 工作稿')">
               <small>{{ t('courseWorkbench.lessonStreamDraft', 'AI 工作稿') }}</small>
-              <h3>{{ selectedLesson?.title }}</h3>
               <p v-for="(segment, index) in lessonStreamSegments" :key="`${index}-${segment}`">
                 {{ segment }}<span v-if="index === lessonStreamSegments.length - 1" class="stream-caret" />
               </p>
@@ -297,6 +339,7 @@
             :confirm-error="lessonConfirmError"
             :active-section-id="selectedLessonSectionId"
             :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
+            external-toolbar
             @update:active-section-id="selectLessonSection(selectedLesson.lesson_unit_id, $event)"
             @confirm="confirmLessonPlan"
             @next="activeStage = 'question-bank'"
@@ -426,7 +469,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert } from 'lucide-vue-next'
+import { ArrowRight, BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -464,6 +507,14 @@ type LessonPlanDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusCandidate: () => void
+  editing: boolean
+  saving: boolean
+  aiBusy: boolean
+  qualityBlocked: boolean
+  qualityBlockMessage: string
+  beginEditing: () => void
+  cancelEditing: () => void
+  saveDraft: () => Promise<void>
 }
 type ProductionAiDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<Record<string, any> | null>
@@ -796,6 +847,12 @@ const aiCandidateImpacts = computed(() => {
   return []
 })
 const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
+const lessonToolbarVisible = computed(() => activeStage.value === 'lesson' && Boolean(workingLessonRevision.value && selectedLesson.value) && !lessonGenerationActive.value)
+const lessonDocumentEditing = computed(() => Boolean(lessonPlanDocument.value?.editing))
+const lessonDocumentSaving = computed(() => Boolean(lessonPlanDocument.value?.saving))
+const lessonDocumentAiBusy = computed(() => Boolean(lessonPlanDocument.value?.aiBusy))
+const lessonDocumentQualityBlocked = computed(() => Boolean(lessonPlanDocument.value?.qualityBlocked))
+const lessonDocumentQualityBlockMessage = computed(() => String(lessonPlanDocument.value?.qualityBlockMessage || ''))
 const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.confirmed))
 const generationTask = computed(() => generationStore.getTask(props.courseId))
 const taskStatus = computed(() => String(generationTask.value?.status || ''))
@@ -1305,6 +1362,16 @@ async function cancelLessonGeneration() {
   await lessonStore.cancelJob(props.courseId, lessonJob.value.id).catch(() => undefined)
 }
 async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision); activeStage.value = 'question-bank' } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
+function beginLessonPlanEditing() { lessonPlanDocument.value?.beginEditing() }
+function cancelLessonPlanEditing() { lessonPlanDocument.value?.cancelEditing() }
+async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft() }
+function continueLessonPlanWorkflow() {
+  if (lessonPlanConfirmed.value) {
+    activeStage.value = 'question-bank'
+    return
+  }
+  void confirmLessonPlan()
+}
 function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
@@ -1575,4 +1642,17 @@ onBeforeUnmount(() => {
 @keyframes ai-source-drawer-in{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
 @media(max-width:900px){.teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 14px 340px;padding:10px}.ai-workspace-resizer::after{inset-block:12px}.ai-source-drawer{top:10px;right:364px;bottom:10px;width:min(320px,calc(100% - 442px))}}
 @media(prefers-reduced-motion:reduce){.ai-workspace-resizer>svg{transition:none}.ai-source-drawer{animation:none}}
+
+/* The lesson page uses one compact toolbar: lesson navigation, editing, AI, and workflow actions. */
+.workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
+.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:auto minmax(180px,1fr) auto auto;gap:8px}
+.lesson-toolbar-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-left:8px;border-left:1px solid #e2e6ee;white-space:nowrap}
+.lesson-toolbar-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:11.5px;font-weight:750;cursor:pointer}
+.lesson-toolbar-actions button:hover:not(:disabled){color:#3730a3;background:#f0f1f8}
+.lesson-toolbar-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-toolbar-actions button:disabled{opacity:.48;cursor:not-allowed}
+.lesson-toolbar-actions .primary-action{margin-left:3px;border-color:#d7ddea;color:#3730a3;background:#fff}
+.lesson-toolbar-actions .primary-action:hover:not(:disabled){border-color:#c6cbe0;background:#f7f7ff}
+@media(max-width:1320px){.lesson-toolbar-actions button:not(.primary-action){width:34px;padding:0;font-size:0}.lesson-toolbar-actions button:not(.primary-action) svg{display:block}}
+@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:auto minmax(120px,1fr) auto auto}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
 </style>

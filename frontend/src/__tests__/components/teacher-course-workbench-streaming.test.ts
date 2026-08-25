@@ -326,7 +326,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.lesson-generation-surface').text()).toContain('正在冻结知识职责')
+    expect(wrapper.get('.lesson-generation-float').text()).toContain('正在冻结知识职责')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('AI 工作稿')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('学生能够解释爬虫的工作流程')
     expect(wrapper.find('.lesson-stream-document .stream-caret').exists()).toBe(true)
@@ -369,8 +369,8 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待确认')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
-    expect(lessonWrapper.get('.document-footer button').text()).toContain('确认并进入题库')
-    await lessonWrapper.get('.document-footer button').trigger('click')
+    expect(lessonWrapper.get('.lesson-toolbar-actions .primary-action').text()).toContain('确认并进入题库')
+    await lessonWrapper.get('.lesson-toolbar-actions .primary-action').trigger('click')
     expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
     expect(lessonWrapper.get('.center-heading h2').text()).toBe('题库')
 

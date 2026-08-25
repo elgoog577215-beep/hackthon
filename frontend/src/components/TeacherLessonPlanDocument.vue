@@ -1,6 +1,6 @@
 <template>
   <section ref="documentRoot" class="lesson-document" :class="{ 'is-ai-candidate': pendingCandidate }">
-    <header class="document-header">
+    <header v-if="!externalToolbar" class="document-header">
       <div class="document-title">
         <h3>{{ lesson.title }}</h3>
       </div>
@@ -39,7 +39,7 @@
       </div>
     </header>
 
-    <div v-if="pendingCandidate" class="candidate-canvas-notice" role="status">
+    <div v-if="pendingCandidate && !externalToolbar" class="candidate-canvas-notice" role="status">
       <Sparkles :size="16" />
       <span>
         <strong>{{ tr('courseWorkbench.lessonDocument.candidateCanvasTitle') }}</strong>
@@ -49,7 +49,7 @@
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
     <article v-if="selectedSection" class="document-body">
-      <header class="section-title">
+      <header v-if="!externalToolbar" class="section-title">
         <h4>{{ sectionTitle(selectedSection) }}</h4>
       </header>
       <section :class="['document-section', 'objective-section', { 'ai-change-target': candidateChanged('learning_objective') }]">
@@ -210,7 +210,7 @@
 
     <div v-else class="document-empty">{{ tr('courseWorkbench.lessonPlanPreparing') }}</div>
 
-    <footer v-if="!pendingCandidate && !editing" class="document-footer">
+    <footer v-if="!externalToolbar && !pendingCandidate && !editing" class="document-footer">
       <button
         type="button"
         :disabled="confirming || qualityBlocked"
@@ -250,6 +250,7 @@ const props = withDefaults(defineProps<{
   confirmError?: string
   activeSectionId?: string
   materialAssetIds?: string[]
+  externalToolbar?: boolean
 }>(), {
   confirmed: false,
   assistantOpen: false,
@@ -257,6 +258,7 @@ const props = withDefaults(defineProps<{
   confirmError: '',
   activeSectionId: '',
   materialAssetIds: () => [],
+  externalToolbar: false,
 })
 
 const emit = defineEmits<{
@@ -573,7 +575,19 @@ watch(aiError, error => emit('ai-error', error ? toAppError(error, {
   fallback: tr('courseWorkbench.lessonDocument.aiFailed'),
 }).summary : ''))
 
-defineExpose({ requestAiCandidate, resolveAiCandidate, focusCandidate })
+defineExpose({
+  requestAiCandidate,
+  resolveAiCandidate,
+  focusCandidate,
+  editing,
+  saving,
+  aiBusy,
+  qualityBlocked,
+  qualityBlockMessage,
+  beginEditing,
+  cancelEditing,
+  saveDraft,
+})
 </script>
 
 <style scoped>
