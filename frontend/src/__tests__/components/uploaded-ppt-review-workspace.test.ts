@@ -66,7 +66,7 @@ describe('uploaded PPT review workspace', () => {
     expect(wrapper.get('.ppt-slide-canvas h3').text()).toBe('新标题')
   })
 
-  it('根据 PPT 阶段资料切换生成分支，并隐藏 502 技术错误', async () => {
+  it('首屏只提供 AI 生成与上传审阅两条路径，并隐藏 502 技术错误', async () => {
     vi.spyOn(http, 'get').mockResolvedValueOnce({ data: { review: null } })
     const wrapper = mount(UploadedPptReviewWorkspace, {
       props: {
@@ -80,9 +80,11 @@ describe('uploaded PPT review workspace', () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain('结合讲稿与资料生成')
-    expect(wrapper.text()).toContain('已选 2 份额外资料')
-    expect(wrapper.text()).toContain('先生成 PPT 文书，再生成 PPT')
+    expect(wrapper.get('.ppt-generate-primary').text()).toContain('AI 生成')
+    expect(wrapper.get('.ppt-upload-secondary').text()).toContain('上传并审阅')
+    expect(wrapper.find('.ppt-source-mode').exists()).toBe(false)
+    await wrapper.get('.ppt-generate-primary').trigger('click')
+    expect(wrapper.emitted('generate')).toHaveLength(1)
 
     vi.mocked(http.get).mockRejectedValueOnce({
       response: { status: 502, data: { detail: 'Request failed with status code 502' } },

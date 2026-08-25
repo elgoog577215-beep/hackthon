@@ -1,13 +1,22 @@
 <template>
-  <aside class="reference-tray" :class="{ 'is-compact': compact, 'is-question-bank': variant === 'question-bank' }" :aria-label="t('courseWorkbench.references.title', '信息来源')">
+  <aside class="reference-tray" :class="{ 'is-compact': compact, 'is-question-bank': variant === 'question-bank', 'is-ppt': stage === 'ppt' }" :aria-label="trayTitle">
     <header v-if="variant === 'default'" class="reference-tray__header">
-      <strong>{{ t('courseWorkbench.references.title', '信息来源') }}</strong>
+      <div class="reference-tray__title">
+        <span v-if="stage === 'ppt'"><Sparkles :size="16" /></span>
+        <div>
+          <strong>{{ trayTitle }}</strong>
+          <small v-if="stage === 'ppt'">{{ t('courseWorkbench.references.pptSmartCount', '已加入 {count} 份').replace('{count}', String(selected.length)) }}</small>
+        </div>
+      </div>
       <button v-if="showClose" type="button" :title="t('common.close', '关闭')" :aria-label="t('common.close', '关闭')" @click="emit('close')"><X :size="16" /></button>
     </header>
 
     <button v-if="variant === 'default'" type="button" class="system-context" @click="emit('open-course-information')">
       <span><Database :size="16" /></span>
-      <strong>{{ t('courseWorkbench.references.systemContext', '课程上下文') }}</strong>
+      <div>
+        <strong>{{ stage === 'ppt' ? t('courseWorkbench.references.pptContext', '课程内容基线') : t('courseWorkbench.references.systemContext', '课程上下文') }}</strong>
+        <small v-if="stage === 'ppt'">{{ t('courseWorkbench.references.pptContextAuto', 'AI 自动读取') }}</small>
+      </div>
       <ChevronRight :size="15" />
     </button>
 
@@ -23,7 +32,38 @@
       <small>{{ previousAvailableSources.length }}</small>
     </button>
 
-    <section v-if="variant === 'default'" class="source-group">
+    <section v-if="variant === 'default' && stage === 'ppt'" class="source-group ppt-smart-sources">
+      <div class="group-heading"><strong>{{ t('courseWorkbench.references.pptCurrentSources', '本次使用') }}</strong><small>{{ selected.length }}</small></div>
+      <div v-if="selected.length" class="ppt-smart-source-list">
+        <div v-for="item in selected" :key="item.asset_id" class="ppt-smart-source-item">
+          <span><Globe2 v-if="item.origin === 'web_search'" :size="17" /><FileText v-else :size="17" /></span>
+          <div>
+            <strong>{{ item.source_label || item.filename }}</strong>
+            <small>{{ sourceRoleLabel(item) }}<template v-if="item.origin !== 'web_search'"> · {{ fileSize(item.size_bytes) }}</template></small>
+          </div>
+          <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+        </div>
+      </div>
+      <div v-else class="ppt-smart-empty">
+        <Sparkles :size="20" />
+        <strong>{{ t('courseWorkbench.references.pptEmpty', '尚未添加补充资料') }}</strong>
+        <span>{{ t('courseWorkbench.references.pptEmptyHint', 'AI 将先使用已确认讲稿，新增资料会显示在这里。') }}</span>
+      </div>
+      <div class="ppt-smart-actions">
+        <button
+          type="button"
+          :class="{ dragging: dragRole === 'reference' }"
+          @click="smartInput?.click()"
+          @dragover.prevent="dragRole = 'reference'"
+          @dragleave="dragRole = ''"
+          @drop.prevent="handleSmartDrop"
+        ><Plus :size="16" />{{ t('courseWorkbench.references.pptAddSources', '添加资料') }}</button>
+        <button type="button" @click="researchVisible = true"><Search :size="16" />{{ t('courseWorkbench.references.pptWebResearch', '联网查找') }}</button>
+      </div>
+      <input ref="smartInput" class="visually-hidden" type="file" multiple @change="handleSmartInput" />
+    </section>
+
+    <section v-if="variant === 'default' && stage !== 'ppt'" class="source-group">
       <div class="group-heading"><strong>{{ stage === 'ppt' ? t('courseWorkbench.references.pptPrimary', '主参考') : t('courseWorkbench.references.primary', '主来源') }}</strong><small>{{ t('courseWorkbench.references.primaryLimit', '最多 1 份') }}</small></div>
       <div
         class="drop-zone"
@@ -42,7 +82,7 @@
       <input ref="primaryInput" class="visually-hidden" type="file" @change="handleInput($event, 'primary')" />
     </section>
 
-    <section v-if="variant === 'default'" class="source-group source-group--references">
+    <section v-if="variant === 'default' && stage !== 'ppt'" class="source-group source-group--references">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.supporting', '参考资料') }}</strong><small>{{ referenceSources.length }}</small></div>
       <div class="reference-list">
         <div v-for="item in referenceSources" :key="item.asset_id" class="reference-item">
@@ -61,7 +101,7 @@
       <input ref="referenceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'reference')" />
     </section>
 
-    <section class="source-group source-group--web">
+    <section v-if="stage !== 'ppt'" class="source-group source-group--web">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
       <div class="web-source-list">
         <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
@@ -88,7 +128,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ChevronRight, CopyPlus, Database, ExternalLink, FileText, Globe2, Plus, Search, X } from 'lucide-vue-next'
+import { ChevronRight, CopyPlus, Database, ExternalLink, FileText, Globe2, Plus, Search, Sparkles, X } from 'lucide-vue-next'
 import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
 import http, { teacherRequestConfig } from '../utils/http'
@@ -153,6 +193,7 @@ const researchVisible = ref(false)
 const dragRole = ref<'' | 'primary' | 'reference'>('')
 const primaryInput = ref<HTMLInputElement | null>(null)
 const referenceInput = ref<HTMLInputElement | null>(null)
+const smartInput = ref<HTMLInputElement | null>(null)
 const primarySource = computed(() => selected.value.find(item => item.role === 'primary'))
 const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin !== 'web_search'))
 const webSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin === 'web_search'))
@@ -160,6 +201,9 @@ const availableMaterials = computed(() => {
   const chosen = new Set(selected.value.map(item => item.asset_id))
   return materials.value.filter(item => !chosen.has(item.asset_id))
 })
+const trayTitle = computed(() => props.stage === 'ppt'
+  ? t('courseWorkbench.references.pptSmartTitle', 'PPT 智能资料')
+  : t('courseWorkbench.references.title', '信息来源'))
 const previousAvailableSources = computed(() => {
   if (!props.previousScopeTargetId) return []
   const chosen = new Set(selected.value.map(item => item.asset_id))
@@ -179,6 +223,12 @@ function applySelection(value: CourseReferenceItem[], persist: boolean) {
 }
 function commit(value: CourseReferenceItem[]) { applySelection(value, true) }
 function fileSize(value: number) { return value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB` }
+function sourceRoleLabel(item: CourseReferenceItem) {
+  if (item.origin === 'web_search') return t('courseWorkbench.references.webSources', '联网来源')
+  return item.role === 'primary'
+    ? t('courseWorkbench.references.pptPrimary', '主参考')
+    : t('courseWorkbench.references.supporting', '参考资料')
+}
 
 async function resolvePackageId(value: CourseReferenceItem[]) {
   const direct = value[0]?.package_id || materials.value[0]?.package_id
@@ -282,8 +332,24 @@ function handleInput(event: Event, role: 'primary' | 'reference') {
   input.value = ''
 }
 function handleDrop(event: DragEvent, role: 'primary' | 'reference') { dragRole.value = ''; void uploadFiles(Array.from(event.dataTransfer?.files || []), role) }
+async function uploadSmartFiles(files: File[]) {
+  if (!files.length) return
+  let remaining = files
+  if (!primarySource.value) {
+    await uploadFiles(files.slice(0, 1), 'primary')
+    if (!primarySource.value) return
+    remaining = files.slice(1)
+  }
+  if (remaining.length) await uploadFiles(remaining, 'reference')
+}
+function handleSmartInput(event: Event) {
+  const input = event.target as HTMLInputElement
+  void uploadSmartFiles(Array.from(input.files || []))
+  input.value = ''
+}
+function handleSmartDrop(event: DragEvent) { dragRole.value = ''; void uploadSmartFiles(Array.from(event.dataTransfer?.files || [])) }
 function removeSource(assetId: string) { commit(selected.value.filter(item => item.asset_id !== assetId)) }
-function addExisting(item: CourseReferenceItem) { commit([...selected.value, { ...item, role: 'reference' }]) }
+function addExisting(item: CourseReferenceItem) { commit([...selected.value, { ...item, role: props.stage === 'ppt' && !primarySource.value ? 'primary' : 'reference' }]) }
 function reusePreviousSources() {
   let hasPrimary = selected.value.some(item => item.role === 'primary')
   const reused = previousAvailableSources.value.map(item => {
@@ -300,6 +366,7 @@ onMounted(loadAll)
 
 <style scoped>
 .reference-tray{min-width:0;min-height:0;overflow:auto;border-left:1px solid #e4e9f1;background:#fbfcfe}.reference-tray__header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px 0 16px;border-bottom:1px solid #e7ebf2;background:#fff}.reference-tray__header strong{color:#243047;font-size:14px}.reference-tray__header button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.reference-tray__header button:hover{color:#334155;background:#f3f5f8}.reference-tray__header button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.system-context{width:calc(100% - 32px);display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;margin:16px 16px 4px;padding:10px 12px;border:1px solid #e2e7ef;border-radius:10px;color:inherit;background:#fff;text-align:left;font:inherit;cursor:pointer}.system-context:hover{border-color:#c9c8f7;background:#fafaff}.system-context:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.system-context>span{width:34px;height:34px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.system-context strong{min-width:0;overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.system-context>svg{color:#7b8798}.reference-tray.is-compact .system-context{min-height:46px}.reuse-previous{min-height:34px;display:flex;align-items:center;gap:7px;margin:8px 16px 0;padding:0;border:0;color:#4f46e5;background:transparent;font:inherit;font-size:12px;font-weight:700;cursor:pointer}.reuse-previous small{min-width:20px;height:20px;display:grid;place-items:center;border-radius:10px;color:#4338ca;background:#eef2ff;font-size:11px}.reuse-previous:hover:not(:disabled){color:#3730a3}.reuse-previous:focus-visible{outline:2px solid #6366f1;outline-offset:3px}.reuse-previous:disabled{opacity:.5;cursor:not-allowed}.source-group,.material-library{display:grid;gap:8px;padding:16px 16px 0}.group-heading{display:flex;align-items:center;justify-content:space-between;color:#334155;font-size:12px}.group-heading small{color:#64748b}.drop-zone{min-height:78px;display:flex;align-items:center;gap:10px;padding:10px;border:1px dashed #b9c3d2;border-radius:10px;color:#64748b;background:#fff}.drop-zone.dragging,.reference-add.dragging{border-color:#5b57e8;background:#f4f4ff}.drop-zone.has-file{border-style:solid}.drop-zone>div,.reference-item>div{min-width:0;display:grid;gap:3px;flex:1}.drop-zone strong,.reference-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.drop-zone small,.reference-item small{color:#64748b;font-size:11px}.drop-zone>button:not(.empty-drop),.reference-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.empty-drop{width:100%;min-height:58px;display:flex;align-items:center;justify-content:center;gap:7px;border:0;color:#4f46e5;background:transparent;font-size:12px;font-weight:700;cursor:pointer}.reference-list{display:grid;gap:7px}.reference-item{min-height:54px;display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.reference-item>svg{color:#6366f1}.reference-add{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #b9c3d2;border-radius:9px;color:#4f46e5;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.material-library{padding-bottom:18px}.material-library>button{min-height:38px;display:grid;grid-template-columns:18px minmax(0,1fr) 16px;align-items:center;gap:7px;padding:0 9px;border:0;border-radius:7px;color:#475569;background:transparent;text-align:left;cursor:pointer}.material-library>button:hover{background:#eef2ff;color:#4338ca}.material-library>button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}.material-library>p{margin:3px 0;color:#64748b;font-size:12px}.tray-error{margin:12px 16px;padding:9px 10px;border-radius:8px;color:#b91c1c;background:#fff1f2;font-size:12px}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.reference-tray__title{min-width:0;display:flex;align-items:center;gap:9px}.reference-tray__title>span{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.reference-tray__title>div{min-width:0;display:grid;gap:1px}.reference-tray__title small{color:#778397;font-size:10px}.system-context>div{min-width:0;display:grid;gap:2px}.system-context small{color:#788497;font-size:10px}.reference-tray.is-ppt{background:#fff}.ppt-smart-sources{gap:10px}.ppt-smart-source-list{display:grid;gap:7px}.ppt-smart-source-item{min-height:54px;display:grid;grid-template-columns:32px minmax(0,1fr) 28px;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;background:#f7f8fc}.ppt-smart-source-item>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#ececff}.ppt-smart-source-item>div{min-width:0;display:grid;gap:2px}.ppt-smart-source-item strong{overflow:hidden;color:#303b50;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-smart-source-item small{color:#788497;font-size:10px}.ppt-smart-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;color:#7c8798;background:transparent;cursor:pointer}.ppt-smart-source-item>button:hover{color:#334155;background:#e9ebf2}.ppt-smart-empty{min-height:116px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;padding:16px;color:#625dd7;text-align:center}.ppt-smart-empty strong{color:#3b4659;font-size:12px}.ppt-smart-empty span{max-width:230px;color:#788497;font-size:10.5px;line-height:1.5}.ppt-smart-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.ppt-smart-actions button{min-height:40px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #dce1e9;border-radius:9px;color:#4d596e;background:#fff;font-size:11.5px;font-weight:700;cursor:pointer}.ppt-smart-actions button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.ppt-smart-actions button.dragging{border-color:#5b57e8;background:#f4f4ff}.ppt-smart-actions button:focus-visible,.ppt-smart-source-item>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .source-group--web{padding-top:18px}.web-source-list{display:grid;gap:7px}.web-source-item{min-height:56px;display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:9px;padding:8px 9px;border:1px solid #dce5f0;border-radius:9px;background:#fff}.web-source-item>svg{color:#0f766e}.web-source-item>div{min-width:0;display:grid;gap:3px}.web-source-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.web-source-item a{display:flex;align-items:center;gap:4px;overflow:hidden;color:#0f766e;font-size:12px;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.web-source-item small{color:#64748b;font-size:12px}.web-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.web-research-open{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #8fbab5;border-radius:9px;color:#0f766e;background:#f4fbfa;font-size:12px;font-weight:750;cursor:pointer}
 .reference-tray.is-question-bank{overflow:visible;border-left:0;background:transparent}.reference-tray.is-question-bank .source-group--web{padding:18px 16px 20px;border-top:1px solid #e7ebf2}.reference-tray.is-question-bank .web-research-open{min-height:48px}
 </style>
