@@ -67,6 +67,35 @@ describe('slide deck V6 web adapter', () => {
     expect(slide.quality.character_count).toBeGreaterThan(0)
   })
 
+  it('removes latex control words from composite-function audience titles', () => {
+    const slide = adaptSlideDeckV6ForWeb({
+      schema_version: 'slide_deck_v6',
+      pages: [{
+        page_id: 'composite-domain',
+        page_ordinal: 0,
+        title: '$(f\\circ g)(x)=\\ln(1-x^2)$',
+        resolved_layout: 'qizhi-classroom-v2@2026.08.18.1/evidence-formula',
+        source_block_ids: ['composite-domain-source'],
+        regions: [{
+          region_id: 'composite-domain:formula',
+          slot_id: 'formula',
+          content_kind: 'formula',
+          content: '$(f\\circ g)(x)=\\ln(1-x^2)$',
+          source_block_ids: ['composite-domain-source'],
+        }],
+        speaker_notes: {
+          source_document_revision: 'r1',
+          teaching_unit_id: 'u1',
+          source_blocks: [],
+        },
+      }],
+    })[0]!
+
+    expect(slide.title).toBe('(f∘ g)(x)=ln(1-x^2)')
+    expect(slide.title).not.toContain('\\')
+    expect(slide.title).not.toContain('$')
+  })
+
   it('uses the shared template adapter contract and preserves full V6 layout identity', () => {
     const content = {
       schema_version: 'slide_deck_v6',

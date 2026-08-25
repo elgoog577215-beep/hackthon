@@ -84,7 +84,16 @@
               v-if="resolvedPptManuscript?.page_count"
               class="slide-workbench__manual-status"
               data-testid="ppt-storyboard-status"
-            >{{ t('pptWorkspace.manuscriptLabel', 'PPT 文书') }} · {{ resolvedPptManuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ t('pptWorkspace.manuscriptBound', '已绑定讲稿与版式') }}</small>
+            >{{ t('pptWorkspace.manuscriptLabel', 'PPT 文书') }} · {{ resolvedPptManuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ resolvedPptManuscript.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlocked', '质量未通过，不能生成 PPT') : t('pptWorkspace.manuscriptBound', '已绑定讲稿与版式') }}</small>
+            <ul
+              v-if="resolvedPptManuscript?.quality_issues?.length"
+              class="slide-workbench__manuscript-issues"
+              data-testid="ppt-manuscript-quality-issues"
+            >
+              <li v-for="(issue, issueIndex) in resolvedPptManuscript.quality_issues" :key="`${issue.code || 'issue'}-${issue.page_id || issueIndex}`">
+                {{ issue.page_id ? `${issue.page_id}：` : '' }}{{ issue.message || issue.code }}
+              </li>
+            </ul>
             <small v-if="manuscriptConfirmError" class="slide-workbench__manual-status" data-testid="ppt-manuscript-confirm-error">{{ manuscriptConfirmError }}</small>
             <ol
               v-if="resolvedPptManuscript?.pages?.length"
@@ -95,6 +104,22 @@
                 <b>{{ Number(page.page_number || 0) || Number(page.page_ordinal || 0) + 1 }}</b>
                 <span>{{ page.title }}</span>
                 <small>{{ page.source_script_block_ids?.length || page.source_block_count || 0 }} {{ t('pptWorkspace.scriptSourceBlockUnit', '个讲稿来源块') }}</small>
+                <div
+                  v-if="page.page_goal || page.primary_claim || page.visible_copy?.length || page.composition_notes"
+                  class="slide-workbench__manuscript-page"
+                >
+                  <p><strong>{{ t('pptWorkspace.pageContract', '页面合同') }}：</strong>{{ page.page_type || '—' }} · {{ page.layout_id || '—' }}</p>
+                  <p v-if="page.page_goal"><strong>{{ t('pptWorkspace.pageGoal', '页面任务') }}：</strong>{{ page.page_goal }}</p>
+                  <p v-if="page.primary_claim"><strong>{{ t('pptWorkspace.primaryClaim', '核心结论') }}：</strong>{{ page.primary_claim }}</p>
+                  <p v-if="page.audience_question"><strong>{{ t('pptWorkspace.audienceQuestion', '学生问题') }}：</strong>{{ page.audience_question }}</p>
+                  <div v-if="page.visible_copy?.length" class="slide-workbench__manuscript-copy">
+                    <strong>{{ t('pptWorkspace.visibleCopy', '台上可见内容') }}：</strong>
+                    <span v-for="(copy, copyIndex) in page.visible_copy" :key="`${page.page_id}-copy-${copyIndex}`">{{ copy }}</span>
+                  </div>
+                  <p v-if="page.reveal_steps?.length"><strong>{{ t('pptWorkspace.revealSteps', '呈现顺序') }}：</strong>{{ page.reveal_steps.join(' → ') }}</p>
+                  <p v-if="page.transition"><strong>{{ t('pptWorkspace.transition', '页间过渡') }}：</strong>{{ page.transition }}</p>
+                  <p v-if="page.composition_notes"><strong>{{ t('pptWorkspace.compositionNotes', '构图') }}：</strong>{{ page.composition_notes }}</p>
+                </div>
               </li>
             </ol>
             <small
@@ -168,13 +193,13 @@
           v-if="standalone && manuscriptConfirmationRequired && resolvedPptManuscript?.page_count"
           type="button"
           data-testid="ppt-confirm-manuscript"
-          :disabled="building || manuscriptConfirming || manuscriptStatus === 'confirmed'"
-          :title="manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmedExportHint', '已确认，可导出正式 PPTX') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
+          :disabled="building || manuscriptConfirming || manuscriptStatus === 'confirmed' || resolvedPptManuscript?.quality_status === 'blocked'"
+          :title="resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlockedHint', '文书质量未通过，请重新生成或修改后再确认') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmedExportHint', '已确认，可导出正式 PPTX') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
           @click="emit('confirm-manuscript')"
         >
           <LoaderCircle v-if="manuscriptConfirming" :size="16" class="spinning" />
           <CircleCheck v-else :size="16" />
-          <span>{{ manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmed', 'PPT 文书已确认') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}</span>
+          <span>{{ resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptNeedsRevision', 'PPT 文书需修改') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmed', 'PPT 文书已确认') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}</span>
         </button>
         <button type="button" class="slide-workbench__export" :disabled="exportDisabled" :title="exportTitle" @click="downloadSlides">
           <LoaderCircle v-if="exportBusy" :size="16" class="spinning" />
@@ -1391,11 +1416,17 @@ function formatDuration(value: unknown) {
 .slide-workbench__degraded-visuals li { min-width:0; display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:7px; align-items:center; color:#7c4a0d; font-size:9px; line-height:1.35; }
 .slide-workbench__degraded-visuals code,.slide-workbench__degraded-visuals span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .slide-workbench__degraded-visuals code { color:#475467; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
-.slide-workbench__storyboard { max-height:180px; display:grid; gap:3px; margin:0; padding:6px; overflow:auto; border:1px solid #e4e7ec; border-radius:8px; background:#f8fafc; list-style:none; }
+.slide-workbench__storyboard { max-height:360px; display:grid; gap:5px; margin:0; padding:6px; overflow:auto; border:1px solid #e4e7ec; border-radius:8px; background:#f8fafc; list-style:none; }
 .slide-workbench__storyboard li { min-width:0; display:grid; grid-template-columns:20px minmax(0,1fr) auto; gap:7px; align-items:center; padding:5px 6px; border-radius:6px; color:#475467; background:#fff; font-size:9px; }
 .slide-workbench__storyboard b { color:#4f46e5; text-align:center; }
 .slide-workbench__storyboard span { overflow:hidden; color:#344054; font-weight:700; text-overflow:ellipsis; white-space:nowrap; }
 .slide-workbench__storyboard small { color:#98a2b3; font-size:8px; white-space:nowrap; }
+.slide-workbench__manuscript-issues { display:grid; gap:3px; margin:0; padding:6px 8px 6px 22px; border:1px solid #fed7aa; border-radius:7px; color:#9a3412; background:#fff7ed; font-size:9px; line-height:1.4; }
+.slide-workbench__manuscript-page { grid-column:1 / -1; display:grid; gap:4px; margin-top:2px; padding:7px 8px; border-top:1px solid #eef2f6; color:#475467; font-size:9px; line-height:1.45; }
+.slide-workbench__manuscript-page p { margin:0; }
+.slide-workbench__manuscript-page strong { color:#344054; }
+.slide-workbench__manuscript-copy { display:grid; gap:3px; }
+.slide-workbench__manuscript-copy span { padding-left:10px; overflow:visible; color:#475467; font-weight:400; text-overflow:clip; white-space:normal; }
 .slide-workbench__secondary-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding-top:4px; border-top:1px solid #eef1f5; }
 .slide-workbench__commands .slide-workbench__secondary-actions button { width:100%; justify-content:center; color:#475467; background:#fff; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }

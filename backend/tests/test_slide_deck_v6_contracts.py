@@ -28,14 +28,17 @@ from slide_deck_v6 import (
     _protected_tokens,
     build_signature_v6,
     classify_v6_failure,
+    compile_ppt_manuscript_v1,
     compile_ppt_source_contract_v2,
     compile_shadow_chapter_document,
     compile_slide_deck_v6,
+    compile_slide_deck_v6_from_manuscript,
     prepare_story_plan_for_final_compilation,
     story_page_count_range,
     story_safe_page_slices,
     validate_slide_story_plan_v3,
     validate_slide_visual_plan_v2,
+    validate_deck_matches_ppt_manuscript_v1,
 )
 from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec
 from template_layout_contract import compile_builtin_template_layout_contract_v1
@@ -900,7 +903,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         template_contract=template,
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v10"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v11"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
     assert baseline["signature"] != changed_materials["signature"]
@@ -965,6 +968,76 @@ def _valid_story(document: CourseDocument):
         ],
     )
     return graph, template, story
+
+
+def test_manuscript_is_frozen_before_deck_compilation() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="table" if page.template_layout_id.endswith("/evidence-table") else "text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+        source_lesson_plan_revision_id="plan-r1",
+        source_script_revision_id="script-r1",
+    )
+
+    assert manuscript.quality_status == "passed"
+    assert all(page.page_goal and page.primary_claim for page in manuscript.pages)
+    assert all(page.regions and page.speaker_notes for page in manuscript.pages)
+    deck = compile_slide_deck_v6_from_manuscript(
+        document,
+        graph,
+        manuscript,
+        template,
+    )
+    assert validate_deck_matches_ppt_manuscript_v1(deck, manuscript)
+    assert [page.title for page in deck.pages] == [
+        page.title for page in manuscript.pages
+    ]
+
+
+def test_deck_compilation_rejects_a_manuscript_changed_after_freeze() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="table" if page.template_layout_id.endswith("/evidence-table") else "text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    manuscript.pages[0].title = "未冻结的临时改写"
+
+    with pytest.raises(V6BuildError, match="ppt_manuscript_revision_mismatch"):
+        compile_slide_deck_v6_from_manuscript(
+            document,
+            graph,
+            manuscript,
+            template,
+        )
 
 
 def test_story_plan_rejects_missing_blocks_unknown_sources_and_legacy_layouts() -> None:

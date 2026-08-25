@@ -74,7 +74,7 @@ from course_document import (
     refresh_document_revision,
     stable_hash,
 )
-from slide_deck_v6 import SlideDeckV6, compile_ppt_manuscript_v1
+from slide_deck_v6 import SlideDeckV6, project_ppt_manuscript_from_deck_v1
 
 
 router = APIRouter(prefix="/teacher", tags=["teacher-lesson-authoring"])
@@ -207,6 +207,20 @@ def _raise(exc: TeacherLessonAuthoringError) -> None:
     ) from exc
 
 
+def _assert_ppt_manuscript_confirmable(manuscript: dict) -> None:
+    if manuscript.get("quality_status") != "passed":
+        issues = [
+            str(item).strip()
+            for item in manuscript.get("quality_issues") or []
+            if str(item).strip()
+        ]
+        raise TeacherLessonAuthoringError(
+            "lesson_ppt_manuscript_quality_blocked",
+            "PPT 文书质量未通过，修改后才能确认并生成正式 PPT。",
+            details={"quality_issues": issues},
+        )
+
+
 _V6_KEY_REGION_SLOTS = (
     "interpretation",
     "conclusion",
@@ -302,7 +316,7 @@ def _refresh_v6_ppt_manuscript(
         if isinstance(content.get("ppt_manuscript"), dict)
         else {}
     )
-    manuscript = compile_ppt_manuscript_v1(
+    manuscript = project_ppt_manuscript_from_deck_v1(
         deck,
         source_lesson_plan_revision_id=source_lesson_plan_revision_id,
         source_script_revision_id=str(teacher_source.get("script_revision_id") or ""),
@@ -1505,6 +1519,7 @@ async def get_teacher_lesson_v6_spec(
                 "source_state": str(asset.get("source_state") or "current"),
                 "confirmable": bool(
                     manuscript.get("manuscript_revision")
+                    and manuscript.get("quality_status") == "passed"
                     and asset.get("source_state") == "current"
                 ),
             },
@@ -1557,6 +1572,7 @@ async def confirm_teacher_lesson_v6_manuscript(
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_manuscript_not_found", "当前 PPT 没有可确认的文书。"
             )
+        _assert_ppt_manuscript_confirmable(manuscript)
         if manuscript.get("manuscript_revision") != body.manuscript_revision:
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_manuscript_revision_conflict",

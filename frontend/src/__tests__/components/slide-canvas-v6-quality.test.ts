@@ -13,6 +13,30 @@ const baseProps = {
 
 
 describe('SlideCanvas V6 sample-quality compositions', () => {
+  it('keeps the full audience title and formats composite-function commands', () => {
+    const wrapper = mount(SlideCanvas, {
+      props: {
+        ...baseProps,
+        slide: {
+          layout: 'concept',
+          title: '复合函数定义域要求内层输出落入外层定义域 $(f\\circ g)(x)=\\ln(1-x^2)$',
+          blocks: [{ block_id: 'body', type: 'statement', content: '先检查外层函数的输入条件。' }],
+        },
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: { props: ['content'], template: '<span>{{ content }}</span>' },
+          SlideVisualRenderer: { template: '<span />' },
+        },
+      },
+    })
+
+    const heading = wrapper.get('h2').text()
+    expect(heading).toContain('复合函数定义域要求内层输出落入外层定义域')
+    expect(heading).toContain('(f∘ g)(x)=ln(1-x^2)')
+    expect(heading).not.toContain('\\circ')
+  })
+
   it('renders agenda entries with chapter title and source-derived description', () => {
     const wrapper = mount(SlideCanvas, {
       props: {

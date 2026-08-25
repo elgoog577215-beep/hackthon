@@ -236,6 +236,16 @@ const formulaMarkdown = computed(() => {
     || '',
   ).trim()
   if (/^(?:\$\$|\\\[|\\\()/.test(source)) return source
+  const lines = source.split(/\n{2,}/).map(line => line.trim()).filter(Boolean)
+  if (lines.length > 1) {
+    return lines.map((line) => {
+      const inlineMath = line.match(/^\$(?!\$)([\s\S]+)\$$/)
+      return inlineMath ? `$$${inlineMath[1]}$$` : line
+    }).join('\n\n')
+  }
+  const inlineMath = source.match(/^\$(?!\$)([\s\S]+)\$$/)
+  if (inlineMath) return `$$${inlineMath[1]}$$`
+  if (source.includes('$')) return source
   return `$$${source}$$`
 })
 const tableHeaders = computed(() => visual.value?.parameters?.headers || ['顺序', '课程原文要点'])
@@ -419,12 +429,14 @@ onBeforeUnmount(revokeImage)
 .slide-visual__formula {
   display: grid;
   height: 100%;
-  padding: 8%;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: clamp(12px, 4%, 32px);
   place-items: center;
   color: var(--deck-ink);
   background: var(--deck-card);
   font-size: clamp(24px, 2.35cqw, 38px);
-  overflow: hidden;
+  overflow: auto;
 }
 .slide-visual__formula :deep(.markdown-body) {
   width: 100%;
@@ -433,7 +445,7 @@ onBeforeUnmount(revokeImage)
   text-align: center;
 }
 .slide-visual__formula :deep(.katex-display) {
-  margin: 0;
+  margin: .35em 0;
   overflow: visible;
 }
 .slide-visual__symbol b {

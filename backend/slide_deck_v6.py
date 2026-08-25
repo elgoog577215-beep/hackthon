@@ -30,12 +30,13 @@ from slide_layout_geometry import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v10"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v11"
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
     "story": "Normalize and validate deterministic globally unique page identities.",
     "visual": "Bind exactly one source-scoped visual decision to every story page.",
+    "manuscript": "Freeze and validate the reviewable page-by-page content contract before deck compilation.",
     "template": "Materialize complete source into declared capacity-safe continuations.",
     "quality": "Reject visible source loss, duplication, truncation, or unsupported claims.",
     "render": "Render the validated shared Web/PPTX contract without semantic changes.",
@@ -65,6 +66,17 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "source_prose_visible_fidelity_incomplete": "source_fidelity",
     "ordered_step_visible_fidelity_incomplete": "source_fidelity",
     "v6_recovery_contract_mismatch": "checkpoint_contract",
+    "ppt_manuscript_narrative_job_missing": "manuscript_narrative",
+    "ppt_manuscript_visible_copy_missing": "manuscript_narrative",
+    "ppt_manuscript_title_not_audience_ready": "manuscript_narrative",
+    "ppt_manuscript_duplicate_primary_claim": "manuscript_narrative",
+    "ppt_manuscript_adjacent_content_repeated": "manuscript_narrative",
+    "ppt_manuscript_ai_story_unavailable": "manuscript_planning",
+    "ppt_manuscript_quality_blocked": "manuscript_narrative",
+    "ppt_manuscript_page_spec_incomplete": "manuscript_contract",
+    "ppt_manuscript_source_revision_mismatch": "manuscript_contract",
+    "ppt_manuscript_template_mismatch": "manuscript_contract",
+    "ppt_manuscript_revision_mismatch": "manuscript_contract",
 }
 
 
@@ -425,6 +437,11 @@ class PptManuscriptPageV1(_StrictModel):
     teaching_unit_id: str
     course_block_types: list[str] = Field(default_factory=list)
     page_type: PptManuscriptPageType
+    page_goal: str = ""
+    primary_claim: str = ""
+    audience_question: str = ""
+    transition: str = ""
+    reveal_steps: list[str] = Field(default_factory=list)
     title: str
     visible_copy: list[str] = Field(default_factory=list)
     layout_id: str
@@ -434,6 +451,16 @@ class PptManuscriptPageV1(_StrictModel):
     source_section_ids: list[str] = Field(default_factory=list)
     speaker_note_source_block_ids: list[str] = Field(default_factory=list)
     source_material_evidence_ids: list[str] = Field(default_factory=list)
+    title_max_lines: int = Field(default=1, ge=1, le=3)
+    web_renderer_adapter: str = ""
+    pptx_renderer_adapter: str = ""
+    regions: list[SlideRegionV6] = Field(default_factory=list)
+    artifact_kinds: list[str] = Field(default_factory=list)
+    visual_decision: SlideVisualDecisionV2 | None = None
+    speaker_notes: SlideSpeakerNotesV2 | None = None
+    continuation_of_page_id: str = ""
+    continuation_index: int = Field(default=1, ge=1)
+    continuation_count: int = Field(default=1, ge=1)
 
     @model_validator(mode="after")
     def require_source_binding(self) -> PptManuscriptPageV1:
@@ -465,7 +492,10 @@ class PptManuscriptV1(_StrictModel):
     template_digest: str
     page_count: int = Field(ge=1)
     pages: list[PptManuscriptPageV1] = Field(min_length=1)
-    quality_status: Literal["passed"] = "passed"
+    story_page_count: int = Field(default=0, ge=0)
+    render_status: V6Status = "v6_ready"
+    quality_status: Literal["passed", "blocked"] = "passed"
+    quality_issues: list[V6Failure] = Field(default_factory=list)
 
 
 def _ppt_manuscript_page_type(page: SlidePageV6) -> PptManuscriptPageType:
@@ -497,7 +527,152 @@ def _ppt_manuscript_page_type(page: SlidePageV6) -> PptManuscriptPageType:
     return "content"
 
 
-def compile_ppt_manuscript_v1(
+def _ppt_manuscript_page_goal(page_type: PptManuscriptPageType) -> str:
+    return {
+        "cover": "建立本讲主题与学习范围",
+        "agenda": "让学习者看清本讲推进路径",
+        "concept": "建立本页核心概念",
+        "reasoning": "看清结论成立的推理链",
+        "example": "用完整例题应用本页方法",
+        "practice": "让学习者独立作答并暴露理解差异",
+        "comparison": "通过对照澄清边界与易错点",
+        "code": "通过可运行代码理解实现方法",
+        "formula": "解释公式中的条件、步骤与结论",
+        "table": "通过结构化对照提炼规律",
+        "data": "从数据证据得到本页判断",
+        "diagram": "用关系图解释结构或过程",
+        "summary": "收束本讲结论并形成迁移线索",
+        "content": "推进当前教学单元的核心认识",
+    }[page_type]
+
+
+def _ppt_manuscript_primary_claim(page: SlidePageV6) -> str:
+    title = str(page.title or "").strip()
+    if title and (
+        not _formula_like_title(title)
+        or page.visual_decision.decision in {"code", "table", "data"}
+    ):
+        return title
+    candidates = _source_prose_claim_candidates(
+        [
+            CourseBlock(
+                block_id=note.block_id,
+                section_id="manuscript-source",
+                position=index,
+                kind=note.source_kind if note.source_kind in {
+                    "rich_text", "formula", "code", "image", "audio", "video",
+                    "diagram", "table", "callout", "source_excerpt",
+                    "practice_ref", "code_lab", "reflection", "project",
+                    "mastery_check", "review_checkpoint", "remediation_slot",
+                    "graph_embed",
+                } else "rich_text",
+                payload={"text": note.full_text},
+                internal_revision=note.block_revision,
+            )
+            for index, note in enumerate(page.speaker_notes.source_blocks)
+        ],
+        capacity=90,
+    )
+    return candidates[0] if candidates else title
+
+
+def _ppt_manuscript_reveal_steps(page: SlidePageV6) -> list[str]:
+    return [
+        region.slot_id
+        for region in page.regions
+        if region.content_kind != "notes" and region.content.strip()
+    ]
+
+
+def _ppt_manuscript_quality_issues(
+    pages: list[PptManuscriptPageV1],
+) -> list[V6Failure]:
+    issues: list[V6Failure] = []
+    seen_claims: dict[str, str] = {}
+    for page in pages:
+        if not page.page_goal.strip() or not page.primary_claim.strip():
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_narrative_job_missing",
+                message="PPT 文书每页都必须写明教学任务和主要结论。",
+                page_id=page.page_id,
+            ))
+        if not page.visible_copy:
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_visible_copy_missing",
+                message="PPT 文书每页都必须包含台上可见文案。",
+                page_id=page.page_id,
+            ))
+        avoidable_formula_title = bool(
+            ("$" in page.title or re.search(r"\\[A-Za-z]+", page.title))
+            and page.primary_claim
+            and not _formula_like_title(page.primary_claim)
+        )
+        if avoidable_formula_title:
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_title_not_audience_ready",
+                message="已有讲稿支持的教学结论，不能继续用原始 LaTeX 作为页面标题。",
+                page_id=page.page_id,
+            ))
+        claim_key = re.sub(r"\W+", "", page.primary_claim).casefold()
+        prior_page_id = seen_claims.get(claim_key, "") if claim_key else ""
+        same_continuation_family = bool(
+            prior_page_id
+            and (
+                page.continuation_of_page_id == prior_page_id
+                or page.continuation_of_page_id
+                and prior_page_id.startswith(page.continuation_of_page_id)
+                or prior_page_id
+                and page.page_id.startswith(prior_page_id)
+            )
+        )
+        if claim_key and prior_page_id and not same_continuation_family:
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_duplicate_primary_claim",
+                message="两页 PPT 文书重复了同一个主要结论。",
+                page_id=page.page_id,
+            ))
+        elif claim_key and not prior_page_id:
+            seen_claims[claim_key] = page.page_id
+    for previous, current in zip(pages, pages[1:]):
+        previous_kinds = {region.content_kind for region in previous.regions}
+        current_kinds = {region.content_kind for region in current.regions}
+        if previous_kinds == current_kinds:
+            continue
+        previous_text = _canonical_visible_semantic_text(
+            "\n".join(previous.visible_copy)
+        )
+        current_text = _canonical_visible_semantic_text(
+            "\n".join(current.visible_copy)
+        )
+        if min(len(previous_text), len(current_text)) < 30:
+            continue
+        previous_grams = {
+            previous_text[index:index + 3]
+            for index in range(max(0, len(previous_text) - 2))
+        }
+        current_grams = {
+            current_text[index:index + 3]
+            for index in range(max(0, len(current_text) - 2))
+        }
+        overlap = len(previous_grams.intersection(current_grams)) / max(
+            1,
+            min(len(previous_grams), len(current_grams)),
+        )
+        if overlap >= 0.8:
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_adjacent_content_repeated",
+                message="相邻两页 PPT 文书大量重复同一批台上可见内容。",
+                page_id=current.page_id,
+            ))
+    return issues
+
+
+def project_ppt_manuscript_from_deck_v1(
     deck: SlideDeckV6,
     *,
     source_lesson_plan_revision_id: str = "",
@@ -506,10 +681,10 @@ def compile_ppt_manuscript_v1(
     material_bindings: list[dict[str, Any]] | None = None,
     page_material_evidence_ids: dict[str, list[str]] | None = None,
 ) -> PptManuscriptV1:
-    """把已通过内容门的页面规格固化为 PPT 文书。
+    """Legacy compatibility projection for already-published V6 decks.
 
-    此投影只整理已绑定的讲稿内容、页型、版式和构图决策，
-    不会在渲染前再生成、摘要或改写知识。
+    New production must call ``compile_ppt_manuscript_v1`` before compiling a
+    deck.  This projector exists only for old deck edits and export validation.
     """
 
     evidence_by_block = {
@@ -534,12 +709,20 @@ def compile_ppt_manuscript_v1(
             for region in page.regions
             if region.content_kind != "notes"
         ]
+        page_type = _ppt_manuscript_page_type(page)
         pages.append(PptManuscriptPageV1(
             page_id=page.page_id,
             page_number=page.page_ordinal + 1,
             teaching_unit_id=page.teaching_unit_id,
             course_block_types=course_block_types,
-            page_type=_ppt_manuscript_page_type(page),
+            page_type=page_type,
+            page_goal=_ppt_manuscript_page_goal(page_type),
+            primary_claim=_ppt_manuscript_primary_claim(page),
+            transition=(
+                "承接上一页并推进到下一教学判断"
+                if page.page_ordinal > 0 else "建立本讲起点"
+            ),
+            reveal_steps=_ppt_manuscript_reveal_steps(page),
             title=page.title,
             visible_copy=visible_copy,
             layout_id=page.resolved_layout,
@@ -562,6 +745,16 @@ def compile_ppt_manuscript_v1(
                     for evidence_id in evidence_by_block.get(block_id, [])
                 ),
             ])),
+            title_max_lines=page.title_max_lines,
+            web_renderer_adapter=page.web_renderer_adapter,
+            pptx_renderer_adapter=page.pptx_renderer_adapter,
+            regions=[region.model_copy(deep=True) for region in page.regions],
+            artifact_kinds=list(page.artifact_kinds),
+            visual_decision=page.visual_decision.model_copy(deep=True),
+            speaker_notes=page.speaker_notes.model_copy(deep=True),
+            continuation_of_page_id=page.continuation_of_page_id,
+            continuation_index=page.continuation_index,
+            continuation_count=page.continuation_count,
         ))
     frozen_material_bindings = [
         PptManuscriptMaterialBindingV1.model_validate({
@@ -575,6 +768,7 @@ def compile_ppt_manuscript_v1(
         and str(item.get("material_asset_id") or "")
         and str(item.get("source_label") or "")
     ]
+    quality_issues = _ppt_manuscript_quality_issues(pages)
     payload = {
         "source_document_revision": deck.source_document_revision,
         "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
@@ -587,7 +781,12 @@ def compile_ppt_manuscript_v1(
         "template_digest": deck.template_digest,
         "page_count": len(pages),
         "pages": [page.model_dump(mode="json") for page in pages],
-        "quality_status": "passed",
+        "story_page_count": len({
+            page.continuation_of_page_id or page.page_id for page in deck.pages
+        }),
+        "render_status": deck.status,
+        "quality_status": "blocked" if quality_issues else "passed",
+        "quality_issues": [issue.model_dump(mode="json") for issue in quality_issues],
     }
     return PptManuscriptV1(
         manuscript_revision=stable_hash(payload, prefix="pptman_"),
@@ -4840,6 +5039,39 @@ _CONTINUATION_FORMULA_RE = re.compile(
 )
 
 
+def _plain_math_title_text(value: str) -> str:
+    """Project compact source math to readable title text without delimiters."""
+
+    result = str(value or "")
+    result = re.sub(r"\\frac\{([^{}]+)\}\{([^{}]+)\}", r"(\1)/(\2)", result)
+    result = re.sub(r"\\sqrt\{([^{}]+)\}", r"√(\1)", result)
+    result = re.sub(
+        r"\\(?:mathbf|boldsymbol|mathrm|mathbb|operatorname|text)\{([^{}]+)\}",
+        r"\1",
+        result,
+    )
+    replacements = {
+        r"\circ": "∘", r"\ln": "ln", r"\log": "log", r"\to": "→",
+        r"\leq": "≤", r"\geq": "≥", r"\neq": "≠", r"\approx": "≈",
+        r"\in": "∈", r"\cdot": "·", r"\times": "×", r"\sum": "∑",
+    }
+    for source, target in replacements.items():
+        result = result.replace(source, target)
+    result = re.sub(r"\\(?:left|right|quad)", "", result)
+    result = re.sub(r"\\([A-Za-z]+)", r"\1", result)
+    result = result.replace("{", "").replace("}", "")
+    return " ".join(result.split())
+
+
+def _replace_math_for_title(value: str) -> str:
+    return _CONTINUATION_FORMULA_RE.sub(
+        lambda match: _plain_math_title_text(next(
+            group for group in match.groups() if group is not None
+        )),
+        value,
+    )
+
+
 def _bounded_source_title_windows(value: str, limit: int) -> list[str]:
     """Extract several complete, source-native title windows from long prose."""
 
@@ -4959,7 +5191,7 @@ def _continuation_title_candidates(
             if len(candidate) <= limit and candidate not in formula_candidates:
                 formula_candidates.append(candidate)
         cleaned = re.sub(r"```.*?```", "", presentation, flags=re.S)
-        cleaned = _CONTINUATION_FORMULA_RE.sub(" ", cleaned)
+        cleaned = _replace_math_for_title(cleaned)
         cleaned = re.sub(r"(?m)^\s*#{1,6}\s+", "", cleaned)
         cleaned = re.sub(r"(?<!\\)(?:\*\*|__|`)", "", cleaned)
         for fragment in re.split(r"[\n。！？!?；;：:，,]", cleaned):
@@ -4974,9 +5206,9 @@ def _continuation_title_candidates(
             for window in _bounded_source_title_windows(fragment, limit):
                 if window not in prose_candidates:
                     prose_candidates.append(window)
-    # A formula page should be named by its strongest equation rather than by
-    # a repeated parent-page heading. Equations with relations carry more
-    # teaching meaning than isolated symbols.
+    # Equations remain available when the frozen source contains no usable
+    # prose.  When prose exists, prefer the audience-facing teaching point;
+    # raw formulas are content, not a substitute for a slide claim.
     formula_candidates.sort(
         key=lambda value: (
             not any(operator in value for operator in ("=", "≤", "≥", "<", ">")),
@@ -4984,11 +5216,58 @@ def _continuation_title_candidates(
         )
     )
     return [
-        *formula_candidates,
-        *code_candidates,
         *table_candidates,
         *prose_candidates,
+        *code_candidates,
+        *formula_candidates,
     ]
+
+
+def _formula_like_title(value: str) -> bool:
+    title = str(value or "").strip()
+    if not title:
+        return True
+    if "$" in title or re.search(r"\\[A-Za-z]+", title):
+        return True
+    if re.search(r"[_^=<>≤≥≈]", title) and not re.search(r"[\u3400-\u9fff]", title):
+        return True
+    return False
+
+
+def _source_prose_claim_candidates(
+    blocks: list[CourseBlock],
+    *,
+    capacity: int,
+) -> list[str]:
+    """Return complete source-native claims that can title a classroom page."""
+
+    limit = max(8, capacity or 72)
+    preferred: list[str] = []
+    fallback: list[str] = []
+    for block in blocks:
+        source = block_presentation_text(block) or block_source_text(block)
+        cleaned = re.sub(r"```.*?```", " ", source, flags=re.S)
+        cleaned = _replace_math_for_title(cleaned)
+        cleaned = re.sub(r"(?m)^\s*#{1,6}\s+", "", cleaned)
+        cleaned = re.sub(r"(?<!\\)(?:\*\*|__|`)", "", cleaned)
+        for fragment in re.split(r"[\n。！？!?；;]", cleaned):
+            candidate = " ".join(fragment.split()).strip("，,：:、| ")
+            candidate = re.sub(r"^\d+[.)、]\s*", "", candidate)
+            if not (4 <= len(candidate) <= limit):
+                windows = _bounded_source_title_windows(candidate, limit)
+            else:
+                windows = [candidate]
+            for window in windows:
+                if _formula_like_title(window) or _title_is_incomplete(window):
+                    continue
+                target = (
+                    preferred
+                    if re.search(r"因此|所以|要求|必须|关键|结论|意味着|不能|只有|需要", window)
+                    else fallback
+                )
+                if window not in target:
+                    target.append(window)
+    return [*preferred, *fallback]
 
 
 def _continuation_title(
@@ -5004,15 +5283,30 @@ def _continuation_title(
     """Name each continuation with a distinct, source-backed teaching point."""
 
     _ = count
+    title_capacity = int(getattr(title_slot, "max_chars", 0) or 0)
     if index == 1:
         selected = title
+        if _formula_like_title(selected):
+            selected = next(
+                (
+                    candidate
+                    for candidate in _source_prose_claim_candidates(
+                        blocks,
+                        capacity=title_capacity,
+                    )
+                    if title_slot is None or _title_fits_slot(candidate, title_slot)
+                    if re.sub(r"\s+", "", candidate).casefold()
+                    not in used_title_keys
+                ),
+                selected,
+            )
     else:
         selected = next(
             (
                 candidate
                 for candidate in _continuation_title_candidates(
                     blocks,
-                    capacity=int(getattr(title_slot, "max_chars", 0) or 0),
+                    capacity=title_capacity,
                 )
                 if title_slot is None or _title_fits_slot(candidate, title_slot)
                 if re.sub(r"\s+", "", candidate).casefold()
@@ -6381,13 +6675,15 @@ def _source_driven_page_upper_bound(
     return ceil(max(story_page_count, source_pages) * 1.2) + 2
 
 
-def compile_slide_deck_v6(
+def _materialize_ppt_page_specs_v1(
     document: CourseDocument,
     graph: CoursePresentationGraphV1,
     story: SlideStoryPlanV3,
     visual: SlideVisualPlanV2,
     template: TemplateLayoutPackContractV1,
-) -> SlideDeckV6:
+) -> tuple[SlideStoryPlanV3, V6Status, list[SlidePageV6]]:
+    """Materialize the frozen, reviewable page contract before any deck exists."""
+
     story = prepare_story_plan_for_final_compilation(story, graph, template)
     validate_slide_story_plan_v3(story, graph, template)
     status = validate_slide_visual_plan_v2(visual, story, graph, template)
@@ -6397,12 +6693,19 @@ def compile_slide_deck_v6(
     used_page_title_keys: set[str] = {
         re.sub(r"\s+", "", page.title).casefold()
         for page in story.pages
-        if page.title.strip()
+        if page.title.strip() and not _formula_like_title(page.title)
     }
     for story_page in sorted(story.pages, key=lambda item: item.page_ordinal):
-        layout = template.get_layout(visual_by_page[story_page.page_id].resolved_template_layout_id)
+        layout = template.get_layout(
+            visual_by_page[story_page.page_id].resolved_template_layout_id
+        )
         if layout is None:
-            raise V6BuildError(stage="template", code="template_layout_unavailable", message="Resolved layout disappeared during final compilation", page_id=story_page.page_id)
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_unavailable",
+                message="Resolved layout disappeared during manuscript compilation",
+                page_id=story_page.page_id,
+            )
         source_blocks = [blocks[block_id] for block_id in story_page.source_block_ids]
         materializations = _safe_artifact_page_blocks(
             page_id=story_page.page_id,
@@ -6411,11 +6714,11 @@ def compile_slide_deck_v6(
             source_blocks=source_blocks,
             story_summary=story_page.summary,
         )
-        # Story planning keeps semantic ownership; final pagination is driven by
-        # complete source units. Progress is guarded per source page rather than
-        # by a fixed deck-size product limit.
         continuation_count = len(materializations)
-        for continuation_index, materialization in enumerate(materializations, start=1):
+        for continuation_index, materialization in enumerate(
+            materializations,
+            start=1,
+        ):
             page_layout = materialization.layout
             materialized_blocks = materialization.source_blocks
             title_slot = next(
@@ -6447,27 +6750,25 @@ def compile_slide_deck_v6(
                 for block in materialized_blocks
                 for artifact in block_artifact_kinds(block)
             }
+            planned_decision = visual_by_page[story_page.page_id]
             retains_visual_decision = bool(
                 uses_story_artifact_layout
                 or (
-                    visual_by_page[story_page.page_id].decision
-                    in set(page_layout.artifact_kinds)
-                    and visual_by_page[story_page.page_id].decision
-                    in materialized_artifacts
+                    planned_decision.decision in set(page_layout.artifact_kinds)
+                    and planned_decision.decision in materialized_artifacts
                 )
                 or (
-                    visual_by_page[story_page.page_id].decision == "data"
+                    planned_decision.decision == "data"
                     and "table" in materialized_artifacts
                     and "data" in set(page_layout.artifact_kinds)
                 )
             )
-            decision = visual_by_page[story_page.page_id].model_copy(
+            decision = planned_decision.model_copy(
                 update={
                     "page_id": page_id,
                     "decision": (
-                        visual_by_page[story_page.page_id].decision
-                        if retains_visual_decision
-                        else "text_native"
+                        planned_decision.decision
+                        if retains_visual_decision else "text_native"
                     ),
                     "source_block_ids": materialized_source_ids,
                     "resolved_template_layout_id": page_layout.template_layout_id,
@@ -6492,48 +6793,44 @@ def compile_slide_deck_v6(
                 ),
                 visual_decision=decision,
             )
-            pages.append(
-                SlidePageV6(
-                    page_id=page_id,
-                    page_ordinal=len(pages),
+            pages.append(SlidePageV6(
+                page_id=page_id,
+                page_ordinal=len(pages),
+                teaching_unit_id=story_page.teaching_unit_id,
+                title=title,
+                title_max_lines=int(getattr(title_slot, "max_lines", 0) or 1),
+                resolved_layout=page_layout.template_layout_id,
+                web_renderer_adapter=page_layout.web_renderer_adapter,
+                pptx_renderer_adapter=page_layout.pptx_renderer_adapter,
+                regions=regions,
+                source_block_ids=materialized_source_ids,
+                artifact_kinds=list(dict.fromkeys(
+                    artifact
+                    for block in materialized_blocks
+                    for artifact in block_artifact_kinds(block)
+                )),
+                visual_decision=decision,
+                speaker_notes=SlideSpeakerNotesV2(
+                    source_document_revision=document.document_revision,
                     teaching_unit_id=story_page.teaching_unit_id,
-                    title=title,
-                    title_max_lines=int(
-                        getattr(title_slot, "max_lines", 0) or 1
-                    ),
-                    resolved_layout=page_layout.template_layout_id,
-                    web_renderer_adapter=page_layout.web_renderer_adapter,
-                    pptx_renderer_adapter=page_layout.pptx_renderer_adapter,
-                    regions=regions,
-                    source_block_ids=materialized_source_ids,
-                    artifact_kinds=list(dict.fromkeys(
-                        artifact
-                        for block in materialized_blocks
-                        for artifact in block_artifact_kinds(block)
-                    )),
-                    visual_decision=decision,
-                    speaker_notes=SlideSpeakerNotesV2(
-                        source_document_revision=document.document_revision,
-                        teaching_unit_id=story_page.teaching_unit_id,
-                        source_blocks=[
-                            SourceNoteBlockV2(
-                                block_id=block.block_id,
-                                block_revision=block.internal_revision,
-                                full_text=block_source_text(block),
-                                source_kind=block.kind,
-                                source_payload=dict(block.payload or {}),
-                                asset_refs=list(block.asset_refs),
-                            )
-                            for block in source_blocks
-                        ],
-                    ),
-                    continuation_of_page_id=(
-                        story_page.page_id if continuation_index > 1 else ""
-                    ),
-                    continuation_index=continuation_index,
-                    continuation_count=continuation_count,
-                )
-            )
+                    source_blocks=[
+                        SourceNoteBlockV2(
+                            block_id=block.block_id,
+                            block_revision=block.internal_revision,
+                            full_text=block_source_text(block),
+                            source_kind=block.kind,
+                            source_payload=dict(block.payload or {}),
+                            asset_refs=list(block.asset_refs),
+                        )
+                        for block in source_blocks
+                    ],
+                ),
+                continuation_of_page_id=(
+                    story_page.page_id if continuation_index > 1 else ""
+                ),
+                continuation_index=continuation_index,
+                continuation_count=continuation_count,
+            ))
     agenda_pages = _compile_course_agenda_pages(document, template)
     if agenda_pages and not (
         pages and pages[0].resolved_layout.endswith("/cover-minimal")
@@ -6549,6 +6846,191 @@ def compile_slide_deck_v6(
         pages[insertion_index:insertion_index] = agenda_pages
     for page_ordinal, page in enumerate(pages):
         page.page_ordinal = page_ordinal
+    return story, status, pages
+
+
+def compile_ppt_manuscript_v1(
+    document: CourseDocument,
+    graph: CoursePresentationGraphV1,
+    story: SlideStoryPlanV3,
+    visual: SlideVisualPlanV2,
+    template: TemplateLayoutPackContractV1,
+    *,
+    source_lesson_plan_revision_id: str = "",
+    source_script_revision_id: str = "",
+    material_bindings: list[dict[str, Any]] | None = None,
+    page_material_evidence_ids: dict[str, list[str]] | None = None,
+    external_quality_issues: list[V6Failure] | None = None,
+) -> PptManuscriptV1:
+    """Compile the sole page-by-page content contract before SlideDeckV6."""
+
+    prepared_story, render_status, page_specs = _materialize_ppt_page_specs_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    evidence_by_block = {
+        block.block_id: list(block.evidence_refs) for block in document.blocks
+    }
+    preserved_page_evidence = page_material_evidence_ids or {}
+    pages: list[PptManuscriptPageV1] = []
+    for page in page_specs:
+        page_type = _ppt_manuscript_page_type(page)
+        visible_copy = list(dict.fromkeys(
+            region.content.strip()
+            for region in page.regions
+            if region.content_kind != "notes" and region.content.strip()
+        ))
+        region_order = [
+            region.slot_id
+            for region in page.regions
+            if region.content_kind != "notes"
+        ]
+        pages.append(PptManuscriptPageV1(
+            page_id=page.page_id,
+            page_number=page.page_ordinal + 1,
+            teaching_unit_id=page.teaching_unit_id,
+            course_block_types=list(dict.fromkeys(
+                note.source_kind
+                for note in page.speaker_notes.source_blocks
+                if note.source_kind
+            )),
+            page_type=page_type,
+            page_goal=_ppt_manuscript_page_goal(page_type),
+            primary_claim=_ppt_manuscript_primary_claim(page),
+            audience_question=(
+                "你能在看到答案前独立完成并说明依据吗？"
+                if page_type == "practice" else ""
+            ),
+            transition=(
+                "建立本讲起点"
+                if page.page_ordinal == 0
+                else "承接上一页结论并推进下一教学判断"
+            ),
+            reveal_steps=_ppt_manuscript_reveal_steps(page),
+            title=page.title,
+            visible_copy=visible_copy,
+            layout_id=page.resolved_layout,
+            composition_notes=(
+                f"使用 {page.resolved_layout} 版式，"
+                f"按 {' → '.join(region_order) or '默认区域'} 依次呈现，"
+                f"视觉类型为 {page.visual_decision.decision}。"
+            ),
+            visual_kind=page.visual_decision.decision,
+            source_script_block_ids=list(page.source_block_ids),
+            source_section_ids=list(page.source_section_ids),
+            speaker_note_source_block_ids=[
+                note.block_id for note in page.speaker_notes.source_blocks
+            ],
+            source_material_evidence_ids=list(dict.fromkeys([
+                *preserved_page_evidence.get(page.page_id, []),
+                *(
+                    evidence_id
+                    for block_id in page.source_block_ids
+                    for evidence_id in evidence_by_block.get(block_id, [])
+                ),
+            ])),
+            title_max_lines=page.title_max_lines,
+            web_renderer_adapter=page.web_renderer_adapter,
+            pptx_renderer_adapter=page.pptx_renderer_adapter,
+            regions=[region.model_copy(deep=True) for region in page.regions],
+            artifact_kinds=list(page.artifact_kinds),
+            visual_decision=page.visual_decision.model_copy(deep=True),
+            speaker_notes=page.speaker_notes.model_copy(deep=True),
+            continuation_of_page_id=page.continuation_of_page_id,
+            continuation_index=page.continuation_index,
+            continuation_count=page.continuation_count,
+        ))
+    frozen_material_bindings = [
+        PptManuscriptMaterialBindingV1.model_validate({
+            "material_asset_id": str(item.get("material_asset_id") or ""),
+            "source_asset_id": str(item.get("source_asset_id") or ""),
+            "source_label": str(item.get("source_label") or ""),
+            "role": str(item.get("role") or "reference"),
+        })
+        for item in (material_bindings or [])
+        if isinstance(item, dict)
+        and str(item.get("material_asset_id") or "")
+        and str(item.get("source_label") or "")
+    ]
+    quality_issues = [
+        *_ppt_manuscript_quality_issues(pages),
+        *(external_quality_issues or []),
+    ]
+    payload = {
+        "source_document_revision": document.document_revision,
+        "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
+        "source_script_revision_id": source_script_revision_id,
+        "material_bindings": [
+            item.model_dump(mode="json") for item in frozen_material_bindings
+        ],
+        "template_id": template.template_id,
+        "template_version": template.template_version,
+        "template_digest": template.template_digest,
+        "page_count": len(pages),
+        "pages": [page.model_dump(mode="json") for page in pages],
+        "story_page_count": len(prepared_story.pages),
+        "render_status": render_status,
+        "quality_status": "blocked" if quality_issues else "passed",
+        "quality_issues": [issue.model_dump(mode="json") for issue in quality_issues],
+    }
+    return PptManuscriptV1(
+        manuscript_revision=stable_hash(payload, prefix="pptman_"),
+        **payload,
+    )
+
+
+def _slide_pages_from_ppt_manuscript_v1(
+    manuscript: PptManuscriptV1,
+) -> list[SlidePageV6]:
+    pages: list[SlidePageV6] = []
+    for page in sorted(manuscript.pages, key=lambda item: item.page_number):
+        if (
+            not page.regions
+            or page.visual_decision is None
+            or page.speaker_notes is None
+            or not page.web_renderer_adapter
+            or not page.pptx_renderer_adapter
+        ):
+            raise V6BuildError(
+                stage="manuscript",
+                code="ppt_manuscript_page_spec_incomplete",
+                message="冻结的 PPT 文书页缺少 Web/PPTX 共用渲染合同。",
+                page_id=page.page_id,
+            )
+        pages.append(SlidePageV6(
+            page_id=page.page_id,
+            page_ordinal=len(pages),
+            teaching_unit_id=page.teaching_unit_id,
+            title=page.title,
+            title_max_lines=page.title_max_lines,
+            resolved_layout=page.layout_id,
+            web_renderer_adapter=page.web_renderer_adapter,
+            pptx_renderer_adapter=page.pptx_renderer_adapter,
+            regions=[region.model_copy(deep=True) for region in page.regions],
+            source_block_ids=list(page.source_script_block_ids),
+            source_section_ids=list(page.source_section_ids),
+            artifact_kinds=list(page.artifact_kinds),
+            visual_decision=page.visual_decision.model_copy(deep=True),
+            speaker_notes=page.speaker_notes.model_copy(deep=True),
+            continuation_of_page_id=page.continuation_of_page_id,
+            continuation_index=page.continuation_index,
+            continuation_count=page.continuation_count,
+        ))
+    return pages
+
+
+def _compile_slide_deck_quality_from_manuscript(
+    document: CourseDocument,
+    graph: CoursePresentationGraphV1,
+    pages: list[SlidePageV6],
+    *,
+    story_page_count: int,
+    template: TemplateLayoutPackContractV1,
+) -> SlideDeckV6Quality:
+    blocks = {block.block_id: block for block in _formal_blocks(document)}
     formal_ids = graph.formal_block_ids
     visible = {
         block_id
@@ -6580,14 +7062,11 @@ def compile_slide_deck_v6(
         ordered_step_visible_fidelity,
         generated_ellipsis_free,
     ) = _visible_semantic_fidelity(document, pages)
-    story_page_ids = {page.page_id for page in story.pages}
     expansion_by_story_page = Counter(
-        page.continuation_of_page_id
-        or (page.page_id if page.page_id in story_page_ids else "")
+        page.continuation_of_page_id or page.page_id
         for page in pages
+        if not page.resolved_layout.endswith(("/cover-minimal", "/agenda-compact"))
     )
-    expansion_by_story_page.pop("", None)
-    story_page_count = len(story.pages)
     final_page_count = len(pages)
     pagination_page_upper_bound = _source_driven_page_upper_bound(
         document,
@@ -6623,20 +7102,19 @@ def compile_slide_deck_v6(
         source_order_preserved=observed_first_occurrences == formal_ids,
         template_contract_passed=True,
         subject_artifacts_passed=True,
-        web_pptx_contract_shared=all(page.web_renderer_adapter and page.pptx_renderer_adapter for page in pages),
+        web_pptx_contract_shared=all(
+            page.web_renderer_adapter and page.pptx_renderer_adapter for page in pages
+        ),
         story_page_count=story_page_count,
         final_page_count=final_page_count,
-        pagination_expansion_ratio=(
-            final_page_count / max(1, story_page_count)
-        ),
+        pagination_expansion_ratio=final_page_count / max(1, story_page_count),
         max_story_page_expansion=max(expansion_by_story_page.values(), default=0),
         pagination_page_upper_bound=pagination_page_upper_bound,
         pagination_within_dynamic_bound=(
             final_page_count <= pagination_page_upper_bound
         ),
         average_visible_chars_per_page=(
-            sum(visible_char_counts)
-            / max(1, final_page_count)
+            sum(visible_char_counts) / max(1, final_page_count)
         ),
         max_visible_chars_per_page=max(visible_char_counts, default=0),
         visible_to_speaker_notes_ratio=(
@@ -6650,20 +7128,21 @@ def compile_slide_deck_v6(
                     teacher_cue_pattern.search(region.content)
                     for region in page.regions
                 )
-            )
-            / max(1, final_page_count)
+            ) / max(1, final_page_count)
         ),
         distinct_page_title_ratio=(
             len({
                 re.sub(r"\s+", "", page.title).casefold()
-                for page in pages
-                if page.title.strip()
-            })
-            / max(1, final_page_count)
+                for page in pages if page.title.strip()
+            }) / max(1, final_page_count)
         ),
     )
     if quality.formal_block_visible_coverage != 1.0 or quality.full_text_note_binding != 1.0:
-        raise V6BuildError(stage="quality", code="course_block_coverage_incomplete", message="Final deck does not bind every formal block visibly and in notes")
+        raise V6BuildError(
+            stage="quality",
+            code="course_block_coverage_incomplete",
+            message="Final deck does not bind every formal block visibly and in notes",
+        )
     if quality.source_artifact_visible_fidelity != 1.0:
         raise V6BuildError(
             stage="quality",
@@ -6709,6 +7188,64 @@ def compile_slide_deck_v6(
             code="duplicate_final_page_title",
             message="Every final classroom page requires a distinct teaching title",
         )
+    return quality
+
+
+def compile_slide_deck_v6_from_manuscript(
+    document: CourseDocument,
+    graph: CoursePresentationGraphV1,
+    manuscript: PptManuscriptV1,
+    template: TemplateLayoutPackContractV1,
+) -> SlideDeckV6:
+    """Compile rendering data only from one frozen, passing manuscript."""
+
+    if manuscript.quality_status != "passed" or manuscript.quality_issues:
+        first_issue = manuscript.quality_issues[0] if manuscript.quality_issues else None
+        raise V6BuildError(
+            stage="manuscript",
+            code=(first_issue.code if first_issue else "ppt_manuscript_quality_blocked"),
+            message=(
+                first_issue.message
+                if first_issue else "PPT 文书通过质量检查后才能编译 deck。"
+            ),
+            retryable=(first_issue.retryable if first_issue else False),
+            page_id=first_issue.page_id if first_issue else "",
+            batch_id=first_issue.batch_id if first_issue else "",
+        )
+    if manuscript.source_document_revision != document.document_revision:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_source_revision_mismatch",
+            message="PPT 文书未绑定当前已确认讲稿。",
+        )
+    if (
+        manuscript.template_id != template.template_id
+        or manuscript.template_version != template.template_version
+        or manuscript.template_digest != template.template_digest
+    ):
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_template_mismatch",
+            message="PPT 文书未绑定当前选中的模板修订。",
+        )
+    revision_payload = manuscript.model_dump(
+        mode="json",
+        exclude={"schema_version", "manuscript_revision"},
+    )
+    if stable_hash(revision_payload, prefix="pptman_") != manuscript.manuscript_revision:
+        raise V6BuildError(
+            stage="manuscript",
+            code="ppt_manuscript_revision_mismatch",
+            message="PPT 文书冻结后发生了未授权改动。",
+        )
+    pages = _slide_pages_from_ppt_manuscript_v1(manuscript)
+    quality = _compile_slide_deck_quality_from_manuscript(
+        document,
+        graph,
+        pages,
+        story_page_count=manuscript.story_page_count,
+        template=template,
+    )
     return SlideDeckV6(
         course_id=document.course_id,
         title=document.title,
@@ -6718,9 +7255,144 @@ def compile_slide_deck_v6(
         template_version=template.template_version,
         template_digest=template.template_digest,
         template_theme_overrides=dict(template.render_theme_overrides),
-        status=status,
+        status=manuscript.render_status,
         pages=pages,
         quality=quality,
+    )
+
+
+def validate_deck_matches_ppt_manuscript_v1(
+    deck: SlideDeckV6,
+    manuscript: PptManuscriptV1,
+) -> bool:
+    """Prove that a renderer is consuming the frozen manuscript unchanged."""
+
+    legacy_pages = bool(manuscript.pages) and any(
+        not page.regions
+        or page.visual_decision is None
+        or page.speaker_notes is None
+        for page in manuscript.pages
+    )
+    if legacy_pages:
+        legacy_page_payloads = []
+        for page in manuscript.pages:
+            page_payload = {
+                "page_id": page.page_id,
+                "page_number": page.page_number,
+                "teaching_unit_id": page.teaching_unit_id,
+                "course_block_types": list(page.course_block_types),
+                "page_type": page.page_type,
+                "title": page.title,
+                "visible_copy": list(page.visible_copy),
+                "layout_id": page.layout_id,
+                "composition_notes": page.composition_notes,
+                "visual_kind": page.visual_kind,
+                "source_script_block_ids": list(page.source_script_block_ids),
+                "source_section_ids": list(page.source_section_ids),
+                "speaker_note_source_block_ids": list(
+                    page.speaker_note_source_block_ids
+                ),
+            }
+            if "source_material_evidence_ids" in page.model_fields_set:
+                page_payload["source_material_evidence_ids"] = list(
+                    page.source_material_evidence_ids
+                )
+            legacy_page_payloads.append(page_payload)
+        legacy_payload = {
+            "source_document_revision": manuscript.source_document_revision,
+            "source_lesson_plan_revision_id": (
+                manuscript.source_lesson_plan_revision_id
+            ),
+            "source_script_revision_id": manuscript.source_script_revision_id,
+            "template_id": manuscript.template_id,
+            "template_version": manuscript.template_version,
+            "template_digest": manuscript.template_digest,
+            "page_count": manuscript.page_count,
+            "pages": legacy_page_payloads,
+            "quality_status": manuscript.quality_status,
+        }
+        if "material_bindings" in manuscript.model_fields_set:
+            legacy_payload["material_bindings"] = [
+                item.model_dump(mode="json") for item in manuscript.material_bindings
+            ]
+        if stable_hash(legacy_payload, prefix="pptman_") != manuscript.manuscript_revision:
+            return False
+        if (
+            deck.source_document_revision != manuscript.source_document_revision
+            or deck.template_id != manuscript.template_id
+            or deck.template_version != manuscript.template_version
+            or deck.template_digest != manuscript.template_digest
+            or len(deck.pages) != manuscript.page_count
+        ):
+            return False
+        for deck_page, manuscript_page in zip(deck.pages, manuscript.pages, strict=True):
+            visible_copy = list(dict.fromkeys(
+                region.content.strip()
+                for region in deck_page.regions
+                if region.content_kind != "notes" and region.content.strip()
+            ))
+            if (
+                deck_page.page_id != manuscript_page.page_id
+                or deck_page.page_ordinal + 1 != manuscript_page.page_number
+                or deck_page.teaching_unit_id != manuscript_page.teaching_unit_id
+                or deck_page.title != manuscript_page.title
+                or visible_copy != manuscript_page.visible_copy
+                or deck_page.resolved_layout != manuscript_page.layout_id
+                or deck_page.visual_decision.decision != manuscript_page.visual_kind
+                or deck_page.source_block_ids
+                != manuscript_page.source_script_block_ids
+                or deck_page.source_section_ids != manuscript_page.source_section_ids
+                or [note.block_id for note in deck_page.speaker_notes.source_blocks]
+                != manuscript_page.speaker_note_source_block_ids
+            ):
+                return False
+        return True
+
+    revision_payload = manuscript.model_dump(
+        mode="json",
+        exclude={"schema_version", "manuscript_revision"},
+    )
+    if stable_hash(revision_payload, prefix="pptman_") != manuscript.manuscript_revision:
+        return False
+    if (
+        deck.source_document_revision != manuscript.source_document_revision
+        or deck.template_id != manuscript.template_id
+        or deck.template_version != manuscript.template_version
+        or deck.template_digest != manuscript.template_digest
+        or deck.status != manuscript.render_status
+        or len(deck.pages) != manuscript.page_count
+    ):
+        return False
+    try:
+        expected_pages = _slide_pages_from_ppt_manuscript_v1(manuscript)
+    except (ValueError, V6BuildError):
+        return False
+    return [page.model_dump(mode="json") for page in deck.pages] == [
+        page.model_dump(mode="json") for page in expected_pages
+    ]
+
+
+def compile_slide_deck_v6(
+    document: CourseDocument,
+    graph: CoursePresentationGraphV1,
+    story: SlideStoryPlanV3,
+    visual: SlideVisualPlanV2,
+    template: TemplateLayoutPackContractV1,
+) -> SlideDeckV6:
+    """Compatibility entry that still enforces manuscript-first compilation."""
+
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    return compile_slide_deck_v6_from_manuscript(
+        document,
+        graph,
+        manuscript,
+        template,
     )
 
 
@@ -6745,6 +7417,9 @@ __all__ = [
     "classify_v6_failure",
     "compile_ppt_source_contract_v2",
     "compile_ppt_manuscript_v1",
+    "compile_slide_deck_v6_from_manuscript",
+    "project_ppt_manuscript_from_deck_v1",
+    "validate_deck_matches_ppt_manuscript_v1",
     "compile_shadow_chapter_document",
     "compile_slide_deck_v6",
     "graph_page_source_blocks",

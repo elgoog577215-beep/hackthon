@@ -21,7 +21,7 @@ from slide_deck_v6 import (
     PptManuscriptV1,
     SlideDeckV6,
     SlidePageV6,
-    compile_ppt_manuscript_v1,
+    validate_deck_matches_ppt_manuscript_v1,
 )
 
 _LAYOUT_ADAPTER_PATH = (
@@ -629,22 +629,7 @@ def export_slide_deck_v6_pptx(
     _validate_deck_for_export(deck)
     if isinstance(manuscript_payload, dict):
         manuscript = PptManuscriptV1.model_validate(manuscript_payload)
-        current = compile_ppt_manuscript_v1(
-            deck,
-            source_lesson_plan_revision_id=(
-                manuscript.source_lesson_plan_revision_id
-            ),
-            source_script_revision_id=manuscript.source_script_revision_id,
-            material_bindings=[
-                item.model_dump(mode="json")
-                for item in manuscript.material_bindings
-            ],
-            page_material_evidence_ids={
-                page.page_id: list(page.source_material_evidence_ids)
-                for page in manuscript.pages
-            },
-        )
-        if current.manuscript_revision != manuscript.manuscript_revision:
+        if not validate_deck_matches_ppt_manuscript_v1(deck, manuscript):
             raise SlideDeckQualityError({
                 "passed": False,
                 "score": 0,

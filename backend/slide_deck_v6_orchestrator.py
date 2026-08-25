@@ -29,11 +29,12 @@ from slide_deck_v6 import (
     SlideVisualDecisionV2,
     SlideVisualPlanV2,
     V6BuildError,
+    V6Failure,
     build_signature_v6,
     classify_v6_failure,
     compile_ppt_manuscript_v1,
     compile_ppt_source_contract_v2,
-    compile_slide_deck_v6,
+    compile_slide_deck_v6_from_manuscript,
     prepare_story_plan_for_final_compilation,
 )
 from slide_deck_v6_renderer import export_slide_deck_v6_pptx
@@ -47,7 +48,32 @@ from teaching_representations import (
 from template_layout_contract import TemplateLayoutPackContractV1, compile_builtin_template_layout_contract_v1
 
 ProgressCallback = Callable[[dict[str, object]], Awaitable[None] | None]
-SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v25"
+SLIDE_DECK_V6_BUILD_CONTRACT_VERSION = "slide_deck_v6_build_contract_v26"
+
+
+def _manuscript_planning_quality_issues(
+    story: SlideStoryPlanV3,
+) -> list[V6Failure]:
+    """Deterministic partitions are recovery evidence, not publishable writing."""
+
+    fallback_batches = [
+        batch
+        for batch in story.batches
+        if "structured-fallback" in batch.provider.casefold()
+        or "deterministic-safe-partition" in batch.model.casefold()
+    ]
+    if not fallback_batches:
+        return []
+    return [V6Failure(
+        stage="manuscript",
+        code="ppt_manuscript_ai_story_unavailable",
+        message=(
+            "AI 故事规划未成功运行；确定性安全分页只是恢复证据，"
+            "不能冒充完成的 PPT 文书。"
+        ),
+        retryable=True,
+        batch_id=fallback_batches[0].batch_id,
+    )]
 
 
 def _utc_now() -> str:
@@ -911,36 +937,63 @@ class SlideDeckV6Orchestrator:
                 template,
             )
             save_checkpoint(story_plan=story.model_dump(mode="json"))
-            deck = await _await_with_heartbeats(
+            teacher_lesson_source = dict(
+                course_data.get("teacher_lesson_source") or {}
+            )
+            ppt_manuscript = await _await_with_heartbeats(
                 asyncio.to_thread(
-                    compile_slide_deck_v6,
+                    compile_ppt_manuscript_v1,
                     document,
                     graph,
                     story,
                     visual,
                     template,
+                    source_lesson_plan_revision_id=str(
+                        teacher_lesson_source.get("lesson_plan_revision_id") or ""
+                    ),
+                    source_script_revision_id=str(
+                        teacher_lesson_source.get("script_revision_id") or ""
+                    ),
+                    material_bindings=list(
+                        teacher_lesson_source.get("material_bindings") or []
+                    ),
+                    external_quality_issues=_manuscript_planning_quality_issues(
+                        story
+                    ),
                 ),
                 tracker=tracker,
                 callback=progress_callback,
             )
-            teacher_lesson_source = dict(
-                course_data.get("teacher_lesson_source") or {}
-            )
-            ppt_manuscript = compile_ppt_manuscript_v1(
-                deck,
-                source_lesson_plan_revision_id=str(
-                    teacher_lesson_source.get("lesson_plan_revision_id") or ""
-                ),
-                source_script_revision_id=str(
-                    teacher_lesson_source.get("script_revision_id") or ""
-                ),
-                source_document=document,
-                material_bindings=list(
-                    teacher_lesson_source.get("material_bindings") or []
-                ),
-            )
             save_checkpoint(
                 ppt_manuscript=ppt_manuscript.model_dump(mode="json")
+            )
+            if ppt_manuscript.quality_status != "passed":
+                first_issue = next(iter(ppt_manuscript.quality_issues), None)
+                raise V6BuildError(
+                    stage="manuscript",
+                    code=(
+                        first_issue.code
+                        if first_issue else "ppt_manuscript_quality_blocked"
+                    ),
+                    message=(
+                        first_issue.message
+                        if first_issue
+                        else "PPT 文书修改并通过质量检查后才能编译 deck。"
+                    ),
+                    retryable=(first_issue.retryable if first_issue else False),
+                    page_id=first_issue.page_id if first_issue else "",
+                    batch_id=first_issue.batch_id if first_issue else "",
+                )
+            deck = await _await_with_heartbeats(
+                asyncio.to_thread(
+                    compile_slide_deck_v6_from_manuscript,
+                    document,
+                    graph,
+                    ppt_manuscript,
+                    template,
+                ),
+                tracker=tracker,
+                callback=progress_callback,
             )
             tracker.add_work([
                 SlideWorkItemV2(

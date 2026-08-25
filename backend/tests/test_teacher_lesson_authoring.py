@@ -1598,6 +1598,24 @@ def test_v6_ppt_manuscript_requires_matching_confirmation_before_formal_export(t
     assert confirmed["v6_revisions"][0]["ppt_manuscript_status"] == "confirmed"
 
 
+def test_v6_ppt_manuscript_quality_gate_blocks_confirmation():
+    with pytest.raises(TeacherLessonAuthoringError) as blocked:
+        teacher_lesson_router._assert_ppt_manuscript_confirmable({
+            "quality_status": "blocked",
+            "quality_issues": ["page-4: 标题仍是原始 LaTeX 表达式"],
+        })
+
+    assert blocked.value.code == "lesson_ppt_manuscript_quality_blocked"
+    assert blocked.value.details["quality_issues"] == [
+        "page-4: 标题仍是原始 LaTeX 表达式"
+    ]
+
+    teacher_lesson_router._assert_ppt_manuscript_confirmable({
+        "quality_status": "passed",
+        "quality_issues": [],
+    })
+
+
 def test_script_confirmation_versions_the_body_and_stales_bound_v6_ppt(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     quality = validate_teacher_lesson_plan(standard_lesson_plan())

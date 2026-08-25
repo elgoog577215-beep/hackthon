@@ -791,6 +791,10 @@ function formatHeading(value: string) {
     .replace(/\\sum/g, '∑')
     .replace(/\\Sigma/g, 'Σ')
     .replace(/\\cdots/g, '⋯')
+    .replace(/\\circ/g, '∘')
+    .replace(/\\ln/g, 'ln')
+    .replace(/\\log/g, 'log')
+    .replace(/\\to/g, '→')
     .replace(/\\times/g, '×')
     .replace(/\\leq/g, '≤')
     .replace(/\\geq/g, '≥')
@@ -804,32 +808,8 @@ function formatHeading(value: string) {
     .replace(/\s+/g, ' ')
     .trim()
 }
-function headingExcerpt(value: string, limit = 18) {
-  const clean = formatHeading(value).replace(/[，,；;：:。…\s]+$/g, '')
-  if (clean.length <= limit) return clean
-  let excerpt = clean.slice(0, limit)
-  const opening = Math.max(excerpt.lastIndexOf('（'), excerpt.lastIndexOf('('))
-  const closing = Math.max(excerpt.lastIndexOf('）'), excerpt.lastIndexOf(')'))
-  if (opening > closing && opening >= Math.max(8, Math.floor(limit / 3))) {
-    excerpt = excerpt.slice(0, opening)
-  } else {
-    const punctuation = ['。', '；', '，', '：', '）', ')']
-      .map(mark => ({ index: excerpt.lastIndexOf(mark), mark }))
-      .sort((a, b) => b.index - a.index)[0]
-    if (punctuation && punctuation.index >= Math.max(10, Math.floor(limit / 2))) {
-      excerpt = excerpt.slice(
-        0,
-        punctuation.index + (['）', ')'].includes(punctuation.mark) ? 1 : 0),
-      )
-    } else {
-      const space = excerpt.lastIndexOf(' ')
-      if (space >= Math.max(10, Math.floor(limit / 2))) excerpt = excerpt.slice(0, space)
-    }
-  }
-  return excerpt.replace(/[，,；;：:。…\s]+$/g, '')
-}
 const displayHeading = computed(() => {
-  return headingExcerpt(props.slide.title, 18)
+  return formatHeading(props.slide.title)
 })
 const navigationText = computed(() => String(
   props.slide.teaching_job

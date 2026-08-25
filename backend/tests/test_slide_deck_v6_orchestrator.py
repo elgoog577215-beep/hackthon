@@ -804,6 +804,42 @@ async def test_orchestrator_publishes_v6_atomically_with_ai_diagnostics(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_deterministic_story_fallback_is_saved_as_blocked_manuscript(
+    tmp_path: Path,
+) -> None:
+    document = _document()
+    orchestrator, representations, candidates = _orchestrator(tmp_path)
+
+    async def fallback_story(request):
+        payload = await _story_planner(request)
+        payload["provider"] = "codex-structured-fallback"
+        payload["model"] = "deterministic-safe-partition"
+        return payload
+
+    with pytest.raises(V6BuildError, match="ppt_manuscript_ai_story_unavailable") as blocked:
+        await orchestrator.build(
+            task_id="task-v6-fallback-manuscript",
+            document=document,
+            course_data={},
+            mode="teaching",
+            theme="qizhi-classroom",
+            story_planner=fallback_story,
+            visual_planner=_visual_planner,
+            source_revision_provider=lambda: document.document_revision,
+        )
+
+    assert blocked.value.failure.retryable is True
+    candidate = candidates.load("task-v6-fallback-manuscript")
+    assert candidate["status"] == "v6_failed"
+    assert candidate["published"] is False
+    assert candidate["deck"] is None
+    assert candidate["ppt_manuscript"]["quality_status"] == "blocked"
+    assert candidate["failure"]["stage"] == "manuscript"
+    assert candidate["failure"]["retryable"] is True
+    assert representations.load(document.course_id).representations == []
+
+
+@pytest.mark.asyncio
 async def test_materialization_keeps_the_event_loop_responsive(
     tmp_path: Path,
     monkeypatch,
@@ -812,7 +848,7 @@ async def test_materialization_keeps_the_event_loop_responsive(
 
     document = _document()
     orchestrator, _representations, _candidates = _orchestrator(tmp_path)
-    real_compile = orchestrator_module.compile_slide_deck_v6
+    real_compile = orchestrator_module.compile_ppt_manuscript_v1
     entered = threading.Event()
     release = threading.Event()
     exited = threading.Event()
@@ -828,7 +864,7 @@ async def test_materialization_keeps_the_event_loop_responsive(
 
     monkeypatch.setattr(
         orchestrator_module,
-        "compile_slide_deck_v6",
+        "compile_ppt_manuscript_v1",
         slow_compile,
     )
 

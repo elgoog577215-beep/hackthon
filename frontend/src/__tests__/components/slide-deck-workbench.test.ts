@@ -65,7 +65,21 @@ describe('SlideDeckWorkbench', () => {
           schema_version: 'ppt_manuscript_v1',
           page_count: 2,
           pages: [
-            { page_id: 'page-1', page_number: 1, title: '建立问题', source_script_block_ids: ['b1', 'b2'] },
+            {
+              page_id: 'page-1',
+              page_number: 1,
+              title: '建立问题',
+              page_goal: '让学生明确本讲要解决的问题',
+              primary_claim: '可靠结论必须绑定现场证据',
+              audience_question: '哪些证据能支撑这个结论？',
+              visible_copy: ['先记录对象、时间与环境条件。'],
+              reveal_steps: ['question', 'evidence', 'conclusion'],
+              transition: '带着证据进入下一页验证',
+              page_type: 'concept',
+              layout_id: 'qizhi-classroom/content-stack',
+              composition_notes: '标题在上，证据链在下。',
+              source_script_block_ids: ['b1', 'b2'],
+            },
             { page_id: 'page-2', page_number: 2, title: '验证结论', source_script_block_ids: ['b3', 'b4', 'b5'] },
           ],
         },
@@ -81,6 +95,12 @@ describe('SlideDeckWorkbench', () => {
     expect(details.get('[data-testid="ppt-storyboard-status"]').text()).toContain('2 页')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('建立问题')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个讲稿来源块')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('让学生明确本讲要解决的问题')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('可靠结论必须绑定现场证据')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('concept · qizhi-classroom/content-stack')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('哪些证据能支撑这个结论？')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('先记录对象、时间与环境条件。')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('question → evidence → conclusion')
     expect(details.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
     expect(details.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
     expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)
@@ -164,6 +184,48 @@ describe('SlideDeckWorkbench', () => {
     await wrapper.setProps({ manuscriptStatus: 'confirmed' })
     expect(confirm.text()).toContain('PPT 文书已确认')
     expect(wrapper.get('.slide-workbench__export').attributes('disabled')).toBeUndefined()
+  })
+
+  it('does not allow confirming a manuscript that failed narrative quality', () => {
+    const wrapper = mount(SlideDeckWorkbench, {
+      props: {
+        courseId: 'course-1',
+        representationId: 'slides-v6-blocked',
+        deckTitle: '数据结构',
+        slides,
+        staleUnitIds: [],
+        building: false,
+        progress: 100,
+        stage: 'complete',
+        error: '',
+        standalone: true,
+        quality: { passed: false },
+        manuscriptConfirmationRequired: true,
+        manuscriptStatus: 'draft',
+        pptManuscript: {
+          schema_version: 'ppt_manuscript_v1',
+          quality_status: 'blocked',
+          quality_issues: [{
+            code: 'ppt_manuscript_title_not_audience_ready',
+            page_id: 'page-1',
+            message: '原始 LaTeX 不能作为页面标题',
+          }],
+          page_count: 1,
+          pages: [{
+            page_id: 'page-1',
+            page_number: 1,
+            title: '$f\\circ g$',
+            source_script_block_ids: ['block-a'],
+          }],
+        },
+      },
+    })
+
+    const confirm = wrapper.get('[data-testid="ppt-confirm-manuscript"]')
+    expect(confirm.attributes('disabled')).toBeDefined()
+    expect(confirm.text()).toContain('PPT 文书需修改')
+    expect(wrapper.get('[data-testid="ppt-storyboard-status"]').text()).toContain('不能生成 PPT')
+    expect(wrapper.get('[data-testid="ppt-manuscript-quality-issues"]').text()).toContain('原始 LaTeX 不能作为页面标题')
   })
 
   it('keeps a legacy storyboard separate from a formal PPT manuscript', async () => {

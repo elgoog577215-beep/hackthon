@@ -95,4 +95,36 @@ describe('SlideVisualRenderer', () => {
     expect(wrapper.get('.katex-test').text()).toBe('$$T(au+bv)=aT(u)+bT(v)$$')
     expect(wrapper.text()).not.toContain('ƒ(x)')
   })
+
+  it('normalizes a source list of inline formulas into separate display blocks', () => {
+    const wrapper = mount(SlideVisualRenderer, {
+      props: {
+        visuals: [{
+          visual_id: 'formula-list',
+          kind: 'formula',
+          purpose: 'reasoning',
+          source_fragment_ids: ['fragment-formula'],
+          alt_text: '复合函数定义域推导',
+          nodes: [],
+          edges: [],
+          parameters: {
+            formula: '$u>0$\n\n$g(x)=1-x^2$\n\n$(f\\circ g)(x)=\\ln(1-x^2)$',
+          },
+        }],
+      },
+      global: {
+        stubs: {
+          MarkdownRenderer: {
+            props: ['content'],
+            template: '<div class="formula-source">{{ content }}</div>',
+          },
+        },
+      },
+    })
+
+    const source = wrapper.get('.formula-source').text()
+    expect(source).toContain('$$u>0$$')
+    expect(source).toContain('$$g(x)=1-x^2$$')
+    expect(source).not.toContain('$$$')
+  })
 })
