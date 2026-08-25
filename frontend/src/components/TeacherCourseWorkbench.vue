@@ -103,7 +103,6 @@
           variant="inline"
           surface="teacher"
           @confirmed="handleInlineOutlineConfirmed"
-          @next="activeStage = 'lesson'"
           @open-ai="openAiCollaboration('outline')"
           @ai-candidate-change="handleAiCandidateChange"
           @ai-resolving="handleAiResolving"
@@ -188,6 +187,28 @@
             </div>
           </div>
           <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
+          <div v-if="lessonToolbarVisible" class="lesson-toolbar-status" role="status">
+            <LoaderCircle v-if="lessonConfirming" :size="15" class="spin" />
+            <Sparkles v-else-if="aiCandidatePending" :size="15" />
+            <Pencil v-else-if="lessonDocumentEditing" :size="15" />
+            <Check v-else-if="lessonPlanConfirmed" :size="15" />
+            <span>{{ lessonConfirming
+              ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+              : aiCandidatePending
+                ? t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
+                : lessonDocumentEditing
+                  ? t('courseWorkbench.lessonDocument.editing', '编辑中')
+                  : lessonPlanConfirmed
+                    ? t('courseWorkbench.lessonPlanConfirmed', '已确认')
+                    : t('courseWorkbench.lessonPlanPendingReview', '待确认') }}</span>
+            <button
+              v-if="!lessonPlanConfirmed && !lessonConfirming && !aiCandidatePending && !lessonDocumentEditing"
+              type="button"
+              :disabled="lessonDocumentQualityBlocked"
+              :title="lessonDocumentQualityBlocked ? lessonDocumentQualityBlockMessage : ''"
+              @click="confirmLessonPlan"
+            >{{ t('courseWorkbench.confirmLessonPlan', '确认本讲教案') }}</button>
+          </div>
           <div v-if="lessonToolbarVisible" class="lesson-toolbar-actions">
             <template v-if="aiCandidatePending">
               <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiCandidate', 'AI 方案') }}</button>
@@ -209,21 +230,6 @@
             <template v-else>
               <button type="button" :disabled="lessonDocumentAiBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}</button>
               <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
-              <button
-                class="primary-action"
-                type="button"
-                :disabled="lessonConfirming || lessonDocumentQualityBlocked"
-                :title="lessonDocumentQualityBlocked ? lessonDocumentQualityBlockMessage : ''"
-                @click="continueLessonPlanWorkflow"
-              >
-                <LoaderCircle v-if="lessonConfirming" :size="15" class="spin" />
-                <ArrowRight v-else :size="15" />
-                {{ lessonConfirming
-                  ? t('courseWorkbench.confirmingLessonPlan', '正在确认…')
-                  : lessonPlanConfirmed
-                    ? t('courseWorkbench.lessonDocument.next', '进入题库')
-                    : t('courseWorkbench.confirmLessonPlanAndContinue', '确认并进入题库') }}
-              </button>
             </template>
           </div>
         </nav>
@@ -274,7 +280,6 @@
             @ai-error="handleAiError"
             @import-mode-change="questionBankImportMode = $event"
           />
-          <footer v-if="!questionBankImportMode" class="stage-next-bar"><span /><button class="primary" type="button" @click="activeStage = 'script'"><ChevronRight :size="15" />{{ t('courseWorkbench.nextToScript', '进入讲稿') }}</button></footer>
         </template>
 
         <template v-else-if="activeStage === 'lesson'">
@@ -342,7 +347,6 @@
             external-toolbar
             @update:active-section-id="selectLessonSection(selectedLesson.lesson_unit_id, $event)"
             @confirm="confirmLessonPlan"
-            @next="activeStage = 'question-bank'"
             @open-ai="openAiCollaboration('lesson')"
             @ai-candidate-change="handleAiCandidateChange"
             @ai-resolving="handleAiResolving"
@@ -370,7 +374,6 @@
             @cancel-generation="cancelScriptGeneration"
             @saved="handleScriptSaved"
             @confirm="confirmScript"
-            @next="activeStage = 'ppt'"
             @open-ai="openAiCollaboration('script')"
             @ai-candidate-change="handleAiCandidateChange"
             @ai-resolving="handleAiResolving"
@@ -469,7 +472,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowRight, BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -1361,17 +1364,10 @@ async function cancelLessonGeneration() {
   if (!lessonJob.value || !lessonGenerationActive.value) return
   await lessonStore.cancelJob(props.courseId, lessonJob.value.id).catch(() => undefined)
 }
-async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision); activeStage.value = 'question-bank' } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
+async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision) } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
 function beginLessonPlanEditing() { lessonPlanDocument.value?.beginEditing() }
 function cancelLessonPlanEditing() { lessonPlanDocument.value?.cancelEditing() }
 async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft() }
-function continueLessonPlanWorkflow() {
-  if (lessonPlanConfirmed.value) {
-    activeStage.value = 'question-bank'
-    return
-  }
-  void confirmLessonPlan()
-}
 function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
@@ -1455,7 +1451,6 @@ async function confirmScript() {
   scriptConfirmError.value = ''
   try {
     await lessonStore.confirmScript(props.courseId, selectedLessonId.value, revision)
-    activeStage.value = 'ppt'
   } catch {
     scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptConfirmFailed', '本讲讲稿确认失败，请重试。')
   } finally {
@@ -1645,7 +1640,12 @@ onBeforeUnmount(() => {
 
 /* The lesson page uses one compact toolbar: lesson navigation, editing, AI, and workflow actions. */
 .workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
-.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:auto minmax(180px,1fr) auto auto;gap:8px}
+.lesson-navigator.has-document-actions{position:sticky;z-index:12;top:0;grid-template-columns:auto minmax(180px,1fr) auto auto auto;gap:8px}
+.lesson-toolbar-status{min-height:34px;display:flex;align-items:center;gap:6px;padding:0 8px;color:#667085;font-size:11.5px;font-weight:700;white-space:nowrap}
+.lesson-toolbar-status>button{min-height:28px;padding:0 8px;border:0;border-radius:6px;color:#3730a3;background:#f0f1f8;font:inherit;cursor:pointer}
+.lesson-toolbar-status>button:hover:not(:disabled){background:#e5e7f6}
+.lesson-toolbar-status>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.lesson-toolbar-status>button:disabled{opacity:.48;cursor:not-allowed}
 .lesson-toolbar-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:2px;padding-left:8px;border-left:1px solid #e2e6ee;white-space:nowrap}
 .lesson-toolbar-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:11.5px;font-weight:750;cursor:pointer}
 .lesson-toolbar-actions button:hover:not(:disabled){color:#3730a3;background:#f0f1f8}
@@ -1654,5 +1654,6 @@ onBeforeUnmount(() => {
 .lesson-toolbar-actions .primary-action{margin-left:3px;border-color:#d7ddea;color:#3730a3;background:#fff}
 .lesson-toolbar-actions .primary-action:hover:not(:disabled){border-color:#c6cbe0;background:#f7f7ff}
 @media(max-width:1320px){.lesson-toolbar-actions button:not(.primary-action){width:34px;padding:0;font-size:0}.lesson-toolbar-actions button:not(.primary-action) svg{display:block}}
-@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:auto minmax(120px,1fr) auto auto}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
+@media(max-width:1000px){.lesson-toolbar-status>span{display:none}.lesson-toolbar-status{padding-inline:4px}}
+@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:auto minmax(120px,1fr) auto auto auto}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
 </style>

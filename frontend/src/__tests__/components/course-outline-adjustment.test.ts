@@ -116,7 +116,7 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('.outline-review__starting-point').exists()).toBe(false)
     expect(wrapper.find('.outline-coverage').exists()).toBe(false)
     expect(wrapper.find('.outline-retrieval').exists()).toBe(false)
-    expect(wrapper.text()).toContain('确认大纲，进入教案')
+    expect(wrapper.text()).toContain('确认课程大纲')
     await wrapper.get('.outline-review__list-toolbar button').trigger('click')
     expect(wrapper.emitted('open-ai')).toHaveLength(1)
 

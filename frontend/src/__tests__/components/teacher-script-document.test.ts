@@ -131,19 +131,17 @@ describe('统一讲稿页面', () => {
     expect((wrapper.vm as any).selectAiScope('missing-section')).toBe(false)
   })
 
-  it('底部同一位置先确认，确认后切换为进入 PPT', async () => {
+  it('底部只负责确认讲稿，确认后由左侧流程切换阶段', async () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
     const button = wrapper.get('.script-footer button')
-    expect(button.text()).toContain('确认讲稿')
+    expect(button.text()).toContain('确认本讲讲稿')
     await button.trigger('click')
     expect(wrapper.emitted('confirm')).toHaveLength(1)
 
     await wrapper.setProps({ confirmed: true })
     expect(wrapper.find('.script-state').exists()).toBe(false)
     expect(wrapper.find('.script-saved').exists()).toBe(false)
-    expect(wrapper.get('.script-footer button').text()).toContain('进入 PPT')
-    await wrapper.get('.script-footer button').trigger('click')
-    expect(wrapper.emitted('next')).toHaveLength(1)
+    expect(wrapper.find('.script-footer').exists()).toBe(false)
   })
 
   it('无讲稿时先收集需求并只触发一条生成链路', async () => {

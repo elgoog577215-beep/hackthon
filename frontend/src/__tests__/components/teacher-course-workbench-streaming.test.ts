@@ -369,10 +369,11 @@ describe('teacher course workbench outline streaming', () => {
     expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待确认')
     expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
-    expect(lessonWrapper.get('.lesson-toolbar-actions .primary-action').text()).toContain('确认并进入题库')
-    await lessonWrapper.get('.lesson-toolbar-actions .primary-action').trigger('click')
+    expect(lessonWrapper.get('.lesson-toolbar-status').text()).toContain('待确认')
+    expect(lessonWrapper.get('.lesson-toolbar-status button').text()).toContain('确认本讲教案')
+    await lessonWrapper.get('.lesson-toolbar-status button').trigger('click')
     expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
-    expect(lessonWrapper.get('.center-heading h2').text()).toBe('题库')
+    expect(lessonWrapper.find('.lesson-section-tabs').exists()).toBe(true)
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()
@@ -380,7 +381,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-generate-secondary').attributes('disabled')).toBeDefined()
   })
 
-  it('讲稿确认成功后原位进入 PPT，不要求老师再次寻找下一步', async () => {
+  it('讲稿确认成功后停留当前阶段，由左侧五步流程负责切换', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -408,7 +409,7 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
 
     expect(confirmScript).toHaveBeenCalledWith('course-1', 'L1-1', 'script-1')
-    expect(wrapper.get('.center-heading h2').text()).toBe('PPT')
+    expect(wrapper.get('.center-heading h2').text()).toBe('讲稿')
   })
 
   it('大章目录以浮层按需展开，小节在正文顶部横向切换', async () => {

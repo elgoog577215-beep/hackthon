@@ -457,19 +457,10 @@
             @click="confirmOutline"
           >
             <LoaderCircle v-if="confirming" :size="15" />
-            <ArrowRight v-else :size="15" />
+            <CircleCheck v-else :size="15" />
             {{ surface === 'teacher'
-              ? t('courseWorkbench.confirmOutlineAndContinue', '确认大纲，进入教案')
+              ? t('courseWorkbench.confirmOutline', '确认课程大纲')
               : t('courseGeneration.gate.confirmOutline', '确认目录并继续') }}
-          </button>
-          <button
-            v-else-if="surface === 'teacher' && !editable"
-            type="button"
-            class="primary"
-            @click="emit('next')"
-          >
-            <ArrowRight :size="15" />
-            {{ t('courseWorkbench.nextToLesson', '进入教案') }}
           </button>
         </div>
       </footer>
@@ -512,7 +503,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'confirmed'): void
-  (event: 'next'): void
   (event: 'open-ai'): void
   (event: 'ai-candidate-change', candidate: Record<string, any> | null): void
   (event: 'ai-resolving', result: { accept: boolean }): void
@@ -1123,7 +1113,7 @@ async function confirmOutline() {
     generationStore.startGlobalMonitor()
     if (props.surface === 'teacher') {
       await courseStore.refreshGenerationPreview(props.courseId, 'teacher')
-      ElMessage.success(t('courseWorkbench.outlineConfirmed', '大纲已确认，正在进入教案'))
+      ElMessage.success(t('courseWorkbench.outlineConfirmed', '大纲已确认'))
     } else {
       await courseStore.refreshCourseData(props.courseId)
       ElMessage.success(t('courseGeneration.gate.confirmed', '已确认，课程继续生成'))

@@ -210,20 +210,18 @@
 
     <div v-else class="document-empty">{{ tr('courseWorkbench.lessonPlanPreparing') }}</div>
 
-    <footer v-if="!externalToolbar && !pendingCandidate && !editing" class="document-footer">
+    <footer v-if="!externalToolbar && !pendingCandidate && !editing && !confirmed" class="document-footer">
       <button
         type="button"
         :disabled="confirming || qualityBlocked"
         :title="qualityBlocked ? qualityBlockMessage : ''"
-        @click="continueWorkflow"
+        @click="emit('confirm')"
       >
         <LoaderCircle v-if="confirming" :size="15" class="spin" />
-        <ArrowRight v-else :size="15" />
+        <Check v-else :size="15" />
         {{ confirming
           ? tr('courseWorkbench.confirmingLessonPlan')
-          : confirmed
-            ? tr('courseWorkbench.lessonDocument.next')
-            : tr('courseWorkbench.confirmLessonPlanAndContinue') }}
+          : tr('courseWorkbench.confirmLessonPlan') }}
       </button>
     </footer>
   </section>
@@ -231,7 +229,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { ArrowRight, Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
+import { Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import { t } from '../shared/i18n'
 import {
@@ -263,7 +261,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'confirm'): void
-  (event: 'next'): void
   (event: 'saved'): void
   (event: 'open-ai'): void
   (event: 'ai-candidate-change', value: TeacherLessonPlanCandidate | null): void
@@ -313,7 +310,6 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.confirmFailed': '教案确认失败',
   'courseWorkbench.lessonDocument.candidateCanvasTitle': 'AI 候选正在左侧画布预览',
   'courseWorkbench.lessonDocument.changeMarker': 'AI 修改',
-  'courseWorkbench.lessonDocument.next': '进入题库',
   'courseWorkbench.lessonDocument.sectionNavigation': '教案小节',
   'courseWorkbench.lessonDocument.objective': '教学目标',
   'courseWorkbench.lessonDocument.keyPoints': '教学重点',
@@ -330,7 +326,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.notes': '教学备注',
   'courseWorkbench.lessonDocument.empty': '-',
   'courseWorkbench.confirmingLessonPlan': '正在确认…',
-  'courseWorkbench.confirmLessonPlanAndContinue': '确认并进入题库',
+  'courseWorkbench.confirmLessonPlan': '确认本讲教案',
   'courseWorkbench.lessonPlanConfirmed': '已确认',
   'courseWorkbench.lessonPlanPendingReview': '待确认',
   'courseWorkbench.lessonPlanPreparing': '教案内容正在整理，请稍后刷新。',
@@ -400,10 +396,6 @@ const qualityBlockMessage = computed(() => String(
   workingRevision.value?.quality_report?.blocking_issues?.[0]?.message || '',
 ))
 
-function continueWorkflow() {
-  if (props.confirmed) emit('next')
-  else emit('confirm')
-}
 const emptyValue = computed(() => tr('courseWorkbench.lessonDocument.empty'))
 
 const moduleLabels = computed<Record<string, string>>(() => ({

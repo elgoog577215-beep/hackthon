@@ -135,20 +135,18 @@
       <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
     </article>
 
-    <footer v-if="lesson.script.ready && !pendingCandidate && !editing" class="script-footer">
+    <footer v-if="lesson.script.ready && !pendingCandidate && !editing && !confirmed" class="script-footer">
       <button
         type="button"
         :disabled="confirming || !lesson.script.ready"
         :title="!lesson.script.ready ? tr('courseWorkbench.scriptDocument.incomplete') : ''"
-        @click="continueWorkflow"
+        @click="emit('confirm')"
       >
         <LoaderCircle v-if="confirming" :size="15" class="spin" />
-        <ArrowRight v-else :size="15" />
+        <Check v-else :size="15" />
         {{ confirming
           ? tr('courseWorkbench.scriptDocument.confirming')
-          : confirmed
-            ? tr('courseWorkbench.scriptDocument.next')
-            : tr('courseWorkbench.scriptDocument.confirmAndContinue') }}
+          : tr('courseWorkbench.scriptDocument.confirm') }}
       </button>
     </footer>
   </section>
@@ -156,7 +154,7 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ArrowRight, Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
+import { Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import { t } from '../shared/i18n'
@@ -190,7 +188,6 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
   (event: 'confirm'): void
-  (event: 'next'): void
   (event: 'saved'): void
   (event: 'generate', requirement: string): void
   (event: 'cancel-generation'): void
@@ -255,8 +252,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.pendingReview': '待确认',
   'courseWorkbench.scriptDocument.confirmed': '已确认',
   'courseWorkbench.scriptDocument.confirming': '正在确认…',
-  'courseWorkbench.scriptDocument.confirmAndContinue': '确认讲稿，进入 PPT',
-  'courseWorkbench.scriptDocument.next': '进入 PPT',
+  'courseWorkbench.scriptDocument.confirm': '确认本讲讲稿',
   'courseWorkbench.scriptDocument.incomplete': '请先补全本讲所有小节内容',
   'courseWorkbench.scriptDocument.generationRequirement': '讲稿生成要求',
   'courseWorkbench.scriptDocument.generationPlaceholder': '例如：增加一个贴近学生的课堂案例，保留教案时间安排',
@@ -301,11 +297,6 @@ const visibleContent = computed(() => {
   if (pendingCandidate.value?.section_node_id === selectedNode.value.section_node_id) return pendingCandidate.value.replacement_text
   return selectedNode.value.content || ''
 })
-
-function continueWorkflow() {
-  if (props.confirmed) emit('next')
-  else emit('confirm')
-}
 
 function requestGeneration() {
   if (!props.generating && props.canGenerate) emit('generate', generationRequirement.value.trim())
