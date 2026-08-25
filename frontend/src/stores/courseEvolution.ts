@@ -343,12 +343,19 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.generating = false
       }
     },
-    async reviewCoursePlan(planId: string, selectedMigrationIds: string[]) {
+    async reviewCoursePlan(
+      planId: string,
+      selectedMigrationIds: string[],
+      options: { confirmStructure?: boolean } = {},
+    ) {
       this.actingId = planId
       try {
         const response = await http.post(
           `/api/courses/${this.courseId}/evolution/course-plans/${planId}/review`,
-          { selected_migration_ids: selectedMigrationIds },
+          {
+            selected_migration_ids: selectedMigrationIds,
+            confirm_structure: Boolean(options.confirmStructure),
+          },
         )
         this.applyPayload(this.courseId, response.data)
         return response.data

@@ -119,9 +119,9 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.findAll('.journey li')).toHaveLength(4)
     expect(wrapper.get('.journey li.active').text()).toContain('说出要求')
     expect(wrapper.get('.request-composer').text()).toContain('这次想让课程怎么变')
-    expect(wrapper.get('.asset-ledger').text()).toContain('24')
-    expect(wrapper.get('.asset-ledger').text()).toContain('44')
-    expect(wrapper.get('.asset-ledger').text()).toContain('尚未生成')
+    expect(wrapper.get('.readiness-strip').text()).toContain('课程准备情况')
+    expect(wrapper.get('.readiness-strip').text()).toContain('部分完成')
+    expect(wrapper.get('.readiness-strip').text()).toContain('尚未生成')
     expect(wrapper.find('.request-context').exists()).toBe(false)
 
     await wrapper.findAll('.icon-action')[1]!.trigger('click')
@@ -158,8 +158,8 @@ describe('CourseEvolutionWorkspace', () => {
     const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改')
-    expect(wrapper.get('.request-context').text()).toContain('老师原话')
+    expect(wrapper.get('.journey li.active').text()).toContain('分析影响')
+    expect(wrapper.get('.request-context').text()).toContain('本次目标')
     expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
     expect(wrapper.get('.impact-list').text()).toContain('原讲稿只介绍方法')
     await wrapper.get('.impact-check input').setValue(false)

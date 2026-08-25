@@ -279,3 +279,54 @@ def test_scope_review_rejects_foreign_migrations(tmp_path):
             change_set_id="missing",
             selected_migration_ids=["foreign"],
         )
+
+
+def test_structure_review_confirms_proposed_tree_without_writing_course_content(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+
+    async def analyzer(_overview, candidates, _instruction):
+        return {
+            "interpreted_goal": "拆分原理与项目实践章节",
+            "signal_kind": "structural",
+            "signal_confidence": .91,
+            "affected_units": [{
+                "unit_id": candidates[0]["unit_id"],
+                "disposition": "reuse_rebind",
+                "reason": "迁移到拆分后的章节",
+                "confidence": .88,
+            }],
+            "structure": {
+                "required": True,
+                "reason": "章节职责需要拆分",
+                "affected_node_ids": ["chapter-1"],
+                "proposed_outline": [
+                    {"provisional_id": "new-1", "title": "第一章 原理", "parent_ref": "root", "source_node_ids": ["chapter-1"]},
+                    {"provisional_id": "new-2", "title": "第二章 项目实践", "parent_ref": "root", "source_node_ids": ["chapter-1"]},
+                ],
+            },
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="structure-request-1",
+        instruction="把第一章拆成原理与项目实践",
+        repository=repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    migration_ids = [item.migration_id for item in plan.teacher_change_planning.unit_migrations]
+
+    reviewed = review_teacher_course_change_scope(
+        repository=repository,
+        user_id="teacher-1",
+        course_id="course-1",
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=migration_ids,
+        confirm_structure=True,
+    )
+
+    updated = reviewed.change_sets[0]
+    assert updated.teacher_change_planning.structure_review_status == "confirmed"
+    assert updated.impact_summary["structure_review"]["status"] == "confirmed"
+    assert updated.impact_summary["structure_review"]["formal_content_changed"] is False

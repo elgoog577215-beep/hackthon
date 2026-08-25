@@ -66,6 +66,13 @@ const routes: Array<RouteRecordRaw> = [
     meta: { identityScope: 'teacher' },
   },
   {
+    path: '/course/:courseId/changes/:planId?',
+    name: 'course-change-workspace',
+    component: () => import('../views/CourseChangeWorkspaceView.vue'),
+    props: true,
+    meta: { identityScope: 'teacher' },
+  },
+  {
     path: '/teacher/course/:courseId/overview',
     name: 'teacher-course-overview',
     redirect: to => ({ name: 'course-workspace', params: { courseId: to.params.courseId, mode: 'setup' } })

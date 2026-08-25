@@ -944,6 +944,7 @@ def review_teacher_course_change_scope(
     course_id: str,
     change_set_id: str,
     selected_migration_ids: list[str],
+    confirm_structure: bool = False,
 ) -> CourseEvolutionState:
     """Persist teacher scope review without pretending content was applied."""
     selected = list(dict.fromkeys(str(value) for value in selected_migration_ids if str(value)))
@@ -962,6 +963,12 @@ def review_teacher_course_change_scope(
         unknown = set(selected).difference(known)
         if unknown:
             raise ValueError("影响范围包含不属于本方案的课程单元")
+        if confirm_structure:
+            proposed_outline = plan.impact_summary.get("proposed_outline") or []
+            if not plan.teacher_change_planning.structural_operations:
+                raise ValueError("当前方案不包含需要确认的课程结构变化")
+            if not proposed_outline:
+                raise ValueError("新的课程结构尚未形成，不能确认迁移")
         timestamp = _now()
         plan.impact_summary["scope_review"] = {
             "selected_migration_ids": selected,
@@ -969,6 +976,13 @@ def review_teacher_course_change_scope(
             "reviewed_at": timestamp,
             "formal_content_changed": False,
         }
+        if confirm_structure:
+            plan.teacher_change_planning.structure_review_status = "confirmed"
+            plan.impact_summary["structure_review"] = {
+                "status": "confirmed",
+                "confirmed_at": timestamp,
+                "formal_content_changed": False,
+            }
         plan.teacher_change_planning.updated_at = timestamp
         plan.updated_at = timestamp
         state.updated_at = timestamp

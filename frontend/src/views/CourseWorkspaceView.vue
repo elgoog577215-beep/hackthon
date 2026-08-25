@@ -118,16 +118,6 @@
       surface="teacher"
     />
 
-    <CourseEvolutionWorkspace
-      v-model="courseAdjustmentOpen"
-      :course-id="courseId"
-      :course-title="courseTitle"
-      :section-id="courseAdjustmentSectionId"
-      :section-title="courseAdjustmentSectionTitle"
-      :focus-plan-id="courseAdjustmentFocusPlanId"
-      @course-applied="handleCourseAdjustmentApplied"
-    />
-
   </main>
 </template>
 
@@ -136,7 +126,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
-import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
@@ -162,10 +151,7 @@ const loadError = ref<AppErrorPresentation | null>(null)
 const outlineEditing = ref(false)
 const calendarOpen = ref(false)
 const workbenchOpen = ref(false)
-const courseAdjustmentOpen = ref(false)
 const courseInformationOpen = ref(false)
-const courseAdjustmentFocusPlanId = ref('')
-const courseAdjustmentSectionId = ref('')
 const generationStarting = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
@@ -189,9 +175,6 @@ const courseState = computed(() => coursePreparationState(
   generationTask.value,
 ))
 const courseStateLabel = computed(() => coursePreparationLabel(courseState.value))
-const courseAdjustmentSectionTitle = computed(() => (
-  courseStore.nodes.find(node => node.node_id === courseAdjustmentSectionId.value)?.node_name || ''
-))
 
 function handleCourseInformationUpdated(payload: any) {
   courseGenerationOptions.value = payload.information?.generation_request || courseGenerationOptions.value
@@ -311,15 +294,13 @@ function openTasks() {
 }
 
 function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
-  courseAdjustmentFocusPlanId.value = payload?.planId || ''
-  // Whole-course change planning is anchored to the course and its source
-  // revisions. A preview node must never be invented as a formal section ID.
-  courseAdjustmentSectionId.value = ''
-  courseAdjustmentOpen.value = true
-}
-
-async function handleCourseAdjustmentApplied() {
-  await loadWorkspace()
+  void router.push({
+    name: 'course-change-workspace',
+    params: {
+      courseId: courseId.value,
+      ...(payload?.planId ? { planId: payload.planId } : {}),
+    },
+  })
 }
 
 async function startOutlineGeneration(payload: { subject: string; options: CourseGenerationOptions }) {

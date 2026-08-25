@@ -261,6 +261,8 @@ CourseDocument / TeacherOutlineWorkspace
 
 课程级入口为 `/evolution/course-context` 与 `/evolution/course-plans`；现有 `/evolution/plans` 继续服务真实小节或内容块修改。两条链不得通过猜测预览节点来互相冒充。课程结构、正文或资产尚未生成时，工作台显示 `available / partial / stale / missing` 的真实就绪状态；只有所有可分析来源均为空时才返回 `course_change_source_unavailable`，该错误不得被前端归类为修订冲突。
 
+教师端使用 `/course/:courseId/changes/:planId?` 独立路由承载全课长任务，不再把可恢复、多阶段工作压进课程页弹层。顶部四阶段始终表示老师的决策进度；请求态保持单栏，分析态渐进披露影响，结构态先确认候选课程树与迁移范围。界面必须分别标记“预计影响”“修改候选”“实际回执”：当前仅完成预计影响时，流程仍停留在“分析影响”，不得通过按钮或文案暗示候选已经生成。
+
 #### 7.1 老师的语言是证据，不是必须准确填写的命令枚举
 
 系统保存 `CourseChangeIntentV1.raw_request`、当前 `interpreted_goal`、硬约束、偏好、保护要求、假设、信号与待澄清问题。内容、结构与混合只属于内部执行策略：

@@ -115,7 +115,7 @@ describe('course evolution store', () => {
     expect(httpMock.post.mock.calls[0]?.[1]).not.toHaveProperty('section_id')
     expect(httpMock.post.mock.calls[1]).toEqual([
       '/api/courses/course-1/evolution/course-plans/plan-1/review',
-      { selected_migration_ids: ['migration-1'] },
+      { selected_migration_ids: ['migration-1'], confirm_structure: false },
     ])
   })
 

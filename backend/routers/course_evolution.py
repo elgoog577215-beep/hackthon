@@ -121,6 +121,7 @@ class ReviewTeacherCourseChangeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     selected_migration_ids: list[str] = Field(max_length=2000)
+    confirm_structure: bool = False
 
 
 def _teacher_course_change_context(course_id: str, tm: TaskManager):
@@ -317,6 +318,7 @@ async def review_teacher_course_plan(
             course_id=course_id,
             change_set_id=change_set_id,
             selected_migration_ids=body.selected_migration_ids,
+            confirm_structure=body.confirm_structure,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={
