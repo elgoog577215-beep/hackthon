@@ -31,6 +31,7 @@ FORMAL_FILE_TYPES = {
     "exam_paper",
     "companion_document",
 }
+PREPARATION_STATUSES = {"pending", "review", "completed", "skipped"}
 CATEGORIES = {
     "teaching_design": "教学设计",
     "lesson_materials": "讲次资料",
@@ -142,7 +143,7 @@ class TeacherCourseSpaceRepository:
         entries = [{**entry, "path": entry["name"]} for entry in SCHOOL_TEMPLATE] if template == "school_course_materials" else []
         package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
                    "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "imports": [],
-                   "entries": entries, "relationships": []}
+                   "entries": entries, "relationships": [], "preparation_status": "pending"}
         package_path = self._path(package_id)
         package_path.mkdir(parents=True, exist_ok=False)
         (package_path / "files").mkdir(exist_ok=True)  # immutable source copies for download/history
@@ -235,9 +236,20 @@ class TeacherCourseSpaceRepository:
 
     def public(self, package: dict[str, Any]) -> dict[str, Any]:
         result = dict(package); result.pop("owner_id", None)
+        # 旧工作包创建时没有准备状态。把它们视为已完成，避免升级后把老师
+        # 已经在使用的课程重新送回首次导入页。
+        result["preparation_status"] = str(result.get("preparation_status") or "completed")
         result["entries"] = [entry for entry in result.get("entries", []) if entry.get("kind") == "folder"]
         result["asset_count"] = len(result.get("assets") or [])
         return result
+
+    def update_preparation_status(self, package: dict[str, Any], status: str) -> dict[str, Any]:
+        normalized = str(status or "").strip()
+        if normalized not in PREPARATION_STATUSES:
+            raise MaterialStorageError("课程资料准备状态不合法")
+        package["preparation_status"] = normalized
+        self.save(package)
+        return self.public(package)
 
     async def import_file(self, package: dict[str, Any], upload: Any, relative_path: str, batch_id: str) -> dict[str, Any]:
         relative_path = normalize_relative_path(relative_path)
@@ -458,6 +470,7 @@ class TeacherCourseSpaceRepository:
         )
         package = self.load_owned(created["package_id"], owner_id)
         package["is_material_inbox"] = True
+        package["preparation_status"] = "skipped"
         self.save(package)
         return package
 
@@ -536,7 +549,7 @@ class TeacherCourseSpaceRepository:
         sources: list[dict[str, str]],
         target_revision: str = "",
     ) -> list[dict[str, Any]]:
-        """替换一个正式文件的来源集合；只改关系，不复制或删除原文件。"""
+        """替换一个正式文件的来源集合；来源只能是老师上传的原始资料。"""
         normalized_target_id = str(target_id or "").strip()
         normalized_target_type = str(target_type or "").strip()
         if not normalized_target_id or len(normalized_target_id) > 240:

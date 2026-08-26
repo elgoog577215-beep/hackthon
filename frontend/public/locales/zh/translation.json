@@ -5178,6 +5178,26 @@
       "categories": "备课工作台",
       "categoriesHelp": "按大纲、教案、正文和 PPT 推进课程生产"
     },
+    "preparation": {
+      "stepLabel": "课程资料准备",
+      "title": "先把已有资料放进来",
+      "description": "把这门课原有的教案、PPT、讲义、试卷等一次导入。系统会保留原文件与目录，并识别文件类型，后续备课时自动作为可选来源。",
+      "dropTitle": "拖入整套课程文件夹",
+      "dropDescription": "也可以直接选择一个文件夹，或一次选择多个文件",
+      "chooseFolder": "选择文件夹",
+      "chooseFiles": "选择多个文件",
+      "note": "支持 PDF、Word、PPT、Excel、图片与常用文本格式，单个文件不超过 50 MB。",
+      "skip": "暂时跳过，直接进入文件系统",
+      "reviewTitle": "已导入 {count} 份原始资料",
+      "reviewDescription": "文件已进入课程文件系统。确认无误后即可开始备课，也可以继续补充。",
+      "importResult": "本次导入 {imported} 份，重复 {duplicate} 份，未导入 {rejected} 份",
+      "continueImport": "继续导入",
+      "finish": "完成资料准备",
+      "rejectedHint": "有 {count} 个文件未导入，请检查格式或文件大小。",
+      "importFailed": "课程资料导入失败，请重试。",
+      "readFolderFailed": "无法读取这个文件夹，请改用“选择文件夹”。",
+      "statusFailed": "资料准备状态保存失败，请重试。"
+    },
     "categories": {
       "title": "课程生产",
       "help": "按备课顺序生成，也可集中管理同类产物。",
@@ -5320,7 +5340,7 @@
     },
     "meta": { "role": "角色", "source": "来源", "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
     "inspector": {
-      "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "sourceMaterials": "来源资料", "generatedFiles": "生成文件", "usedBy": "用于", "lessonPlansCount": "教案 · {count} 讲", "practicesCount": "本讲练习 · {count} 讲", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作",
+      "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "sourceMaterials": "来源资料", "generatedFiles": "生成文件", "usedBy": "用于", "lessonPlansCount": "教案 · {count} 讲", "practicesCount": "本讲练习 · {count} 讲", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作", "parentSource": "母文件", "referenceOriginals": "参考原始文件", "teacherOriginal": "老师上传原件",
       "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料", "questionSource": "真题资料", "sameTruth": "同一正式版本",
       "actionHints": { "managed": "打开对应工作流；导出只生成当前版本的派生文件。", "uploaded": "可预览或下载原件；删除只移除这个上传文件。", "folder": "新增内容将保存到当前资料目录。", "course": "导出当前课程文件包，不会改变正式课程。" },
       "sources": { "courseStructure": "课程结构", "outlineSchedule": "当前课程大纲与人工排课", "outlineAndMaterials": "课程大纲与参考资料", "contentBlocks": "课程讲稿 · {count} 个内容块", "questionBank": "正式题库 · {count} 道题", "pinnedQuestionRevisions": "已固定引用的题目修订", "schoolTemplate": "学校模板与已填写课程信息", "generatedDeck": "AI 生成课件", "uploadedDeck": "老师上传课件", "notSelected": "尚未选择课件来源", "teacherFile": "老师上传文件" },

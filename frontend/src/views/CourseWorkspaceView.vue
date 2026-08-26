@@ -155,7 +155,9 @@ const courseInformationOpen = ref(false)
 const generationStarting = ref(false)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
-const workspaceView = ref<'files' | 'categories'>('categories')
+const workspaceView = ref<'files' | 'categories'>(
+  route.query.view === 'files' || route.query.prepare === '1' ? 'files' : 'categories',
+)
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const requestedLessonId = ref('')
 const searchQuery = ref('')
@@ -192,6 +194,7 @@ function backToSource() {
 
 async function loadWorkspace() {
   if (!courseId.value) return
+  if (route.query.view === 'files' || route.query.prepare === '1') workspaceView.value = 'files'
   generationStore.observeCourse(courseId.value)
   loading.value = true
   loadError.value = null

@@ -114,7 +114,11 @@ async function createCourse() {
       },
     })
     await courseStore.fetchCourseList({ surface: 'teacher' })
-    await router.push({ name: 'course-workspace', params: { courseId: result.course_id, mode: 'setup' }, query: { returnTo: '/courses?view=courses' } })
+    await router.push({
+      name: 'course-workspace',
+      params: { courseId: result.course_id, mode: 'setup' },
+      query: { returnTo: '/courses?view=courses', view: 'files', prepare: '1' },
+    })
   } catch (error: any) {
     ElMessage.error(String(error?.response?.data?.detail || error?.message || t('courseLibrary.createFailed')))
   } finally { creating.value = false }

@@ -12,6 +12,7 @@ from teacher_course_space import CATEGORIES, package_folder_paths, teacher_cours
 router = APIRouter(prefix="/teacher-course-spaces", tags=["teacher_course_spaces"])
 class PackageCreate(BaseModel): course_name: str; academic_year: str; term: str; template: str = "blank"; course_id: str = ""
 class PackageBinding(BaseModel): course_id: str
+class PreparationUpdate(BaseModel): status: Literal["completed", "skipped"]
 class CategoryUpdate(BaseModel): category: str
 class FolderCreate(BaseModel): name: str
 class RelationshipSource(BaseModel):
@@ -43,6 +44,10 @@ def get_package(package_id: str, request: Request):
 def bind_package(package_id: str, body: PackageBinding, request: Request):
     try: return repository.bind_course(repository.load_owned(package_id, owner(request)), body.course_id)
     except Exception as exc: http_error(exc)
+@router.patch("/{package_id}/preparation")
+def update_preparation(package_id: str, body: PreparationUpdate, request: Request):
+    try: return repository.update_preparation_status(repository.load_owned(package_id, owner(request)), body.status)
+    except Exception as exc: http_error(exc)
 @router.put("/{package_id}/relationships")
 def replace_relationships(package_id: str, body: RelationshipUpdate, request: Request):
     try:
@@ -70,6 +75,8 @@ async def import_folder(package_id: str, request: Request, files: list[UploadFil
             try: outcomes.append(await repository.import_file(package, file, path, batch_id))
             except MaterialStorageError as exc: outcomes.append({"relative_path": path, "outcome": "rejected", "error": str(exc)})
         package["imports"].append({"batch_id": batch_id, "imported_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(), "outcomes": outcomes})
+        if str(package.get("preparation_status") or "completed") in {"pending", "review"}:
+            package["preparation_status"] = "review"
         repository.save(package); return {"batch_id": batch_id, "outcomes": outcomes, "package": repository.public(package)}
     except Exception as exc: http_error(exc)
 @router.patch("/{package_id}/assets/{asset_id}")

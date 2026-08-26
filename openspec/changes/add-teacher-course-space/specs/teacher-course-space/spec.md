@@ -36,3 +36,33 @@ The system SHALL present a course work package as a nested directory workspace: 
 #### Scenario: Teacher corrects a category
 - **WHEN** the teacher changes an imported asset from “未分类” to “学校材料”
 - **THEN** the asset remains at its original relative path and the updated category is returned in the asset tree
+
+### Requirement: New course starts with existing-material preparation
+The system SHALL open a newly created course in its course file system and SHALL provide a first-use preparation state for importing a folder or multiple files before document production.
+
+#### Scenario: Teacher creates a new course
+- **WHEN** the teacher completes course creation
+- **THEN** the system opens the course file view in material preparation state instead of opening the document workbench
+
+#### Scenario: Teacher imports existing materials
+- **WHEN** the teacher imports one or more existing course files during preparation
+- **THEN** the system preserves the submitted directory paths, records the package as awaiting review, and displays the normal file system with an import summary
+
+#### Scenario: Teacher has no materials yet
+- **WHEN** the teacher chooses to skip material preparation
+- **THEN** the system records the decision and opens the normal course file system without requiring an upload
+
+#### Scenario: Existing package predates preparation state
+- **WHEN** an existing work package has no preparation status field
+- **THEN** the system treats it as completed and does not send the teacher through first-use preparation
+
+### Requirement: Formal files reference only teacher-uploaded originals
+The system SHALL allow a formal course file to record at most one primary original and multiple reference originals, all of which MUST be assets in the teacher's course work package. Formal course files SHALL NOT be stored as sources of other formal files.
+
+#### Scenario: Formal file shows its origins
+- **WHEN** the teacher selects a formal file in the course file system
+- **THEN** the inspector displays its primary original and reference originals separately and does not display other formal files as source or generated-file relationships
+
+#### Scenario: Uploaded original shows its uses
+- **WHEN** the teacher selects an uploaded original
+- **THEN** the inspector lists the formal files that reference it

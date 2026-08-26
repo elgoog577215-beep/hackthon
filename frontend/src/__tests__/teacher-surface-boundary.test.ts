@@ -173,6 +173,8 @@ describe('calendar and course file-space boundary', () => {
     expect(create).not.toContain("composition_style: 'balanced'")
     expect(create).not.toContain("teaching_context: 'classroom'")
     expect(create).toContain("name: 'course-workspace'")
+    expect(create).toContain("view: 'files'")
+    expect(create).toContain("prepare: '1'")
     expect(create).not.toContain("generate: 'outline'")
     expect(create).not.toContain('section_count: Math.max')
     expect(create).not.toContain('class="workbench-preview"')

@@ -5036,6 +5036,26 @@
       "categories": "Preparation workbench",
       "categoriesHelp": "Produce the outline, lesson plans, content, and PPT in sequence"
     },
+    "preparation": {
+      "stepLabel": "Course material setup",
+      "title": "Bring in your existing materials first",
+      "description": "Import the course's existing lesson plans, PPTs, handouts, and exams in one pass. The original files and folders are preserved and identified for later use as preparation sources.",
+      "dropTitle": "Drop the complete course folder here",
+      "dropDescription": "Or choose a folder or multiple files from your computer",
+      "chooseFolder": "Choose folder",
+      "chooseFiles": "Choose files",
+      "note": "Supports PDF, Office, images, and common text formats up to 50 MB per file.",
+      "skip": "Skip for now and open course files",
+      "reviewTitle": "{count} original files imported",
+      "reviewDescription": "The files are now in the course file system. Finish setup or add more materials.",
+      "importResult": "Imported {imported}, duplicates {duplicate}, not imported {rejected}",
+      "continueImport": "Import more",
+      "finish": "Finish setup",
+      "rejectedHint": "{count} files were not imported. Check their format or size.",
+      "importFailed": "Could not import course materials. Try again.",
+      "readFolderFailed": "Could not read this folder. Use Choose folder instead.",
+      "statusFailed": "Could not save the setup status. Try again."
+    },
     "categories": {
       "title": "Course production",
       "help": "Produce in lesson-planning order and manage each artifact type together.",
@@ -5166,7 +5186,7 @@
     "ppt": { "chooseMethodSubtitle": "Generate with AI or upload the teacher's existing deck", "generatedSubtitle": "AI generated · stays linked to the lesson plan", "uploadedSubtitle": "Teacher uploaded · original preserved", "generatedOrigin": "AI-generated deck", "uploadedOrigin": "Teacher's existing deck" },
     "meta": { "role": "Role", "source": "Source", "location": "Location", "items": "Contains", "lesson": "Session", "version": "Version", "origin": "Deck source", "size": "File size", "updated": "Date modified" },
     "inspector": {
-      "fileInfo": "File information", "folderInfo": "Folder information", "source": "Source", "usedFor": "Used for", "sourceMaterials": "Source materials", "generatedFiles": "Generated files", "usedBy": "Used by", "lessonPlansCount": "Lesson plans · {count} sessions", "practicesCount": "Session practice · {count} sessions", "pendingCount": "{count} need attention", "actionsTitle": "Available actions", "referencedBy": "Referenced by formal files", "referenceFiles": "Referenced files", "primarySource": "Primary source", "referenceSource": "Reference", "questionSource": "Past exam source", "sameTruth": "Same formal revision",
+      "fileInfo": "File information", "folderInfo": "Folder information", "source": "Source", "usedFor": "Used for", "sourceMaterials": "Source materials", "generatedFiles": "Generated files", "usedBy": "Used by", "lessonPlansCount": "Lesson plans · {count} sessions", "practicesCount": "Session practice · {count} sessions", "pendingCount": "{count} need attention", "actionsTitle": "Available actions", "parentSource": "Original source", "referenceOriginals": "Reference originals", "teacherOriginal": "Teacher-uploaded original", "referencedBy": "Referenced by formal files", "referenceFiles": "Referenced files", "primarySource": "Primary source", "referenceSource": "Reference", "questionSource": "Past exam source", "sameTruth": "Same formal revision",
       "actionHints": { "managed": "Open the corresponding workflow. Export creates a derived file from the current version.", "uploaded": "Preview or download the original. Delete removes only this uploaded file.", "folder": "New content will be stored in the current materials folder.", "course": "Export the current course package without changing the formal course." },
       "sources": { "courseStructure": "Course structure", "outlineSchedule": "Current outline and teacher scheduling", "outlineAndMaterials": "Course outline and references", "contentBlocks": "Course script · {count} content blocks", "questionBank": "Question bank · {count} questions", "pinnedQuestionRevisions": "Pinned question revisions", "schoolTemplate": "School template and completed course information", "generatedDeck": "AI-generated deck", "uploadedDeck": "Teacher-uploaded deck", "notSelected": "No deck source selected", "teacherFile": "Teacher-uploaded file" },
       "uses": { "outline": "Teaching calendar, lesson plans, scripts, PPT, and questions", "teachingCalendar": "Institutional scheduling, session sync, and formal file export", "lessonPlan": "Scripts, PPT, and questions", "content": "Student preview and Markdown export", "practice": "Class checks, assignments, and student preview", "questionBank": "Question generation, review, and paper composition", "examPaper": "Exams and formal export", "companionDocument": "School submission, student guidance, and course archiving", "ppt": "Class presentation", "material": "Lesson preparation and classroom use" }

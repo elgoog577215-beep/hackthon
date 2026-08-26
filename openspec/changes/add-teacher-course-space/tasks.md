@@ -17,3 +17,11 @@
 - [ ] 3.1 Surface the teacher file-space entry from the course library without changing current learning-course generation.
 - [ ] 3.2 Run backend tests, frontend component/store tests, production build and browser import/export smoke.
 - [ ] 3.3 Review diff scope and record runtime, security and future B-integration limits.
+
+## 4. Existing-material preparation flow
+
+- [x] 4.1 Route newly created courses to the course file system and persist pending, review, completed and skipped preparation states.
+- [x] 4.2 Add folder selection, multi-file selection and recursive directory drag/drop while preserving relative paths and empty folders.
+- [x] 4.3 Replace formal-to-formal inspector links with primary-original, reference-original and original-usage views.
+- [x] 4.4 Cover preparation-state compatibility, relationship-source boundaries, course-create routing and file-space UI behavior with tests.
+- [x] 4.5 Verify new-course entry, batch import, review state and completion in the real browser UI.

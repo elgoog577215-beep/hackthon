@@ -14,6 +14,29 @@ class FakeUpload:
 
 
 class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_package_starts_in_material_preparation_and_can_finish(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+
+        self.assertEqual(created["preparation_status"], "pending")
+
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        completed = repository.update_preparation_status(package, "completed")
+
+        self.assertEqual(completed["preparation_status"], "completed")
+        self.assertEqual(
+            repository.load_owned(created["package_id"], "teacher-a")["preparation_status"],
+            "completed",
+        )
+
+    async def test_legacy_package_without_preparation_state_stays_completed(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        package.pop("preparation_status")
+
+        self.assertEqual(repository.public(package)["preparation_status"], "completed")
+
     async def test_import_is_owned_classified_and_path_safe(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
         created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
@@ -191,6 +214,23 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             repository.relationships_for_source(package, primary["asset_id"]), []
         )
+
+    async def test_formal_file_cannot_be_used_as_another_formal_files_source(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+
+        with self.assertRaises(FileNotFoundError):
+            repository.replace_formal_relationships(
+                package,
+                target_id="ppt:lesson-1",
+                target_type="ppt",
+                target_label="第 1 讲 PPT",
+                sources=[{
+                    "source_asset_id": "lesson-plan:lesson-1",
+                    "role": "primary",
+                }],
+            )
 
     async def test_deleting_referenced_source_asset_is_blocked(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))

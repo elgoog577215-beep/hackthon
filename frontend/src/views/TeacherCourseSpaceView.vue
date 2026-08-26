@@ -26,6 +26,41 @@
       <button type="button" @click="refresh">{{ t('common.retry') }}</button>
     </section>
 
+    <section
+      v-else-if="showInitialPreparation"
+      class="material-preparation"
+      @dragenter.prevent="preparationDragging = true"
+      @dragover.prevent="preparationDragging = true"
+      @dragleave.self.prevent="preparationDragging = false"
+      @drop.prevent="handlePreparationDrop"
+    >
+      <div class="material-preparation__content">
+        <header>
+          <span><FolderOpen :size="25" /></span>
+          <div>
+            <small>{{ t('courseFiles.preparation.stepLabel') }}</small>
+            <h2>{{ t('courseFiles.preparation.title') }}</h2>
+            <p>{{ t('courseFiles.preparation.description') }}</p>
+          </div>
+        </header>
+        <section class="material-dropzone" :class="{ 'is-dragging': preparationDragging }">
+          <Upload :size="28" />
+          <strong>{{ t('courseFiles.preparation.dropTitle') }}</strong>
+          <span>{{ t('courseFiles.preparation.dropDescription') }}</span>
+          <div>
+            <button class="primary" type="button" :disabled="busy" @click="preparationFolderInput?.click()">
+              <LoaderCircle v-if="busy" :size="15" class="spin" /><FolderOpen v-else :size="16" />{{ t('courseFiles.preparation.chooseFolder') }}
+            </button>
+            <button type="button" :disabled="busy" @click="preparationFileInput?.click()"><FileText :size="16" />{{ t('courseFiles.preparation.chooseFiles') }}</button>
+          </div>
+        </section>
+        <p class="material-preparation__note">{{ t('courseFiles.preparation.note') }}</p>
+        <footer>
+          <button type="button" :disabled="busy" @click="finishPreparation('skipped')">{{ t('courseFiles.preparation.skip') }}</button>
+        </footer>
+      </div>
+    </section>
+
     <section v-else class="workspace-ready">
       <section v-if="workspaceView === 'files'" class="file-layout">
       <aside class="file-tree-pane">
@@ -53,6 +88,16 @@
       </aside>
 
       <section class="file-list-pane">
+        <section v-if="isPreparationReview" class="preparation-review" role="status">
+          <div>
+            <FileCheck2 :size="17" />
+            <span><strong>{{ preparationReviewTitle }}</strong><small>{{ t('courseFiles.preparation.reviewDescription') }}</small></span>
+          </div>
+          <div>
+            <button type="button" :disabled="busy" @click="preparationFolderInput?.click()"><Plus :size="14" />{{ t('courseFiles.preparation.continueImport') }}</button>
+            <button class="primary" type="button" :disabled="busy" @click="finishPreparation('completed')"><FileCheck2 :size="14" />{{ t('courseFiles.preparation.finish') }}</button>
+          </div>
+        </section>
         <header v-if="breadcrumbs.length" class="list-toolbar">
           <nav :aria-label="t('courseFiles.filePath')">
             <button type="button" @click="openFolder('root')"><Home :size="14" />{{ t('courseFiles.rootName') }}</button>
@@ -137,24 +182,20 @@
               <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ displayPath(inspectedNode.path) }}</dd></div>
             </dl>
             <section v-if="inspectedNode.kind === 'managed'" class="relationship-list">
-              <h3>{{ t('courseFiles.inspector.sourceMaterials', '来源资料') }}</h3>
-              <button v-if="inspectedVirtualSource" type="button" @click="revealNode(inspectedVirtualSource)">
+              <h3>{{ t('courseFiles.inspector.parentSource') }}</h3>
+              <div v-for="link in inspectedPrimarySourceLinks" :key="link.link_id">
                 <Link2 :size="14" />
-                <span><strong>{{ inspectedVirtualSource.label }}</strong><small>{{ t('courseFiles.inspector.sameTruth') }}</small></span>
-              </button>
-              <div v-for="link in inspectedSourceLinks" :key="link.link_id">
+                <span><strong>{{ link.source_label }}</strong><small>{{ t('courseFiles.inspector.teacherOriginal') }}</small></span>
+              </div>
+              <span v-if="!inspectedPrimarySourceLinks.length" class="relationship-empty">—</span>
+            </section>
+            <section v-if="inspectedNode.kind === 'managed'" class="relationship-list">
+              <h3>{{ t('courseFiles.inspector.referenceOriginals') }}</h3>
+              <div v-for="link in inspectedReferenceSourceLinks" :key="link.link_id">
                 <Link2 :size="14" />
                 <span><strong>{{ link.source_label }}</strong><small>{{ relationshipRoleLabel(link.role) }}</small></span>
               </div>
-              <span v-if="!inspectedSourceLinks.length && !inspectedVirtualSource" class="relationship-empty">—</span>
-            </section>
-            <section v-if="inspectedNode.kind === 'managed'" class="relationship-list">
-              <h3>{{ t('courseFiles.inspector.generatedFiles', '生成文件') }}</h3>
-              <button v-for="output in inspectedOutputs" :key="output.id" type="button" @click="revealNode(output.node)">
-                <component :is="nodeIcon(output.node)" :size="14" />
-                <span><strong>{{ output.label }}</strong><small>{{ t(`courseFiles.status.${output.status}`) }}</small></span>
-              </button>
-              <span v-if="!inspectedOutputs.length" class="relationship-empty">—</span>
+              <span v-if="!inspectedReferenceSourceLinks.length" class="relationship-empty">—</span>
             </section>
             <section v-if="inspectedNode.asset" class="relationship-list">
               <h3>{{ t('courseFiles.inspector.usedBy', '用于') }}</h3>
@@ -303,6 +344,8 @@
       </section>
     </section>
 
+    <input ref="preparationFolderInput" class="sr-only" type="file" multiple webkitdirectory directory @change="capturePreparationFolder" />
+    <input ref="preparationFileInput" class="sr-only" type="file" multiple @change="capturePreparationFiles" />
     <input ref="importInput" class="sr-only" type="file" @change="captureImportFile" />
     <Teleport to="body">
       <div v-if="createOpen" class="asset-create-overlay" role="presentation" @click.self="closeCreateDialog" @keydown.esc="closeCreateDialog">
@@ -403,7 +446,9 @@ import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; material_asset_id?: string; uploaded_at?: string; updated_at?: string }
 type FileRelationship = { link_id: string; source_asset_id: string; source_label: string; target_id: string; target_type: string; target_label: string; role: 'primary' | 'reference' | 'question_source' }
-type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; relationships?: FileRelationship[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; updated_at?: string }
+type PreparationStatus = 'pending' | 'review' | 'completed' | 'skipped'
+type ImportOutcome = { relative_path: string; outcome: 'imported' | 'duplicate' | 'rejected'; error?: string }
+type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; relationships?: FileRelationship[]; entries: Array<{ name: string; path?: string; kind: 'folder' }>; preparation_status?: PreparationStatus; updated_at?: string }
 type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; rendered_markdown: string; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
 type NodeType = 'root' | 'deliverables' | 'course_logic' | 'supporting_materials' | 'outline_export' | 'lesson_plans' | 'script_ppt' | 'question_bank_files' | 'question_practices' | 'aux_question_bank' | 'aux_exam_papers' | 'aux_student_work' | 'aux_other' | 'exam_papers' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
@@ -429,7 +474,6 @@ type CategoryGroup = {
   working: number
   attention: number
 }
-type InspectorOutput = { id: string; label: string; status: NodeStatus; node: WorkspaceNode }
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -490,6 +534,10 @@ const createOpen = ref(false)
 const createType = ref<CreateType>('material')
 const createTargetFolderId = ref('')
 const importInput = ref<HTMLInputElement>()
+const preparationFolderInput = ref<HTMLInputElement>()
+const preparationFileInput = ref<HTMLInputElement>()
+const preparationDragging = ref(false)
+const preparationSummary = ref<{ imported: number; duplicate: number; rejected: number } | null>(null)
 const createDialog = ref<HTMLElement>()
 const createForm = ref({ lessonId: '', title: '', hours: '2', mode: 'ai', count: 12, style: 'simple', difficulty: 'mixed', requirements: '', pptImportAction: 'derive_plan', file: null as File | null })
 const previewOpen = ref(false)
@@ -500,6 +548,16 @@ const questionBankRevisionId = ref('')
 const examPapers = ref<Array<{ paper_id: string; revision_id: string; title: string; item_count: number; total_score: number; duration_minutes: number; updated_at?: string }>>([])
 const companionDocuments = ref<CompanionDocument[]>([])
 const practiceWorkingLessonIds = ref<string[]>([])
+const showInitialPreparation = computed(() => selected.value?.preparation_status === 'pending')
+const isPreparationReview = computed(() => selected.value?.preparation_status === 'review')
+const preparationReviewTitle = computed(() => {
+  const summary = preparationSummary.value
+  if (!summary) return t('courseFiles.preparation.reviewTitle').replace('{count}', String(selected.value?.asset_count || 0))
+  return t('courseFiles.preparation.importResult')
+    .replace('{imported}', String(summary.imported))
+    .replace('{duplicate}', String(summary.duplicate))
+    .replace('{rejected}', String(summary.rejected))
+})
 
 const lessons = computed<TeacherLessonProjection[]>(() => {
   if (lessonStore.lessons.length) return lessonStore.lessons
@@ -918,13 +976,6 @@ const categoryConsoleActionLabel = computed(() => {
 })
 const currentFolder = computed(() => flatNodes.value.get(currentFolderId.value) || treeData.value[0])
 const inspectedNode = computed(() => selectedNode.value || currentFolder.value || null)
-const inspectedVirtualSource = computed(() => {
-  const node = selectedNode.value
-  if (!node) return null
-  if (node.type === 'outline_export') return flatNodes.value.get('managed:outline') || null
-  if (node.type === 'ppt' && node.lessonId) return flatNodes.value.get(`content:${node.lessonId}`) || null
-  return null
-})
 function formalTargetId(node: WorkspaceNode) {
   if (node.type === 'outline') return 'managed:outline'
   if (node.type === 'teaching_calendar') return 'managed:teaching-calendar'
@@ -943,6 +994,8 @@ const inspectedSourceLinks = computed(() => {
   const targetId = formalTargetId(node)
   return targetId ? (selected.value?.relationships || []).filter(link => link.target_id === targetId) : []
 })
+const inspectedPrimarySourceLinks = computed(() => inspectedSourceLinks.value.filter(link => link.role === 'primary'))
+const inspectedReferenceSourceLinks = computed(() => inspectedSourceLinks.value.filter(link => link.role !== 'primary'))
 const inspectedUsageLinks = computed(() => {
   const assetId = selectedNode.value?.asset?.asset_id
   return assetId ? (selected.value?.relationships || []).filter(link => link.source_asset_id === assetId) : []
@@ -955,37 +1008,6 @@ function aggregateStatus(nodes: WorkspaceNode[]): NodeStatus {
   if (states.some(state => state === 'ready' || state === 'draft')) return 'draft'
   return states.length ? 'missing' : 'empty'
 }
-const inspectedOutputs = computed<InspectorOutput[]>(() => {
-  const node = selectedNode.value
-  if (!node || node.kind !== 'managed') return []
-  const all = [...flatNodes.value.values()]
-  if (node.type === 'outline') {
-    const deliverableOutline = flatNodes.value.get('deliverable:outline')
-    const calendar = flatNodes.value.get('managed:teaching-calendar')
-    const lessonPlans = all.filter(item => item.type === 'lesson_plan')
-    const teachingFolder = flatNodes.value.get('folder:lesson-plans')
-    return [
-      ...(deliverableOutline ? [{ id: deliverableOutline.id, label: deliverableOutline.label, status: deliverableOutline.status, node: deliverableOutline }] : []),
-      ...(calendar ? [{ id: calendar.id, label: calendar.label, status: calendar.status, node: calendar }] : []),
-      ...(teachingFolder && lessonPlans.length ? [{ id: 'output:lesson-plans', label: t('courseFiles.inspector.lessonPlansCount', '教案 · {count} 讲').replace('{count}', String(lessonPlans.length)), status: aggregateStatus(lessonPlans), node: teachingFolder }] : []),
-    ]
-  }
-  if (node.type === 'lesson_plan') return all.filter(item => item.lessonId === node.lessonId && ['content', 'practice', 'ppt'].includes(item.type)).map(item => ({ id: item.id, label: item.label, status: item.status, node: item }))
-  if (node.type === 'content') {
-    const ppt = node.lessonId ? flatNodes.value.get(`ppt:${node.lessonId}`) : undefined
-    return ppt ? [{ id: ppt.id, label: ppt.label, status: ppt.status, node: ppt }] : []
-  }
-  if (node.type === 'question_bank') {
-    const practices = all.filter(item => item.type === 'practice')
-    const teachingFolder = flatNodes.value.get('folder:question-practices')
-    const papersFolder = flatNodes.value.get('folder:exam-papers')
-    return [
-      ...(teachingFolder && practices.length ? [{ id: 'output:practices', label: t('courseFiles.inspector.practicesCount', '本讲练习 · {count} 讲').replace('{count}', String(practices.length)), status: aggregateStatus(practices), node: teachingFolder }] : []),
-      ...(papersFolder ? [{ id: papersFolder.id, label: papersFolder.label, status: papersFolder.status, node: papersFolder }] : []),
-    ]
-  }
-  return []
-})
 function relationshipRoleLabel(role: string) {
   if (role === 'primary') return t('courseFiles.inspector.primarySource', '主来源')
   if (role === 'question_source') return t('courseFiles.inspector.questionSource', '真题资料')
@@ -1457,6 +1479,144 @@ async function reloadAll() {
 }
 async function reloadPackage() { if (selected.value) selected.value = (await http.get(`/api/teacher-course-spaces/${selected.value.package_id}`, teacherRequestConfig())).data }
 
+const preparationRoot = '辅助资料/其他资料'
+function preparationPath(value: string) {
+  const normalized = String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '')
+  return normalized ? `${preparationRoot}/${normalized}` : preparationRoot
+}
+function folderPathsForFiles(items: Array<{ path: string }>) {
+  const folders = new Set<string>()
+  items.forEach(item => {
+    const parts = item.path.split('/').filter(Boolean).slice(0, -1)
+    for (let index = 1; index <= parts.length; index += 1) folders.add(parts.slice(0, index).join('/'))
+  })
+  return [...folders]
+}
+
+async function uploadPreparationBatch(
+  items: Array<{ file: File; path: string }>,
+  emptyFolders: string[] = [],
+) {
+  if (!selected.value || (!items.length && !emptyFolders.length)) return
+  busy.value = true
+  status.value = ''
+  try {
+    const normalizedItems = items.map(item => ({ file: item.file, path: preparationPath(item.path) }))
+    const normalizedFolders = [
+      ...folderPathsForFiles(normalizedItems),
+      ...emptyFolders.map(preparationPath),
+    ]
+    const form = new FormData()
+    normalizedItems.forEach(item => {
+      form.append('files', item.file, item.file.name)
+      form.append('relative_paths', item.path)
+    })
+    ;[...new Set(normalizedFolders)].forEach(path => form.append('folder_paths', path))
+    const response = await http.post(
+      `/api/teacher-course-spaces/${selected.value.package_id}/imports`,
+      form,
+      teacherRequestConfig(),
+    )
+    const outcomes = (response.data?.outcomes || []) as ImportOutcome[]
+    preparationSummary.value = {
+      imported: outcomes.filter(item => item.outcome === 'imported').length,
+      duplicate: outcomes.filter(item => item.outcome === 'duplicate').length,
+      rejected: outcomes.filter(item => item.outcome === 'rejected').length,
+    }
+    selected.value = response.data.package
+    currentFolderId.value = 'folder:aux-other'
+    expandedFolderIds.value = ['root', 'folder:supporting-materials', 'folder:aux-other']
+    const rejected = outcomes.filter(item => item.outcome === 'rejected')
+    if (rejected.length) status.value = t('courseFiles.preparation.rejectedHint').replace('{count}', String(rejected.length))
+  } catch (error: any) {
+    ElMessage.error(localizedError(error, t('courseFiles.preparation.importFailed')))
+  } finally {
+    busy.value = false
+    preparationDragging.value = false
+  }
+}
+
+function capturePreparationFiles(event: Event) {
+  const input = event.target as HTMLInputElement
+  const items = [...(input.files || [])].map(file => ({ file, path: file.name }))
+  input.value = ''
+  void uploadPreparationBatch(items)
+}
+
+function capturePreparationFolder(event: Event) {
+  const input = event.target as HTMLInputElement
+  const items = [...(input.files || [])].map(file => ({
+    file,
+    path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name,
+  }))
+  input.value = ''
+  void uploadPreparationBatch(items)
+}
+
+function readFileEntry(entry: any) {
+  return new Promise<File>((resolve, reject) => entry.file(resolve, reject))
+}
+async function readDirectoryEntries(reader: any) {
+  const entries: any[] = []
+  while (true) {
+    const batch = await new Promise<any[]>((resolve, reject) => reader.readEntries(resolve, reject))
+    if (!batch.length) return entries
+    entries.push(...batch)
+  }
+}
+async function collectDroppedEntry(
+  entry: any,
+  parent: string,
+  files: Array<{ file: File; path: string }>,
+  folders: string[],
+) {
+  const path = [parent, entry.name].filter(Boolean).join('/')
+  if (entry.isFile) {
+    files.push({ file: await readFileEntry(entry), path })
+    return
+  }
+  if (!entry.isDirectory) return
+  folders.push(path)
+  const children = await readDirectoryEntries(entry.createReader())
+  await Promise.all(children.map(child => collectDroppedEntry(child, path, files, folders)))
+}
+
+async function handlePreparationDrop(event: DragEvent) {
+  preparationDragging.value = false
+  const items = [...(event.dataTransfer?.items || [])]
+  const files: Array<{ file: File; path: string }> = []
+  const folders: string[] = []
+  const entries = items
+    .map(item => (item as DataTransferItem & { webkitGetAsEntry?: () => any }).webkitGetAsEntry?.())
+    .filter(Boolean)
+  if (entries.length) {
+    try {
+      await Promise.all(entries.map(entry => collectDroppedEntry(entry, '', files, folders)))
+    } catch {
+      ElMessage.error(t('courseFiles.preparation.readFolderFailed'))
+      return
+    }
+  } else {
+    ;[...(event.dataTransfer?.files || [])].forEach(file => files.push({ file, path: file.name }))
+  }
+  await uploadPreparationBatch(files, folders)
+}
+
+async function finishPreparation(nextStatus: 'completed' | 'skipped') {
+  if (!selected.value) return
+  busy.value = true
+  try {
+    selected.value = (await http.patch(
+      `/api/teacher-course-spaces/${selected.value.package_id}/preparation`,
+      { status: nextStatus },
+      teacherRequestConfig(),
+    )).data
+    if (route.query.prepare) void router.replace({ query: { ...route.query, prepare: undefined } })
+  } catch (error: any) {
+    ElMessage.error(localizedError(error, t('courseFiles.preparation.statusFailed')))
+  } finally { busy.value = false }
+}
+
 async function loadQuestionBankSummary() {
   if (!props.courseId) return
   try {
@@ -1720,6 +1880,7 @@ onMounted(refresh)
 <style scoped>
 .file-space,.file-space *{box-sizing:border-box}.file-space{height:100%;min-height:0;color:var(--lz-text-strong);background:#f8fafc;font-size:14px}.standalone-header{position:relative;height:68px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;border-bottom:1px solid var(--lz-border);background:#fff}.standalone-header small,.standalone-header h1{display:block;margin:0}.standalone-header small{color:var(--lz-text-muted);font-size:13px}.standalone-header h1{font-size:20px}.standalone-header-actions{display:flex;align-items:center;gap:10px}.standalone-header-actions>button{height:38px;display:flex;align-items:center;gap:7px;padding:0 10px;border:0;border-radius:8px;color:var(--lz-text-secondary);background:transparent;font-size:14px;cursor:pointer}.standalone-header-actions>button:hover{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}
 .workspace-ready{height:100%;min-height:0;overflow:hidden}.workspace-view-switch{position:absolute;left:50%;top:50%;display:inline-flex;align-items:center;gap:3px;padding:3px;border:1px solid var(--lz-border);border-radius:10px;background:#f5f6fa;transform:translate(-50%,-50%)}.workspace-view-switch button{height:32px;display:inline-flex;align-items:center;gap:6px;padding:0 11px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.workspace-view-switch button:hover{color:var(--lz-text-strong)}.workspace-view-switch button.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 2px 7px rgba(15,23,42,.08)}.workspace-view-switch button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
+.material-preparation{height:100%;min-height:0;overflow:auto;display:grid;place-items:center;padding:42px 24px;background:#f6f7fb}.material-preparation__content{width:min(760px,100%);display:grid;gap:22px}.material-preparation__content>header{display:grid;grid-template-columns:48px minmax(0,1fr);gap:16px;align-items:start}.material-preparation__content>header>span{width:48px;height:48px;display:grid;place-items:center;border-radius:14px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.material-preparation__content>header div{display:grid;gap:6px}.material-preparation__content small{color:var(--lz-brand-strong);font-size:12px;font-weight:800}.material-preparation__content h2{margin:0;color:var(--lz-text-strong);font-size:28px;letter-spacing:-.025em;line-height:1.2}.material-preparation__content p{max-width:68ch;margin:0;color:var(--lz-text-secondary);font-size:14px;line-height:1.7}.material-dropzone{min-height:280px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:34px;border:1px dashed #b8c1d1;border-radius:16px;color:#64748b;background:#fff;transition:border-color .18s ease,background .18s ease,box-shadow .18s ease}.material-dropzone.is-dragging{border-color:var(--lz-brand);background:#f8f8ff;box-shadow:0 10px 30px rgba(79,70,229,.1)}.material-dropzone>svg{margin-bottom:3px;color:var(--lz-brand)}.material-dropzone>strong{color:var(--lz-text-strong);font-size:17px}.material-dropzone>span{color:var(--lz-text-muted);font-size:13px}.material-dropzone>div{display:flex;gap:9px;margin-top:12px}.material-dropzone button,.material-preparation__content>footer button,.preparation-review button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:750;cursor:pointer}.material-dropzone button.primary,.preparation-review button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.material-dropzone button:hover:not(:disabled),.material-preparation__content>footer button:hover:not(:disabled),.preparation-review button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.material-dropzone button.primary:hover:not(:disabled),.preparation-review button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.material-dropzone button:focus-visible,.material-preparation__content>footer button:focus-visible,.preparation-review button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.material-dropzone button:disabled,.material-preparation__content>footer button:disabled,.preparation-review button:disabled{opacity:.5;cursor:not-allowed}.material-preparation__note{padding-left:64px;color:var(--lz-text-muted)!important;font-size:12px!important}.material-preparation__content>footer{display:flex;justify-content:flex-end}.material-preparation__content>footer button{min-height:34px;padding:0 9px;border-color:transparent;background:transparent;font-size:12px}.preparation-review{flex:none;min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 16px;border-bottom:1px solid #dfe4ff;background:#f7f8ff}.preparation-review>div{display:flex;align-items:center;gap:9px}.preparation-review>div:first-child>svg{flex:none;color:var(--lz-brand)}.preparation-review span{min-width:0;display:grid;gap:2px}.preparation-review strong{color:#3730a3;font-size:12px}.preparation-review small{color:#64748b;font-size:11px}.preparation-review button{min-height:34px;padding:0 10px;font-size:12px}
 .file-layout{height:100%;min-height:0;display:grid;grid-template-columns:260px minmax(560px,1fr) 312px;overflow:hidden;background:#fff}.file-tree-pane,.file-list-pane,.file-inspector{min-height:0;overflow:hidden}.file-tree-pane{display:grid;grid-template-rows:auto minmax(0,1fr) auto;border-right:1px solid var(--lz-border);background:#f8fafc}.pane-heading{min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 14px;border-bottom:1px solid #e8edf4}.pane-heading>span{min-width:0;display:flex;align-items:center;gap:8px;color:#475569}.pane-heading>span>svg{color:#64748b}.pane-heading strong{overflow:hidden;font-size:14px;text-overflow:ellipsis;white-space:nowrap}.pane-heading button,.file-inspector header>button{width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:7px;background:transparent;color:var(--lz-text-muted);cursor:pointer}.pane-heading button:hover,.file-inspector header>button:hover{color:var(--lz-text-strong);background:#eef2f7}.folder-navigation{min-height:0;overflow:auto;padding:9px 8px 16px}.folder-navigation>ul{margin:0;padding:0;list-style:none}.file-tree-pane footer{display:grid;gap:9px;padding:14px;border-top:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px}.file-tree-pane footer button{display:flex;align-items:center;gap:7px;padding:0;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}
 .category-layout{height:100%;min-height:0;display:grid;grid-template-columns:272px minmax(0,1fr);overflow:hidden;background:#fff}.category-navigation{min-height:0;overflow:auto;padding:18px 12px;border-right:1px solid var(--lz-border);background:#f8fafc}.category-navigation>header{display:grid;gap:5px;padding:0 8px 15px}.category-navigation>header strong{font-size:14px}.category-navigation>header small{color:var(--lz-text-muted);font-size:12px;line-height:1.45}.category-navigation nav{display:grid;gap:5px}.category-group{min-width:0}.category-group__button{width:100%;min-width:0;min-height:58px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border:1px solid transparent;border-radius:10px;color:var(--lz-text-muted);background:transparent;text-align:left;cursor:pointer}.category-group__button:hover{background:#fff}.category-group__button.active{border-color:rgba(99,102,241,.2);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-group__button>span:nth-child(2){min-width:0;display:grid;gap:3px}.category-group__button strong,.category-group__button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.category-group__button strong{color:var(--lz-text-secondary);font-size:13px}.category-group__button small{color:var(--lz-text-muted);font-size:12px}.category-group__button.active strong{color:var(--lz-brand-strong)}.category-group__trailing{display:flex;align-items:center;gap:4px}.category-group__trailing b{min-width:30px;color:var(--lz-text-muted);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}.category-group__trailing b[data-state="ready"]{color:var(--lz-success)}.category-group__trailing b[data-state="working"]{color:var(--lz-brand-strong)}.category-group__trailing b[data-state="attention"]{color:var(--lz-warning)}.category-group__chevron{transition:transform .16s ease}.category-group.active .category-group__chevron{transform:rotate(90deg)}.category-children{display:grid;gap:2px;margin:3px 5px 9px 26px;padding-left:11px;border-left:1px solid #dbe2ec}.category-child{width:100%;min-width:0;min-height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 8px;align-items:center;gap:7px;padding:5px 8px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.category-child:hover{background:#fff}.category-child.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.08)}.category-child__index{color:var(--lz-text-muted);font-size:11px;font-variant-numeric:tabular-nums}.category-child__name{overflow:hidden;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.category-child .status-dot{margin:0}.category-group__button:focus-visible,.category-child:focus-visible,.category-detail-actions button:focus-visible,.category-detail-empty button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.category-detail-pane{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;background:#f8fafc}.category-detail-header{min-height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 24px;border-bottom:1px solid var(--lz-border);background:#fff}.category-detail-header>div:first-child{min-width:0;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 12px}.category-detail-header small{grid-column:1/-1;color:var(--lz-text-muted);font-size:12px}.category-detail-header h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.category-detail-status{display:inline-flex;align-items:center;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}.category-detail-status .status-dot{margin-right:6px}.category-detail-actions{flex:none;display:flex;align-items:center;gap:8px}.category-detail-actions button,.category-detail-empty button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:700;cursor:pointer}.category-detail-actions button.primary,.category-detail-empty button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.category-detail-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-detail-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-detail-actions button:disabled,.category-detail-empty button:disabled{opacity:.45;cursor:not-allowed}.category-document-scroll{min-height:0;overflow:auto;padding:28px 32px 48px}.category-document{width:min(940px,100%);min-height:calc(100% - 4px);margin:0 auto;padding:32px 42px 52px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.05)}.category-document :deep(.markdown-renderer){color:var(--lz-text-secondary);font-size:14px;line-height:1.75}.category-document :deep(.markdown-renderer> :first-child){margin-top:0}.category-document :deep(h2){margin:28px 0 12px;color:var(--lz-text-strong);font-size:20px}.category-document :deep(h3){margin:22px 0 10px;color:var(--lz-text-strong);font-size:16px}.category-document :deep(p),.category-document :deep(ul),.category-document :deep(ol){margin:10px 0}.category-document :deep(blockquote){margin:14px 0;padding:10px 14px;border:1px solid var(--lz-brand-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-brand-soft)}.category-detail-empty{min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:28px;color:var(--lz-text-muted);text-align:center}.category-detail-empty>svg{color:#94a3b8}.category-detail-empty strong{color:var(--lz-text-secondary);font-size:16px}.category-detail-empty>span{max-width:380px;font-size:13px;line-height:1.6}.category-detail-empty button{margin-top:5px}
 .file-list-pane{display:flex;flex-direction:column;background:#fff}.list-toolbar{min-height:58px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 18px;border-bottom:1px solid var(--lz-border)}.list-toolbar nav{min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}.list-toolbar nav button{display:flex;align-items:center;gap:6px;min-width:0;padding:5px;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;white-space:nowrap;cursor:pointer}.list-toolbar nav svg{flex:none;color:#94a3b8}.toolbar-actions{display:flex;align-items:center;gap:8px}.list-search{width:248px;height:40px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;border:1px solid transparent;border-radius:10px;color:#94a3b8;background:#f1f5f9;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}.list-search:focus-within{border-color:var(--lz-brand-border);background:#fff;box-shadow:0 0 0 3px var(--lz-brand-soft)}.list-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text-strong);background:transparent;font-size:13px}.list-search input::-webkit-search-cancel-button{display:none}.list-search button{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.list-search button:hover{color:var(--lz-text-strong);background:#e2e8f0}.list-search button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
@@ -1733,7 +1894,7 @@ onMounted(refresh)
 .source-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker button{align-items:center;gap:8px}.ppt-origin-picker button svg{grid-row:auto}.practice-create-note,.create-prerequisite{align-items:center}
 .preview-surface{min-height:420px;display:grid;place-items:center}.preview-surface img{max-width:100%;max-height:75vh}.preview-surface iframe{width:100%;min-height:72vh;border:0}.office-note{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--lz-text-muted);text-align:center;font-size:13px}.office-note strong{color:var(--lz-text-strong);font-size:15px}.office-note button{padding:8px 11px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;font-size:13px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:1080px){.file-layout{grid-template-columns:220px minmax(440px,1fr) 270px}.list-search{display:none}.file-table__head,.file-row{grid-template-columns:minmax(190px,1.5fr) 104px 78px 90px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}}
-@media (max-width:760px){.workspace-view-switch button{padding:0 8px}.file-layout{grid-template-columns:1fr;grid-template-rows:170px minmax(0,1fr) auto}.file-tree-pane{display:grid;grid-template-rows:46px minmax(0,1fr);overflow:hidden;border-right:0;border-bottom:1px solid var(--lz-border)}.pane-heading{min-height:46px;padding:0 11px}.folder-navigation{overflow:auto;padding:6px 8px 11px}.file-tree-pane footer{display:none}.file-inspector{max-height:56vh;border-left:0;border-top:1px solid var(--lz-border)}.inspector-actions{padding:13px 14px}.list-toolbar{min-height:50px;padding:0 11px}.list-toolbar nav button{max-width:110px}.folder-title{min-height:58px;padding:8px 12px}.folder-title h2{font-size:17px}.folder-title__actions>span{display:none}.add-material-button{padding:0 10px}.file-table{padding:0 7px 12px}.file-table__head,.file-row{grid-template-columns:minmax(180px,1fr) 94px}.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(160px,32vh) minmax(0,1fr)}.category-navigation{padding:11px 10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-group__button{min-height:50px}.category-detail-header{min-height:72px;align-items:flex-start;gap:10px;padding:10px 12px}.category-detail-header>div:first-child{gap:3px 8px}.category-detail-header h2{font-size:17px}.category-detail-actions{gap:5px}.category-detail-actions button{min-height:34px;padding:0 9px}.category-document-scroll{padding:12px 10px 28px}.category-document{min-height:100%;padding:20px 18px 34px;border-radius:9px}.form-grid{grid-template-columns:1fr}}
+@media (max-width:760px){.workspace-view-switch button{padding:0 8px}.material-preparation{place-items:start center;padding:24px 14px}.material-preparation__content>header{grid-template-columns:40px minmax(0,1fr);gap:12px}.material-preparation__content>header>span{width:40px;height:40px;border-radius:12px}.material-preparation__content h2{font-size:23px}.material-dropzone{min-height:250px;padding:24px 16px}.material-dropzone>div{width:100%;display:grid;grid-template-columns:1fr}.material-preparation__note{padding-left:0}.preparation-review{align-items:flex-start;flex-direction:column}.preparation-review>div:last-child{width:100%;justify-content:flex-end}.file-layout{grid-template-columns:1fr;grid-template-rows:170px minmax(0,1fr) auto}.file-tree-pane{display:grid;grid-template-rows:46px minmax(0,1fr);overflow:hidden;border-right:0;border-bottom:1px solid var(--lz-border)}.pane-heading{min-height:46px;padding:0 11px}.folder-navigation{overflow:auto;padding:6px 8px 11px}.file-tree-pane footer{display:none}.file-inspector{max-height:56vh;border-left:0;border-top:1px solid var(--lz-border)}.inspector-actions{padding:13px 14px}.list-toolbar{min-height:50px;padding:0 11px}.list-toolbar nav button{max-width:110px}.folder-title{min-height:58px;padding:8px 12px}.folder-title h2{font-size:17px}.folder-title__actions>span{display:none}.add-material-button{padding:0 10px}.file-table{padding:0 7px 12px}.file-table__head,.file-row{grid-template-columns:minmax(180px,1fr) 94px}.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(160px,32vh) minmax(0,1fr)}.category-navigation{padding:11px 10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-group__button{min-height:50px}.category-detail-header{min-height:72px;align-items:flex-start;gap:10px;padding:10px 12px}.category-detail-header>div:first-child{gap:3px 8px}.category-detail-header h2{font-size:17px}.category-detail-actions{gap:5px}.category-detail-actions button{min-height:34px;padding:0 9px}.category-document-scroll{padding:12px 10px 28px}.category-document{min-height:100%;padding:20px 18px 34px;border-radius:9px}.form-grid{grid-template-columns:1fr}}
 .category-layout{grid-template-columns:312px minmax(0,1fr);background:#f3f5f9}
 .category-navigation{margin:14px 0 14px 14px;padding:20px 14px;border:1px solid #e6eaf1;border-radius:22px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.045)}
 .category-navigation>header{padding:0 8px 14px}.category-navigation>header strong{font-size:15px}
