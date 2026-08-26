@@ -179,7 +179,7 @@ describe('TeacherCourseSpaceView', () => {
       asset_count: 1,
       assets: [{
         asset_id: 'asset-1', filename: '课堂案例.pdf', relative_path: '参考资料/课堂案例.pdf', extension: '.pdf', size_bytes: 2048,
-        category: 'reference', uploaded_at: '2026-08-22T08:00:00Z', updated_at: '2026-08-22T08:00:00Z',
+        category: 'reference', document_type: 'lesson_plan', uploaded_at: '2026-08-22T08:00:00Z', updated_at: '2026-08-22T08:00:00Z',
       }],
       relationships: [{
         link_id: 'link-1', source_asset_id: 'asset-1', source_label: '课堂案例.pdf', target_id: 'managed:outline', target_type: 'outline', target_label: '课程大纲', role: 'reference',
@@ -205,7 +205,9 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.inspector-actions').text()).toContain('添加资料')
     expect(wrapper.get('.inspector-actions').text()).toContain('新建文件夹')
 
-    await wrapper.findAll('.file-row').find(row => row.text().includes('课堂案例.pdf'))!.trigger('click')
+    const assetRow = wrapper.findAll('.file-row').find(row => row.text().includes('课堂案例.pdf'))!
+    expect(assetRow.text()).toContain('教案')
+    await assetRow.trigger('click')
     const actions = wrapper.get('.inspector-actions').text()
     expect(actions).toContain('预览')
     expect(actions).toContain('下载')
@@ -214,6 +216,61 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.inspector-overview').text()).toContain('课程大纲')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('文件大小')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('修改时间')
+    expect((wrapper.get('.asset-type-select').element as HTMLSelectElement).value).toBe('lesson_plan')
+    await wrapper.get('.asset-type-select').setValue('ppt')
+    await flushPromises()
+    expect(httpMock.patch).toHaveBeenCalledWith('/api/teacher-course-spaces/package-1/assets/asset-1', { document_type: 'ppt' }, {})
+
+    await assetRow.trigger('contextmenu', { clientX: 420, clientY: 260 })
+    await flushPromises()
+    const contextMenu = document.body.querySelector<HTMLElement>('.file-context-menu')
+    expect(contextMenu?.textContent).toContain('预览')
+    expect(contextMenu?.textContent).toContain('下载')
+    expect(contextMenu?.textContent).toContain('删除')
+  })
+
+  it('在文件系统中继续批量导入，并把整批资料交给同一识别接口', async () => {
+    const pinia = createPinia()
+    const importedPackage = {
+      ...coursePackage,
+      asset_count: 2,
+      assets: [
+        { asset_id: 'asset-plan', filename: '第一讲教案.docx', relative_path: '第一讲教案.docx', extension: '.docx', size_bytes: 1200, category: 'reference', document_type: 'lesson_plan' },
+        { asset_id: 'asset-ppt', filename: '第一讲课件.pptx', relative_path: '第一讲课件.pptx', extension: '.pptx', size_bytes: 3200, category: 'reference', document_type: 'ppt' },
+      ],
+    }
+    httpMock.post.mockResolvedValueOnce({
+      data: {
+        package: importedPackage,
+        outcomes: [
+          { asset_id: 'asset-plan', relative_path: '第一讲教案.docx', outcome: 'imported' },
+          { asset_id: 'asset-ppt', relative_path: '第一讲课件.pptx', outcome: 'imported' },
+        ],
+      },
+    })
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
+    })
+    mountedWrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.get('.batch-import-button').text()).toContain('导入资料')
+    expect(wrapper.get('input[webkitdirectory]').attributes('multiple')).toBeDefined()
+    const input = wrapper.get('input[type="file"][multiple]:not([webkitdirectory])')
+    const files = [
+      new File(['plan'], '第一讲教案.docx'),
+      new File(['ppt'], '第一讲课件.pptx'),
+    ]
+    Object.defineProperty(input.element, 'files', { configurable: true, value: files })
+    await input.trigger('change')
+    await flushPromises()
+
+    expect(httpMock.post).toHaveBeenCalledTimes(1)
+    expect(httpMock.post.mock.calls[0]?.[0]).toBe('/api/teacher-course-spaces/package-1/imports')
+    const data = httpMock.post.mock.calls[0]?.[1] as FormData
+    expect(data.getAll('files')).toHaveLength(2)
+    expect(data.getAll('relative_paths')).toEqual(['第一讲教案.docx', '第一讲课件.pptx'])
   })
 
   it('教学日历保存后回写文件状态，并可从文件视图导出 DOCX', async () => {

@@ -5136,6 +5136,13 @@
     "noSearchResultsHelp": "换个文件名关键词，或清空搜索查看当前目录。",
     "new": "新建",
     "addMaterial": "添加资料",
+    "importMaterials": "导入资料",
+    "importFolder": "导入文件夹",
+    "importingMaterials": "正在识别并归类 {count} 份资料",
+    "importSummary": "已导入 {imported} 份，重复 {duplicate} 份，未导入 {rejected} 份",
+    "dropToImport": "松开，导入到“{folder}”",
+    "classificationSaved": "资料类型已更新。",
+    "contextMenu": "文件快捷操作",
     "newFolder": "新建文件夹",
     "folder": "文件夹",
     "lessonFolder": "课次文件夹",
@@ -5367,7 +5374,7 @@
       "generatedOrigin": "AI 生成课件",
       "uploadedOrigin": "老师上传的旧课件"
     },
-    "meta": { "role": "角色", "source": "来源", "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
+    "meta": { "role": "角色", "source": "来源", "location": "位置", "items": "包含", "lesson": "所属课次", "version": "当前版本", "recognizedType": "识别类型", "origin": "课件来源", "size": "文件大小", "updated": "修改时间" },
     "inspector": {
       "fileInfo": "文件信息", "folderInfo": "文件夹信息", "source": "来源", "usedFor": "用于", "sourceMaterials": "来源资料", "generatedFiles": "生成文件", "usedBy": "用于", "lessonPlansCount": "教案 · {count} 讲", "practicesCount": "本讲练习 · {count} 讲", "pendingCount": "{count} 项待处理", "actionsTitle": "可执行操作", "parentSource": "母文件", "referenceOriginals": "参考原始文件", "teacherOriginal": "老师上传原件",
       "referencedBy": "被以下正式文件引用", "referenceFiles": "引用文件", "primarySource": "主来源", "referenceSource": "参考资料", "questionSource": "真题资料", "sameTruth": "同一正式版本",
