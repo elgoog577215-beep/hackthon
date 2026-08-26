@@ -62,6 +62,9 @@ _GENERIC_TEACHING_PAGE_TITLES = frozenset({
     "从二阶出发",
     "本节要解决的问题是",
     "错误分析",
+    "典型错误",
+    "修正原因",
+    "当且仅当",
     "逐行取系数",
     "缺项补0",
     "沿索引读取",
@@ -1176,21 +1179,24 @@ def _semantic_grounding_ratio(claim: str, source: str) -> float:
 
 _DANGLING_TITLE_END_RE = re.compile(
     r"(?:[：:；;，,、/\\]|[（(《〈【\[]|"
-    r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的|有|由|得)|"
+    r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的|有|由|得|"
+    r"写成|写为|表示为|转化为|化为|混淆了|记录为|均)|"
     r"(?:[一二三四五六七八九十\d]+阶、[一二三四五六七八九十\d]+阶)|"
     r"\b(?:and|or|to|of|with|versus|vs\.?)\b)\s*$",
     re.IGNORECASE,
 )
 
 _DANGLING_TITLE_START_RE = re.compile(
-    r"^(?:与|和|及|或|以及|并且?|同时|而|但|但是|却|且)",
+    r"^(?:(?:\d+(?:\.\d+)?|[A-Za-z])\s*[，,;；]|"
+    r"与|和|及|或|以及|并且?|同时|而|但|但是|却|且)",
     re.IGNORECASE,
 )
 _RAW_MATH_TITLE_RE = re.compile(
     r"(?:\\(?:begin|end|frac|mathbf|boldsymbol|mathrm|mathbb|operatorname|"
     r"text|leftarrow|rightarrow|leftrightarrow|xrightarrow)\b|"
     r"\b(?:beginarray|endarray|mathbf[a-z]|frac\d+|leftarrow|rightarrow|"
-    r"leftrightarrow|xrightarrow)\b)",
+    r"leftrightarrow|xrightarrow|ine\s+[A-Za-z0-9]|"
+    r"[A-Za-z](?:ne|neq|le|leq|ge|geq|approx|times|cdot|quad|mid)\d*)\b)",
     re.IGNORECASE,
 )
 _RAW_TITLE_MARKUP_RE = re.compile(r"(?:\*\*|__|`|<br\s*/?>)", re.IGNORECASE)
@@ -1231,12 +1237,33 @@ def _is_unfinished_subordinate_title(value: str) -> bool:
     ):
         if not re.search(r"[，,；;：:]", title):
             return True
+    if "若" in title and not re.search(r"[，,；;：:]", title):
+        if not re.search(
+            r"(?:则|就|便|应|需要|必须|先|可以|不能|无法)",
+            title,
+        ):
+            return True
     if "一旦" in title and not re.search(
         r"(?:就|便|则|必须|只能|不可|不能|应当|需要|要求)",
         title,
     ):
         return True
+    if title.startswith("只有") and not re.search(
+        r"(?:才|方可|才能|才会|必须|需要|可以)",
+        title,
+    ):
+        return True
     if re.match(r"^[A-Za-z]\s*均(?:为|是)", title):
+        return True
+    if re.fullmatch(r"一(?:个|种|组)\s*[A-Za-z]", title, re.IGNORECASE):
+        return True
+    if re.search(r"第(?:\s*[A-Za-z])?\s*$", title, re.IGNORECASE):
+        return True
+    if re.search(
+        r"(?:对|对于)每个\s*[A-Za-z](?:\s*=\s*[\w.，,]+)?\s*$",
+        title,
+        re.IGNORECASE,
+    ):
         return True
     if re.search(r"列序改为\s*[A-Za-z]\s*$", title):
         return True

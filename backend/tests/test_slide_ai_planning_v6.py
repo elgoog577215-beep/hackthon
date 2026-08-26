@@ -852,6 +852,20 @@ def test_long_source_heading_offers_semantic_fragments_within_template_capacity(
     assert all(candidate in source and len(candidate) <= 28 for candidate in candidates)
 
 
+def test_title_candidates_skip_formula_fragments_and_keep_later_complete_claims() -> None:
+    source = (
+        "设三阶增广矩阵的第 $i$ 行为 $R_i$。"
+        "$R_i\\leftrightarrow R_j\\ (i\\ne j)$。"
+        "每次运算都必须包含增广列；倍加时 $R_j$ 保持不变。"
+        "行决定方程，列决定未知数，末列记录右端常数。"
+    )
+
+    candidates = _grounded_title_candidates(source, max_chars=22)
+
+    assert "行决定方程，列决定未知数，末列记录右端常数" in candidates
+    assert all("$" not in candidate and "ine j" not in candidate for candidate in candidates)
+
+
 def test_story_unit_request_reuses_precomputed_template_partitions(
     monkeypatch,
 ) -> None:

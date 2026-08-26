@@ -687,8 +687,21 @@ def compile_personal_template_layout_contract_v1(
                     fitted_slots.append(slot.model_copy(deep=True))
                     continue
                 area = frame.width * frame.height
-                estimated_chars = max(slot.min_chars, int(area * 1_550))
                 estimated_lines = max(1, int(frame.height * 25))
+                # A title is constrained mainly by horizontal line length,
+                # not by total box area.  The previous area-only estimate let
+                # a one-line 10-inch title claim 42 CJK characters even though
+                # PowerPoint wrapped it at roughly 22–24.  Feed the realistic
+                # capacity back into story planning so the model selects a
+                # concise, source-grounded title before the render gate.
+                estimated_chars = max(
+                    slot.min_chars,
+                    int(
+                        frame.width
+                        * (28 if slot.slot_kind == "title" else 1_550 * frame.height)
+                        * (estimated_lines if slot.slot_kind == "title" else 1)
+                    ),
+                )
                 estimated_items = max(1, int(frame.height * 10))
                 fitted_slots.append(
                     slot.model_copy(
@@ -757,6 +770,7 @@ def compile_personal_template_layout_contract_v1(
         digest_payload["layout_constructions"] = (
             manifest.get("layout_constructions") or []
         )
+    compiled_theme = manifest.get("compiled_theme") or {}
     colors = {
         str(key): str(value).strip().lstrip("#").upper()
         for key, value in (extracted.get("colors") or {}).items()
@@ -778,8 +792,31 @@ def compile_personal_template_layout_contract_v1(
         for source, destination in color_mapping.items()
         if source in colors
     }
+    # Brand choices are the teacher-confirmed output contract.  Extracted
+    # source fonts/colors are useful fallbacks, but must not overwrite the
+    # compiled brand with Calibri or the base theme after publication.
+    for destination in (
+        "surface",
+        "canvas",
+        "chart_bg",
+        "title",
+        "ink",
+        "muted",
+        "accent",
+        "accent_soft",
+        "green",
+        "green_soft",
+        "amber",
+        "amber_soft",
+        "red",
+        "red_soft",
+        "code",
+    ):
+        value = str(compiled_theme.get(destination) or "").strip().lstrip("#")
+        if len(value) == 6 and all(character in "0123456789ABCDEFabcdef" for character in value):
+            render_theme_overrides[destination] = value.upper()
     for source, destination in (("title_font", "title_font"), ("body_font", "body_font")):
-        value = str(extracted.get(source) or "").strip()
+        value = str(compiled_theme.get(source) or extracted.get(source) or "").strip()
         if value and len(value) <= 120 and not any(ord(character) < 32 for character in value):
             render_theme_overrides[destination] = value
     return TemplateLayoutPackContractV1(

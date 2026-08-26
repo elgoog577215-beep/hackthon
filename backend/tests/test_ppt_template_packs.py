@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from ppt_template_packs import (
     PptTemplatePackRepository,
     TemplatePackError,
+    _compile_layout_constructions,
     template_pack_variant_key,
 )
 from routers import ppt_template_packs as pack_router
@@ -130,6 +131,7 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert draft["compiled_theme"]["label"] == "学院蓝"
     assert draft["layout_constructions"][0]["fill_strategy"] == "source_geometry"
     assert draft["layout_constructions"][0]["slot_frames"]["body"]["source"] in {
+        "adaptive",
         "slide",
         "layout",
     }
@@ -150,6 +152,143 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert repository.resolve_version(draft["pack_id"], 1, "teacher-a")["manifest_digest"] == locked_v1["manifest_digest"]
     assert repository.resolve_version(draft["pack_id"], 2, "teacher-a")["name"] == "学院蓝新版"
     assert published_v2["compiled_theme"]["label"] == "学院蓝新版"
+
+
+def test_internal_render_bundle_resolves_and_verifies_the_published_reference(
+    tmp_path: Path,
+) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    reference = reference_pptx_bytes()
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="可填充原生模板",
+        base_theme="academic-editorial",
+        reference_pptx=reference,
+        reference_filename="native-reference.pptx",
+        brand={"primary_color": "#2F84D7"},
+    )
+    repository.update_draft(
+        draft["pack_id"],
+        "teacher-a",
+        {"representative_pages": [
+            {**item, "confirmed": True}
+            for item in draft["representative_pages"]
+        ]},
+    )
+    published = repository.publish(draft["pack_id"], "teacher-a")
+
+    contract, source_path = repository.resolve_render_bundle_internal(
+        draft["pack_id"],
+        published["version"],
+    )
+
+    assert contract.template_id == draft["pack_id"]
+    assert source_path.read_bytes() == reference
+
+    source_path.write_bytes(b"tampered")
+    with pytest.raises(TemplatePackError, match="digest mismatch"):
+        repository.resolve_render_bundle_internal(
+            draft["pack_id"],
+            published["version"],
+        )
+
+
+def test_personal_contract_prefers_confirmed_compiled_brand_over_source_fonts(
+    tmp_path: Path,
+) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="品牌字体锁定",
+        base_theme="academic-editorial",
+        reference_pptx=reference_pptx_bytes(),
+        reference_filename="calibri-source.pptx",
+        brand={
+            "primary_color": "#2F84D7",
+            "title_font": "Noto Serif SC",
+            "body_font": "Noto Sans SC",
+        },
+    )
+    repository.update_draft(
+        draft["pack_id"],
+        "teacher-a",
+        {"representative_pages": [
+            {**item, "confirmed": True}
+            for item in draft["representative_pages"]
+        ]},
+    )
+    published = repository.publish(draft["pack_id"], "teacher-a")
+
+    contract, _source_path = repository.resolve_render_bundle_internal(
+        draft["pack_id"],
+        published["version"],
+    )
+
+    assert contract.render_theme_overrides["accent"] == "2F84D7"
+    assert contract.render_theme_overrides["title_font"] == "Noto Serif SC"
+    assert contract.render_theme_overrides["body_font"] == "Noto Sans SC"
+
+
+def test_layout_compiler_does_not_treat_a_tiny_subtitle_as_the_body_canvas() -> None:
+    constructions = _compile_layout_constructions({
+        "slide_profiles": [{
+            "slide_number": 1,
+            "layout_hint": "visual-led",
+            "picture_count": 1,
+            "table_count": 0,
+            "source_layout_name": "Title Slide",
+            "text_box_frames": [
+                {
+                    "x": 0.06,
+                    "y": 0.08,
+                    "width": 0.80,
+                    "height": 0.08,
+                    "source": "slide",
+                },
+                {
+                    "x": 0.06,
+                    "y": 0.15,
+                    "width": 0.22,
+                    "height": 0.03,
+                    "source": "slide",
+                },
+                {
+                    "x": 0.10,
+                    "y": 0.34,
+                    "width": 0.34,
+                    "height": 0.42,
+                    "source": "slide",
+                },
+                {
+                    "x": 0.53,
+                    "y": 0.34,
+                    "width": 0.37,
+                    "height": 0.42,
+                    "source": "slide",
+                },
+                {
+                    "x": 0.05,
+                    "y": 0.31,
+                    "width": 0.64,
+                    "height": 0.21,
+                    "source": "layout",
+                },
+            ],
+        }],
+    })
+
+    frames = constructions[0]["slot_frames"]
+    assert frames["title"] == {
+        "x": 0.06,
+        "y": 0.08,
+        "width": 0.8,
+        "height": 0.08,
+        "source": "slide",
+    }
+    assert frames["body"]["height"] >= 0.40
+    assert frames["body"]["width"] >= 0.78
+    assert frames["left"]["x"] < frames["right"]["x"]
+    assert frames["left"]["width"] == frames["right"]["width"]
 
 
 def test_template_variant_key_locks_the_pack_version() -> None:
@@ -351,6 +490,38 @@ def test_personal_template_requires_confirmed_mapping_before_v6_use(tmp_path: Pa
         "adaptive_overlay",
     }
     assert ai_contract["slot_frames"]["title"]
+
+    compact_manifest = json.loads(json.dumps(published_v2))
+    evidence_slide = next(
+        item["slide_number"]
+        for item in compact_manifest["representative_pages"]
+        if item["role"] == "evidence"
+    )
+    evidence_construction = next(
+        item
+        for item in compact_manifest["layout_constructions"]
+        if item["source_slide_number"] == evidence_slide
+    )
+    evidence_construction["slot_frames"]["title"] = {
+        "x": 0.06,
+        "y": 0.08,
+        "width": 0.80,
+        "height": 0.075,
+        "source": "slide",
+    }
+    compact_contract = compile_personal_template_layout_contract_v1(
+        compact_manifest
+    )
+    formula_layout = next(
+        item
+        for item in compact_contract.layouts
+        if item.layout_slug == "evidence-formula"
+    )
+    title_slot = next(
+        item for item in formula_layout.slots if item.slot_kind == "title"
+    )
+    assert title_slot.max_lines == 1
+    assert title_slot.max_chars == 22
 
 
 def test_template_pack_import_rejects_active_svg_logo(

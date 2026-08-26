@@ -643,15 +643,33 @@ def _compile_layout_constructions(extracted: dict[str, Any]) -> list[dict[str, A
             if frame is not None
         ]
         frames.sort(key=lambda item: (item["y"], item["x"], -item["width"]))
-        title = next(
-            (
-                frame
-                for frame in frames
-                if frame["y"] <= 0.30 and frame["height"] <= 0.34
+        # Finished decks frequently keep unused Title Slide placeholders in
+        # their source layout while drawing the visible page with slide-local
+        # text boxes.  Treating the inherited placeholder (or the first tiny
+        # eyebrow/subtitle) as the content region makes every semantic slot a
+        # few pixels high and can leave an otherwise valid template with no
+        # safe pagination at all.  Prefer visible slide-local geometry and
+        # compile one stable content canvas from the meaningful frames below
+        # the title.  Layout geometry remains the fallback for genuine native
+        # placeholder templates.
+        slide_frames = [frame for frame in frames if frame["source"] == "slide"]
+        geometry_frames = slide_frames or frames
+        title_candidates = [
+            frame
+            for frame in geometry_frames
+            if frame["y"] <= 0.50
+            and frame["width"] >= 0.18
+            and 0.025 <= frame["height"] <= 0.18
+        ]
+        title = max(
+            title_candidates,
+            key=lambda item: (
+                item["width"],
+                item["width"] * item["height"],
+                -item["y"],
             ),
-            frames[0] if frames else None,
+            default=(geometry_frames[0] if geometry_frames else None),
         )
-        content_frames = [frame for frame in frames if frame is not title]
         adaptive_title = {
             "x": 0.07,
             "y": 0.07,
@@ -659,16 +677,69 @@ def _compile_layout_constructions(extracted: dict[str, Any]) -> list[dict[str, A
             "height": 0.14,
             "source": "adaptive",
         }
-        adaptive_body = {
-            "x": 0.07,
-            "y": 0.25,
-            "width": 0.86,
-            "height": 0.61,
-            "source": "adaptive",
-        }
         title_frame = title or adaptive_title
-        primary_body = content_frames[0] if content_frames else adaptive_body
-        secondary_body = content_frames[1] if len(content_frames) > 1 else primary_body
+        title_bottom = title_frame["y"] + title_frame["height"]
+        meaningful_content_frames = [
+            frame
+            for frame in geometry_frames
+            if frame is not title
+            and frame["y"] >= min(0.82, title_bottom + 0.025)
+            and frame["y"] < 0.91
+            and frame["x"] < 0.92
+            and frame["width"] * frame["height"] >= 0.0025
+        ]
+        if meaningful_content_frames:
+            left = min(frame["x"] for frame in meaningful_content_frames)
+            top = min(frame["y"] for frame in meaningful_content_frames)
+            right = max(
+                frame["x"] + frame["width"]
+                for frame in meaningful_content_frames
+            )
+            bottom = max(
+                frame["y"] + frame["height"]
+                for frame in meaningful_content_frames
+            )
+            content_canvas = _safe_frame(
+                {
+                    "x": left,
+                    "y": top,
+                    "width": right - left,
+                    "height": bottom - top,
+                },
+                source="slide",
+            )
+        else:
+            content_canvas = None
+        if (
+            content_canvas is None
+            or content_canvas["width"] * content_canvas["height"] < 0.18
+            or content_canvas["height"] < 0.30
+        ):
+            body_top = max(0.24, min(0.54, title_bottom + 0.06))
+            content_canvas = {
+                "x": 0.07,
+                "y": round(body_top, 4),
+                "width": 0.86,
+                "height": round(max(0.24, 0.87 - body_top), 4),
+                "source": "adaptive",
+            }
+        primary_body = content_canvas
+        gutter = 0.035
+        column_width = max(0.20, (primary_body["width"] - gutter) / 2)
+        secondary_body = {
+            "x": round(primary_body["x"] + column_width + gutter, 4),
+            "y": primary_body["y"],
+            "width": round(column_width, 4),
+            "height": primary_body["height"],
+            "source": primary_body["source"],
+        }
+        left_body = {
+            "x": primary_body["x"],
+            "y": primary_body["y"],
+            "width": round(column_width, 4),
+            "height": primary_body["height"],
+            "source": primary_body["source"],
+        }
         slot_frames: dict[str, dict[str, Any]] = {
             "title": deepcopy(title_frame),
             "eyebrow": deepcopy(title_frame),
@@ -676,7 +747,7 @@ def _compile_layout_constructions(extracted: dict[str, Any]) -> list[dict[str, A
         }
         for slot_id in _CONTENT_SLOT_IDS:
             slot_frames[slot_id] = deepcopy(primary_body)
-        slot_frames["left"] = deepcopy(primary_body)
+        slot_frames["left"] = deepcopy(left_body)
         slot_frames["right"] = deepcopy(secondary_body)
         constructions.append({
             "schema_version": "ppt_template_layout_construction_v1",
@@ -685,7 +756,9 @@ def _compile_layout_constructions(extracted: dict[str, Any]) -> list[dict[str, A
             "source_layout_name": str(raw_profile.get("source_layout_name") or ""),
             "layout_hint": str(raw_profile.get("layout_hint") or "editorial-body"),
             "fill_strategy": (
-                "source_geometry" if title is not None and content_frames else "adaptive_overlay"
+                "source_geometry"
+                if title is not None and len(frames) > 1
+                else "adaptive_overlay"
             ),
             "raw_text_frame_count": len(frames),
             "picture_count": int(raw_profile.get("picture_count") or 0),
@@ -931,6 +1004,66 @@ class PptTemplatePackRepository:
             return compile_personal_template_layout_contract_v1(snapshot)
         except TemplateLayoutContractError as exc:
             raise TemplatePackError(str(exc)) from exc
+
+    def resolve_render_bundle_internal(
+        self,
+        pack_id: str,
+        version: int | str,
+    ) -> tuple[TemplateLayoutPackContractV1, Path]:
+        """Resolve the immutable native PPTX used by the server-side renderer.
+
+        Public asset access remains owner-scoped.  The export worker already
+        operates on a confirmed, version-locked deck and therefore needs a
+        separate internal lookup that never exposes a filesystem path through
+        the API.  Both the manifest snapshot and reference asset digest are
+        checked again here so a draft edit or stray file cannot silently alter
+        an already-confirmed render.
+        """
+
+        resolved_version = int(version)
+        if resolved_version < 1:
+            raise FileNotFoundError(f"{pack_id}@{resolved_version}")
+        version_dir = self._pack_dir(pack_id) / "versions" / str(resolved_version)
+        manifest_path = version_dir / "manifest.json"
+        if not manifest_path.is_file():
+            raise FileNotFoundError(f"{pack_id}@{resolved_version}")
+        try:
+            snapshot = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            raise TemplatePackError("Template version snapshot is unreadable") from exc
+        if (
+            str(snapshot.get("pack_id") or "") != pack_id
+            or int(snapshot.get("version") or 0) != resolved_version
+            or str(snapshot.get("status") or "") != "published"
+        ):
+            raise TemplatePackError("Template version snapshot identity mismatch")
+        reference = next(
+            (
+                item
+                for item in snapshot.get("assets") or []
+                if isinstance(item, dict) and item.get("role") == "reference_pptx"
+            ),
+            None,
+        )
+        if reference is None:
+            raise FileNotFoundError(f"{pack_id}@{resolved_version}:reference_pptx")
+        asset_root = (version_dir / "assets").resolve()
+        stored_name = Path(str(reference.get("stored_name") or "")).name
+        path = (asset_root / stored_name).resolve()
+        try:
+            path.relative_to(asset_root)
+        except ValueError as exc:
+            raise TemplatePackError("Invalid immutable template asset path") from exc
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        expected_digest = str(reference.get("sha256") or "")
+        if expected_digest and hashlib.sha256(path.read_bytes()).hexdigest() != expected_digest:
+            raise TemplatePackError("Immutable template asset digest mismatch")
+        try:
+            contract = compile_personal_template_layout_contract_v1(snapshot)
+        except TemplateLayoutContractError as exc:
+            raise TemplatePackError(str(exc)) from exc
+        return contract, path
 
     def resolve_version(
         self,

@@ -418,7 +418,15 @@ def _exported_slide_text(slide: Any) -> tuple[str, list[str]]:
 
 
 def _canonical_export_text(value: str) -> str:
-    display = _display_text(str(value or ""))
+    source = str(value or "")
+    display = _display_text(source)
+    # A body text box is formatted as one unit.  If any later sentence
+    # contains LaTeX, the formatter also converts earlier plain ``x_1`` and
+    # ``a_{23}`` fragments to portable subscripts.  Region auditing examines
+    # those sentences separately, so it must apply the same projection even
+    # when the isolated fragment no longer contains ``$`` or a backslash.
+    if "_" in source or "^" in source:
+        display = _format_formula_text(source)
     # Treat ``1. item`` as a list marker, but keep source values such as
     # ``5.0 N`` and ``2.5 m/s`` intact.
     display = re.sub(r"(?m)^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)、]\s+)", "", display)
@@ -648,21 +656,50 @@ def export_slide_deck_v6_pptx(
                 "warnings": [],
             })
 
-    from pptx import Presentation
-    from pptx.util import Inches
+    if deck.template_id.startswith("pptp-"):
+        from ppt_template_packs import ppt_template_pack_repository
+        from slide_deck_v6_personal_renderer import (
+            render_personal_template_presentation,
+        )
 
-    presentation = Presentation()
-    presentation.slide_width = Inches(13.333)
-    presentation.slide_height = Inches(7.5)
-    theme = dict(validate_theme(deck.theme))
-    theme.update(deck.template_theme_overrides)
-    assets = asset_repository or slide_asset_repository
-    slides = [adapt_v6_page_to_slide_spec(page) for page in deck.pages]
-    for index, unit in enumerate(slides):
-        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-        _render_slide(slide, unit, index + 1, len(slides), theme, assets)
-        _mark_v6_title_shape(slide, unit)
-        slide.notes_slide.notes_text_frame.text = unit.speaker_notes
+        contract, source_path = (
+            ppt_template_pack_repository.resolve_render_bundle_internal(
+                deck.template_id,
+                deck.template_version,
+            )
+        )
+        if contract.template_digest != deck.template_digest:
+            raise SlideDeckQualityError({
+                "passed": False,
+                "score": 0,
+                "blockers": [{
+                    "severity": "critical",
+                    "code": "personal_template_render_contract_mismatch",
+                    "message": "Published personal template no longer matches the confirmed deck",
+                }],
+                "warnings": [],
+            })
+        presentation = render_personal_template_presentation(
+            deck,
+            source_path,
+            contract,
+        )
+    else:
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        presentation = Presentation()
+        presentation.slide_width = Inches(13.333)
+        presentation.slide_height = Inches(7.5)
+        theme = dict(validate_theme(deck.theme))
+        theme.update(deck.template_theme_overrides)
+        assets = asset_repository or slide_asset_repository
+        slides = [adapt_v6_page_to_slide_spec(page) for page in deck.pages]
+        for index, unit in enumerate(slides):
+            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            _render_slide(slide, unit, index + 1, len(slides), theme, assets)
+            _mark_v6_title_shape(slide, unit)
+            slide.notes_slide.notes_text_frame.text = unit.speaker_notes
 
     _validate_exported_source_regions(deck, presentation)
 

@@ -21,7 +21,7 @@ from slide_build_progress_v2 import (
     SlideBuildProgressTrackerV2,
     SlideWorkItemV2,
 )
-from slide_deck_renderer import audit_exported_pptx
+from slide_deck_renderer import SlideDeckQualityError, audit_exported_pptx
 from slide_deck_v6 import (
     AIBatchDiagnosticV1,
     PptManuscriptV1,
@@ -1135,6 +1135,23 @@ class SlideDeckV6Orchestrator:
                     )
             except V6BuildError:
                 raise
+            except SlideDeckQualityError as error:
+                first_blocker = next(iter(error.report.get("blockers") or []), {})
+                failed_page_id = str(first_blocker.get("page_id") or first_page.page_id)
+                region_id = str(first_blocker.get("region_id") or "")
+                blocker_code = str(
+                    first_blocker.get("code") or "exported_source_region_missing"
+                )
+                raise V6BuildError(
+                    stage="render",
+                    code="render_export_failed",
+                    message=(
+                        f"{blocker_code}: {failed_page_id}"
+                        + (f"/{region_id}" if region_id else "")
+                    ),
+                    retryable=True,
+                    page_id=failed_page_id,
+                ) from error
             except Exception as error:
                 raise V6BuildError(
                     stage="render",

@@ -130,6 +130,17 @@ def test_continuation_title_candidates_exclude_internal_structure_labels() -> No
         "且 Ax=b",
         "未知数列序改为 z",
         "其中 A 为 3×3",
+        "必须是第 i 个方程中第 j",
+        "因此 Ax=b 等价于对每个 i=1,2,3",
+        "1，零元素较多也不能单独证明矩阵已成行阶梯形",
+        "必须是第 i 个方程中第",
+        "(ine j).",
+        "独立写成",
+        "右端常数均",
+        "只有每一行的系数、未知数列序、负号",
+        "当前列若主元位置为零而下方有非零元",
+        "一个 n",
+        "设主元为 ane0",
     ],
 )
 def test_title_quality_rejects_truncated_or_raw_math_fragments(title: str) -> None:

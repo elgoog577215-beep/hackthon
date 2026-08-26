@@ -44,6 +44,7 @@ from slide_deck_v6 import (
     _complete_story_source_companion,
     _layout_semantic_fallback_cost,
     _looks_like_markdown_table,
+    _formula_like_title,
     _presentation_summary_text,
     _protected_tokens,
     _semantic_grounding_ratio,
@@ -198,6 +199,9 @@ _GENERIC_TEACHING_PAGE_TITLES = frozenset({
     "从二阶出发",
     "本节要解决的问题是",
     "错误分析",
+    "典型错误",
+    "修正原因",
+    "当且仅当",
     "逐行取系数",
     "缺项补0",
     "沿索引读取",
@@ -365,6 +369,9 @@ def _request_title_candidates_for_blocks(
         )
         if str(candidate).strip()
         if not _generic_teaching_page_title(str(candidate))
+        if not _formula_like_title(
+            _audience_facing_title_candidate(str(candidate)) or str(candidate)
+        )
         if not _title_is_incomplete(
             _audience_facing_title_candidate(str(candidate)) or str(candidate)
         )
@@ -382,6 +389,9 @@ def _request_title_candidates_for_blocks(
         for candidate in unit.get("title_candidates") or []
         if str(candidate).strip()
         if not _generic_teaching_page_title(str(candidate))
+        if not _formula_like_title(
+            _audience_facing_title_candidate(str(candidate)) or str(candidate)
+        )
         if not _title_is_incomplete(
             _audience_facing_title_candidate(str(candidate)) or str(candidate)
         )
@@ -443,6 +453,7 @@ def _assign_global_story_titles(
             candidate
             for candidate in candidates
             if not _generic_teaching_page_title(candidate)
+            if not _formula_like_title(candidate)
             if not _title_is_incomplete(candidate)
             if not (
                 _title_protected_tokens(candidate)
@@ -1552,6 +1563,8 @@ def _grounded_title_candidates(
         if (
             4 <= len(candidate) <= capacity
             and source_candidate in source_text
+            and not _generic_teaching_page_title(candidate)
+            and not _formula_like_title(candidate)
             and not _title_is_incomplete(candidate)
             and candidate not in candidates
         ):
@@ -1596,9 +1609,7 @@ def _grounded_title_candidates(
         if raw_segment.strip() in heading_lines:
             continue
         add_complete_fragments(raw_segment)
-        if len(candidates) >= 6:
-            break
-    return candidates[:6]
+    return candidates[:18]
 
 
 def _story_unit_request(
@@ -1728,6 +1739,7 @@ def _story_unit_request(
             ]
             if 4 <= len(candidate) <= title_max_chars
             if not _generic_teaching_page_title(candidate)
+            if not _formula_like_title(candidate)
             if not _title_is_incomplete(candidate)
         ))
 
@@ -2507,6 +2519,7 @@ def _story_repair_targets(
             title
             for title in allowed_title_candidates
             if not _generic_teaching_page_title(str(title))
+            if not _formula_like_title(str(title))
             if not _title_is_incomplete(str(title))
             if (not title_max_chars or len(str(title)) <= title_max_chars)
             and re.sub(r"\s+", "", str(title)).casefold()

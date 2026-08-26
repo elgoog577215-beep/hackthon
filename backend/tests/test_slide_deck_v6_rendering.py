@@ -36,6 +36,12 @@ def test_export_fidelity_keeps_decimal_formula_values() -> None:
     assert _canonical_export_text("1. Verify the result") == "verifytheresult"
 
 
+def test_export_fidelity_matches_plain_subscripts_inside_mixed_math_body() -> None:
+    assert _canonical_export_text("a_{23}=4 对应 4x_3") == _canonical_export_text(
+        "a₂₃=4 对应 4x₃"
+    )
+
+
 def test_formula_renderer_formats_augmented_array_without_raw_latex() -> None:
     source = r"""
     \left[
@@ -2006,3 +2012,73 @@ def test_pptx_renderer_applies_the_frozen_template_theme_overrides(
 
     assert observed["accent"] == "315E7D"
     assert observed["title_font"] == "Noto Serif SC"
+
+
+def test_personal_template_export_uses_native_renderer_and_removes_source_copy(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import ppt_template_packs
+
+    _document, source_deck = _code_deck()
+    source_page = source_deck.pages[0]
+    builtin = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    source_layout = builtin.get_layout(source_page.resolved_layout)
+    assert source_layout is not None
+    personal_layout_id = "pptp-native-fixture@1/evidence-code"
+    personal_layout = source_layout.model_copy(update={
+        "template_layout_id": personal_layout_id,
+        "source_slide_number": 1,
+        "construction_role": "evidence",
+        "fill_strategy": "source_geometry",
+    })
+    personal_contract = builtin.model_copy(update={
+        "template_id": "pptp-native-fixture",
+        "template_version": "1",
+        "template_digest": "tmpl_native_fixture",
+        "layouts": [personal_layout],
+    })
+    personal_page = source_page.model_copy(update={
+        "resolved_layout": personal_layout_id,
+    })
+    personal_deck = source_deck.model_copy(update={
+        "template_id": "pptp-native-fixture",
+        "template_version": "1",
+        "template_digest": personal_contract.template_digest,
+        "pages": [personal_page],
+    })
+
+    source_path = tmp_path / "native-source.pptx"
+    source_presentation = Presentation()
+    source_presentation.slide_width = 12_192_000
+    source_presentation.slide_height = 6_858_000
+    source_slide = source_presentation.slides.add_slide(
+        source_presentation.slide_layouts[6]
+    )
+    source_slide.shapes.add_textbox(0, 0, 5_000_000, 700_000).text = (
+        "SOURCE TEMPLATE TOPIC COPY"
+    )
+    source_presentation.save(source_path)
+
+    monkeypatch.setattr(
+        ppt_template_packs.ppt_template_pack_repository,
+        "resolve_render_bundle_internal",
+        lambda *_args, **_kwargs: (personal_contract, source_path),
+    )
+
+    output = export_slide_deck_v6_pptx(
+        personal_deck,
+        tmp_path / "native-personal-output.pptx",
+    )
+    rendered = Presentation(output)
+    visible = "\n".join(
+        shape.text
+        for slide in rendered.slides
+        for shape in slide.shapes
+        if getattr(shape, "has_text_frame", False)
+    )
+
+    assert len(rendered.slides) == 1
+    assert personal_page.title in visible
+    assert "SOURCE TEMPLATE TOPIC COPY" not in visible
+    assert len(rendered.slides[0].shapes) > 20
