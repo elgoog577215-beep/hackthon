@@ -250,9 +250,12 @@ describe('teacher course workbench outline streaming', () => {
   it('生成前只展示业务输入和操作，不展示内部流程解释', async () => {
     const wrapper = mountWorkbench()
 
-    expect(wrapper.get('.foundation-presets').text()).toContain('生成偏好')
-    expect(wrapper.get('.foundation-presets').text()).toContain('应用导向')
-    expect(wrapper.get('.foundation-presets').text()).toContain('讲练一体')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('教学编排')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('学习目的')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('学科类型')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('课程教学类型')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('系统学习')
+    expect(wrapper.get('.foundation-semantics').text()).toContain('综合课')
     expect(wrapper.find('.chapter-shape-editor').exists()).toBe(false)
     expect(wrapper.find('.course-shape-summary').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('大纲生成顺序')
@@ -266,12 +269,37 @@ describe('teacher course workbench outline streaming', () => {
     const emitted = wrapper.emitted('generateOutline')?.[0]?.[0] as any
     expect(emitted.options.teacher_course_brief).toEqual(expect.objectContaining({
       total_class_hours: 12,
-      additional_requirements: expect.stringContaining('课程定位：'),
+      additional_requirements: expect.stringContaining('学习目的：系统学习'),
     }))
-    expect(emitted.options.requirements).toContain('教学组织：')
-    expect(emitted.options.requirements).toContain('能力重点：')
+    expect(emitted.options).toEqual(expect.objectContaining({
+      course_type: 'systematic',
+      learning_purpose: 'systematic',
+      course_teaching_type: 'comprehensive',
+      pedagogy_mode: 'auto',
+    }))
+    expect(emitted.options.requirements).toContain('学科类型：自动判断')
+    expect(emitted.options.requirements).toContain('课程教学类型：综合课')
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('chapter_count')
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('section_count')
+  })
+
+  it('项目实战与项目课分别写入学习目的和课程教学类型', async () => {
+    const wrapper = mountWorkbench()
+    const projectPurpose = wrapper.findAll('.foundation-semantic-options button').find(button => button.text().includes('项目实战'))
+    expect(projectPurpose).toBeTruthy()
+    await projectPurpose!.trigger('click')
+    await wrapper.get('.foundation-purpose-fields input').setValue('可运行原型与设计说明')
+    await wrapper.get('form.stage-form').trigger('submit')
+    await flushPromises()
+
+    const emitted = wrapper.emitted('generateOutline')?.[0]?.[0] as any
+    expect(emitted.options.course_type).toBe('project')
+    expect(emitted.options.learning_purpose).toBe('project')
+    expect(emitted.options.course_teaching_type).toBe('project')
+    expect(emitted.options.course_intent).toEqual(expect.objectContaining({
+      type: 'project',
+      expected_deliverable: '可运行原型与设计说明',
+    }))
   })
 
   it('大纲已生成待确认时阻断教案生成并恢复原有确认入口', async () => {

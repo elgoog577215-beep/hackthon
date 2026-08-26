@@ -25,8 +25,20 @@ export type CourseCompositionStyle =
   | 'project_driven'
   | 'inquiry_driven';
 
-/** 教学类型：回答课程按什么目标组织；与具体学科教法相互独立。 */
+/** 旧课程目标字段；保留 inquiry 只为读取历史课程。 */
 export type CourseType = 'systematic' | 'project' | 'inquiry' | 'exam';
+
+/** 学习目的：回答为什么学、最终要得到什么。 */
+export type LearningPurpose = 'systematic' | 'project' | 'exam';
+
+/** 课程教学类型：回答整门课主要怎样教。 */
+export type CourseTeachingType =
+  | 'theory'
+  | 'laboratory'
+  | 'practice'
+  | 'seminar'
+  | 'project'
+  | 'comprehensive';
 
 export interface SystematicCourseIntent {
   schema_version: 'course_intent_v1';
@@ -127,6 +139,21 @@ export const COURSE_TYPES = {
   EXAM: 'exam' as const,
 };
 
+export const LEARNING_PURPOSES = {
+  SYSTEMATIC: 'systematic' as const,
+  PROJECT: 'project' as const,
+  EXAM: 'exam' as const,
+};
+
+export const COURSE_TEACHING_TYPES = {
+  THEORY: 'theory' as const,
+  LABORATORY: 'laboratory' as const,
+  PRACTICE: 'practice' as const,
+  SEMINAR: 'seminar' as const,
+  PROJECT: 'project' as const,
+  COMPREHENSIVE: 'comprehensive' as const,
+};
+
 export const PEDAGOGY_MODE_OPTIONS: Array<{
   value: PedagogyModeSelection;
   labelKey: string;
@@ -204,6 +231,21 @@ export const VALID_COURSE_TYPES: CourseType[] = [
   'project',
   'inquiry',
   'exam',
+];
+
+export const VALID_LEARNING_PURPOSES: LearningPurpose[] = [
+  'systematic',
+  'project',
+  'exam',
+];
+
+export const VALID_COURSE_TEACHING_TYPES: CourseTeachingType[] = [
+  'theory',
+  'laboratory',
+  'practice',
+  'seminar',
+  'project',
+  'comprehensive',
 ];
 
 /** 有效的节点类型列表 */
@@ -312,6 +354,8 @@ export interface GenerateCourseParams {
   teacher_authoring_mode?: 'lesson_assets_v1';
   course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
   course_type?: CourseType;
+  learning_purpose?: LearningPurpose;
+  course_teaching_type?: CourseTeachingType;
   course_intent?: CourseIntent;
   asset_preferences?: Record<string, boolean>;
   web_question_enrichment?: {
@@ -363,6 +407,14 @@ export function validateCourseType(courseType: string): boolean {
   return VALID_COURSE_TYPES.includes(courseType as CourseType);
 }
 
+export function validateLearningPurpose(value: string): boolean {
+  return VALID_LEARNING_PURPOSES.includes(value as LearningPurpose);
+}
+
+export function validateCourseTeachingType(value: string): boolean {
+  return VALID_COURSE_TEACHING_TYPES.includes(value as CourseTeachingType);
+}
+
 /**
  * 验证节点类型
  */
@@ -409,6 +461,14 @@ export function validateGenerateCourseParams(
 
   if (params.course_type && !validateCourseType(params.course_type)) {
     errors.push(`Invalid course_type: ${params.course_type}. Must be one of: ${VALID_COURSE_TYPES.join(', ')}`);
+  }
+
+  if (params.learning_purpose && !validateLearningPurpose(params.learning_purpose)) {
+    errors.push(`Invalid learning_purpose: ${params.learning_purpose}. Must be one of: ${VALID_LEARNING_PURPOSES.join(', ')}`);
+  }
+
+  if (params.course_teaching_type && !validateCourseTeachingType(params.course_teaching_type)) {
+    errors.push(`Invalid course_teaching_type: ${params.course_teaching_type}. Must be one of: ${VALID_COURSE_TEACHING_TYPES.join(', ')}`);
   }
 
   if (params.course_type === 'project') {

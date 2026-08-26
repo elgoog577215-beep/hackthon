@@ -1165,6 +1165,8 @@ class CourseService(AIBase):
         grounding_strategy: str = "material_first",
         learner_profile_summary: str = "",
         course_type: str | None = None,
+        learning_purpose: str | None = None,
+        course_teaching_type: str | None = None,
         course_intent: dict[str, Any] | None = None,
         learner_starting_profile: dict[str, Any] | None = None,
         teacher_course_brief: dict[str, Any] | None = None,
@@ -1248,6 +1250,9 @@ class CourseService(AIBase):
                 learner_profile_summary=learner_profile_summary,
                 course_purpose=course_purpose,
                 composition_style=composition_profile["style"],
+                learning_purpose=learning_purpose,
+                subject_type=pedagogy_mode,
+                course_teaching_type=course_teaching_type,
             )
             apply_teacher_course_brief(refreshed_brief, teacher_course_brief)
             artifacts = {
@@ -1323,6 +1328,9 @@ class CourseService(AIBase):
                 materials=material_inputs,
                 learner_profile_summary=learner_profile_summary,
                 course_type=resolved_course_type,
+                learning_purpose=learning_purpose,
+                subject_type=pedagogy_mode,
+                course_teaching_type=course_teaching_type,
                 course_intent=course_intent,
                 learner_starting_profile=learner_starting_profile,
                 teacher_course_brief=teacher_course_brief,
@@ -4872,6 +4880,8 @@ class CourseService(AIBase):
             grounding_strategy=str(kwargs.get("grounding_strategy") or "material_first"),
             learner_profile_summary=str(kwargs.get("learner_profile_summary") or ""),
             course_type=kwargs.get("course_type"),
+            learning_purpose=kwargs.get("learning_purpose"),
+            course_teaching_type=kwargs.get("course_teaching_type"),
             course_intent=kwargs.get("course_intent"),
             learner_starting_profile=kwargs.get("learner_starting_profile"),
             teacher_course_brief=kwargs.get("teacher_course_brief"),

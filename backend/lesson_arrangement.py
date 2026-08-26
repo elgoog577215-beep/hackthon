@@ -18,13 +18,19 @@ from course_pedagogy import (
     coerce_persisted_profile,
     module_block_role,
 )
+from teaching_semantics import (
+    lesson_phase,
+    order_teaching_blocks,
+    recommend_lesson_type,
+    resolve_course_teaching_type,
+)
 
 
 SCHEMA_VERSION = "teacher_lesson_arrangement_v1"
 LESSON_TYPES: dict[str, dict[str, str]] = {
     "theory": {"label": "理论讲授", "purpose": "建立概念、原理、关系与适用边界。"},
     "practice": {"label": "实践操作", "purpose": "通过示范、操作和反馈形成可执行能力。"},
-    "theory_practice": {"label": "理论与实践", "purpose": "把原理讲解与操作应用组织在同一讲中。"},
+    "theory_practice": {"label": "讲练结合", "purpose": "把原理讲解、示例练习与反馈组织在同一讲中。"},
     "case_discussion": {"label": "案例研讨", "purpose": "围绕具体案例分析证据、判断与取舍。"},
     "experiment_inquiry": {"label": "实验探究", "purpose": "通过问题、实验、观察和证据形成结论。"},
     "project_workshop": {"label": "项目工作坊", "purpose": "围绕阶段成果组织协作、制作、展示与反馈。"},
@@ -131,6 +137,26 @@ def _lesson_type(archetype_ids: list[str], module_ids: list[str]) -> str:
     if practical:
         return "practice"
     return "theory"
+
+
+def _course_teaching_type(course_data: dict[str, Any]) -> str:
+    brief = course_data.get("course_generation_brief") or {}
+    request = course_data.get("generation_request") or {}
+    value = (
+        brief.get("course_teaching_type")
+        or request.get("course_teaching_type")
+        or course_data.get("course_teaching_type")
+    )
+    resolved, _ = resolve_course_teaching_type(
+        value,
+        learning_purpose=(brief.get("learning_purpose") or request.get("learning_purpose")),
+        legacy_course_type=(brief.get("course_type") or request.get("course_type")),
+        composition_style=(
+            (course_data.get("course_composition_profile") or {}).get("style")
+            or request.get("composition_style")
+        ),
+    )
+    return resolved
 
 
 def _allocate_minutes(total: int, count: int) -> list[int]:
@@ -252,7 +278,23 @@ def recommend_lesson_arrangement(
     raw_blocks = _compact_large_legacy_lesson(raw_blocks, sections)
     for block, minutes in zip(raw_blocks, _allocate_minutes(duration, len(raw_blocks))):
         block["planned_minutes"] = minutes
-    lesson_type = _lesson_type(archetype_ids, module_ids)
+    legacy_lesson_type = _lesson_type(archetype_ids, module_ids)
+    chapters = [item for item in plan.get("chapters") or [] if isinstance(item, dict)]
+    chapter_index = next(
+        (
+            index for index, item in enumerate(chapters)
+            if _text(item.get("node_id") or item.get("chapter_id")) == lesson_unit_id
+        ),
+        0,
+    )
+    course_teaching_type = _course_teaching_type(course_data)
+    phase = lesson_phase(chapter_index, len(chapters))
+    lesson_type = recommend_lesson_type(
+        course_teaching_type,
+        phase=phase,
+        legacy_candidate=legacy_lesson_type,
+    )
+    raw_blocks = order_teaching_blocks(raw_blocks, lesson_type)
     return {
         "schema_version": SCHEMA_VERSION,
         "revision_id": "",
@@ -260,6 +302,8 @@ def recommend_lesson_arrangement(
         "source_outline_revision_id": source_outline_revision_id,
         "lesson_type": lesson_type,
         "lesson_type_label": LESSON_TYPES[lesson_type]["label"],
+        "course_teaching_type": course_teaching_type,
+        "lesson_phase": phase,
         "blocks": raw_blocks,
         "status": "suggested",
         "confirmed": False,

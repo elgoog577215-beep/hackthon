@@ -8,6 +8,8 @@ import {
   validateStyle,
   validateCompositionStyle,
   validateCourseType,
+  validateLearningPurpose,
+  validateCourseTeachingType,
   validateNodeType,
   validateGenerateCourseParams,
   detectContentTypes,
@@ -16,12 +18,16 @@ import {
   VALID_TEACHING_STYLES,
   VALID_COURSE_COMPOSITION_STYLES,
   VALID_COURSE_TYPES,
+  VALID_LEARNING_PURPOSES,
+  VALID_COURSE_TEACHING_TYPES,
   VALID_NODE_TYPES,
   PARAMETER_RULES,
   DIFFICULTY_LEVELS,
   TEACHING_STYLES,
   COURSE_COMPOSITION_STYLES,
   COURSE_TYPES,
+  LEARNING_PURPOSES,
+  COURSE_TEACHING_TYPES,
   NODE_LEVELS,
   NODE_TYPES,
 } from '@/shared/prompt-config'
@@ -48,6 +54,11 @@ describe('常量定义', () => {
 
   it('课程类型常量与有效列表一致', () => {
     expect(Object.values(COURSE_TYPES)).toEqual(VALID_COURSE_TYPES)
+  })
+
+  it('学习目的与课程教学类型分别维护稳定列表', () => {
+    expect(Object.values(LEARNING_PURPOSES)).toEqual(VALID_LEARNING_PURPOSES)
+    expect(Object.values(COURSE_TEACHING_TYPES)).toEqual(VALID_COURSE_TEACHING_TYPES)
   })
 
   it('节点类型常量与有效列表一致', () => {
@@ -106,9 +117,18 @@ describe('validateCompositionStyle', () => {
 })
 
 describe('validateCourseType', () => {
-  it('只接受四种正式课程类型', () => {
+  it('旧课程类型字段继续接受四种兼容值', () => {
     for (const courseType of VALID_COURSE_TYPES) expect(validateCourseType(courseType)).toBe(true)
     expect(validateCourseType('material_organization')).toBe(false)
+  })
+})
+
+describe('validateTeachingSemantics', () => {
+  it('只接受三种学习目的与六种课程教学类型', () => {
+    for (const value of VALID_LEARNING_PURPOSES) expect(validateLearningPurpose(value)).toBe(true)
+    for (const value of VALID_COURSE_TEACHING_TYPES) expect(validateCourseTeachingType(value)).toBe(true)
+    expect(validateLearningPurpose('inquiry')).toBe(false)
+    expect(validateCourseTeachingType('exam')).toBe(false)
   })
 })
 

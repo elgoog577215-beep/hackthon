@@ -272,7 +272,17 @@ class CourseGenerationRequest(BaseModel):
     teacher_course_brief: Optional[TeacherCourseBriefV1] = None
     difficulty: Optional[DifficultyLevel] = "intermediate"
     course_type: CourseType = "systematic"
+    learning_purpose: Optional[Literal["systematic", "project", "exam"]] = None
+    course_teaching_type: Literal[
+        "theory",
+        "laboratory",
+        "practice",
+        "seminar",
+        "project",
+        "comprehensive",
+    ] = "comprehensive"
     course_type_resolved_from: Literal[
+        "learning_purpose",
         "course_type",
         "course_purpose",
         "composition_style",
@@ -349,6 +359,10 @@ class CourseGenerationRequest(BaseModel):
             default_composition_style,
             resolve_course_type,
         )
+        from teaching_semantics import (
+            resolve_course_teaching_type,
+            resolve_learning_purpose,
+        )
 
         normalized = dict(value)
         if "assessment_generation_profile" in normalized:
@@ -366,14 +380,32 @@ class CourseGenerationRequest(BaseModel):
             if isinstance(normalized.get("course_intent"), dict)
             else None
         )
-        explicit_course_type = normalized.get("course_type") or intent_type
+        explicit_learning_purpose = normalized.get("learning_purpose")
+        explicit_course_type = (
+            explicit_learning_purpose
+            or normalized.get("course_type")
+            or intent_type
+        )
         course_type, resolved_from = resolve_course_type(
             explicit_course_type,
             course_purpose=normalized.get("course_purpose"),
             composition_style=normalized.get("composition_style"),
         )
+        if explicit_learning_purpose:
+            resolved_from = "learning_purpose"
         normalized["course_type"] = course_type
         normalized["course_type_resolved_from"] = resolved_from
+        normalized["learning_purpose"] = resolve_learning_purpose(
+            explicit_learning_purpose,
+            legacy_course_type=course_type,
+        )
+        course_teaching_type, _ = resolve_course_teaching_type(
+            normalized.get("course_teaching_type"),
+            learning_purpose=normalized["learning_purpose"],
+            legacy_course_type=course_type,
+            composition_style=normalized.get("composition_style"),
+        )
+        normalized["course_teaching_type"] = course_teaching_type
         if (
             course_type == "project"
             and not normalized.get("course_intent")

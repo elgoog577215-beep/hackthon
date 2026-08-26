@@ -446,7 +446,8 @@ def test_outline_prompt_and_blueprint_expose_type_and_path_reason():
         adaptation_decision={},
         material_context="",
     )
-    assert "教学类型：项目实战" in prompt
+    assert "学习目的：项目实战" in prompt
+    assert "课程教学类型：项目课" in prompt
     assert "verify_in_project" in prompt
     assert "项目里程碑" in prompt
 

@@ -11,6 +11,8 @@ from copy import deepcopy
 import re
 from typing import Any
 
+from teaching_semantics import compile_course_semantics
+
 
 COURSE_TYPE_SYSTEMATIC = "systematic"
 COURSE_TYPE_PROJECT = "project"
@@ -310,6 +312,9 @@ def compile_course_type_brief(
     learner_profile_summary: str = "",
     course_purpose: Any = None,
     composition_style: Any = None,
+    learning_purpose: Any = None,
+    subject_type: Any = None,
+    course_teaching_type: Any = None,
 ) -> dict[str, Any]:
     """Compile type-specific request data into the brief used by the LLM chain."""
     resolved_type, resolved_from = resolve_course_type(
@@ -327,6 +332,13 @@ def compile_course_type_brief(
         learner_profile_summary=learner_profile_summary,
     )
     contract = deepcopy(COURSE_TYPE_CONTRACTS[resolved_type])
+    semantics = compile_course_semantics(
+        learning_purpose=learning_purpose or resolved_type,
+        legacy_course_type=resolved_type,
+        subject_type=subject_type,
+        course_teaching_type=course_teaching_type,
+        composition_style=composition_style,
+    )
     return {
         "course_type": resolved_type,
         "course_type_label": contract["label"],
@@ -339,6 +351,7 @@ def compile_course_type_brief(
             intent,
             starting_profile,
         ),
+        **semantics,
     }
 
 
@@ -352,6 +365,14 @@ def apply_course_type_brief(
     for item in contract.get("outline_requirements") or []:
         if item not in hard_constraints:
             hard_constraints.append(item)
+    teaching_contract = brief.get("course_teaching_type_contract") or {}
+    organizing_principle = str(
+        teaching_contract.get("organizing_principle") or ""
+    ).strip()
+    if organizing_principle:
+        teaching_constraint = f"整课教学组织：{organizing_principle}"
+        if teaching_constraint not in hard_constraints:
+            hard_constraints.append(teaching_constraint)
     brief["hard_constraints"] = hard_constraints
     expected_deliverable = str(
         (brief.get("course_intent") or {}).get("expected_deliverable") or ""

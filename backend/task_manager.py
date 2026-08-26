@@ -6938,6 +6938,8 @@ class TaskManager:
                 grounding_strategy=str(request.get("grounding_strategy") or "material_first"),
                 learner_profile_summary=str(request.get("learner_profile_summary") or ""),
                 course_type=request.get("course_type"),
+                learning_purpose=request.get("learning_purpose"),
+                course_teaching_type=request.get("course_teaching_type"),
                 course_intent=request.get("course_intent") or {},
                 learner_starting_profile=request.get("learner_starting_profile") or {},
                 teacher_course_brief=request.get("teacher_course_brief") or {},

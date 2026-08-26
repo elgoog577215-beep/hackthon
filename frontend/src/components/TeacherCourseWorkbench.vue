@@ -110,42 +110,81 @@
       </section>
 
       <form v-else-if="activeStage === 'foundation'" class="stage-form" @submit.prevent="submitFoundation">
-        <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.learningGoal', '教学目标') }} <b>*</b></span><textarea v-model.trim="foundation.goal" required rows="4" :placeholder="t('courseWorkbench.form.learningGoalPlaceholder', '学生完成课程后能够……')" /></label>
+        <label class="form-field form-field--wide"><span>{{ foundationGoalLabel }} <b>*</b></span><textarea v-model.trim="foundation.goal" required rows="4" :placeholder="foundationGoalPlaceholder" /></label>
         <div class="form-grid">
           <label class="form-field"><span>{{ t('courseWorkbench.form.totalHours', '总学时') }}</span><input v-model.number="foundation.totalHours" type="number" min="1" max="1000" /></label>
         </div>
-        <section class="foundation-presets" aria-labelledby="foundation-presets-title">
+        <section class="foundation-semantics" aria-labelledby="foundation-semantics-title">
           <header>
             <div>
-              <strong id="foundation-presets-title">{{ t('courseWorkbench.form.generationPreferences', '生成偏好') }}</strong>
-              <span>{{ t('courseWorkbench.form.generationPreferencesHelp', '用几次选择，确定这份大纲的课程气质与能力重点。') }}</span>
+              <strong id="foundation-semantics-title">{{ t('courseWorkbench.form.teachingPlan', '教学编排') }}</strong>
+              <span>{{ t('courseWorkbench.form.teachingPlanHelp', '学习目的决定结果，学科类型决定专业方法，课程教学类型决定整课怎样组织。') }}</span>
             </div>
-            <small>{{ t('courseWorkbench.form.preferencesSelected', '已选 {count} 项').replace('{count}', String(selectedFoundationPresetCount)) }}</small>
+            <small>{{ t('courseWorkbench.form.courseLevel', '整课级') }}</small>
           </header>
-          <div v-for="group in foundationPresetGroups" :key="group.id" class="foundation-preset-row">
+          <div class="foundation-semantic-row">
             <div>
-              <strong>{{ group.label }}</strong>
-              <span>{{ group.description }}</span>
+              <strong>{{ t('courseWorkbench.form.learningPurpose', '学习目的') }}</strong>
+              <span>{{ t('courseWorkbench.form.learningPurposeHelp', '为什么学，最终要得到什么') }}</span>
             </div>
-            <div class="foundation-preset-options">
+            <div class="foundation-semantic-options foundation-semantic-options--three">
               <button
-                v-for="option in group.options"
-                :key="option.id"
+                v-for="option in learningPurposeOptions"
+                :key="option.value"
                 type="button"
-                :class="{ selected: foundationPresetSelected(group.id, option.id) }"
-                :aria-pressed="foundationPresetSelected(group.id, option.id)"
-                @click="toggleFoundationPreset(group.id, option.id, group.multiple)"
+                :class="{ selected: foundation.learningPurpose === option.value }"
+                :aria-pressed="foundation.learningPurpose === option.value"
+                @click="selectLearningPurpose(option.value)"
               >
-                <Check v-if="foundationPresetSelected(group.id, option.id)" :size="13" />
+                <Check v-if="foundation.learningPurpose === option.value" :size="13" />
                 <span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
               </button>
             </div>
           </div>
+          <div class="foundation-semantic-row foundation-semantic-row--compact">
+            <div>
+              <strong>{{ t('courseWorkbench.form.subjectType', '学科类型') }}</strong>
+              <span>{{ t('courseWorkbench.form.subjectTypeHelp', '这类知识怎样建立、练习和验证') }}</span>
+            </div>
+            <label class="foundation-subject-select">
+              <span class="sr-only">{{ t('courseWorkbench.form.subjectType', '学科类型') }}</span>
+              <select v-model="foundation.subjectType">
+                <option v-for="option in subjectTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+              <small>{{ selectedSubjectTypeDescription }}</small>
+            </label>
+          </div>
+          <div class="foundation-semantic-row">
+            <div>
+              <strong>{{ t('courseWorkbench.form.courseTeachingType', '课程教学类型') }}</strong>
+              <span>{{ t('courseWorkbench.form.courseTeachingTypeHelp', '整门课主要用什么方式教') }}</span>
+            </div>
+            <div class="foundation-semantic-options foundation-semantic-options--six">
+              <button
+                v-for="option in courseTeachingTypeOptions"
+                :key="option.value"
+                type="button"
+                :class="{ selected: foundation.courseTeachingType === option.value }"
+                :aria-pressed="foundation.courseTeachingType === option.value"
+                @click="foundation.courseTeachingType = option.value"
+              >
+                <Check v-if="foundation.courseTeachingType === option.value" :size="13" />
+                <span><strong>{{ option.label }}</strong><small>{{ option.description }}</small></span>
+              </button>
+            </div>
+          </div>
+          <div v-if="foundation.learningPurpose === 'project'" class="foundation-purpose-fields">
+            <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.projectDeliverable', '项目成果') }} <b>*</b></span><input v-model.trim="foundation.projectDeliverable" required maxlength="500" :placeholder="t('courseWorkbench.form.projectDeliverablePlaceholder', '例如：完成一套可运行原型及设计说明')" /></label>
+          </div>
+          <div v-else-if="foundation.learningPurpose === 'exam'" class="foundation-purpose-fields foundation-purpose-fields--two">
+            <label class="form-field"><span>{{ t('courseWorkbench.form.examDate', '考试日期') }} <b>*</b></span><input v-model="foundation.examDate" required type="date" /></label>
+            <label class="form-field"><span>{{ t('courseWorkbench.form.examScope', '考试范围') }} <b>*</b></span><input v-model.trim="foundation.examScope" required maxlength="1000" :placeholder="t('courseWorkbench.form.examScopePlaceholder', '例如：教材第 1—8 章与课堂重点')" /></label>
+          </div>
         </section>
         <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：每章包含案例讨论，兼顾理论与实践')" /></label>
         <footer>
-          <span>{{ t('courseWorkbench.form.preferenceHint', '系统会把这些偏好写入正式生成合同，生成后仍可逐项调整。') }}</span>
-          <button class="primary" type="submit" :disabled="generationStarting || !foundation.goal"><Sparkles :size="16" />{{ t('courseWorkbench.generateChapterSkeleton', '生成大章节') }}</button>
+          <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学块。') }}</span>
+          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady"><Sparkles :size="16" />{{ t('courseWorkbench.generateChapterSkeleton', '生成大章节') }}</button>
         </footer>
       </form>
 
@@ -616,7 +655,12 @@ import {
   type TeacherProductionAiPhase,
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
-import type { CourseGenerationOptions } from '../shared/prompt-config'
+import type {
+  CourseGenerationOptions,
+  CourseTeachingType,
+  LearningPurpose,
+  PedagogyModeSelection,
+} from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
@@ -732,59 +776,63 @@ const aiActiveReferences = computed(() => aiDomain.value === 'question-bank'
   ? questionBankReferences.value
   : activeReferences.value)
 const activeReferenceLessonId = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) ? selectedLessonId.value : '')
-const foundation = reactive({ goal: '', totalHours: 32, requirements: '' })
-type FoundationPresetGroupId = 'positioning' | 'organization' | 'capability'
-const foundationPresetSelections = reactive<Record<FoundationPresetGroupId, string[]>>({
-  positioning: ['applied'],
-  organization: ['concept-practice'],
-  capability: ['reasoning', 'transfer'],
+const foundation = reactive({
+  goal: '',
+  totalHours: 32,
+  requirements: '',
+  learningPurpose: 'systematic' as LearningPurpose,
+  subjectType: 'auto' as PedagogyModeSelection,
+  courseTeachingType: 'comprehensive' as CourseTeachingType,
+  projectDeliverable: '',
+  examDate: '',
+  examScope: '',
 })
-const foundationPresetGroups = computed(() => [
-  {
-    id: 'positioning' as const,
-    label: t('courseWorkbench.form.positioningPreset', '课程定位'),
-    description: t('courseWorkbench.form.positioningPresetHelp', '决定内容从哪里进入、最终落到哪里'),
-    multiple: false,
-    options: [
-      { id: 'academic', label: t('courseWorkbench.form.presets.academic', '学术基础'), description: t('courseWorkbench.form.presets.academicHelp', '概念、原理与推导扎实'), prompt: t('courseWorkbench.form.presets.academicPrompt', '以概念体系、原理解释和必要推导为主线，形成扎实的学术基础') },
-      { id: 'applied', label: t('courseWorkbench.form.presets.applied', '应用导向'), description: t('courseWorkbench.form.presets.appliedHelp', '从真实问题进入方法'), prompt: t('courseWorkbench.form.presets.appliedPrompt', '从真实问题与典型场景进入方法，强调选择、应用与结果解释') },
-      { id: 'outcome', label: t('courseWorkbench.form.presets.outcome', '成果驱动'), description: t('courseWorkbench.form.presets.outcomeHelp', '围绕可交付成果推进'), prompt: t('courseWorkbench.form.presets.outcomePrompt', '围绕一个可展示、可评价的最终成果反向组织章节与学习任务') },
-    ],
-  },
-  {
-    id: 'organization' as const,
-    label: t('courseWorkbench.form.organizationPreset', '教学组织'),
-    description: t('courseWorkbench.form.organizationPresetHelp', '决定每章如何展开与衔接'),
-    multiple: false,
-    options: [
-      { id: 'concept-practice', label: t('courseWorkbench.form.presets.conceptPractice', '讲练一体'), description: t('courseWorkbench.form.presets.conceptPracticeHelp', '解释、示例、练习闭环'), prompt: t('courseWorkbench.form.presets.conceptPracticePrompt', '每个核心概念都通过解释、示例、练习与反馈形成闭环') },
-      { id: 'problem', label: t('courseWorkbench.form.presets.problemDriven', '问题驱动'), description: t('courseWorkbench.form.presets.problemDrivenHelp', '以关键问题串联知识'), prompt: t('courseWorkbench.form.presets.problemDrivenPrompt', '用逐步升级的关键问题串联知识，避免按名词平铺章节') },
-      { id: 'case', label: t('courseWorkbench.form.presets.caseBased', '案例研讨'), description: t('courseWorkbench.form.presets.caseBasedHelp', '在案例比较中形成判断'), prompt: t('courseWorkbench.form.presets.caseBasedPrompt', '通过案例分析、比较与讨论形成判断标准和迁移能力') },
-    ],
-  },
-  {
-    id: 'capability' as const,
-    label: t('courseWorkbench.form.capabilityPreset', '能力重点'),
-    description: t('courseWorkbench.form.capabilityPresetHelp', '可多选，决定目标与达成检验的重心'),
-    multiple: true,
-    options: [
-      { id: 'reasoning', label: t('courseWorkbench.form.presets.reasoning', '解释与推理'), description: t('courseWorkbench.form.presets.reasoningHelp', '说清为什么与如何成立'), prompt: t('courseWorkbench.form.presets.reasoningPrompt', '重点培养概念解释、证据使用与过程推理能力') },
-      { id: 'transfer', label: t('courseWorkbench.form.presets.transfer', '分析与迁移'), description: t('courseWorkbench.form.presets.transferHelp', '面对新情境选择方法'), prompt: t('courseWorkbench.form.presets.transferPrompt', '重点培养比较分析、方法选择与新情境迁移能力') },
-      { id: 'making', label: t('courseWorkbench.form.presets.making', '设计与实作'), description: t('courseWorkbench.form.presets.makingHelp', '完成可验证的作品或方案'), prompt: t('courseWorkbench.form.presets.makingPrompt', '重点培养方案设计、动手实作与可验证成果交付能力') },
-    ],
-  },
+const learningPurposeOptions = computed(() => [
+  { value: 'systematic' as const, label: t('courseWorkbench.form.learningPurposes.systematic', '系统学习'), description: t('courseWorkbench.form.learningPurposes.systematicHelp', '形成完整知识与能力结构') },
+  { value: 'project' as const, label: t('courseWorkbench.form.learningPurposes.project', '项目实战'), description: t('courseWorkbench.form.learningPurposes.projectHelp', '完成可展示、可评价的成果') },
+  { value: 'exam' as const, label: t('courseWorkbench.form.learningPurposes.exam', '期末冲刺'), description: t('courseWorkbench.form.learningPurposes.examHelp', '限时补齐重点并通过测评') },
 ])
-const selectedFoundationPresetCount = computed(() => Object.values(foundationPresetSelections).reduce(
-  (total, values) => total + values.length,
-  0,
+const subjectTypeOptions = computed(() => [
+  { value: 'auto' as const, label: t('courseWorkbench.form.subjectTypes.auto', '自动判断'), description: t('courseWorkbench.form.subjectTypes.autoHelp', '根据课程名称、目标和资料识别') },
+  { value: 'general' as const, label: t('courseWorkbench.form.subjectTypes.general', '通用课程'), description: t('courseWorkbench.form.subjectTypes.generalHelp', '用概念、案例与综合应用建立理解') },
+  { value: 'math_formal' as const, label: t('courseWorkbench.form.subjectTypes.math', '数学与形式科学'), description: t('courseWorkbench.form.subjectTypes.mathHelp', '强调定义、推导、证明与解题') },
+  { value: 'programming_engineering' as const, label: t('courseWorkbench.form.subjectTypes.engineering', '编程与工程技术'), description: t('courseWorkbench.form.subjectTypes.engineeringHelp', '强调设计、实现、调试与验证') },
+  { value: 'natural_science' as const, label: t('courseWorkbench.form.subjectTypes.science', '自然科学'), description: t('courseWorkbench.form.subjectTypes.scienceHelp', '强调模型、实验、观察与证据') },
+  { value: 'life_medical' as const, label: t('courseWorkbench.form.subjectTypes.medical', '生命科学与医学基础'), description: t('courseWorkbench.form.subjectTypes.medicalHelp', '强调机制、证据、决策与安全') },
+  { value: 'humanities_social' as const, label: t('courseWorkbench.form.subjectTypes.humanities', '人文社科'), description: t('courseWorkbench.form.subjectTypes.humanitiesHelp', '强调文本、语境、论证与多元解释') },
+  { value: 'language_learning' as const, label: t('courseWorkbench.form.subjectTypes.language', '语言学习'), description: t('courseWorkbench.form.subjectTypes.languageHelp', '强调输入、输出、互动与纠错') },
+  { value: 'business_career' as const, label: t('courseWorkbench.form.subjectTypes.business', '商业与职业技能'), description: t('courseWorkbench.form.subjectTypes.businessHelp', '强调场景、工具、决策与成果') },
+])
+const courseTeachingTypeOptions = computed(() => [
+  { value: 'theory' as const, label: t('courseWorkbench.form.courseTeachingTypes.theory', '理论课'), description: t('courseWorkbench.form.courseTeachingTypes.theoryHelp', '概念、原理与推导为主') },
+  { value: 'laboratory' as const, label: t('courseWorkbench.form.courseTeachingTypes.laboratory', '实验课'), description: t('courseWorkbench.form.courseTeachingTypes.laboratoryHelp', '实验、观察与证据为主') },
+  { value: 'practice' as const, label: t('courseWorkbench.form.courseTeachingTypes.practice', '实践课'), description: t('courseWorkbench.form.courseTeachingTypes.practiceHelp', '示范、操作与反馈为主') },
+  { value: 'seminar' as const, label: t('courseWorkbench.form.courseTeachingTypes.seminar', '研讨课'), description: t('courseWorkbench.form.courseTeachingTypes.seminarHelp', '问题、案例与讨论为主') },
+  { value: 'project' as const, label: t('courseWorkbench.form.courseTeachingTypes.project', '项目课'), description: t('courseWorkbench.form.courseTeachingTypes.projectHelp', '阶段成果与评审迭代为主') },
+  { value: 'comprehensive' as const, label: t('courseWorkbench.form.courseTeachingTypes.comprehensive', '综合课'), description: t('courseWorkbench.form.courseTeachingTypes.comprehensiveHelp', '按内容组合多种方式') },
+])
+const selectedSubjectTypeDescription = computed(() => subjectTypeOptions.value.find(option => option.value === foundation.subjectType)?.description || '')
+const foundationGoalLabel = computed(() => ({
+  systematic: t('courseWorkbench.form.learningGoal', '教学目标'),
+  project: t('courseWorkbench.form.projectGoal', '项目目标'),
+  exam: t('courseWorkbench.form.examGoal', '冲刺目标'),
+}[foundation.learningPurpose]))
+const foundationGoalPlaceholder = computed(() => ({
+  systematic: t('courseWorkbench.form.learningGoalPlaceholder', '学生完成课程后能够……'),
+  project: t('courseWorkbench.form.projectGoalPlaceholder', '学生将围绕什么真实任务完成项目……'),
+  exam: t('courseWorkbench.form.examGoalPlaceholder', '学生需要在考试前重点达到什么水平……'),
+}[foundation.learningPurpose]))
+const foundationReady = computed(() => Boolean(
+  foundation.goal.trim()
+  && (foundation.learningPurpose !== 'project' || foundation.projectDeliverable.trim())
+  && (foundation.learningPurpose !== 'exam' || (foundation.examDate && foundation.examScope.trim()))
 ))
-const foundationPresetRequirement = computed(() => foundationPresetGroups.value
-  .map(group => {
-    const selected = group.options.filter(option => foundationPresetSelections[group.id].includes(option.id))
-    return selected.length ? `${group.label}：${selected.map(option => option.prompt).join('；')}` : ''
-  })
-  .filter(Boolean)
-  .join('\n'))
+const foundationSemanticRequirement = computed(() => {
+  const purpose = learningPurposeOptions.value.find(option => option.value === foundation.learningPurpose)?.label || ''
+  const subject = subjectTypeOptions.value.find(option => option.value === foundation.subjectType)?.label || ''
+  const teachingType = courseTeachingTypeOptions.value.find(option => option.value === foundation.courseTeachingType)?.label || ''
+  return [`学习目的：${purpose}`, `学科类型：${subject}`, `课程教学类型：${teachingType}`].join('\n')
+})
 const chapterSectionCounts = ref<number[]>([])
 const loadedShapeRevision = ref('')
 const shapeConfirming = ref(false)
@@ -1594,18 +1642,14 @@ function resolveLessonPrerequisite() {
   }
   activeStage.value = 'foundation'
 }
-function foundationPresetSelected(groupId: FoundationPresetGroupId, optionId: string) {
-  return foundationPresetSelections[groupId].includes(optionId)
-}
-function toggleFoundationPreset(groupId: FoundationPresetGroupId, optionId: string, multiple: boolean) {
-  const selected = foundationPresetSelections[groupId]
-  if (!multiple) {
-    foundationPresetSelections[groupId] = [optionId]
-    return
+function selectLearningPurpose(value: LearningPurpose) {
+  const previous = foundation.learningPurpose
+  foundation.learningPurpose = value
+  if (value === 'project' && (previous === 'systematic' || foundation.courseTeachingType === 'comprehensive')) {
+    foundation.courseTeachingType = 'project'
+  } else if (value !== 'project' && foundation.courseTeachingType === 'project') {
+    foundation.courseTeachingType = 'comprehensive'
   }
-  const index = selected.indexOf(optionId)
-  if (index >= 0) selected.splice(index, 1)
-  else selected.push(optionId)
 }
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
@@ -1615,27 +1659,58 @@ async function submitFoundation() {
     const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }
     delete baseTeacherBrief.chapter_count
     delete baseTeacherBrief.section_count
-    const presetRequirement = foundationPresetRequirement.value
+    const semanticRequirement = foundationSemanticRequirement.value
     const requirements = [
       props.generationOptions.requirements,
-      presetRequirement,
+      semanticRequirement,
       foundation.requirements,
     ].filter(Boolean).join('\n')
     const additionalRequirements = [
       baseTeacherBrief.additional_requirements,
-      presetRequirement,
+      semanticRequirement,
     ].filter(Boolean).join('\n')
+    const courseIntent = foundation.learningPurpose === 'project'
+      ? {
+          schema_version: 'course_intent_v1' as const,
+          type: 'project' as const,
+          project_goal: foundation.goal,
+          expected_deliverable: foundation.projectDeliverable,
+          project_constraints: foundation.requirements,
+        }
+      : foundation.learningPurpose === 'exam'
+        ? {
+            schema_version: 'course_intent_v1' as const,
+            type: 'exam' as const,
+            exam_name: foundation.goal,
+            exam_date: foundation.examDate,
+            exam_scope: foundation.examScope,
+          }
+        : {
+            schema_version: 'course_intent_v1' as const,
+            type: 'systematic' as const,
+            learning_goal: foundation.goal,
+          }
+    const compositionStyle = ({
+      theory: 'theory_driven',
+      laboratory: 'inquiry_driven',
+      practice: 'example_driven',
+      seminar: 'inquiry_driven',
+      project: 'project_driven',
+      comprehensive: 'balanced',
+    } as const)[foundation.courseTeachingType]
     await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲'))
     emit('generateOutline', {
       subject: props.courseTitle,
       options: {
         ...props.generationOptions,
         requirements,
-        course_intent: {
-          schema_version: 'course_intent_v1',
-          type: 'systematic',
-          learning_goal: foundation.goal,
-        },
+        course_type: foundation.learningPurpose,
+        learning_purpose: foundation.learningPurpose,
+        course_teaching_type: foundation.courseTeachingType,
+        pedagogy_mode: foundation.subjectType,
+        composition_style: compositionStyle,
+        course_purpose: foundation.learningPurpose === 'exam' ? 'exam_sprint' : 'systematic',
+        course_intent: courseIntent,
         teacher_course_brief: {
           ...baseTeacherBrief,
           schema_version: 'teacher_course_brief_v1',
@@ -1821,7 +1896,37 @@ async function requestStageChange(stage: StageId) {
 }
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0; questionBankRevisionId.value = String(response.data?.bundle_revision_id || '') } catch { questionBankReady.value = false; questionBankRevisionId.value = '' } }
 
-watch(() => props.generationOptions, options => { const intent = options.course_intent as any; const brief = options.teacher_course_brief; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(brief?.total_class_hours || 32); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
+watch(() => props.generationOptions, options => {
+  const intent = options.course_intent as any
+  const brief = options.teacher_course_brief
+  const legacyType = String(options.course_type || intent?.type || 'systematic')
+  foundation.learningPurpose = (
+    options.learning_purpose
+    || (legacyType === 'project' ? 'project' : legacyType === 'exam' ? 'exam' : 'systematic')
+  ) as LearningPurpose
+  foundation.goal = String(
+    intent?.learning_goal
+    || intent?.project_goal
+    || intent?.exam_name
+    || intent?.core_question
+    || options.requirements
+    || props.courseTitle,
+  )
+  foundation.projectDeliverable = String(intent?.expected_deliverable || '')
+  foundation.examDate = String(intent?.exam_date || '')
+  foundation.examScope = String(intent?.exam_scope || '')
+  foundation.subjectType = (options.pedagogy_mode || 'auto') as PedagogyModeSelection
+  foundation.courseTeachingType = (
+    options.course_teaching_type
+    || (legacyType === 'inquiry' ? 'seminar'
+      : legacyType === 'project' ? 'project'
+        : options.composition_style === 'theory_driven' ? 'theory'
+          : options.composition_style === 'inquiry_driven' ? 'seminar'
+            : 'comprehensive')
+  ) as CourseTeachingType
+  foundation.totalHours = Number(brief?.total_class_hours || 32)
+  foundation.requirements = String(options.requirements || '')
+}, { immediate: true, deep: true })
 watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = null }, { immediate: true })
 watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (value && typeof value === 'object') retainedOutlineGrowth.value = JSON.parse(JSON.stringify(value)) as Record<string, any> }, { immediate: true, deep: true })
 watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
@@ -1897,12 +2002,14 @@ onBeforeUnmount(() => {
 .center-heading-actions>.ai-outline-action:hover{border-color:#bfc2e8;color:#3f4595;background:#f1f1ff}
 .stage-form>footer{justify-content:flex-end}
 .foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:12px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:11px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:12px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:10px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:11px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:9px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:11px;line-height:1.5}.stage-form>footer{justify-content:space-between}
+.foundation-semantics{display:grid;margin:2px 0 0;border-block:1px solid #e8ebf2}.foundation-semantics>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 2px 15px}.foundation-semantics>header>div{display:grid;gap:4px}.foundation-semantics>header strong{color:#273247;font-size:14px}.foundation-semantics>header span{max-width:68ch;color:#778195;font-size:12px;line-height:1.55}.foundation-semantics>header>small{padding-top:2px;color:#555db6;font-size:11px;font-weight:750;white-space:nowrap}.foundation-semantic-row{display:grid;grid-template-columns:145px minmax(0,1fr);align-items:center;gap:18px;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-semantic-row>div:first-child{display:grid;gap:4px}.foundation-semantic-row>div:first-child strong{color:#354056;font-size:12px}.foundation-semantic-row>div:first-child span{color:#8991a0;font-size:10px;line-height:1.45}.foundation-semantic-options{display:grid;gap:8px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:repeat(3,minmax(0,1fr))}.foundation-semantic-options>button{min-width:0;min-height:62px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background-color .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-semantic-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-semantic-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-semantic-options>button:focus-visible,.foundation-subject-select select:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-semantic-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-semantic-options>button>svg{color:#555db6}.foundation-semantic-options>button>span{min-width:0;display:grid;gap:3px}.foundation-semantic-options>button strong{color:inherit;font-size:11px;font-weight:800;line-height:1.35}.foundation-semantic-options>button small{color:#7d8799;font-size:9px;line-height:1.4}.foundation-semantic-row--compact{align-items:start}.foundation-subject-select{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:14px}.foundation-subject-select select{width:100%;min-height:42px;padding:8px 34px 8px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px}.foundation-subject-select small{color:#7b8495;font-size:10px;line-height:1.5}.foundation-purpose-fields{display:grid;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-purpose-fields--two{grid-template-columns:minmax(160px,.55fr) minmax(0,1.45fr);gap:14px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:11px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(560px,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{padding:0;overflow:auto;background:#f3f5f9;scrollbar-width:thin;scrollbar-color:transparent transparent}.is-ai-collaboration>.workbench-center:hover{scrollbar-color:#cbd3df transparent}.is-ai-collaboration>.workbench-center::-webkit-scrollbar{width:6px}.is-ai-collaboration>.workbench-center::-webkit-scrollbar-thumb{border-radius:6px;background:transparent}.is-ai-collaboration>.workbench-center:hover::-webkit-scrollbar-thumb{background:#cbd3df}.is-ai-collaboration>.workbench-center>.center-heading{display:none}.is-ai-collaboration .lesson-stage{max-width:none;min-height:100%;margin:0;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration .lesson-outline,.is-ai-collaboration .lesson-outline-toggle{display:none}.is-ai-collaboration .has-lesson-outline .lesson-workspace{display:block}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration :deep(.lesson-document){min-height:100vh}.ai-workspace-resizer{position:relative;z-index:4;min-height:0;cursor:col-resize;background:#eef1f6;touch-action:none}.ai-workspace-resizer::before{position:absolute;inset:0;content:""}.ai-workspace-resizer::after{position:absolute;inset-block:0;left:50%;width:1px;background:#d9dee8;content:"";transform:translateX(-50%)}.ai-workspace-resizer i{position:absolute;z-index:1;top:50%;left:50%;width:3px;height:52px;border-radius:3px;background:#9aa3b5;opacity:.5;transform:translate(-50%,-50%) scaleY(.8);transition:transform .14s ease,opacity .14s ease,background-color .14s ease}.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:#f5f4ff}.ai-workspace-resizer:hover i,.ai-workspace-resizer:focus-visible i,.ai-workspace-resizer.is-resizing i{background:#625dd7;opacity:1;transform:translate(-50%,-50%) scaleY(1)}.ai-workspace-resizer:focus-visible{outline:2px solid #818cf8;outline-offset:-2px}
 .stage-rail>header{display:block;padding:22px 18px 18px}.stage-rail>header .stage-rail-title{color:#1f2a40;font-size:18px;line-height:1.25}
 .companion-entry{display:grid;gap:7px;margin:10px 9px 0;padding-top:14px;border-top:1px solid #e7ebf2}.companion-entry>small{padding:0 10px;color:#64748b;font-size:11px;font-weight:700}.companion-entry>button{min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.companion-entry>button:hover{background:#f6f7fb}.companion-entry>button.active{color:#4338ca;background:#eef0ff}.companion-entry strong{min-width:0;color:#334155;font-size:13px}.companion-entry>button.active strong{color:#3730a3}
 .question-workbench-surface{max-width:860px;margin:0 auto;padding:0}
 @media(max-width:1050px){.teacher-workbench{grid-template-columns:180px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr)}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
 @media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.foundation-preset-row{grid-template-columns:1fr;gap:9px}.foundation-preset-options{grid-template-columns:1fr}.foundation-preset-options>button{min-height:52px}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
+@media(max-width:760px){.foundation-semantic-row{grid-template-columns:1fr;gap:10px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:1fr}.foundation-semantic-options>button{min-height:54px}.foundation-subject-select{grid-template-columns:1fr;gap:7px}.foundation-purpose-fields--two{grid-template-columns:1fr}}
 @media(max-width:760px){.center-heading-actions>button{width:38px;padding:0;justify-content:center;font-size:0}}
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0}

@@ -144,14 +144,14 @@ TeacherCourseBriefV1
 
 #### 3.1 课程基础信息面板聚合现有两类元数据
 
-面板只是同一门课程基础信息的聚合投影，不建立第二份课程信息。`course_profile` 继续保存编号、类别、学分、专业、课程简介等教务档案；课程基线保存三种课程目标之一、八种一级学科之一、难度与课时，讲次修订保存七种教学类型之一。内容编排由 `课程目标 × 一级学科类型 × 讲次教学类型` 结合当前内容与条件确定性形成教学块。旧 `generation_request` 中的教学类型、学科细分、`teaching_context`、`grounding_strategy` 与 `composition_style` 等字段只保留读取和历史请求兼容，不再作为教师独立输入或平行编排状态。
+面板只是同一门课程基础信息的聚合投影，不建立第二份课程信息。`course_profile` 继续保存编号、类别、学分、专业、课程简介等教务档案；课程基线保存三种学习目的之一、八种一级学科之一、六种课程教学类型之一、难度与课时，讲次修订保存七种本讲课型之一。内容编排先由 `学习目的 × 一级学科类型 × 课程教学类型` 形成整课结构，再由 `本讲目标 × 本讲课型 × 学科规则 × 课程约束` 形成教学块。旧 `generation_request` 中的 `course_type`、学科细分、`teaching_context`、`grounding_strategy` 与 `composition_style` 等字段只保留读取和历史请求兼容，不再作为教师独立输入或平行编排状态。
 
 修改时由一个课程信息命令同时更新两者，并强制同步以下重复字段：
 
 - `course_profile.total_hours` 与 `teacher_course_brief.total_class_hours`；
 - `course_profile.target_grade`、`generation_request.target_audience` 与 `teacher_course_brief.target_audience`；
 - `academic_year + term` 与 `teacher_course_brief.academic_term`；
-- 课程目标与当前 `course_intent` 的类型化目标字段。
+- 学习目的与当前 `course_intent` 的兼容目标字段。
 
 课程名称在本面板中只读。修改课程名称同时涉及 `CourseDocument.title` 与文件空间名称，应由独立课程重命名命令承担，不得在元数据面板中只改一处。
 

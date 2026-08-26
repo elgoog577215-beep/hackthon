@@ -167,6 +167,8 @@ class CoursePromptComposer:
                 "audience",
                 "course_shape_constraints",
                 "course_type_contract",
+                "course_teaching_type_contract",
+                "course_lesson_type_distribution",
                 "course_intent",
                 "learner_starting_profile",
                 "personalization_rationale",
@@ -189,12 +191,18 @@ class CoursePromptComposer:
 - 完整课程最低章数：{shape.get('minimum_chapter_count') or '按用户明确数量'}
 - 完整课程最低小节总数：{shape.get('minimum_section_count') or '按用户明确数量'}
 
-## 教学类型契约
-- 教学类型：{brief.get('course_type_label') or brief.get('course_type') or '系统学习'}
-- 类型组织方式：{json.dumps(course_type_contract, ensure_ascii=False)}
+## 学习目的契约
+- 学习目的：{brief.get('learning_purpose_label') or brief.get('course_type_label') or '系统学习'}
+- 结果要求：{brief.get('learning_purpose_result') or (course_type_contract.get('completion_evidence') or '')}
+- 整课目标规则：{json.dumps(course_type_contract, ensure_ascii=False)}
 - 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
 - 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
 - 个性化依据：{json.dumps(brief.get('personalization_rationale') or [], ensure_ascii=False)}
+
+## 课程教学类型契约
+- 课程教学类型：{brief.get('course_teaching_type_label') or '综合课'}
+- 整课编排规则：{json.dumps(brief.get('course_teaching_type_contract') or {}, ensure_ascii=False)}
+- 讲次课型比例：{json.dumps(brief.get('course_lesson_type_distribution') or {}, ensure_ascii=False)}
 
 ## 难度与适配
 - 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
