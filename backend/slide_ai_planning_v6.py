@@ -1524,6 +1524,15 @@ def _layout_prompt_contract(
         "layout_slug": layout.layout_slug,
         "teaching_intents": layout.teaching_intents,
         "artifact_kinds": layout.artifact_kinds,
+        "construction_role": layout.construction_role,
+        "source_slide_number": layout.source_slide_number,
+        "source_layout_name": layout.source_layout_name,
+        "source_layout_hint": layout.source_layout_hint,
+        "fill_strategy": layout.fill_strategy,
+        "slot_frames": {
+            slot_id: frame.model_dump(mode="json")
+            for slot_id, frame in layout.slot_frames.items()
+        },
         "slots": [slot.model_dump(mode="json") for slot in layout.slots],
         "safe_continuation_layout_slugs": layout.safe_continuation_layout_slugs,
     }

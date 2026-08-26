@@ -58,6 +58,16 @@ class TemplateSlotContractV1(_StrictModel):
     source_roles: list[str] = Field(default_factory=list)
 
 
+class TemplateFrameContractV1(_StrictModel):
+    """Normalized, source-derived placement facts for one fillable region."""
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    width: float = Field(gt=0, le=1)
+    height: float = Field(gt=0, le=1)
+    source: Literal["slide", "layout", "adaptive"] = "slide"
+
+
 class TemplateLayoutContractV1(_StrictModel):
     schema_version: Literal["template_layout_contract_v1"] = (
         "template_layout_contract_v1"
@@ -69,6 +79,16 @@ class TemplateLayoutContractV1(_StrictModel):
     slots: list[TemplateSlotContractV1] = Field(min_length=1)
     safe_continuation_layout_slugs: list[str] = Field(default_factory=list)
     base_layout_id: str = ""
+    construction_role: str = ""
+    source_slide_number: int = Field(default=0, ge=0)
+    source_layout_name: str = ""
+    source_layout_hint: str = ""
+    fill_strategy: Literal[
+        "renderer_adapter",
+        "source_geometry",
+        "adaptive_overlay",
+    ] = "renderer_adapter"
+    slot_frames: dict[str, TemplateFrameContractV1] = Field(default_factory=dict)
     web_renderer_adapter: str = "template-layout-web-v1"
     pptx_renderer_adapter: str = "template-layout-pptx-v1"
 
@@ -105,6 +125,15 @@ def template_layout_contract_matrix(
             "layout_slug": layout.layout_slug,
             "teaching_intents": list(layout.teaching_intents),
             "artifact_kinds": list(layout.artifact_kinds),
+            "construction_role": layout.construction_role,
+            "source_slide_number": layout.source_slide_number,
+            "source_layout_name": layout.source_layout_name,
+            "source_layout_hint": layout.source_layout_hint,
+            "fill_strategy": layout.fill_strategy,
+            "slot_frames": {
+                slot_id: frame.model_dump(mode="json")
+                for slot_id, frame in layout.slot_frames.items()
+            },
             "required_slots": [
                 {
                     "slot_id": slot.slot_id,
@@ -596,17 +625,120 @@ def compile_personal_template_layout_contract_v1(
         base = compile_builtin_template_layout_contract_v1(base_theme)
     except KeyError as exc:
         raise TemplateLayoutContractError("template_base_theme_unavailable") from exc
+    has_construction_contract = "layout_constructions" in manifest
+    constructions = {
+        int(item.get("source_slide_number") or 0): item
+        for item in manifest.get("layout_constructions") or []
+        if isinstance(item, dict) and int(item.get("source_slide_number") or 0) > 0
+    }
+    if has_construction_contract and not constructions:
+        raise TemplateLayoutContractError("template_layout_constructions_missing")
+
+    def construction_role(layout: TemplateLayoutContractV1) -> str:
+        slug = layout.layout_slug
+        if slug == "cover-minimal":
+            return "cover"
+        if slug in {"chapter-entry", "agenda-path"}:
+            return "chapter"
+        if slug.startswith("practice-"):
+            return "practice"
+        if slug.startswith("evidence-"):
+            return "evidence"
+        if slug in {"chapter-recap", "course-synthesis"}:
+            return "recap"
+        return "content"
+
     prefix = f"{pack_id}@{version}"
-    layouts = [
-        layout.model_copy(
-            update={
-                "template_layout_id": f"{prefix}/{layout.layout_slug}",
-                "base_layout_id": layout.template_layout_id,
-            },
-            deep=True,
-        )
-        for layout in base.layouts
-    ]
+    layouts: list[TemplateLayoutContractV1] = []
+    if not has_construction_contract:
+        # Preserve immutable versions published before the bidirectional
+        # compiler existed.  New drafts always contain the construction key,
+        # so they can never enter this compatibility branch silently.
+        layouts = [
+            layout.model_copy(
+                update={
+                    "template_layout_id": f"{prefix}/{layout.layout_slug}",
+                    "base_layout_id": layout.template_layout_id,
+                },
+                deep=True,
+            )
+            for layout in base.layouts
+        ]
+    else:
+        for layout in base.layouts:
+            role = construction_role(layout)
+            representative = by_role[role]
+            slide_number = int(representative.get("slide_number") or 0)
+            construction = constructions.get(slide_number)
+            if construction is None:
+                raise TemplateLayoutContractError(
+                    f"template_representative_construction_missing:{role}:{slide_number}"
+                )
+            raw_frames = construction.get("slot_frames") or {}
+            slot_frames = {
+                str(slot_id): TemplateFrameContractV1.model_validate(frame)
+                for slot_id, frame in raw_frames.items()
+                if isinstance(frame, dict)
+            }
+            fitted_slots: list[TemplateSlotContractV1] = []
+            for slot in layout.slots:
+                frame = slot_frames.get(slot.slot_id)
+                if frame is None or slot.slot_kind in {"notes", "visual"}:
+                    fitted_slots.append(slot.model_copy(deep=True))
+                    continue
+                area = frame.width * frame.height
+                estimated_chars = max(slot.min_chars, int(area * 1_550))
+                estimated_lines = max(1, int(frame.height * 25))
+                estimated_items = max(1, int(frame.height * 10))
+                fitted_slots.append(
+                    slot.model_copy(
+                        update={
+                            "max_chars": (
+                                min(slot.max_chars, estimated_chars)
+                                if slot.max_chars
+                                else 0
+                            ),
+                            "max_lines": (
+                                min(slot.max_lines, estimated_lines)
+                                if slot.max_lines
+                                else 0
+                            ),
+                            "max_items": (
+                                min(slot.max_items, estimated_items)
+                                if slot.max_items
+                                else 0
+                            ),
+                        },
+                        deep=True,
+                    )
+                )
+            source_layout_id = str(
+                construction.get("construction_id") or f"source-slide-{slide_number}"
+            )
+            layouts.append(
+                layout.model_copy(
+                    update={
+                        "template_layout_id": f"{prefix}/{layout.layout_slug}",
+                        "base_layout_id": source_layout_id,
+                        "construction_role": role,
+                        "source_slide_number": slide_number,
+                        "source_layout_name": str(
+                            construction.get("source_layout_name") or ""
+                        ),
+                        "source_layout_hint": str(
+                            construction.get("layout_hint") or ""
+                        ),
+                        "fill_strategy": str(
+                            construction.get("fill_strategy") or "adaptive_overlay"
+                        ),
+                        "slot_frames": slot_frames,
+                        "slots": fitted_slots,
+                        "web_renderer_adapter": "personal-template-geometry-web-v1",
+                        "pptx_renderer_adapter": "personal-template-geometry-pptx-v1",
+                    },
+                    deep=True,
+                )
+            )
     digest_payload = {
         "pack_id": pack_id,
         "version": version,
@@ -621,6 +753,10 @@ def compile_personal_template_layout_contract_v1(
             if isinstance(item, dict)
         ],
     }
+    if has_construction_contract:
+        digest_payload["layout_constructions"] = (
+            manifest.get("layout_constructions") or []
+        )
     colors = {
         str(key): str(value).strip().lstrip("#").upper()
         for key, value in (extracted.get("colors") or {}).items()
@@ -659,6 +795,7 @@ def compile_personal_template_layout_contract_v1(
 __all__ = [
     "TemplateLayoutContractV1",
     "TemplateLayoutContractError",
+    "TemplateFrameContractV1",
     "TemplateLayoutPackContractV1",
     "TemplateSlotContractV1",
     "compile_builtin_template_layout_contract_v1",

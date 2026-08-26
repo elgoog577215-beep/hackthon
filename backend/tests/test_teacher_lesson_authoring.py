@@ -2436,6 +2436,10 @@ def test_independent_ppt_manuscript_must_be_confirmed_before_binding_deck(tmp_pa
         task_id="task-manuscript-1",
         mode="teaching",
         theme="qizhi-classroom",
+        template_id="pptp-demo",
+        template_version="3",
+        template_digest="tmpl-demo",
+        template_pack_id="pptp-demo",
         manuscript={
             "schema_version": "ppt_manuscript_v1",
             "manuscript_revision": "pptman-1",
@@ -2444,6 +2448,10 @@ def test_independent_ppt_manuscript_must_be_confirmed_before_binding_deck(tmp_pa
         },
     )
     assert state["status"] == "draft"
+    assert state["template_id"] == "pptp-demo"
+    assert state["template_version"] == "3"
+    assert state["template_digest"] == "tmpl-demo"
+    assert state["template_pack_id"] == "pptp-demo"
     assert repository.lesson("course-1", "L1-1")["ppt_assets"] == []
 
     with pytest.raises(TeacherLessonAuthoringError) as blocked:

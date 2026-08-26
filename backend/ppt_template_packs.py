@@ -10,6 +10,7 @@ import hashlib
 import json
 import mimetypes
 import os
+import posixpath
 import re
 import shutil
 import uuid
@@ -30,12 +31,16 @@ from template_layout_contract import (
 )
 
 
-MAX_REFERENCE_BYTES = 25 * 1024 * 1024
+MAX_REFERENCE_BYTES = 50 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 2_000
 MAX_UNCOMPRESSED_BYTES = 160 * 1024 * 1024
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,159}$")
 PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+SLIDE_LAYOUT_REL = (
+    "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+)
 REPRESENTATIVE_ROLES = ("cover", "chapter", "content", "practice", "evidence", "recap")
 PREVIEW_ROLES = ("cover", "chapter", "objectives", "definition", "process", "practice", "evidence", "recap")
 
@@ -231,9 +236,81 @@ def _compiled_theme(
     return theme
 
 
+def _xml_text_shape_frames(
+    root: ElementTree.Element,
+    *,
+    width: int,
+    height: int,
+    source: str,
+) -> list[dict[str, Any]]:
+    frames: list[dict[str, Any]] = []
+    for shape in root.findall(f".//{{{PRESENTATION_NS}}}sp"):
+        has_text = shape.find(f"{{{PRESENTATION_NS}}}txBody") is not None
+        placeholder = shape.find(
+            f"{{{PRESENTATION_NS}}}nvSpPr/{{{PRESENTATION_NS}}}nvPr/"
+            f"{{{PRESENTATION_NS}}}ph"
+        )
+        if not has_text and placeholder is None:
+            continue
+        transform = shape.find(f".//{{{DRAWING_NS}}}xfrm")
+        offset = transform.find(f"{{{DRAWING_NS}}}off") if transform is not None else None
+        extent = transform.find(f"{{{DRAWING_NS}}}ext") if transform is not None else None
+        if offset is None or extent is None:
+            continue
+        frame: dict[str, Any] = {
+            "x": round(int(offset.get("x", "0")) / max(width, 1), 4),
+            "y": round(int(offset.get("y", "0")) / max(height, 1), 4),
+            "width": round(int(extent.get("cx", "0")) / max(width, 1), 4),
+            "height": round(int(extent.get("cy", "0")) / max(height, 1), 4),
+            "source": source,
+        }
+        if placeholder is not None:
+            frame["placeholder_type"] = str(placeholder.get("type") or "body")
+            frame["placeholder_index"] = str(placeholder.get("idx") or "")
+        frames.append(frame)
+    return frames
+
+
+def _source_layout_for_slide(
+    archive: zipfile.ZipFile,
+    names_by_lower: dict[str, str],
+    slide_name: str,
+) -> str:
+    slide_basename = posixpath.basename(slide_name)
+    rel_name = posixpath.join(
+        posixpath.dirname(slide_name),
+        "_rels",
+        f"{slide_basename}.rels",
+    )
+    actual_rel_name = names_by_lower.get(rel_name.lower())
+    if not actual_rel_name:
+        return ""
+    try:
+        rel_root = ElementTree.fromstring(archive.read(actual_rel_name))
+    except (ElementTree.ParseError, KeyError):
+        return ""
+    relationship = next(
+        (
+            item
+            for item in rel_root.findall(f"{{{PACKAGE_REL_NS}}}Relationship")
+            if str(item.get("Type") or "") == SLIDE_LAYOUT_REL
+        ),
+        None,
+    )
+    if relationship is None:
+        return ""
+    target = str(relationship.get("Target") or "")
+    if not target or target.startswith(("/", "http://", "https://")):
+        return ""
+    resolved = posixpath.normpath(
+        posixpath.join(posixpath.dirname(slide_name), target)
+    )
+    return names_by_lower.get(resolved.lower(), "")
+
+
 def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
-    if not filename.lower().endswith(".pptx"):
-        raise TemplatePackError("Reference presentation must be a .pptx file")
+    if not filename.lower().endswith((".pptx", ".potx")):
+        raise TemplatePackError("Reference presentation must be a .pptx or .potx file")
     if not payload or len(payload) > MAX_REFERENCE_BYTES:
         raise TemplatePackError("Reference presentation is empty or too large")
     try:
@@ -242,6 +319,7 @@ def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
         raise TemplatePackError("Reference presentation is not a valid PPTX archive") from exc
     with archive:
         entries = archive.infolist()
+        names_by_lower = {item.filename.lower(): item.filename for item in entries}
         if len(entries) > MAX_ARCHIVE_ENTRIES:
             raise TemplatePackError("Reference presentation contains too many files")
         if sum(item.file_size for item in entries) > MAX_UNCOMPRESSED_BYTES:
@@ -305,6 +383,27 @@ def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
         slide_names.sort(
             key=lambda value: int(re.search(r"slide(\d+)\.xml$", value.lower()).group(1))
         )
+        layout_profiles: dict[str, dict[str, Any]] = {}
+        for item in entries:
+            if not re.fullmatch(
+                r"ppt/slidelayouts/slidelayout\d+\.xml",
+                item.filename.lower(),
+            ):
+                continue
+            try:
+                layout_root = ElementTree.fromstring(archive.read(item.filename))
+            except (ElementTree.ParseError, KeyError):
+                continue
+            common = layout_root.find(f"{{{PRESENTATION_NS}}}cSld")
+            layout_profiles[item.filename] = {
+                "source_layout_name": str(common.get("name") or "") if common is not None else "",
+                "text_box_frames": _xml_text_shape_frames(
+                    layout_root,
+                    width=width,
+                    height=height,
+                    source="layout",
+                ),
+            }
         slide_profiles: list[dict[str, Any]] = []
         background_candidates: list[dict[str, Any]] = []
         text_box_total = 0
@@ -321,27 +420,29 @@ def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
             ]
             pictures = slide_root.findall(f".//{{{PRESENTATION_NS}}}pic")
             tables = slide_root.findall(f".//{{{DRAWING_NS}}}tbl")
-            shape_frames: list[dict[str, float]] = []
-            for shape in text_shapes[:12]:
-                transform = shape.find(f".//{{{DRAWING_NS}}}xfrm")
-                offset = (
-                    transform.find(f"{{{DRAWING_NS}}}off")
-                    if transform is not None
-                    else None
+            shape_frames = _xml_text_shape_frames(
+                slide_root,
+                width=width,
+                height=height,
+                source="slide",
+            )[:12]
+            source_layout = _source_layout_for_slide(
+                archive,
+                names_by_lower,
+                slide_name,
+            )
+            layout_profile = layout_profiles.get(source_layout) or {}
+            for inherited in layout_profile.get("text_box_frames") or []:
+                geometry = tuple(
+                    inherited.get(key) for key in ("x", "y", "width", "height")
                 )
-                extent = (
-                    transform.find(f"{{{DRAWING_NS}}}ext")
-                    if transform is not None
-                    else None
-                )
-                if offset is None or extent is None:
+                if any(
+                    tuple(frame.get(key) for key in ("x", "y", "width", "height"))
+                    == geometry
+                    for frame in shape_frames
+                ):
                     continue
-                shape_frames.append({
-                    "x": round(int(offset.get("x", "0")) / max(width, 1), 4),
-                    "y": round(int(offset.get("y", "0")) / max(height, 1), 4),
-                    "width": round(int(extent.get("cx", "0")) / max(width, 1), 4),
-                    "height": round(int(extent.get("cy", "0")) / max(height, 1), 4),
-                })
+                shape_frames.append(deepcopy(inherited))
             text_box_count = len(text_shapes)
             text_box_total += text_box_count
             text_box_max = max(text_box_max, text_box_count)
@@ -359,6 +460,10 @@ def _extract_reference_style(payload: bytes, filename: str) -> dict[str, Any]:
                 "table_count": len(tables),
                 "layout_hint": layout_hint,
                 "text_box_frames": shape_frames,
+                "source_layout_part": source_layout,
+                "source_layout_name": str(
+                    layout_profile.get("source_layout_name") or ""
+                ),
             })
             background = slide_root.find(f".//{{{PRESENTATION_NS}}}bg")
             if background is not None:
@@ -455,6 +560,139 @@ def _preview_slides() -> list[dict[str, Any]]:
         {"role": role, "status": "ready", "thumbnail_asset_id": ""}
         for role in PREVIEW_ROLES
     ]
+
+
+_CONTENT_SLOT_IDS = (
+    "body",
+    "left",
+    "right",
+    "items",
+    "steps",
+    "task",
+    "prompt",
+    "criteria",
+    "feedback",
+    "annotation",
+    "derivation",
+    "reasoning",
+    "interpretation",
+    "explanation",
+    "symptom",
+    "cause",
+    "repair",
+    "next_action",
+    "agenda_items",
+    "driving_question",
+    "takeaways",
+    "synthesis",
+    "code",
+    "formula",
+    "table",
+    "visual",
+    "diagram",
+    "figure",
+)
+
+
+def _safe_frame(value: Any, *, source: str = "slide") -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    try:
+        x = max(0.0, min(1.0, float(value.get("x") or 0)))
+        y = max(0.0, min(1.0, float(value.get("y") or 0)))
+        width = max(0.001, min(1.0 - x, float(value.get("width") or 0)))
+        height = max(0.001, min(1.0 - y, float(value.get("height") or 0)))
+    except (TypeError, ValueError):
+        return None
+    if width <= 0.005 or height <= 0.005:
+        return None
+    return {
+        "x": round(x, 4),
+        "y": round(y, 4),
+        "width": round(width, 4),
+        "height": round(height, 4),
+        "source": source if source in {"slide", "layout", "adaptive"} else "slide",
+    }
+
+
+def _compile_layout_constructions(extracted: dict[str, Any]) -> list[dict[str, Any]]:
+    """Turn raw PPTX geometry into deterministic, fillable page constructions.
+
+    AI never invents these facts.  It only chooses among the constructions and
+    semantic slots exposed by the resulting template contract.
+    """
+
+    constructions: list[dict[str, Any]] = []
+    for raw_profile in extracted.get("slide_profiles") or []:
+        if not isinstance(raw_profile, dict):
+            continue
+        slide_number = int(raw_profile.get("slide_number") or 0)
+        if slide_number < 1:
+            continue
+        frames = [
+            frame
+            for frame in (
+                _safe_frame(
+                    item,
+                    source=str(item.get("source") or "slide")
+                    if isinstance(item, dict)
+                    else "slide",
+                )
+                for item in raw_profile.get("text_box_frames") or []
+            )
+            if frame is not None
+        ]
+        frames.sort(key=lambda item: (item["y"], item["x"], -item["width"]))
+        title = next(
+            (
+                frame
+                for frame in frames
+                if frame["y"] <= 0.30 and frame["height"] <= 0.34
+            ),
+            frames[0] if frames else None,
+        )
+        content_frames = [frame for frame in frames if frame is not title]
+        adaptive_title = {
+            "x": 0.07,
+            "y": 0.07,
+            "width": 0.86,
+            "height": 0.14,
+            "source": "adaptive",
+        }
+        adaptive_body = {
+            "x": 0.07,
+            "y": 0.25,
+            "width": 0.86,
+            "height": 0.61,
+            "source": "adaptive",
+        }
+        title_frame = title or adaptive_title
+        primary_body = content_frames[0] if content_frames else adaptive_body
+        secondary_body = content_frames[1] if len(content_frames) > 1 else primary_body
+        slot_frames: dict[str, dict[str, Any]] = {
+            "title": deepcopy(title_frame),
+            "eyebrow": deepcopy(title_frame),
+            "subtitle": deepcopy(primary_body),
+        }
+        for slot_id in _CONTENT_SLOT_IDS:
+            slot_frames[slot_id] = deepcopy(primary_body)
+        slot_frames["left"] = deepcopy(primary_body)
+        slot_frames["right"] = deepcopy(secondary_body)
+        constructions.append({
+            "schema_version": "ppt_template_layout_construction_v1",
+            "construction_id": f"source-slide-{slide_number}",
+            "source_slide_number": slide_number,
+            "source_layout_name": str(raw_profile.get("source_layout_name") or ""),
+            "layout_hint": str(raw_profile.get("layout_hint") or "editorial-body"),
+            "fill_strategy": (
+                "source_geometry" if title is not None and content_frames else "adaptive_overlay"
+            ),
+            "raw_text_frame_count": len(frames),
+            "picture_count": int(raw_profile.get("picture_count") or 0),
+            "table_count": int(raw_profile.get("table_count") or 0),
+            "slot_frames": slot_frames,
+        })
+    return constructions
 
 
 class PptTemplatePackRepository:
@@ -582,6 +820,7 @@ class PptTemplatePackRepository:
             ),
             "representative_pages": _representative_pages(extracted["slide_count"]),
             "preview_slides": _preview_slides(),
+            "layout_constructions": _compile_layout_constructions(extracted),
             "semantic_page_mappings": deepcopy(themes[base_theme].get("semantic_layout_weights") or {}),
             "text_box_styles": deepcopy(themes[base_theme].get("text_box_styles") or {}),
             "assets": assets,

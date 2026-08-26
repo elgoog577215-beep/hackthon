@@ -1617,6 +1617,10 @@ class TeacherLessonAuthoringRepository:
         mode: str,
         theme: str,
         manuscript: dict[str, Any],
+        template_id: str = "",
+        template_version: str = "",
+        template_digest: str = "",
+        template_pack_id: str = "",
     ) -> dict[str, Any]:
         """保存无原版 PPT 分支的独立文书工作稿，不提前创建 PPT 资产。"""
         with self._lock:
@@ -1650,6 +1654,10 @@ class TeacherLessonAuthoringRepository:
                 "task_id": task_id,
                 "mode": mode,
                 "theme": theme,
+                "template_id": template_id,
+                "template_version": template_version,
+                "template_digest": template_digest,
+                "template_pack_id": template_pack_id,
                 "manuscript": deepcopy(manuscript),
                 "created_at": _now(),
                 "confirmed_at": "",

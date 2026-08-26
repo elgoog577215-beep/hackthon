@@ -4,7 +4,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from ppt_template_packs import (
@@ -13,6 +13,12 @@ from ppt_template_packs import (
     template_pack_variant_key,
 )
 from routers import ppt_template_packs as pack_router
+from routers import teacher_lesson_authoring as teacher_lesson_router
+from slide_ai_planning_v6 import _layout_prompt_contract
+from template_layout_contract import (
+    TemplateLayoutContractError,
+    compile_personal_template_layout_contract_v1,
+)
 
 
 def reference_pptx_bytes(*, width: int = 12_192_000, height: int = 6_858_000) -> bytes:
@@ -62,6 +68,28 @@ def reference_pptx_bytes(*, width: int = 12_192_000, height: int = 6_858_000) ->
             </p:sld>""",
         )
         archive.writestr(
+            "ppt/slides/_rels/slide1.xml.rels",
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+              <Relationship Id="rId1"
+                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout"
+                Target="../slideLayouts/slideLayout1.xml"/>
+            </Relationships>""",
+        )
+        archive.writestr(
+            "ppt/slideLayouts/slideLayout1.xml",
+            """<?xml version="1.0" encoding="UTF-8"?>
+            <p:sldLayout xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                         xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+              <p:cSld name="Title and Content"><p:spTree>
+                <p:sp><p:nvSpPr><p:cNvPr id="1" name="Title"/><p:cNvSpPr/><p:nvPr><p:ph type="title"/></p:nvPr></p:nvSpPr>
+                  <p:spPr><a:xfrm><a:off x="914400" y="457200"/><a:ext cx="9144000" cy="914400"/></a:xfrm></p:spPr><p:txBody><a:p/></p:txBody></p:sp>
+                <p:sp><p:nvSpPr><p:cNvPr id="2" name="Content"/><p:cNvSpPr/><p:nvPr><p:ph type="body" idx="1"/></p:nvPr></p:nvSpPr>
+                  <p:spPr><a:xfrm><a:off x="914400" y="1828800"/><a:ext cx="9144000" cy="3657600"/></a:xfrm></p:spPr><p:txBody><a:p/></p:txBody></p:sp>
+              </p:spTree></p:cSld>
+            </p:sldLayout>""",
+        )
+        archive.writestr(
             "ppt/slides/slide2.xml",
             """<?xml version="1.0" encoding="UTF-8"?>
             <p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
@@ -92,6 +120,7 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert draft["extracted_style"]["title_font"] == "Noto Serif SC"
     assert draft["extracted_style"]["background_candidates"][0]["color"] == "F7F2E8"
     assert draft["extracted_style"]["slide_profiles"][0]["picture_count"] == 1
+    assert draft["extracted_style"]["slide_profiles"][0]["source_layout_name"] == "Title and Content"
     assert draft["extracted_style"]["text_box_structure"]["total"] == 2
     assert draft["extracted_style"]["media_inventory"][0]["filename"] == "image1.png"
     assert len(draft["representative_pages"]) == 6
@@ -99,6 +128,11 @@ def test_repository_import_publish_and_version_lock(tmp_path: Path) -> None:
     assert len(draft["text_box_styles"]) == 10
     assert draft["text_box_styles"]["evidence"]["text"] == "F4F6F7"
     assert draft["compiled_theme"]["label"] == "学院蓝"
+    assert draft["layout_constructions"][0]["fill_strategy"] == "source_geometry"
+    assert draft["layout_constructions"][0]["slot_frames"]["body"]["source"] in {
+        "slide",
+        "layout",
+    }
 
     published_v1 = repository.publish(draft["pack_id"], "teacher-a")
     assert published_v1["version"] == 1
@@ -200,6 +234,21 @@ def test_repository_rejects_malformed_or_macro_reference(tmp_path: Path) -> None
         )
 
 
+def test_repository_accepts_powerpoint_template_files(tmp_path: Path) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="POTX 模板",
+        base_theme="academic-editorial",
+        reference_pptx=reference_pptx_bytes(),
+        reference_filename="reference.potx",
+        brand={},
+    )
+
+    assert draft["extracted_style"]["slide_count"] == 2
+    assert len(draft["layout_constructions"]) == 2
+
+
 def test_template_pack_api_flow_and_asset_ownership(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repository = PptTemplatePackRepository(tmp_path)
     monkeypatch.setattr(pack_router, "ppt_template_pack_repository", repository)
@@ -281,11 +330,27 @@ def test_personal_template_requires_confirmed_mapping_before_v6_use(tmp_path: Pa
     assert published_v2["v6_eligible"] is True
     assert len(contract.layouts) >= 18
     assert all(layout.template_layout_id.startswith(f"{draft['pack_id']}@2/") for layout in contract.layouts)
-    assert all(layout.base_layout_id for layout in contract.layouts)
+    assert all(layout.base_layout_id.startswith("source-slide-") for layout in contract.layouts)
+    assert all(layout.source_slide_number >= 1 for layout in contract.layouts)
+    assert all(layout.slot_frames for layout in contract.layouts)
+    assert {layout.fill_strategy for layout in contract.layouts} <= {
+        "source_geometry",
+        "adaptive_overlay",
+    }
     assert contract.render_theme_overrides["accent"] == "315E7D"
     assert contract.render_theme_overrides["green"] == "B68A4C"
     assert contract.render_theme_overrides["title"] == "17233A"
     assert contract.render_theme_overrides["title_font"] == "Noto Serif SC"
+    ai_contract = _layout_prompt_contract(
+        contract.layouts[0].template_layout_id,
+        contract,
+    )
+    assert ai_contract["source_slide_number"] >= 1
+    assert ai_contract["fill_strategy"] in {
+        "source_geometry",
+        "adaptive_overlay",
+    }
+    assert ai_contract["slot_frames"]["title"]
 
 
 def test_template_pack_import_rejects_active_svg_logo(
@@ -313,3 +378,115 @@ def test_template_pack_import_rejects_active_svg_logo(
     )
 
     assert response.status_code == 422
+
+
+def test_teacher_manuscript_and_final_build_share_one_personal_template_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "ppt_template_pack_repository",
+        repository,
+    )
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="锁定模板",
+        base_theme="academic-editorial",
+        reference_pptx=reference_pptx_bytes(),
+        reference_filename="reference.pptx",
+        brand={},
+    )
+    repository.update_draft(
+        draft["pack_id"],
+        "teacher-a",
+        {
+            "representative_pages": [
+                {**item, "confirmed": True}
+                for item in draft["representative_pages"]
+            ]
+        },
+    )
+    published = repository.publish(draft["pack_id"], "teacher-a")
+    request = teacher_lesson_router.TeacherLessonV6BuildRequest.model_validate({
+        "mode": "teaching",
+        "theme": "academic-editorial",
+        "template_pack_id": draft["pack_id"],
+        "template_version": published["version"],
+    })
+
+    manuscript_template = teacher_lesson_router._resolve_teacher_v6_template(
+        request,
+        "teacher-a",
+    )
+    locked_template = teacher_lesson_router._resolve_locked_teacher_v6_template(
+        {
+            "theme": "academic-editorial",
+            "template_pack_id": draft["pack_id"],
+            "template_id": manuscript_template.template_id,
+            "template_version": manuscript_template.template_version,
+            "template_digest": manuscript_template.template_digest,
+        },
+        "teacher-a",
+    )
+
+    assert locked_template.template_digest == manuscript_template.template_digest
+    assert locked_template.template_version == str(published["version"])
+
+    with pytest.raises(HTTPException) as drifted:
+        teacher_lesson_router._resolve_locked_teacher_v6_template(
+            {
+                "theme": "academic-editorial",
+                "template_pack_id": draft["pack_id"],
+                "template_id": manuscript_template.template_id,
+                "template_version": manuscript_template.template_version,
+                "template_digest": "tmpl_drifted",
+            },
+            "teacher-a",
+        )
+    assert drifted.value.status_code == 409
+    assert drifted.value.detail["code"] == "lesson_ppt_template_lock_drifted"
+
+
+def test_precompiler_personal_template_versions_remain_readable(
+    tmp_path: Path,
+) -> None:
+    repository = PptTemplatePackRepository(tmp_path)
+    draft = repository.create_draft(
+        owner_id="teacher-a",
+        name="旧模板版本",
+        base_theme="academic-editorial",
+        reference_pptx=reference_pptx_bytes(),
+        reference_filename="reference.pptx",
+        brand={},
+    )
+    repository.update_draft(
+        draft["pack_id"],
+        "teacher-a",
+        {
+            "representative_pages": [
+                {**item, "confirmed": True}
+                for item in draft["representative_pages"]
+            ]
+        },
+    )
+    published = repository.publish(draft["pack_id"], "teacher-a")
+    legacy_snapshot = repository.load_owned(draft["pack_id"], "teacher-a")
+    legacy_snapshot["version"] = published["version"]
+    legacy_snapshot.pop("layout_constructions", None)
+
+    legacy_contract = compile_personal_template_layout_contract_v1(
+        legacy_snapshot
+    )
+    assert all(
+        layout.fill_strategy == "renderer_adapter"
+        for layout in legacy_contract.layouts
+    )
+
+    invalid_new_snapshot = {**legacy_snapshot, "layout_constructions": []}
+    with pytest.raises(
+        TemplateLayoutContractError,
+        match="template_layout_constructions_missing",
+    ):
+        compile_personal_template_layout_contract_v1(invalid_new_snapshot)

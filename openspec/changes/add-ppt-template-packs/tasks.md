@@ -25,3 +25,11 @@
 - [x] 4.2 Render and inspect all reference PPTX slides, run overflow checks and produce five-theme contact sheets.
 - [x] 4.3 Run 90-page Web/PPT parity fixtures and the reported sparse/placeholder regression cases.
 - [x] 4.4 Update current architecture/status documentation and record rollback/feature-flag boundaries.
+
+## 5. Bidirectional template-manuscript compiler
+
+- [x] 5.1 Parse Slide/Layout relations and normalized fill geometry into source-linked page constructions.
+- [x] 5.2 Expose construction, slot and capacity facts to the AI manuscript planner while keeping deterministic validation authoritative.
+- [x] 5.3 Persist the personal template ID, immutable version and contract digest with teacher PPT manuscripts.
+- [x] 5.4 Re-resolve and verify the frozen template contract before final PPT compilation; reject missing or drifted locks.
+- [x] 5.5 Add regression tests for inherited layout parsing, personal construction contracts and manuscript/final template locking.

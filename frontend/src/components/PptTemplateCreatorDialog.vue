@@ -33,7 +33,7 @@
           </label>
           <label v-if="mode === 'upload'" class="template-creator__file">
             <span>{{ t('pptTemplatePacks.referencePptx', '参考 PPTX') }}</span>
-            <input type="file" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" @change="pickReference" />
+            <input type="file" accept=".pptx,.potx,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.presentationml.template" @change="pickReference" />
             <small>{{ referencePptx?.name || t('pptTemplatePacks.referencePptxHint', '建议包含封面、章节、内容、练习、图表或代码、结束页') }}</small>
           </label>
           <label class="template-creator__file">

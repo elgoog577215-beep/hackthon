@@ -332,6 +332,10 @@ const pptManuscriptState = ref<{
   task_id?: string
   mode?: SlideDeckMode
   theme?: V3Theme
+  template_id?: string
+  template_version?: string
+  template_digest?: string
+  template_pack_id?: string
   generated_representation_id?: string
   manuscript?: Record<string, any> | null
 } | null>(null)
@@ -689,6 +693,13 @@ async function loadPptManuscriptState(id: string, attempt: number) {
   )
   if (!isCurrentAttempt(id, attempt)) return null
   pptManuscriptState.value = response.data?.ppt_manuscript_state || null
+  const state = pptManuscriptState.value
+  if (state?.mode) selectedMode.value = state.mode
+  if (state?.theme) selectedTheme.value = state.theme
+  selectedTemplatePackId.value = state?.template_pack_id || ''
+  selectedTemplatePackVersion.value = state?.template_version
+    ? Number(state.template_version)
+    : undefined
   return pptManuscriptState.value
 }
 

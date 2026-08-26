@@ -68,11 +68,18 @@ from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     build_ai_base_visual_planner_v2,
 )
+from ppt_template_packs import (
+    TemplatePackError,
+    ppt_template_pack_repository,
+)
 from teaching_representations import (
     TeachingRepresentationSpec,
     teaching_representation_repository,
 )
-from template_layout_contract import compile_builtin_template_layout_contract_v1
+from template_layout_contract import (
+    TemplateLayoutPackContractV1,
+    compile_builtin_template_layout_contract_v1,
+)
 from course_document import (
     CourseDocument,
     course_view_from_document,
@@ -154,8 +161,121 @@ class ResolveLessonPlanCandidateRequest(BaseModel):
 class TeacherLessonV6BuildRequest(BaseModel):
     mode: str = "teaching"
     theme: str = "academic-editorial"
+    template_pack_id: str = Field(default="", max_length=200)
+    template_version: int | None = Field(default=None, ge=1)
+    template_pack_version: int | None = Field(default=None, ge=1)
     force_rebuild: bool = False
     resume_task_id: str = Field(default="", max_length=200)
+
+
+def _requested_template_version(body: TeacherLessonV6BuildRequest) -> int | None:
+    if (
+        body.template_version is not None
+        and body.template_pack_version is not None
+        and body.template_version != body.template_pack_version
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "lesson_ppt_template_version_conflict",
+                "message": "模板版本参数不一致，请重新选择模板。",
+            },
+        )
+    return body.template_version or body.template_pack_version
+
+
+def _resolve_teacher_v6_template(
+    body: TeacherLessonV6BuildRequest,
+    actor: str,
+) -> TemplateLayoutPackContractV1:
+    version = _requested_template_version(body)
+    if version is not None and not body.template_pack_id:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "lesson_ppt_template_pack_missing",
+                "message": "指定模板版本时必须同时指定模板。",
+            },
+        )
+    if not body.template_pack_id:
+        try:
+            return compile_builtin_template_layout_contract_v1(body.theme)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "lesson_ppt_template_unavailable",
+                    "message": "所选内置模板不可用，请重新选择。",
+                },
+            ) from exc
+    try:
+        return ppt_template_pack_repository.resolve_v6_layout_contract(
+            body.template_pack_id,
+            version,
+            actor,
+        )
+    except (FileNotFoundError, TemplatePackError, ValueError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "lesson_ppt_template_unavailable",
+                "message": "所选个人模板版本不存在或尚未完成构造确认。",
+            },
+        ) from exc
+
+
+def _resolve_locked_teacher_v6_template(
+    state: dict[str, Any],
+    actor: str,
+) -> TemplateLayoutPackContractV1:
+    pack_id = str(state.get("template_pack_id") or "")
+    if pack_id:
+        try:
+            template = ppt_template_pack_repository.resolve_v6_layout_contract(
+                pack_id,
+                str(state.get("template_version") or ""),
+                actor,
+            )
+        except (FileNotFoundError, TemplatePackError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "lesson_ppt_template_lock_unavailable",
+                    "message": "PPT 文书锁定的模板版本不可用，请重新生成文书。",
+                },
+            ) from exc
+    else:
+        try:
+            template = compile_builtin_template_layout_contract_v1(
+                str(state.get("theme") or "academic-editorial")
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "lesson_ppt_template_lock_unavailable",
+                    "message": "PPT 文书锁定的内置模板不可用，请重新生成文书。",
+                },
+            ) from exc
+    expected = (
+        str(state.get("template_id") or ""),
+        str(state.get("template_version") or ""),
+        str(state.get("template_digest") or ""),
+    )
+    actual = (
+        template.template_id,
+        template.template_version,
+        template.template_digest,
+    )
+    if all(expected) and expected != actual:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "lesson_ppt_template_lock_drifted",
+                "message": "模板合同与已确认文书不一致，请重新生成文书。",
+            },
+        )
+    return template
 
 
 class ConfirmTeacherLessonPptManuscriptRequest(BaseModel):
@@ -275,6 +395,10 @@ def _ppt_manuscript_state_payload(
         "task_id": str(state.get("task_id") or ""),
         "mode": str(state.get("mode") or "teaching"),
         "theme": str(state.get("theme") or "academic-editorial"),
+        "template_id": str(state.get("template_id") or ""),
+        "template_version": str(state.get("template_version") or ""),
+        "template_digest": str(state.get("template_digest") or ""),
+        "template_pack_id": str(state.get("template_pack_id") or ""),
         "generated_representation_id": str(
             state.get("generated_representation_id") or ""
         ),
@@ -2011,6 +2135,7 @@ async def build_teacher_lesson_v6_manuscript(
                 "本讲已有原版 PPT，请在原版 PPT 审阅流程中处理。",
             )
         actor = resolve_user_id(request.headers.get("X-User-Id"))
+        template = _resolve_teacher_v6_template(body, actor)
         material_bindings, material_evidence = _ppt_material_bundle(
             course_id, actor, lesson_unit_id
         )
@@ -2030,7 +2155,6 @@ async def build_teacher_lesson_v6_manuscript(
     )
     source_material_revision = stable_hash(material_bindings, prefix="pptrefs_")
     task_id = f"teacher-v6-manuscript-{uuid.uuid4().hex}"
-    template = compile_builtin_template_layout_contract_v1(body.theme)
     candidate_repository = SlideDeckV6CandidateRepository(
         repository.root / "v6_candidates"
     )
@@ -2129,6 +2253,12 @@ async def build_teacher_lesson_v6_manuscript(
                     task_id=task_id,
                     mode=body.mode,
                     theme=body.theme,
+                    template_id=template.template_id,
+                    template_version=template.template_version,
+                    template_digest=template.template_digest,
+                    template_pack_id=(
+                        body.template_pack_id if body.template_pack_id else ""
+                    ),
                     manuscript=dict(result.get("ppt_manuscript") or {}),
                 )
                 await queue.put({
@@ -2250,7 +2380,7 @@ async def build_teacher_lesson_v6(
         manuscript_state.get("theme") or "academic-editorial"
     )
     task_id = f"teacher-v6-{uuid.uuid4().hex}"
-    template = compile_builtin_template_layout_contract_v1(manuscript_theme)
+    template = _resolve_locked_teacher_v6_template(manuscript_state, actor)
     candidate_repository = SlideDeckV6CandidateRepository(
         repository.root / "v6_candidates"
     )
