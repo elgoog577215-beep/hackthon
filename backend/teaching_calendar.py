@@ -162,6 +162,21 @@ class TeachingCalendarRepository:
             raise TeachingCalendarError("教学日历保存失败") from exc
         return _public_calendar(value)
 
+    def delete(self, owner_id: str, course_id: str) -> bool:
+        """Delete one course calendar without affecting another teacher."""
+        path = self._path(owner_id, course_id)
+        if not path.exists():
+            return False
+        try:
+            path.unlink()
+            try:
+                path.parent.rmdir()
+            except OSError:
+                pass
+        except OSError as exc:
+            raise TeachingCalendarError("教学日历删除失败") from exc
+        return True
+
     def list_sessions(
         self,
         owner_id: str,

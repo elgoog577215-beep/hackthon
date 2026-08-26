@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -63,6 +63,29 @@ async def test_foreign_teacher_cannot_delete_private_course(monkeypatch):
     assert captured.value.status_code == 404
     assert captured.value.detail["code"] == "teacher_course_unavailable"
     manager.delete_course.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_teacher_course_deletion_removes_owned_calendar(monkeypatch):
+    monkeypatch.setattr(courses, "get_course_or_404", AsyncMock(return_value={
+        "course_id": "course-1",
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-a",
+        "is_published": False,
+    }))
+    delete_calendar = MagicMock(return_value=True)
+    monkeypatch.setattr(courses.teaching_calendar_repository, "delete", delete_calendar)
+    manager = SimpleNamespace(delete_course=AsyncMock(return_value=2))
+
+    result = await courses.delete_course("course-1", _request("teacher-a"), manager)
+
+    assert result == {
+        "status": "success",
+        "removed_tasks": 2,
+        "calendar_removed": True,
+    }
+    manager.delete_course.assert_awaited_once_with("course-1")
+    delete_calendar.assert_called_once_with("teacher-a", "course-1")
 
 
 @pytest.mark.asyncio

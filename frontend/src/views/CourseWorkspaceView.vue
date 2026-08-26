@@ -57,7 +57,11 @@
       </section>
       <section v-else-if="loadError" key="error" class="workspace-error">
         <AppErrorNotice :presentation="loadError">
-          <template #action><button type="button" @click="loadWorkspace">{{ t('common.retry') }}</button></template>
+          <template #action>
+            <button type="button" @click="loadError.status === 404 ? backToSource() : loadWorkspace()">
+              {{ loadError.status === 404 ? t('courseFiles.backToCourses') : t('common.retry') }}
+            </button>
+          </template>
         </AppErrorNotice>
       </section>
       <section v-else key="ready" class="workspace-operating-shell">
@@ -215,15 +219,15 @@ async function loadWorkspace() {
       courseStore.fetchCourseList({ surface: 'teacher' }),
       generationStore.fetchGlobalTasks(),
     ])
-    stableCourseTitle.value = courseStore.courseList.find(
-      item => item.course_id === courseId.value,
-    )?.course_name || stableCourseTitle.value
-    await courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
-    await lessonStore.load(courseId.value).catch(() => undefined)
     const courseResponse = await http.get(
       `/api/courses/${courseId.value}`,
       teacherRequestConfig({ silentError: true }),
-    ).catch(() => ({ data: {} }))
+    )
+    stableCourseTitle.value = courseStore.courseList.find(
+      item => item.course_id === courseId.value,
+    )?.course_name || String(courseResponse.data?.course_name || stableCourseTitle.value)
+    await courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
+    await lessonStore.load(courseId.value).catch(() => undefined)
     courseGenerationOptions.value = courseResponse.data?.generation_request || {}
     stableCourseTitle.value = String(
       courseResponse.data?.course_name || stableCourseTitle.value,

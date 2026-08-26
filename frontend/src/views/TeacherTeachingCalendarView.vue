@@ -331,17 +331,11 @@ const calendarError = computed(() => calendarStore.error ? toAppError(calendarSt
   fallback: t('teacherHome.calendarLoadFailed', '教学日历读取失败'),
 }) : null)
 const courseCreateOpen = computed(() => route.query.create === 'course')
+const availableCourseIds = computed(() => new Set(
+  courseStore.courseList.map(course => String(course.course_id || '')).filter(Boolean),
+))
 const recentCourses = computed(() => {
-  const candidates = new Map(courseStore.courseList.map(course => [course.course_id, course]))
-  calendarStore.totalSessions.forEach(session => {
-    if (!session.course_id || !session.date || session.date < todayIso || candidates.has(session.course_id)) return
-    candidates.set(session.course_id, {
-      course_id: session.course_id,
-      course_name: session.course_title || session.content_summary,
-      node_count: 0,
-    })
-  })
-  const sorted = [...candidates.values()].sort((left, right) => (
+  const sorted = [...courseStore.courseList].sort((left, right) => (
     courseShortcutPriority(left) - courseShortcutPriority(right)
       || courseNextSessionTime(left) - courseNextSessionTime(right)
       || courseUpdatedTime(right) - courseUpdatedTime(left)
@@ -353,11 +347,11 @@ const recentCourses = computed(() => {
 })
 const selectedCourse = computed(() => {
   if (!selectedCourseId.value) return undefined
-  return recentCourses.value.find(course => course.course_id === selectedCourseId.value)
-    || courseStore.courseList.find(course => course.course_id === selectedCourseId.value)
+  return courseStore.courseList.find(course => course.course_id === selectedCourseId.value)
 })
 const visibleSessions = computed(() => calendarStore.totalSessions.filter(item => (
-  item.calendar_layer !== 'incomplete'
+  availableCourseIds.value.has(String(item.course_id || ''))
+  && item.calendar_layer !== 'incomplete'
   && (!selectedCourseId.value || item.course_id === selectedCourseId.value)
 )))
 const selectedDateSessions = computed(() => selectedDate.value ? visibleSessions.value

@@ -441,8 +441,20 @@ async def delete_course(
 ):
     course = await get_course_or_404(course_id)
     _require_teacher_course_write_access(course, request)
+    owner_id = str(course.get("owner_id") or "").strip()
     removed_tasks = await tm.delete_course(course_id)
-    return {"status": "success", "removed_tasks": removed_tasks}
+    calendar_removed = False
+    if owner_id:
+        calendar_removed = await run_in_threadpool(
+            teaching_calendar_repository.delete,
+            owner_id,
+            course_id,
+        )
+    return {
+        "status": "success",
+        "removed_tasks": removed_tasks,
+        "calendar_removed": calendar_removed,
+    }
 
 
 @router.post("/course-generation/generate", status_code=202)

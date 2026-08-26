@@ -5,7 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 
@@ -75,6 +75,15 @@ class TeachingCalendarRepositoryTests(unittest.TestCase):
             [(row["content_summary"], row["calendar_layer"]) for row in with_incomplete],
             [("第一讲", "official"), ("待完善课次", "incomplete")],
         )
+
+    def test_delete_removes_only_the_requested_owner_calendar(self):
+        self.repository.save("teacher-a", "course-1", {"sessions": []}, 0)
+        self.repository.save("teacher-b", "course-1", {"sessions": []}, 0)
+
+        self.assertTrue(self.repository.delete("teacher-a", "course-1"))
+        self.assertFalse(self.repository.delete("teacher-a", "course-1"))
+        self.assertEqual(self.repository.load("teacher-a", "course-1")["revision"], 0)
+        self.assertEqual(self.repository.load("teacher-b", "course-1")["revision"], 1)
 
 
 class TeachingCalendarRouteTests(unittest.TestCase):
@@ -307,6 +316,56 @@ class TeachingCalendarRouteTests(unittest.TestCase):
             self.assertEqual(invalid.status_code, 422)
             missing_identity = self.client.get("/api/courses/course-1/teaching-calendar")
             self.assertEqual(missing_identity.status_code, 400)
+
+    def test_total_calendar_omits_sessions_for_missing_courses(self):
+        self.repository.save(
+            "teacher-a",
+            "course-1",
+            {
+                "course_title": "设计思维",
+                "sessions": [{
+                    "content_summary": "有效课次",
+                    "date": "2026-03-02",
+                    "start_time": "08:00:00",
+                    "end_time": "09:35:00",
+                    "status": "scheduled",
+                }],
+            },
+            0,
+        )
+        self.repository.save(
+            "teacher-a",
+            "missing-course",
+            {
+                "course_title": "已删除课程",
+                "sessions": [{
+                    "content_summary": "孤立课次",
+                    "date": "2026-03-03",
+                    "start_time": "08:00:00",
+                    "end_time": "09:35:00",
+                    "status": "scheduled",
+                }],
+            },
+            0,
+        )
+
+        async def fake_get_course(course_id: str):
+            if course_id == "course-1":
+                return {**self.course, "owner_id": "teacher-a"}
+            raise HTTPException(status_code=404, detail="Course not found")
+
+        with (
+            patch.object(teaching_calendar_router, "teaching_calendar_repository", self.repository),
+            patch.object(teaching_calendar_router, "get_course_or_404", fake_get_course),
+        ):
+            response = self.client.get(
+                "/api/teachers/me/teaching-calendar?date_from=2026-03-01&date_to=2026-03-31",
+                headers={"X-User-Id": "teacher-a"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["sessions"][0]["course_id"], "course-1")
 
     def test_exports_same_saved_revision_to_docx_pdf_xlsx_and_csv(self):
         repository_patch, course_patch = self._patches()

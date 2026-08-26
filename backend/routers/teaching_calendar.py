@@ -75,6 +75,29 @@ def _course_title(course: dict[str, Any]) -> str:
     return str(course.get("course_name") or course.get("title") or "未命名课程")
 
 
+async def _filter_available_course_sessions(
+    owner_id: str,
+    sessions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep calendar rows only while their formal course still exists."""
+    available_course_ids: set[str] = set()
+    for course_id in sorted({str(item.get("course_id") or "") for item in sessions} - {""}):
+        try:
+            course = await get_course_or_404(course_id)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                continue
+            raise
+        course_owner_id = str(course.get("owner_id") or "").strip()
+        if course_owner_id and course_owner_id != owner_id:
+            continue
+        available_course_ids.add(course_id)
+    return [
+        item for item in sessions
+        if str(item.get("course_id") or "") in available_course_ids
+    ]
+
+
 def _flatten_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     stack = list(nodes)
@@ -451,13 +474,15 @@ async def get_teacher_calendar(
 ):
     if date_from and date_to and date_to < date_from:
         raise HTTPException(status_code=422, detail={"code": "invalid_date_range", "message": "结束日期不能早于开始日期"})
+    owner_id = _identity(request)
     try:
         sessions = teaching_calendar_repository.list_sessions(
-            _identity(request),
+            owner_id,
             date_from,
             date_to,
             include_incomplete=include_incomplete,
         )
+        sessions = await _filter_available_course_sessions(owner_id, sessions)
     except (TeachingCalendarError, TeachingCalendarValidationError) as exc:
         raise HTTPException(status_code=500, detail={"code": "teacher_calendar_read_failed", "message": str(exc)}) from exc
     return {"date_from": date_from, "date_to": date_to, "count": len(sessions), "sessions": sessions}
