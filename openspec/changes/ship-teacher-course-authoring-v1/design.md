@@ -144,7 +144,7 @@ TeacherCourseBriefV1
 
 #### 3.1 课程基础信息面板聚合现有两类元数据
 
-面板只是同一门课程基础信息的聚合投影，不建立第二份课程信息。`course_profile` 继续保存编号、类别、学分、专业、课程简介等教务档案，`generation_request + TeacherCourseBriefV1` 继续保存教学类型、学科类型、难度与课时。学科细分由教学画像持有；内容编排由教学类型、学科类型、学科细分与本节课型确定性派生。首次生成可以提供少量教师可理解的高层教学设计预设，如课程定位、教学组织与能力重点；选择结果只编译为 `requirements` 与 `TeacherCourseBriefV1.additional_requirements`，不持久化新的平行字段。旧 `teaching_context`、`grounding_strategy` 与 `composition_style` 等底层字段只保留读取和历史请求兼容，不再作为教师独立输入。
+面板只是同一门课程基础信息的聚合投影，不建立第二份课程信息。`course_profile` 继续保存编号、类别、学分、专业、课程简介等教务档案；课程基线保存三种课程目标之一、八种一级学科之一、难度与课时，讲次修订保存七种教学类型之一。内容编排由 `课程目标 × 一级学科类型 × 讲次教学类型` 结合当前内容与条件确定性形成教学块。旧 `generation_request` 中的教学类型、学科细分、`teaching_context`、`grounding_strategy` 与 `composition_style` 等字段只保留读取和历史请求兼容，不再作为教师独立输入或平行编排状态。
 
 修改时由一个课程信息命令同时更新两者，并强制同步以下重复字段：
 
