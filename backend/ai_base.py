@@ -46,6 +46,10 @@ from ai_provider_route import (
     record_fallback_switch,
     record_primary_recovered,
 )
+from codex_local_provider import (
+    CodexLocalProvider,
+    CodexLocalProviderError,
+)
 from generation_telemetry import record_call as _record_generation_call
 from generation_telemetry import telemetry_enabled as _generation_telemetry_on
 
@@ -79,9 +83,12 @@ async def _notify_stream_callback(
         logger.warning("LLM content stream callback failed", exc_info=True)
 
 # API密钥存在性检查（不记录密钥内容）
+_local_provider_name = str(os.getenv("AI_LOCAL_PROVIDER") or "").strip().lower()
 _api_key_present = bool(os.getenv("AI_API_KEY"))
 _modelscope_fallback_key_present = bool(os.getenv("MODELSCOPE_API_KEY"))
-if _api_key_present:
+if _local_provider_name == "codex":
+    logger.info("Local Codex provider selected")
+elif _api_key_present:
     logger.info("AI_API_KEY loaded successfully")
 elif _modelscope_fallback_key_present:
     logger.info("Primary AI key is absent; ModelScope fallback is configured")
@@ -165,6 +172,14 @@ class AIBase:
         # a deployment can never look switched while silently using another
         # provider.
         self.provider_profile = str(provider_profile or "").strip()
+        self.local_provider_name = str(
+            os.getenv("AI_LOCAL_PROVIDER") or ""
+        ).strip().lower()
+        self.codex_local_provider = (
+            CodexLocalProvider()
+            if self.local_provider_name == "codex"
+            else None
+        )
         shared_api_key = os.getenv("AI_API_KEY")
         shared_api_base = os.getenv(
             "AI_API_BASE",
@@ -1860,6 +1875,29 @@ class AIBase:
             max_input_tokens,
             max_input_chars,
         )
+        if self.codex_local_provider is not None:
+            if not self.codex_local_provider.configured:
+                if raise_on_failure:
+                    raise AIProviderUnavailable(
+                        "local_codex_not_configured"
+                    )
+                return None
+            try:
+                output = await self.codex_local_provider.call(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    json_mode=json_mode,
+                    max_tokens=max_tokens or self.max_tokens,
+                    on_activity=on_stream_activity,
+                )
+                await _notify_stream_callback(on_content_reset)
+                await _notify_stream_callback(on_content_delta, output)
+                return output
+            except CodexLocalProviderError as error:
+                logger.error("Local Codex provider failed: %s", error)
+                if raise_on_failure:
+                    raise AIProviderRequestError(str(error)) from error
+                return None
         if not self.api_key and not self.modelscope_fallback_api_key:
             if raise_on_failure:
                 raise AIProviderUnavailable("not_configured")
@@ -2272,10 +2310,13 @@ class AIBase:
                         )
                         self._cool_down_model(model_id, e)
                         fallback_eligible = True
-                        if (
-                            self._provider_wide_quota_failure(e)
-                            or not self._uses_model_scoped_quota(self.api_base)
-                        ):
+                        # ModelScope is a marketplace-style endpoint: one SKU
+                        # can exhaust its quota while another configured model
+                        # on the same credential remains healthy.  Do not turn
+                        # a model-level 429 into a provider-wide outage there.
+                        # The failed model is already cooled down above, so the
+                        # bounded candidate loop can continue safely.
+                        if not self._uses_model_scoped_quota(self.api_base):
                             self._block_provider("quota_exhausted")
                         break
                     if self._should_try_next_model(e):
@@ -2364,6 +2405,26 @@ class AIBase:
             max_input_tokens,
             max_input_chars,
         )
+        if self.codex_local_provider is not None:
+            if not self.codex_local_provider.configured:
+                raise AIProviderUnavailable(
+                    "local_codex_not_configured"
+                )
+            try:
+                output = await self.codex_local_provider.call(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens or self.max_tokens,
+                    on_activity=on_stream_activity,
+                )
+            except CodexLocalProviderError as error:
+                raise AIProviderRequestError(str(error)) from error
+            chunk_size = 2048
+            for offset in range(0, len(output), chunk_size):
+                if on_stream_activity:
+                    on_stream_activity()
+                yield output[offset:offset + chunk_size]
+            return
         if not self.api_key and not self.modelscope_fallback_api_key:
             raise AIProviderUnavailable("not_configured")
         provider_failure = self._active_provider_failure()

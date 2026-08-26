@@ -1651,6 +1651,8 @@ def test_formula_text_compiler_outputs_portable_mathematical_notation() -> None:
         r"\left|\frac{3n-1}{n+2}-3\right|=\frac7{n+2}"
     ) == "|(3n-1)⁄(n+2)-3|=(7)⁄(n+2)"
     assert _format_formula_text(r"F_ x = \sum F_{ix}") == "Fₓ = ∑ Fᵢₓ"
+    assert _format_formula_text(r"[0\ 0\ 0\ |\ 3]") == "[0 0 0 | 3]"
+    assert _format_formula_text(r"R_3 \leftarrow R_3 - 2R_1") == "R₃ ← R₃ - 2R₁"
 
 
 def test_image_provider_failure_degrades_to_deterministic_diagram(

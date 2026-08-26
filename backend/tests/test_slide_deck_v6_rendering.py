@@ -36,6 +36,42 @@ def test_export_fidelity_keeps_decimal_formula_values() -> None:
     assert _canonical_export_text("1. Verify the result") == "verifytheresult"
 
 
+def test_formula_renderer_formats_augmented_array_without_raw_latex() -> None:
+    source = r"""
+    \left[
+    \begin{array}{ccc|c}
+    0&2&4&6\\
+    1&-1&1&2\\
+    2&1&3&7
+    \end{array}
+    \right]
+    """
+
+    rendered = slide_deck_renderer._format_formula_text(source)
+
+    assert "begin" not in rendered
+    assert "end" not in rendered
+    assert "│" in rendered
+    assert rendered.splitlines() == [
+        "⎡ 0 2 4 │ 6 ⎤",
+        "⎢ 1 -1 1 │ 2 ⎥",
+        "⎣ 2 1 3 │ 7 ⎦",
+    ]
+
+
+def test_formula_renderer_formats_row_operation_chain_without_command_leaks() -> None:
+    source = (
+        r"R_3\leftarrow R_3-\frac32R_2"
+        r"\xrightarrow{R_1\leftrightarrow R_2}R_1"
+    )
+
+    rendered = slide_deck_renderer._format_formula_text(source)
+
+    assert rendered == "R₃← R₃-(3)⁄(2)R₂ ⟶[R₁↔ R₂] R₁"
+    assert "frac" not in rendered
+    assert "rightarrow" not in rendered
+
+
 def _code_deck(code_source: str = "function onEvent(value) {\n  return validate(value);\n}"):
     document = refresh_document_revision(
         CourseDocument(

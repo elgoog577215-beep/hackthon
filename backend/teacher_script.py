@@ -62,6 +62,10 @@ _ACTIVITY_TASK_PATTERN = re.compile(r"任务|问题|题目|已知|条件|要求|
 _ACTIVITY_RESULT_PATTERN = re.compile(r"输出|结果|答案|解法|标准|步骤|验收|判定")
 _FEEDBACK_ERROR_PATTERN = re.compile(r"错误|误区|偏差|遗漏|混淆|不成立")
 _FEEDBACK_REPAIR_PATTERN = re.compile(r"标准|核对|检查|修正|原因|再次验证|验收")
+_DISPLAY_MATH_ENVIRONMENT_PATTERN = re.compile(
+    r"\\begin\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+    r"aligned|split|cases|equation|gather|align)\}"
+)
 
 
 def _text(value: Any) -> str:
@@ -142,6 +146,105 @@ def _markdown_math_delimiter_state(content: str) -> dict[str, Any]:
         "latex_stack": latex_stack,
         "unexpected": unexpected,
     }
+
+
+def _has_unwrapped_display_math_environment(content: str) -> bool:
+    """Reject legacy split formula shells before they become durable script.
+
+    Counting ``$$`` pairs cannot see a shape such as ``$$\\left[$$`` followed
+    by a bare ``\\begin{array}`` environment and a separate ``$$\\right]$$``.
+    The learner renderer can repair some of those shapes, but PPT formula
+    extraction cannot safely recover the omitted environment after the script
+    has been confirmed.  New model output is normalized before this predicate
+    runs; this guard primarily invalidates old checkpoints so the model block
+    pipeline regenerates them through the same quality gate.
+    """
+
+    in_code_fence = False
+    in_display_math = False
+    for line in str(content or "").splitlines():
+        if re.match(r"^\s*```", line):
+            in_code_fence = not in_code_fence
+            continue
+        if in_code_fence:
+            continue
+        for token in re.finditer(
+            rf"(?<!\\)\$\$|{_DISPLAY_MATH_ENVIRONMENT_PATTERN.pattern}",
+            line,
+        ):
+            if token.group(0) == "$$":
+                in_display_math = not in_display_math
+            elif not in_display_math:
+                return True
+    return False
+
+
+def _display_math_contains_teaching_prose(content: str) -> bool:
+    """Detect a balanced fence that accidentally swallows following prose."""
+
+    for match in re.finditer(r"\$\$([\s\S]*?)\$\$", str(content or "")):
+        body = match.group(1)
+        cjk_count = len(re.findall(r"[\u3400-\u9fff]", body))
+        teaching_label = re.search(
+            r"任务条件|输出要求|参考解法|验收标准|核对标准|典型错误|修正原因",
+            body,
+        )
+        sentence_marks = len(re.findall(r"[。！？；]", body))
+        if cjk_count >= 40 and sentence_marks >= 2:
+            return True
+        if teaching_label and cjk_count >= 12:
+            return True
+    return False
+
+
+def repair_teacher_script_display_math_prose(
+    content: str,
+) -> tuple[str, list[str]]:
+    """Move accidentally swallowed teaching prose outside a display fence.
+
+    This is a delimiter-boundary repair only: it neither rewrites the formula
+    nor invents instructional content.  The two safe shapes are (a) a display
+    block containing only prose, whose redundant fences are removed, and (b)
+    a valid formula prefix followed by an explicit teaching label, where the
+    closing fence is moved immediately before that label.
+    """
+
+    repairs: list[str] = []
+
+    def repair_segment(segment: str) -> str:
+        def replace(match: re.Match[str]) -> str:
+            body = match.group(1)
+            wrapped = f"$${body}$$"
+            if not _display_math_contains_teaching_prose(wrapped):
+                return match.group(0)
+            label = re.search(
+                r"(?m)^\s*(?:任务条件|输出要求|参考解法|验收标准|核对标准|"
+                r"典型错误|修正原因)\s*[:：]",
+                body,
+            )
+            if label:
+                prefix = body[:label.start()].strip()
+                suffix = body[label.start():].strip()
+                repairs.append("normalize:display-math-prose-boundary")
+                if prefix and re.search(r"\\begin\{|\\[A-Za-z]+|[=<>]", prefix):
+                    return f"$$\n{prefix}\n$$\n\n{suffix}"
+                return "\n\n".join(item for item in (prefix, suffix) if item)
+
+            # A balanced pair containing no display environment or relation is
+            # a stray prose shell (often one extra ``$$`` after a matrix).
+            if not re.search(r"\\begin\{|\\[A-Za-z]+|[=<>]", body):
+                repairs.append("normalize:display-math-prose-boundary")
+                return body.strip()
+            return match.group(0)
+
+        return re.sub(r"\$\$([\s\S]*?)\$\$", replace, segment)
+
+    segments = re.split(r"(```[\s\S]*?```)", str(content or ""))
+    repaired = "".join(
+        segment if index % 2 else repair_segment(segment)
+        for index, segment in enumerate(segments)
+    )
+    return repaired.strip(), list(dict.fromkeys(repairs))
 
 
 def repair_teacher_script_math_delimiters(content: str) -> tuple[str, list[str]]:
@@ -762,6 +865,24 @@ def validate_teacher_script_section(
                 "teacher_script:unclosed_math_delimiter",
                 f"“{_text(block.get('title'))}”存在未闭合的公式定界符。",
             )
+        if _has_unwrapped_display_math_environment(content):
+            add(
+                blocking,
+                "teacher_script:unwrapped_display_math_environment",
+                (
+                    f"“{_text(block.get('title'))}”把矩阵或分段公式环境拆在 "
+                    "$$ 分隔符之外，无法作为 PPT 的可靠公式真源。"
+                ),
+            )
+        if _display_math_contains_teaching_prose(content):
+            add(
+                blocking,
+                "teacher_script:prose_inside_display_math",
+                (
+                    f"“{_text(block.get('title'))}”的块级公式分隔符吞入了题目、"
+                    "解法或讲解正文，无法可靠渲染或生成 PPT。"
+                ),
+            )
         table_lines = [line for line in content.splitlines() if "|" in line]
         if table_lines and not any(
             re.match(r"^\s*\|?\s*:?-{3,}", line) for line in table_lines
@@ -829,6 +950,12 @@ def validate_teacher_script_section(
 
 def _normalized_repetition_text(value: Any) -> str:
     text = _text(value).lower()
+    text = re.sub(
+        r"\$\$.+?\$\$|\\\[.+?\\\]",
+        "",
+        text,
+        flags=re.DOTALL,
+    )
     text = re.sub(r"\d+(?:\.\d+)*", "#", text)
     text = re.sub(r"[\s`*_#，。；：、！？,.!?;:()（）\[\]{}<>《》]+", "", text)
     return text
@@ -895,9 +1022,22 @@ def validate_teacher_script_revision(
     repeated_clauses: dict[str, set[str]] = {}
     for block in blocks:
         block_id = _text(block.get("block_id"))
+        # Numeric examples commonly reuse the same matrix or cases *shape*
+        # while changing coefficients and conclusions.  The repetition
+        # normalizer intentionally abstracts numbers for prose boilerplate,
+        # so feeding display formulae into it collapses distinct matrices into
+        # the same token stream and creates an unrecoverable retry loop.  Whole
+        # block duplication still covers copied formula blocks; clause-level
+        # repetition is reserved for explanatory prose.
+        repetition_prose = re.sub(
+            r"\$\$.+?\$\$|\\\[.+?\\\]",
+            "",
+            _text(block.get("content")),
+            flags=re.DOTALL,
+        )
         clauses = {
             _normalized_repetition_text(item)
-            for item in re.split(r"[。！？!?；;\n]+", _text(block.get("content")))
+            for item in re.split(r"[。！？!?；;\n]+", repetition_prose)
             if len(_normalized_repetition_text(item)) >= 14
         }
         for clause in clauses:
@@ -994,14 +1134,27 @@ def compile_teacher_script_section(
     for block in section.get("blocks") or []:
         if not isinstance(block, dict):
             continue
+        from canonical_content_repair import repair_display_math_shape
+
+        original = str(block.get("content") or "")
+        shape_repaired = repair_display_math_shape(original).strip()
+        shape_repairs: list[str] = []
+        if shape_repaired != original.strip():
+            block["content"] = shape_repaired
+            shape_repairs.append("normalize:display-math-shape")
+        prose_repaired, prose_repairs = repair_teacher_script_display_math_prose(
+            str(block.get("content") or original)
+        )
+        if prose_repairs:
+            block["content"] = prose_repaired
         repaired, repairs = repair_teacher_script_math_delimiters(
             str(block.get("content") or "")
         )
-        if repairs:
+        if shape_repairs or prose_repairs or repairs:
             block["content"] = repaired
             format_repairs.append({
                 "block_id": str(block.get("block_id") or ""),
-                "repairs": repairs,
+                "repairs": [*shape_repairs, *prose_repairs, *repairs],
             })
     section["content"] = teacher_script_blocks_to_markdown(
         section.get("blocks") or []

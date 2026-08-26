@@ -142,6 +142,52 @@ def _valid_layout_source(layout) -> tuple[list[CourseBlock], dict[str, str]]:
     return blocks, source_by_slot
 
 
+def test_one_source_block_with_table_and_formula_expands_losslessly() -> None:
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    layout = template.get_layout(template.layout_id("evidence-table"))
+    assert layout is not None
+    prose = "索引表与公式描述同一向量，核验时必须保持维数、索引和分量逐项对应。"
+    block = _block(
+        "mixed-table-formula",
+        role="concept",
+        markdown=(
+            f"{prose}\n\n"
+            "| 索引 $i$ | 1 | 2 | 3 |\n"
+            "|---|---:|---:|---:|\n"
+            "| 分量 $x_i$ | 2 | -1 | 4 |\n\n"
+            "$$y_1=-1,\\quad y_2=1,\\quad y_3=3,\\quad y_4=5$$"
+        ),
+    )
+
+    materializations = validate_layout_source_satisfiability(
+        page_id="mixed-table-formula",
+        template=template,
+        layout=layout,
+        source_blocks=[block],
+    )
+
+    assert [page.layout.layout_slug for page in materializations] == [
+        "evidence-table",
+        "evidence-formula",
+    ]
+    assert {
+        artifact
+        for fragment in materializations[0].source_blocks
+        for artifact in block_artifact_kinds(fragment)
+    } == {"table"}
+    assert {
+        artifact
+        for fragment in materializations[1].source_blocks
+        for artifact in block_artifact_kinds(fragment)
+    } == {"formula"}
+    visible_prose = "\n".join(
+        _prose_source_text(fragment)
+        for page in materializations
+        for fragment in page.source_blocks
+    )
+    assert visible_prose.count(prose) == 1
+
+
 @pytest.mark.parametrize("layout_slug", _BUILTIN_LAYOUT_SLUGS)
 def test_every_builtin_layout_has_a_deterministic_satisfiable_source_shape(
     layout_slug: str,

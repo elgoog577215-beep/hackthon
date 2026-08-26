@@ -92,6 +92,12 @@ notepad .env
 
 `dev.sh` 和 `dev.bat` 会检查配置、依赖、端口与健康状态，但不会在每次启动时自动安装依赖。
 
+macOS / Linux 的 `dev.sh` 默认把本地真实模型调用路由到当前已登录的
+Codex CLI（`AI_LOCAL_PROVIDER=codex`）。Codex 只充当课程链路的模型提供方；
+大纲、教案、讲稿、PPT 文书和 PPT 仍由后端既有阶段、确认状态与质量门负责。
+如需在本地显式测试 OpenAI-compatible HTTP 提供方，可在启动时传入
+`AI_LOCAL_PROVIDER=http ./dev.sh`，并继续使用下方 `.env` 配置。
+
 ## AI 提供方配置
 
 从 `.env.example` 创建 `.env`，选择一个主提供方并填写自己的密钥。可以额外配置一个仅在主模型池全部失败后启用的 ModelScope 兜底。不要提交 `.env` 或真实密钥。

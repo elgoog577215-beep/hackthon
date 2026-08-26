@@ -573,11 +573,17 @@ def _compile_draft(
     for chapter_ref in state.chapters:
         chapter_number = chapter_numbers[chapter_ref]
         chapter_node = by_id[id_map[chapter_ref]]
+        chapter_learning_focus = str(
+            chapter_node.get("learning_focus")
+            or chapter_node.get("learning_objective")
+            or ""
+        ).strip()
         chapter: dict[str, Any] = {
             "chapter_number": chapter_number,
             "node_id": chapter_node["node_id"],
             "title": chapter_node.get("node_name") or f"第{chapter_number}章",
-            "learning_objective": chapter_node.get("learning_objective") or "",
+            "learning_focus": chapter_learning_focus,
+            "learning_objective": chapter_learning_focus,
             "sections": [],
         }
         for field in ("learning_path_role", "path_reason", "scope_boundary", "assessment"):

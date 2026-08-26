@@ -14,6 +14,12 @@ from ai_capacity import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _select_http_provider(monkeypatch):
+    """Keep HTTP failover tests isolated from the local Codex default."""
+    monkeypatch.setenv("AI_LOCAL_PROVIDER", "http")
+
+
 class FakeStream:
     def __init__(self, chunks):
         self._chunks = iter(chunks)
@@ -657,6 +663,31 @@ async def test_bounded_modelscope_call_tries_next_model_after_model_quota(
     monkeypatch,
 ):
     error = RuntimeError("insufficient_quota: model token quota exhausted")
+    completions = SequencedCompletions(lambda: error)
+    service = _make_service(monkeypatch, completions)
+    service.api_base = "https://api-inference.modelscope.cn/v1"
+
+    result = await service._call_llm(
+        "hi",
+        retry_count=1,
+        max_attempts=2,
+        raise_on_failure=True,
+    )
+
+    assert result == "ok-answer"
+    assert completions.calls == ["model-a", "model-b"]
+    assert service._provider_failure is None
+
+
+@pytest.mark.asyncio
+async def test_modelscope_current_quota_message_does_not_block_other_models(
+    monkeypatch,
+):
+    """A marketplace SKU quota must not masquerade as provider-wide outage."""
+    error = _make_status_error(
+        429,
+        "insufficient_quota: You exceeded your current quota, please check your plan",
+    )
     completions = SequencedCompletions(lambda: error)
     service = _make_service(monkeypatch, completions)
     service.api_base = "https://api-inference.modelscope.cn/v1"

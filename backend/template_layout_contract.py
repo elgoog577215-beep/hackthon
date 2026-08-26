@@ -351,7 +351,10 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
-        "continuations": ["practice-code", "practice-prompt", "evidence-code"],
+        "continuations": [
+            "practice-code", "practice-prompt", "evidence-code",
+            "evidence-formula", "evidence-table",
+        ],
         "base_layout": "practice-prompt",
     },
     "practice-formula": {
@@ -363,7 +366,10 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
-        "continuations": ["practice-formula", "practice-prompt", "evidence-formula"],
+        "continuations": [
+            "practice-formula", "practice-prompt", "evidence-formula",
+            "evidence-code", "evidence-table",
+        ],
         "base_layout": "practice-prompt",
     },
     "practice-table": {
@@ -385,7 +391,10 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("task", "steps", items=7, chars=294, lines=12),
             _NOTES,
         ],
-        "continuations": ["practice-table", "practice-prompt", "evidence-table"],
+        "continuations": [
+            "practice-table", "practice-prompt", "evidence-table",
+            "evidence-code", "evidence-formula",
+        ],
         "base_layout": "practice-prompt",
     },
     "practice-feedback": {
@@ -409,7 +418,9 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             _slot("annotation", "body", required=False, chars=160),
             _NOTES,
         ],
-        "continuations": ["evidence-code", "content-stack"],
+        "continuations": [
+            "evidence-code", "evidence-formula", "evidence-table", "content-stack",
+        ],
     },
     "evidence-formula": {
         "intents": ["artifact_explanation", "mechanism", "worked_example"],
@@ -426,7 +437,9 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             ),
             _NOTES,
         ],
-        "continuations": ["evidence-formula", "content-stack"],
+        "continuations": [
+            "evidence-formula", "evidence-code", "evidence-table", "content-stack",
+        ],
     },
     "evidence-table": {
         "intents": ["artifact_explanation", "comparison", "worked_example", "misconception_repair"],
@@ -453,7 +466,9 @@ _LAYOUT_SPECS: dict[str, dict[str, Any]] = {
             ),
             _NOTES,
         ],
-        "continuations": ["evidence-table", "content-stack"],
+        "continuations": [
+            "evidence-table", "evidence-code", "evidence-formula", "content-stack",
+        ],
     },
     "evidence-figure": {
         "intents": ["artifact_explanation", "worked_example", "concept_explanation"],

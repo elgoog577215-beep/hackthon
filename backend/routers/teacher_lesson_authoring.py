@@ -155,6 +155,7 @@ class TeacherLessonV6BuildRequest(BaseModel):
     mode: str = "teaching"
     theme: str = "qizhi-classroom"
     force_rebuild: bool = False
+    resume_task_id: str = Field(default="", max_length=200)
 
 
 class ConfirmTeacherLessonPptManuscriptRequest(BaseModel):
@@ -2033,6 +2034,20 @@ async def build_teacher_lesson_v6_manuscript(
     candidate_repository = SlideDeckV6CandidateRepository(
         repository.root / "v6_candidates"
     )
+    if body.resume_task_id:
+        try:
+            candidate_repository.clone_checkpoint(
+                body.resume_task_id,
+                task_id,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "lesson_ppt_manuscript_resume_checkpoint_missing",
+                    "message": "PPT 文书的恢复检查点不可用，请重新生成。",
+                },
+            ) from exc
     orchestrator = SlideDeckV6Orchestrator(
         representation_repository=teaching_representation_repository,
         candidate_repository=candidate_repository,
@@ -3258,7 +3273,7 @@ async def generate_lesson_script(
                                 # and de-duplication. Passing several complete
                                 # blocks makes the next lightweight block copy
                                 # the earlier textbook-like exposition.
-                                "content": str(item.get("content") or "")[-320:],
+                                "content": str(item.get("content") or "")[-900:],
                             }
                             for item in completed_blocks[-3:]
                         ],
@@ -3278,13 +3293,24 @@ async def generate_lesson_script(
                 generation_error = exc
                 generated = {}
             if generation_error is not None:
+                error_detail = str(generation_error).strip()
+                failure_kind = (
+                    "model_output_quality_failed"
+                    if error_detail.startswith("讲稿未通过已确认教案的质量检查")
+                    else type(generation_error).__name__
+                )
                 fallback_warnings.append({
                     "code": "lesson_script_block_local_fallback",
                     "block_id": str(module.get("block_id") or ""),
                     "module_id": module_id,
                     "title": str(module.get("title") or module_id),
-                    "reason": type(generation_error).__name__,
-                    "message": "提供方调用失败，已保留可编辑恢复草稿；该内容不能确认或进入 PPT。",
+                    "reason": failure_kind,
+                    "reason_detail": error_detail[:1000],
+                    "message": (
+                        "模型输出未通过当前教学块质量检查，已保留可编辑恢复草稿；该内容不能确认或进入 PPT。"
+                        if failure_kind == "model_output_quality_failed"
+                        else "提供方调用失败，已保留可编辑恢复草稿；该内容不能确认或进入 PPT。"
+                    ),
                 })
                 return compile_teacher_script_fallback_content(module)
             blocks = [

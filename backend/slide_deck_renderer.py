@@ -652,6 +652,20 @@ def audit_exported_pptx(
                 issues.append({"page": slide_index, **table_issue})
             if getattr(shape, "has_text_frame", False) and str(shape.text or "").strip():
                 text_shapes.append(shape)
+                raw_text = str(shape.text or "")
+                if re.search(
+                    r"(?:\\(?:begin|end)\{?(?:array|[bp]?matrix)|"
+                    r"\\(?:frac|mathbf|mathbb|leftarrow|rightarrow|xrightarrow)\b|"
+                    r"\b(?:beginarray|endarray|mathbf[a-z]|frac\d+|rightarrow)\b)",
+                    raw_text,
+                    re.IGNORECASE,
+                ):
+                    issues.append({
+                        "severity": "critical",
+                        "code": "exported_raw_latex_visible",
+                        "page": slide_index,
+                        "shape_name": str(shape.name or ""),
+                    })
                 text_audit = _text_frame_audit(shape)
                 top_inches = int(shape.top) / 914400
                 bottom_inches = (int(shape.top) + int(shape.height)) / 914400
@@ -1257,8 +1271,12 @@ _SUPERSCRIPT = str.maketrans({
 _FORMULA_SYMBOLS = {
     r"\Longleftrightarrow": "⟺",
     r"\Leftrightarrow": "⇔",
+    r"\leftrightarrow": "↔",
     r"\longrightarrow": "⟶",
     r"\rightarrow": "→",
+    r"\longleftarrow": "⟵",
+    r"\leftarrow": "←",
+    r"\gets": "←",
     r"\to": "→",
     r"\circ": "∘",
     r"\mapsto": "↦",
@@ -1336,7 +1354,9 @@ _FORMULA_SYMBOLS = {
     r"\lor": "∨",
     r"\in": "∈",
     r"\mid": "∣",
+    r"\qquad": "    ",
     r"\quad": "  ",
+    r"\ ": " ",
     r"\ldots": "…",
     r"\,": "",
     r"\!": "",
@@ -1428,6 +1448,21 @@ def _format_formula_text(value: str) -> str:
         lambda match: _format_formula_cases(match.group("body")),
         expression,
     )
+    array_pattern = re.compile(
+        r"(?:\\left\s*\[\s*)?"
+        r"\\begin\{array\}\{(?P<columns>[^{}]+)\}"
+        r"(?P<body>.*?)"
+        r"\\end\{array\}"
+        r"(?:\s*\\right\s*\])?",
+        re.DOTALL,
+    )
+    expression = array_pattern.sub(
+        lambda match: _format_formula_array(
+            match.group("body"),
+            match.group("columns"),
+        ),
+        expression,
+    )
     expression = _replace_group_command(
         expression,
         r"\frac",
@@ -1439,6 +1474,12 @@ def _format_formula_text(value: str) -> str:
         r"\sqrt",
         1,
         lambda radicand: f"√({radicand})",
+    )
+    expression = _replace_group_command(
+        expression,
+        r"\xrightarrow",
+        1,
+        lambda label: f" ⟶[{_format_formula_text(label)}] ",
     )
     expression = re.sub(
         r"\\frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])",
@@ -1502,6 +1543,16 @@ def _format_formula_text(value: str) -> str:
     )
     for command, symbol in sorted(_FORMULA_SYMBOLS.items(), key=lambda item: -len(item[0])):
         expression = expression.replace(command, symbol)
+    # Recover unambiguous operator words when an upstream projection lost only
+    # the LaTeX command introducer. This changes presentation, not source facts.
+    expression = re.sub(r"(?<=\w)leftrightarrow(?=\w)", "↔", expression)
+    expression = re.sub(r"(?<=\w)rightarrow(?=\w)", "→", expression)
+    expression = re.sub(r"(?<=\w)leftarrow(?=\w)", "←", expression)
+    expression = re.sub(
+        r"(?<![A-Za-z])frac\s*([A-Za-z0-9])\s*([A-Za-z0-9])",
+        lambda match: f"({match.group(1)})⁄({match.group(2)})",
+        expression,
+    )
     expression = expression.replace(r"\{", "⦃").replace(r"\}", "⦄")
     expression = re.sub(
         r"([∑Σ])_([A-Za-z0-9]+)=([A-Za-z0-9]+)\^([A-Za-z0-9]+)",
@@ -1582,6 +1633,42 @@ def _format_formula_matrix(body: str, kind: str) -> str:
     for index, row in enumerate(rows):
         left = brackets[0] if index == 0 else ("⎣" if index == len(rows) - 1 else "⎢")
         right = brackets[1] if index == 0 else ("⎦" if index == len(rows) - 1 else "⎥")
+        lines.append(f"{left} {row} {right}")
+    return "\n".join(lines)
+
+
+def _format_formula_array(body: str, column_spec: str) -> str:
+    """Render LaTeX arrays, including augmented-matrix column dividers."""
+
+    column_tokens = [token for token in str(column_spec) if token in "lcr|pmb"]
+    divider_after: set[int] = set()
+    logical_column = 0
+    for token in column_tokens:
+        if token == "|":
+            if logical_column:
+                divider_after.add(logical_column)
+        elif token in "lcrpmb":
+            logical_column += 1
+
+    rendered_rows: list[str] = []
+    for raw_row in re.split(r"\\\\", body):
+        if not raw_row.strip():
+            continue
+        cells = [_format_formula_text(cell) for cell in raw_row.split("&")]
+        pieces: list[str] = []
+        for index, cell in enumerate(cells, start=1):
+            pieces.append(cell)
+            if index in divider_after and index < len(cells):
+                pieces.append("│")
+        rendered_rows.append("  ".join(piece for piece in pieces if piece))
+    if not rendered_rows:
+        return ""
+    if len(rendered_rows) == 1:
+        return f"⎡ {rendered_rows[0]} ⎤"
+    lines: list[str] = []
+    for index, row in enumerate(rendered_rows):
+        left = "⎡" if index == 0 else "⎣" if index == len(rendered_rows) - 1 else "⎢"
+        right = "⎤" if index == 0 else "⎦" if index == len(rendered_rows) - 1 else "⎥"
         lines.append(f"{left} {row} {right}")
     return "\n".join(lines)
 

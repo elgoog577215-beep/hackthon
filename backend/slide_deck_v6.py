@@ -41,6 +41,10 @@ _PPT_TITLE_PRODUCTION_CUE_PATTERN = re.compile(
     r"\u4e0e\u53d8\u5f0f\u7ec3\u4e60\u5408\u5e76|\u7528.{2,18}\u5efa\u7acb.{2,24}$)"
 )
 _GENERIC_TEACHING_PAGE_TITLES = frozenset({
+    "任务条件",
+    "输出要求",
+    "参考解法",
+    "核对标准",
     "本节任务",
     "核心教学",
     "学习者行动",
@@ -636,11 +640,22 @@ def _ppt_manuscript_quality_issues(
                 message="PPT 文书的台上文案不得混入板书、巡视或口头组织语。",
                 page_id=page.page_id,
             ))
-        if _PPT_TITLE_PRODUCTION_CUE_PATTERN.match(page.title.strip()):
+        if (
+            _PPT_TITLE_PRODUCTION_CUE_PATTERN.match(page.title.strip())
+            or _title_is_incomplete(page.title)
+            or _formula_like_title(page.title)
+            or re.sub(r"\s+", "", page.title) in {
+                re.sub(r"\s+", "", item)
+                for item in _GENERIC_TEACHING_PAGE_TITLES
+            }
+        ):
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_title_not_audience_ready",
-                message="PPT 文书标题必须直接呈现学习主题，不能保留‘给出’、‘重点突出’等生产指令。",
+                message=(
+                    "PPT 文书标题必须是完整、面向学习者的教学结论，不能保留"
+                    "生产指令、结构标签、截断短语或原始 LaTeX。"
+                ),
                 page_id=page.page_id,
             ))
         avoidable_formula_title = bool(
@@ -701,6 +716,67 @@ def _ppt_manuscript_quality_issues(
             1,
             min(len(previous_grams), len(current_grams)),
         )
+        previous_formula_text = _canonical_visible_semantic_text("\n".join(
+            region.content
+            for region in previous.regions
+            if region.content_kind == "formula"
+        ))
+        current_formula_text = _canonical_visible_semantic_text("\n".join(
+            region.content
+            for region in current.regions
+            if region.content_kind == "formula"
+        ))
+        previous_prose = _canonical_visible_semantic_text("\n".join(
+            region.content
+            for region in previous.regions
+            if region.content_kind not in {"formula", "notes"}
+        ))
+        current_prose = _canonical_visible_semantic_text("\n".join(
+            region.content
+            for region in current.regions
+            if region.content_kind not in {"formula", "notes"}
+        ))
+        same_formula_with_new_explanation = bool(
+            previous_formula_text
+            and previous_formula_text == current_formula_text
+            and not previous_prose
+            and len(current_prose) >= 30
+        )
+        # A classroom prompt may intentionally show a formula or matrix alone,
+        # followed by the checked answer with a source-backed explanation.  The
+        # repeated artifact preserves the learner's visual anchor; the newly
+        # revealed prose is the teaching delta.  The reverse direction (an
+        # explanation followed by the same bare artifact) remains blocked.
+        if same_formula_with_new_explanation:
+            continue
+        distinct_formula_progression = bool(
+            "formula" in previous_kinds.intersection(current_kinds)
+            and previous_formula_text
+            and current_formula_text
+            and previous_formula_text != current_formula_text
+        )
+        if distinct_formula_progression:
+            # Consecutive worked examples and row-operation steps deliberately
+            # retain most matrix entries. Compare their prose when both pages
+            # have prose; otherwise the changed formula is the teaching delta.
+            if min(len(previous_prose), len(current_prose)) < 30:
+                continue
+            previous_prose_grams = {
+                previous_prose[index:index + 3]
+                for index in range(max(0, len(previous_prose) - 2))
+            }
+            current_prose_grams = {
+                current_prose[index:index + 3]
+                for index in range(max(0, len(current_prose) - 2))
+            }
+            prose_overlap = len(
+                previous_prose_grams.intersection(current_prose_grams)
+            ) / max(
+                1,
+                min(len(previous_prose_grams), len(current_prose_grams)),
+            )
+            if prose_overlap < 0.8:
+                continue
         if overlap >= 0.8:
             issues.append(V6Failure(
                 stage="manuscript",
@@ -1065,16 +1141,88 @@ def _semantic_grounding_ratio(claim: str, source: str) -> float:
 
 _DANGLING_TITLE_END_RE = re.compile(
     r"(?:[：:；;，,、/\\]|[（(《〈【\[]|"
-    r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的)|"
+    r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的|有|由|得)|"
     r"(?:[一二三四五六七八九十\d]+阶、[一二三四五六七八九十\d]+阶)|"
     r"\b(?:and|or|to|of|with|versus|vs\.?)\b)\s*$",
     re.IGNORECASE,
 )
 
+_DANGLING_TITLE_START_RE = re.compile(
+    r"^(?:与|和|及|或|以及|并且?|同时|而|但|但是|却|且)",
+    re.IGNORECASE,
+)
+_RAW_MATH_TITLE_RE = re.compile(
+    r"(?:\\(?:begin|end|frac|mathbf|boldsymbol|mathrm|mathbb|operatorname|"
+    r"text|leftarrow|rightarrow|leftrightarrow|xrightarrow)\b|"
+    r"\b(?:beginarray|endarray|mathbf[a-z]|frac\d+|leftarrow|rightarrow|"
+    r"leftrightarrow|xrightarrow)\b)",
+    re.IGNORECASE,
+)
+_RAW_TITLE_MARKUP_RE = re.compile(r"(?:\*\*|__|`|<br\s*/?>)", re.IGNORECASE)
+
+
+def _has_unbalanced_title_delimiters(value: str) -> bool:
+    """Reject visibly truncated titles before they reach manuscript review."""
+
+    title = str(value or "")
+    pairs = (("(", ")"), ("[", "]"), ("（", "）"), ("【", "】"), ("《", "》"))
+    if any(title.count(left) != title.count(right) for left, right in pairs):
+        return True
+    return title.count("“") != title.count("”") or title.count('"') % 2 == 1
+
+
+def _starts_with_unfinished_object_phrase(value: str) -> bool:
+    """Catch fragments such as ``将增广矩阵`` while keeping complete claims."""
+
+    title = " ".join(str(value or "").split()).strip()
+    if not re.match(r"^(?:将|把)", title):
+        return False
+    completion_verbs = (
+        "化为", "转化", "写成", "改为", "变为", "代入", "交换", "消去",
+        "更新", "变换", "倍加", "倍乘", "求出", "得到", "构造", "表示", "验证", "判断",
+        "分解", "展开", "移到", "转换", "整理", "看作", "视为",
+    )
+    return not any(verb in title for verb in completion_verbs)
+
+
+def _is_unfinished_subordinate_title(value: str) -> bool:
+    """Reject source-native dependent clauses that lack their main claim."""
+
+    title = " ".join(str(value or "").split()).strip()
+    if re.match(
+        r"^(?:虽然|尽管|即使|如果|假如|为了|以便|"
+        r"以(?:核验|验证|检查|确认|确保))",
+        title,
+    ):
+        if not re.search(r"[，,；;：:]", title):
+            return True
+    if "一旦" in title and not re.search(
+        r"(?:就|便|则|必须|只能|不可|不能|应当|需要|要求)",
+        title,
+    ):
+        return True
+    if re.match(r"^[A-Za-z]\s*均(?:为|是)", title):
+        return True
+    if re.search(r"列序改为\s*[A-Za-z]\s*$", title):
+        return True
+    if re.match(r"^其中\s*[A-Za-z]\s*为\s*\d+\s*[×xX]\s*\d+\s*$", title):
+        return True
+    return False
+
 
 def _title_is_incomplete(value: str) -> bool:
     title = " ".join(str(value or "").split()).strip()
-    return bool(title and _DANGLING_TITLE_END_RE.search(title))
+    if not title:
+        return False
+    return bool(
+        _DANGLING_TITLE_END_RE.search(title)
+        or _DANGLING_TITLE_START_RE.search(title)
+        or _RAW_MATH_TITLE_RE.search(title)
+        or _RAW_TITLE_MARKUP_RE.search(title)
+        or _has_unbalanced_title_delimiters(title)
+        or _starts_with_unfinished_object_phrase(title)
+        or _is_unfinished_subordinate_title(title)
+    )
 
 
 def _audience_ready_title_fragment(value: str) -> str:
@@ -1244,10 +1392,20 @@ def validate_slide_story_plan_v3(
             raise V6BuildError(stage="template", code="template_layout_unavailable", message=f"Unknown V6 template layout: {page.template_layout_id}", page_id=page.page_id)
         page_intent = page_teaching_intent(unit, page.source_block_ids)
         required_artifacts = page_artifact_kinds(unit, page.source_block_ids)
+        page_source_blocks = graph_page_source_blocks(
+            unit,
+            page.source_block_ids,
+        )
         if page_intent not in layout.teaching_intents:
             raise V6BuildError(stage="template", code="template_layout_intent_mismatch", message="Template layout does not support the teaching intent", page_id=page.page_id)
-        if required_artifacts and not required_artifacts.issubset(
-            set(layout.artifact_kinds)
+        if (
+            required_artifacts
+            and not required_artifacts.issubset(set(layout.artifact_kinds))
+            and not _layout_can_expand_heterogeneous_artifacts(
+                template=template,
+                layout=layout,
+                source_blocks=page_source_blocks,
+            )
         ):
             raise V6BuildError(
                 stage="template",
@@ -1256,7 +1414,7 @@ def validate_slide_story_plan_v3(
                 page_id=page.page_id,
             )
         required_slot_kinds = source_required_slot_kinds(
-            graph_page_source_blocks(unit, page.source_block_ids)
+            page_source_blocks
         )
         if not _layout_supports_required_slot_kinds(
             layout,
@@ -1661,7 +1819,21 @@ def validate_slide_visual_plan_v2(
                     message="Diagram edges must connect declared source-bound nodes",
                     page_id=page_id,
                 )
-        for artifact in page_artifact_kinds(unit, page.source_block_ids):
+        heterogeneous_sequence = (
+            _heterogeneous_artifact_sequence(source_blocks)
+            if _layout_can_expand_heterogeneous_artifacts(
+                template=template,
+                layout=layout,
+                source_blocks=source_blocks,
+            )
+            else []
+        )
+        required_visual_artifacts = (
+            {heterogeneous_sequence[0]}
+            if heterogeneous_sequence
+            else page_artifact_kinds(unit, page.source_block_ids)
+        )
+        for artifact in required_visual_artifacts:
             allowed = _REQUIRED_VISUAL_DECISION.get(artifact)
             if allowed and decision.decision not in allowed:
                 raise V6BuildError(
@@ -1981,6 +2153,7 @@ def _code_chunk_blocks(
     result: list[CourseBlock] = []
     start_line = 1
     chunk_count = len(chunks)
+    prose = _artifact_free_prose_text(block)
     for chunk_index, chunk in enumerate(chunks, start=1):
         source_line_count = len(chunk.split("\n"))
         payload_metadata = {
@@ -1992,6 +2165,8 @@ def _code_chunk_blocks(
             "_v6_code_chunk_count": chunk_count,
             "_v6_artifact_only": True,
         }
+        if chunk_index == 1 and prose:
+            payload_metadata["slide_visible_text"] = prose
         result.append(_block_with_source_excerpt(
             block,
             (
@@ -2038,13 +2213,36 @@ def _artifact_free_prose_text(block: CourseBlock) -> str:
     prose = _prose_source_text(block)
     if not prose or "formula" not in set(block_artifact_kinds(block)):
         return prose
+    # ``block_presentation_text`` is the extractive learner-canvas projection;
+    # the complete script remains in speaker notes. It may project a display
+    # formula without its fence, so remove both fenced displays and raw math
+    # environments before compiling the remaining presentation prose.
     without_display_formula = re.sub(
         r"\$\$.+?\$\$|\\\[.+?\\\]",
         "",
         prose,
         flags=re.DOTALL,
     )
-    return _visible_prose_text(without_display_formula)
+    without_environment = re.sub(
+        r"\\begin\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+        r"aligned|split|cases|equation|gather|align)\}"
+        r"[\s\S]*?"
+        r"\\end\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+        r"aligned|split|cases|equation|gather|align)\}",
+        "",
+        without_display_formula,
+    )
+    prose_lines = [
+        line
+        for line in without_environment.splitlines()
+        if not re.match(r"^\s*\|.*\|\s*$", line)
+        and not re.match(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$", line)
+        and not (
+            not re.search(r"[\u3400-\u9fff]", line)
+            and re.search(r"(?:=|\\\\|\\frac|\\sum|\\int)", line)
+        )
+    ]
+    return _visible_prose_text("\n".join(prose_lines))
 
 
 def _code_display_line_cost(line: str, line_width: int) -> int:
@@ -2221,7 +2419,51 @@ def _formula_candidates(text: str) -> list[str]:
         if match.group(0).strip()
     ]
     if displayed:
-        return displayed
+        candidates: list[str] = []
+        environment_pattern = re.compile(
+            r"\\begin\{(?P<environment>"
+            r"bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|aligned|"
+            r"split|cases|equation|gather|align)\}"
+            r"[\s\S]*?\\end\{(?P=environment)\}"
+        )
+        for display in displayed:
+            inner = re.sub(r"^\s*(?:\$\$|\\\[)\s*", "", display)
+            inner = re.sub(r"\s*(?:\$\$|\\\])\s*$", "", inner)
+            environments = list(environment_pattern.finditer(inner))
+            if len(environments) <= 1:
+                candidates.append(display)
+                continue
+            # A task often writes A/B/C as three independent matrices inside
+            # one display fence.  They are separate semantic artifacts and may
+            # occupy separate continuation pages; never split inside a matrix.
+            previous_end = 0
+            split_candidates: list[str] = []
+            for environment in environments:
+                prefix = inner[previous_end:environment.start()]
+                prefix = re.sub(
+                    r"^(?:(?:\\quad|\\qquad)|[\s,;，、])+",
+                    "",
+                    prefix,
+                ).strip()
+                formula = "\n".join(
+                    item
+                    for item in (prefix, environment.group(0))
+                    if item
+                )
+                split_candidates.append(f"$$\n{formula}\n$$")
+                previous_end = environment.end()
+            tail = inner[previous_end:].strip()
+            if tail and not re.fullmatch(
+                r"(?:(?:\\quad|\\qquad)|[\s,;，、.。])+",
+                tail,
+            ):
+                split_candidates[-1] = re.sub(
+                    r"\n\$\$$",
+                    f"\n{tail}\n$$",
+                    split_candidates[-1],
+                )
+            candidates.extend(split_candidates)
+        return candidates
     inline = [
         match.group(0).strip()
         for match in re.finditer(
@@ -2256,6 +2498,30 @@ def _formula_candidates(text: str) -> list[str]:
     return selected[:10]
 
 
+def _formula_canvas_text(block: CourseBlock) -> str:
+    """Return one source-backed formula projection for the learner canvas.
+
+    The extractive presentation projection can omit every display fence when
+    its strongest visible sentence is prose. A block still classified as a
+    formula artifact then becomes impossible to place. Prefer an explicitly
+    projected display; otherwise carry only the first frozen display formula,
+    while the complete sequence remains in speaker notes.
+    """
+
+    presentation = block_presentation_text(block)
+    if re.search(r"\$\$.+?\$\$|\\\[.+?\\\]", presentation, re.DOTALL):
+        return presentation
+    source = block_source_text(block)
+    first_display = re.search(
+        r"\$\$.+?\$\$|\\\[.+?\\\]",
+        source,
+        re.DOTALL,
+    )
+    if first_display:
+        return first_display.group(0).strip()
+    return presentation or source
+
+
 def _bounded_formula_content(
     blocks: list[CourseBlock],
     *,
@@ -2266,13 +2532,15 @@ def _bounded_formula_content(
     candidates = [
         candidate
         for block in blocks
-        for candidate in _formula_candidates(block_source_text(block))
+        for candidate in _formula_candidates(_formula_canvas_text(block))
         if candidate
     ]
     if not candidates:
         return ""
     content = "\n\n".join(candidates)
-    if max_chars and len(content) > max_chars:
+    visual_cost = sum(_formula_visual_character_count(item) for item in candidates)
+    visual_cost += max(0, len(candidates) - 1) * 2
+    if max_chars and visual_cost > max_chars:
         raise ValueError("template_slot_capacity_exceeded")
     return content
 
@@ -2700,6 +2968,13 @@ def _block_with_source_excerpt(
         payload["slide_visible_text"] = content
     if artifact_kind:
         payload["artifact_kind"] = artifact_kind
+        if (payload_metadata or {}).get("_v6_artifact_only"):
+            # Artifact fragments must not inherit the complete learner-canvas
+            # prose projection.  Otherwise every continuation repeats the same
+            # explanation and the source-fidelity gate cannot tell which page
+            # actually owns it.  A caller may deliberately restore prose on
+            # the first fragment through ``payload_metadata`` below.
+            payload.pop("slide_visible_text", None)
     if payload_metadata:
         payload.update(payload_metadata)
     return block.model_copy(update={"payload": payload}, deep=True)
@@ -2767,16 +3042,22 @@ def _pack_formulae(
     """
 
     def rendered_line_count(values: list[str]) -> int:
-        formula_lines = sum(
-            max(1, len(str(value or "").splitlines())) for value in values
-        )
-        return formula_lines
+        return sum(_formula_visual_line_count(value) for value in values)
+
+    def rendered_character_count(values: list[str]) -> int:
+        return sum(_formula_visual_character_count(value) for value in values) + max(
+            0,
+            len(values) - 1,
+        ) * 2
 
     chunks: list[str] = []
     current: list[str] = []
     for formula in formulae:
-        candidate = "\n\n".join([*current, formula])
-        exceeds_chars = bool(max_chars and len(candidate) > max_chars)
+        candidate_values = [*current, formula]
+        candidate = "\n\n".join(candidate_values)
+        exceeds_chars = bool(
+            max_chars and rendered_character_count(candidate_values) > max_chars
+        )
         exceeds_lines = bool(
             max_lines and rendered_line_count([*current, formula]) > max_lines
         )
@@ -2784,7 +3065,7 @@ def _pack_formulae(
             chunks.append("\n\n".join(current))
             current = [formula]
             continue
-        if (max_chars and len(candidate) > max_chars) or (
+        if (max_chars and rendered_character_count([formula]) > max_chars) or (
             max_lines and rendered_line_count([formula]) > max_lines
         ):
             raise ValueError("template_slot_capacity_exceeded")
@@ -2792,6 +3073,74 @@ def _pack_formulae(
     if current:
         chunks.append("\n\n".join(current))
     return chunks
+
+
+def _formula_visual_line_count(value: str) -> int:
+    """Estimate rendered equation rows instead of counting LaTeX source lines.
+
+    A three-row ``cases`` or matrix environment is commonly serialized across
+    seven source lines (display fence, begin, three rows, end, display fence).
+    Those transport lines are not seven visible rows.  Counting them literally
+    made valid model-generated matrices impossible to paginate in the five-row
+    classroom formula frame.  Keep formulae atomic, but measure their actual
+    row separators so a semantic matrix is never split or dropped.
+    """
+
+    text = str(value or "").strip()
+    text = re.sub(r"^\s*(?:\$\$|\\\[)\s*", "", text)
+    text = re.sub(r"\s*(?:\$\$|\\\])\s*$", "", text)
+    environments = list(re.finditer(
+        r"\\begin\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+        r"aligned|split|cases|equation|gather|align)\}([\s\S]*?)"
+        r"\\end\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+        r"aligned|split|cases|equation|gather|align)\}",
+        text,
+    ))
+    if environments:
+        return sum(
+            max(
+                1,
+                len([
+                    row
+                    for row in re.split(r"(?<!\\)\\\\", match.group(1))
+                    if row.strip()
+                ]),
+            )
+            for match in environments
+        )
+    visible_lines = [line for line in text.splitlines() if line.strip()]
+    return max(1, len(visible_lines))
+
+
+def _formula_visual_character_count(value: str) -> int:
+    """Estimate visible math width without charging for LaTeX transport syntax."""
+
+    text = str(value or "").strip()
+    text = re.sub(r"^\s*(?:\$\$|\\\[)\s*", "", text)
+    text = re.sub(r"\s*(?:\$\$|\\\])\s*$", "", text)
+    text = re.sub(
+        r"\\begin\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+        r"aligned|split|cases|equation|gather|align)\}(?:\{[^{}]*\})?",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"\\end\{(?:bmatrix|pmatrix|vmatrix|Bmatrix|Vmatrix|matrix|array|"
+        r"aligned|split|cases|equation|gather|align)\}",
+        "",
+        text,
+    )
+    text = text.replace(r"\\", "\n").replace("&", " ")
+    text = re.sub(
+        r"\\(?:left|right|quad|qquad|,|;|!|cdots|ldots|vdots|ddots)",
+        " ",
+        text,
+    )
+    # A command is rendered as one operator or glyph; its argument text remains
+    # and is still charged below (for example ``\\text{condition}``).
+    text = re.sub(r"\\[A-Za-z]+\*?", "x", text)
+    text = re.sub(r"[{}_^|]", "", text)
+    return _display_width_units(" ".join(text.split()))
 
 
 def _pack_code_lines(
@@ -2927,7 +3276,15 @@ def _split_artifact_block(
     max_lines: int,
     max_rows: int,
 ) -> list[CourseBlock]:
-    content = block_source_text(block)
+    content = (
+        _formula_canvas_text(block)
+        if slot_kind == "formula"
+        else (
+            _normalize_markdown_table(block_source_text(block))
+            if slot_kind == "table"
+            else block_source_text(block)
+        )
+    )
     if slot_kind == "code":
         code = max(_code_candidates(content), key=len)
         chunks = _pack_code_lines(
@@ -2966,15 +3323,19 @@ def _split_artifact_block(
             chunks,
             language=_code_language(content, block),
         )
-    return [
-        _block_with_source_excerpt(
+    prose = _artifact_free_prose_text(block)
+    result: list[CourseBlock] = []
+    for index, chunk in enumerate(chunks):
+        metadata: dict[str, Any] = {"_v6_artifact_only": True}
+        if index == 0 and prose:
+            metadata["slide_visible_text"] = prose
+        result.append(_block_with_source_excerpt(
             block,
             chunk,
             artifact_kind=slot_kind,
-            payload_metadata={"_v6_artifact_only": True},
-        )
-        for chunk in chunks
-    ]
+            payload_metadata=metadata,
+        ))
+    return result
 
 
 def _split_code_block_for_layout_variants(
@@ -4382,6 +4743,204 @@ def _assert_source_driven_pagination_progress(
         )
 
 
+_HETEROGENEOUS_ARTIFACT_KINDS = ("code", "formula", "table")
+
+
+def _characteristic_artifact_sequence(block: CourseBlock) -> list[str]:
+    """Return characteristic artifacts in their frozen source order."""
+
+    source = block_source_text(block)
+    declared = [
+        kind
+        for kind in block_artifact_kinds(block)
+        if kind in _HETEROGENEOUS_ARTIFACT_KINDS
+    ]
+    if len(declared) < 2:
+        return declared
+    positions: dict[str, int] = {}
+    display_formula = re.search(
+        r"\$\$.+?\$\$|\\\[.+?\\\]",
+        source,
+        re.DOTALL,
+    )
+    probes = {
+        "code": re.search(
+            r"```(?:[A-Za-z0-9_+.#-]+)?[^\S\r\n]*\r?\n.*?```",
+            source,
+            re.DOTALL,
+        ),
+        "formula": display_formula or re.search(
+            r"(?<!\\)\$(?!\$).+?(?<!\\)\$(?!\$)", source, re.DOTALL
+        ),
+        "table": re.search(r"(?m)^\s*\|.*\|\s*$", source),
+    }
+    for index, kind in enumerate(declared):
+        match = probes.get(kind)
+        positions[kind] = match.start() if match else len(source) + index
+    return sorted(declared, key=lambda kind: (positions[kind], declared.index(kind)))
+
+
+def _heterogeneous_artifact_sequence(
+    source_blocks: list[CourseBlock],
+) -> list[str]:
+    """Return an expandable artifact sequence for one atomic source block."""
+
+    if len(source_blocks) != 1:
+        return []
+    sequence = _characteristic_artifact_sequence(source_blocks[0])
+    return sequence if len(sequence) >= 2 else []
+
+
+def _declared_artifact_continuation(
+    *,
+    template: TemplateLayoutPackContractV1,
+    layout: Any,
+    artifact_kind: str,
+) -> Any | None:
+    """Choose a published continuation with a native slot for one artifact."""
+
+    candidates = [layout, *_declared_continuation_layouts(template, layout)]
+    candidates = list({
+        candidate.template_layout_id: candidate
+        for candidate in candidates
+    }.values())
+    candidates.sort(key=lambda candidate: (
+        candidate is not layout,
+        not candidate.layout_slug.startswith("evidence-"),
+        candidate.template_layout_id,
+    ))
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if artifact_kind in set(candidate.artifact_kinds)
+            and any(
+                slot.slot_kind == artifact_kind
+                for slot in candidate.slots
+            )
+        ),
+        None,
+    )
+
+
+def _layout_can_expand_heterogeneous_artifacts(
+    *,
+    template: TemplateLayoutPackContractV1,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+) -> bool:
+    """Prove that one mixed source block has a lossless template route."""
+
+    sequence = _heterogeneous_artifact_sequence(source_blocks)
+    if not sequence or sequence[0] not in set(layout.artifact_kinds):
+        return False
+    current = layout
+    for artifact_kind in sequence:
+        current = _declared_artifact_continuation(
+            template=template,
+            layout=current,
+            artifact_kind=artifact_kind,
+        )
+        if current is None:
+            return False
+    return True
+
+
+def _heterogeneous_artifact_excerpt(
+    block: CourseBlock,
+    *,
+    artifact_kind: str,
+    include_prose: bool,
+) -> CourseBlock:
+    """Project one characteristic artifact without inventing a new source ID."""
+
+    source = block_source_text(block)
+    if artifact_kind == "table":
+        content = _normalize_markdown_table(source)
+    elif artifact_kind == "formula":
+        display = re.search(
+            r"\$\$.+?\$\$|\\\[.+?\\\]",
+            source,
+            re.DOTALL,
+        )
+        content = (
+            display.group(0).strip()
+            if display
+            else "\n\n".join(_formula_candidates(source))
+        )
+    else:
+        code = max(_code_candidates(source), key=len)
+        language = _code_language(source, block)
+        content = f"```{language}\n{code}\n```" if block.kind != "code" else code
+    metadata: dict[str, Any] = {
+        "_v6_artifact_only": not include_prose,
+        "_v6_artifact_kinds": [artifact_kind],
+        "artifact_kinds": [artifact_kind],
+    }
+    prose = _artifact_free_prose_text(block) if include_prose else ""
+    if prose:
+        metadata["slide_visible_text"] = prose
+    return _block_with_source_excerpt(
+        block,
+        content,
+        artifact_kind=artifact_kind,
+        payload_metadata=metadata,
+    )
+
+
+def _safe_heterogeneous_artifact_page_blocks(
+    *,
+    page_id: str,
+    template: TemplateLayoutPackContractV1,
+    layout: Any,
+    source_blocks: list[CourseBlock],
+    story_summary: str,
+) -> list[_SafePageMaterialization]:
+    """Expand one mixed artifact block through native published layouts."""
+
+    sequence = _heterogeneous_artifact_sequence(source_blocks)
+    if not sequence:
+        return []
+    block = source_blocks[0]
+    materializations: list[_SafePageMaterialization] = []
+    current = layout
+    for index, artifact_kind in enumerate(sequence):
+        selected = _declared_artifact_continuation(
+            template=template,
+            layout=current,
+            artifact_kind=artifact_kind,
+        )
+        if selected is None:
+            raise V6BuildError(
+                stage="template",
+                code="template_layout_unavailable",
+                message=(
+                    "The selected template declares no lossless continuation "
+                    f"for mixed source artifact {artifact_kind}"
+                ),
+                page_id=page_id,
+            )
+        fragment = _heterogeneous_artifact_excerpt(
+            block,
+            artifact_kind=artifact_kind,
+            include_prose=index == 0,
+        )
+        materializations.extend(_safe_artifact_page_blocks(
+            page_id=f"{page_id}--{artifact_kind}",
+            template=template,
+            layout=selected,
+            source_blocks=[fragment],
+            story_summary=story_summary if index == 0 else "",
+        ))
+        current = selected
+    _assert_source_driven_pagination_progress(
+        page_id=page_id,
+        source_blocks=source_blocks,
+        materializations=materializations,
+    )
+    return materializations
+
+
 def _safe_artifact_page_blocks(
     *,
     page_id: str,
@@ -4391,6 +4950,15 @@ def _safe_artifact_page_blocks(
     story_summary: str = "",
 ) -> list[_SafePageMaterialization]:
     """Paginate source losslessly; page count is content-driven, not business-capped."""
+
+    if _heterogeneous_artifact_sequence(source_blocks):
+        return _safe_heterogeneous_artifact_page_blocks(
+            page_id=page_id,
+            template=template,
+            layout=layout,
+            source_blocks=source_blocks,
+            story_summary=story_summary,
+        )
 
     artifact_slot = next(
         (
@@ -5141,6 +5709,7 @@ def _plain_math_title_text(value: str) -> str:
         result,
     )
     replacements = {
+        r"\leftrightarrow": "↔", r"\rightarrow": "→", r"\leftarrow": "←",
         r"\circ": "∘", r"\ln": "ln", r"\log": "log", r"\to": "→",
         r"\leq": "≤", r"\geq": "≥", r"\neq": "≠", r"\approx": "≈",
         r"\in": "∈", r"\cdot": "·", r"\times": "×", r"\sum": "∑",
@@ -5170,7 +5739,15 @@ def _bounded_source_title_windows(value: str, limit: int) -> list[str]:
     if len(fragment) < 4:
         return []
     if len(fragment) <= limit:
-        return [] if _title_is_incomplete(fragment) else [fragment]
+        return (
+            []
+            if _title_is_incomplete(fragment)
+            or re.sub(r"\s+", "", fragment) in {
+                re.sub(r"\s+", "", item)
+                for item in _GENERIC_TEACHING_PAGE_TITLES
+            }
+            else [fragment]
+        )
 
     words = fragment.split()
     candidates: list[str] = []
@@ -5223,9 +5800,18 @@ def _continuation_title_candidates(
             and not re.fullmatch(r"[|:\-\s]+", line.strip())
         ]
         for row in table_rows[1:] if len(table_rows) > 1 else []:
-            candidate = str(row[0] if row else "").strip()
+            candidate = re.sub(
+                r"(?<!\\)(?:\*\*|__|`)",
+                "",
+                str(row[0] if row else "").strip(),
+            )
             if (
                 4 <= len(candidate) <= limit
+                and re.sub(r"\s+", "", candidate) not in {
+                    re.sub(r"\s+", "", item)
+                    for item in _GENERIC_TEACHING_PAGE_TITLES
+                }
+                and not _title_is_incomplete(candidate)
                 and candidate not in table_candidates
             ):
                 table_candidates.append(candidate)
@@ -5289,12 +5875,23 @@ def _continuation_title_candidates(
             candidate = re.sub(r"^\d+[.)、]\s*", "", candidate)
             if (
                 4 <= len(candidate) <= limit
+                and re.sub(r"\s+", "", candidate) not in {
+                    re.sub(r"\s+", "", item)
+                    for item in _GENERIC_TEACHING_PAGE_TITLES
+                }
                 and not _title_is_incomplete(candidate)
                 and candidate not in prose_candidates
             ):
                 prose_candidates.append(candidate)
             for window in _bounded_source_title_windows(fragment, limit):
-                if window not in prose_candidates:
+                if (
+                    re.sub(r"\s+", "", window) not in {
+                        re.sub(r"\s+", "", item)
+                        for item in _GENERIC_TEACHING_PAGE_TITLES
+                    }
+                    and not _title_is_incomplete(window)
+                    and window not in prose_candidates
+                ):
                     prose_candidates.append(window)
     # Equations remain available when the frozen source contains no usable
     # prose.  When prose exists, prefer the audience-facing teaching point;
@@ -5318,6 +5915,16 @@ def _formula_like_title(value: str) -> bool:
     if not title:
         return True
     if "$" in title or re.search(r"\\[A-Za-z]+", title):
+        return True
+    if _RAW_MATH_TITLE_RE.search(title):
+        return True
+    if re.search(r"(?:begin|end)(?:b|p|v|B|V)?matrix|beginarray|endarray", title):
+        return True
+    if "&" in title or "\\\\" in title:
+        return True
+    if re.search(r"[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9{]|(?:·s|\\?mid|\\?dots)", title):
+        return True
+    if "_" in title or "^" in title:
         return True
     if re.search(r"[_^=<>≤≥≈]", title) and not re.search(r"[\u3400-\u9fff]", title):
         return True
@@ -5374,19 +5981,57 @@ def _continuation_title(
 
     _ = count
     title_capacity = int(getattr(title_slot, "max_chars", 0) or 0)
+
+    def audience_ready(candidate: str) -> bool:
+        return bool(
+            str(candidate or "").strip()
+            and not _formula_like_title(candidate)
+            and not _title_is_incomplete(candidate)
+            and re.sub(r"\s+", "", candidate) not in {
+                re.sub(r"\s+", "", item)
+                for item in _GENERIC_TEACHING_PAGE_TITLES
+            }
+        )
+
+    def distinct_from_used(candidate: str, *, allow_suffix: bool = False) -> bool:
+        key = re.sub(r"\s+", "", str(candidate or "")).casefold()
+        if not key or key in used_title_keys:
+            return False
+        for used in used_title_keys:
+            shorter, longer = sorted((key, used), key=len)
+            if (
+                allow_suffix
+                and key.startswith(used)
+                and re.fullmatch(r"·(?:推导|续页|代码)\d+", key[len(used):])
+            ):
+                continue
+            if (
+                len(shorter) >= 8
+                and shorter in longer
+                and len(shorter) / max(1, len(longer)) >= 0.68
+            ):
+                return False
+        return True
+
     if index == 1:
         selected = title
-        if _formula_like_title(selected):
+        if not audience_ready(selected):
             selected = next(
                 (
                     candidate
-                    for candidate in _source_prose_claim_candidates(
-                        blocks,
-                        capacity=title_capacity,
-                    )
+                    for candidate in [
+                        *_source_prose_claim_candidates(
+                            blocks,
+                            capacity=title_capacity,
+                        ),
+                        *_continuation_title_candidates(
+                            blocks,
+                            capacity=title_capacity,
+                        ),
+                    ]
+                    if audience_ready(candidate)
                     if title_slot is None or _title_fits_slot(candidate, title_slot)
-                    if re.sub(r"\s+", "", candidate).casefold()
-                    not in used_title_keys
+                    if distinct_from_used(candidate)
                 ),
                 selected,
             )
@@ -5398,12 +6043,53 @@ def _continuation_title(
                     blocks,
                     capacity=title_capacity,
                 )
+                if audience_ready(candidate)
                 if title_slot is None or _title_fits_slot(candidate, title_slot)
-                if re.sub(r"\s+", "", candidate).casefold()
-                not in used_title_keys
+                if distinct_from_used(candidate)
             ),
             "",
         )
+        if not audience_ready(selected):
+            suffix = f"·推导{index - 1}"
+            base_candidates = [
+                *_source_prose_claim_candidates(
+                    blocks,
+                    capacity=title_capacity,
+                ),
+                *_continuation_title_candidates(
+                    blocks,
+                    capacity=title_capacity,
+                ),
+                str(title or "").strip(),
+            ]
+            selected = next(
+                (
+                    base
+                    for base in base_candidates
+                    if base
+                    if audience_ready(base)
+                    if title_slot is None
+                    or _title_fits_slot(base, title_slot)
+                    if distinct_from_used(base)
+                ),
+                "",
+            )
+            if not selected:
+                selected = next(
+                    (
+                        f"{base}{suffix}"
+                        for base in base_candidates
+                        if base
+                        if audience_ready(base)
+                        if title_slot is None
+                        or _title_fits_slot(f"{base}{suffix}", title_slot)
+                        if distinct_from_used(
+                            f"{base}{suffix}",
+                            allow_suffix=True,
+                        )
+                    ),
+                    "",
+                )
         if selected == "难度递进练习":
             subject = next(
                 (
@@ -5732,7 +6418,15 @@ def validate_layout_source_satisfiability(
         for block in source_blocks
         for kind in block_artifact_kinds(block)
     }
-    if source_artifacts and not source_artifacts.issubset(set(layout.artifact_kinds)):
+    if (
+        source_artifacts
+        and not source_artifacts.issubset(set(layout.artifact_kinds))
+        and not _layout_can_expand_heterogeneous_artifacts(
+            template=template,
+            layout=layout,
+            source_blocks=source_blocks,
+        )
+    ):
         raise V6BuildError(
             stage="template",
             code="template_layout_artifact_mismatch",
@@ -5891,8 +6585,14 @@ def story_safe_page_slices(
             for layout in template.layouts:
                 if teaching_intent not in layout.teaching_intents:
                     continue
-                if required_artifacts and not required_artifacts.issubset(
-                    set(layout.artifact_kinds)
+                if (
+                    required_artifacts
+                    and not required_artifacts.issubset(set(layout.artifact_kinds))
+                    and not _layout_can_expand_heterogeneous_artifacts(
+                        template=template,
+                        layout=layout,
+                        source_blocks=source_blocks,
+                    )
                 ):
                     continue
                 if not _layout_supports_required_slot_kinds(
@@ -6753,7 +7453,7 @@ def _source_driven_page_upper_bound(
                     continue
             return min(counts) if counts else max(
                 1,
-                len(_formula_candidates(block_source_text(block))),
+                len(_formula_candidates(_formula_canvas_text(block))),
             )
         if artifact_kind == "table":
             _headers, rows = _table_components(block_source_text(block))
@@ -6851,7 +7551,10 @@ def _materialize_ppt_page_specs_v1(
                 continuation_index,
                 continuation_count,
                 title_slot,
-                materialized_blocks,
+                [
+                    *materialized_blocks,
+                    *source_blocks,
+                ],
                 used_page_title_keys,
                 page_id=page_id,
             )
@@ -6879,12 +7582,22 @@ def _materialize_ppt_page_specs_v1(
                     and "data" in set(page_layout.artifact_kinds)
                 )
             )
+            native_continuation_decision = next(
+                (
+                    artifact
+                    for artifact in ("code", "formula", "table")
+                    if artifact in materialized_artifacts
+                    and artifact in set(page_layout.artifact_kinds)
+                ),
+                "",
+            )
             decision = planned_decision.model_copy(
                 update={
                     "page_id": page_id,
                     "decision": (
                         planned_decision.decision
-                        if retains_visual_decision else "text_native"
+                        if retains_visual_decision
+                        else native_continuation_decision or "text_native"
                     ),
                     "source_block_ids": materialized_source_ids,
                     "resolved_template_layout_id": page_layout.template_layout_id,

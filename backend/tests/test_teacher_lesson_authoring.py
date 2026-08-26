@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 
 import pytest
@@ -549,6 +550,146 @@ def test_teacher_script_repairs_unambiguous_math_but_still_rejects_code_fence():
     }
 
 
+def test_teacher_script_normalizes_split_matrix_shell_before_quality_gate():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "矩阵表示",
+        "module_plan": [{"module_id": "core_explanation"}],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "core_explanation"}],
+    }
+    contract = compile_teacher_script_module_contract(outline, plan)
+    title = contract["modules"][0]["title"]
+    compiled = compile_teacher_script_section(
+        (
+            f"## {title}\n\n增广矩阵写为：\n"
+            "$$\n\\left[\n$$\n"
+            "\\begin{array}{cc|c}\n1 & 0 & 2 \\\\n0 & 1 & 3\n\\end{array}\n"
+            "$$\n\\right]\n$$\n"
+            "矩阵的每一行都与原方程保持等价。"
+        ),
+        contract,
+    )
+
+    content = compiled["blocks"][0]["content"]
+    codes = {
+        item["code"]
+        for item in compiled["quality_report"]["blocking_issues"]
+    }
+    assert content.count("$$") == 2
+    assert "\\left[" in content and "\\begin{array}" in content
+    assert "\\right]" in content
+    assert "teacher_script:unwrapped_display_math_environment" not in codes
+    assert compiled["format_repairs"] == [{
+        "block_id": compiled["blocks"][0]["block_id"],
+        "repairs": ["normalize:display-math-shape"],
+    }]
+
+
+def test_teacher_script_quality_rejects_unwrapped_matrix_environment_checkpoint():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "矩阵表示",
+        "module_plan": [{"module_id": "core_explanation"}],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "core_explanation"}],
+    }
+    contract = compile_teacher_script_module_contract(outline, plan)
+    section = normalize_teacher_script_section({
+        "section_node_id": contract["section_node_id"],
+        "title": contract["title"],
+        "blocks": [{
+            **contract["modules"][0],
+            "content": (
+                "矩阵表示被拆开。$$\\left[$$\n"
+                "\\begin{array}{cc}1 & 0 \\\\ 0 & 1\\end{array}\n"
+                "$$\\right]$$，因此必须重新生成。"
+            ),
+        }],
+    }, contract)
+
+    codes = {
+        item["code"]
+        for item in validate_teacher_script_section(section, contract)[
+            "blocking_issues"
+        ]
+    }
+    assert "teacher_script:unwrapped_display_math_environment" in codes
+
+
+def test_teacher_script_quality_rejects_display_formula_that_swallows_prose():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "矩阵判断",
+        "module_plan": [{"module_id": "core_explanation"}],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "core_explanation"}],
+    }
+    contract = compile_teacher_script_module_contract(outline, plan)
+    section = normalize_teacher_script_section({
+        "section_node_id": contract["section_node_id"],
+        "title": contract["title"],
+        "blocks": [{
+            **contract["modules"][0],
+            "content": (
+                "任务示例如下。\n$$\n"
+                "\\begin{bmatrix}1 & 0 \\\\ 0 & 1\\end{bmatrix}\n"
+                "输出要求：圈出主元并写出判断依据。参考解法：逐行寻找首个非零元。"
+                "核对标准：主元位置严格右移；若出现矛盾行则判定无解。"
+                "这些解释必须位于公式之外。\n$$"
+            ),
+        }],
+    }, contract)
+
+    codes = {
+        item["code"]
+        for item in validate_teacher_script_section(section, contract)[
+            "blocking_issues"
+        ]
+    }
+    assert "teacher_script:prose_inside_display_math" in codes
+
+
+def test_teacher_script_compile_moves_task_prose_outside_display_formula():
+    outline = {
+        "node_id": "L2-1-1",
+        "node_name": "矩阵判断",
+        "module_plan": [{"module_id": "learner_action"}],
+    }
+    plan = {
+        "node_id": "L2-1-1",
+        "teaching_modules": [{"module_id": "learner_action"}],
+    }
+    contract = compile_teacher_script_module_contract(outline, plan)
+    title = contract["modules"][0]["title"]
+    compiled = compile_teacher_script_section(
+        (
+            f"## {title}\n\n任务条件：判断矩阵的主元。\n\n$$\n"
+            "A=\\begin{bmatrix}1 & 0 \\\\ 0 & 1\\end{bmatrix}\n\n"
+            "输出要求：圈出主元并说明依据。\n"
+            "参考解法：逐行寻找首个非零元，再核对其下方是否全零。"
+            "验收标准：结论、依据与边界完整。\n$$"
+        ),
+        contract,
+    )
+
+    content = compiled["blocks"][0]["content"]
+    display_body = re.search(r"\$\$([\s\S]*?)\$\$", content).group(1)
+    assert "输出要求" not in display_body
+    assert "输出要求" in content and "参考解法" in content
+    assert compiled["quality_report"]["passed"] is True
+    assert compiled["format_repairs"] == [{
+        "block_id": compiled["blocks"][0]["block_id"],
+        "repairs": ["normalize:display-math-prose-boundary"],
+    }]
+
+
 def test_teacher_script_blocks_placeholder_repetition_and_shallow_full_lesson():
     sections = []
     for index in range(1, 5):
@@ -589,6 +730,42 @@ def test_teacher_script_blocks_placeholder_repetition_and_shallow_full_lesson():
         "teacher_script:placeholder_content",
         "teacher_script:repetitive_blocks",
         "teacher_script:lesson_too_shallow",
+    }
+
+
+def test_teacher_script_does_not_treat_distinct_matrices_as_repeated_prose():
+    sections = []
+    for index, matrix in enumerate((
+        "1 & 0 & 2 \\\\ 0 & 1 & 3",
+        "1 & 2 & 4 \\\\ 0 & 0 & 5",
+        "2 & 1 & 0 \\\\ 0 & 3 & 6",
+    ), start=1):
+        sections.append({
+            "schema_version": "teacher_script_v2",
+            "pipeline_version": SCRIPT_PIPELINE_VERSION,
+            "section_node_id": f"matrix-{index}",
+            "quality_report": {
+                "schema_version": SCRIPT_QUALITY_VERSION,
+                "pipeline_version": SCRIPT_PIPELINE_VERSION,
+                "passed": True,
+                "blocking_issues": [],
+                "review_issues": [],
+            },
+            "blocks": [{
+                "block_id": f"matrix-block-{index}",
+                "title": f"矩阵 {index}",
+                "planned_minutes": 1,
+                "content": f"$$\\begin{{bmatrix}} {matrix} \\end{{bmatrix}}$$",
+            }],
+        })
+
+    report = validate_teacher_script_revision(
+        sections,
+        generation_source="model_block_pipeline",
+    )
+
+    assert "teacher_script:repetitive_blocks" not in {
+        item["code"] for item in report["blocking_issues"]
     }
 
 
@@ -759,6 +936,44 @@ def test_teacher_script_service_generates_neutral_course_body(monkeypatch):
     assert captured["kwargs"]["enable_thinking"] is False
     assert captured["kwargs"]["max_attempts"] == 2
     assert captured["kwargs"]["reject_truncated"] is True
+
+
+def test_teacher_script_service_exposes_checkable_activity_structure(monkeypatch):
+    service = CourseService()
+    prompts = []
+
+    async def fake_call(_user_prompt, system_prompt, **_kwargs):
+        prompts.append(system_prompt)
+        return (
+            "## 学习者行动\n\n"
+            "任务条件：给定一个包含边界情形的判断题，写出使用的定义与成立条件。"
+            "参考解法：先核对对象与条件，再给出结果。验收标准：结论、依据和边界三项齐全。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="course-activity-contract",
+        outline_section={
+            "node_id": "L2-1-1",
+            "node_name": "1.1 核心概念",
+            "module_plan": [{
+                "module_id": "learner_action",
+                "label": "学习者行动",
+            }],
+        },
+        confirmed_plan_section={
+            "node_id": "L2-1-1",
+            "teaching_modules": [{
+                "module_id": "learner_action",
+                "planned_minutes": 4,
+            }],
+        },
+    ))
+
+    assert result["quality_report"]["passed"] is True
+    assert "任务条件" in prompts[0]
+    assert "参考解法" in prompts[0]
+    assert "验收标准" in prompts[0]
 
 
 def test_teacher_script_rejects_textbook_length_block():
@@ -1009,6 +1224,209 @@ def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
 
     assert completed["status"] == "completed", completed.get("error")
     assert generated == ["core_explanation"]
+
+
+def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"] = [
+        {
+            "module_id": "lesson_goal",
+            "planned_minutes": 3,
+            "teaching_purpose": "明确本节任务",
+            "knowledge_names": ["核心概念"],
+        },
+        {
+            "module_id": "learner_action",
+            "planned_minutes": 4,
+            "teaching_purpose": "完成课堂任务",
+            "knowledge_names": ["核心概念"],
+        },
+        {
+            "module_id": "feedback_check",
+            "planned_minutes": 3,
+            "teaching_purpose": "核对结果",
+            "knowledge_names": ["核心概念"],
+        },
+    ]
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report={"passed": True},
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": "lesson_goal", "label": "本节任务"},
+            {"module_id": "learner_action", "label": "学习者行动"},
+            {"module_id": "feedback_check", "label": "检查与反馈"},
+        ],
+    }
+    contract = compile_teacher_script_module_contract(
+        outline_section,
+        plan["sections"][0],
+    )
+    by_module = {
+        item["module_id"]: item for item in contract["modules"]
+    }
+    seed_sections = [{
+        "section_node_id": "L2-1-1",
+        "blocks": [
+            {
+                **by_module["lesson_goal"],
+                "content": "本节先明确核心概念的判断目标、适用条件和最终可检查的课堂产出。",
+                "generation_source": "model",
+            },
+            {
+                **by_module["learner_action"],
+                "content": compile_teacher_script_fallback_content(
+                    by_module["learner_action"]
+                ),
+                "generation_source": "local_recovery",
+            },
+            {
+                **by_module["feedback_check"],
+                "content": "反馈阶段逐项核对结论、推理依据和边界，指出错误后要求学习者重新说明理由。",
+                "generation_source": "model",
+            },
+        ],
+    }]
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-resume-middle",
+    )
+    generated = []
+
+    async def generator(_outline, _plan, module, _completed):
+        generated.append(module["module_id"])
+        return "学习者独立分析一个新情境，写出判断结论、使用依据和结果检查，并与同伴比较差异。"
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=generator,
+        seed_sections=seed_sections,
+    ))
+
+    assert completed["status"] == "completed", completed.get("error")
+    assert generated == ["learner_action"]
+    revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
+    blocks = revision["sections"][0]["blocks"]
+    assert [item["module_id"] for item in blocks] == [
+        "lesson_goal",
+        "learner_action",
+        "feedback_check",
+    ]
+    assert [item["generation_source"] for item in blocks] == [
+        "model",
+        "model",
+        "model",
+    ]
+
+
+def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    service = TeacherLessonAuthoringService(repository)
+    plan = standard_lesson_plan()
+    plan["sections"][0]["teaching_modules"] = [
+        {
+            "module_id": "lesson_goal",
+            "planned_minutes": 2,
+            "teaching_purpose": "明确目标",
+            "knowledge_names": ["核心概念"],
+        },
+        {
+            "module_id": "core_explanation",
+            "planned_minutes": 3,
+            "teaching_purpose": "解释概念",
+            "knowledge_names": ["核心概念"],
+        },
+        {
+            "module_id": "feedback_check",
+            "planned_minutes": 2,
+            "teaching_purpose": "核对结论",
+            "knowledge_names": ["核心概念"],
+        },
+    ]
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report={"passed": True},
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    outline_section = {
+        "node_id": "L2-1-1",
+        "node_name": "1.1 核心概念",
+        "module_plan": [
+            {"module_id": "lesson_goal", "label": "本节任务"},
+            {"module_id": "core_explanation", "label": "核心教学"},
+            {"module_id": "feedback_check", "label": "检查与反馈"},
+        ],
+    }
+    contract = compile_teacher_script_module_contract(
+        outline_section,
+        plan["sections"][0],
+    )
+    repeated = "概念需要同时说明定义、成立条件与适用边界，并通过正例和反例逐项核对判断标准。"
+    seed_sections = [{
+        "section_node_id": "L2-1-1",
+        "title": "1.1 核心概念",
+        "blocks": [
+            {**module, "content": repeated, "generation_source": "model"}
+            for module in contract["modules"]
+        ],
+    }]
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id="script-resume-repetition",
+    )
+    generated = []
+    replacements = {
+        "core_explanation": "核心概念由对象、成立条件和适用边界共同界定；正例验证条件，反例负责暴露边界。",
+        "feedback_check": "核对时先检查对象是否满足条件，再比较结论与边界；若判断错误，必须指出具体违反哪一项。",
+    }
+
+    async def generator(_outline, _plan, module, completed):
+        generated.append(module["module_id"])
+        assert [item["module_id"] for item in completed] == [
+            item["module_id"] for item in contract["modules"]
+            if item["module_id"] == "lesson_goal"
+            or item["module_id"] in generated[:-1]
+        ]
+        return replacements[module["module_id"]]
+
+    completed = asyncio.run(service.run_script_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        source_plan_revision_id=plan_revision,
+        outline_sections=[outline_section],
+        plan_sections={"L2-1-1": plan["sections"][0]},
+        generator=generator,
+        seed_sections=seed_sections,
+    ))
+
+    assert completed["status"] == "completed", completed.get("error")
+    assert generated == ["core_explanation", "feedback_check"]
+    revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
+    assert revision["quality_report"]["passed"] is True
 
 
 def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):

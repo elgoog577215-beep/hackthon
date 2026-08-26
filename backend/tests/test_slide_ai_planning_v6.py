@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 import slide_ai_planning_v6 as planning_module
-from ai_base import AIProviderUnavailable
+from ai_base import AIProviderRequestError, AIProviderUnavailable
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_presentation_graph import (
     compile_course_presentation_graph,
@@ -1082,6 +1082,42 @@ def test_story_model_request_preflight_compacts_oversized_chapter_without_losing
     )
     assert len(model_unit["safe_partition_options"]) <= 2
     assert len(model_request["repair_feedback"]["instruction"]) < 320
+
+
+def test_story_model_request_compacts_large_repair_diagnostics_to_provider_budget() -> None:
+    document = _document(with_code=True)
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    full_request = planning_module._story_requests(graph, template)[0]
+    unit = full_request["teaching_units"][0]
+    full_request["repair_feedback"] = {
+        "attempt": 2,
+        "code": "story_title_incomplete",
+        "message": "标题被截断",
+        "repair_targets": [{
+            "page_id": "page-1",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "required_title": unit["title_candidates"][0],
+            "available_title_candidates": unit["title_candidates"],
+            "primary_blocks": [
+                {"source_text": "重复完整讲稿" * 8000}
+            ],
+            "safe_page_slices": [{"source_text": "重复切分页" * 6000}],
+            "safe_partition_options": unit["safe_partition_options"] * 100,
+            "allowed_protected_tokens": [f"token{index}" for index in range(8000)],
+        }],
+        "instruction": "重复修复说明" * 5000,
+    }
+
+    model_request = planning_module._story_model_request(full_request)
+    repair_target = model_request["repair_feedback"]["repair_targets"][0]
+
+    assert len(json.dumps(model_request, ensure_ascii=False)) <= 20000
+    assert repair_target["required_title"] == unit["title_candidates"][0]
+    assert "primary_blocks" not in repair_target
+    assert "safe_page_slices" not in repair_target
+    assert "safe_partition_options" not in repair_target
+    assert "allowed_protected_tokens" not in repair_target
 
 
 def test_story_model_request_keeps_balanced_partition_for_each_page_count() -> None:
@@ -2269,6 +2305,68 @@ async def test_shared_ai_visual_planner_compiles_degraded_source_bound_decisions
 
 
 @pytest.mark.asyncio
+async def test_shared_ai_visual_planner_uses_smart_pool_when_fast_models_unavailable(
+    monkeypatch,
+) -> None:
+    calls: list[bool] = []
+
+    class RecoveringSharedAI:
+        def __init__(self, *, provider_profile=None):
+            assert provider_profile == "ppt"
+
+        async def _call_llm(
+            self,
+            *_args,
+            use_fast_model,
+            telemetry_sink,
+            **_kwargs,
+        ):
+            calls.append(use_fast_model)
+            if use_fast_model:
+                raise AIProviderRequestError(
+                    "Model id : retired-fast-model , has no provider supported"
+                )
+            telemetry_sink({
+                "provider_route": "smart-pool",
+                "model_id": "smart-visual-model",
+                "provider_attempt": 1,
+                "status": "completed",
+            })
+            return json.dumps({
+                "schema_version": "slide_visual_batch_response_v2",
+                "decisions": [{
+                    "page_id": "page-formula",
+                    "decision": "formula",
+                    "source_block_ids": ["block-formula"],
+                    "resolved_template_layout_id": "layout-formula",
+                }],
+            })
+
+        @staticmethod
+        def _extract_json(value):
+            return json.loads(value)
+
+    monkeypatch.setattr(planning_module, "AIBase", RecoveringSharedAI)
+    planner = build_ai_base_visual_planner_v2()
+
+    response = await planner({
+        "schema_version": "slide_visual_batch_request_v2",
+        "chapter_id": "chapter-a",
+        "pages": [{
+            "page_id": "page-formula",
+            "template_layout_id": "layout-formula",
+            "source_block_ids": ["block-formula"],
+            "allowed_decisions": ["formula"],
+            "source_asset_ids": [],
+        }],
+    })
+
+    assert calls == [True, False]
+    assert response["model"] == "smart-visual-model"
+    assert response["decisions"][0]["decision"] == "formula"
+
+
+@pytest.mark.asyncio
 async def test_story_batch_retries_a_template_contract_violation_before_failing() -> None:
     document = _document()
     graph = compile_course_presentation_graph(document, teaching_plan={})
@@ -2483,6 +2581,114 @@ async def test_story_batch_requires_an_exact_source_title_during_repair() -> Non
     assert repair_feedback["code"] == "story_unsupported_title"
     assert target["required_title"] in target["available_title_candidates"]
     assert story.pages[0].title == target["required_title"]
+
+
+def test_story_title_repair_never_requires_internal_module_label() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="matrix-title-repair",
+        title="线性代数",
+        sections=[CourseSection(
+            section_id="matrix",
+            title="增广矩阵与解的类型",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="matrix-task",
+            section_id="matrix",
+            position=0,
+            kind="rich_text",
+            role="activity",
+            payload={
+                "title": "学习者行动",
+                "markdown": (
+                    "任务条件：根据增广矩阵圈出主元并判断线性方程组解的类型。"
+                    "参考解法：先检查矛盾行，再比较主元数与未知数个数。"
+                ),
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    request = planning_module._story_requests(graph, template)[0]
+    unit = request["teaching_units"][0]
+    payload = {
+        "schema_version": "slide_story_batch_response_v3",
+        "chapter_id": request["chapter_id"],
+        "pages": [{
+            "page_id": "generic-module-title",
+            "teaching_unit_id": unit["teaching_unit_id"],
+            "template_layout_id": unit["allowed_template_layout_ids"][0],
+            "title": "学习者行动",
+            "summary": "",
+            "source_block_ids": unit["primary_block_ids"],
+        }],
+    }
+    error = V6BuildError(
+        stage="story",
+        code="story_title_lacks_specificity",
+        message="module label is not a teaching subject",
+        page_id="generic-module-title",
+    )
+
+    targets = planning_module._story_repair_targets(request, payload, error)
+
+    assert targets[0]["required_title"] != "学习者行动"
+    assert "学习者行动" not in targets[0]["available_title_candidates"]
+    assert "增广矩阵" in targets[0]["required_title"]
+
+
+@pytest.mark.asyncio
+async def test_story_normalization_projects_generic_module_title_to_source_subject() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="matrix-title-projection",
+        title="线性代数",
+        sections=[CourseSection(
+            section_id="matrix",
+            title="增广矩阵与解的类型",
+            position=0,
+        )],
+        blocks=[CourseBlock(
+            block_id="matrix-feedback",
+            section_id="matrix",
+            position=0,
+            kind="rich_text",
+            role="feedback",
+            payload={
+                "title": "检查与反馈",
+                "markdown": (
+                    "核对标准：检查缺失变量是否以零占位。"
+                    "典型错误：省略零系数会破坏增广矩阵的列对应关系。"
+                    "修正原因：每一列必须对应固定变量。"
+                ),
+            },
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    calls = []
+
+    async def planner(request):
+        calls.append(request)
+        unit = request["teaching_units"][0]
+        partition_page = unit["safe_partition_options"][0]["pages"][0]
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "pages": [{
+                "page_id": "generic-feedback-title",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": partition_page["template_layout_ids"][0],
+                "title": "检查与反馈",
+                "summary": "",
+                "source_block_ids": partition_page["source_block_ids"],
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert len(calls) == 1
+    assert story.pages[0].title != "检查与反馈"
+    assert any(term in story.pages[0].title for term in ("缺失变量", "零占位", "零系数"))
 
 
 @pytest.mark.asyncio
@@ -4015,6 +4221,60 @@ async def test_story_contract_projects_repeated_invalid_grouping_to_one_safe_par
 
 
 @pytest.mark.asyncio
+async def test_story_projects_an_overdense_valid_partition_to_classroom_density() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="dense-story-course",
+        title="可靠流程",
+        sections=[CourseSection(
+            section_id="dense-section",
+            title="从输入到校验",
+            position=0,
+        )],
+        blocks=[
+            CourseBlock(
+                block_id=f"dense-block-{index}",
+                section_id="dense-section",
+                position=index,
+                role="concept",
+                payload={"markdown": f"流程要点{index + 1}必须在执行后保留可检查结果。"},
+            )
+            for index in range(7)
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    async def planner(request):
+        unit = request["teaching_units"][0]
+        source_ids = list(unit["primary_block_ids"])
+        return {
+            "schema_version": "slide_story_batch_response_v3",
+            "chapter_id": request["chapter_id"],
+            "provider": "density-fixture",
+            "model": "generic-model",
+            "attempts": 1,
+            "pages": [{
+                "page_id": "overdense-but-template-safe",
+                "teaching_unit_id": unit["teaching_unit_id"],
+                "template_layout_id": _layout_for_request_blocks(unit, source_ids),
+                "title": _title_for_request_blocks(unit, source_ids),
+                "summary": "",
+                "source_block_ids": source_ids,
+            }],
+        }
+
+    story = await plan_slide_story_v3(graph, template, ai_planner=planner)
+
+    assert [
+        block_id
+        for page in story.pages
+        for block_id in page.source_block_ids
+    ] == [f"dense-block-{index}" for index in range(7)]
+    assert max(len(page.source_block_ids) for page in story.pages) <= 3
+    assert len(story.pages) >= 3
+
+
+@pytest.mark.asyncio
 async def test_story_repartitions_when_required_template_slots_lack_source_roles() -> None:
     """A role-complete template cannot be used for isolated semantic fragments."""
 
@@ -4203,6 +4463,8 @@ def test_semantic_fidelity_failure_requires_a_safe_unit_repartition() -> None:
     assert target["repartition_required"] is True
     assert target["repartition_scope"] == "teaching_unit"
     assert target["source_projection_safe"] is True
+    assert target["force_required_partition"] is True
+    assert target["clear_provider_summary"] is True
     assert target["required_safe_partition"]["pages"]
     assert all(
         any(

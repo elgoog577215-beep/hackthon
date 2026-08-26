@@ -19,6 +19,7 @@ from slide_deck_v6 import (
     SlideVisualPlanV2,
     V6BuildError,
     _audience_ready_title_fragment,
+    _artifact_free_prose_text,
     _bounded_slot_content,
     _bounded_source_title_windows,
     _compile_course_agenda_pages,
@@ -26,8 +27,13 @@ from slide_deck_v6 import (
     _continuation_title_candidates,
     _display_excerpt,
     _ellipsis_maps_to_frozen_source,
+    _formula_visual_line_count,
+    _formula_candidates,
+    _formula_canvas_text,
     _ppt_manuscript_quality_issues,
     _protected_tokens,
+    _split_artifact_block,
+    _title_is_incomplete,
     build_signature_v6,
     classify_v6_failure,
     compile_ppt_manuscript_v1,
@@ -42,7 +48,8 @@ from slide_deck_v6 import (
     validate_slide_visual_plan_v2,
     validate_deck_matches_ppt_manuscript_v1,
 )
-from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec
+from slide_deck_renderer import audit_exported_pptx
+from slide_deck_v6_renderer import adapt_v6_page_to_slide_spec, export_slide_deck_v6_pptx
 from template_layout_contract import compile_builtin_template_layout_contract_v1
 
 
@@ -86,6 +93,141 @@ def test_continuation_title_projection_removes_production_language() -> None:
     assert _audience_ready_title_fragment("提供一组难度递进的题目") == "难度递进练习"
     assert _audience_ready_title_fragment("用几何直观建立行列式") == "行列式的几何直观"
     assert _audience_ready_title_fragment("选取一个二阶可逆矩阵") == "二阶可逆矩阵示例"
+
+
+def test_continuation_title_candidates_exclude_internal_structure_labels() -> None:
+    block = _block(
+        "vector-task",
+        "lesson-1",
+        0,
+        role="activity",
+        text=(
+            "任务条件：已知两个同维向量，逐分量完成加法。"
+            "维数不同的向量不能相加。"
+        ),
+    )
+
+    candidates = _continuation_title_candidates([block], capacity=36)
+
+    assert "任务条件" not in candidates
+    assert "维数不同的向量不能相加" in candidates
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "已知三维向量 mathbf u=(2",
+        "与 (-1",
+        "将增广矩阵",
+        "表示‘把第二行的 -frac32 倍加到第三行’",
+        "因此 Ax=b 等价于对每个 i=1,2,3 都有",
+        "虽然包含相同的三个数",
+        "以核验行序、列序、零系数、负号和常数",
+        "b 均为 3×1",
+        "列序一旦确定",
+        "其中主元 a=2，倍加系数由 b+ca=0 得",
+        "却表示不同的向量",
+        "且 Ax=b",
+        "未知数列序改为 z",
+        "其中 A 为 3×3",
+    ],
+)
+def test_title_quality_rejects_truncated_or_raw_math_fragments(title: str) -> None:
+    assert _title_is_incomplete(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "将增广矩阵化为行阶梯形",
+        "把第二行的负三分之二倍加到第三行",
+        "维数不同的向量不能相加",
+    ],
+)
+def test_title_quality_keeps_complete_audience_ready_claims(title: str) -> None:
+    assert not _title_is_incomplete(title)
+
+
+def test_artifact_free_prose_uses_frozen_formula_fences_not_projection() -> None:
+    block = CourseBlock(
+        block_id="matrix-task",
+        section_id="section-a",
+        position=0,
+        role="activity",
+        kind="rich_text",
+        payload={
+            "markdown": (
+                "任务条件：给定增广矩阵。\n\n"
+                "$$\n\\begin{bmatrix}1&2\\\\0&1\\end{bmatrix}\n$$\n\n"
+                "输出要求：标出主元位置。"
+            ),
+            "slide_visible_text": (
+                "任务条件：给定增广矩阵。\n"
+                "\\begin{bmatrix}1&2\\\\0&1\\end{bmatrix}\n"
+                "输出要求：标出主元位置。"
+            ),
+        },
+    )
+
+    prose = _artifact_free_prose_text(block)
+
+    assert "任务条件：给定增广矩阵。" in prose
+    assert "输出要求：标出主元位置。" in prose
+    assert "begin{bmatrix}" not in prose
+    assert "$$" not in prose
+
+
+def test_formula_canvas_uses_presentation_text_while_notes_keep_full_source() -> None:
+    block = CourseBlock(
+        block_id="three-matrices",
+        section_id="section-a",
+        position=0,
+        role="activity",
+        kind="rich_text",
+        payload={
+            "markdown": (
+                "$$A=\\begin{bmatrix}1&0\\\\0&1\\end{bmatrix}$$\n"
+                "$$B=\\begin{bmatrix}2&0\\\\0&2\\end{bmatrix}$$\n"
+                "$$C=\\begin{bmatrix}3&0\\\\0&3\\end{bmatrix}$$"
+            ),
+            "slide_visible_text": (
+                "$$A=\\begin{bmatrix}1&0\\\\0&1\\end{bmatrix}$$"
+            ),
+        },
+    )
+
+    chunks = _split_artifact_block(
+        block,
+        slot_kind="formula",
+        max_chars=240,
+        max_lines=8,
+        max_rows=0,
+    )
+
+    assert len(chunks) == 1
+    assert "A=" in block_source_text(chunks[0])
+    assert "B=" not in block_source_text(chunks[0])
+    assert "B=" in block_source_text(block)
+
+
+def test_formula_canvas_restores_first_frozen_display_when_projection_is_prose() -> None:
+    block = CourseBlock(
+        block_id="objective-with-formula",
+        section_id="section-a",
+        position=0,
+        role="objective",
+        kind="rich_text",
+        payload={
+            "markdown": "目标是识别结构。\n$$A=1$$\n$$B=2$$",
+            "slide_visible_text": "目标是识别结构。",
+        },
+    )
+
+    canvas = _formula_canvas_text(block)
+
+    assert canvas == "$$A=1$$"
+    assert "B=2" not in canvas
+    assert "B=2" in block_source_text(block)
 
 
 def test_continuation_title_compacts_a_long_formula_chain() -> None:
@@ -398,6 +540,189 @@ def test_template_safe_story_budget_supports_steps_with_characteristic_artifacts
         "steps",
         artifact_kind,
     }
+
+
+def test_story_and_visual_contract_accept_one_atomic_table_formula_block(tmp_path) -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="linear-algebra-mixed-artifact",
+        title="线性代数",
+        sections=[CourseSection(
+            section_id="vectors",
+            title="向量的表示",
+            position=0,
+        )],
+        blocks=[_block(
+            "vector-representations",
+            "vectors",
+            0,
+            role="concept",
+            text=(
+                "索引表与公式描述同一向量，核验时必须保持维数、索引和分量逐项对应。\n\n"
+                "| 索引 $i$ | 1 | 2 | 3 |\n"
+                "|---|---:|---:|---:|\n"
+                "| 分量 $x_i$ | 2 | -1 | 4 |\n\n"
+                "$$y_1=-1,\\quad y_2=1,\\quad y_3=3,\\quad y_4=5$$"
+            ),
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+    unit = graph.units[0]
+    safe_slices = story_safe_page_slices(unit, template)
+    complete_slice = next(
+        item for item in safe_slices
+        if item["source_block_ids"] == unit.primary_block_ids
+    )
+    layout_id = template.layout_id("evidence-table")
+
+    assert story_page_count_range(unit, template) == [1, 1]
+    assert layout_id in complete_slice["template_layout_ids"]
+
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="story-mixed-artifact",
+            chapter_id="vectors",
+            provider="fixture-pool",
+            model="fixture-story",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=[SlideStoryPageV3(
+                page_id="vector-representations-page",
+                teaching_unit_id=unit.teaching_unit_id,
+                template_layout_id=layout_id,
+                title="索引与分量逐项对应",
+                source_block_ids=unit.primary_block_ids,
+                page_ordinal=0,
+            )],
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id="vector-representations-page",
+            decision="table",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        )],
+    )
+
+    validate_slide_story_plan_v3(story, graph, template)
+    validate_slide_visual_plan_v2(visual, story, graph, template)
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert [page.resolved_layout.rsplit("/", 1)[-1] for page in deck.pages] == [
+        "evidence-table",
+        "evidence-formula",
+    ]
+    assert [
+        region.content_kind
+        for page in deck.pages
+        for region in page.regions
+        if region.content_kind in {"table", "formula"}
+    ] == ["table", "formula"]
+    assert [page.visual_decision.decision for page in deck.pages] == [
+        "table",
+        "formula",
+    ]
+    output = export_slide_deck_v6_pptx(
+        deck,
+        tmp_path / "mixed-table-formula.pptx",
+    )
+    render_review = audit_exported_pptx(
+        output,
+        expected_slide_count=len(deck.pages),
+    )
+    assert render_review["passed"], render_review["blockers"]
+
+
+def test_multiline_matrix_uses_rendered_rows_for_template_safe_pagination() -> None:
+    formula = (
+        "$$\n"
+        "\\begin{bmatrix}\n"
+        "2 & 3 & -1 \\\\n"
+        "1 & -1 & 0 \\\\n"
+        "0 & 4 & 5\n"
+        "\\end{bmatrix}\n"
+        "$$"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="matrix-rendered-row-budget",
+        title="矩阵公式分页",
+        sections=[CourseSection(
+            section_id="matrix",
+            title="矩阵表示",
+            position=0,
+        )],
+        blocks=[_block(
+            "matrix-formula",
+            "matrix",
+            0,
+            role="concept",
+            text=f"三元方程组的系数矩阵如下。\n\n{formula}",
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    assert _formula_visual_line_count(formula) == 3
+    assert story_page_count_range(graph.units[0], template) == [1, 1]
+    assert story_safe_page_slices(graph.units[0], template)
+
+
+def test_multiple_named_matrices_split_only_at_matrix_boundaries() -> None:
+    formula = (
+        "$$\n"
+        "A=\\begin{bmatrix}1&0&2\\\\0&1&3\\end{bmatrix},\\quad\n"
+        "B=\\begin{bmatrix}1&2&4\\\\0&0&5\\end{bmatrix},\\quad\n"
+        "C=\\begin{bmatrix}2&1&0\\\\0&3&6\\end{bmatrix}\n"
+        "$$"
+    )
+
+    candidates = _formula_candidates(formula)
+
+    assert len(candidates) == 3
+    assert all(candidate.count("\\begin{bmatrix}") == 1 for candidate in candidates)
+    assert [label in candidate for label, candidate in zip("ABC", candidates)] == [
+        True,
+        True,
+        True,
+    ]
+
+
+def test_symbolic_four_row_augmented_matrix_fits_formula_template() -> None:
+    formula = (
+        "$$\n\\left[\n\\begin{array}{cccc|c}\n"
+        "a_{11} & a_{12} & \\cdots & a_{1n} & b_1 \\\\n"
+        "a_{21} & a_{22} & \\cdots & a_{2n} & b_2 \\\\n"
+        "\\vdots & \\vdots & \\ddots & \\vdots & \\vdots \\\\n"
+        "a_{m1} & a_{m2} & \\cdots & a_{mn} & b_m\n"
+        "\\end{array}\n\\right]\n$$"
+    )
+    document = refresh_document_revision(CourseDocument(
+        course_id="symbolic-augmented-matrix-budget",
+        title="符号增广矩阵",
+        sections=[CourseSection(
+            section_id="matrix",
+            title="一般形式",
+            position=0,
+        )],
+        blocks=[_block(
+            "symbolic-matrix",
+            "matrix",
+            0,
+            role="concept",
+            text=f"增广矩阵的一般形式如下。\n\n{formula}",
+        )],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("qizhi-classroom")
+
+    assert _formula_visual_line_count(formula) == 4
+    assert story_page_count_range(graph.units[0], template) == [1, 1]
 
 
 @pytest.mark.parametrize(
@@ -1124,6 +1449,125 @@ def test_manuscript_quality_rejects_production_instructions_as_titles() -> None:
 
     assert any(
         issue.code == "ppt_manuscript_title_not_audience_ready"
+        for issue in issues
+    )
+
+
+def test_manuscript_quality_allows_progressive_matrices_in_one_continuation_family() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="table" if page.template_layout_id.endswith("/evidence-table") else "text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    base = manuscript.pages[0]
+    first_formula = "$$\\begin{bmatrix}1&-1&2\\\\0&2&4\\\\0&4&8\\end{bmatrix}$$"
+    next_formula = "$$\\begin{bmatrix}1&-1&2\\\\0&2&4\\\\0&0&0\\end{bmatrix}$$"
+    formula_region = base.regions[0].model_copy(update={
+        "content_kind": "formula",
+        "content": first_formula,
+    })
+    body_region = base.regions[0].model_copy(update={
+        "slot_id": "body",
+        "content_kind": "body",
+        "content": "第二行主元保持不变，只消去第三行对应元素。",
+    })
+    previous = base.model_copy(update={
+        "page_id": "derivation",
+        "visible_copy": [first_formula, body_region.content],
+        "regions": [formula_region, body_region],
+        "continuation_count": 2,
+    })
+    current = base.model_copy(update={
+        "page_id": "derivation--continuation-2",
+        "visible_copy": [next_formula],
+        "regions": [formula_region.model_copy(update={"content": next_formula})],
+        "continuation_of_page_id": "",
+        "continuation_index": 2,
+        "continuation_count": 2,
+    })
+
+    issues = _ppt_manuscript_quality_issues([previous, current])
+
+    assert not any(
+        issue.code == "ppt_manuscript_adjacent_content_repeated"
+        for issue in issues
+    )
+
+    duplicated = current.model_copy(update={
+        "visible_copy": [first_formula],
+        "regions": [formula_region],
+    })
+    duplicate_issues = _ppt_manuscript_quality_issues([previous, duplicated])
+    assert any(
+        issue.code == "ppt_manuscript_adjacent_content_repeated"
+        for issue in duplicate_issues
+    )
+
+
+def test_manuscript_quality_allows_formula_prompt_followed_by_explanation() -> None:
+    document = _cross_subject_document()
+    graph, template, story = _valid_story(document)
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=[SlideVisualDecisionV2(
+            page_id=page.page_id,
+            decision="table" if page.template_layout_id.endswith("/evidence-table") else "text_native",
+            source_block_ids=page.source_block_ids,
+            resolved_template_layout_id=page.template_layout_id,
+        ) for page in story.pages],
+    )
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+    base = manuscript.pages[0]
+    formula = "$$\\begin{bmatrix}0&3&-2\\\\2&-1&4\\\\0&6&-4\\end{bmatrix}$$"
+    formula_region = base.regions[0].model_copy(update={
+        "content_kind": "formula",
+        "content": formula,
+    })
+    explanation = (
+        "首列主元为零时必须先交换行，使首行获得非零主元，"
+        "再按主元从左至右的顺序消去下方元素并复核阶梯结构。"
+    )
+    body_region = base.regions[0].model_copy(update={
+        "slot_id": "body",
+        "content_kind": "body",
+        "content": explanation,
+    })
+    prompt = base.model_copy(update={
+        "page_id": "prompt",
+        "visible_copy": [formula],
+        "regions": [formula_region],
+    })
+    feedback = base.model_copy(update={
+        "page_id": "feedback",
+        "visible_copy": [formula, explanation],
+        "regions": [formula_region, body_region],
+    })
+
+    issues = _ppt_manuscript_quality_issues([prompt, feedback])
+
+    assert not any(
+        issue.code == "ppt_manuscript_adjacent_content_repeated"
         for issue in issues
     )
 

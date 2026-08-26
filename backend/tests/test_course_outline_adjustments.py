@@ -175,6 +175,26 @@ def test_targeted_editorial_operation_can_update_scope_and_assessment():
     assert updated["assessment"] == node["assessment"]
 
 
+def test_section_only_adjustment_preserves_chapter_learning_focus() -> None:
+    draft = _draft()
+    chapter = draft["nodes"][0]
+    chapter.pop("learning_objective")
+    chapter["learning_focus"] = "建立场景、对象与脚本生命周期之间的完整关系"
+
+    adjusted = apply_outline_operations(
+        draft,
+        [{
+            "op": "update_node",
+            "node_ref": "L2-1-2",
+            "learning_objective": "根据执行时机选择正确的生命周期入口",
+        }],
+    )["draft"]
+
+    compiled_chapter = adjusted["course_outline"]["chapters"][0]
+    assert compiled_chapter["learning_focus"] == chapter["learning_focus"]
+    assert compiled_chapter["learning_objective"] == chapter["learning_focus"]
+
+
 def test_recompile_replaces_stale_numeric_prefixes_in_every_projection():
     draft = _draft()
     draft["nodes"][0]["node_name"] = "第7章 基础"

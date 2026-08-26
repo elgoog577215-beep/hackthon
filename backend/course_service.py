@@ -6039,6 +6039,11 @@ class CourseService(AIBase):
 
         for chapter in plan.get("chapters", []):
             chapter_num = chapter.get("chapter_number", len(nodes) + 1)
+            chapter_learning_focus = str(
+                chapter.get("learning_focus")
+                or chapter.get("learning_objective")
+                or ""
+            ).strip()
 
             nodes.append({
                 "node_id": f"L1-{chapter_num}",
@@ -6052,7 +6057,8 @@ class CourseService(AIBase):
                 "node_content": "",
                 "content_blocks": [],
                 "node_type": "original",
-                "learning_focus": chapter.get("learning_focus", ""),
+                "learning_focus": chapter_learning_focus,
+                "learning_objective": chapter_learning_focus,
                 "learning_path_role": chapter.get(
                     "learning_path_role", "standard"
                 ),
@@ -6575,6 +6581,14 @@ class CourseService(AIBase):
 
         module_lines = []
         for index, module in enumerate(modules, start=1):
+            role = str(module.get("role") or "")
+            role_structure = (
+                "硬性结构：正文必须明确出现“任务条件”与“参考解法”或“验收标准”，并分别写出具体内容"
+                if role == "activity"
+                else "硬性结构：正文必须明确出现“典型错误”“修正原因”与“核对标准”，并分别写出具体内容"
+                if role in {"feedback", "misconception"}
+                else ""
+            )
             constraints = [
                 f"教学目的：{module.get('teaching_purpose')}"
                 if module.get("teaching_purpose") else "",
@@ -6585,6 +6599,7 @@ class CourseService(AIBase):
                 str(module.get("output_contract") or ""),
                 str(module.get("prompt_instruction") or ""),
                 str((module.get("artifact_contract") or {}).get("guidance") or ""),
+                role_structure,
                 (
                     f"篇幅：约 {module.get('target_characters')} 字，"
                     f"不得超过 {module.get('max_characters')} 字"
@@ -6624,6 +6639,7 @@ class CourseService(AIBase):
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
             "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；不复制学生个性化、课堂调度或旧整课流程。",
             "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式优先使用成对闭合的 `\\(...\\)` 或 `\\[...\\]`，也可使用完整的 `$...$`、`$$...$$`，不得把公式拆断。",
+            "块级公式的 `$$` 必须在公式或矩阵结束后立即闭合；任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外，禁止用一对 `$$` 包住公式与后续整段正文。",
             "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
             "资料只用于支持课堂内容。必须区分资料事实、学科通识和教学情境；不能编造资料未给出的来源、数据或结论。",
             "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",

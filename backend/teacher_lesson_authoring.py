@@ -3031,6 +3031,40 @@ class TeacherLessonAuthoringService:
             len(contract.get("modules") or [])
             for _outline, _plan, contract in contracts
         )
+        global_block_order = {
+            str(module.get("block_id") or ""): index
+            for index, module in enumerate(
+                [
+                    module
+                    for _outline, _plan, contract in contracts
+                    for module in contract.get("modules") or []
+                    if isinstance(module, dict)
+                ]
+            )
+        }
+        invalid_seed_ids: set[str] = set()
+        if seed_sections:
+            seed_quality = validate_teacher_script_revision(
+                [
+                    item for item in seed_sections
+                    if isinstance(item, dict)
+                ],
+                generation_source="model_block_pipeline",
+            )
+            for issue in seed_quality.get("blocking_issues") or []:
+                if not isinstance(issue, dict) or str(issue.get("code") or "") != (
+                    "teacher_script:repetitive_blocks"
+                ):
+                    continue
+                for group in issue.get("repeated_clause_groups") or []:
+                    ordered_group = sorted(
+                        [str(block_id) for block_id in group if str(block_id)],
+                        key=lambda block_id: global_block_order.get(
+                            block_id,
+                            len(global_block_order),
+                        ),
+                    )
+                    invalid_seed_ids.update(ordered_group[1:])
         seed_by_section = {
             str(item.get("section_node_id") or ""): item
             for item in seed_sections or []
@@ -3049,6 +3083,8 @@ class TeacherLessonAuthoringService:
                 if isinstance(item, dict)
                 and item.get("block_id")
                 and str(item.get("content") or "").strip()
+                and str(item.get("generation_source") or "") != "local_recovery"
+                and str(item.get("block_id") or "") not in invalid_seed_ids
             }
             completed: list[dict[str, Any]] = []
             for module in expected:
@@ -3058,6 +3094,9 @@ class TeacherLessonAuthoringService:
                     candidate = {
                         **deepcopy(module),
                         "content": str(previous.get("content") or "").strip(),
+                        "generation_source": str(
+                            previous.get("generation_source") or "model"
+                        ),
                     }
                     single_contract = {
                         **deepcopy(contract),
@@ -3125,6 +3164,11 @@ class TeacherLessonAuthoringService:
             for outline_section, plan_section, contract in contracts:
                 section_id = str(contract.get("section_node_id") or "")
                 completed = completed_by_section[section_id]
+                expected_order = {
+                    str(item.get("block_id") or ""): index
+                    for index, item in enumerate(contract.get("modules") or [])
+                    if isinstance(item, dict)
+                }
                 completed_ids = {
                     str(item.get("block_id") or "") for item in completed
                 }
@@ -3149,11 +3193,22 @@ class TeacherLessonAuthoringService:
                         block_states=block_states,
                         stream_sequence=int(current_job.get("stream_sequence") or 0) + 1,
                     )
+                    current_position = expected_order.get(
+                        current_block_id,
+                        len(expected_order),
+                    )
+                    prior_completed = [
+                        item for item in completed
+                        if expected_order.get(
+                            str(item.get("block_id") or ""),
+                            len(expected_order),
+                        ) < current_position
+                    ]
                     content = str(await generator(
                         outline_section,
                         plan_section,
                         module,
-                        deepcopy(completed),
+                        deepcopy(prior_completed),
                     ) or "").strip()
                     current_after_generation = self.repository.get_job(
                         course_id,
@@ -3217,6 +3272,12 @@ class TeacherLessonAuthoringService:
                             issues or f"{current_block_title} 未通过讲稿质量检查。",
                         )
                     completed.append(candidate)
+                    completed.sort(
+                        key=lambda item: expected_order.get(
+                            str(item.get("block_id") or ""),
+                            len(expected_order),
+                        )
+                    )
                     completed_ids.add(current_block_id)
                     block_states[current_block_id] = "completed"
                     completed_count += 1
