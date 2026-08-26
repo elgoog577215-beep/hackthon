@@ -12,13 +12,13 @@
     <aside v-show="!aiCollaborationOpen" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
       <header><strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong></header>
       <nav>
-        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="aiCandidatePending && activeStage !== stage.id" @click="activeStage = stage.id">
+        <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== stage.id)" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong><Check v-if="stageReady(stage.id)" :size="15" />
         </button>
       </nav>
       <section class="companion-entry">
         <small>{{ t('courseWorkbench.supporting.group', '其他课程文件') }}</small>
-        <button type="button" :class="{ active: activeStage === 'companion' }" :disabled="aiCandidatePending && activeStage !== 'companion'" @click="activeStage = 'companion'">
+        <button type="button" :class="{ active: activeStage === 'companion' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="requestStageChange('companion')">
           <FileCheck2 :size="18" /><strong>{{ t('courseWorkbench.supporting.title', '配套文档') }}</strong><ChevronRight :size="16" />
         </button>
       </section>
@@ -44,21 +44,7 @@
             @click="openAiCollaboration('outline')"
           >
             <Sparkles :size="15" />
-            {{ t('courseWorkbench.aiAdjustOutline', 'AI 编辑') }}
-          </button>
-          <button
-            data-testid="outline-manual-action"
-            type="button"
-            :aria-pressed="editingOutline"
-            :disabled="finishingOutline"
-            @click="toggleOutlineEditing"
-          >
-            <LoaderCircle v-if="finishingOutline" :size="15" class="spin" />
-            <Check v-else-if="editingOutline" :size="15" />
-            <Pencil v-else :size="15" />
-            {{ editingOutline
-              ? t('courseWorkbench.finishOutlineEditing', '完成编辑')
-              : t('courseWorkbench.editOutline', '编辑大纲') }}
+            {{ t('courseWorkbench.outlineAssistant', 'AI 助手') }}
           </button>
         </div>
       </header>
@@ -109,7 +95,7 @@
           :course-name="courseTitle"
           :nodes="courseStore.nodes"
           :task="generationTask"
-          :editable="editingOutline"
+          :editable="true"
           :requires-confirmation="outlineAwaitingReview"
           :assistant-open="aiCollaborationOpen && aiDomain === 'outline'"
           variant="inline"
@@ -643,6 +629,7 @@ const emit = defineEmits<{
 }>()
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
+const stageSwitching = ref(false)
 const selectedLessonSectionId = ref('')
 const lessonOutlineOpen = ref(false)
 const lessonOutlineRoot = ref<HTMLElement | null>(null)
@@ -672,7 +659,6 @@ const aiClarificationOptions = ref<string[]>([])
 const lastAiOperation = ref<'generate' | 'accept' | 'reject' | ''>('')
 const replacingAiCandidate = ref(false)
 const outlineEditor = ref<OutlineEditorHandle | null>(null)
-const finishingOutline = ref(false)
 const editingOutline = computed({
   get: () => props.outlineEditing,
   set: value => emit('update:outlineEditing', value),
@@ -1505,20 +1491,6 @@ function resizeAiPaneWithKeyboard(event: KeyboardEvent) {
   else clampAiPaneWidth(aiPaneWidth.value + (event.key === 'ArrowLeft' ? 24 : -24))
   try { window.localStorage.setItem(AI_PANE_STORAGE_KEY, String(aiPaneWidth.value)) } catch { /* local storage can be unavailable */ }
 }
-async function toggleOutlineEditing() {
-  if (!editingOutline.value) {
-    editingOutline.value = true
-    return
-  }
-  if (finishingOutline.value) return
-  finishingOutline.value = true
-  try {
-    const finished = await outlineEditor.value?.finishEditing()
-    if (finished !== false) editingOutline.value = false
-  } finally {
-    finishingOutline.value = false
-  }
-}
 function resolveLessonPrerequisite() {
   if (outlineGatePending.value) {
     activeStage.value = 'foundation'
@@ -1741,14 +1713,27 @@ async function preparePptSources() {
   )
 }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
-function handleInlineOutlineConfirmed() { editingOutline.value = false; emit('outlineConfirmed') }
+function handleInlineOutlineConfirmed() { emit('outlineConfirmed') }
+async function requestStageChange(stage: StageId) {
+  if (stage === activeStage.value || stageSwitching.value) return
+  stageSwitching.value = true
+  try {
+    if (activeStage.value === 'foundation' && showOutlineWorkspace.value && outlineEditor.value) {
+      const saved = await outlineEditor.value.finishEditing()
+      if (!saved) return
+    }
+    activeStage.value = stage
+  } finally {
+    stageSwitching.value = false
+  }
+}
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0; questionBankRevisionId.value = String(response.data?.bundle_revision_id || '') } catch { questionBankReady.value = false; questionBankRevisionId.value = '' } }
 
 watch(() => props.generationOptions, options => { const intent = options.course_intent as any; const brief = options.teacher_course_brief; foundation.goal = String(intent?.learning_goal || options.requirements || props.courseTitle); foundation.totalHours = Number(brief?.total_class_hours || 32); foundation.requirements = String(options.requirements || '') }, { immediate: true, deep: true })
 watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = null }, { immediate: true })
 watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (value && typeof value === 'object') retainedOutlineGrowth.value = JSON.parse(JSON.stringify(value)) as Record<string, any> }, { immediate: true, deep: true })
 watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
-watch(() => props.initialStage, stage => { activeStage.value = stage })
+watch(() => props.initialStage, stage => { void requestStageChange(stage) })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
 watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; closeAiCollaboration(); closeLessonOutline(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(aiCollaborationOpen, open => {
@@ -1816,8 +1801,8 @@ onBeforeUnmount(() => {
 .center-heading-actions>button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .center-heading-actions>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .center-heading-actions>button:disabled{opacity:.48;cursor:not-allowed}
-.center-heading-actions>.ai-outline-action{border-color:#514bdc;color:#fff;background:#514bdc;box-shadow:0 6px 16px rgba(81,75,220,.15)}
-.center-heading-actions>.ai-outline-action:hover{border-color:#4338ca;background:#4338ca}
+.center-heading-actions>.ai-outline-action{border-color:#d7d9ed;color:#4f55a9;background:#f8f8ff;box-shadow:none}
+.center-heading-actions>.ai-outline-action:hover{border-color:#bfc2e8;color:#3f4595;background:#f1f1ff}
 .stage-form>footer{justify-content:flex-end}
 .foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:12px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:11px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:12px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:10px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:11px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:9px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:11px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(560px,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{padding:0;overflow:auto;background:#f3f5f9;scrollbar-width:thin;scrollbar-color:transparent transparent}.is-ai-collaboration>.workbench-center:hover{scrollbar-color:#cbd3df transparent}.is-ai-collaboration>.workbench-center::-webkit-scrollbar{width:6px}.is-ai-collaboration>.workbench-center::-webkit-scrollbar-thumb{border-radius:6px;background:transparent}.is-ai-collaboration>.workbench-center:hover::-webkit-scrollbar-thumb{background:#cbd3df}.is-ai-collaboration>.workbench-center>.center-heading{display:none}.is-ai-collaboration .lesson-stage{max-width:none;min-height:100%;margin:0;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration .lesson-outline,.is-ai-collaboration .lesson-outline-toggle{display:none}.is-ai-collaboration .has-lesson-outline .lesson-workspace{display:block}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration :deep(.lesson-document){min-height:100vh}.ai-workspace-resizer{position:relative;z-index:4;min-height:0;cursor:col-resize;background:#eef1f6;touch-action:none}.ai-workspace-resizer::before{position:absolute;inset:0;content:""}.ai-workspace-resizer::after{position:absolute;inset-block:0;left:50%;width:1px;background:#d9dee8;content:"";transform:translateX(-50%)}.ai-workspace-resizer i{position:absolute;z-index:1;top:50%;left:50%;width:3px;height:52px;border-radius:3px;background:#9aa3b5;opacity:.5;transform:translate(-50%,-50%) scaleY(.8);transition:transform .14s ease,opacity .14s ease,background-color .14s ease}.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:#f5f4ff}.ai-workspace-resizer:hover i,.ai-workspace-resizer:focus-visible i,.ai-workspace-resizer.is-resizing i{background:#625dd7;opacity:1;transform:translate(-50%,-50%) scaleY(1)}.ai-workspace-resizer:focus-visible{outline:2px solid #818cf8;outline-offset:-2px}

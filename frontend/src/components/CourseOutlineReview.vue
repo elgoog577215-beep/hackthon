@@ -183,7 +183,7 @@
             </div>
           </section>
 
-          <section v-if="!assistantOpen && (!isInline || (editable && inlineToolsOpen))" class="outline-review__adjustment" :aria-busy="generatingProposal">
+          <section v-if="!assistantOpen && !isInline" class="outline-review__adjustment" :aria-busy="generatingProposal">
             <div class="outline-review__adjustment-heading">
               <label for="outline-adjustment-instruction">
                 {{ t('courseGeneration.outlineReview.adjustmentTitle', '目录调整') }}
@@ -216,7 +216,7 @@
           </p>
 
           <section
-            v-if="adjustmentProposal"
+            v-if="adjustmentProposal && !aiTargetNodeId"
             ref="proposalSummaryRef"
             class="outline-review__proposal"
             tabindex="-1"
@@ -372,7 +372,7 @@
                   <button
                     v-if="qualityIssueActionable(issue)"
                     type="button"
-                    :disabled="adjustmentBusy"
+                    :disabled="adjustmentBusy || !!adjustmentProposal"
                     @click="repairQualityIssue(issue)"
                   >
                     <LoaderCircle v-if="repairingQualityCode === issue.code" :size="14" />
@@ -432,9 +432,17 @@
               v-for="(group, groupIndex) in outlineGroups"
               :key="group.key"
               class="outline-review__chapter"
-              :class="{ 'outline-review__chapter--ungrouped': !group.chapter }"
+              :class="{
+                'outline-review__chapter--ungrouped': !group.chapter,
+                'is-selected': group.chapter && selectedNodeId === String(group.chapter.node.node_id || ''),
+              }"
             >
-              <header v-if="group.chapter" class="outline-review__chapter-heading">
+              <header
+                v-if="group.chapter"
+                class="outline-review__chapter-heading"
+                @click.stop="selectOutlineNode(group.chapter.node)"
+                @focusin="selectOutlineNode(group.chapter.node)"
+              >
                 <span v-if="isInline" class="outline-review__chapter-index">{{ String(groupIndex + 1).padStart(2, '0') }}</span>
                 <div v-if="!isInline && group.chapter.node.learning_path_role" class="outline-review__node-meta">
                   <span :data-role="normalizedPathRole(group.chapter.node.learning_path_role)">
@@ -470,6 +478,16 @@
                   />
                 </div>
                 <div v-if="!isInline || editable" class="outline-review__node-actions">
+                  <button
+                    v-if="selectedNodeId === String(group.chapter.node.node_id || '')"
+                    type="button"
+                    class="outline-review__node-ai"
+                    data-testid="outline-node-ai-action"
+                    :title="t('courseGeneration.outlineReview.aiModifyNode', '让 AI 修改这一块')"
+                    :aria-label="t('courseGeneration.outlineReview.aiModifyChapter', '让 AI 修改本章')"
+                    :disabled="adjustmentBusy || !!adjustmentProposal"
+                    @click.stop="openNodeAi(group.chapter.node)"
+                  ><Sparkles :size="14" /><span>{{ t('courseGeneration.outlineReview.aiModifyShort', 'AI 修改') }}</span></button>
                   <button type="button" :title="t('courseGeneration.outlineReview.addSection', '新增小节')" :disabled="adjustmentBusy" @click="addSection(group.chapter.node)"><Plus :size="14" /></button>
                   <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, -1)" @click="moveOutlineNode(group.chapter.node, -1)"><ArrowUp :size="14" /></button>
                   <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, 1)" @click="moveOutlineNode(group.chapter.node, 1)"><ArrowDown :size="14" /></button>
@@ -477,11 +495,65 @@
                 </div>
               </header>
 
+              <section
+                v-if="group.chapter && aiTargetNodeId === String(group.chapter.node.node_id || '')"
+                class="outline-review__node-ai-panel"
+                :aria-busy="generatingProposal || applyingProposal"
+                @click.stop
+              >
+                <template v-if="!adjustmentProposal">
+                  <div class="outline-review__node-ai-quick-actions">
+                    <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(group.chapter.node, '优化本章标题和学习目标，使表达更准确、简洁')">{{ t('courseGeneration.outlineReview.aiPolish', '优化表达') }}</button>
+                    <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(group.chapter.node, '细化本章学习目标，使其具体、可观察、可检查')">{{ t('courseGeneration.outlineReview.aiRefineObjective', '细化目标') }}</button>
+                  </div>
+                  <div class="outline-review__node-ai-input">
+                    <Sparkles :size="15" />
+                    <input
+                      v-model="nodeAiInstruction"
+                      type="text"
+                      maxlength="1200"
+                      :disabled="adjustmentBusy || !!adjustmentProposal"
+                      :placeholder="t('courseGeneration.outlineReview.aiNodePlaceholder', '告诉 AI 这一块要怎么改')"
+                      @keydown.enter.prevent="runNodeAi(group.chapter.node)"
+                    />
+                    <button type="button" :disabled="adjustmentBusy || !nodeAiInstruction.trim()" @click="runNodeAi(group.chapter.node)">
+                      <LoaderCircle v-if="generatingProposal" :size="14" />
+                      <ArrowRight v-else :size="14" />
+                      {{ t('courseGeneration.outlineReview.aiGenerate', '生成修改') }}
+                    </button>
+                  </div>
+                </template>
+                <div v-else class="outline-review__node-proposal" data-testid="outline-node-ai-proposal">
+                  <div>
+                    <Sparkles :size="15" /><strong>{{ t('courseGeneration.outlineReview.aiProposal', 'AI 修改建议') }}</strong><span>{{ adjustmentProposal.summary }}</span>
+                    <small v-if="adjustmentProposal.blocking_issues?.length" role="alert">{{ adjustmentProposal.blocking_issues[0].message }}</small>
+                  </div>
+                  <div v-if="nodeProposalChanges(String(group.chapter.node.node_id || '')).length" class="outline-review__node-diff">
+                    <div v-for="change in nodeProposalChanges(String(group.chapter.node.node_id || ''))" :key="change.field">
+                      <strong>{{ change.label }}</strong>
+                      <del>{{ proposalValue(change.before) }}</del>
+                      <ArrowRight :size="13" />
+                      <ins>{{ proposalValue(change.after) }}</ins>
+                    </div>
+                  </div>
+                  <div class="outline-review__node-proposal-actions">
+                    <button type="button" :disabled="applyingProposal" @click="cancelAdjustmentProposal">{{ t('courseGeneration.outlineReview.proposalCancel', '放弃') }}</button>
+                    <button type="button" class="primary" :disabled="applyingProposal || !adjustmentProposal.can_apply" @click="applyAdjustmentProposal">
+                      <LoaderCircle v-if="applyingProposal" :size="14" />
+                      {{ applyingProposal ? t('courseGeneration.outlineReview.proposalApplying', '正在采用') : t('courseGeneration.outlineReview.applyNodeProposal', '采用修改') }}
+                    </button>
+                  </div>
+                </div>
+              </section>
+
               <div v-if="group.sections.length" class="outline-review__section-list">
                 <article
                   v-for="(item, sectionIndex) in group.sections"
                   :key="item.node.node_id || item.index"
                   class="outline-review__section"
+                  :class="{ 'is-selected': selectedNodeId === String(item.node.node_id || '') }"
+                  @click.stop="selectOutlineNode(item.node)"
+                  @focusin="selectOutlineNode(item.node)"
                 >
                   <span v-if="isInline" class="outline-review__section-index">{{ groupIndex + 1 }}.{{ sectionIndex + 1 }}</span>
                   <div v-if="!isInline && item.node.learning_path_role" class="outline-review__node-meta">
@@ -518,10 +590,70 @@
                     />
                   </div>
                   <div v-if="!isInline || editable" class="outline-review__node-actions">
+                    <button
+                      v-if="selectedNodeId === String(item.node.node_id || '')"
+                      type="button"
+                      class="outline-review__node-ai"
+                      data-testid="outline-node-ai-action"
+                      :title="t('courseGeneration.outlineReview.aiModifyNode', '让 AI 修改这一块')"
+                      :aria-label="t('courseGeneration.outlineReview.aiModifySection', '让 AI 修改本小节')"
+                      :disabled="adjustmentBusy || !!adjustmentProposal"
+                      @click.stop="openNodeAi(item.node)"
+                    ><Sparkles :size="14" /><span>{{ t('courseGeneration.outlineReview.aiModifyShort', 'AI 修改') }}</span></button>
                     <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(item.node, -1)" @click="moveOutlineNode(item.node, -1)"><ArrowUp :size="14" /></button>
                     <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(item.node, 1)" @click="moveOutlineNode(item.node, 1)"><ArrowDown :size="14" /></button>
                     <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeSection', '删除小节')" :disabled="adjustmentBusy" @click="removeOutlineNode(item.node)"><Trash2 :size="14" /></button>
                   </div>
+                  <section
+                    v-if="aiTargetNodeId === String(item.node.node_id || '')"
+                    class="outline-review__node-ai-panel"
+                    :aria-busy="generatingProposal || applyingProposal"
+                    @click.stop
+                  >
+                    <template v-if="!adjustmentProposal">
+                      <div class="outline-review__node-ai-quick-actions">
+                        <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(item.node, '优化本小节标题和学习目标，使表达更准确、简洁')">{{ t('courseGeneration.outlineReview.aiPolish', '优化表达') }}</button>
+                        <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(item.node, '细化本小节学习目标，使其具体、可观察、可检查')">{{ t('courseGeneration.outlineReview.aiRefineObjective', '细化目标') }}</button>
+                      </div>
+                      <div class="outline-review__node-ai-input">
+                        <Sparkles :size="15" />
+                        <input
+                          v-model="nodeAiInstruction"
+                          type="text"
+                          maxlength="1200"
+                          :disabled="adjustmentBusy"
+                          :placeholder="t('courseGeneration.outlineReview.aiNodePlaceholder', '告诉 AI 这一块要怎么改')"
+                          @keydown.enter.prevent="runNodeAi(item.node)"
+                        />
+                        <button type="button" :disabled="adjustmentBusy || !nodeAiInstruction.trim()" @click="runNodeAi(item.node)">
+                          <LoaderCircle v-if="generatingProposal" :size="14" />
+                          <ArrowRight v-else :size="14" />
+                          {{ t('courseGeneration.outlineReview.aiGenerate', '生成修改') }}
+                        </button>
+                      </div>
+                    </template>
+                    <div v-else class="outline-review__node-proposal" data-testid="outline-node-ai-proposal">
+                      <div>
+                        <Sparkles :size="15" /><strong>{{ t('courseGeneration.outlineReview.aiProposal', 'AI 修改建议') }}</strong><span>{{ adjustmentProposal.summary }}</span>
+                        <small v-if="adjustmentProposal.blocking_issues?.length" role="alert">{{ adjustmentProposal.blocking_issues[0].message }}</small>
+                      </div>
+                      <div v-if="nodeProposalChanges(String(item.node.node_id || '')).length" class="outline-review__node-diff">
+                        <div v-for="change in nodeProposalChanges(String(item.node.node_id || ''))" :key="change.field">
+                          <strong>{{ change.label }}</strong>
+                          <del>{{ proposalValue(change.before) }}</del>
+                          <ArrowRight :size="13" />
+                          <ins>{{ proposalValue(change.after) }}</ins>
+                        </div>
+                      </div>
+                      <div class="outline-review__node-proposal-actions">
+                        <button type="button" :disabled="applyingProposal" @click="cancelAdjustmentProposal">{{ t('courseGeneration.outlineReview.proposalCancel', '放弃') }}</button>
+                        <button type="button" class="primary" :disabled="applyingProposal || !adjustmentProposal.can_apply" @click="applyAdjustmentProposal">
+                          <LoaderCircle v-if="applyingProposal" :size="14" />
+                          {{ applyingProposal ? t('courseGeneration.outlineReview.proposalApplying', '正在采用') : t('courseGeneration.outlineReview.applyNodeProposal', '采用修改') }}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
                 </article>
               </div>
             </section>
@@ -673,12 +805,13 @@ const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
 const chaptersRef = ref<HTMLElement | null>(null)
 const adjustmentRequestId = ref('')
-const inlineToolsOpen = ref(false)
+const selectedNodeId = ref('')
+const aiTargetNodeId = ref('')
+const nodeAiInstruction = ref('')
 
 const isInline = computed(() => props.variant === 'inline')
-const inlineSetupVisible = computed(() => !isInline.value || (
-  props.editable
-  && (inlineToolsOpen.value || Boolean(adjustmentProposal.value))
+const inlineSetupVisible = computed(() => !isInline.value || Boolean(
+  adjustmentProposal.value && !aiTargetNodeId.value,
 ))
 const adjustmentBusy = computed(() => generatingProposal.value || applyingProposal.value)
 const retrievalProposal = computed<Record<string, any> | null>(() => (
@@ -835,7 +968,11 @@ watch(() => props.courseId, (courseId, previous) => {
 })
 watch(() => props.editable, editable => {
   viewMode.value = editable ? 'structure' : 'document'
-  if (!editable) inlineToolsOpen.value = false
+  if (!editable) {
+    selectedNodeId.value = ''
+    aiTargetNodeId.value = ''
+    nodeAiInstruction.value = ''
+  }
 })
 
 function clone<T>(value: T): T {
@@ -1003,6 +1140,40 @@ function changedFieldSummary(changes: Record<string, any> | undefined) {
   return Object.keys(changes || {}).map(field => labels[field] || field).join('、')
 }
 
+function proposalFitsNodeTarget(proposal: Record<string, any>, nodeId: string) {
+  const operations = Array.isArray(proposal.operations) ? proposal.operations : []
+  if (!operations.length) return false
+  return operations.every((operation: Record<string, any>) => (
+    String(operation.op || '') === 'update_node'
+    && String(operation.node_ref || '') === nodeId
+  ))
+}
+
+function nodeProposalChanges(nodeId: string) {
+  const updated = (adjustmentProposal.value?.diff?.updated || []).find(
+    (item: Record<string, any>) => String(item.node_id || '') === nodeId,
+  )
+  const labels: Record<string, string> = {
+    node_name: t('courseTasks.blueprint.nodeName', '章节名称'),
+    learning_objective: t('courseTasks.blueprint.objective', '学习目标'),
+    scope_boundary: t('courseGeneration.outlineReview.scopeBoundary', '内容边界'),
+    assessment: t('courseGeneration.outlineReview.assessmentLabel', '达成检验'),
+    prerequisite_node_ids: t('courseGeneration.outlineReview.changedDependencies', '前置依赖'),
+  }
+  return Object.entries(updated?.changes || {}).map(([field, values]: [string, any]) => ({
+    field,
+    label: labels[field] || field,
+    before: values?.before,
+    after: values?.after,
+  }))
+}
+
+function proposalValue(value: unknown) {
+  if (Array.isArray(value)) return value.length ? value.join('、') : '—'
+  const text = String(value ?? '').trim()
+  return text || '—'
+}
+
 function outlineNodeId(prefix: string) {
   const suffix = typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
@@ -1014,6 +1185,46 @@ function markManualChange(message: string) {
   invalidateProposal()
   proposalNotice.value = message
   liveStatus.value = message
+}
+
+function selectOutlineNode(node: Record<string, any>) {
+  selectedNodeId.value = String(node?.node_id || '')
+}
+
+function openNodeAi(node: Record<string, any>) {
+  if (adjustmentBusy.value || adjustmentProposal.value) return
+  const nodeId = String(node?.node_id || '')
+  if (!nodeId) return
+  selectedNodeId.value = nodeId
+  aiTargetNodeId.value = nodeId
+  nodeAiInstruction.value = ''
+  liveStatus.value = t('courseGeneration.outlineReview.aiNodeReady', '已选中当前内容，可直接提出修改要求')
+}
+
+function scopedNodeInstruction(node: Record<string, any>, instruction: string) {
+  const nodeId = String(node?.node_id || '')
+  const nodeName = String(node?.node_name || '').trim()
+  return [
+    `仅允许修改大纲节点「${nodeName}」（节点 ID：${nodeId}）。`,
+    '不得新增、删除、移动或修改其他节点；保留当前课程的知识边界和前置关系。',
+    instruction,
+  ].join('\n')
+}
+
+async function runNodeAi(node: Record<string, any>) {
+  const instruction = nodeAiInstruction.value.trim()
+  if (!instruction || adjustmentBusy.value || adjustmentProposal.value) return
+  const nodeId = String(node?.node_id || '')
+  if (!nodeId) return
+  selectedNodeId.value = nodeId
+  aiTargetNodeId.value = nodeId
+  adjustmentInstruction.value = scopedNodeInstruction(node, instruction)
+  await generateAdjustmentProposal()
+}
+
+async function runNodeAiPreset(node: Record<string, any>, instruction: string) {
+  nodeAiInstruction.value = instruction
+  await runNodeAi(node)
 }
 
 async function focusOutlineNode(nodeId: string) {
@@ -1124,6 +1335,7 @@ function removeOutlineNode(node: any) {
 function invalidateProposal() {
   if (!adjustmentProposal.value) return
   adjustmentProposal.value = null
+  emit('ai-candidate-change', null)
   proposalNotice.value = t(
     'courseGeneration.outlineReview.proposalInvalidated',
     '目录已被手动修改，请重新生成方案',
@@ -1148,9 +1360,20 @@ async function generateAdjustmentProposal() {
       expected_draft_revision_id: blueprintDraft.value.draft_revision_id,
       instruction,
     })
-    adjustmentProposal.value = clone(proposal)
+    const candidate = clone(proposal)
+    if (aiTargetNodeId.value && !proposalFitsNodeTarget(candidate, aiTargetNodeId.value)) {
+      candidate.can_apply = false
+      candidate.blocking_issues = [
+        ...(Array.isArray(candidate.blocking_issues) ? candidate.blocking_issues : []),
+        {
+          code: 'outline_node_scope_exceeded',
+          message: t('courseGeneration.outlineReview.aiNodeScopeExceeded', 'AI 修改超出当前选区，请调整要求后重新生成。'),
+        },
+      ]
+    }
+    adjustmentProposal.value = candidate
     emit('ai-candidate-change', adjustmentProposal.value)
-    liveStatus.value = proposal.can_apply
+    liveStatus.value = candidate.can_apply
       ? t('courseGeneration.outlineReview.proposalReady', '调整方案已生成，请检查整套差异')
       : t('courseGeneration.outlineReview.proposalBlocked', '调整方案存在阻断项，不能应用')
     await nextTick()
@@ -1209,6 +1432,8 @@ async function applyAdjustmentProposal() {
     qualityArtifact.value = clone(result?.quality_report || result?.draft?.course_outline_quality_report || {})
     syncNavigationFromDraft()
     baseline.value = draftSignature.value
+    aiTargetNodeId.value = ''
+    nodeAiInstruction.value = ''
     proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
     liveStatus.value = proposalNotice.value
     ElMessage.success(proposalNotice.value)
@@ -1227,6 +1452,8 @@ async function applyAdjustmentProposal() {
 }
 
 async function requestAiCandidate(instruction: string) {
+  aiTargetNodeId.value = ''
+  nodeAiInstruction.value = ''
   adjustmentInstruction.value = instruction.trim()
   return generateAdjustmentProposal()
 }
@@ -1280,6 +1507,8 @@ async function repairQualityIssue(issue: Record<string, any>) {
     : baseInstruction
   if (!instruction || adjustmentBusy.value) return
   repairingQualityCode.value = String(issue.code || '')
+  aiTargetNodeId.value = ''
+  nodeAiInstruction.value = ''
   adjustmentInstruction.value = instruction
   emit('open-ai')
   await nextTick()
@@ -1913,7 +2142,7 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   font-size:12px;
   line-height:1.5;
 }
-.outline-review__node-fields { min-width:0; display:grid; gap:2px; }.outline-review__node-actions { display:flex; align-items:center; gap:3px; padding-top:4px; }.outline-review__node-actions button { width:28px; height:28px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:7px; color:#687386; background:transparent; cursor:pointer; }.outline-review__node-actions button:hover:not(:disabled),.outline-review__node-actions button:focus-visible { border-color:#d9dee7; color:#454ca8; background:#fff; outline:0; }.outline-review__node-actions button.danger:hover:not(:disabled) { color:#b42318; background:#fff5f5; }.outline-review__node-actions button:disabled { opacity:.3; cursor:not-allowed; }.outline-review__node-meta { grid-column:1/-1; }
+.outline-review__node-fields { min-width:0; display:grid; gap:2px; }.outline-review__node-actions { display:flex; align-items:center; gap:3px; padding-top:4px; }.outline-review__node-actions button { width:28px; height:28px; display:grid; place-items:center; padding:0; border:1px solid transparent; border-radius:7px; color:#687386; background:transparent; cursor:pointer; }.outline-review__node-actions button:hover:not(:disabled),.outline-review__node-actions button:focus-visible { border-color:#d9dee7; color:#454ca8; background:#fff; outline:0; }.outline-review__node-actions button.danger:hover:not(:disabled) { color:#b42318; background:#fff5f5; }.outline-review__node-actions button:disabled { opacity:.3; cursor:not-allowed; }.outline-review__node-actions button.outline-review__node-ai { width:auto; display:inline-flex; gap:5px; padding:0 8px; color:#4f55b5; }.outline-review__node-actions button.outline-review__node-ai span { display:none; font-size:11px; font-weight:750; white-space:nowrap; }.outline-review__chapter.is-selected .outline-review__chapter-heading,.outline-review__section.is-selected { background:#f8f8ff; }.outline-review__chapter.is-selected .outline-review__node-ai span,.outline-review__section.is-selected .outline-review__node-ai span { display:inline; }.outline-review__node-ai-panel { grid-column:1/-1; display:grid; gap:10px; margin:0 14px 14px 54px; padding:12px 0; border-top:1px solid #dfe2f4; border-bottom:1px solid #dfe2f4; background:#fbfbff; }.outline-review__node-ai-quick-actions { display:flex; flex-wrap:wrap; gap:6px; padding:0 12px; }.outline-review__node-ai-quick-actions button,.outline-review__node-proposal-actions button { min-height:30px; display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:0 9px; border:1px solid #d7daed; border-radius:7px; color:#4f55a9; background:#fff; font-size:11px; font-weight:750; cursor:pointer; }.outline-review__node-ai-quick-actions button:disabled,.outline-review__node-proposal-actions button:disabled { opacity:.45; cursor:not-allowed; }.outline-review__node-ai-input { display:grid; grid-template-columns:18px minmax(0,1fr) auto; align-items:center; gap:8px; padding:0 12px; color:#5c5bc3; }.outline-review__node-ai-input input { height:36px; padding:0 8px; border-color:#d7daed; background:#fff; font-size:12px; }.outline-review__node-ai-input > button { min-height:36px; display:inline-flex; align-items:center; gap:5px; padding:0 11px; border:1px solid #5655c6; border-radius:7px; color:#fff; background:#5655c6; font-size:11px; font-weight:800; cursor:pointer; }.outline-review__node-ai-input > button:disabled { opacity:.45; cursor:not-allowed; }.outline-review__node-proposal { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:0 12px; }.outline-review__node-proposal > div:first-child { min-width:0; display:grid; grid-template-columns:18px auto minmax(0,1fr); align-items:start; gap:6px; color:#5655c6; }.outline-review__node-proposal strong { color:#3d448c; font-size:11px; }.outline-review__node-proposal span { color:#5f697b; font-size:11px; line-height:1.5; }.outline-review__node-proposal small { grid-column:2/-1; color:#b42318; font-size:11px; line-height:1.45; }.outline-review__node-proposal-actions { flex:0 0 auto; display:flex; gap:6px; }.outline-review__node-proposal-actions button.primary { border-color:#5655c6; color:#fff; background:#5655c6; }.outline-review__node-meta { grid-column:1/-1; }
 .outline-review__node-meta {
   min-width:0;
   display:flex;
@@ -1921,6 +2150,34 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   gap:8px;
   padding:0 8px 2px;
 }
+.outline-review__node-proposal {
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:start;
+  gap:10px 18px;
+}
+.outline-review__node-diff {
+  grid-column:1/-1;
+  display:grid;
+  gap:6px;
+  padding:9px 10px;
+  border:1px solid #e1e3f1;
+  border-radius:8px;
+  background:#fff;
+}
+.outline-review__node-diff>div {
+  display:grid;
+  grid-template-columns:74px minmax(0,1fr) 16px minmax(0,1fr);
+  align-items:start;
+  gap:8px;
+  color:#7a8495;
+  font-size:11px;
+  line-height:1.5;
+}
+.outline-review__node-diff del { color:#8a6470; text-decoration-color:#d8aab5; }
+.outline-review__node-diff ins { color:#276749; text-decoration:none; }
+.outline-review__node-diff svg { margin-top:2px; color:#9aa3b1; }
+.outline-review__node-proposal-actions { grid-column:2; grid-row:1; }
 .outline-review__node-meta > span {
   flex:0 0 auto;
   padding:3px 6px;
@@ -2064,8 +2321,10 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
 .outline-review[data-variant="inline"] .outline-review__proposal-notice { padding:0 0 12px; }
 .outline-review[data-variant="inline"] .outline-review__proposal { margin:0 0 14px; }
 .outline-review[data-variant="inline"] .outline-review__chapters {
-  gap:12px;
-  padding:18px 20px 22px;
+  width:min(980px,100%);
+  gap:0;
+  margin:0 auto;
+  padding:30px 32px 38px;
 }
 .outline-review[data-variant="inline"] .outline-review__list-toolbar {
   min-height:34px;
@@ -2074,26 +2333,27 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   border:0;
 }
 .outline-review[data-variant="inline"] .outline-review__chapter {
-  overflow:hidden;
-  border:1px solid #e1e7f0;
-  border-radius:11px;
+  overflow:visible;
+  border:0;
+  border-top:1px solid #dfe3e9;
+  border-radius:0;
   background:#fff;
 }
+.outline-review[data-variant="inline"] .outline-review__chapter:first-of-type { border-top:0; }
 .outline-review[data-variant="inline"] .outline-review__chapter-heading {
   grid-template-columns:30px minmax(0,1fr) auto;
   align-items:center;
   gap:11px;
-  min-height:62px;
-  padding:11px 14px;
+  min-height:72px;
+  padding:16px 4px 12px;
 }
 .outline-review[data-variant="inline"] .outline-review__chapter-index {
   width:28px;
   height:28px;
   display:grid;
   place-items:center;
-  border-radius:50%;
-  color:#047857;
-  background:#ecfdf5;
+  color:#6366a8;
+  background:transparent;
   font-size:10px;
   font-weight:800;
 }
@@ -2122,14 +2382,14 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   overflow-wrap:anywhere;
   white-space:pre-wrap;
 }
-.outline-review[data-variant="inline"] .outline-review__section-list { margin:0; padding:0 14px 10px 55px; }
+.outline-review[data-variant="inline"] .outline-review__section-list { margin:0 0 18px 19px; padding:0 4px 2px 34px; border-left:1px solid #e4e6ef; }
 .outline-review[data-variant="inline"] .outline-review__section {
   grid-template-columns:46px minmax(0,1fr) auto;
   align-items:center;
   gap:8px;
-  min-height:48px;
-  padding:7px 0;
-  border-top:1px solid #eef2f6;
+  min-height:54px;
+  padding:9px 4px;
+  border-top:0;
   border-bottom:0;
 }
 .outline-review[data-variant="inline"] .outline-review__section-index {
@@ -2182,6 +2442,11 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
     padding:11px 0;
   }
   .outline-review__adjustment button { width:100%; }
+  .outline-review__node-ai-panel { margin:0 0 12px; }
+  .outline-review__node-ai-input { grid-template-columns:18px minmax(0,1fr); }
+  .outline-review__node-ai-input > button { grid-column:2; justify-self:end; }
+  .outline-review__node-proposal { align-items:stretch; flex-direction:column; }
+  .outline-review__node-proposal-actions { justify-content:flex-end; }
   .outline-review__proposal-notice { margin:0; padding:6px 0 10px; }
   .outline-review__proposal { width:auto; margin:0 0 11px; }
   .outline-review__proposal summary { align-items:flex-start; flex-direction:column; gap:4px; }
@@ -2191,6 +2456,7 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   .outline-view-switch { padding-inline:0; }
   .outline-review[data-variant="inline"] .outline-view-switch { padding-inline:14px; }
   .outline-review[data-variant="inline"] .formal-outline { padding-inline:14px; }
+  .outline-review[data-variant="inline"] .outline-review__chapters { padding:20px 14px 30px; }
   .formal-outline__masthead { padding:30px 24px 24px; }
   .formal-outline__masthead h1 { font-size:28px; }
   .formal-outline__masthead dl { gap:12px 20px; margin-top:22px; }

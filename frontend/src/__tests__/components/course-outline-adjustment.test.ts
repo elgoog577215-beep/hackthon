@@ -137,6 +137,70 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
   })
 
+  it('选中结构节点后原位提出 AI 修改并在同一节点审阅', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)
+    const candidate: any = proposal()
+    candidate.summary = '把生命周期目标改得更具体'
+    candidate.operations = [{ op: 'update_node', node_ref: 'L2-1-1' }]
+    candidate.diff = {
+      ...candidate.diff,
+      added: [], moved: [],
+      updated: [{
+        node_id: 'L2-1-1',
+        node_name: '生命周期',
+        changes: {
+          learning_objective: {
+            before: '理解生命周期',
+            after: '能按执行顺序解释并验证生命周期回调',
+          },
+        },
+      }],
+      before: { chapter_count: 1, section_count: 1 },
+      after: { chapter_count: 1, section_count: 1 },
+    }
+    candidate.draft.nodes = currentDraft().nodes.map(node => node.node_id === 'L2-1-1'
+      ? { ...node, learning_objective: '能按执行顺序解释并验证生命周期回调' }
+      : node)
+    const preview = vi.spyOn(workspace, 'previewBlueprintAdjustment').mockResolvedValue(candidate as any)
+    const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({ draft: payload }) as any)
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-1',
+        courseName: 'Unity 游戏编程',
+        editable: true,
+        variant: 'inline',
+        requiresConfirmation: false,
+        surface: 'teacher',
+      },
+    })
+    await flushPromises()
+
+    const section = wrapper.get('.outline-review__section')
+    expect(section.find('[data-testid="outline-node-ai-action"]').exists()).toBe(false)
+    await section.trigger('click')
+    await section.get('[data-testid="outline-node-ai-action"]').trigger('click')
+    await section.get('.outline-review__node-ai-input input').setValue('把目标改成课堂上可以检查的行为')
+    await section.get('.outline-review__node-ai-input button').trigger('click')
+    await flushPromises()
+
+    expect(preview).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      instruction: expect.stringContaining('仅允许修改大纲节点「生命周期」（节点 ID：L2-1-1）'),
+    }))
+    expect(wrapper.get('[data-testid="outline-node-ai-proposal"]').text()).toContain('把生命周期目标改得更具体')
+    expect(wrapper.get('.outline-review__node-diff').text()).toContain('理解生命周期')
+    expect(wrapper.get('.outline-review__node-diff').text()).toContain('能按执行顺序解释并验证生命周期回调')
+    expect(wrapper.find('.outline-review__proposal').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="outline-node-ai-proposal"] button.primary').trigger('click')
+    await flushPromises()
+    expect(save).toHaveBeenCalledWith('course-1', expect.objectContaining({
+      adjustment_operations: [{ op: 'update_node', node_ref: 'L2-1-1' }],
+    }))
+    expect((wrapper.get('.outline-review__section textarea').element as HTMLTextAreaElement).value)
+      .toBe('能按执行顺序解释并验证生命周期回调')
+  })
+
   it('从整篇质量建议直接生成定点修复候选', async () => {
     const workspace = useCourseWorkspaceStore()
     const draft = {

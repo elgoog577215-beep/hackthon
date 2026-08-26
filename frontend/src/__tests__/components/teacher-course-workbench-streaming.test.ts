@@ -40,6 +40,8 @@ const growth = {
   ],
 }
 
+const outlineFinishEditing = vi.fn(async () => true)
+
 const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCourseWorkbench, {
   props: {
     courseId: 'course-1',
@@ -62,6 +64,10 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
         props: ['editable', 'variant', 'requiresConfirmation'],
         template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
         emits: ['confirmed'],
+        setup(_props: unknown, { expose }: any) {
+          expose({ finishEditing: outlineFinishEditing })
+          return {}
+        },
       },
     },
   },
@@ -71,6 +77,8 @@ describe('teacher course workbench outline streaming', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
+    outlineFinishEditing.mockReset()
+    outlineFinishEditing.mockResolvedValue(true)
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
     vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'resumed' } })
   })
@@ -105,7 +113,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.generation-surface>header').text()).toContain('正在展开各章小节')
   })
 
-  it('大纲进入待确认后保留同一展示区并原地解锁编辑', async () => {
+  it('大纲进入待确认后保留同一展示区并直接成为编辑画布', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -126,19 +134,11 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('课程大纲已生成')
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('已保存完整章节结构')
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
-    expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
-    expect(wrapper.get('[data-testid="outline-ai-action"]').text()).toContain('AI 编辑')
-    expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
-    const outlineElement = wrapper.get('[data-testid="inline-outline-editor"]').element
-    await wrapper.get('[data-testid="outline-manual-action"]').trigger('click')
-    expect(wrapper.emitted('update:outlineEditing')).toEqual([[true]])
-
-    await wrapper.setProps({ outlineEditing: true })
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').element).toBe(outlineElement)
     expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
     expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
-    expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('完成编辑')
+    expect(wrapper.get('[data-testid="outline-ai-action"]').text()).toContain('AI 助手')
+    expect(wrapper.find('[data-testid="outline-manual-action"]').exists()).toBe(false)
+    expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
   })
 
   it('正式大纲首屏可直接打开 AI 编辑工作区', async () => {
@@ -159,6 +159,21 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
   })
 
+  it('离开大纲阶段前保存编辑，保存失败则停留原页', async () => {
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 基础', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'pending', generated_chars: 0,
+    }] as any
+    outlineFinishEditing.mockResolvedValueOnce(false)
+    const wrapper = mountWorkbench()
+
+    await wrapper.get('.stage-rail nav button:nth-child(2)').trigger('click')
+    await flushPromises()
+
+    expect(outlineFinishEditing).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.stage-rail nav button.active').text()).toContain('课程基础')
+  })
+
   it('最终检查点暂时没有投影时保留审阅状态而不退回初始表单', () => {
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'waiting_for_review'
@@ -168,7 +183,7 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
   })
 
@@ -184,7 +199,7 @@ describe('teacher course workbench outline streaming', () => {
     reactiveTask.phaseDetail = { artifact_type: 'course_outline_ready' }
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
   })
 
@@ -196,7 +211,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
     await wrapper.get('[data-testid="inline-outline-editor"] button').trigger('click')
     expect(wrapper.emitted('outlineConfirmed')).toHaveLength(1)
-    expect(wrapper.emitted('update:outlineEditing')).toContainEqual([false])
+    expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
   })
 
   it('先展示真实大章节，再由老师确认每章小节数并继续同一任务', async () => {
