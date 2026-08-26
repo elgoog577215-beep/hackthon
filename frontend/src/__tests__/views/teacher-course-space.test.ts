@@ -169,7 +169,8 @@ describe('TeacherCourseSpaceView', () => {
     mountedWrappers.push(wrapper)
     await flushPromises()
 
-    expect(wrapper.get('.material-preparation').text()).toContain('先把已有资料放进来')
+    expect(wrapper.get('.material-preparation').text()).toContain('导入已有资料')
+    expect(wrapper.get('.material-preparation').text()).not.toContain('系统会保留原文件与目录')
     expect(wrapper.get('.material-preparation').text()).toContain('选择文件夹')
     expect(wrapper.get('.material-preparation').text()).toContain('选择多个文件')
     expect(wrapper.find('.file-layout').exists()).toBe(false)
