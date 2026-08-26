@@ -5070,6 +5070,16 @@
       "changeType": "Change the material type for {name}",
       "enterWorkbench": "Confirm and enter workbench",
       "analysisWarning": "{count} files were retained but cannot yet be used as AI generation sources.",
+      "aiUnderstandingComplete": "AI completed batch understanding",
+      "hybridUnderstandingComplete": "AI and rules classified the batch",
+      "ruleFallback": "AI is unavailable; basic recognition was used",
+      "missingTypes": "Missing",
+      "coreMaterialsComplete": "Core materials complete",
+      "relatedCount": "{count} related",
+      "confidencePending": "Needs review",
+      "sources": { "ai": "AI judgment", "hybrid": "AI + rules", "rule": "Rule recognition", "teacher": "Teacher confirmed" },
+      "versionRoles": { "current": "Current version", "older": "Historical version", "reference": "Reference material", "unknown": "Version needs review" },
+      "courseMatches": { "matched": "Current course", "uncertain": "Course location needs review", "mismatched": "May belong to another course" },
       "documentTypes": {
         "outline": "Course outline",
         "lessonPlan": "Lesson plan",
@@ -5213,9 +5223,9 @@
     "assetRole": { "deliverable": "Course administration", "logic": "Course-logic file", "auxiliary": "Supporting original", "navigation": "Folder" },
     "sources": { "teacherUpload": "Teacher-uploaded original", "logicProjection": "Projected from formal course logic", "formalTruth": "Formal course source of truth", "semanticFolder": "System semantic folder" },
     "ppt": { "chooseMethodSubtitle": "Generate with AI or upload the teacher's existing deck", "generatedSubtitle": "AI generated · stays linked to the lesson plan", "uploadedSubtitle": "Teacher uploaded · original preserved", "generatedOrigin": "AI-generated deck", "uploadedOrigin": "Teacher's existing deck" },
-    "meta": { "role": "Role", "source": "Source", "location": "Location", "items": "Contains", "lesson": "Session", "version": "Version", "recognizedType": "Recognized type", "origin": "Deck source", "size": "File size", "updated": "Date modified" },
+    "meta": { "role": "Role", "source": "Source", "location": "Location", "items": "Contains", "lesson": "Session", "version": "Version", "recognizedType": "Recognized type", "recognitionSource": "Recognized by", "courseLocation": "Course location", "versionRole": "Material role", "origin": "Deck source", "size": "File size", "updated": "Date modified" },
     "inspector": {
-      "fileInfo": "File information", "folderInfo": "Folder information", "source": "Source", "usedFor": "Used for", "sourceMaterials": "Source materials", "generatedFiles": "Generated files", "usedBy": "Used by", "lessonPlansCount": "Lesson plans · {count} sessions", "practicesCount": "Session practice · {count} sessions", "pendingCount": "{count} need attention", "actionsTitle": "Available actions", "parentSource": "Original source", "referenceOriginals": "Reference originals", "teacherOriginal": "Teacher-uploaded original", "referencedBy": "Referenced by formal files", "referenceFiles": "Referenced files", "primarySource": "Primary source", "referenceSource": "Reference", "questionSource": "Past exam source", "sameTruth": "Same formal revision",
+      "fileInfo": "File information", "folderInfo": "Folder information", "source": "Source", "usedFor": "Used for", "sourceMaterials": "Source materials", "generatedFiles": "Generated files", "usedBy": "Used by", "lessonPlansCount": "Lesson plans · {count} sessions", "practicesCount": "Session practice · {count} sessions", "pendingCount": "{count} need attention", "actionsTitle": "Available actions", "parentSource": "Original source", "referenceOriginals": "Reference originals", "teacherOriginal": "Teacher-uploaded original", "referencedBy": "Referenced by formal files", "referenceFiles": "Referenced files", "relatedOriginals": "Related originals", "materialGaps": "Course material gaps", "primarySource": "Primary source", "referenceSource": "Reference", "questionSource": "Past exam source", "sameTruth": "Same formal revision",
       "actionHints": { "managed": "Open the corresponding workflow. Export creates a derived file from the current version.", "uploaded": "Preview or download the original. Delete removes only this uploaded file.", "folder": "New content will be stored in the current materials folder.", "course": "Export the current course package without changing the formal course." },
       "sources": { "courseStructure": "Course structure", "outlineSchedule": "Current outline and teacher scheduling", "outlineAndMaterials": "Course outline and references", "contentBlocks": "Course script · {count} content blocks", "questionBank": "Question bank · {count} questions", "pinnedQuestionRevisions": "Pinned question revisions", "schoolTemplate": "School template and completed course information", "generatedDeck": "AI-generated deck", "uploadedDeck": "Teacher-uploaded deck", "notSelected": "No deck source selected", "teacherFile": "Teacher-uploaded file" },
       "uses": { "outline": "Teaching calendar, lesson plans, scripts, PPT, and questions", "teachingCalendar": "Institutional scheduling, session sync, and formal file export", "lessonPlan": "Scripts, PPT, and questions", "content": "Student preview and Markdown export", "practice": "Class checks, assignments, and student preview", "questionBank": "Question generation, review, and paper composition", "examPaper": "Exams and formal export", "companionDocument": "School submission, student guidance, and course archiving", "ppt": "Class presentation", "material": "Lesson preparation and classroom use" }

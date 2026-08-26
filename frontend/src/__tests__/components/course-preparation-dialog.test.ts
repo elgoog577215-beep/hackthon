@@ -65,9 +65,14 @@ describe('CoursePreparationDialog', () => {
       ...pendingPackage,
       asset_count: 2,
       preparation_status: 'review',
+      material_understanding: {
+        status: 'ai_completed',
+        missing_document_types: ['outline', 'script', 'question_bank'],
+        low_confidence_asset_ids: [],
+      },
       assets: [
-        { asset_id: 'asset-1', filename: '第一讲教案.md', relative_path: '辅助资料/其他资料/第一讲教案.md', document_type: 'lesson_plan' },
-        { asset_id: 'asset-2', filename: '第一讲课件.pptx', relative_path: '辅助资料/其他资料/第一讲课件.pptx', document_type: 'ppt' },
+        { asset_id: 'asset-1', filename: '第一讲教案.md', relative_path: '辅助资料/其他资料/第一讲教案.md', document_type: 'lesson_plan', classification_source: 'ai', classification_confidence: 0.93, document_type_reason: '正文包含教学目标和课堂流程', structure_matches: [{ node_id: 'lesson-1', title: '第一讲 线性表', reason: '内容对应第一讲' }], version_role: 'current', version_reason: '当前使用版本', related_asset_ids: ['asset-2'] },
+        { asset_id: 'asset-2', filename: '第一讲课件.pptx', relative_path: '辅助资料/其他资料/第一讲课件.pptx', document_type: 'ppt', classification_source: 'hybrid', classification_confidence: 0.99, document_type_reason: 'PowerPoint 格式', structure_matches: [{ node_id: 'lesson-1', title: '第一讲 线性表', reason: '内容对应第一讲' }], version_role: 'current', version_reason: '当前使用版本', related_asset_ids: ['asset-1'] },
       ],
     }
     httpMock.post.mockResolvedValue({
@@ -102,8 +107,14 @@ describe('CoursePreparationDialog', () => {
     await flushPromises()
 
     expect(wrapper.get('.preparation-review').text()).toContain('确认资料结构')
+    expect(wrapper.get('.understanding-overview').text()).toContain('AI 已完成整批理解')
+    expect(wrapper.get('.understanding-overview').text()).toContain('课程大纲')
     expect(wrapper.get('.preparation-review').text()).toContain('教案')
     expect(wrapper.get('.preparation-review').text()).toContain('PPT')
+    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('AI 判断 · 93%')
+    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('第一讲 线性表')
+    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('当前版本')
+    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('关联 1 份')
     const [url, form] = httpMock.post.mock.calls[0]!
     expect(url).toBe('/api/teacher-course-spaces/package-1/imports')
     expect((form as FormData).getAll('files')).toHaveLength(2)

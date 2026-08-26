@@ -98,13 +98,35 @@
           <small>{{ t('courseFiles.preparation.reviewCount').replace('{count}', String(coursePackage?.asset_count || 0)) }}</small>
         </header>
 
+        <div class="understanding-overview" :data-state="understandingStatus">
+          <span>
+            <BrainCircuit v-if="understandingStatus !== 'rule_fallback'" :size="16" />
+            <TriangleAlert v-else :size="16" />
+            <strong>{{ understandingStatusLabel }}</strong>
+          </span>
+          <span v-if="missingTypeLabels.length" class="understanding-gaps">
+            {{ t('courseFiles.preparation.missingTypes') }}
+            <b v-for="label in missingTypeLabels" :key="label">{{ label }}</b>
+          </span>
+          <span v-else class="understanding-complete"><Check :size="14" />{{ t('courseFiles.preparation.coreMaterialsComplete') }}</span>
+        </div>
+
         <div class="recognized-structure">
           <section v-for="group in documentGroups" :key="group.type" class="recognized-group">
             <header><strong>{{ group.label }}</strong><small>{{ group.assets.length }}</small></header>
             <div class="recognized-files">
               <label v-for="asset in group.assets" :key="asset.asset_id" class="recognized-file">
                 <FileText :size="17" />
-                <span><strong>{{ asset.filename }}</strong><small>{{ asset.relative_path }}</small></span>
+                <span class="recognized-file__identity">
+                  <strong>{{ asset.filename }}</strong>
+                  <small>{{ asset.relative_path }}</small>
+                  <span class="recognized-signals">
+                    <em :data-source="asset.classification_source || 'rule'" :title="asset.document_type_reason || ''"><Sparkles :size="11" />{{ classificationLabel(asset) }} · {{ confidenceLabel(asset) }}</em>
+                    <em v-if="primaryStructureMatch(asset)" :title="primaryStructureMatch(asset)?.reason || ''"><MapPin :size="11" />{{ primaryStructureMatch(asset)?.title }}</em>
+                    <em :title="asset.version_reason || ''"><History :size="11" />{{ versionRoleLabel(asset.version_role) }}</em>
+                    <em v-if="asset.related_asset_ids?.length"><Link2 :size="11" />{{ t('courseFiles.preparation.relatedCount').replace('{count}', String(asset.related_asset_ids.length)) }}</em>
+                  </span>
+                </span>
                 <select
                   :value="asset.document_type || 'other'"
                   :disabled="busy || updatingIds.has(asset.asset_id)"
@@ -139,9 +161,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
-  ArrowLeft, ArrowRight, BookOpenCheck, Check, FileCheck2, FilePlus2, Files,
-  FileText, FolderInput, FolderOpen, ListTree, LoaderCircle, Plus, Presentation,
-  ScanSearch, Sparkles, TriangleAlert,
+  ArrowLeft, ArrowRight, BookOpenCheck, BrainCircuit, Check, FileCheck2, FilePlus2, Files,
+  FileText, FolderInput, FolderOpen, History, Link2, ListTree, LoaderCircle, MapPin, Plus,
+  Presentation, ScanSearch, Sparkles, TriangleAlert,
 } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import http, { teacherRequestConfig } from '../utils/http'
@@ -153,6 +175,14 @@ type CourseAsset = {
   filename: string
   relative_path: string
   document_type?: DocumentType
+  document_type_reason?: string
+  classification_confidence?: number
+  classification_source?: 'ai' | 'hybrid' | 'rule' | 'teacher'
+  course_alignment?: { match?: 'matched' | 'uncertain' | 'mismatched'; confidence?: number; reason?: string }
+  structure_matches?: Array<{ node_id: string; title: string; confidence?: number; reason?: string }>
+  version_role?: 'current' | 'older' | 'reference' | 'unknown'
+  version_reason?: string
+  related_asset_ids?: string[]
 }
 type CoursePackage = {
   package_id: string
@@ -163,6 +193,12 @@ type CoursePackage = {
   asset_count: number
   assets: CourseAsset[]
   preparation_status?: PreparationStatus
+  material_understanding?: {
+    status?: 'ai_completed' | 'hybrid_completed' | 'rule_fallback'
+    failure_code?: string
+    missing_document_types?: DocumentType[]
+    low_confidence_asset_ids?: string[]
+  }
 }
 type ImportOutcome = {
   relative_path: string
@@ -199,6 +235,30 @@ const documentGroups = computed(() => documentTypeOptions.value.flatMap(option =
   const assets = (coursePackage.value?.assets || []).filter(asset => (asset.document_type || 'other') === option.value)
   return assets.length ? [{ type: option.value, label: option.label, assets }] : []
 }))
+const understandingStatus = computed(() => coursePackage.value?.material_understanding?.status || 'rule_fallback')
+const understandingStatusLabel = computed(() => understandingStatus.value === 'ai_completed'
+  ? t('courseFiles.preparation.aiUnderstandingComplete')
+  : understandingStatus.value === 'hybrid_completed'
+    ? t('courseFiles.preparation.hybridUnderstandingComplete')
+    : t('courseFiles.preparation.ruleFallback'))
+const missingTypeLabels = computed(() => (coursePackage.value?.material_understanding?.missing_document_types || [])
+  .map(type => documentTypeOptions.value.find(option => option.value === type)?.label)
+  .filter((value): value is string => Boolean(value)))
+
+function classificationLabel(asset: CourseAsset) {
+  if (asset.classification_source === 'teacher') return t('courseFiles.preparation.sources.teacher')
+  if (asset.classification_source === 'ai') return t('courseFiles.preparation.sources.ai')
+  if (asset.classification_source === 'hybrid') return t('courseFiles.preparation.sources.hybrid')
+  return t('courseFiles.preparation.sources.rule')
+}
+function confidenceLabel(asset: CourseAsset) {
+  const value = Number(asset.classification_confidence)
+  return Number.isFinite(value) ? `${Math.round(value * 100)}%` : t('courseFiles.preparation.confidencePending')
+}
+function primaryStructureMatch(asset: CourseAsset) { return asset.structure_matches?.[0] }
+function versionRoleLabel(role?: CourseAsset['version_role']) {
+  return t(`courseFiles.preparation.versionRoles.${role || 'unknown'}`)
+}
 const importWarning = computed(() => {
   const rejected = outcomes.value.filter(item => item.outcome === 'rejected').length
   const analysisFailed = outcomes.value.filter(item => item.analysis_error).length
@@ -397,10 +457,10 @@ onMounted(() => { void loadPackage() })
 .matched-folder{height:94px;display:grid;align-content:center;gap:6px;padding:10px 12px;border:1px solid #d8ddff;border-radius:12px;background:#fff}.matched-folder>span{display:flex;align-items:center;gap:6px;color:#4f46e5}.matched-folder>span b{color:#4338ca;font-size:10px}.matched-folder>i{display:grid;grid-template-columns:11px minmax(0,1fr);align-items:center;gap:5px;color:#22a06b}.matched-folder em{height:3px;border-radius:2px;background:#e0e7ff}
 .mode-copy{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 36px;align-items:center;gap:16px;padding:19px 22px 21px;background:#fff}.existing-course .mode-copy{background:#fdfdff}.mode-copy>span:first-child{min-width:0;display:grid;gap:7px}.mode-copy strong{color:#263147;font-size:18px;letter-spacing:-.02em;line-height:1.25}.mode-copy small{max-width:310px;color:#64748b;font-size:12.5px;line-height:1.55}.mode-enter{width:36px;height:36px;display:grid;place-items:center;border:1px solid #e2e8f0;border-radius:10px;color:#94a3b8;background:#f8fafc;transition:transform .18s cubic-bezier(.16,1,.3,1),border-color .18s ease,color .18s ease,background .18s ease}.existing-course .mode-enter{border-color:#d8ddff;color:#6366f1;background:#fff}.start-options>button:hover:not(:disabled) .mode-enter{transform:translateX(2px);border-color:#bab8ef;color:#4f46e5;background:#fff}
 .preparation-import{grid-template-rows:auto 1fr}.preparation-dropzone{min-height:290px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;margin:28px;padding:34px;border:1px dashed #aeb8c8;border-radius:14px;color:#5b57e8;background:#fbfcff}.preparation-dropzone.dragging{border-color:#5b57e8;background:#f2f2ff}.preparation-dropzone>strong{color:#334155;font-size:16px}.preparation-dropzone>div{display:flex;gap:9px;margin-top:12px}.preparation-dropzone button,.preparation-review footer button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid #d7dde7;border-radius:9px;color:#475569;background:#fff;font-size:13px;font-weight:700;cursor:pointer}.preparation-dropzone button.primary,.preparation-review footer button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.preparation-dropzone button:disabled,.preparation-review footer button:disabled,.start-options>button:disabled{opacity:.5;cursor:not-allowed}
-.preparation-review{max-height:min(760px,calc(100dvh - 40px));grid-template-rows:auto minmax(0,1fr) auto auto}.preparation-review>header{justify-content:space-between}.preparation-review>header>div{display:flex;align-items:center;gap:12px}.preparation-review>header>small{color:#64748b;font-size:12px;font-weight:700}.recognized-structure{min-height:0;overflow:auto;padding:10px 26px 18px}.recognized-group{padding-top:14px}.recognized-group>header{min-height:34px;display:flex;align-items:center;justify-content:space-between;color:#334155}.recognized-group>header strong{font-size:13px}.recognized-group>header small{min-width:24px;text-align:right;color:#64748b;font-size:12px}.recognized-files{border-top:1px solid #e8edf4}.recognized-file{min-height:58px;display:grid;grid-template-columns:20px minmax(0,1fr) 132px;align-items:center;gap:10px;border-bottom:1px solid #edf1f5;color:#6366f1}.recognized-file>span{min-width:0;display:grid;gap:3px}.recognized-file strong,.recognized-file small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recognized-file strong{color:#334155;font-size:13px}.recognized-file small{color:#7b8798;font-size:11px}.recognized-file select{width:100%;min-height:34px;padding:0 8px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px}.recognized-file select:focus{outline:2px solid #6366f1;outline-offset:2px}.import-warning,.dialog-error{display:flex;align-items:center;gap:7px;margin:0;padding:10px 26px;font-size:12px}.import-warning{color:#9a3412;background:#fff7ed}.dialog-error{color:#b42318;background:#fef3f2}.preparation-choice>.dialog-error,.preparation-import>.dialog-error{align-self:end}.preparation-review>footer{display:flex;justify-content:flex-end;gap:9px;padding:15px 26px;border-top:1px solid #e8edf4;background:#fbfcfe}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.preparation-review{max-height:min(760px,calc(100dvh - 40px));grid-template-rows:auto auto minmax(0,1fr) auto auto}.preparation-review>header{justify-content:space-between}.preparation-review>header>div{display:flex;align-items:center;gap:12px}.preparation-review>header>small{color:#64748b;font-size:12px;font-weight:700}.understanding-overview{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:8px 26px;border-bottom:1px solid #e8edf4;color:#475569;background:#f8fafc;font-size:12px}.understanding-overview>span{display:flex;align-items:center;gap:6px}.understanding-overview>span:first-child{flex:none;color:#4f46e5}.understanding-overview[data-state="rule_fallback"]>span:first-child{color:#9a3412}.understanding-gaps{min-width:0;justify-content:flex-end;overflow:hidden;color:#64748b;white-space:nowrap}.understanding-gaps b{padding:3px 7px;border-radius:6px;color:#475569;background:#e9edf3;font-size:11px}.understanding-complete{color:#16825d}.recognized-structure{min-height:0;overflow:auto;padding:10px 26px 18px}.recognized-group{padding-top:14px}.recognized-group>header{min-height:34px;display:flex;align-items:center;justify-content:space-between;color:#334155}.recognized-group>header strong{font-size:13px}.recognized-group>header small{min-width:24px;text-align:right;color:#64748b;font-size:12px}.recognized-files{border-top:1px solid #e8edf4}.recognized-file{min-height:76px;display:grid;grid-template-columns:20px minmax(0,1fr) 132px;align-items:center;gap:10px;border-bottom:1px solid #edf1f5;color:#6366f1}.recognized-file__identity{min-width:0;display:grid;gap:3px}.recognized-file strong,.recognized-file small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recognized-file strong{color:#334155;font-size:13px}.recognized-file small{color:#7b8798;font-size:11px}.recognized-signals{min-width:0;display:flex;align-items:center;gap:5px;overflow:hidden}.recognized-signals em{min-width:0;display:inline-flex;align-items:center;gap:3px;overflow:hidden;padding:2px 5px;border-radius:5px;color:#64748b;background:#f1f5f9;font-size:10px;font-style:normal;text-overflow:ellipsis;white-space:nowrap}.recognized-signals em[data-source="ai"],.recognized-signals em[data-source="hybrid"]{color:#514bdc;background:#efefff}.recognized-signals em[data-source="teacher"]{color:#16825d;background:#eaf8f2}.recognized-file select{width:100%;min-height:34px;padding:0 8px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px}.recognized-file select:focus{outline:2px solid #6366f1;outline-offset:2px}.import-warning,.dialog-error{display:flex;align-items:center;gap:7px;margin:0;padding:10px 26px;font-size:12px}.import-warning{color:#9a3412;background:#fff7ed}.dialog-error{color:#b42318;background:#fef3f2}.preparation-choice>.dialog-error,.preparation-import>.dialog-error{align-self:end}.preparation-review>footer{display:flex;justify-content:flex-end;gap:9px;padding:15px 26px;border-top:1px solid #e8edf4;background:#fbfcfe}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 .preparation-step>header>button:hover:not(:disabled),.preparation-dropzone button:hover:not(:disabled),.preparation-review footer button:hover:not(:disabled){border-color:#bab8ef;color:#4338ca;background:#f7f7ff}.preparation-dropzone button.primary:hover:not(:disabled),.preparation-review footer button.primary:hover:not(:disabled){border-color:#4338ca;color:#fff;background:#4338ca}.preparation-step>header>button:active:not(:disabled),.preparation-dropzone button:active:not(:disabled),.preparation-review footer button:active:not(:disabled){transform:translateY(1px)}
 .start-options>button:focus-visible,.preparation-step>header>button:focus-visible,.preparation-dropzone button:focus-visible,.preparation-review footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.spin{animation:preparation-spin .85s linear infinite}@keyframes preparation-spin{to{transform:rotate(360deg)}}@keyframes preparation-in{from{opacity:.35;transform:translateY(10px) scale(.992)}to{opacity:1;transform:none}}@keyframes preparation-backdrop-in{from{background:rgba(30,41,59,0);backdrop-filter:blur(0)}to{background:rgba(30,41,59,.38);backdrop-filter:blur(2px)}}
 @media(max-width:820px){.preparation-dialog.is-choice{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}.preparation-choice{min-height:0}.start-options{grid-template-columns:1fr;overflow:auto}.start-options>button{min-height:286px}}
-@media(max-width:700px){.preparation-dialog,.preparation-dialog.is-choice{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.preparation-step>header,.recognized-structure,.preparation-review>footer{padding-inline:18px}.preparation-choice>header{padding-top:22px}.start-options{padding:14px 18px 22px}.start-options>button{min-height:276px}.mode-illustration{grid-template-columns:minmax(78px,1fr) 36px minmax(108px,1.2fr);padding:16px}.mode-copy{padding:17px 18px 19px}.preparation-dropzone{margin:20px}.recognized-file{grid-template-columns:20px minmax(0,1fr)}.recognized-file select{grid-column:2}.preparation-review>footer{display:grid;grid-template-columns:1fr 1fr}}
+@media(max-width:700px){.preparation-dialog,.preparation-dialog.is-choice{width:calc(100vw - 16px);max-height:calc(100dvh - 16px)}.preparation-step>header,.recognized-structure,.preparation-review>footer{padding-inline:18px}.preparation-choice>header{padding-top:22px}.start-options{padding:14px 18px 22px}.start-options>button{min-height:276px}.mode-illustration{grid-template-columns:minmax(78px,1fr) 36px minmax(108px,1.2fr);padding:16px}.mode-copy{padding:17px 18px 19px}.preparation-dropzone{margin:20px}.understanding-overview{align-items:flex-start;flex-direction:column;padding-inline:18px}.understanding-gaps{max-width:100%;justify-content:flex-start;flex-wrap:wrap;white-space:normal}.recognized-file{grid-template-columns:20px minmax(0,1fr)}.recognized-file select{grid-column:2}.recognized-signals{flex-wrap:wrap}.preparation-review>footer{display:grid;grid-template-columns:1fr 1fr}}
 @media(prefers-reduced-motion:reduce){.preparation-dialog,.preparation-dialog::backdrop,.spin{animation:none}.start-options>button{transition:none}}
 </style>

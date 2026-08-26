@@ -28,3 +28,7 @@
 - [x] 4.6 Replace the full-page preparation state with a workbench starting-point dialog and recognized-structure confirmation.
 - [x] 4.7 Register imported originals for generation, auto-match stage sources, and preserve later teacher overrides.
 - [x] 4.8 Verify the new entry, import review, source auto-match, focused tests, build and desktop browser states.
+- [x] 4.9 Parse imported originals and run one bounded batch AI analysis over document purpose, course placement, version role and file relationships.
+- [x] 4.10 Persist confidence, reasons, missing-material gaps and explicit rule fallback while preserving teacher-confirmed types.
+- [x] 4.11 Surface the four-dimensional result in both the preparation review and course-file inspector without changing formal-file relationship boundaries.
+- [x] 4.12 Verify focused backend/frontend tests, a real provider request with an ambiguously named document, and the real desktop page.

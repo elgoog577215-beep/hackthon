@@ -176,11 +176,17 @@ describe('TeacherCourseSpaceView', () => {
     const packageWithAsset = {
       ...coursePackage,
       updated_at: '2026-08-22T08:00:00Z',
-      asset_count: 1,
+      asset_count: 2,
       assets: [{
         asset_id: 'asset-1', filename: '课堂案例.pdf', relative_path: '参考资料/课堂案例.pdf', extension: '.pdf', size_bytes: 2048,
-        category: 'reference', document_type: 'lesson_plan', uploaded_at: '2026-08-22T08:00:00Z', updated_at: '2026-08-22T08:00:00Z',
+        category: 'reference', document_type: 'lesson_plan', document_type_reason: 'AI 根据正文判断', classification_source: 'ai', classification_confidence: 0.86,
+        course_alignment: { match: 'matched', confidence: 0.9, reason: '属于当前课程' }, structure_matches: [{ node_id: 'lesson-1', title: '第一讲 线性表', confidence: 0.9, reason: '内容对应第一讲' }],
+        version_role: 'reference', version_reason: '案例资料', related_asset_ids: ['asset-2'], uploaded_at: '2026-08-22T08:00:00Z', updated_at: '2026-08-22T08:00:00Z',
+      }, {
+        asset_id: 'asset-2', filename: '第一讲课件.pptx', relative_path: '参考资料/第一讲课件.pptx', extension: '.pptx', size_bytes: 4096,
+        category: 'reference', document_type: 'ppt', classification_source: 'hybrid', classification_confidence: 0.99, related_asset_ids: ['asset-1'], uploaded_at: '2026-08-22T08:00:00Z', updated_at: '2026-08-22T08:00:00Z',
       }],
+      material_understanding: { status: 'ai_completed', missing_document_types: ['outline', 'script', 'question_bank'] },
       relationships: [{
         link_id: 'link-1', source_asset_id: 'asset-1', source_label: '课堂案例.pdf', target_id: 'managed:outline', target_type: 'outline', target_label: '课程大纲', role: 'reference',
       }],
@@ -216,6 +222,10 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.inspector-overview').text()).toContain('课程大纲')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('文件大小')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('修改时间')
+    expect(wrapper.get('.inspector-overview').text()).toContain('AI 判断 · 86%')
+    expect(wrapper.get('.inspector-overview').text()).toContain('第一讲 线性表')
+    expect(wrapper.get('.inspector-overview').text()).toContain('参考资料')
+    expect(wrapper.get('.relationship-list').text()).toContain('第一讲课件.pptx')
     expect((wrapper.get('.asset-type-select').element as HTMLSelectElement).value).toBe('lesson_plan')
     await wrapper.get('.asset-type-select').setValue('ppt')
     await flushPromises()

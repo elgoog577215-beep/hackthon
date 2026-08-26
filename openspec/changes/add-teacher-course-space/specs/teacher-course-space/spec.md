@@ -54,7 +54,11 @@ The system SHALL open a newly created course in its preparation workbench and SH
 
 #### Scenario: Teacher corrects recognized document types
 - **WHEN** the teacher changes an imported file from a suggested type to another supported document type
-- **THEN** the system persists the correction before the teacher confirms and enters the workbench
+- **THEN** the system persists the correction as a teacher-confirmed result before the teacher enters the workbench and later AI batches do not overwrite it
+
+#### Scenario: Teacher reviews the complete batch structure
+- **WHEN** batch understanding finishes
+- **THEN** the dialog shows whether AI completed or explicitly fell back, the recognized type and confidence for each file, its course location, version role, related originals and missing core material types
 
 #### Scenario: Teacher has no materials yet
 - **WHEN** the teacher chooses to start from scratch
@@ -73,7 +77,7 @@ The system SHALL allow a formal course file to record at most one primary origin
 
 #### Scenario: Uploaded original shows its uses
 - **WHEN** the teacher selects an uploaded original
-- **THEN** the inspector lists the formal files that reference it
+- **THEN** the inspector lists the formal files that reference it together with its recognition source, course location, version role and related uploaded originals
 
 ### Requirement: Workbench automatically proposes matching imported originals
 The system SHALL automatically populate a formal target's primary and reference sources from confirmed imported-original classifications when that target has never been configured. A later teacher selection, including an intentionally empty selection, SHALL take precedence over future automatic matching.

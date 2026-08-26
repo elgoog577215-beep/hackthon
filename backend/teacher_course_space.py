@@ -173,7 +173,7 @@ class TeacherCourseSpaceRepository:
         entries = [{**entry, "path": entry["name"]} for entry in SCHOOL_TEMPLATE] if template == "school_course_materials" else []
         package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
                    "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "imports": [],
-                   "entries": entries, "relationships": [], "preparation_status": "pending"}
+                   "entries": entries, "relationships": [], "asset_relationships": [], "material_understanding": {}, "preparation_status": "pending"}
         package_path = self._path(package_id)
         package_path.mkdir(parents=True, exist_ok=False)
         (package_path / "files").mkdir(exist_ok=True)  # immutable source copies for download/history
@@ -296,6 +296,44 @@ class TeacherCourseSpaceRepository:
         self.save(package)
         return self.public(package)
 
+    def apply_material_understanding(
+        self,
+        package: dict[str, Any],
+        understanding: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist four-dimensional analysis without overriding teacher decisions."""
+        by_id = {
+            str(item.get("asset_id") or ""): item
+            for item in understanding.get("assets") or []
+            if isinstance(item, dict) and item.get("asset_id")
+        }
+        for asset in package.get("assets") or []:
+            analysis = by_id.get(str(asset.get("asset_id") or ""))
+            if analysis is None:
+                continue
+            teacher_confirmed = (
+                asset.get("classification_source") == "teacher"
+                or asset.get("document_type_reason") == "教师确认"
+            )
+            if not teacher_confirmed:
+                asset["document_type"] = analysis.get("document_type", asset.get("document_type", "other"))
+                asset["document_type_reason"] = analysis.get("reason", asset.get("document_type_reason", ""))
+                asset["classification_confidence"] = analysis.get("confidence", 0)
+                asset["classification_source"] = analysis.get("analysis_source", "rule")
+                asset["classification_version"] = understanding.get("engine_version", "")
+            asset["course_alignment"] = analysis.get("course_alignment") or {}
+            asset["structure_matches"] = analysis.get("structure_matches") or []
+            asset["version_role"] = analysis.get("version_role", "unknown")
+            asset["version_reason"] = analysis.get("version_reason", "")
+            asset["related_asset_ids"] = analysis.get("related_asset_ids") or []
+            asset["understanding_updated_at"] = understanding.get("analyzed_at", _now())
+        package["asset_relationships"] = list(understanding.get("relationships") or [])
+        package["material_understanding"] = {
+            key: value for key, value in understanding.items() if key != "assets"
+        }
+        self.save(package)
+        return self.public(package)
+
     async def import_file(self, package: dict[str, Any], upload: Any, relative_path: str, batch_id: str) -> dict[str, Any]:
         relative_path = normalize_relative_path(relative_path)
         extension = Path(relative_path).suffix.lower()
@@ -351,6 +389,21 @@ class TeacherCourseSpaceRepository:
         if document_type is not None:
             asset["document_type"] = document_type
             asset["document_type_reason"] = "教师确认"
+            asset["classification_confidence"] = 1.0
+            asset["classification_source"] = "teacher"
+            asset["classification_version"] = "teacher_confirmed_v1"
+            understanding = package.get("material_understanding") or {}
+            low_confidence = {
+                str(value) for value in understanding.get("low_confidence_asset_ids") or []
+            }
+            low_confidence.discard(str(asset_id))
+            understanding["low_confidence_asset_ids"] = sorted(low_confidence)
+            available_types = {
+                str(item.get("document_type") or "") for item in package.get("assets") or []
+            }
+            expected = ("outline", "lesson_plan", "script", "ppt", "question_bank")
+            understanding["missing_document_types"] = [value for value in expected if value not in available_types]
+            package["material_understanding"] = understanding
         self.save(package)
         return asset
 

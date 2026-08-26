@@ -75,6 +75,44 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(updated["document_type"], "script")
         self.assertEqual(updated["document_type_reason"], "教师确认")
+        self.assertEqual(updated["classification_source"], "teacher")
+
+    async def test_understanding_persists_four_dimensions_without_overwriting_teacher(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        asset = await repository.import_file(package, FakeUpload(), "第一讲教案.pdf", "batch-1")
+        repository.update_asset_classification(package, asset["asset_id"], document_type="script")
+
+        public = repository.apply_material_understanding(package, {
+            "schema_version": "course_material_understanding_v1",
+            "engine_version": "hybrid_classifier_v1",
+            "status": "ai_completed",
+            "analyzed_at": "2026-08-27T00:00:00+00:00",
+            "assets": [{
+                "asset_id": asset["asset_id"],
+                "document_type": "lesson_plan",
+                "confidence": 0.91,
+                "reason": "AI判断为教案",
+                "analysis_source": "ai",
+                "course_alignment": {"match": "matched", "confidence": 0.9, "reason": "属于当前课程"},
+                "structure_matches": [{"node_id": "lesson-1", "title": "第一讲", "confidence": 0.9}],
+                "version_role": "current",
+                "version_reason": "当前版本",
+                "related_asset_ids": [],
+            }],
+            "relationships": [],
+            "missing_document_types": ["outline"],
+            "low_confidence_asset_ids": [],
+        })
+
+        saved = public["assets"][0]
+        self.assertEqual(saved["document_type"], "script")
+        self.assertEqual(saved["classification_source"], "teacher")
+        self.assertEqual(saved["course_alignment"]["match"], "matched")
+        self.assertEqual(saved["structure_matches"][0]["node_id"], "lesson-1")
+        self.assertEqual(saved["version_role"], "current")
+        self.assertEqual(public["material_understanding"]["status"], "ai_completed")
 
     async def test_course_binding_uses_stable_id_and_preserves_legacy_packages(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))

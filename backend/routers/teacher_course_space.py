@@ -5,7 +5,13 @@ from typing import Any, Literal
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from course_material_understanding import (
+    CourseMaterialUnderstandingService,
+    course_material_understanding_service,
+)
+from dependencies import get_course_document_repository
 from learner_context import require_user_id
+from material_parser import parse_material_asset
 from material_storage import MaterialStorageError, material_repository
 from teacher_course_space import CATEGORIES, package_folder_paths, teacher_course_space_repository as repository
 
@@ -92,10 +98,58 @@ async def import_folder(package_id: str, request: Request, files: list[UploadFil
                         outcome["analysis_error"] = str(analysis_error)
                 outcomes.append(outcome)
             except MaterialStorageError as exc: outcomes.append({"relative_path": path, "outcome": "rejected", "error": str(exc)})
+        imported_asset_ids = {
+            str(item.get("asset_id") or "")
+            for item in outcomes
+            if item.get("outcome") in {"imported", "duplicate"} and item.get("asset_id")
+        }
+        # Re-run package understanding over the complete original set so a
+        # later incremental batch can relate to files imported earlier.
+        analyzed_assets = list(package.get("assets", []))
+        parsed_documents = {}
+        for asset in analyzed_assets:
+            material_asset_id = str(asset.get("material_asset_id") or "")
+            material = material_repository.get_asset(material_asset_id) if material_asset_id else None
+            if material is None:
+                continue
+            try:
+                document = material_repository.load_parsed_document(material_asset_id)
+                if document is None or str(asset.get("asset_id") or "") in imported_asset_ids:
+                    document = await parse_material_asset(material_repository, material)
+                parsed_documents[str(asset.get("asset_id") or "")] = document
+            except Exception:
+                outcome = next((item for item in outcomes if item.get("asset_id") == asset.get("asset_id")), None)
+                if outcome is not None:
+                    outcome["analysis_error"] = "文件正文解析失败，已保留原文件并使用基础识别"
+        course = {}
+        course_id = str(package.get("course_id") or "")
+        if course_id:
+            try:
+                course = get_course_document_repository().load_course_view(course_id)
+            except Exception:
+                course = {}
+        try:
+            understanding = await course_material_understanding_service.analyze_batch(
+                package=package,
+                assets=analyzed_assets,
+                documents=parsed_documents,
+                course=course,
+                batch_id=batch_id,
+            )
+        except Exception:
+            understanding = await CourseMaterialUnderstandingService(use_model=False).analyze_batch(
+                package=package,
+                assets=analyzed_assets,
+                documents=parsed_documents,
+                course=course,
+                batch_id=batch_id,
+            )
+            understanding["failure_code"] = "analysis_internal_error"
+        repository.apply_material_understanding(package, understanding)
         package["imports"].append({"batch_id": batch_id, "imported_at": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(), "outcomes": outcomes})
         if str(package.get("preparation_status") or "completed") in {"pending", "review"}:
             package["preparation_status"] = "review"
-        repository.save(package); return {"batch_id": batch_id, "outcomes": outcomes, "package": repository.public(package)}
+        repository.save(package); return {"batch_id": batch_id, "outcomes": outcomes, "understanding": understanding, "package": repository.public(package)}
     except Exception as exc: http_error(exc)
 @router.patch("/{package_id}/assets/{asset_id}")
 def update_asset(package_id: str, asset_id: str, body: CategoryUpdate, request: Request):
