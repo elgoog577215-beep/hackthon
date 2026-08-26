@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { defineComponent, h, onMounted } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
+import TeacherLessonPlanDocument from '@/components/TeacherLessonPlanDocument.vue'
 import { useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
 import http from '@/utils/http'
 
@@ -65,6 +66,12 @@ function mountWorkbench() {
       },
     },
   })
+}
+
+async function openLessonAi(wrapper: ReturnType<typeof mountWorkbench>, label = 'AI 修改') {
+  const trigger = wrapper.findAll('.lesson-toolbar-actions button').find(button => button.text().includes(label))
+  if (!trigger) throw new Error(`未找到教案工具栏中的${label}入口`)
+  await trigger.trigger('click')
 }
 
 function mountQuestionBankWorkbench(focusReferenceSources: () => void) {
@@ -147,7 +154,7 @@ describe('教案 AI 协作编辑模式', () => {
     vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
     const wrapper = mountWorkbench()
 
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await openLessonAi(wrapper)
 
     const actions = wrapper.findAll('.lesson-ai-quick-grid button')
     expect(actions).toHaveLength(6)
@@ -210,9 +217,9 @@ describe('教案 AI 协作编辑模式', () => {
   it('支持键盘调整 AI 面板宽度并保存教师偏好', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
-    const wrapper = mountWorkbench()
+    const wrapper = mountQuestionBankWorkbench(vi.fn())
 
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await wrapper.get('.open-question-ai').trigger('click')
     const resizer = wrapper.get('.ai-workspace-resizer')
 
     await resizer.trigger('keydown', { key: 'Home' })
@@ -224,7 +231,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(window.localStorage.getItem('teacher-course-workbench:ai-pane-width')).toBe('384')
   })
 
-  it('进入左右分屏，以多轮要求刷新左侧候选并保留确认边界', async () => {
+  it('在稳定右栏多轮修改左侧候选并保留确认边界', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
     const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
@@ -242,11 +249,11 @@ describe('教案 AI 协作编辑模式', () => {
     const resolveCandidate = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
     const wrapper = mountWorkbench()
 
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await openLessonAi(wrapper)
 
-    expect(wrapper.classes()).toContain('is-ai-collaboration')
+    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(true)
-    expect(wrapper.get('.stage-rail').attributes('style')).toContain('display: none')
+    expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
     expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
     expect(wrapper.text()).toContain('AI 助手')
     expect(wrapper.text()).toContain('1.1 爬虫的定义与流程')
@@ -254,10 +261,12 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.text()).not.toContain('点击后生成可审阅候选')
 
     await wrapper.get('.lesson-ai-sources').trigger('click')
+    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
     expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
-    wrapper.getComponent({ name: 'CourseReferenceTray' }).vm.$emit('close')
-    await flushPromises()
+    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(false)
+    await wrapper.findAll('.context-pane-tabs button')[0]!.trigger('click')
     expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
+    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(true)
 
     await wrapper.get('.lesson-ai-composer textarea').setValue('把教学目标改成可观察行为')
     await wrapper.get('.lesson-ai-composer').trigger('submit')
@@ -287,6 +296,24 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.text()).toContain('候选已采用，并形成新的教案工作修订')
   })
 
+  it('文中选区调用 AI 时自动切到助手并保留选中内容', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.lessons = [structuredClone(lesson)]
+    const wrapper = mountWorkbench()
+
+    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
+    wrapper.getComponent(TeacherLessonPlanDocument).vm.$emit('open-ai-selection', {
+      text: '能解释爬虫的工作流程',
+    })
+    await flushPromises()
+
+    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
+    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
+    expect(wrapper.findAll('.context-pane-tabs button')[0]!.attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('.lesson-ai-selection').text()).toContain('能解释爬虫的工作流程')
+    expect(wrapper.get('.lesson-ai-composer textarea').attributes('placeholder')).toContain('如何修改这段内容')
+  })
+
   it('模糊要求先向教师澄清，再按所选方向生成候选', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
@@ -299,14 +326,14 @@ describe('教案 AI 协作编辑模式', () => {
     vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
     const wrapper = mountWorkbench()
 
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await openLessonAi(wrapper)
     await wrapper.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
     await wrapper.get('.lesson-ai-composer').trigger('submit')
     await flushPromises()
 
     expect(createCandidate).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('你希望优先调整哪一部分')
-    expect(wrapper.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
+    expect(wrapper.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
 
     await wrapper.findAll('.lesson-ai-clarification button')[0]!.trigger('click')
     await flushPromises()
@@ -331,9 +358,9 @@ describe('教案 AI 协作编辑模式', () => {
     await flushPromises()
 
     expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 方案'))!.trigger('click')
+    await openLessonAi(wrapper, 'AI 方案')
     expect(wrapper.text()).toContain('已恢复上次未处理的修改候选')
-    expect(wrapper.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('review')
+    expect(wrapper.get('.lesson-ai-workspace').attributes('data-phase')).toBe('review')
     await wrapper.findAll('.lesson-ai-review button').find(button => button.text().includes('放弃'))!.trigger('click')
     await flushPromises()
 
@@ -345,7 +372,7 @@ describe('教案 AI 协作编辑模式', () => {
     store.lessons = [structuredClone(lesson)]
     const first = mountWorkbench()
 
-    await first.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await openLessonAi(first)
     await first.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
     await first.get('.lesson-ai-composer').trigger('submit')
     await flushPromises()
@@ -356,12 +383,12 @@ describe('教案 AI 协作编辑模式', () => {
     first.unmount()
 
     const second = mountWorkbench()
-    await second.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await openLessonAi(second)
     await flushPromises()
 
     expect(second.text()).toContain('帮我改好一点')
     expect(second.text()).toContain('你希望优先调整哪一部分')
-    expect(second.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
+    expect(second.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
   })
 
   it('切换实际教案小节时同步左侧正文与独立对话，不把修改串到别的小节', async () => {
@@ -379,7 +406,7 @@ describe('教案 AI 协作编辑模式', () => {
     store.lessons = [scopedLesson]
     const wrapper = mountWorkbench()
 
-    await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
+    await openLessonAi(wrapper)
     await wrapper.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
     await wrapper.get('.lesson-ai-composer').trigger('submit')
     await flushPromises()
@@ -402,6 +429,6 @@ describe('教案 AI 协作编辑模式', () => {
     expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-1')
     expect(wrapper.text()).toContain('帮我改好一点')
     expect(wrapper.text()).toContain('你希望优先调整哪一部分')
-    expect(wrapper.get('.lesson-ai-title [data-phase]').attributes('data-phase')).toBe('clarifying')
+    expect(wrapper.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
   })
 })

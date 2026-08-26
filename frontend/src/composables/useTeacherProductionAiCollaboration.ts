@@ -35,6 +35,7 @@ export interface TeacherProductionAiScope {
   primaryTitle: string
   secondaryTitle: string
   referenceCount: number
+  selectionText?: string
   references?: Array<{
     id: string
     label: string
@@ -140,6 +141,9 @@ export function buildTeacherProductionAiInstruction(
   const scopeLine = `范围：课程“${scope.courseTitle}”；当前对象“${scope.primaryTitle}”；局部范围“${scope.secondaryTitle}”。`
   const common = [
     scopeLine,
+    scope.selectionText
+      ? `教师当前选中内容（本轮只围绕此内容修改）：\n“${scope.selectionText.slice(0, 1200)}”`
+      : '教师当前未限定具体文字选区。',
     `资料范围（只能使用下列精确资料）：\n${sourceList || '无额外资料'}`,
     `教师对话（越靠后优先级越高）：\n${requirements}`,
     '输出边界：只生成候选，不确认、不发布，也不自动改写下游正式内容。',

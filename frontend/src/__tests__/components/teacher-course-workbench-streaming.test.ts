@@ -141,7 +141,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
   })
 
-  it('正式大纲首屏可直接打开 AI 编辑工作区', async () => {
+  it('正式大纲首屏可直接在稳定右栏打开 AI 编辑工作区', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -155,7 +155,8 @@ describe('teacher course workbench outline streaming', () => {
     expect(aiAction.attributes('aria-expanded')).toBe('false')
     await aiAction.trigger('click')
 
-    expect(wrapper.get('.teacher-workbench').classes()).toContain('is-ai-collaboration')
+    expect(wrapper.get('.teacher-workbench').classes()).not.toContain('is-ai-collaboration')
+    expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(true)
   })
 

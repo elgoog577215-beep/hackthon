@@ -3,13 +3,13 @@
     ref="workbenchRoot"
     class="teacher-workbench"
     :class="{
-      'is-ai-collaboration': aiCollaborationOpen,
+      'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
     }"
     :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
   >
-    <aside v-show="!aiCollaborationOpen" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
+    <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
       <header><strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong></header>
       <nav>
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== stage.id)" @click="requestStageChange(stage.id)">
@@ -386,6 +386,7 @@
             @ai-resolving="handleAiResolving"
             @ai-resolved="handleAiResolved"
             @ai-error="handleAiError"
+            @open-ai-selection="openAiFromSelection('lesson', $event)"
           />
         </template>
 
@@ -415,6 +416,7 @@
             @ai-resolved="handleAiResolved"
             @ai-error="handleAiError"
             @ai-scope-change="handleScriptAiScopeChange"
+            @open-ai-selection="openAiFromSelection('script', $event)"
           >
             <template #toolbar>
               <div v-if="scriptToolbarVisible" class="lesson-document-toolbar" :aria-label="t('courseWorkbench.scriptDocument.actions', '讲稿操作')">
@@ -471,7 +473,7 @@
     </main>
 
     <div
-      v-if="aiCollaborationOpen"
+      v-if="aiCollaborationOpen && activeStage === 'question-bank'"
       class="ai-workspace-resizer"
       role="separator"
       tabindex="0"
@@ -487,8 +489,73 @@
       @keydown="resizeAiPaneWithKeyboard"
     ><GripVertical :size="14" /></div>
 
+    <aside v-if="activeStage !== 'question-bank'" class="context-pane" :class="{ 'is-ai-tab': contextPaneTab === 'ai' }" :aria-label="t('courseWorkbench.contextPane.title', '工作台侧栏')">
+      <nav class="context-pane-tabs" role="tablist" :aria-label="t('courseWorkbench.contextPane.title', '工作台侧栏')">
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="contextPaneTab === 'ai'"
+          :disabled="!contextAiAvailable"
+          @click="openContextAiTab"
+        ><Sparkles :size="14" />{{ t('courseWorkbench.contextPane.ai', 'AI 助手') }}</button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="contextPaneTab === 'references'"
+          @click="showReferenceTab"
+        ><FileText :size="14" />{{ t('courseWorkbench.contextPane.references', '参考资料') }}<small>{{ activeReferences.length }}</small></button>
+      </nav>
+
+      <TeacherLessonAiWorkspace
+        v-if="contextPaneTab === 'ai' && aiCollaborationOpen"
+        class="ai-workspace-panel"
+        embedded
+        :domain="aiDomain"
+        :scope-title="aiScopeTitle"
+        :scope-detail="aiScopeDetail"
+        :scope-options="aiScopeOptions"
+        :scope-value="currentAiScopeId"
+        :reference-count="aiActiveReferences.length"
+        :reference-labels="aiActiveReferences.map(item => item.source_label || item.filename)"
+        :messages="aiMessages"
+        :phase="aiPhase"
+        :busy="aiCollaborationBusy"
+        :candidate-pending="aiCandidatePending"
+        :candidate-fields="aiCandidateFieldLabels"
+        :candidate-impacts="aiCandidateImpacts"
+        :clarification-options="aiClarificationOptions"
+        :quick-actions="aiQuickActions"
+        :placeholder="aiPlaceholder"
+        :selection-text="aiSelectionContext"
+        :can-retry="Boolean(lastAiOperation)"
+        @change-scope="changeAiScope"
+        @open-sources="showReferenceTab"
+        @clear-selection="aiSelectionContext = ''"
+        @send="handleAiRequest"
+        @clarify="handleAiClarification"
+        @retry="retryAiAction"
+        @accept="resolveAiCandidate(true)"
+        @reject="resolveAiCandidate(false)"
+        @focus-candidate="focusAiCandidate"
+      />
+
+      <CourseReferenceTray
+        v-else
+        v-model="activeReferences"
+        class="context-pane-references"
+        :course-id="courseId"
+        :stage="activeStage"
+        :lesson-id="activeReferenceLessonId"
+        :scope-target-id="lessonReferenceTargetId"
+        :scope-target-type="lessonReferenceTargetType"
+        :scope-target-label="selectedLesson?.title || ''"
+        :previous-scope-target-id="previousLessonReferenceTargetId"
+        @open-course-information="emit('open-course-information')"
+      />
+    </aside>
+
     <TeacherLessonAiWorkspace
-      v-if="aiCollaborationOpen"
+      v-else-if="aiCollaborationOpen"
       class="ai-workspace-panel"
       :domain="aiDomain"
       :scope-title="aiScopeTitle"
@@ -497,7 +564,7 @@
       :scope-value="currentAiScopeId"
       :reference-count="aiActiveReferences.length"
       :reference-labels="aiActiveReferences.map(item => item.source_label || item.filename)"
-      :sources-open="aiDomain === 'question-bank' || aiSourcesOpen"
+      :sources-open="true"
       :messages="aiMessages"
       :phase="aiPhase"
       :busy="aiCollaborationBusy"
@@ -517,23 +584,6 @@
       @accept="resolveAiCandidate(true)"
       @reject="resolveAiCandidate(false)"
       @focus-candidate="focusAiCandidate"
-    />
-
-    <CourseReferenceTray
-      v-if="activeStage !== 'question-bank' && (!aiCollaborationOpen || aiSourcesOpen)"
-      v-model="activeReferences"
-      :class="{ 'ai-source-drawer': aiCollaborationOpen }"
-      :course-id="courseId"
-      :compact="aiCollaborationOpen"
-      :show-close="aiCollaborationOpen"
-      :stage="activeStage"
-      :lesson-id="activeReferenceLessonId"
-      :scope-target-id="lessonReferenceTargetId"
-      :scope-target-type="lessonReferenceTargetType"
-      :scope-target-label="selectedLesson?.title || ''"
-      :previous-scope-target-id="previousLessonReferenceTargetId"
-      @close="aiSourcesOpen = false"
-      @open-course-information="emit('open-course-information')"
     />
   </section>
 </template>
@@ -652,6 +702,8 @@ const aiPaneMaxWidth = ref(AI_PANE_MAX_WIDTH)
 const aiPaneResizing = ref(false)
 const aiPhase = ref<TeacherProductionAiPhase>('ready')
 const aiCandidate = ref<Record<string, any> | null>(null)
+const contextPaneTab = ref<'ai' | 'references'>('references')
+const aiSelectionContext = ref('')
 const aiMessages = ref<TeacherProductionAiMessage[]>([])
 const aiSessionScopeKey = ref('')
 const aiMessageSequence = ref(0)
@@ -927,6 +979,18 @@ const activeAiDocument = computed<ProductionAiDocumentHandle | null>(() => {
   if (aiDomain.value === 'question-bank') return questionBankPanel.value
   if (aiDomain.value === 'script') return scriptDocument.value
   return lessonPlanDocument.value as ProductionAiDocumentHandle | null
+})
+const contextAiDomain = computed<TeacherProductionAiDomain | null>(() => {
+  if (activeStage.value === 'foundation') return 'outline'
+  if (activeStage.value === 'lesson') return 'lesson'
+  if (activeStage.value === 'script') return 'script'
+  return null
+})
+const contextAiAvailable = computed(() => {
+  if (contextAiDomain.value === 'outline') return Boolean(showOutlineWorkspace.value && outlineEditor.value)
+  if (contextAiDomain.value === 'lesson') return Boolean(selectedLesson.value && workingLessonRevision.value)
+  if (contextAiDomain.value === 'script') return Boolean(selectedLesson.value?.script.ready && scriptDocument.value)
+  return false
 })
 const aiCandidateFieldLabels = computed(() => {
   if (aiDomain.value === 'outline') {
@@ -1247,7 +1311,7 @@ function persistAiSession() {
     }))
   } catch { /* local storage can be unavailable */ }
 }
-function openAiCollaboration(domain: TeacherProductionAiDomain) {
+function openAiCollaboration(domain: TeacherProductionAiDomain, selectionText = '') {
   if (domain === 'lesson' && (!selectedLesson.value || !workingLessonRevision.value)) return
   if (domain === 'script' && (!selectedLesson.value?.script.ready || !scriptDocument.value)) return
   if (domain === 'outline' && !outlineEditor.value) return
@@ -1255,6 +1319,8 @@ function openAiCollaboration(domain: TeacherProductionAiDomain) {
     aiDomain.value = domain
     aiCandidate.value = null
   }
+  aiSelectionContext.value = selectionText.trim().slice(0, 1200)
+  contextPaneTab.value = 'ai'
   aiSourcesOpen.value = false
   if (aiSessionScopeKey.value !== currentAiScopeKey.value || !aiMessages.value.length) {
     if (!restoreAiSession()) resetAiSession()
@@ -1268,6 +1334,19 @@ function openAiCollaboration(domain: TeacherProductionAiDomain) {
 }
 function closeAiCollaboration() {
   aiCollaborationOpen.value = false
+  contextPaneTab.value = 'references'
+  aiSourcesOpen.value = false
+  aiSelectionContext.value = ''
+}
+function openAiFromSelection(domain: TeacherProductionAiDomain, selection: { text: string }) {
+  openAiCollaboration(domain, selection.text)
+}
+function openContextAiTab() {
+  if (!contextAiDomain.value || !contextAiAvailable.value) return
+  openAiCollaboration(contextAiDomain.value, aiSelectionContext.value)
+}
+function showReferenceTab() {
+  contextPaneTab.value = 'references'
   aiSourcesOpen.value = false
 }
 function handleAiSourcesOpen() {
@@ -1275,7 +1354,7 @@ function handleAiSourcesOpen() {
     questionBankPanel.value?.focusReferenceSources?.()
     return
   }
-  aiSourcesOpen.value = !aiSourcesOpen.value
+  showReferenceTab()
 }
 function handleQuestionBankReferencesChange(references: CourseReferenceItem[]) {
   questionBankReferences.value = references
@@ -1316,6 +1395,7 @@ function buildAiInstruction(): string {
       role: item.role,
       origin: item.origin,
     })),
+    selectionText: aiSelectionContext.value,
   })
 }
 function replacePreviousCandidateMessage() {
@@ -1891,6 +1971,20 @@ onBeforeUnmount(() => {
 .is-ai-collaboration>.workbench-center.is-lesson-workspace>.lesson-stage{width:100%;max-width:none;margin:0}
 .is-ai-collaboration .lesson-stage{min-height:100%;overflow:hidden}
 .ai-workspace-panel{min-height:0;overflow:hidden}
+.context-pane{min-width:0;min-height:0;display:grid;grid-template-rows:54px minmax(0,1fr);overflow:hidden;border-left:1px solid #e4e9f1;background:#fbfcfe}
+.context-pane-tabs{display:grid;grid-template-columns:1fr 1fr;align-items:stretch;padding:0 12px;border-bottom:1px solid #e7ebf2;background:#fff}
+.context-pane-tabs button{position:relative;min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 8px;border:0;color:#758195;background:transparent;font-size:12px;font-weight:700;cursor:pointer}
+.context-pane-tabs button::after{position:absolute;right:10px;bottom:-1px;left:10px;height:2px;border-radius:2px;background:transparent;content:""}
+.context-pane-tabs button[aria-selected="true"]{color:#4338ca}
+.context-pane-tabs button[aria-selected="true"]::after{background:#5b57e8}
+.context-pane-tabs button:hover:not(:disabled){color:#4338ca;background:#fafaff}
+.context-pane-tabs button:focus-visible{z-index:1;outline:2px solid #6366f1;outline-offset:-3px}
+.context-pane-tabs button:disabled{color:#adb5c2;cursor:not-allowed}
+.context-pane-tabs small{min-width:18px;height:18px;display:grid;place-items:center;border-radius:9px;color:#6965a9;background:#f0f0fb;font-size:9px}
+.context-pane>.ai-workspace-panel{height:100%;border:0;border-radius:0;box-shadow:none}
+.context-pane>.context-pane-references{height:100%;border-left:0}
+.context-pane>:deep(.reference-tray__header){display:none}
+.teacher-workbench.is-ai-collaboration .context-pane{border:1px solid #dfe5ee;border-radius:14px;background:#fff;box-shadow:0 8px 24px rgba(30,41,59,.045)}
 .ai-workspace-resizer{z-index:6;display:grid;place-items:center;background:transparent}
 .ai-workspace-resizer::after{inset-block:18px;background:#d9e0e9}
 .ai-workspace-resizer>svg{position:relative;z-index:1;width:20px;height:32px;padding:8px 3px;border-radius:7px;color:#9aa6b6;background:#fff;box-shadow:0 0 0 1px #dfe4ec;opacity:0;transition:color .16s ease,opacity .16s ease,box-shadow .16s ease}

@@ -427,6 +427,11 @@
       "candidateCanvasDetail": "高亮内容尚未写入当前教案修订，采用后才会形成新的工作版本。",
       "changeMarker": "AI 修改"
     },
+    "contextPane": {
+      "title": "工作台侧栏",
+      "ai": "AI 助手",
+      "references": "参考资料"
+    },
     "aiCollaboration": {
       "title": "AI 助手",
       "mode": "AI 协作编辑",
@@ -481,6 +486,10 @@
       "send": "发送",
       "composerHint": "Enter 发送，Shift + Enter 换行",
       "followUpHint": "继续补充会替换当前候选，正式教案仍不会自动修改。",
+      "selectionModify": "AI 修改",
+      "selectionContext": "已选内容",
+      "clearSelection": "取消选区",
+      "selectionPlaceholder": "告诉 AI 如何修改这段内容…",
       "quickObjective": "让目标可观察",
       "quickObjectivePrompt": "把教学目标改成具体、可观察、可检查的学习行为",
       "quickActivity": "增加互动与检查",

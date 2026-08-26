@@ -48,6 +48,13 @@
 
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
+    <TextSelectionAiAction
+      :container="documentRoot"
+      :disabled="editing || aiBusy || Boolean(pendingCandidate)"
+      :label="tr('courseWorkbench.aiCollaboration.selectionModify')"
+      @invoke="emit('open-ai-selection', $event)"
+    />
+
     <article v-if="selectedSection" class="document-body">
       <header v-if="!externalToolbar" class="section-title">
         <h4>{{ sectionTitle(selectedSection) }}</h4>
@@ -231,6 +238,7 @@
 import { computed, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
+import TextSelectionAiAction from './TextSelectionAiAction.vue'
 import { t } from '../shared/i18n'
 import {
   useTeacherLessonAuthoringStore,
@@ -263,6 +271,7 @@ const emit = defineEmits<{
   (event: 'confirm'): void
   (event: 'saved'): void
   (event: 'open-ai'): void
+  (event: 'open-ai-selection', value: { text: string }): void
   (event: 'ai-candidate-change', value: TeacherLessonPlanCandidate | null): void
   (event: 'ai-busy-change', value: boolean): void
   (event: 'ai-resolving', value: { accept: boolean }): void
@@ -310,6 +319,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.confirmFailed': '教案确认失败',
   'courseWorkbench.lessonDocument.candidateCanvasTitle': 'AI 候选正在左侧画布预览',
   'courseWorkbench.lessonDocument.changeMarker': 'AI 修改',
+  'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
   'courseWorkbench.lessonDocument.sectionNavigation': '教案小节',
   'courseWorkbench.lessonDocument.objective': '教学目标',
   'courseWorkbench.lessonDocument.keyPoints': '教学重点',
@@ -583,7 +593,7 @@ defineExpose({
 </script>
 
 <style scoped>
-.lesson-document{background:#fff}
+.lesson-document{position:relative;background:#fff}
 .document-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}
 .document-title{min-width:0;display:flex;align-items:center}.document-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}
 .document-actions{flex:none;display:flex;align-items:center;gap:2px}.document-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.document-actions button:hover{color:#3730a3;background:#f2f3fa}.document-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.document-actions button:disabled{opacity:.5;cursor:not-allowed}.document-actions .primary-action{margin-left:4px;border-color:#d7ddea;color:#3730a3;background:#fff}.document-actions .primary-action:hover{border-color:#c6cbe0;background:#f7f7ff}

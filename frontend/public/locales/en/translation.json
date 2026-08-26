@@ -427,6 +427,11 @@
       "candidateCanvasDetail": "Highlighted content has not changed the current revision. Apply it to create a new working revision.",
       "changeMarker": "AI edit"
     },
+    "contextPane": {
+      "title": "Workspace sidebar",
+      "ai": "AI assistant",
+      "references": "References"
+    },
     "aiCollaboration": {
       "title": "AI assistant",
       "mode": "AI collaborative editing",
@@ -481,6 +486,10 @@
       "send": "Send",
       "composerHint": "Enter to send, Shift + Enter for a new line",
       "followUpHint": "A follow-up replaces this option; the formal lesson plan is never changed automatically.",
+      "selectionModify": "Edit with AI",
+      "selectionContext": "Selected text",
+      "clearSelection": "Clear selection",
+      "selectionPlaceholder": "Tell AI how to revise this text…",
       "quickObjective": "Make objectives observable",
       "quickObjectivePrompt": "Rewrite the learning objectives as specific, observable, and checkable learner actions",
       "quickActivity": "Add interaction and checks",

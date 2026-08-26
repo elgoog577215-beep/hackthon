@@ -81,6 +81,7 @@ describe('教师课程生产 AI 领域适配', () => {
     })
     const scriptPrompt = buildTeacherProductionAiInstruction(messages, {
       domain: 'script', courseTitle: '测试课程', primaryTitle: '第一讲', secondaryTitle: '导入', referenceCount: 1,
+      selectionText: '这段定义重复了两次',
     })
     const questionPrompt = buildTeacherProductionAiInstruction(messages, {
       domain: 'question-bank', courseTitle: '测试课程', primaryTitle: '测试课程', secondaryTitle: '整门课程题库', referenceCount: 1,
@@ -95,6 +96,8 @@ describe('教师课程生产 AI 领域适配', () => {
     expect(scriptPrompt).toContain('表达修改候选')
     expect(scriptPrompt).toContain('保持已确认教案')
     expect(scriptPrompt).toContain('不确认、不发布')
+    expect(scriptPrompt).toContain('本轮只围绕此内容修改')
+    expect(scriptPrompt).toContain('这段定义重复了两次')
     expect(questionPrompt).toContain('重建任务候选')
     expect(questionPrompt).toContain('整门课程题库')
     expect(questionPrompt).toContain('冻结课程范围')
