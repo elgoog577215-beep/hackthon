@@ -3,6 +3,7 @@ import http, { teacherRequestConfig } from '../utils/http'
 import { t } from '../shared/i18n'
 import { useLearningSessionStore } from './learningSession'
 import { useLearningProgressStore, type LearningTaskRef, type NextLearningAction } from './learningProgress'
+import { useGenerationStore } from './generation'
 
 export type CourseWorkspaceMode = 'reading' | 'overview' | 'practice' | 'mastery' | 'blueprint' | 'versions'
 
@@ -697,6 +698,9 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
         `/api/courses/${courseId}/blueprint/adjustments/preview`,
         payload,
       )
+      if (res.data?.lifecycle_reopened) {
+        await useGenerationStore().fetchGlobalTasks()
+      }
       return res.data
     },
     async cancelBlueprintAdjustment(courseId: string, proposalId: string, requestId: string) {

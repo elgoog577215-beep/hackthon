@@ -1654,39 +1654,62 @@ class TaskManager:
         course_id: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
-        """Generate and validate a non-persistent first-review outline proposal."""
+        """Generate and validate a non-persistent reviewable outline proposal."""
         started_at = time.monotonic()
         request_id = str(payload.get("request_id") or "")
-        candidates = [
+        related = [
             task
             for task in self.tasks.values()
             if task.get("course_id") == course_id
             and task.get("type") in {"course_generation", "teacher_outline_generation"}
-            and task.get("status") == "waiting_for_review"
             and isinstance(task.get("guided_workflow"), dict)
         ]
-        candidates.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-        if not candidates:
+        related.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        if not related:
             raise TaskStateConflict(
-                "课程当前不在首次目录确认阶段",
+                "课程当前没有可修订的大纲任务",
                 status="outline_review_required",
             )
-        task = candidates[0]
+        task = related[0]
         workflow = task["guided_workflow"]
         outline_state = guided_step_state(workflow, "outline")
+        review_ready = (
+            task.get("status") == "waiting_for_review"
+            and str(workflow.get("review_step") or "") == "outline"
+            and str(outline_state.get("status") or "")
+            == "waiting_for_confirmation"
+        )
+        lifecycle_reopened = False
+        if not review_ready:
+            try:
+                reopened = await self.reopen_generation_step(course_id, "outline")
+            except (ValueError, CourseVersionConflict) as exc:
+                raise TaskStateConflict(
+                    "当前大纲不在可调整阶段",
+                    status="outline_review_required",
+                ) from exc
+            task = self.tasks[str(reopened["job_id"])]
+            workflow = task["guided_workflow"]
+            outline_state = guided_step_state(workflow, "outline")
+            lifecycle_reopened = reopened.get("status") == "reopened"
         if (
             str(workflow.get("review_step") or "") != "outline"
             or str(outline_state.get("status") or "") != "waiting_for_confirmation"
-            or outline_state.get("previous_confirmed_revision")
         ):
             raise TaskStateConflict(
-                "一句话调整只支持首次目录确认，确认后不能在这里重构目录",
+                "当前大纲不在可调整阶段",
                 status=str(outline_state.get("status") or "not_available"),
             )
         course_data = self._load_task_course(str(task["id"]))
         if not isinstance(course_data, dict):
             raise ValueError("Course not found")
-        if self._has_downstream_outline_artifacts(course_data):
+        reopened_revision = str(
+            outline_state.get("previous_confirmed_revision") or ""
+        )
+        if (
+            not reopened_revision
+            and self._has_downstream_outline_artifacts(course_data)
+        ):
             raise TaskStateConflict(
                 "课程已经生成下游正式产物，不能再调整首次目录",
                 status="downstream_artifacts_exist",
@@ -1762,6 +1785,7 @@ class TaskManager:
             )
             return {
                 "proposal_id": proposal_id,
+                "lifecycle_reopened": lifecycle_reopened,
                 "source_draft_revision_id": source_draft["draft_revision_id"],
                 "operations": last_operations,
                 "summary": "AI 暂时无法把这句话转换为安全的目录调整，请换一种说法后重试。",
@@ -1817,6 +1841,7 @@ class TaskManager:
         )
         return {
             "proposal_id": proposal_id,
+            "lifecycle_reopened": lifecycle_reopened,
             "source_draft_revision_id": source_draft["draft_revision_id"],
             "operations": last_operations,
             "summary": summary,
@@ -2381,53 +2406,103 @@ class TaskManager:
             raise ValueError(
                 "Only the course outline can currently be edited after confirmation"
             )
-        waiting = [
-            task
-            for task in self.tasks.values()
-            if task.get("course_id") == course_id
-            and task.get("type") == "course_generation"
-            and task.get("status") == "waiting_for_review"
-            and isinstance(task.get("guided_workflow"), dict)
-        ]
-        waiting.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-        if not waiting:
-            raise ValueError(
-                "The generation job must be waiting for review before returning upstream"
-            )
-        task = waiting[0]
-        task_id = str(task["id"])
-        workflow = task["guided_workflow"]
-        current_review = str(workflow.get("review_step") or "")
-        if not current_review:
-            raise ValueError("No generation step is currently waiting for review")
-        if GUIDED_STEP_KEYS.index(current_review) <= GUIDED_STEP_KEYS.index(step):
-            raise ValueError("The requested step is not upstream of the current review")
-        state = guided_step_state(workflow, step)
-        if state.get("status") != "confirmed":
-            raise ValueError("The requested upstream step has not been confirmed")
-
-        previous_revision = str(state.get("artifact_revision") or "")
-        invalidated_steps = invalidate_guided_steps_after(workflow, step)
-        state["status"] = "waiting_for_confirmation"
-        state["confirmed_at"] = None
-        state["previous_confirmed_revision"] = previous_revision
-        state["input_revisions"] = guided_expected_input_revisions(workflow, step)
-        workflow["current_step"] = step
-        workflow["review_step"] = step
-        workflow["updated_at"] = datetime.now().isoformat()
-
-        course_data = self._load_task_course(task_id)
-        if not course_data:
-            raise ValueError("Course not found")
-        draft = build_blueprint_draft(course_data)
-        draft["impact_report"] = analyze_blueprint_impact(course_data, draft)
-        self._version_repository.save_draft(course_id, draft)
-
         async with self._lock:
+            related = [
+                task
+                for task in self.tasks.values()
+                if task.get("course_id") == course_id
+                and task.get("type")
+                in {"course_generation", "teacher_outline_generation"}
+                and isinstance(task.get("guided_workflow"), dict)
+            ]
+            related.sort(
+                key=lambda item: item.get("updated_at", ""),
+                reverse=True,
+            )
+            if not related:
+                raise ValueError("No guided outline job was found for this course")
+            task = related[0]
+            task_id = str(task["id"])
+            workflow = task["guided_workflow"]
+            state = guided_step_state(workflow, step)
+            current_review = str(workflow.get("review_step") or "")
+
+            if (
+                task.get("status") == "waiting_for_review"
+                and current_review == step
+                and state.get("status") == "waiting_for_confirmation"
+            ):
+                return {
+                    "status": "already_reopened",
+                    "job_id": task_id,
+                    "course_id": course_id,
+                    "review_step": step,
+                    "previous_artifact_revision": str(
+                        state.get("previous_confirmed_revision") or ""
+                    ),
+                    "invalidated_steps": [],
+                    "guided_workflow": deepcopy(workflow),
+                    "task": self._task_view(task),
+                }
+
+            task_type = str(task.get("type") or "")
+            task_status = str(task.get("status") or "")
+            if task_type == "course_generation":
+                if task_status != "waiting_for_review" or not current_review:
+                    raise ValueError(
+                        "The generation job must be waiting for a later review"
+                    )
+                if (
+                    GUIDED_STEP_KEYS.index(current_review)
+                    <= GUIDED_STEP_KEYS.index(step)
+                ):
+                    raise ValueError(
+                        "The requested step is not upstream of the current review"
+                    )
+            elif task_type == "teacher_outline_generation":
+                if task_status not in {"completed", "completed_with_warnings"}:
+                    raise ValueError(
+                        "The teacher outline job is not ready for a new revision"
+                    )
+            else:
+                raise ValueError("This generation job cannot reopen the outline")
+            if state.get("status") != "confirmed":
+                raise ValueError("The requested upstream step has not been confirmed")
+
+            previous_revision = str(state.get("artifact_revision") or "")
+            invalidated_steps = invalidate_guided_steps_after(workflow, step)
+            state["status"] = "waiting_for_confirmation"
+            state["confirmed_at"] = None
+            state["previous_confirmed_revision"] = previous_revision
+            state["input_revisions"] = guided_expected_input_revisions(
+                workflow,
+                step,
+            )
+            workflow["current_step"] = step
+            workflow["review_step"] = step
+            workflow["updated_at"] = datetime.now().isoformat()
+
+            course_data = self._load_task_course(task_id)
+            if not course_data:
+                raise ValueError("Course not found")
+            draft = (
+                self._version_repository.load_draft(course_id)
+                or build_blueprint_draft(course_data)
+            )
+            draft["impact_report"] = analyze_blueprint_impact(
+                course_data,
+                draft,
+            )
+            self._version_repository.save_draft(course_id, draft)
+
             task["status"] = "waiting_for_review"
             task["phase"] = "outline_reopened"
+            task["current_phase"] = "outline_reopened"
             task["phase_progress"] = 100
-            task["message"] = "已返回课程目录；重新确认后，下游内容会按新目录重建"
+            task["message"] = (
+                "已进入大纲修订；再次确认后更新正式大纲，"
+                "下游教学资产将按影响结果重新核对"
+            )
             task["updated_at"] = datetime.now().isoformat()
             self.save_tasks()
         await self._push_progress(task_id)
@@ -2439,6 +2514,7 @@ class TaskManager:
             "previous_artifact_revision": previous_revision,
             "invalidated_steps": invalidated_steps,
             "guided_workflow": deepcopy(workflow),
+            "task": self._task_view(task),
         }
 
     async def confirm_blueprint(self, course_id: str) -> dict[str, Any]:

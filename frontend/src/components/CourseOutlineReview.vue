@@ -1343,6 +1343,24 @@ function invalidateProposal() {
   liveStatus.value = proposalNotice.value
 }
 
+function outlineAdjustmentFailureMessage(error: any) {
+  const status = Number(error?.response?.status || 0)
+  const code = String(error?.response?.data?.detail?.code || '')
+  if (code === 'outline_adjustment_lifecycle_conflict') {
+    return t(
+      'courseGeneration.outlineReview.proposalLifecycleConflict',
+      '当前大纲不在可调整阶段，请重新进入编辑后再试。',
+    )
+  }
+  if (status === 409) {
+    return t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
+  }
+  if (status === 503) {
+    return t('courseGeneration.outlineReview.proposalUnavailable', 'AI 调整服务暂时不可用，请稍后重试。')
+  }
+  return t('courseGeneration.outlineReview.proposalFailed', '调整方案生成失败，请换一种说法后重试。')
+}
+
 async function generateAdjustmentProposal() {
   const instruction = adjustmentInstruction.value.trim()
   if (!instruction || acting.value || !blueprintNodes.value.length) return null
@@ -1380,12 +1398,7 @@ async function generateAdjustmentProposal() {
     proposalSummaryRef.value?.focus()
     return adjustmentProposal.value
   } catch (error: any) {
-    const status = Number(error?.response?.status || 0)
-    actionError.value = status === 409
-      ? t('courseGeneration.outlineReview.proposalConflict', '目录版本已变化，请重新载入后生成方案。')
-      : status === 503
-        ? t('courseGeneration.outlineReview.proposalUnavailable', 'AI 调整服务暂时不可用，请稍后重试。')
-        : t('courseGeneration.outlineReview.proposalFailed', '调整方案生成失败，请换一种说法后重试。')
+    actionError.value = outlineAdjustmentFailureMessage(error)
     liveStatus.value = actionError.value
     emit('ai-error', actionError.value)
     return null

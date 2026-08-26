@@ -194,3 +194,10 @@
 - [x] 21.3 Classify each teacher-uploaded original once under question banks, exam papers, student work or other context; show source, role, state and bidirectional formal relationships without copying bytes.
 - [x] 21.4 Block deletion of originals and folders that are still referenced by formal files, and preserve the existing explicit relationship update path.
 - [x] 21.5 Add course-wide search, focused frontend/backend tests, zh/en copy, strict OpenSpec validation, production build, design detector and Chinese desktop acceptance.
+
+## 22. Confirmed teacher-outline revision lifecycle
+
+- [x] 22.1 Reopen the original completed teacher-outline job into an idempotent outline review while preserving any existing unconfirmed draft.
+- [x] 22.2 Let manual edits and AI proposals share the reopened draft, require a second confirmation before freezing the formal outline, and keep downstream impact traceable.
+- [x] 22.3 Distinguish lifecycle conflicts from real revision conflicts in the user-facing error model.
+- [x] 22.4 Add focused backend/frontend regression tests, strict OpenSpec validation and Chinese desktop real-page verification.

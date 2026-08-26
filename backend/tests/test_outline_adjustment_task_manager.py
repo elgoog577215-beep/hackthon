@@ -9,8 +9,8 @@ from course_outline_adjustments import apply_outline_operations
 from course_service import CourseService
 from course_versioning import blueprint_draft_revision_id, build_blueprint_draft
 from course_versions import CourseVersionRepository
-from guided_generation import create_guided_workflow, mark_waiting
-from task_manager import TaskManager, TaskStateConflict
+from guided_generation import confirm_waiting_step, create_guided_workflow, mark_waiting
+from task_manager import TaskManager
 
 
 class MemoryStorage:
@@ -115,6 +115,20 @@ def _waiting_task() -> dict:
     }
 
 
+def _completed_teacher_task() -> dict:
+    task = _waiting_task()
+    task["type"] = "teacher_outline_generation"
+    confirm_waiting_step(
+        task["guided_workflow"],
+        "outline",
+        revision="outline-before",
+    )
+    task["status"] = "completed"
+    task["phase"] = "teacher_outline_confirmed"
+    task["current_phase"] = "teacher_outline_confirmed"
+    return task
+
+
 def _manager(tmp_path, monkeypatch):
     import task_manager as task_manager_module
 
@@ -151,25 +165,55 @@ async def test_preview_corrects_once_and_never_persists_the_candidate(tmp_path, 
 
 
 @pytest.mark.asyncio
-async def test_preview_rejects_a_reopened_outline(tmp_path, monkeypatch):
+async def test_preview_allows_a_reopened_outline(tmp_path, monkeypatch):
     manager, service, _storage, _versions = _manager(tmp_path, monkeypatch)
     manager.tasks["job-outline"]["guided_workflow"]["steps"][1][
         "previous_confirmed_revision"
     ] = "outline-confirmed"
     source = build_blueprint_draft(_course())
 
-    with pytest.raises(TaskStateConflict):
-        await manager.preview_outline_adjustment(
-            "course-outline",
-            {
-                "request_id": "request-reopened",
-                "base_blueprint_revision_id": source["base_blueprint_revision_id"],
-                "expected_draft_revision_id": source["draft_revision_id"],
-                "instruction": "重构目录",
-            },
-        )
+    proposal = await manager.preview_outline_adjustment(
+        "course-outline",
+        {
+            "request_id": "request-reopened",
+            "base_blueprint_revision_id": source["base_blueprint_revision_id"],
+            "expected_draft_revision_id": source["draft_revision_id"],
+            "instruction": "重构目录",
+        },
+    )
 
-    assert service.calls == []
+    assert proposal["can_apply"] is True
+    assert proposal["lifecycle_reopened"] is False
+    assert len(service.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_preview_reopens_a_confirmed_teacher_outline(tmp_path, monkeypatch):
+    manager, service, _storage, versions = _manager(tmp_path, monkeypatch)
+    manager.tasks["job-outline"] = _completed_teacher_task()
+    source = build_blueprint_draft(_course())
+
+    proposal = await manager.preview_outline_adjustment(
+        "course-outline",
+        {
+            "request_id": "request-confirmed-teacher-outline",
+            "base_blueprint_revision_id": source["base_blueprint_revision_id"],
+            "expected_draft_revision_id": source["draft_revision_id"],
+            "instruction": "新增一节组件组合",
+        },
+    )
+
+    task = manager.tasks["job-outline"]
+    outline_state = task["guided_workflow"]["steps"][1]
+    assert proposal["can_apply"] is True
+    assert proposal["lifecycle_reopened"] is True
+    assert task["status"] == "waiting_for_review"
+    assert task["phase"] == "outline_reopened"
+    assert task["guided_workflow"]["review_step"] == "outline"
+    assert outline_state["status"] == "waiting_for_confirmation"
+    assert outline_state["previous_confirmed_revision"] == "outline-before"
+    assert versions.load_draft("course-outline") is not None
+    assert len(service.calls) == 2
 
 
 @pytest.mark.asyncio

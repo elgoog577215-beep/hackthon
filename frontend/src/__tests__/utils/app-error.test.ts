@@ -111,6 +111,25 @@ describe('application error presentation', () => {
     expect(result.title).not.toContain('版本冲突')
   })
 
+  it('不会把大纲生命周期冲突误报为内容版本冲突', () => {
+    const result = toAppError(axiosError({
+      config: { method: 'post', url: '/api/courses/course-1/blueprint/adjustments/preview' },
+      response: {
+        status: 409,
+        headers: {},
+        data: { detail: {
+          code: 'outline_adjustment_lifecycle_conflict',
+          message: '当前大纲不在可调整阶段',
+          status: 'outline_review_required',
+        } },
+      },
+    }))
+
+    expect(result.title).toBe('大纲调整阶段不一致')
+    expect(result.summary).toContain('重新进入编辑')
+    expect(result.title).not.toContain('版本冲突')
+  })
+
   it('发布结构化错误事件供全局错误层消费', () => {
     const listener = vi.fn<(event: AppErrorEvent) => void>()
     const unsubscribe = subscribeAppErrors(listener)
