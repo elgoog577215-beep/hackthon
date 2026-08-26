@@ -549,7 +549,9 @@
         :scope-target-id="lessonReferenceTargetId"
         :scope-target-type="lessonReferenceTargetType"
         :scope-target-label="selectedLesson?.title || ''"
+        :scope-target-position="selectedLessonPosition"
         :previous-scope-target-id="previousLessonReferenceTargetId"
+        :refresh-token="materialRefreshToken"
         @open-course-information="emit('open-course-information')"
       />
     </aside>
@@ -670,7 +672,7 @@ type AiLessonPlanSection = {
 type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
 }
-const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
+const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
 const emit = defineEmits<{
   (event: 'generateOutline', payload: { subject: string; options: CourseGenerationOptions; references: CourseReferenceItem[] }): void
   (event: 'update:outlineEditing', value: boolean): void
@@ -718,7 +720,7 @@ const editingOutline = computed({
 const referencesByScope = reactive<Record<string, CourseReferenceItem[]>>({})
 const activeReferenceScope = computed(() => (
   ['lesson', 'script', 'ppt'].includes(activeStage.value) && selectedLessonId.value
-    ? `${activeStage.value === 'ppt' ? 'ppt' : 'lesson'}:${selectedLessonId.value}`
+    ? `${activeStage.value}:${selectedLessonId.value}`
     : activeStage.value
 ))
 const activeReferences = computed({
@@ -937,20 +939,28 @@ const currentAiScopeKey = computed(() => aiDomain.value === 'question-bank'
   ? [props.courseId, aiDomain.value, 'course'].join(':')
   : [props.courseId, aiDomain.value, selectedLessonId.value, currentAiScopeId.value].join(':'))
 const lessonReferenceTargetId = computed(() => (
-  !selectedLessonId.value
-    ? ''
-    : activeStage.value === 'ppt'
-      ? `ppt-v6:${selectedLessonId.value}`
-      : ['lesson', 'script'].includes(activeStage.value)
-        ? `lesson-plan:${selectedLessonId.value}`
-        : ''
+  activeStage.value === 'foundation'
+    ? 'managed:outline'
+    : !selectedLessonId.value
+      ? ''
+      : activeStage.value === 'ppt'
+        ? `ppt-v6:${selectedLessonId.value}`
+        : activeStage.value === 'script'
+          ? `script:${selectedLessonId.value}`
+          : activeStage.value === 'lesson'
+            ? `lesson-plan:${selectedLessonId.value}`
+            : ''
 ))
 const lessonReferenceTargetType = computed(() => (
   !lessonReferenceTargetId.value
     ? ''
-    : activeStage.value === 'ppt'
-      ? 'ppt'
-      : 'lesson_plan'
+    : activeStage.value === 'foundation'
+      ? 'outline'
+      : activeStage.value === 'ppt'
+        ? 'ppt'
+        : activeStage.value === 'script'
+          ? 'script'
+          : 'lesson_plan'
 ))
 const selectedLessonIndex = computed(() => lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value))
 const previousLesson = computed(() => selectedLessonIndex.value > 0 ? lessonStore.lessons[selectedLessonIndex.value - 1] : undefined)
@@ -959,7 +969,9 @@ const previousLessonReferenceTargetId = computed(() => (
     ? ''
     : activeStage.value === 'ppt'
       ? `ppt-v6:${previousLesson.value.lesson_unit_id}`
-      : ['lesson', 'script'].includes(activeStage.value)
+      : activeStage.value === 'script'
+        ? `script:${previousLesson.value.lesson_unit_id}`
+        : activeStage.value === 'lesson'
         ? `lesson-plan:${previousLesson.value.lesson_unit_id}`
         : ''
 ))

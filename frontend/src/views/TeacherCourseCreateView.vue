@@ -117,7 +117,7 @@ async function createCourse() {
     await router.push({
       name: 'course-workspace',
       params: { courseId: result.course_id, mode: 'setup' },
-      query: { returnTo: '/courses?view=courses', view: 'files', prepare: '1' },
+      query: { returnTo: '/courses?view=courses', prepare: '1' },
     })
   } catch (error: any) {
     ElMessage.error(String(error?.response?.data?.detail || error?.message || t('courseLibrary.createFailed')))

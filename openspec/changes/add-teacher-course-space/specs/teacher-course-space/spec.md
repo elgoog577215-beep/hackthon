@@ -37,20 +37,28 @@ The system SHALL present a course work package as a nested directory workspace: 
 - **WHEN** the teacher changes an imported asset from “未分类” to “学校材料”
 - **THEN** the asset remains at its original relative path and the updated category is returned in the asset tree
 
-### Requirement: New course starts with existing-material preparation
-The system SHALL open a newly created course in its course file system and SHALL provide a first-use preparation state for importing a folder or multiple files before document production.
+### Requirement: New course chooses its preparation starting point inside the workbench
+The system SHALL open a newly created course in its preparation workbench and SHALL overlay a first-use choice between starting from scratch and preparing from existing materials.
 
 #### Scenario: Teacher creates a new course
 - **WHEN** the teacher completes course creation
-- **THEN** the system opens the course file view in material preparation state instead of opening the document workbench
+- **THEN** the system opens the document workbench with a starting-point dialog instead of replacing the workbench with a file-import page
+
+#### Scenario: Teacher starts from scratch
+- **WHEN** the teacher chooses to start from scratch
+- **THEN** the system records the decision, closes the dialog and leaves the clean workbench ready for course production
 
 #### Scenario: Teacher imports existing materials
 - **WHEN** the teacher imports one or more existing course files during preparation
-- **THEN** the system preserves the submitted directory paths, records the package as awaiting review, and displays the normal file system with an import summary
+- **THEN** the system preserves the submitted directory paths, records the package as awaiting review, and displays the recognized material structure in the same dialog
+
+#### Scenario: Teacher corrects recognized document types
+- **WHEN** the teacher changes an imported file from a suggested type to another supported document type
+- **THEN** the system persists the correction before the teacher confirms and enters the workbench
 
 #### Scenario: Teacher has no materials yet
-- **WHEN** the teacher chooses to skip material preparation
-- **THEN** the system records the decision and opens the normal course file system without requiring an upload
+- **WHEN** the teacher chooses to start from scratch
+- **THEN** the system records the decision and opens the normal workbench without requiring an upload
 
 #### Scenario: Existing package predates preparation state
 - **WHEN** an existing work package has no preparation status field
@@ -66,3 +74,14 @@ The system SHALL allow a formal course file to record at most one primary origin
 #### Scenario: Uploaded original shows its uses
 - **WHEN** the teacher selects an uploaded original
 - **THEN** the inspector lists the formal files that reference it
+
+### Requirement: Workbench automatically proposes matching imported originals
+The system SHALL automatically populate a formal target's primary and reference sources from confirmed imported-original classifications when that target has never been configured. A later teacher selection, including an intentionally empty selection, SHALL take precedence over future automatic matching.
+
+#### Scenario: Existing lesson plan supports script preparation
+- **WHEN** the teacher opens a script stage for a lesson whose imported original lesson plan is recognized
+- **THEN** the matching original appears as the default primary source without another upload action
+
+#### Scenario: Teacher replaces an automatic source
+- **WHEN** the teacher removes or replaces an automatically matched source
+- **THEN** the system persists the teacher's selection and does not restore the old automatic source after reload

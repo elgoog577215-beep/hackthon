@@ -147,7 +147,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.emitted('openAssistant')).toBeTruthy()
   })
 
-  it('新课程先进入整包资料准备，并允许跳过后进入文件系统', async () => {
+  it('待准备的新课程仍显示正常文件系统，不再替换成整页导入界面', async () => {
     const pinia = createPinia()
     setActivePinia(pinia)
     const pendingPackage = { ...coursePackage, preparation_status: 'pending' }
@@ -160,8 +160,6 @@ describe('TeacherCourseSpaceView', () => {
       if (url === '/api/courses/course-1/companion-documents') return Promise.resolve({ data: { templates: [], documents: [] } })
       return Promise.resolve({ data: {} })
     })
-    httpMock.patch.mockResolvedValue({ data: { ...pendingPackage, preparation_status: 'skipped' } })
-
     const wrapper = mount(TeacherCourseSpaceView, {
       props: { courseId: 'course-1', courseTitle: '数据结构' },
       global: { plugins: [pinia, router], stubs: { ElDialog: true } },
@@ -169,74 +167,7 @@ describe('TeacherCourseSpaceView', () => {
     mountedWrappers.push(wrapper)
     await flushPromises()
 
-    expect(wrapper.get('.material-preparation').text()).toContain('导入已有资料')
-    expect(wrapper.get('.material-preparation').text()).not.toContain('系统会保留原文件与目录')
-    expect(wrapper.get('.material-preparation').text()).toContain('选择文件夹')
-    expect(wrapper.get('.material-preparation').text()).toContain('选择多个文件')
-    expect(wrapper.find('.file-layout').exists()).toBe(false)
-
-    await wrapper.find('.material-preparation footer button').trigger('click')
-    await flushPromises()
-
-    expect(httpMock.patch).toHaveBeenCalledWith(
-      '/api/teacher-course-spaces/package-1/preparation',
-      { status: 'skipped' },
-      expect.anything(),
-    )
-    expect(wrapper.get('.file-layout')).toBeTruthy()
-  })
-
-  it('一次提交多个原始文件，并在导入后进入文件系统确认态', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const pendingPackage = { ...coursePackage, preparation_status: 'pending' }
-    const reviewPackage = { ...coursePackage, preparation_status: 'review', asset_count: 2 }
-    httpMock.get.mockImplementation((url: string) => {
-      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [pendingPackage] })
-      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: pendingPackage })
-      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
-      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: '', lessons: [], jobs: [] } })
-      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
-      if (url === '/api/courses/course-1/companion-documents') return Promise.resolve({ data: { templates: [], documents: [] } })
-      return Promise.resolve({ data: {} })
-    })
-    httpMock.post.mockResolvedValue({
-      data: {
-        outcomes: [
-          { relative_path: '辅助资料/其他资料/第一讲教案.md', outcome: 'imported' },
-          { relative_path: '辅助资料/其他资料/第一讲课件.pptx', outcome: 'imported' },
-        ],
-        package: reviewPackage,
-      },
-    })
-
-    const wrapper = mount(TeacherCourseSpaceView, {
-      props: { courseId: 'course-1', courseTitle: '数据结构' },
-      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
-    })
-    mountedWrappers.push(wrapper)
-    await flushPromises()
-
-    const input = wrapper.get('input[type="file"][multiple]:not([webkitdirectory])')
-    Object.defineProperty(input.element, 'files', {
-      configurable: true,
-      value: [
-        new File(['教案'], '第一讲教案.md', { type: 'text/markdown' }),
-        new File(['课件'], '第一讲课件.pptx', { type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' }),
-      ],
-    })
-    await input.trigger('change')
-    await flushPromises()
-
-    expect(httpMock.post).toHaveBeenCalledOnce()
-    const [url, form] = httpMock.post.mock.calls[0]!
-    expect(url).toBe('/api/teacher-course-spaces/package-1/imports')
-    expect((form as FormData).getAll('files')).toHaveLength(2)
-    expect((form as FormData).getAll('relative_paths')).toEqual([
-      '辅助资料/其他资料/第一讲教案.md',
-      '辅助资料/其他资料/第一讲课件.pptx',
-    ])
-    expect(wrapper.get('.preparation-review').text()).toContain('本次导入 2 份')
+    expect(wrapper.find('.material-preparation').exists()).toBe(false)
     expect(wrapper.get('.file-layout')).toBeTruthy()
   })
 

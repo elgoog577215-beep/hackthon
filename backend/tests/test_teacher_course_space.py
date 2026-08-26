@@ -3,7 +3,12 @@ import unittest
 from pathlib import Path
 
 from material_storage import MaterialStorageError
-from teacher_course_space import TeacherCourseSpaceRepository, normalize_relative_path, package_folder_paths
+from teacher_course_space import (
+    TeacherCourseSpaceRepository,
+    classify_document_type,
+    normalize_relative_path,
+    package_folder_paths,
+)
 
 
 class FakeUpload:
@@ -46,11 +51,30 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         repository.save(package)
 
         self.assertEqual(asset["category"], "school_materials")
+        self.assertEqual(asset["document_type"], "school_material")
         self.assertEqual(len(repository.list_owned("teacher-a")), 1)
         self.assertEqual(repository.list_owned("teacher-b"), [])
         self.assertTrue((repository.root / created["package_id"] / "content" / "课程资料" / "教学日历.pdf").is_file())
         with self.assertRaises(MaterialStorageError):
             normalize_relative_path("../private.docx")
+
+    async def test_document_type_is_explainable_and_teacher_correctable(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+
+        self.assertEqual(classify_document_type("已有资料/第一讲课件.pptx")[0], "ppt")
+        asset = await repository.import_file(
+            package, FakeUpload(), "已有资料/第一讲教案.pdf", "batch-1"
+        )
+        self.assertEqual(asset["document_type"], "lesson_plan")
+
+        updated = repository.update_asset_classification(
+            package, asset["asset_id"], document_type="script"
+        )
+
+        self.assertEqual(updated["document_type"], "script")
+        self.assertEqual(updated["document_type_reason"], "教师确认")
 
     async def test_course_binding_uses_stable_id_and_preserves_legacy_packages(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
@@ -201,6 +225,10 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
             repository.relationships_for_source(package, primary["asset_id"])[0]["target_label"],
             "第 1 讲教案",
         )
+        self.assertIn(
+            "lesson-plan:lesson-1",
+            repository.public(package)["configured_source_target_ids"],
+        )
 
         replaced = repository.replace_formal_relationships(
             package,
@@ -214,6 +242,17 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             repository.relationships_for_source(package, primary["asset_id"]), []
         )
+
+        repository.replace_formal_relationships(
+            package,
+            target_id="lesson-plan:lesson-1",
+            target_type="lesson_plan",
+            target_label="第 1 讲教案",
+            sources=[],
+        )
+        public = repository.public(package)
+        self.assertIn("lesson-plan:lesson-1", public["configured_source_target_ids"])
+        self.assertEqual(repository.relationships_for_target(package, "lesson-plan:lesson-1"), [])
 
     async def test_formal_file_cannot_be_used_as_another_formal_files_source(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))

@@ -168,6 +168,8 @@ export type CourseReferenceItem = {
   reuse_policy?: 'verbatim_allowed' | 'reference_only' | 'original_generation'
   rights_basis?: 'teacher_asserted' | 'open_license' | 'license_unknown' | 'platform_owned'
   source_metadata?: Record<string, any>
+  category?: string
+  document_type?: 'outline' | 'lesson_plan' | 'script' | 'ppt' | 'question_bank' | 'school_material' | 'other'
   usages?: Array<{
     target_id?: string
     target_type?: string
@@ -184,6 +186,8 @@ const props = withDefaults(defineProps<{
   scopeTargetId?: string
   scopeTargetType?: string
   scopeTargetLabel?: string
+  scopeTargetPosition?: number
+  refreshToken?: number
   previousScopeTargetId?: string
   showClose?: boolean
   compact?: boolean
@@ -194,6 +198,8 @@ const props = withDefaults(defineProps<{
   scopeTargetId: '',
   scopeTargetType: '',
   scopeTargetLabel: '',
+  scopeTargetPosition: 0,
+  refreshToken: 0,
   previousScopeTargetId: '',
   showClose: false,
   compact: false,
@@ -207,6 +213,7 @@ const emit = defineEmits<{
 const materials = ref<CourseReferenceItem[]>([])
 const selected = ref<CourseReferenceItem[]>([])
 const storedWebReferences = ref<CourseReferenceItem[]>([])
+const configuredTargetIds = ref(new Set<string>())
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
@@ -265,7 +272,7 @@ async function resolvePackageId(value: CourseReferenceItem[]) {
   return String(response.data?.[0]?.package_id || '')
 }
 
-async function persistScopedSelection(value: CourseReferenceItem[]) {
+async function persistScopedSelection(value: CourseReferenceItem[], bindingMode: 'auto' | 'manual' = 'manual') {
   const targetId = props.scopeTargetId
   const targetType = props.scopeTargetType
   if (!targetId || !targetType) return
@@ -278,6 +285,7 @@ async function persistScopedSelection(value: CourseReferenceItem[]) {
       target_id: targetId,
       target_type: targetType,
       target_label: props.scopeTargetLabel || targetId,
+      binding_mode: bindingMode,
       sources: value.map(item => ({ source_asset_id: item.asset_id, role: item.role })),
     }, teacherRequestConfig({ silentError: true }))
   } catch (reason: any) {
@@ -294,8 +302,57 @@ async function loadMaterials() {
   try {
     const response = await http.get('/api/materials', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
     const webByMaterialId = new Map([...storedWebReferences.value, ...webSources.value].map(item => [item.material_asset_id, item]))
+    configuredTargetIds.value = new Set(response.data?.configured_source_target_ids || [])
     materials.value = (response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, ...(webByMaterialId.get(item.material_asset_id) || {}), role: 'reference' }))
   } catch (reason: any) { error.value = String(reason?.response?.data?.detail || reason?.message || t('courseWorkbench.references.loadFailed', '课程资料读取失败')) }
+}
+
+function documentTypePreference() {
+  if (props.variant === 'question-bank') return ['question_bank']
+  if (props.stage === 'foundation') return ['outline', 'school_material']
+  if (props.stage === 'lesson') return ['lesson_plan']
+  if (props.stage === 'script') return ['script', 'lesson_plan']
+  if (props.stage === 'ppt') return ['ppt', 'script', 'lesson_plan']
+  return []
+}
+
+function lessonRelevance(item: CourseReferenceItem) {
+  const text = `${item.relative_path} ${item.filename}`.toLowerCase()
+  const position = Math.max(0, Number(props.scopeTargetPosition || 0))
+  let score = 0
+  if (position && new RegExp(`第\\s*0*${position}\\s*[讲章节课]`).test(text)) score += 60
+  if (position && new RegExp(`(^|[^0-9])0*${position}([^0-9]|$)`).test(text)) score += 20
+  const title = String(props.scopeTargetLabel || '').replace(/^第\s*[0-9一二三四五六七八九十百]+\s*[讲章节课]\s*/, '').trim().toLowerCase()
+  if (title.length >= 2 && text.includes(title)) score += 45
+  return score
+}
+
+function recommendedSources() {
+  const preferences = documentTypePreference()
+  if (!preferences.length) return []
+  const candidates = materials.value
+    .filter(item => item.material_asset_id && preferences.includes(String(item.document_type || '')))
+    .map(item => ({
+      item,
+      typeRank: preferences.indexOf(String(item.document_type || '')),
+      relevance: lessonRelevance(item),
+    }))
+    .sort((left, right) => (
+      left.typeRank - right.typeRank
+      || right.relevance - left.relevance
+      || String(right.item.uploaded_at || '').localeCompare(String(left.item.uploaded_at || ''))
+    ))
+  if (!candidates.length) return []
+  const primary = candidates[0]!
+  const related = candidates.slice(1).filter(candidate => (
+    props.stage === 'foundation'
+    || candidate.relevance > 0 && candidate.relevance === primary.relevance
+  )).slice(0, 4)
+  const role = props.variant === 'question-bank' ? 'question_source' as const : 'primary' as const
+  return [
+    { ...primary.item, role },
+    ...related.map(candidate => ({ ...candidate.item, role: props.variant === 'question-bank' ? 'question_source' as const : 'reference' as const })),
+  ]
 }
 
 function mergeWebReferences(references: CourseReferenceItem[]) {
@@ -337,7 +394,16 @@ async function loadAll() {
               : 'reference' as const,
         }]
       })
-      applySelection(scoped, false)
+      if (scoped.length || configuredTargetIds.value.has(targetId)) {
+        applySelection(scoped, false)
+      } else {
+        const recommended = recommendedSources()
+        applySelection(recommended, false)
+        if (recommended.length) {
+          configuredTargetIds.value.add(targetId)
+          await persistScopedSelection(recommended, 'auto')
+        }
+      }
     }
   }
   finally { loading.value = false }
@@ -396,7 +462,7 @@ function reusePreviousSources() {
   if (reused.length) commit([...selected.value, ...reused])
 }
 function handleWebSaved(references: CourseReferenceItem[]) { storedWebReferences.value = references; mergeWebReferences(references); void loadMaterials() }
-watch(() => [props.courseId, props.stage, props.lessonId], () => { void loadAll() })
+watch(() => [props.courseId, props.stage, props.lessonId, props.refreshToken], () => { void loadAll() })
 onMounted(loadAll)
 </script>
 

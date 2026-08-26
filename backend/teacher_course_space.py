@@ -40,6 +40,15 @@ CATEGORIES = {
     "course_archive": "结课归档",
     "uncategorized": "未分类",
 }
+DOCUMENT_TYPES = {
+    "outline": "课程大纲",
+    "lesson_plan": "教案",
+    "script": "讲稿",
+    "ppt": "PPT",
+    "question_bank": "题库与试卷",
+    "school_material": "教务材料",
+    "other": "其他资料",
+}
 SCHOOL_TEMPLATE = [
     {"name": "0、教学大纲", "kind": "folder"}, {"name": "1、教案", "kind": "folder"},
     {"name": "2、PPT", "kind": "folder"},
@@ -57,6 +66,13 @@ _RULES = (
     ("homework_labs", ("作业", "实验", "报告")),
     ("school_materials", ("教学日历", "成绩", "试卷", "考场", "签到", "评阅", "自查")),
     ("course_archive", ("归档", "结课", "总结")),
+)
+_DOCUMENT_RULES = (
+    ("outline", ("教学大纲", "课程大纲", "大纲", "syllabus", "outline")),
+    ("script", ("逐字稿", "讲稿", "授课稿", "speaker note", "script")),
+    ("lesson_plan", ("教案", "教学设计", "教学方案", "lesson plan")),
+    ("question_bank", ("题库", "试题", "试卷", "考卷", "真题", "question bank", "exam")),
+    ("school_material", ("教学日历", "成绩", "考场", "签到", "评阅", "自查", "归档")),
 )
 
 def _now() -> str:
@@ -86,6 +102,20 @@ def classify_path(relative_path: str) -> tuple[str, str]:
             if word.lower() in haystack:
                 return category, f"文件名或路径包含“{word}”"
     return "uncategorized", "未命中预设分类规则"
+
+
+def classify_document_type(relative_path: str) -> tuple[str, str]:
+    """识别原件在备课链中的用途；结果始终等待教师确认。"""
+    normalized = str(relative_path or "").replace("\\", "/")
+    haystack = normalized.lower()
+    extension = Path(normalized).suffix.lower()
+    if extension in {".ppt", ".pptx"}:
+        return "ppt", "文件格式为 PowerPoint"
+    for document_type, words in _DOCUMENT_RULES:
+        for word in words:
+            if word.lower() in haystack:
+                return document_type, f"文件名或路径包含“{word}”"
+    return "other", "未识别出明确的备课文档类型"
 
 def package_folder_paths(package: dict[str, Any]) -> list[str]:
     folders: set[str] = set()
@@ -240,6 +270,21 @@ class TeacherCourseSpaceRepository:
         # 已经在使用的课程重新送回首次导入页。
         result["preparation_status"] = str(result.get("preparation_status") or "completed")
         result["entries"] = [entry for entry in result.get("entries", []) if entry.get("kind") == "folder"]
+        result["assets"] = []
+        for source in package.get("assets", []):
+            asset = dict(source)
+            if not asset.get("document_type"):
+                document_type, reason = classify_document_type(str(asset.get("relative_path") or asset.get("filename") or ""))
+                asset["document_type"] = document_type
+                asset["document_type_reason"] = reason
+            result["assets"].append(asset)
+        configured = set(str(value) for value in package.get("source_binding_targets", {}).keys())
+        configured.update(
+            str(item.get("target_id") or "")
+            for item in package.get("relationships", [])
+            if item.get("target_id")
+        )
+        result["configured_source_target_ids"] = sorted(configured)
         result["asset_count"] = len(result.get("assets") or [])
         return result
 
@@ -262,6 +307,7 @@ class TeacherCourseSpaceRepository:
         existing = next((a for a in package["assets"] if a["relative_path"] == relative_path and a["sha256"] == digest), None)
         if existing: return {**existing, "outcome": "duplicate"}
         category, reason = classify_path(relative_path)
+        document_type, document_type_reason = classify_document_type(relative_path)
         asset_id = f"tca-{uuid.uuid4().hex}"
         safe_name = f"{asset_id}{extension}"
         package_path = self._path(package["package_id"])
@@ -273,7 +319,8 @@ class TeacherCourseSpaceRepository:
         materialized.write_bytes(content)
         asset = {"asset_id": asset_id, "filename": Path(relative_path).name, "relative_path": relative_path, "stored_name": safe_name,
                  "materialized_path": relative_path, "extension": extension, "size_bytes": len(content), "sha256": digest, "suggested_category": category,
-                 "category": category, "category_reason": reason, "import_batch_id": batch_id, "uploaded_at": _now()}
+                 "category": category, "category_reason": reason, "document_type": document_type,
+                 "document_type_reason": document_type_reason, "import_batch_id": batch_id, "uploaded_at": _now()}
         package["assets"].append(asset)
         return {**asset, "outcome": "imported"}
 
@@ -281,10 +328,31 @@ class TeacherCourseSpaceRepository:
         package["updated_at"] = _now(); _atomic_write(self._manifest(package["package_id"]), package)
 
     def update_category(self, package: dict[str, Any], asset_id: str, category: str) -> dict[str, Any]:
-        if category not in CATEGORIES: raise MaterialStorageError("资料分类不合法")
+        return self.update_asset_classification(package, asset_id, category=category)
+
+    def update_asset_classification(
+        self,
+        package: dict[str, Any],
+        asset_id: str,
+        *,
+        category: str | None = None,
+        document_type: str | None = None,
+    ) -> dict[str, Any]:
+        if category is None and document_type is None:
+            raise MaterialStorageError("请选择要修改的资料分类")
+        if category is not None and category not in CATEGORIES:
+            raise MaterialStorageError("资料分类不合法")
+        if document_type is not None and document_type not in DOCUMENT_TYPES:
+            raise MaterialStorageError("备课文档类型不合法")
         asset = next((a for a in package.get("assets", []) if a.get("asset_id") == asset_id), None)
         if not asset: raise FileNotFoundError(asset_id)
-        asset["category"] = category; self.save(package); return asset
+        if category is not None:
+            asset["category"] = category
+        if document_type is not None:
+            asset["document_type"] = document_type
+            asset["document_type_reason"] = "教师确认"
+        self.save(package)
+        return asset
 
     def add_folder(self, package: dict[str, Any], name: str) -> dict[str, Any]:
         relative_path = normalize_relative_path(name)
@@ -548,6 +616,7 @@ class TeacherCourseSpaceRepository:
         target_label: str,
         sources: list[dict[str, str]],
         target_revision: str = "",
+        binding_mode: str = "manual",
     ) -> list[dict[str, Any]]:
         """替换一个正式文件的来源集合；来源只能是老师上传的原始资料。"""
         normalized_target_id = str(target_id or "").strip()
@@ -606,6 +675,10 @@ class TeacherCourseSpaceRepository:
             relationships.append(relationship)
             created.append(relationship)
         package["relationships"] = relationships
+        package.setdefault("source_binding_targets", {})[normalized_target_id] = {
+            "mode": "auto" if binding_mode == "auto" else "manual",
+            "updated_at": now,
+        }
         self.save(package)
         return created
 

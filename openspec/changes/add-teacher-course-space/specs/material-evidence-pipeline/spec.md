@@ -6,3 +6,7 @@ The system SHALL expose a stable asset reference for each imported course-space 
 #### Scenario: Later generation reads a selected asset reference
 - **WHEN** a teacher selects an imported source file for a future generation request
 - **THEN** the request can reference its stable asset identifier and source metadata without duplicating the original file
+
+#### Scenario: Batch-imported original becomes selectable evidence
+- **WHEN** a supported original is imported through the course preparation dialog
+- **THEN** the system retains one course-space original and attaches a material-pipeline identifier that the workbench can use for generation

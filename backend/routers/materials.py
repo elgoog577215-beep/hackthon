@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, Form, Header, HTTPException, UploadFile
 
 from material_storage import MaterialStorageError, material_repository
 from teacher_course_space import (
-    MATERIAL_REFERENCE_KIND,
+    classify_document_type,
     teacher_course_space_repository,
 )
 
@@ -124,8 +124,13 @@ def list_materials(
         except (FileNotFoundError, MaterialStorageError):
             continue
         for item in package.get("assets") or []:
-            if item.get("source_kind") != MATERIAL_REFERENCE_KIND:
+            if not item.get("material_asset_id"):
                 continue
+            document_type = str(item.get("document_type") or "").strip()
+            if not document_type:
+                document_type, _ = classify_document_type(
+                    str(item.get("relative_path") or item.get("filename") or "")
+                )
             assets.append({
                 "package_id": package_id,
                 "asset_id": item.get("asset_id", ""),
@@ -134,12 +139,24 @@ def list_materials(
                 "relative_path": item.get("relative_path", ""),
                 "size_bytes": item.get("size_bytes", 0),
                 "uploaded_at": item.get("uploaded_at", ""),
+                "category": item.get("category", ""),
+                "document_type": document_type,
                 "usages": teacher_course_space_repository.relationships_for_source(
                     package, str(item.get("asset_id") or "")
                 ),
             })
     assets.sort(key=lambda item: str(item.get("uploaded_at") or ""), reverse=True)
-    return {"assets": assets, "owner_scoped": True}
+    configured_target_ids = sorted({
+        str(target_id)
+        for summary in teacher_course_space_repository.list_owned(owner_id, course_id)
+        for target_id in summary.get("configured_source_target_ids", [])
+        if target_id
+    })
+    return {
+        "assets": assets,
+        "configured_source_target_ids": configured_target_ids,
+        "owner_scoped": True,
+    }
 
 
 @router.get("/{asset_id}")

@@ -99,6 +99,95 @@ describe('CourseReferenceTray lesson scope', () => {
     )
   })
 
+  it('首次打开讲稿时自动匹配同讲原教案，并把后续清空保存为人工决定', async () => {
+    const importedAssets = [
+      {
+        package_id: 'package-1', asset_id: 'asset-plan-1', material_asset_id: 'mat-plan-1',
+        filename: '第1讲教案.docx', relative_path: '辅助资料/第1讲教案.docx', size_bytes: 1800,
+        document_type: 'lesson_plan', role: 'reference', usages: [],
+      },
+      {
+        package_id: 'package-1', asset_id: 'asset-plan-2', material_asset_id: 'mat-plan-2',
+        filename: '第2讲教案.docx', relative_path: '辅助资料/第2讲教案.docx', size_bytes: 1800,
+        document_type: 'lesson_plan', role: 'reference', usages: [],
+      },
+    ]
+    vi.mocked(http.get).mockImplementation((url: string) => {
+      if (url === '/api/materials') return Promise.resolve({ data: { assets: importedAssets, configured_source_target_ids: [] } } as any)
+      if (url.includes('/web-research')) return Promise.resolve({ data: { accepted_references: [] } } as any)
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [{ package_id: 'package-1' }] } as any)
+      return Promise.resolve({ data: {} } as any)
+    })
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [], stage: 'script', lessonId: 'L1-1',
+        scopeTargetId: 'script:L1-1', scopeTargetType: 'script', scopeTargetLabel: '第一讲',
+        scopeTargetPosition: 1,
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('.drop-zone').text()).toContain('第1讲教案.docx')
+    expect(wrapper.get('.reference-list').text()).not.toContain('第2讲教案.docx')
+    expect(http.put).toHaveBeenCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'script:L1-1',
+        target_type: 'script',
+        binding_mode: 'auto',
+        sources: [{ source_asset_id: 'asset-plan-1', role: 'primary' }],
+      }),
+      expect.any(Object),
+    )
+
+    await wrapper.get('.drop-zone button').trigger('click')
+    await flushPromises()
+    expect(http.put).toHaveBeenLastCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({ binding_mode: 'manual', sources: [] }),
+      expect.any(Object),
+    )
+  })
+
+  it('资料导入完成后立即刷新并自动匹配当前工作台', async () => {
+    let currentAssets: any[] = []
+    vi.mocked(http.get).mockImplementation((url: string) => {
+      if (url === '/api/materials') return Promise.resolve({ data: { assets: currentAssets, configured_source_target_ids: [] } } as any)
+      if (url.includes('/web-research')) return Promise.resolve({ data: { accepted_references: [] } } as any)
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [{ package_id: 'package-1' }] } as any)
+      return Promise.resolve({ data: {} } as any)
+    })
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [], stage: 'foundation', refreshToken: 0,
+        scopeTargetId: 'managed:outline', scopeTargetType: 'outline', scopeTargetLabel: '课程大纲',
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+    expect(wrapper.get('.drop-zone').text()).toContain('添加主来源')
+
+    currentAssets = [{
+      package_id: 'package-1', asset_id: 'asset-outline', material_asset_id: 'mat-outline',
+      filename: '课程大纲.md', relative_path: '辅助资料/其他资料/课程大纲.md', size_bytes: 1200,
+      document_type: 'outline', role: 'reference', usages: [],
+    }]
+    await wrapper.setProps({ refreshToken: 1 })
+    await flushPromises()
+
+    expect(wrapper.get('.drop-zone').text()).toContain('课程大纲.md')
+    expect(http.put).toHaveBeenCalledWith(
+      '/api/teacher-course-spaces/package-1/relationships',
+      expect.objectContaining({
+        target_id: 'managed:outline',
+        binding_mode: 'auto',
+        sources: [{ source_asset_id: 'asset-outline', role: 'primary' }],
+      }),
+      expect.any(Object),
+    )
+  })
+
   it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {
     const post = vi.spyOn(http, 'post').mockResolvedValue({
       data: {

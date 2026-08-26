@@ -69,6 +69,7 @@
             :course-title="courseTitle"
             :generation-options="courseGenerationOptions"
             :generation-starting="generationStarting"
+            :material-refresh-token="materialRefreshToken"
             :initial-stage="requestedWorkbenchStage"
             :initial-lesson-id="requestedLessonId"
             v-model:outline-editing="outlineEditing"
@@ -108,6 +109,12 @@
       @updated="handleCourseInformationUpdated"
     />
 
+    <CoursePreparationDialog
+      :course-id="courseId"
+      :course-title="courseTitle"
+      @completed="handlePreparationCompleted"
+    />
+
     <el-drawer v-model="calendarOpen" class="teaching-calendar-drawer" size="min(1500px, 98vw)" :title="t('courseFiles.calendarDrawerTitle')">
       <TeacherCourseCalendarView embedded />
     </el-drawer>
@@ -127,6 +134,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
+import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
 import CourseWorkbench from '../components/CourseWorkbench.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
@@ -156,10 +164,11 @@ const calendarOpen = ref(false)
 const workbenchOpen = ref(false)
 const courseInformationOpen = ref(false)
 const generationStarting = ref(false)
+const materialRefreshToken = ref(0)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
 const readiness = ref({ required: 0, ready: 0, pending: 0 })
 const workspaceView = ref<'files' | 'categories'>(
-  route.query.view === 'files' || route.query.prepare === '1' ? 'files' : 'categories',
+  route.query.view === 'files' ? 'files' : 'categories',
 )
 const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt' | 'companion'>('foundation')
 const requestedLessonId = ref('')
@@ -197,7 +206,7 @@ function backToSource() {
 
 async function loadWorkspace() {
   if (!courseId.value) return
-  if (route.query.view === 'files' || route.query.prepare === '1') workspaceView.value = 'files'
+  if (route.query.view === 'files') workspaceView.value = 'files'
   generationStore.observeCourse(courseId.value)
   loading.value = true
   loadError.value = null
@@ -340,6 +349,11 @@ function openCoursePreview() {
     params: { courseId: courseId.value, ...(selectedContext.value.lessonId ? { nodeId: selectedContext.value.lessonId } : {}) },
     query: { teacherPreview: '1', returnTo: route.fullPath },
   })
+}
+
+function handlePreparationCompleted() {
+  materialRefreshToken.value += 1
+  if (route.query.prepare) void router.replace({ query: { ...route.query, prepare: undefined } })
 }
 
 async function handleOutlineConfirmed() {

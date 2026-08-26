@@ -25,3 +25,6 @@
 - [x] 4.3 Replace formal-to-formal inspector links with primary-original, reference-original and original-usage views.
 - [x] 4.4 Cover preparation-state compatibility, relationship-source boundaries, course-create routing and file-space UI behavior with tests.
 - [x] 4.5 Verify new-course entry, batch import, review state and completion in the real browser UI.
+- [x] 4.6 Replace the full-page preparation state with a workbench starting-point dialog and recognized-structure confirmation.
+- [x] 4.7 Register imported originals for generation, auto-match stage sources, and preserve later teacher overrides.
+- [x] 4.8 Verify the new entry, import review, source auto-match, focused tests, build and desktop browser states.
