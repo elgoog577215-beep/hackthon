@@ -27,11 +27,15 @@ from teacher_lesson_authoring import (
     validate_teacher_lesson_plan,
 )
 from teacher_script import (
+    SCRIPT_PIPELINE_VERSION,
+    SCRIPT_QUALITY_VERSION,
     compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     compile_teacher_script_section,
     normalize_teacher_script_section,
+    teacher_script_revision_is_publishable,
     validate_teacher_script_section,
+    validate_teacher_script_revision,
 )
 from course_presentation_graph import compile_course_presentation_graph
 from course_service import CourseService
@@ -545,6 +549,124 @@ def test_teacher_script_repairs_unambiguous_math_but_still_rejects_code_fence():
     }
 
 
+def test_teacher_script_blocks_placeholder_repetition_and_shallow_full_lesson():
+    sections = []
+    for index in range(1, 5):
+        outline = {
+            "node_id": f"L2-1-{index}",
+            "node_name": f"1.{index} 小节",
+            "module_plan": [{
+                "module_id": "core_explanation",
+                "label": f"核心教学 {index}",
+            }],
+        }
+        plan = {
+            "node_id": f"L2-1-{index}",
+            "teaching_modules": [{
+                "module_id": "core_explanation",
+                "planned_minutes": 10,
+            }],
+        }
+        contract = compile_teacher_script_module_contract(outline, plan)
+        content = (
+            "本块内容完整。当前教学块围绕已确认的当前知识范围展开。"
+            if index == 1
+            else "概念需要同时说明定义、成立条件与适用边界，并通过正例和反例逐项核对判断标准。"
+        )
+        sections.append(compile_teacher_script_section(
+            f"## 核心教学 {index}\n\n{content}",
+            contract,
+        ))
+
+    report = validate_teacher_script_revision(
+        sections,
+        generation_source="model_block_pipeline",
+    )
+
+    assert report["passed"] is False
+    assert report["publication_eligible"] is False
+    assert {item["code"] for item in report["blocking_issues"]} >= {
+        "teacher_script:placeholder_content",
+        "teacher_script:repetitive_blocks",
+        "teacher_script:lesson_too_shallow",
+    }
+
+
+def test_teacher_script_stale_quality_contract_is_never_publishable():
+    assert teacher_script_revision_is_publishable({
+        "publication_eligible": True,
+        "pipeline_version": SCRIPT_PIPELINE_VERSION,
+        "quality_report": {
+            "schema_version": "teacher_script_quality_v5",
+            "pipeline_version": "neutral_course_script_v5",
+            "passed": True,
+            "publication_eligible": True,
+        },
+    }) is False
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v6"
+
+
+def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    plan = standard_lesson_plan()
+    lesson = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report=validate_teacher_lesson_plan(plan),
+    )
+    plan_revision = lesson["working_revision_id"]
+    repository.confirm_plan_revision("course-1", "L1-1", plan_revision)
+    lesson = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [
+            {"section_node_id": "L2-1-1", "title": "1.1", "content": "第一节完整讲稿包含定义、条件、边界和核对方法。"},
+            {"section_node_id": "L2-1-2", "title": "1.2", "content": "第二节完整讲稿包含推理步骤、示例结果和检验标准。"},
+        ],
+        source_lesson_plan_revision_id=plan_revision,
+        generation_source="teacher_edit",
+    )
+    script_revision = lesson["working_script_revision_id"]
+    repository.confirm_script_revision("course-1", "L1-1", script_revision)
+
+    persisted = repository.load("course-1")
+    revision = persisted["lessons"]["L1-1"]["script_revisions"][0]
+    revision["quality_report"].update({
+        "schema_version": "teacher_script_quality_v5",
+        "pipeline_version": "neutral_course_script_v5",
+        "passed": True,
+        "publication_eligible": True,
+    })
+    revision["publication_eligible"] = True
+    repository._save(persisted)
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(_course_id):
+            source = course_data()
+            source["blueprint_revision_id"] = "outline-v1"
+            return source
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    with pytest.raises(TeacherLessonAuthoringError) as exc_info:
+        teacher_lesson_router._teacher_v6_source(
+            FakeTaskManager(), repository, "course-1", "L1-1"
+        )
+    assert exc_info.value.code == "lesson_script_quality_blocked"
+
+
 def test_teacher_script_rejects_classroom_cues_internal_language_and_truncation():
     outline = {
         "node_id": "L2-1-1",
@@ -941,9 +1063,23 @@ def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
     assert completed["warnings"] == warnings
     revision = repository.lesson("course-1", "L1-1")["script_revisions"][0]
     assert revision["generation_source"] == (
-        "model_block_pipeline_with_local_fallback"
+        "model_block_pipeline_with_recovery_preview"
     )
-    assert revision["sections"][0]["quality_report"]["passed"] is True
+    assert revision["publication_eligible"] is False
+    assert revision["quality_report"]["passed"] is False
+    assert {
+        item["code"] for item in revision["quality_report"]["blocking_issues"]
+    } >= {
+        "teacher_script:placeholder_content",
+        "teacher_script:recovery_draft_not_publishable",
+    }
+    with pytest.raises(TeacherLessonAuthoringError) as exc_info:
+        repository.confirm_script_revision(
+            "course-1",
+            "L1-1",
+            revision["revision_id"],
+        )
+    assert exc_info.value.code == "lesson_script_quality_blocked"
 
 
 def test_legacy_script_adapter_keeps_the_original_body_as_one_compatibility_block():
@@ -1649,7 +1785,7 @@ def test_v6_ppt_binds_exact_plan_and_script_revisions_and_becomes_stale(tmp_path
             "content": "这是已经确认的讲稿正文。",
         }],
         source_lesson_plan_revision_id=source_revision,
-        generation_source="legacy_course_content",
+        generation_source="teacher_edit",
     )
     script_revision = lesson["working_script_revision_id"]
     repository.confirm_script_revision(
@@ -2025,7 +2161,17 @@ def test_script_confirmation_is_required_by_the_only_v6_ppt_api(tmp_path):
     app.include_router(teacher_lesson_router.router, prefix="/api")
     app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
     app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
-    script_revision = teacher_lesson_script_revision(source, "L1-1")
+    saved_script = repository.save_script_revision(
+        "course-1",
+        "L1-1",
+        [
+            {"section_node_id": "L2-1-1", "title": "1.1", "content": "第一节正式讲稿，包含完整定义、成立条件与适用边界。"},
+            {"section_node_id": "L2-1-2", "title": "1.2", "content": "第二节正式讲稿，包含推理过程、示例结果与核对方法。"},
+        ],
+        source_lesson_plan_revision_id=lesson["working_revision_id"],
+        generation_source="teacher_edit",
+    )
+    script_revision = saved_script["working_script_revision_id"]
 
     with TestClient(app) as client:
         blocked = client.get("/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/source")
@@ -2201,6 +2347,9 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
         )
         assert stored_second_revision["requirements"] == "增加案例"
         assert stored_second_revision["material_asset_ids"] == ["material-1"]
+        assert stored_second_revision["publication_eligible"] is True
+        assert stored_second_revision["sections"][0]["blocks"][0]["generation_source"] == "teacher_edit"
+        assert stored_second_revision["sections"][1]["blocks"][0]["generation_source"] == "model"
 
         confirmed = client.post(
             "/api/teacher/courses/course-1/lessons/L1-1/script/confirm",
@@ -2298,6 +2447,11 @@ def test_teacher_can_save_first_script_draft_without_model_revision(tmp_path):
     stored = repository.lesson("course-1", "L1-1")
     assert stored["working_script_revision_id"]
     assert stored["script_revisions"][-1]["generation_source"] == "teacher_edit"
+    assert all(
+        block["generation_source"] == "teacher_edit"
+        for section in stored["script_revisions"][-1]["sections"]
+        for block in section["blocks"]
+    )
 
 
 def test_teacher_v6_route_uses_shared_ai_planner_factories():

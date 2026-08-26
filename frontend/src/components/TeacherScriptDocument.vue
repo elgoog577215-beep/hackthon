@@ -40,6 +40,11 @@
 
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
+    <aside v-if="scriptStatusNotice" class="script-status-notice" :data-state="scriptStatusNotice.state">
+      <strong>{{ scriptStatusNotice.title }}</strong>
+      <span>{{ scriptStatusNotice.detail }}</span>
+    </aside>
+
     <section v-if="!lesson.script.ready" class="script-generation-panel" :class="{ 'has-partial': scriptSections.length }">
       <form v-if="showGenerationForm" class="script-generate" @submit.prevent="requestGeneration">
         <textarea
@@ -140,8 +145,8 @@
     <footer v-if="!externalToolbar && lesson.script.ready && !pendingCandidate && !editing && !confirmed" class="script-footer">
       <button
         type="button"
-        :disabled="confirming || !lesson.script.ready"
-        :title="!lesson.script.ready ? tr('courseWorkbench.scriptDocument.incomplete') : ''"
+        :disabled="confirming || !lesson.script.ready || lesson.script.publication_eligible === false"
+        :title="confirmationBlockReason"
         @click="emit('confirm')"
       >
         <LoaderCircle v-if="confirming" :size="15" class="spin" />
@@ -225,7 +230,7 @@ const documentError = computed(() => {
     title: tr('courseWorkbench.scriptDocument.aiFailed').replace(/，?请重试。?$/, ''),
     fallback: tr('courseWorkbench.scriptDocument.aiFailed'),
   })
-  if (props.generationError) return toAppError(props.generationError, {
+  if (props.generationError && !props.lesson.script.ready) return toAppError(props.generationError, {
     title: tr('courseWorkbench.scriptDocument.generateFailed'),
     fallback: props.generationError,
   })
@@ -258,6 +263,18 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.confirming': '正在确认…',
   'courseWorkbench.scriptDocument.confirm': '确认本讲讲稿',
   'courseWorkbench.scriptDocument.incomplete': '请先补全本讲所有小节内容',
+  'courseWorkbench.scriptDocument.qualityBlocked': '讲稿尚未通过当前质量与来源检查',
+  'courseWorkbench.scriptDocument.sourceRecovery': '恢复草稿',
+  'courseWorkbench.scriptDocument.sourceTeacherEdit': '教师编辑稿',
+  'courseWorkbench.scriptDocument.sourceAiOptimization': 'AI 优化稿',
+  'courseWorkbench.scriptDocument.sourceModel': 'AI 生成稿',
+  'courseWorkbench.scriptDocument.sourceLegacy': '旧版讲稿',
+  'courseWorkbench.scriptDocument.statusCannotConfirm': '尚不能确认',
+  'courseWorkbench.scriptDocument.statusCurrentReady': '当前正文可用',
+  'courseWorkbench.scriptDocument.statusPassed': '已通过当前检查',
+  'courseWorkbench.scriptDocument.statusBlockedDetail': '当前内容尚未通过最新质量与来源检查，请继续编辑或重新生成。',
+  'courseWorkbench.scriptDocument.statusPreviousFailureDetail': '最近一次 AI 生成没有完成；当前展示的是已经单独保存并通过检查的正文，不是该次失败任务的输出。',
+  'courseWorkbench.scriptDocument.statusPassedDetail': '确认后，这一修订才会成为 PPT 文书与 PPT 的唯一内容上游。',
   'courseWorkbench.scriptDocument.generationRequirement': '讲稿生成要求',
   'courseWorkbench.scriptDocument.generationPlaceholder': '例如：增加一个贴近学生的课堂案例，保留教案时间安排',
   'courseWorkbench.scriptDocument.generate': '生成本讲讲稿',
@@ -277,6 +294,47 @@ function tr(key: string): string {
 }
 
 type ScriptSection = TeacherLessonScriptState['sections'][number]
+const sourceLabel = computed(() => {
+  const source = String(props.lesson.script.generation_source || '')
+  if (source.includes('recovery') || source.includes('fallback')) return tr('courseWorkbench.scriptDocument.sourceRecovery')
+  if (source === 'teacher_edit') return tr('courseWorkbench.scriptDocument.sourceTeacherEdit')
+  if (source === 'ai_optimization') return tr('courseWorkbench.scriptDocument.sourceAiOptimization')
+  if (source.includes('model')) return tr('courseWorkbench.scriptDocument.sourceModel')
+  return tr('courseWorkbench.scriptDocument.sourceLegacy')
+})
+const qualityBlockMessage = computed(() => String(
+  props.lesson.script.quality_report?.blocking_issues?.[0]?.message || '',
+))
+const scriptStatusNotice = computed(() => {
+  if (!props.lesson.script.ready) return null
+  if (props.lesson.script.publication_eligible === false) {
+    return {
+      state: 'blocked',
+      title: `${sourceLabel.value} · ${tr('courseWorkbench.scriptDocument.statusCannotConfirm')}`,
+      detail: qualityBlockMessage.value || tr('courseWorkbench.scriptDocument.statusBlockedDetail'),
+    }
+  }
+  if (['failed', 'cancelled'].includes(String(props.generationJob?.status || ''))) {
+    return {
+      state: 'info',
+      title: `${sourceLabel.value} · ${tr('courseWorkbench.scriptDocument.statusCurrentReady')}`,
+      detail: tr('courseWorkbench.scriptDocument.statusPreviousFailureDetail'),
+    }
+  }
+  if (!props.lesson.script.generation_source && !props.lesson.script.quality_report) return null
+  return {
+    state: 'ready',
+    title: `${sourceLabel.value} · ${tr('courseWorkbench.scriptDocument.statusPassed')}`,
+    detail: tr('courseWorkbench.scriptDocument.statusPassedDetail'),
+  }
+})
+const confirmationBlockReason = computed(() => {
+  if (!props.lesson.script.ready) return tr('courseWorkbench.scriptDocument.incomplete')
+  if (props.lesson.script.publication_eligible === false) {
+    return qualityBlockMessage.value || tr('courseWorkbench.scriptDocument.qualityBlocked')
+  }
+  return ''
+})
 const scriptSections = computed<ScriptSection[]>(() => (
   props.lesson.script.ready
     ? props.lesson.script.sections || []
@@ -483,6 +541,7 @@ defineExpose({
 .script-document{background:#fff}.script-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}.script-title{min-width:0;display:flex;align-items:center;gap:9px}.script-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}.script-actions{flex:none;display:flex;align-items:center;gap:2px}.script-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.script-actions button:hover{color:#3730a3;background:#f2f3fa}.script-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.script-actions button:disabled{opacity:.45;cursor:not-allowed}.script-actions .resolved-action{margin-left:4px;border-color:#d7ddea;background:#fff}.script-ai{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:stretch;gap:10px;padding:12px 28px;border-bottom:1px solid #e8ecf2;background:#fbfcff}.script-ai textarea{min-height:58px;padding:9px 11px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.5;resize:vertical}.script-ai textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-ai button,.script-footer button,.script-generate button{display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.script-ai button:disabled,.script-footer button:disabled,.script-generate button:disabled{opacity:.45;cursor:not-allowed}.script-generation-panel{border-bottom:1px solid #e8ecf2;background:#fbfcfe}.script-generate{min-height:320px;display:grid;grid-template-columns:minmax(0,1fr) auto;align-content:start;gap:12px;padding:28px}.script-generation-panel.has-partial .script-generate{min-height:auto;padding-bottom:14px}.script-generate textarea{min-height:112px;box-sizing:border-box;padding:13px 14px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:13px;line-height:1.65;resize:vertical}.script-generate textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-generate textarea:disabled{color:#64748b;background:#f7f8fa}.script-generate button{min-height:42px;padding-inline:18px}.script-generation-progress{display:grid;gap:7px;padding:0 28px 18px}.script-generation-progress>div{display:flex;align-items:center;justify-content:space-between;gap:18px;color:#5d6879;font-size:12px}.script-generation-progress strong{color:#4338ca;font-size:11px}.script-generation-progress>i{height:4px;overflow:hidden;border-radius:4px;background:#e6e8f0}.script-generation-progress>i span{height:100%;display:block;border-radius:inherit;background:#5b57e8}.script-generation-progress[data-status="failed"]>i span{background:#e08a2e}.script-tabs{display:flex;gap:24px;overflow:auto;padding:0 28px;border-bottom:1px solid #e8ecf2}.script-tabs button{max-width:280px;min-height:48px;display:flex;align-items:center;gap:7px;padding:0;border:0;border-bottom:2px solid transparent;color:#64748b;background:transparent;font-size:12px;white-space:nowrap;cursor:pointer}.script-tabs button span{color:#94a3b8;font-size:10px;font-weight:800}.script-tabs button:hover{color:#3730a3}.script-tabs button.active{border-bottom-color:#5b57e8;color:#3730a3;font-weight:750}.script-tabs button.active span{color:#6366f1}.script-body{min-height:360px;padding:28px}.script-body[data-state="partial"]{background:#fff}.script-body>header{display:flex;align-items:center;gap:10px;margin-bottom:22px}.script-body>header span{color:#6366f1;font-size:11px;font-weight:850}.script-body>header h4{margin:0;color:#172033;font-size:16px}.script-body>textarea,.script-block-editor textarea{width:100%;box-sizing:border-box;padding:14px 15px;border:1px solid #cbd4e1;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:13px;line-height:1.75;resize:vertical}.script-body>textarea{min-height:520px}.script-block-editor textarea{min-height:220px}.script-body>textarea:focus,.script-block-editor textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-content{color:#405068;font-size:13px;line-height:1.75}.script-content[data-state="candidate"]{padding:12px 14px;border-radius:8px;background:#f7f7ff}.script-modules,.script-block-editor{display:grid}.script-module,.script-block-editor>section{padding:0 0 30px;margin:0 0 30px;border-bottom:1px solid #e8ecf2}.script-module:last-child,.script-block-editor>section:last-child{padding-bottom:0;margin-bottom:0;border-bottom:0}.script-module>header,.script-block-editor>section>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:14px}.script-module>header div,.script-block-editor>section>header div{display:grid;gap:4px}.script-module h5,.script-block-editor h5{margin:0;color:#172033;font-size:15px}.script-module header span,.script-block-editor header span{color:#6366f1;font-size:10px;font-weight:800}.script-module header small,.script-block-editor header small{flex:none;color:#7a8699;font-size:11px}.script-module{color:#405068;font-size:13px;line-height:1.75}.script-block-waiting{min-height:44px;display:flex;align-items:center;gap:8px;color:#6366f1;font-size:12px}.script-empty{min-height:260px;display:grid;place-items:center;color:#7a8699;font-size:13px}.script-footer{min-height:64px;display:flex;align-items:center;justify-content:flex-end;gap:18px;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.script-footer button{min-height:38px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .script-generation-progress__actions{display:flex;align-items:center;gap:10px}.script-generation-progress__actions button{min-height:28px;padding:0 10px;border:1px solid #d7ddea;border-radius:7px;color:#526077;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.script-generation-progress__actions button:hover{color:#3730a3;border-color:#b9b9f4;background:#f7f7ff}.script-generation-progress[data-status="cancelled"]>i span{background:#e08a2e}
 .script-document>:deep(.app-error-notice){margin:12px 28px 0}
+.script-status-notice{display:grid;gap:3px;margin:14px 28px 0;padding:11px 13px;border:1px solid #d8dff0;border-radius:8px;color:#4b5870;background:#f8faff;font-size:12px;line-height:1.55}.script-status-notice strong{color:#29334a;font-size:12px}.script-status-notice[data-state="blocked"]{border-color:#efd2a8;background:#fff9ef}.script-status-notice[data-state="blocked"] strong{color:#9a4c0c}.script-status-notice[data-state="ready"]{border-color:#cce4d5;background:#f5fbf7}.script-status-notice[data-state="ready"] strong{color:#276749}
 @media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.script-footer{padding-inline:18px}}
 .script-content[data-state="candidate"]{border:1px solid #c8c7f2;background:#f8f8ff;outline:0}.script-content[data-state="candidate"]:focus{box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .script-document,.script-generation-panel{background:var(--teacher-component-surface,#fff)}

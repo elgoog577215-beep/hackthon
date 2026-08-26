@@ -5,7 +5,7 @@
 1. A teacher request for N lessons produces exactly N top-level lesson units and never silently changes N.
 2. Confirming a teacher outline completes the teacher outline task and starts no teaching-plan, content or release task.
 3. Starting lesson 2 creates one teacher lesson-plan task scoped to lesson 2 and all its child sections; sibling lessons remain unchanged.
-4. A retryable provider failure affects only the current lesson. A schema-valid deterministic fallback completes with warnings and remains editable/PPT-eligible.
+4. A retryable provider failure affects only the current lesson. A deterministic recovery draft completes with warnings and remains editable, but is never confirmable or PPT-eligible until replaced or fully revised and revalidated.
 5. `lesson` and `section` route state are independent; clicking next changes visible content and survives reload.
 6. Manual edit and AI candidate acceptance create teacher lesson-plan revisions without writing student CourseDocument blocks.
 7. A usable lesson-plan revision can create a lesson-scoped PPT without student content/publication; the deck records the exact source revision.
@@ -20,7 +20,7 @@
 | hard lesson count | request/outline backend test + teacher creation browser flow |
 | outline stop | task state/API test; absence of teaching/content tasks |
 | lesson task isolation | repository/task tests for lesson 2 and unchanged siblings |
-| fallback policy | provider/validation fixture resulting in completed_with_warnings |
+| fallback policy | provider/validation fixture resulting in completed_with_warnings plus blocked confirmation and PPT source |
 | navigation | component/router test + browser 2.1→2.2→2.3 and reload |
 | edit/AI | candidate diff/accept/reject API and UI tests |
 | lesson PPT | source contract test + browser generation/return path |

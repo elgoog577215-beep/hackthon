@@ -215,4 +215,69 @@ describe('统一讲稿页面', () => {
     })
     expect(wrapper.get('.script-generate button').text()).toContain('继续生成剩余内容')
   })
+
+  it('区分失败任务与当前正文来源，恢复稿不再伪装成可确认结果', () => {
+    const recoveryLesson = structuredClone(lesson)
+    recoveryLesson.script.publication_eligible = false
+    recoveryLesson.script.generation_source = 'model_block_pipeline_with_recovery_preview'
+    recoveryLesson.script.quality_contract_version = 'teacher_script_quality_v6'
+    recoveryLesson.script.quality_report = {
+      passed: false,
+      publication_eligible: false,
+      blocking_issues: [{
+        code: 'teacher_script:recovery_draft_not_publishable',
+        message: '当前稿包含本地恢复内容，只能继续编辑或重新生成。',
+      }],
+      review_issues: [],
+      metrics: {},
+    }
+    const failedJob = {
+      id: 'failed-ai-job', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'failed', progress: 5,
+      phase: 'lesson_script_failed', message: 'AI 生成失败', warnings: [],
+      total_blocks: 2, completed_blocks: 0, block_states: {}, result_sections: [],
+      error: { code: 'provider_failed', message: '提供方失败', retryable: true },
+    } as TeacherLessonJob
+
+    const wrapper = mount(TeacherScriptDocument, {
+      props: {
+        courseId: 'course-1', lesson: recoveryLesson,
+        generationJob: failedJob, generationError: '提供方失败',
+      },
+    })
+
+    expect(wrapper.text()).toContain('恢复草稿 · 尚不能确认')
+    expect(wrapper.text()).toContain('当前稿包含本地恢复内容')
+    expect(wrapper.text()).not.toContain('讲稿生成失败')
+    expect(wrapper.get('.script-footer button').attributes('disabled')).toBeDefined()
+  })
+
+  it('AI 失败后展示通过检查的教师编辑稿，不把失败任务冒充正文来源', () => {
+    const editedLesson = structuredClone(lesson)
+    editedLesson.script.publication_eligible = true
+    editedLesson.script.generation_source = 'teacher_edit'
+    editedLesson.script.quality_report = {
+      passed: true, publication_eligible: true,
+      blocking_issues: [], review_issues: [], metrics: {},
+    }
+    const failedJob = {
+      id: 'failed-ai-job', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'failed', progress: 5,
+      phase: 'lesson_script_failed', message: 'AI 生成失败', warnings: [],
+      total_blocks: 2, completed_blocks: 0, block_states: {}, result_sections: [],
+      error: { code: 'provider_failed', message: '提供方失败', retryable: true },
+    } as TeacherLessonJob
+
+    const wrapper = mount(TeacherScriptDocument, {
+      props: {
+        courseId: 'course-1', lesson: editedLesson,
+        generationJob: failedJob, generationError: '提供方失败',
+      },
+    })
+
+    expect(wrapper.text()).toContain('教师编辑稿 · 当前正文可用')
+    expect(wrapper.text()).toContain('不是该次失败任务的输出')
+    expect(wrapper.text()).not.toContain('讲稿生成失败')
+    expect(wrapper.get('.script-footer button').attributes('disabled')).toBeUndefined()
+  })
 })

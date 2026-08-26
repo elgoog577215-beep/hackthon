@@ -43,9 +43,12 @@ from teacher_lesson_authoring import (
 )
 from question_bank import question_bank_repository
 from teacher_script import (
+    SCRIPT_PIPELINE_VERSION,
+    SCRIPT_QUALITY_VERSION,
     compile_teacher_script_fallback_content,
     compile_teacher_script_module_contract,
     normalize_teacher_script_section,
+    teacher_script_revision_is_publishable,
     validate_teacher_script_section,
 )
 from teacher_course_space import teacher_course_space_repository
@@ -768,8 +771,25 @@ def _lesson_projection(
             str(section.get("content") or "").strip()
             for section in script_sections
         )
+        script_quality = deepcopy((script_revision or {}).get("quality_report") or {})
+        script_publication_eligible = bool(
+            isinstance(script_revision, dict)
+            and teacher_script_revision_is_publishable(script_revision)
+        )
+        if isinstance(script_revision, dict) and not script_publication_eligible:
+            script_quality["passed"] = False
+            script_quality["publication_eligible"] = False
+            if (
+                script_quality.get("schema_version") != SCRIPT_QUALITY_VERSION
+                or script_quality.get("pipeline_version") != SCRIPT_PIPELINE_VERSION
+            ):
+                script_quality.setdefault("blocking_issues", []).insert(0, {
+                    "code": "teacher_script:quality_contract_stale",
+                    "message": "这份讲稿仍使用旧质量规则，需重新编辑保存或重新生成后才能确认。",
+                })
         script_confirmed = bool(
             script_ready
+            and script_publication_eligible
             and script_confirmation.get("confirmed_revision_id") == current_script_revision
             and script_confirmation.get("source_lesson_plan_revision_id")
             == plan_asset.get("confirmed_revision_id")
@@ -805,6 +825,14 @@ def _lesson_projection(
                 "source_state": script_source_state,
                 "ready": script_ready,
                 "confirmed": script_confirmed,
+                "publication_eligible": script_publication_eligible,
+                "generation_source": str(
+                    (script_revision or {}).get("generation_source") or "legacy"
+                ),
+                "quality_contract_version": str(
+                    (script_revision or {}).get("quality_contract_version") or ""
+                ),
+                "quality_report": script_quality,
                 "confirmed_at": str(script_confirmation.get("confirmed_at") or ""),
                 "sections": script_sections,
                 "ai_candidate": next(
@@ -925,6 +953,9 @@ def _imported_ppt_review_context(
     confirmed_script = str(confirmation.get("confirmed_revision_id") or "")
     if confirmed_script and confirmation.get("source_state", "current") == "current":
         script_revision = _script_revision(repository, course_id, lesson_unit_id, confirmed_script)
+        if not teacher_script_revision_is_publishable(script_revision):
+            confirmed_script = ""
+    if confirmed_script:
         revisions["script"] = confirmed_script
         sources.append({
             "kind": "script",
@@ -1095,6 +1126,17 @@ def _teacher_v6_source(
         lesson_unit_id,
         current_script_revision,
     )
+    if not teacher_script_revision_is_publishable(script_revision):
+        raise TeacherLessonAuthoringError(
+            "lesson_script_quality_blocked",
+            "当前讲稿未通过最新质量与来源检查，不能生成 PPT 文书。",
+            details={
+                "quality_report": deepcopy(script_revision.get("quality_report") or {}),
+                "generation_source": str(script_revision.get("generation_source") or ""),
+                "required_quality_contract": SCRIPT_QUALITY_VERSION,
+                "required_pipeline_version": SCRIPT_PIPELINE_VERSION,
+            },
+        )
     document, course_view, synthetic_id = teacher_lesson_v6_source(
         source,
         lesson_unit_id=lesson_unit_id,
@@ -2016,6 +2058,14 @@ async def build_teacher_lesson_v6_manuscript(
         def source_revision_provider() -> str:
             current = repository.lesson(course_id, lesson_unit_id)
             confirmation = current.get("script_confirmation") or {}
+            current_script = next(
+                (
+                    item for item in current.get("script_revisions") or []
+                    if isinstance(item, dict)
+                    and item.get("revision_id") == source_script_revision
+                ),
+                {},
+            )
             try:
                 current_bindings, _current_evidence = _ppt_material_bundle(
                     course_id, actor, lesson_unit_id
@@ -2033,6 +2083,7 @@ async def build_teacher_lesson_v6_manuscript(
                 and confirmation.get("confirmed_revision_id")
                 == source_script_revision
                 and confirmation.get("source_state", "current") == "current"
+                and teacher_script_revision_is_publishable(current_script)
                 and materials_current
                 else ""
             )
@@ -2225,6 +2276,14 @@ async def build_teacher_lesson_v6(
         def source_revision_provider() -> str:
             current = repository.lesson(course_id, lesson_unit_id)
             confirmation = current.get("script_confirmation") or {}
+            current_script = next(
+                (
+                    item for item in current.get("script_revisions") or []
+                    if isinstance(item, dict)
+                    and item.get("revision_id") == source_script_revision
+                ),
+                {},
+            )
             try:
                 current_bindings, _current_evidence = _ppt_material_bundle(
                     course_id, actor, lesson_unit_id
@@ -2241,6 +2300,7 @@ async def build_teacher_lesson_v6(
                 and current.get("working_script_revision_id") == source_script_revision
                 and confirmation.get("confirmed_revision_id") == source_script_revision
                 and confirmation.get("source_state", "current") == "current"
+                and teacher_script_revision_is_publishable(current_script)
                 and materials_current
                 else ""
             )
@@ -3224,7 +3284,7 @@ async def generate_lesson_script(
                     "module_id": module_id,
                     "title": str(module.get("title") or module_id),
                     "reason": type(generation_error).__name__,
-                    "message": "提供方调用失败，已从教师确认教案编译可编辑基础稿。",
+                    "message": "提供方调用失败，已保留可编辑恢复草稿；该内容不能确认或进入 PPT。",
                 })
                 return compile_teacher_script_fallback_content(module)
             blocks = [
@@ -3343,16 +3403,26 @@ async def save_lesson_script_draft(
         normalized_sections = []
         for item in body.sections:
             section_id = str(item.get("section_node_id") or "")
-            if not item.get("blocks") and not (
-                base_sections.get(section_id) or {}
-            ).get("blocks"):
-                normalized_sections.append(normalize_teacher_script_section(item))
-                continue
             contract = compile_teacher_script_module_contract(
                 outline_sections.get(section_id) or {},
                 plan_sections.get(section_id) or {},
             )
             normalized = normalize_teacher_script_section(item, contract)
+            previous_blocks = {
+                str(block.get("block_id") or ""): block
+                for block in (base_sections.get(section_id) or {}).get("blocks") or []
+                if isinstance(block, dict) and block.get("block_id")
+            }
+            for block in normalized.get("blocks") or []:
+                if not isinstance(block, dict):
+                    continue
+                previous = previous_blocks.get(str(block.get("block_id") or "")) or {}
+                block["generation_source"] = (
+                    str(previous.get("generation_source") or "")
+                    if str(previous.get("content") or "").strip()
+                    == str(block.get("content") or "").strip()
+                    else "teacher_edit"
+                ) or "teacher_edit"
             normalized["quality_report"] = validate_teacher_script_section(
                 normalized,
                 contract,
@@ -3572,6 +3642,20 @@ async def resolve_lesson_script_candidate(
                 candidate_section,
                 contract,
             )
+            previous_blocks = {
+                str(block.get("block_id") or ""): block
+                for block in section.get("blocks") or []
+                if isinstance(block, dict) and block.get("block_id")
+            }
+            for block in normalized.get("blocks") or []:
+                if not isinstance(block, dict):
+                    continue
+                previous = previous_blocks.get(str(block.get("block_id") or "")) or {}
+                block["generation_source"] = (
+                    "ai_optimization"
+                    if section_id == target_section_id
+                    else str(previous.get("generation_source") or "") or "model"
+                )
             normalized["quality_report"] = validate_teacher_script_section(
                 normalized,
                 contract,

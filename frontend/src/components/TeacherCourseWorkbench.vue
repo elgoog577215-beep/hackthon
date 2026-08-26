@@ -453,7 +453,7 @@
                   <template v-else>
                     <button type="button" :disabled="scriptDocumentAiBusy || scriptConfirming" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
                     <button type="button" :disabled="scriptConfirming" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲稿') }}</button>
-                    <button v-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming" @click="confirmScript">
+                    <button v-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming || !scriptPublicationEligible" :title="scriptPublicationBlockReason" @click="confirmScript">
                       <LoaderCircle v-if="scriptConfirming" :size="15" class="spin" />
                       <Check v-else :size="15" />
                       {{ scriptConfirming ? t('courseWorkbench.scriptDocument.confirming', '正在确认…') : t('courseWorkbench.scriptDocument.confirm', '确认本讲讲稿') }}
@@ -1010,6 +1010,11 @@ const lessonDocumentAiBusy = computed(() => Boolean(lessonPlanDocument.value?.ai
 const lessonDocumentQualityBlocked = computed(() => Boolean(lessonPlanDocument.value?.qualityBlocked))
 const lessonDocumentQualityBlockMessage = computed(() => String(lessonPlanDocument.value?.qualityBlockMessage || ''))
 const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.confirmed))
+const scriptPublicationEligible = computed(() => selectedLesson.value?.script?.publication_eligible !== false)
+const scriptPublicationBlockReason = computed(() => String(
+  selectedLesson.value?.script?.quality_report?.blocking_issues?.[0]?.message
+  || (!scriptPublicationEligible.value ? t('courseWorkbench.scriptDocument.qualityBlocked', '讲稿尚未通过当前质量与来源检查') : ''),
+))
 const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Boolean(selectedLesson.value?.script?.ready) && !scriptGenerationBusy.value)
 const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
 const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving))
@@ -1108,7 +1113,9 @@ const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScri
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
 const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptGenerationActive.value)
 const effectiveScriptGenerationError = computed(() => String(
-  scriptJob.value?.status === 'cancelled'
+  selectedLesson.value?.script?.ready
+    ? ''
+    : scriptJob.value?.status === 'cancelled'
     ? ''
     : scriptJob.value?.status === 'failed'
     ? scriptJob.value.error?.message || scriptGenerationError.value
@@ -1709,7 +1716,7 @@ async function cancelScriptGeneration() {
 }
 async function confirmScript() {
   const revision = selectedLesson.value?.script.current_revision_id
-  if (!selectedLesson.value || !revision || scriptConfirmed.value || scriptConfirming.value) return
+  if (!selectedLesson.value || !revision || scriptConfirmed.value || scriptConfirming.value || !scriptPublicationEligible.value) return
   scriptConfirming.value = true
   scriptConfirmError.value = ''
   try {

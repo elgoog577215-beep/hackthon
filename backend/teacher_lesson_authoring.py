@@ -29,7 +29,9 @@ from teacher_script import (
     SCRIPT_QUALITY_VERSION,
     compile_teacher_script_module_contract,
     normalize_teacher_script_section,
+    teacher_script_revision_is_publishable,
     validate_teacher_script_section,
+    validate_teacher_script_revision,
 )
 
 
@@ -2266,17 +2268,28 @@ class TeacherLessonAuthoringRepository:
             normalized = normalize_teacher_script_section(item)
             quality_report = deepcopy(item.get("quality_report") or {})
             if not quality_report:
-                quality_report = {
-                    "schema_version": SCRIPT_QUALITY_VERSION,
-                    "pipeline_version": "legacy_script_adapter_v1",
-                    "passed": True,
-                    "blocking_issues": [],
-                    "review_issues": [{
-                        "code": "teacher_script:legacy_adapter",
-                        "message": "该讲稿由旧正文兼容迁移，建议教师确认教学块边界。",
-                    }],
-                    "metrics": {"block_count": len(normalized.get("blocks") or [])},
-                }
+                compatibility_modules = [
+                    {
+                        **deepcopy(block),
+                        "artifact_contract": {},
+                        "target_characters": 0,
+                        "max_characters": 0,
+                    }
+                    for block in normalized.get("blocks") or []
+                    if isinstance(block, dict)
+                ]
+                quality_report = validate_teacher_script_section(
+                    normalized,
+                    {
+                        "section_node_id": normalized.get("section_node_id"),
+                        "title": normalized.get("title"),
+                        "modules": compatibility_modules,
+                    },
+                )
+                quality_report.setdefault("review_issues", []).append({
+                    "code": "teacher_script:compatibility_validation",
+                    "message": "该正文仅完成兼容性质量检查；正式旧正文迁移仍需重新绑定当前教案。",
+                })
             normalized["quality_report"] = quality_report
             normalized["pipeline_version"] = str(
                 item.get("pipeline_version")
@@ -2294,37 +2307,11 @@ class TeacherLessonAuthoringRepository:
                 "lesson_script_incomplete",
                 "本讲仍有小节没有讲稿内容，暂时不能保存。",
             )
-        blocking_issues = [
-            {
-                **deepcopy(issue),
-                "section_node_id": str(section.get("section_node_id") or ""),
-            }
-            for section in normalized_sections
-            for issue in (section.get("quality_report") or {}).get("blocking_issues") or []
-            if isinstance(issue, dict)
-        ]
-        review_issues = [
-            {
-                **deepcopy(issue),
-                "section_node_id": str(section.get("section_node_id") or ""),
-            }
-            for section in normalized_sections
-            for issue in (section.get("quality_report") or {}).get("review_issues") or []
-            if isinstance(issue, dict)
-        ]
-        revision_quality = {
-            "schema_version": SCRIPT_QUALITY_VERSION,
-            "pipeline_version": SCRIPT_PIPELINE_VERSION,
-            "passed": not blocking_issues,
-            "blocking_issues": blocking_issues,
-            "review_issues": review_issues,
-            "metrics": {
-                "section_count": len(normalized_sections),
-                "block_count": sum(
-                    len(section.get("blocks") or []) for section in normalized_sections
-                ),
-            },
-        }
+        revision_quality = validate_teacher_script_revision(
+            normalized_sections,
+            generation_source=generation_source,
+        )
+        publication_eligible = bool(revision_quality.get("publication_eligible"))
         revision_id = teacher_lesson_script_sections_revision(normalized_sections)
         with self._lock:
             value = self.load(course_id)
@@ -2370,9 +2357,31 @@ class TeacherLessonAuthoringRepository:
                     )),
                     "sections": normalized_sections,
                     "quality_report": revision_quality,
+                    "publication_eligible": publication_eligible,
+                    "quality_contract_version": SCRIPT_QUALITY_VERSION,
                     "pipeline_version": SCRIPT_PIPELINE_VERSION,
                     "actor": actor,
                     "created_at": _now(),
+                })
+            else:
+                # The content digest may stay unchanged while the quality
+                # contract is tightened. Refresh the same revision in place so
+                # stale v5 reports can never remain publishable by accident.
+                existing.update({
+                    "generation_source": generation_source,
+                    "requirements": requirements,
+                    "material_asset_ids": list(dict.fromkeys(
+                        str(item or "").strip()
+                        for item in material_asset_ids or []
+                        if str(item or "").strip()
+                    )),
+                    "sections": normalized_sections,
+                    "quality_report": revision_quality,
+                    "publication_eligible": publication_eligible,
+                    "quality_contract_version": SCRIPT_QUALITY_VERSION,
+                    "pipeline_version": SCRIPT_PIPELINE_VERSION,
+                    "actor": actor,
+                    "updated_at": _now(),
                 })
             lesson["working_script_revision_id"] = revision_id
             confirmation = lesson.get("script_confirmation")
@@ -2545,10 +2554,10 @@ class TeacherLessonAuthoringRepository:
                     "讲稿对应的教案已经变化，请重新生成讲稿。",
                 )
             quality_report = revision.get("quality_report") or {}
-            if quality_report and not quality_report.get("passed"):
+            if not teacher_script_revision_is_publishable(revision):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_quality_blocked",
-                    "讲稿仍有未通过的教学结构检查，请修正后再确认。",
+                    "讲稿尚未通过当前教学质量与来源检查，请修正或重新生成后再确认。",
                     details={
                         "quality_report": deepcopy(quality_report),
                     },
@@ -3166,7 +3175,48 @@ class TeacherLessonAuthoringService:
                             "lesson_script_block_empty",
                             f"{current_block_title} 没有生成有效内容。",
                         )
-                    completed.append({**deepcopy(module), "content": content})
+                    is_recovery_block = any(
+                        isinstance(item, dict)
+                        and (
+                            str(item.get("block_id") or "") in {"", current_block_id}
+                            or (
+                                total_blocks == 1
+                                and str(item.get("code") or "")
+                                == "lesson_script_block_local_fallback"
+                            )
+                        )
+                        for item in generation_warnings or []
+                    )
+                    candidate = {
+                        **deepcopy(module),
+                        "content": content,
+                        "generation_source": (
+                            "local_recovery" if is_recovery_block else "model"
+                        ),
+                    }
+                    single_contract = {
+                        **deepcopy(contract),
+                        "modules": [deepcopy(module)],
+                    }
+                    candidate_report = validate_teacher_script_section(
+                        {
+                            "section_node_id": section_id,
+                            "title": contract.get("title"),
+                            "blocks": [candidate],
+                        },
+                        single_contract,
+                    )
+                    if not candidate_report.get("passed") and not is_recovery_block:
+                        issues = "；".join(
+                            str(item.get("message") or "")
+                            for item in candidate_report.get("blocking_issues") or []
+                            if isinstance(item, dict)
+                        )
+                        raise TeacherLessonAuthoringError(
+                            "lesson_script_quality_blocked",
+                            issues or f"{current_block_title} 未通过讲稿质量检查。",
+                        )
+                    completed.append(candidate)
                     completed_ids.add(current_block_id)
                     block_states[current_block_id] = "completed"
                     completed_count += 1
@@ -3198,7 +3248,14 @@ class TeacherLessonAuthoringService:
                     contract,
                 )
                 section["pipeline_version"] = SCRIPT_PIPELINE_VERSION
-                if not section["quality_report"].get("passed"):
+                if (
+                    not section["quality_report"].get("passed")
+                    and not any(
+                        str(block.get("generation_source") or "") == "local_recovery"
+                        for block in section.get("blocks") or []
+                        if isinstance(block, dict)
+                    )
+                ):
                     issues = "；".join(
                         str(item.get("message") or "")
                         for item in section["quality_report"].get("blocking_issues") or []
@@ -3221,7 +3278,7 @@ class TeacherLessonAuthoringService:
                 final_sections,
                 source_lesson_plan_revision_id=source_plan_revision_id,
                 generation_source=(
-                    "model_block_pipeline_with_local_fallback"
+                    "model_block_pipeline_with_recovery_preview"
                     if fallback_warnings
                     else "model_block_pipeline"
                 ),
@@ -3229,6 +3286,27 @@ class TeacherLessonAuthoringService:
                 material_asset_ids=material_asset_ids or [],
                 actor=actor,
             )
+            saved_revision_id = str(lesson.get("working_script_revision_id") or "")
+            saved_revision = next(
+                (
+                    item for item in lesson.get("script_revisions") or []
+                    if isinstance(item, dict)
+                    and str(item.get("revision_id") or "") == saved_revision_id
+                ),
+                {},
+            )
+            if not fallback_warnings and not teacher_script_revision_is_publishable(
+                saved_revision
+            ):
+                issues = "；".join(
+                    str(item.get("message") or "")
+                    for item in (saved_revision.get("quality_report") or {}).get("blocking_issues") or []
+                    if isinstance(item, dict)
+                )
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_quality_blocked",
+                    issues or "整讲讲稿未通过发布质量检查。",
+                )
             current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
                 course_id,
@@ -3238,10 +3316,14 @@ class TeacherLessonAuthoringService:
                     if fallback_warnings
                     else "completed"
                 ),
-                phase="lesson_script_ready",
+                phase=(
+                    "lesson_script_recovery_ready"
+                    if fallback_warnings
+                    else "lesson_script_ready"
+                ),
                 progress=100,
                 message=(
-                    "本讲讲稿已完整生成；提供方失败的教学块已从确认教案编译，请审核后确认"
+                    "AI 生成未完整完成，已保留可编辑恢复草稿；重新生成或完整修订并通过检查后才能确认"
                     if fallback_warnings
                     else "本讲讲稿已生成，等待确认"
                 ),

@@ -78,6 +78,18 @@ export interface TeacherLessonScriptState {
   source_state: 'current' | 'stale'
   ready: boolean
   confirmed: boolean
+  publication_eligible?: boolean
+  generation_source?: string
+  quality_contract_version?: string
+  quality_report?: {
+    schema_version?: string
+    pipeline_version?: string
+    passed: boolean
+    publication_eligible?: boolean
+    blocking_issues: Array<{ code: string; message: string; section_node_id?: string }>
+    review_issues: Array<{ code: string; message: string; section_node_id?: string }>
+    metrics: Record<string, number>
+  }
   confirmed_at: string
   sections: TeacherLessonScriptSection[]
   ai_candidate?: TeacherLessonScriptCandidate | null
@@ -104,6 +116,7 @@ export interface TeacherLessonScriptBlock {
   required?: boolean
   knowledge_names?: string[]
   planned_minutes?: number | null
+  generation_source?: 'model' | 'local_recovery' | 'teacher_edit' | string
   source_plan_context?: {
     teacher_activity?: string
     student_activity?: string
