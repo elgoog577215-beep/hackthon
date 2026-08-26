@@ -1210,40 +1210,64 @@ def _render_formula_visual(
         if not block.metadata.get("formula")
     ]
     has_supporting_copy = bool(supporting_blocks)
-    formula_width = 7.15 if has_supporting_copy else 11.78
-    _shape(
-        slide,
-        0.78,
-        1.92,
-        formula_width,
-        4.62,
-        theme["canvas"],
-        radius=True,
-        line=theme["chart_bg"],
-    )
-    _text(slide, "关键公式", 1.15, 2.22, 1.4, 0.3, 11, theme["accent"], bold=True)
+    formula_width = 7.0 if has_supporting_copy else 11.2
+    _shape(slide, 0.88, 2.05, 0.055, 3.95, theme["accent"], radius=False)
+    _text(slide, "公式与推导", 1.18, 2.03, 1.5, 0.3, 11, theme["accent"], bold=True)
     display_formula = _format_formula_text(formula)
     display_formula = re.sub(r"\n\s*\n", "\n", display_formula)
     _text(
         slide,
         display_formula,
-        1.14,
-        2.78 if "\n" in display_formula else 3.08,
-        formula_width - 0.72,
-        3.15 if "\n" in display_formula else 1.55,
-        24 if "\n" in display_formula else (28 if len(display_formula) < 72 else 22),
+        1.18,
+        2.62 if "\n" in display_formula else 2.94,
+        formula_width - 0.42,
+        3.05 if "\n" in display_formula else 1.7,
+        25 if "\n" in display_formula else (30 if len(display_formula) < 72 else 23),
         theme["title"],
         bold=False,
         align="center",
         font=theme["math_font"],
         east_asian_font=theme["body_east_asian_font"],
     )
+    _shape(
+        slide,
+        1.18,
+        6.08,
+        formula_width - 0.42,
+        0.025,
+        theme["chart_bg"],
+        radius=False,
+    )
     if has_supporting_copy:
         supporting = SlideSpec.model_validate({
             **unit.model_dump(mode="json"),
             "blocks": [block.model_dump(mode="json") for block in supporting_blocks],
         })
-        _source_panel(slide, supporting, 8.2, 1.92, 4.36, 4.62, theme)
+        supporting_body = _visible_source_text(supporting)
+        _shape(slide, 8.28, 2.05, 0.025, 4.03, theme["chart_bg"], radius=False)
+        _text(
+            slide,
+            "条件与结论",
+            8.62,
+            2.03,
+            1.7,
+            0.3,
+            11,
+            theme["muted"],
+            bold=True,
+        )
+        _text(
+            slide,
+            supporting_body,
+            8.62,
+            2.58,
+            3.72,
+            3.28,
+            18 if len(supporting_body) <= 150 else 16,
+            theme["ink"],
+            font=theme["body_font"],
+            east_asian_font=theme["body_east_asian_font"],
+        )
 
 
 def _plain_formula(value: str) -> str:
@@ -2999,6 +3023,10 @@ def _render_editorial_body(
     if not _visible_source_text(unit):
         _render_navigation_statement(slide, unit, theme)
         return
+    if not body_capacity_profile:
+        body_capacity_profile = str(
+            unit.quality.get("v6_capacity_profile") or ""
+        )
     if not heading_already_rendered:
         _heading(slide, unit, theme)
     values = [
@@ -3015,6 +3043,36 @@ def _render_editorial_body(
     )
     if body_metrics is not None and not body_metrics["fits"]:
         raise ValueError("template_slot_capacity_exceeded")
+    if body_metrics is not None and body_metrics["mode"] == "two-column":
+        _shape(slide, 0.86, 1.92, 0.1, 4.32, theme["accent"], radius=False)
+        segments = list(body_metrics["segments"])
+        for index, segment in enumerate(segments[:2]):
+            x = 1.18 + index * 5.64
+            body_shape = _text(
+                slide,
+                segment,
+                x,
+                2.12,
+                5.3,
+                4.4,
+                16,
+                theme["ink"],
+            )
+            body_shape.name = (
+                f"{body_shape.name} [v6-body-capacity={body_capacity_profile}] "
+                f"[v6-body-max-lines={body_metrics['maximum_safe_lines']}] "
+                f"[v6-body-column={index + 1}]"
+            )
+        _shape(slide, 6.65, 2.1, 0.018, 4.35, theme["chart_bg"], radius=False)
+        return
+    explicit_lines = len([line for line in body.splitlines() if line.strip()])
+    body_font_size = (
+        16
+        if explicit_lines >= 8 or len(body) > 180
+        else 22
+        if len(body) > 90 or explicit_lines >= 5
+        else 26
+    )
     _shape(slide, 0.86, 1.92, 0.1, 4.32, theme["accent"], radius=False)
     body_shape = _text(
         slide,
@@ -3023,7 +3081,7 @@ def _render_editorial_body(
         2.3,
         10.75,
         3.55,
-        26 if len(body) <= 90 else 22 if len(body) <= 180 else 16,
+        body_font_size,
         theme["ink"],
     )
     if body_metrics is not None:

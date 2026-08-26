@@ -196,6 +196,12 @@ _GENERIC_TEACHING_PAGE_TITLES = frozenset({
     "变式练习",
     "在形式化定义之前",
     "从二阶出发",
+    "本节要解决的问题是",
+    "错误分析",
+    "逐行取系数",
+    "缺项补0",
+    "沿索引读取",
+    "核对A、x与b",
 })
 
 
@@ -205,8 +211,15 @@ def _generic_teaching_page_title(value: str) -> bool:
         re.sub(r"\s+", "", item) for item in _GENERIC_TEACHING_PAGE_TITLES
     }:
         return True
+    if re.match(
+        r"^(?:再(?:沿|按).{0,12}\d+|继续(?:沿|按).{0,12}\d+|"
+        r"[A-Za-z]逐位读取分量)$",
+        normalized,
+    ):
+        return True
     return bool(re.match(
-        r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u91cd\u70b9\u7a81\u51fa[:\uff1a]?|"
+        r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u8f93\u51fa(?:\u987b|\u9700|\u8981\u6c42)?|"
+        r"\u63d0\u4ea4|\u6807\u6ce8|\u5199\u51fa|\u9010\u6b65\u5199\u51fa|\u91cd\u70b9\u7a81\u51fa[:\uff1a]?|"
         r"\u5728\u5f62\u5f0f\u5316\u5b9a\u4e49\u4e4b\u524d(?:\u5efa\u7acb)?|\u4e0e\u53d8\u5f0f\u7ec3\u4e60\u5408\u5e76)",
         normalized,
     )) or bool(re.match(r"^\u7528.{2,18}\u5efa\u7acb.{2,24}$", normalized))
@@ -225,10 +238,18 @@ def _audience_facing_title_candidate(value: str) -> str:
         return ""
     candidate = re.sub(r"^\u91cd\u70b9\u7a81\u51fa\s*[:\uff1a]\s*", "", source).strip()
     candidate = re.sub(
-        r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6)\s*",
+        r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u8f93\u51fa(?:\u987b|\u9700|\u8981\u6c42)?|"
+        r"\u63d0\u4ea4|\u6807\u6ce8|\u5199\u51fa|\u9010\u6b65\u5199\u51fa|\u8bb0\u5f55|\u5c55\u793a)\s*[:\uff1a]?\s*",
         "",
         candidate,
     ).strip()
+    candidate = re.sub(r"^\u987b\s*", "", candidate).strip()
+    candidate = re.sub(
+        r"^(?:\u9010\u6b65\u5199\u51fa|\u5199\u51fa|\u6807\u6ce8|\u8bb0\u5f55|\u5c55\u793a|\u63d0\u4ea4)\s*",
+        "",
+        candidate,
+    ).strip()
+    candidate = candidate.replace("、对应", "与对应")
     candidate = re.sub(
         r"^\u5728\u5f62\u5f0f\u5316\u5b9a\u4e49\u4e4b\u524d(?:\u5148)?(?:\u5efa\u7acb)?\s*",
         "",

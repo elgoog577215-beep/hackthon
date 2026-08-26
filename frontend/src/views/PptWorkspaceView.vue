@@ -294,7 +294,7 @@ const generatorOpen = ref(false)
 const templateCreatorOpen = ref(false)
 const forceGeneratorBuild = ref(false)
 const selectedMode = ref<SlideDeckMode>('teaching')
-const selectedTheme = ref<V3Theme>('qizhi-classroom')
+const selectedTheme = ref<V3Theme>('academic-editorial')
 const selectedWebImageRetrieval = ref(false)
 const selectedTemplatePackId = ref('')
 const selectedTemplatePackVersion = ref<number | undefined>(undefined)
@@ -853,7 +853,7 @@ function closeGenerator() {
     applyVariantSelection(current)
   } else {
     selectedMode.value = 'teaching'
-    selectedTheme.value = 'qizhi-classroom'
+    selectedTheme.value = 'academic-editorial'
   }
 }
 

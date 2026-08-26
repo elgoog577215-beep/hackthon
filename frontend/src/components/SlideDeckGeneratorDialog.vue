@@ -172,7 +172,7 @@ const props = withDefaults(defineProps<{
   manuscriptFirst?: boolean
 }>(), {
   mode: 'teaching',
-  theme: 'qizhi-classroom',
+  theme: 'academic-editorial',
   busy: false,
   closable: true,
   fragmentCount: 0,

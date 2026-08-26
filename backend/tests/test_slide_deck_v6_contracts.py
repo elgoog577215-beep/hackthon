@@ -1287,7 +1287,7 @@ def test_v6_build_signature_tracks_full_source_and_frozen_template() -> None:
         template_contract=template,
     )
 
-    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v11"
+    assert baseline["compiler_version"] == "slide_deck_v6_compiler_v17"
     assert baseline["signature"] != changed_source["signature"]
     assert baseline["signature"] != changed_template["signature"]
     assert baseline["signature"] != changed_materials["signature"]
@@ -2789,7 +2789,7 @@ def test_long_prose_paginates_complete_semantic_groups_without_silent_omission()
     assert all(visible_body.count(paragraph) == 1 for paragraph in paragraphs)
 
 
-def test_single_body_page_keeps_complete_source_instead_of_substituting_story_summary() -> None:
+def test_single_body_page_uses_validated_story_summary_and_keeps_source_in_notes() -> None:
     paragraphs = [
         (
             "Preserve the complete observation context, including the declared scope, "
@@ -2864,10 +2864,12 @@ def test_single_body_page_keeps_complete_source_instead_of_substituting_story_su
         if region.content_kind == "body"
     )
 
-    assert body == source
+    assert body == paragraphs[0]
+    assert deck.pages[0].regions[0].metadata["story_projection"] == "validated"
+    assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
 
 
-def test_visual_summary_never_consumes_an_unrendered_source_fragment() -> None:
+def test_visual_summary_is_visible_while_full_source_remains_in_notes() -> None:
     paragraphs = [
         (
             "Collect field evidence and record the intake timestamp before any "
@@ -2971,7 +2973,8 @@ def test_visual_summary_never_consumes_an_unrendered_source_fragment() -> None:
         and "evidence-record" in region.source_block_ids
     )
 
-    assert re.sub(r"\s+", "", source) in re.sub(r"\s+", "", visible)
+    assert page.summary in visible
+    assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
     assert deck.quality.source_prose_visible_fidelity == 1.0
 
 
@@ -3227,10 +3230,7 @@ def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -
     regions = {region.slot_id: region for region in deck.pages[0].regions}
     assert "def execute(value):" in regions["code"].content
     assert "Explain why the guard" not in regions["code"].content
-    assert regions["annotation"].content == (
-        "Explain why the guard must run before the action.\n\n"
-        "A missing value stops execution before any downstream action is attempted."
-    )
+    assert regions["annotation"].content == page.summary
     assert "def execute(value):" not in regions["annotation"].content
     visible_prose = "\n".join(
         region.content
@@ -3238,7 +3238,7 @@ def test_one_source_block_can_fill_code_and_annotation_without_invented_copy() -
         for region in compiled_page.regions
         if region.content_kind == "body"
     )
-    assert "A missing value stops execution" in visible_prose
+    assert page.summary in visible_prose
     assert deck.quality.source_prose_visible_fidelity == 1.0
     assert deck.pages[0].speaker_notes.source_blocks[0].full_text == source
 
@@ -3330,7 +3330,7 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
 
     deck = compile_slide_deck_v6(document, graph, story, visual, template)
 
-    assert len(deck.pages) == 3
+    assert len(deck.pages) == 2
     assert deck.quality.source_prose_visible_fidelity == 1.0
     table_regions = [
         region.content
@@ -3350,8 +3350,12 @@ def test_non_technical_table_overflow_uses_header_preserving_safe_pages() -> Non
         for region in page.regions
         if region.content_kind == "body"
     )
-    assert "Read the evidence in source order" in visible_prose
     assert "check the stated condition and result" in visible_prose
+    assert any(
+        "Read the evidence in source order" in note.full_text
+        for page in deck.pages
+        for note in page.speaker_notes.source_blocks
+    )
 
 
 def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None:
@@ -3376,7 +3380,7 @@ def test_single_oversized_table_row_reaches_the_declared_detail_layout() -> None
         for region in page.regions
         if region.content_kind == "table"
     ]
-    assert len(deck.pages) == 2
+    assert len(deck.pages) == 1
     assert len(table_regions) == 1
     assert "restore every missing source field" in table_regions[0]
     assert "…" not in table_regions[0]
@@ -3557,6 +3561,99 @@ def test_full_course_compilation_inserts_a_source_bound_cover_before_the_agenda(
     assert [page.page_ordinal for page in deck.pages] == list(range(len(deck.pages)))
     assert deck.quality.formal_block_visible_coverage == 1.0
     assert deck.quality.source_order_preserved is True
+
+
+def test_teacher_lesson_compilation_has_cover_path_and_recap() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="teacher-lesson-linear-algebra",
+        title="第1章 向量与线性方程组",
+        sections=[
+            CourseSection(section_id="lesson", title="第1章", position=0),
+            CourseSection(
+                section_id="vectors",
+                parent_section_id="lesson",
+                title="1.1 向量的代数定义与基本运算",
+                position=1,
+            ),
+            CourseSection(
+                section_id="elimination",
+                parent_section_id="lesson",
+                title="1.2 高斯消元法的标准流程",
+                position=2,
+            ),
+        ],
+        blocks=[
+            _block(
+                "vector-source",
+                "vectors",
+                0,
+                role="concept",
+                text="同维向量按对应分量相加，异维向量的加法未定义。",
+            ),
+            _block(
+                "elimination-source",
+                "elimination",
+                0,
+                role="reasoning",
+                text="主元为零时交换两行，再用倍加变换逐列消元。",
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("academic-editorial")
+    story_pages: list[SlideStoryPageV3] = []
+    visual_decisions: list[SlideVisualDecisionV2] = []
+    titles = ["同维向量按对应分量相加", "主元为零时交换两行"]
+    for ordinal, unit in enumerate(graph.units):
+        page_id = f"lesson-page-{ordinal + 1}"
+        layout_id = template.layout_id("content-stack")
+        story_pages.append(SlideStoryPageV3(
+            page_id=page_id,
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=layout_id,
+            title=titles[ordinal],
+            source_block_ids=unit.primary_block_ids,
+            page_ordinal=ordinal,
+        ))
+        visual_decisions.append(SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        ))
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="teacher-lesson-story",
+            chapter_id="lesson",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=story_pages,
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=visual_decisions,
+    )
+
+    deck = compile_slide_deck_v6(document, graph, story, visual, template)
+
+    assert deck.pages[0].resolved_layout.endswith("/cover-minimal")
+    assert deck.pages[1].resolved_layout.endswith("/agenda-path")
+    assert deck.pages[-1].resolved_layout.endswith("/chapter-recap")
+    assert [
+        value
+        for value in deck.pages[-1].regions[0].content.splitlines()
+        if value
+    ] == [
+        "1.1 向量的代数定义与基本运算",
+        "1.2 高斯消元法的标准流程",
+    ]
 
 
 def test_course_agenda_uses_source_descriptions_and_sample_backed_page_density() -> None:

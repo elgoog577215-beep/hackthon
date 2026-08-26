@@ -85,6 +85,9 @@ def test_v6_rejects_retired_deterministic_teacher_planner_provenance(
         ("用几何直观建立行列式", "行列式的几何直观"),
         ("选取一个二阶可逆矩阵", "二阶可逆矩阵示例"),
         ("提供一组难度递进的题目", "难度递进练习"),
+        ("输出须逐步写出三次数乘、对应分量相加", "三次数乘与对应分量相加"),
+        ("标注各对象的维度", "各对象的维度"),
+        ("提交完整变换记录", "完整变换记录"),
     ],
 )
 def test_story_title_projection_removes_production_language(

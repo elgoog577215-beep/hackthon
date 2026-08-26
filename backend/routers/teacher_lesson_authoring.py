@@ -153,7 +153,7 @@ class ResolveLessonPlanCandidateRequest(BaseModel):
 
 class TeacherLessonV6BuildRequest(BaseModel):
     mode: str = "teaching"
-    theme: str = "qizhi-classroom"
+    theme: str = "academic-editorial"
     force_rebuild: bool = False
     resume_task_id: str = Field(default="", max_length=200)
 
@@ -274,7 +274,7 @@ def _ppt_manuscript_state_payload(
         ),
         "task_id": str(state.get("task_id") or ""),
         "mode": str(state.get("mode") or "teaching"),
-        "theme": str(state.get("theme") or "qizhi-classroom"),
+        "theme": str(state.get("theme") or "academic-editorial"),
         "generated_representation_id": str(
             state.get("generated_representation_id") or ""
         ),
@@ -2247,7 +2247,7 @@ async def build_teacher_lesson_v6(
     )
     manuscript_mode = str(manuscript_state.get("mode") or "teaching")
     manuscript_theme = str(
-        manuscript_state.get("theme") or "qizhi-classroom"
+        manuscript_state.get("theme") or "academic-editorial"
     )
     task_id = f"teacher-v6-{uuid.uuid4().hex}"
     template = compile_builtin_template_layout_contract_v1(manuscript_theme)
@@ -2450,7 +2450,14 @@ async def export_teacher_lesson_v6(
                 )
         output = repository.root / "exports" / f"{synthetic_id}-{representation_id}-{spec.revision}.pptx"
         output.parent.mkdir(parents=True, exist_ok=True)
-        await run_in_threadpool(export_slide_deck_pptx, spec, output, theme="qizhi-classroom")
+        content = spec.payload.get("content") or {}
+        export_theme = str(content.get("theme") or "academic-editorial")
+        await run_in_threadpool(
+            export_slide_deck_pptx,
+            spec,
+            output,
+            theme=export_theme,
+        )
         return FileResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",

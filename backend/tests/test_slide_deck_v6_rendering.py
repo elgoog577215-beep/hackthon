@@ -1460,15 +1460,9 @@ def test_wide_markdown_table_uses_llm_summary_and_exports_template_safe_cells(
     adapted = adapt_v6_page_to_slide_spec(page)
     assert adapted.quality["v6_layout_variant"] == "table-wide-with-summary"
     assert adapted.quality["v6_artifact_support_mode"] == "band"
-    assert len(deck.pages) == 3
+    assert len(deck.pages) == 2
     continuation = adapt_v6_page_to_slide_spec(deck.pages[1])
     assert continuation.quality["v6_layout_variant"] == "table-row-detail"
-    support_page = deck.pages[2]
-    assert support_page.resolved_layout.endswith("/content-stack")
-    assert any(
-        "The full audit record remains available" in region.content
-        for region in support_page.regions
-    )
 
     compiled_table_text = "\n".join(
         region.content

@@ -169,7 +169,7 @@ describe('teaching representation progressive build', () => {
     ])
     expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
       mode: 'teaching',
-      theme: 'qizhi-classroom',
+      theme: 'academic-editorial',
       force_rebuild: true,
     })
   })

@@ -1127,7 +1127,7 @@ export const useTeachingRepresentationsStore = defineStore('teachingRepresentati
       await this.buildProgressive(courseId)
       return this.buildSlideDeckVariant(courseId, {
         mode: 'teaching',
-        theme: 'qizhi-classroom',
+        theme: 'academic-editorial',
         forceRebuild: true,
       })
     },

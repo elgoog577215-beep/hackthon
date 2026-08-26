@@ -30,13 +30,14 @@ from slide_layout_geometry import (
 from template_layout_contract import TemplateLayoutPackContractV1
 
 V6Status = Literal["v6_ready", "v6_needs_manual_edit", "v6_failed"]
-SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v11"
+SLIDE_DECK_V6_COMPILER_VERSION = "slide_deck_v6_compiler_v17"
 _PPT_VISIBLE_DELIVERY_PATTERN = re.compile(
     r"口头陈述|板书|讲解过程|抄录|抄写|巡视|逐题公布答案|"
     r"请\s*\d*\s*名学习者|让学习者|要求学习者|发放或板书"
 )
 _PPT_TITLE_PRODUCTION_CUE_PATTERN = re.compile(
-    r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u91cd\u70b9\u7a81\u51fa\s*[:\uff1a]?|"
+    r"^(?:\u7ed9\u51fa|\u63d0\u4f9b|\u9009\u53d6|\u8f93\u51fa(?:\u987b|\u9700|\u8981\u6c42)?|"
+    r"\u63d0\u4ea4|\u6807\u6ce8|\u5199\u51fa|\u9010\u6b65\u5199\u51fa|\u91cd\u70b9\u7a81\u51fa\s*[:\uff1a]?|"
     r"\u5728\u5f62\u5f0f\u5316\u5b9a\u4e49\u4e4b\u524d(?:\u5148)?(?:\u5efa\u7acb)?|"
     r"\u4e0e\u53d8\u5f0f\u7ec3\u4e60\u5408\u5e76|\u7528.{2,18}\u5efa\u7acb.{2,24}$)"
 )
@@ -59,7 +60,17 @@ _GENERIC_TEACHING_PAGE_TITLES = frozenset({
     "变式练习",
     "在形式化定义之前",
     "从二阶出发",
+    "本节要解决的问题是",
+    "错误分析",
+    "逐行取系数",
+    "缺项补0",
+    "沿索引读取",
+    "核对A、x与b",
 })
+_SEMANTIC_STUB_TITLE_PATTERN = re.compile(
+    r"^(?:再(?:沿|按).{0,12}\d+|继续(?:沿|按).{0,12}\d+|"
+    r"[A-Za-z]\s*逐位读取分量)$"
+)
 
 V6_STAGE_CONTRACTS: dict[str, str] = {
     "source": "Freeze canonical source blocks, revisions, and artifact identities.",
@@ -100,6 +111,9 @@ V6_FAILURE_ROOT_CAUSE_BY_CODE: dict[str, str] = {
     "ppt_manuscript_title_not_audience_ready": "manuscript_narrative",
     "ppt_manuscript_duplicate_primary_claim": "manuscript_narrative",
     "ppt_manuscript_adjacent_content_repeated": "manuscript_narrative",
+    "ppt_manuscript_lesson_opening_missing": "manuscript_narrative",
+    "ppt_manuscript_lesson_path_missing": "manuscript_narrative",
+    "ppt_manuscript_lesson_closure_missing": "manuscript_narrative",
     "ppt_manuscript_ai_story_unavailable": "manuscript_planning",
     "ppt_manuscript_quality_blocked": "manuscript_narrative",
     "ppt_manuscript_page_spec_incomplete": "manuscript_contract",
@@ -615,8 +629,32 @@ def _ppt_manuscript_reveal_steps(page: SlidePageV6) -> list[str]:
 
 def _ppt_manuscript_quality_issues(
     pages: list[PptManuscriptPageV1],
+    *,
+    require_lesson_arc: bool = False,
 ) -> list[V6Failure]:
     issues: list[V6Failure] = []
+    if require_lesson_arc and pages:
+        if not pages[0].layout_id.endswith("/cover-minimal"):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_lesson_opening_missing",
+                message="课堂 PPT 文书必须从本讲封面开始，而不是直接进入局部知识点。",
+                page_id=pages[0].page_id,
+            ))
+        if not any(page.layout_id.endswith("/agenda-path") for page in pages[:3]):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_lesson_path_missing",
+                message="课堂 PPT 文书必须在开头规划本讲学习路径。",
+                page_id=pages[0].page_id,
+            ))
+        if not pages[-1].layout_id.endswith("/chapter-recap"):
+            issues.append(V6Failure(
+                stage="manuscript",
+                code="ppt_manuscript_lesson_closure_missing",
+                message="课堂 PPT 文书必须以本讲回顾收束，不能停在局部定义或注意事项。",
+                page_id=pages[-1].page_id,
+            ))
     seen_claims: dict[str, str] = {}
     for page in pages:
         if not page.page_goal.strip() or not page.primary_claim.strip():
@@ -644,10 +682,7 @@ def _ppt_manuscript_quality_issues(
             _PPT_TITLE_PRODUCTION_CUE_PATTERN.match(page.title.strip())
             or _title_is_incomplete(page.title)
             or _formula_like_title(page.title)
-            or re.sub(r"\s+", "", page.title) in {
-                re.sub(r"\s+", "", item)
-                for item in _GENERIC_TEACHING_PAGE_TITLES
-            }
+            or _title_is_generic_or_stub(page.title)
         ):
             issues.append(V6Failure(
                 stage="manuscript",
@@ -1225,12 +1260,35 @@ def _title_is_incomplete(value: str) -> bool:
     )
 
 
+def _title_is_generic_or_stub(value: str) -> bool:
+    normalized = re.sub(r"\s+", "", str(value or "")).casefold()
+    return bool(
+        normalized in {
+            re.sub(r"\s+", "", item).casefold()
+            for item in _GENERIC_TEACHING_PAGE_TITLES
+        }
+        or _SEMANTIC_STUB_TITLE_PATTERN.match(str(value or "").strip())
+    )
+
+
 def _audience_ready_title_fragment(value: str) -> str:
     """Remove production directions before a source phrase becomes a title."""
 
     candidate = " ".join(str(value or "").split()).strip("　 ,，。：:;|")
     candidate = re.sub(r"^重点突出\s*[:：]\s*", "", candidate).strip()
-    candidate = re.sub(r"^(?:给出|提供|选取)\s*", "", candidate).strip()
+    candidate = re.sub(
+        r"^(?:给出|提供|选取|输出(?:须|需|要求)?|"
+        r"提交|标注|写出|逐步写出|记录|展示)\s*[:：]?\s*",
+        "",
+        candidate,
+    ).strip()
+    candidate = re.sub(r"^须\s*", "", candidate).strip()
+    candidate = re.sub(
+        r"^(?:逐步写出|写出|标注|记录|展示|提交)\s*",
+        "",
+        candidate,
+    ).strip()
+    candidate = candidate.replace("、对应", "与对应")
     candidate = re.sub(
         r"^在形式化定义之前(?:先)?(?:建立)?\s*",
         "",
@@ -1455,10 +1513,7 @@ def validate_slide_story_plan_v3(
                 page_id=page.page_id,
             )
         if (
-            re.sub(r"\s+", "", page.title) in {
-            re.sub(r"\s+", "", item)
-            for item in _GENERIC_TEACHING_PAGE_TITLES
-            }
+            _title_is_generic_or_stub(page.title)
             or _PPT_TITLE_PRODUCTION_CUE_PATTERN.match(page.title.strip())
         ):
             raise V6BuildError(
@@ -2761,7 +2816,27 @@ def _first_incomplete_visible_prose_block(
         ):
             continue
         actual = _canonical_step_sequence_text(visible)
-        if expected not in actual:
+        if expected in actual:
+            continue
+        source_by_id = {
+            source_block.block_id: source_block
+            for source_block in source_blocks
+        }
+        projection_visible = any(
+            _story_summary_projection_safe(
+                region.content,
+                [
+                    source_by_id[source_block_id]
+                    for source_block_id in region.source_block_ids
+                    if source_block_id in source_by_id
+                ],
+            )
+            for region in regions
+            if region.content_kind in {"body", "items", "steps"}
+            and block.block_id in region.source_block_ids
+            and region.metadata.get("story_projection") == "validated"
+        )
+        if not projection_visible:
             return block.block_id
     return ""
 
@@ -4902,6 +4977,10 @@ def _safe_heterogeneous_artifact_page_blocks(
     if not sequence:
         return []
     block = source_blocks[0]
+    story_projects_prose = _story_summary_projection_safe(
+        story_summary,
+        source_blocks,
+    )
     materializations: list[_SafePageMaterialization] = []
     current = layout
     for index, artifact_kind in enumerate(sequence):
@@ -4923,7 +5002,7 @@ def _safe_heterogeneous_artifact_page_blocks(
         fragment = _heterogeneous_artifact_excerpt(
             block,
             artifact_kind=artifact_kind,
-            include_prose=index == 0,
+            include_prose=index == 0 and not story_projects_prose,
         )
         materializations.extend(_safe_artifact_page_blocks(
             page_id=f"{page_id}--{artifact_kind}",
@@ -4939,6 +5018,55 @@ def _safe_heterogeneous_artifact_page_blocks(
         materializations=materializations,
     )
     return materializations
+
+
+def _story_summary_projection_safe(
+    summary: str,
+    source_blocks: list[CourseBlock],
+) -> bool:
+    """Allow concise student-facing copy while preserving full source in notes.
+
+    A projection is accepted only when it is presentation-ready, introduces no
+    protected facts, remains grounded in the exact page source, mentions every
+    bound prose block, and preserves ordered procedures. This is intentionally
+    stricter than ordinary story validation because an accepted projection owns
+    the visible body slot instead of the complete teacher narration.
+    """
+
+    candidate = _presentation_summary_text(summary).strip()
+    if not candidate or candidate != str(summary or "").strip():
+        return False
+    if _looks_like_markdown_table(candidate):
+        return False
+    if _PPT_VISIBLE_DELIVERY_PATTERN.search(candidate):
+        return False
+    source_text = "\n\n".join(
+        block_presentation_text(block)
+        for block in source_blocks
+        if block_presentation_text(block).strip()
+    )
+    if not source_text:
+        return False
+    if _protected_tokens(candidate) - _protected_tokens(source_text):
+        return False
+    if _semantic_grounding_ratio(candidate, source_text) < 0.12:
+        return False
+    if len(_visible_prose_text(source_text)) >= 60 and len(candidate) < 16:
+        return False
+
+    candidate_terms = _grounding_terms(candidate)
+    for block in source_blocks:
+        block_prose = _artifact_free_prose_text(block)
+        block_terms = _grounding_terms(block_prose)
+        if block_terms and not candidate_terms.intersection(block_terms):
+            return False
+        if len(_ordered_step_groups(block_presentation_text(block))) >= 2:
+            if not _ordered_step_sequence_visible(
+                block_presentation_text(block),
+                candidate,
+            ):
+                return False
+    return True
 
 
 def _safe_artifact_page_blocks(
@@ -4959,6 +5087,28 @@ def _safe_artifact_page_blocks(
             source_blocks=source_blocks,
             story_summary=story_summary,
         )
+
+    projection_slots = [
+        slot
+        for slot in layout.slots
+        if slot.slot_kind in {"body", "items", "steps"}
+    ]
+    has_native_artifact_slot = any(
+        slot.slot_kind in {"code", "formula", "table", "visual"}
+        for slot in layout.slots
+    )
+    if (
+        len(projection_slots) == 1
+        and not has_native_artifact_slot
+        and _story_summary_projection_safe(story_summary, source_blocks)
+    ):
+        # The complete narration remains in speaker notes. The validated Story
+        # summary becomes the sole student-facing body, so prose length must not
+        # mechanically create document-like continuation slides.
+        return [_SafePageMaterialization(
+            layout=layout,
+            source_blocks=list(source_blocks),
+        )]
 
     artifact_slot = next(
         (
@@ -5281,10 +5431,20 @@ def _safe_artifact_page_blocks(
         for block in source_blocks
         if _block_matches_slot(block, artifact_slot.slot_kind)
     ]
+    story_projects_prose = _story_summary_projection_safe(
+        story_summary,
+        source_blocks,
+    )
     artifact_ids = {block.block_id for block in artifact_blocks}
     non_artifact_blocks = [
         block for block in source_blocks if block.block_id not in artifact_ids
     ]
+    if story_projects_prose:
+        # The model-authored Story summary is the reviewed student-facing
+        # projection for this whole story page. Keep exact formula/table/code
+        # artifacts on canvas, keep the full narration in notes, and do not
+        # manufacture document-like prose continuations merely to repeat it.
+        non_artifact_blocks = []
     split_artifact_first_page = bool(
         non_artifact_blocks or _visible_prose_text(story_summary)
     )
@@ -5378,6 +5538,16 @@ def _safe_artifact_page_blocks(
                 ),
                 page_id=page_id,
             ) from error
+    if story_projects_prose:
+        projected_chunks: list[CourseBlock] = []
+        for chunk in artifact_chunks:
+            payload = dict(chunk.payload or {})
+            payload.pop("slide_visible_text", None)
+            payload["_v6_artifact_only"] = True
+            projected_chunks.append(
+                chunk.model_copy(update={"payload": payload}, deep=True)
+            )
+        artifact_chunks = projected_chunks
     lost_artifact_prose_blocks = [
         _block_with_prose_excerpt(block, _artifact_free_prose_text(block))
         for block in artifact_blocks
@@ -5388,6 +5558,8 @@ def _safe_artifact_page_blocks(
             for chunk in artifact_chunks
         )
     ]
+    if story_projects_prose:
+        lost_artifact_prose_blocks = []
     support_slots = [
         slot
         for slot in layout.slots
@@ -5404,7 +5576,7 @@ def _safe_artifact_page_blocks(
         )
     )
     uncovered_artifact_prose_blocks = list(lost_artifact_prose_blocks)
-    if story_summary and not required_support:
+    if story_summary and not required_support and not story_projects_prose:
         normalized_summary = re.sub(
             r"\s+",
             "",
@@ -5987,10 +6159,7 @@ def _continuation_title(
             str(candidate or "").strip()
             and not _formula_like_title(candidate)
             and not _title_is_incomplete(candidate)
-            and re.sub(r"\s+", "", candidate) not in {
-                re.sub(r"\s+", "", item)
-                for item in _GENERIC_TEACHING_PAGE_TITLES
-            }
+            and not _title_is_generic_or_stub(candidate)
         )
 
     def distinct_from_used(candidate: str, *, allow_suffix: bool = False) -> bool:
@@ -6151,6 +6320,7 @@ def _materialize_template_regions(
     layout: Any,
     source_blocks: list[CourseBlock],
     story_summary: str = "",
+    story_source_blocks: list[CourseBlock] | None = None,
     visual_decision: SlideVisualDecisionV2 | None = None,
     enforce_min_chars: bool = True,
     source_backed_visual_pending: bool = False,
@@ -6188,29 +6358,17 @@ def _materialize_template_regions(
         assignments.text_slots.get(slot.slot_id)
         for slot in text_slots
     )
-    has_artifact_support = any(
-        slot.slot_kind in {"code", "formula", "table", "visual"}
-        for slot in content_slots
-    )
+    projection_source_blocks = story_source_blocks or source_blocks
     if (
         summary_content
-        and has_artifact_support
         and len(text_slots) == 1
-        and text_slots[0].slot_kind == "body"
+        and _story_summary_projection_safe(
+            summary_content,
+            projection_source_blocks,
+        )
     ):
         candidate_slot = text_slots[0]
-        assigned_source = _complete_slot_content(
-            assignments.text_slots.get(candidate_slot.slot_id, []),
-            candidate_slot.slot_kind,
-        )
-        canonical_source = _canonical_visible_semantic_text(assigned_source)
-        canonical_summary = _canonical_visible_semantic_text(summary_content)
-        # A Story summary may enrich an artifact-only page, but it must never
-        # consume a frozen prose fragment that the learner will not otherwise
-        # see.  When prose is assigned to this slot, only a source-complete
-        # summary may replace it; otherwise render the assigned source chunk.
-        if not canonical_source or canonical_source in canonical_summary:
-            summary_slot_id = candidate_slot.slot_id
+        summary_slot_id = candidate_slot.slot_id
 
     regions: list[SlideRegionV6] = []
     for slot in content_slots:
@@ -6257,22 +6415,18 @@ def _materialize_template_regions(
             elif slot.slot_id == summary_slot_id:
                 if slot.max_chars and len(summary_content) > slot.max_chars:
                     raise ValueError("template_slot_capacity_exceeded")
-                content = summary_content
-                slot_blocks = list(source_blocks)
-                minimum_chars = _effective_slot_min_chars(slot, slot_blocks)
                 if (
-                    minimum_chars
-                    and len(_visible_prose_text(content)) < minimum_chars
+                    slot.slot_kind in {"items", "steps"}
+                    and slot.max_items
+                    and len([
+                        line
+                        for line in summary_content.splitlines()
+                        if line.strip()
+                    ]) > int(slot.max_items)
                 ):
-                    content = _bounded_slot_content(
-                        slot_blocks,
-                        slot_kind=slot.slot_kind,
-                        max_chars=slot.max_chars,
-                        max_items=slot.max_items,
-                        max_lines=slot.max_lines,
-                        max_rows=slot.max_rows,
-                        capacity_profile=getattr(slot, "capacity_profile", ""),
-                    )
+                    raise ValueError("template_slot_capacity_exceeded")
+                content = summary_content
+                slot_blocks = list(projection_source_blocks)
             else:
                 content = _bounded_slot_content(
                     slot_blocks,
@@ -6305,7 +6459,11 @@ def _materialize_template_regions(
                 message=f"Required template slot {slot.slot_id} has no source-backed content",
                 page_id=page_id,
             )
-        minimum_chars = _effective_slot_min_chars(slot, slot_blocks)
+        minimum_chars = (
+            0
+            if slot.slot_id == summary_slot_id
+            else _effective_slot_min_chars(slot, slot_blocks)
+        )
         if (
             enforce_min_chars
             and minimum_chars
@@ -6322,6 +6480,8 @@ def _materialize_template_regions(
         if not content:
             continue
         region_metadata: dict[str, Any] = {}
+        if slot.slot_id == summary_slot_id:
+            region_metadata["story_projection"] = "validated"
         if slot.slot_kind == "code" and len(slot_blocks) == 1:
             payload = slot_blocks[0].payload or {}
             if payload.get("_v6_code_language"):
@@ -6521,6 +6681,7 @@ def validate_layout_source_satisfiability(
                 == layout.template_layout_id
                 else ""
             ),
+            story_source_blocks=source_blocks if index == 0 else None,
             enforce_min_chars=enforce_min_chars,
             source_backed_visual_pending=_source_can_fill_pending_visual(
                 materialization.layout,
@@ -6775,11 +6936,22 @@ def _course_agenda_sections(document: CourseDocument) -> list[Any]:
         (section_by_id[section_id] for section_id in relevant_ids),
         key=lambda section: (section.position, section.level, section.section_id),
     )
-    return [
+    roots = [
         section
         for section in ordered
         if not section.parent_section_id or section.parent_section_id not in relevant_ids
     ]
+    if document.course_id.startswith("teacher-lesson-") and len(roots) == 1:
+        lesson_root_id = roots[0].section_id
+        lesson_sections = [
+            section
+            for section in ordered
+            if section.parent_section_id == lesson_root_id
+            and section.section_id in relevant_ids
+        ]
+        if lesson_sections:
+            return lesson_sections
+    return roots
 
 
 def _agenda_section_description(
@@ -7032,6 +7204,94 @@ def _compile_course_cover_page(
         speaker_notes=SlideSpeakerNotesV2(
             source_document_revision=document.document_revision,
             teaching_unit_id="course-cover",
+            source_section_ids=section_ids,
+        ),
+    )
+
+
+def _compile_lesson_recap_page(
+    document: CourseDocument,
+    template: TemplateLayoutPackContractV1,
+) -> SlidePageV6:
+    """Close a teacher lesson with its source-owned section progression."""
+
+    sections = _course_agenda_sections(document)
+    if not sections:
+        raise V6BuildError(
+            stage="source",
+            code="lesson_recap_source_binding_missing",
+            message="The lesson recap requires at least one source section",
+        )
+    layout = template.get_layout(template.layout_id("chapter-recap"))
+    if layout is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message="The published template does not provide a lesson recap layout",
+        )
+    item_slot = next(
+        (slot for slot in layout.slots if slot.slot_kind == "items"),
+        None,
+    )
+    title_slot = next(
+        (slot for slot in layout.slots if slot.slot_kind == "title"),
+        None,
+    )
+    if item_slot is None or title_slot is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_required_slot_unfilled",
+            message="The lesson recap layout is missing title or takeaway slots",
+        )
+    titles = [_visible_prose_text(section.title).strip() for section in sections]
+    titles = [title for title in titles if title]
+    if not titles:
+        raise V6BuildError(
+            stage="source",
+            code="lesson_recap_source_binding_missing",
+            message="The lesson recap requires source-owned section titles",
+        )
+    if len(titles) > int(item_slot.max_items or len(titles)):
+        titles = titles[: int(item_slot.max_items)]
+    content = "\n".join(titles)
+    if item_slot.max_chars and len(content) > int(item_slot.max_chars):
+        raise V6BuildError(
+            stage="template",
+            code="template_slot_capacity_exceeded",
+            message="Lesson section titles exceed the recap layout capacity",
+            page_id="lesson-recap",
+        )
+    recap_title = f"{_visible_prose_text(document.title).strip()}：知识主线"
+    if not _title_fits_slot(recap_title, title_slot):
+        recap_title = "本讲知识主线"
+    section_ids = [section.section_id for section in sections]
+    page_id = "lesson-recap"
+    return SlidePageV6(
+        page_id=page_id,
+        page_ordinal=0,
+        teaching_unit_id="lesson-recap",
+        title=recap_title,
+        title_max_lines=int(title_slot.max_lines or 2),
+        resolved_layout=layout.template_layout_id,
+        web_renderer_adapter=layout.web_renderer_adapter,
+        pptx_renderer_adapter=layout.pptx_renderer_adapter,
+        regions=[SlideRegionV6(
+            region_id=f"{page_id}:{item_slot.slot_id}",
+            slot_id=item_slot.slot_id,
+            content_kind=item_slot.slot_kind,
+            content=content,
+            source_section_ids=section_ids,
+        )],
+        source_section_ids=section_ids,
+        visual_decision=SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_section_ids=section_ids,
+            resolved_template_layout_id=layout.template_layout_id,
+        ),
+        speaker_notes=SlideSpeakerNotesV2(
+            source_document_revision=document.document_revision,
+            teaching_unit_id="lesson-recap",
             source_section_ids=section_ids,
         ),
     )
@@ -7299,6 +7559,24 @@ def _visible_semantic_fidelity(
             and block_id in region.source_block_ids
         ]
 
+    def grounded_projection_visible(block_id: str) -> bool:
+        for page in pages:
+            for region in page.regions:
+                if (
+                    region.content_kind not in {"body", "items", "steps"}
+                    or block_id not in region.source_block_ids
+                    or region.metadata.get("story_projection") != "validated"
+                ):
+                    continue
+                bound_blocks = [
+                    source_blocks[source_block_id]
+                    for source_block_id in region.source_block_ids
+                    if source_block_id in source_blocks
+                ]
+                if _story_summary_projection_safe(region.content, bound_blocks):
+                    return True
+        return False
+
     artifact_results: list[bool] = []
     prose_results: list[bool] = []
     step_results: list[bool] = []
@@ -7347,12 +7625,13 @@ def _visible_semantic_fidelity(
                 _canonical_step_sequence_text(source_prose)
                 in _canonical_step_sequence_text(actual_semantic)
             )
+            projection_visible = grounded_projection_visible(block.block_id)
             step_results.append(
                 steps_visible
-                and (projection_closed or complete_prose_visible)
+                and (projection_closed or complete_prose_visible or projection_visible)
             )
             if not projection_closed:
-                prose_results.append(complete_prose_visible)
+                prose_results.append(complete_prose_visible or projection_visible)
         else:
             expected_prose = _canonical_visible_semantic_text(
                 _artifact_free_prose_text(block)
@@ -7361,7 +7640,10 @@ def _visible_semantic_fidelity(
                 actual_prose = _canonical_visible_semantic_text(
                     "\n".join(semantic_region_contents(block.block_id))
                 )
-                prose_results.append(expected_prose in actual_prose)
+                prose_results.append(
+                    expected_prose in actual_prose
+                    or grounded_projection_visible(block.block_id)
+                )
 
     generated_ellipsis_free = _first_generated_ellipsis(
         source_blocks,
@@ -7620,6 +7902,9 @@ def _materialize_ppt_page_specs_v1(
                     and (continuation_count == 1 or has_supporting_artifact)
                     else ""
                 ),
+                story_source_blocks=(
+                    source_blocks if continuation_index == 1 else None
+                ),
                 visual_decision=decision,
             )
             pages.append(SlidePageV6(
@@ -7660,6 +7945,7 @@ def _materialize_ppt_page_specs_v1(
                 continuation_index=continuation_index,
                 continuation_count=continuation_count,
             ))
+    teacher_lesson_document = document.course_id.startswith("teacher-lesson-")
     agenda_pages = _compile_course_agenda_pages(document, template)
     if agenda_pages and not (
         pages and pages[0].resolved_layout.endswith("/cover-minimal")
@@ -7673,6 +7959,10 @@ def _materialize_ppt_page_specs_v1(
         insertion_index += 1
     if agenda_pages:
         pages[insertion_index:insertion_index] = agenda_pages
+    if teacher_lesson_document and not (
+        pages and pages[-1].resolved_layout.endswith("/chapter-recap")
+    ):
+        pages.append(_compile_lesson_recap_page(document, template))
     for page_ordinal, page in enumerate(pages):
         page.page_ordinal = page_ordinal
     return story, status, pages
@@ -7785,7 +8075,10 @@ def compile_ppt_manuscript_v1(
         and str(item.get("source_label") or "")
     ]
     quality_issues = [
-        *_ppt_manuscript_quality_issues(pages),
+        *_ppt_manuscript_quality_issues(
+            pages,
+            require_lesson_arc=document.course_id.startswith("teacher-lesson-"),
+        ),
         *(external_quality_issues or []),
     ]
     payload = {
@@ -7880,7 +8173,16 @@ def _compile_slide_deck_quality_from_manuscript(
     observed_first_occurrences: list[str] = []
     observed_set: set[str] = set()
     for page in pages:
-        for block_id in page.source_block_ids:
+        # Continuation pages may project text and subject artifacts into a
+        # renderer-safe order that differs from the frozen block order inside
+        # one story page. The speaker-note binding retains that canonical
+        # story/source order, while the separate visible-fidelity gates prove
+        # that every projected block remains present and exact.
+        for block_id in (
+            item.block_id for item in page.speaker_notes.source_blocks
+        ):
+            if block_id not in formal_ids:
+                continue
             if block_id not in observed_set:
                 observed_first_occurrences.append(block_id)
                 observed_set.add(block_id)
