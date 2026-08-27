@@ -208,8 +208,14 @@ describe('TeacherCourseSpaceView', () => {
 
     await wrapper.findAll('.file-row').find(row => row.text().includes('辅助资料'))!.trigger('click')
     await wrapper.findAll('.file-row').find(row => row.text().includes('其他资料'))!.trigger('click')
-    expect(wrapper.get('.inspector-actions').text()).toContain('添加资料')
-    expect(wrapper.get('.inspector-actions').text()).toContain('新建文件夹')
+    expect(wrapper.find('.inspector-actions').exists()).toBe(false)
+    const toolbarActions = wrapper.get('.folder-title__actions')
+    expect(toolbarActions.findAll('button')).toHaveLength(2)
+    expect(toolbarActions.text()).toContain('导入资料')
+    expect(toolbarActions.text()).toContain('新建文件夹')
+    await toolbarActions.get('.batch-import-button').trigger('click')
+    expect(toolbarActions.get('.file-import-menu').text()).toContain('选择本地文件')
+    expect(toolbarActions.get('.file-import-menu').text()).toContain('导入文件夹')
 
     const assetRow = wrapper.findAll('.file-row').find(row => row.text().includes('课堂案例.pdf'))!
     expect(assetRow.text()).toContain('教案')
@@ -518,7 +524,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.emitted('createOutline')).toBeTruthy()
   })
 
-  it('把固定课程资产直接作为入口，教师文件只在资料目录添加', () => {
+  it('把固定课程资产直接作为入口，教师资料统一从导入菜单进入', () => {
     const source = readFileSync(resolve(process.cwd(), 'src/views/TeacherCourseSpaceView.vue'), 'utf8')
     const storeSource = readFileSync(resolve(process.cwd(), 'src/stores/teacherLessonAuthoring.ts'), 'utf8')
     expect(source).toContain("type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'")
@@ -530,7 +536,8 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).not.toContain('class="new-button"')
     expect(source).not.toContain('<el-dropdown')
     expect(source).toContain('const canAddTeacherFiles = computed')
-    expect(source).toContain("t('courseFiles.addMaterial')")
+    expect(source).toContain('class="file-import-menu"')
+    expect(source).not.toContain("t('courseFiles.addMaterial')")
     expect(source).toContain(':data-role="assetRole(node)"')
     expect(source).toContain('function toggleSort(key: SortKey)')
     expect(source).not.toContain('<small>{{ displaySubtitle')
