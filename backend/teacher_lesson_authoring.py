@@ -1473,6 +1473,7 @@ class TeacherLessonAuthoringRepository:
         source_refs: list[dict[str, Any]] | None = None,
         quality_report: dict[str, Any] | None = None,
         actor: str = "teacher",
+        restored_from_revision_id: str = "",
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -1504,6 +1505,8 @@ class TeacherLessonAuthoringRepository:
                 "actor": actor,
                 "created_at": _now(),
             }
+            if restored_from_revision_id:
+                revision["restored_from_revision_id"] = restored_from_revision_id
             lesson.setdefault("revisions", []).append(revision)
             lesson["working_revision_id"] = revision_id
             lesson["source_state"] = (
@@ -1535,6 +1538,50 @@ class TeacherLessonAuthoringRepository:
                 value["outline_revision_id"] = source_outline_revision_id
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
+
+    def restore_plan_revision(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        revision_id: str,
+        *,
+        expected_working_revision_id: str,
+        actor: str = "teacher",
+    ) -> dict[str, Any]:
+        with self._lock:
+            lesson = self.lesson(course_id, lesson_unit_id)
+            current_revision_id = str(lesson.get("working_revision_id") or "")
+            if current_revision_id != expected_working_revision_id:
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_revision_conflict",
+                    "教案已在其他页面修改，请重新载入后再恢复。",
+                )
+            source = next(
+                (
+                    item for item in lesson.get("revisions") or []
+                    if isinstance(item, dict) and item.get("revision_id") == revision_id
+                ),
+                None,
+            )
+            if not isinstance(source, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_plan_revision_not_found",
+                    "教案历史版本不存在。",
+                )
+            return self.save_plan_revision(
+                course_id,
+                lesson_unit_id,
+                deepcopy(source.get("plan") or {}),
+                source_outline_revision_id=str(source.get("source_outline_revision_id") or ""),
+                source_knowledge_scope_revision_id=str(
+                    source.get("source_knowledge_scope_revision_id") or ""
+                ),
+                generation_source="history_restore",
+                warnings=deepcopy(source.get("warnings") or []),
+                source_refs=deepcopy(source.get("source_refs") or []),
+                actor=actor,
+                restored_from_revision_id=revision_id,
+            )
 
     def bind_v6_ppt_revision(
         self,
@@ -2268,6 +2315,8 @@ class TeacherLessonAuthoringRepository:
         material_asset_ids: list[str] | None = None,
         actor: str = "teacher",
         expected_working_revision_id: str | None = None,
+        revision_id_override: str = "",
+        restored_from_revision_id: str = "",
     ) -> dict[str, Any]:
         normalized_sections = []
         for item in sections:
@@ -2320,7 +2369,7 @@ class TeacherLessonAuthoringRepository:
             generation_source=generation_source,
         )
         publication_eligible = bool(revision_quality.get("publication_eligible"))
-        revision_id = teacher_lesson_script_sections_revision(normalized_sections)
+        revision_id = revision_id_override or teacher_lesson_script_sections_revision(normalized_sections)
         with self._lock:
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
@@ -2352,7 +2401,7 @@ class TeacherLessonAuthoringRepository:
                 None,
             )
             if existing is None:
-                revisions.append({
+                revision = {
                     "revision_id": revision_id,
                     "lesson_unit_id": lesson_unit_id,
                     "source_lesson_plan_revision_id": source_lesson_plan_revision_id,
@@ -2370,7 +2419,10 @@ class TeacherLessonAuthoringRepository:
                     "pipeline_version": SCRIPT_PIPELINE_VERSION,
                     "actor": actor,
                     "created_at": _now(),
-                })
+                }
+                if restored_from_revision_id:
+                    revision["restored_from_revision_id"] = restored_from_revision_id
+                revisions.append(revision)
             else:
                 # The content digest may stay unchanged while the quality
                 # contract is tightened. Refresh the same revision in place so
@@ -2414,6 +2466,51 @@ class TeacherLessonAuthoringRepository:
                     review["source_state"] = "stale"
             saved = self._save(value)
             return deepcopy(saved["lessons"][lesson_unit_id])
+
+    def restore_script_revision(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        revision_id: str,
+        *,
+        expected_working_revision_id: str,
+        actor: str = "teacher",
+    ) -> dict[str, Any]:
+        with self._lock:
+            lesson = self.lesson(course_id, lesson_unit_id)
+            current_revision_id = str(lesson.get("working_script_revision_id") or "")
+            if current_revision_id != expected_working_revision_id:
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_revision_conflict",
+                    "讲稿已在其他页面修改，请重新载入后再恢复。",
+                )
+            source = next(
+                (
+                    item for item in lesson.get("script_revisions") or []
+                    if isinstance(item, dict) and item.get("revision_id") == revision_id
+                ),
+                None,
+            )
+            if not isinstance(source, dict):
+                raise TeacherLessonAuthoringError(
+                    "lesson_script_revision_not_found",
+                    "讲稿历史版本不存在。",
+                )
+            return self.save_script_revision(
+                course_id,
+                lesson_unit_id,
+                deepcopy(source.get("sections") or []),
+                source_lesson_plan_revision_id=str(
+                    source.get("source_lesson_plan_revision_id") or ""
+                ),
+                generation_source="history_restore",
+                requirements=str(source.get("requirements") or ""),
+                material_asset_ids=list(source.get("material_asset_ids") or []),
+                actor=actor,
+                expected_working_revision_id=expected_working_revision_id,
+                revision_id_override=f"tlsr-restore-{uuid.uuid4().hex}",
+                restored_from_revision_id=revision_id,
+            )
 
     def save_script_ai_candidate(
         self,

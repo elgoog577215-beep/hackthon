@@ -370,14 +370,9 @@ def compile_assessment_objectives(
             ),
             "answer_modalities": modalities,
             "preferred_archetype_ids": preferred_archetypes,
-            "difficulty_contract": deepcopy(
-                node.get("difficulty_contract")
-                or {
-                    "target_level": course_data.get(
-                        "difficulty",
-                        "intermediate",
-                    )
-                }
+            "difficulty_contract": _assessment_difficulty_contract(
+                course_data,
+                node,
             ),
             "confidence": confidence,
             "risk_level": risk_level,
@@ -388,6 +383,40 @@ def compile_assessment_objectives(
         }
         result.append(item)
     return result
+
+
+def _assessment_difficulty_contract(
+    course_data: dict[str, Any],
+    node: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve the assessment target from the course's formal difficulty.
+
+    Canonical teacher courses persist difficulty as ``difficulty_profile``
+    and ``generation_request.difficulty`` rather than the old top-level
+    ``difficulty`` field.  Falling straight back to ``intermediate`` made an
+    explicitly beginner course generate beginner questions and then reject
+    them repeatedly as too easy.  A node contract remains the strongest,
+    most local instruction.
+    """
+
+    node_contract = node.get("difficulty_contract")
+    if isinstance(node_contract, dict) and node_contract:
+        return deepcopy(node_contract)
+    candidates = (
+        (course_data.get("difficulty_profile") or {}).get("target_level"),
+        (course_data.get("generation_request") or {}).get("difficulty"),
+        (course_data.get("course_generation_brief") or {}).get("difficulty"),
+        course_data.get("difficulty"),
+    )
+    target_level = next(
+        (
+            str(value).strip()
+            for value in candidates
+            if str(value or "").strip()
+        ),
+        "intermediate",
+    )
+    return {"target_level": target_level}
 
 
 def select_assessment_archetype(

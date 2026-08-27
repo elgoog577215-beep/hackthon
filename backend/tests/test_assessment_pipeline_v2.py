@@ -98,6 +98,26 @@ def test_eight_subject_families_compile_diverse_generation_blueprints(
     assert blueprint["diversity_policy"]["passed"] is True
 
 
+def test_objective_uses_canonical_course_difficulty_profile():
+    course = _course()
+    course.pop("difficulty")
+    course["nodes"][0].pop("difficulty_contract")
+    course["difficulty_profile"] = {
+        "contract_version": "course_difficulty_v1",
+        "target_level": "beginner",
+    }
+    course["generation_request"]["difficulty"] = "advanced"
+
+    objective = compile_assessment_objectives(
+        course,
+        compile_course_assessment_profile(course),
+    )[0]
+
+    assert objective["difficulty_contract"] == {
+        "target_level": "beginner",
+    }
+
+
 def test_programming_blueprint_is_not_all_implementation_tasks():
     course = _course("programming_engineering")
     course["nodes"][0]["learning_objective"] = (

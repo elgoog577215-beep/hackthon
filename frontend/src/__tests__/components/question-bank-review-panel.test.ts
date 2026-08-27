@@ -178,6 +178,7 @@ describe('QuestionBankReviewPanel', () => {
     await flushPromises()
 
     expect(wrapper.get('.question-bank-page-heading').text()).toContain('课程题库')
+    expect(wrapper.get('.question-bank-quality-trigger').text()).toContain('1 道待审核')
     expect(wrapper.get('.question-bank-page-heading').text()).toContain('导入题目文件')
     expect(wrapper.find('.question-bank-workspace-header').exists()).toBe(false)
     expect(wrapper.find('.question-bank-workspace-main').exists()).toBe(true)

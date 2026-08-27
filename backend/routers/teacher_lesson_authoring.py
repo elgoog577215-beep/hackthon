@@ -124,6 +124,10 @@ class ConfirmLessonScriptRequest(BaseModel):
     revision_id: str
 
 
+class RestoreTeacherDocumentRevisionRequest(BaseModel):
+    expected_current_revision_id: str = ""
+
+
 class GenerateLessonScriptRequest(BaseModel):
     request_id: str = Field(default="", max_length=160)
     resume_job_id: str = Field(default="", max_length=160)
@@ -960,6 +964,23 @@ def _lesson_projection(
                 "quality_report": script_quality,
                 "confirmed_at": str(script_confirmation.get("confirmed_at") or ""),
                 "sections": script_sections,
+                "revisions": [
+                    {
+                        key: deepcopy(revision.get(key))
+                        for key in (
+                            "revision_id",
+                            "source_lesson_plan_revision_id",
+                            "generation_source",
+                            "actor",
+                            "created_at",
+                            "updated_at",
+                            "restored_from_revision_id",
+                            "publication_eligible",
+                        )
+                    }
+                    for revision in reversed(plan_asset.get("script_revisions") or [])
+                    if isinstance(revision, dict)
+                ],
                 "ai_candidate": next(
                     (
                         deepcopy(candidate)
@@ -3203,6 +3224,39 @@ async def save_lesson_plan_draft(
         _raise(exc)
 
 
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/plan/revisions/{revision_id}/restore")
+async def restore_lesson_plan_revision(
+    course_id: str,
+    lesson_unit_id: str,
+    revision_id: str,
+    body: RestoreTeacherDocumentRevisionRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        source = _source_course(tm, course_id)
+        canonical_outline_revision = _canonical_outline_revision(source)
+        if canonical_outline_revision:
+            repository.set_outline(course_id, canonical_outline_revision)
+        repository.restore_plan_revision(
+            course_id,
+            lesson_unit_id,
+            revision_id,
+            expected_working_revision_id=body.expected_current_revision_id,
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+        )
+        projected = next(
+            item for item in _lesson_projection(source, repository)
+            if item["lesson_unit_id"] == lesson_unit_id
+        )
+        return {"lesson": projected}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/plan/confirm")
 async def confirm_lesson_plan(
     course_id: str,
@@ -3599,6 +3653,36 @@ async def save_lesson_script_draft(
             generation_source="teacher_edit",
             requirements=str(base_revision.get("requirements") or ""),
             material_asset_ids=list(base_revision.get("material_asset_ids") or []),
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+        )
+        projected = next(
+            item for item in _lesson_projection(source, repository)
+            if item["lesson_unit_id"] == lesson_unit_id
+        )
+        return {"lesson": projected}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lessons/{lesson_unit_id}/script/revisions/{revision_id}/restore")
+async def restore_lesson_script_revision(
+    course_id: str,
+    lesson_unit_id: str,
+    revision_id: str,
+    body: RestoreTeacherDocumentRevisionRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        source = _source_course(tm, course_id)
+        repository.restore_script_revision(
+            course_id,
+            lesson_unit_id,
+            revision_id,
+            expected_working_revision_id=body.expected_current_revision_id,
             actor=resolve_user_id(request.headers.get("X-User-Id")),
         )
         projected = next(

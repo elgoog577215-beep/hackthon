@@ -17,13 +17,13 @@ describe('course outline review layout', () => {
   it('keeps confirmation actions outside the scrollable body when retrieval content is tall', () => {
     const bodyStart = componentSource.indexOf('<div class="outline-review__body">')
     const setupStart = componentSource.indexOf('<div class="outline-review__setup"')
-    const nodesStart = componentSource.indexOf('<div class="outline-review__chapters"')
+    const editorStart = componentSource.indexOf('data-testid="outline-rich-editor"')
     const footerStart = componentSource.indexOf('<footer class="outline-review__footer"')
 
     expect(bodyStart).toBeGreaterThan(-1)
     expect(bodyStart).toBeLessThan(setupStart)
-    expect(setupStart).toBeLessThan(nodesStart)
-    expect(nodesStart).toBeLessThan(footerStart)
+    expect(setupStart).toBeLessThan(editorStart)
+    expect(editorStart).toBeLessThan(footerStart)
 
     expect(cssDeclarations('.outline-review__sheet')).toContain(
       'grid-template-rows:minmax(0,1fr) auto',
@@ -33,8 +33,8 @@ describe('course outline review layout', () => {
     expect(cssDeclarations('.outline-review__body')).toContain('min-height:0')
     expect(cssDeclarations('.outline-review__body')).toContain('overflow:auto')
     expect(cssDeclarations('.outline-review__body')).toContain('scrollbar-gutter:stable')
-    expect(componentSource).toContain('class="outline-review__chapter-heading"')
-    expect(componentSource).toContain('class="outline-review__section-list"')
+    expect(componentSource).toContain('contenteditable="editable && !adjustmentBusy')
+    expect(componentSource).toContain('class="formal-outline__schedule outline-rich-editor"')
     expect(componentSource).not.toContain('outline-review__chapter-nav')
     expect(componentSource).not.toContain('outline-review__index')
     expect(componentSource).not.toContain('outline-review__branch')

@@ -39,7 +39,7 @@
       </div>
     </header>
 
-    <div v-if="pendingCandidate && !externalToolbar" class="candidate-canvas-notice" role="status">
+    <div v-if="pendingCandidate" class="candidate-canvas-notice" role="status">
       <Sparkles :size="16" />
       <span>
         <strong>{{ tr('courseWorkbench.lessonDocument.candidateCanvasTitle') }}</strong>
@@ -67,6 +67,7 @@
           v-model="selectedSection.learning_objective"
           rows="3"
           :aria-label="tr('courseWorkbench.lessonDocument.objective')"
+          @input="recordEditSnapshot"
         />
         <p v-else>{{ selectedSection.learning_objective || emptyValue }}</p>
       </section>
@@ -132,6 +133,7 @@
                 min="0"
                 max="300"
                 :aria-label="tr('courseWorkbench.lessonDocument.duration')"
+                @input="recordEditSnapshot"
               />
               <span v-else>{{ normalizedMinutes(module.planned_minutes) || emptyValue }}</span>
             </div>
@@ -142,6 +144,7 @@
                 v-model="module.teaching_purpose"
                 rows="3"
                 :aria-label="tr('courseWorkbench.lessonDocument.phasePurpose')"
+                @input="recordEditSnapshot"
               />
               <p v-else-if="module.teaching_purpose">{{ module.teaching_purpose }}</p>
             </div>
@@ -151,6 +154,7 @@
                 v-model="module.teacher_activity"
                 rows="5"
                 :aria-label="tr('courseWorkbench.lessonDocument.teacherActivity')"
+                @input="recordEditSnapshot"
               />
               <p v-else>{{ module.teacher_activity || module.teaching_guidance || emptyValue }}</p>
             </div>
@@ -160,6 +164,7 @@
                 v-model="module.student_activity"
                 rows="5"
                 :aria-label="tr('courseWorkbench.lessonDocument.studentActivity')"
+                @input="recordEditSnapshot"
               />
               <p v-else>{{ module.student_activity || emptyValue }}</p>
             </div>
@@ -239,6 +244,7 @@ import { computed, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import TextSelectionAiAction from './TextSelectionAiAction.vue'
+import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import {
   useTeacherLessonAuthoringStore,
@@ -290,6 +296,9 @@ const aiBusy = ref(false)
 const aiError = ref<unknown>(null)
 const pendingCandidate = ref<TeacherLessonPlanCandidate | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
+const editHistory = useDocumentEditHistory<Record<string, any>>(snapshot => {
+  draftPlan.value = clonePlan(snapshot)
+})
 
 const documentError = computed(() => {
   if (saveError.value) return toAppError(saveError.value, {
@@ -439,6 +448,13 @@ function listText(value: unknown): string {
 function updateList(target: Record<string, any>, key: string, event: Event) {
   const value = (event.target as HTMLTextAreaElement).value
   target[key] = value.split('\n').map(item => item.trim()).filter(Boolean)
+  recordEditSnapshot()
+}
+
+function recordEditSnapshot() {
+  queueMicrotask(() => {
+    if (editing.value && draftPlan.value) editHistory.record(draftPlan.value)
+  })
 }
 
 function normalizedMinutes(value: unknown): number {
@@ -465,6 +481,7 @@ function candidateChanged(key: string): boolean {
 function beginEditing() {
   if (!workingRevision.value?.plan) return
   draftPlan.value = clonePlan(workingRevision.value.plan)
+  editHistory.reset(draftPlan.value)
   editing.value = true
   saveError.value = null
 }
@@ -524,6 +541,7 @@ function focusCandidate() {
 
 function cancelEditing() {
   draftPlan.value = null
+  editHistory.clear()
   editing.value = false
   saveError.value = null
 }
@@ -589,6 +607,10 @@ defineExpose({
   beginEditing,
   cancelEditing,
   saveDraft,
+  canUndo: editHistory.canUndo,
+  canRedo: editHistory.canRedo,
+  undoEdit: editHistory.undo,
+  redoEdit: editHistory.redo,
 })
 </script>
 

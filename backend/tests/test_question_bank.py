@@ -10,9 +10,12 @@ from question_bank import (
     evaluate_question_item_quality,
     formal_task_from_question_bank_item,
     migrate_question_bank_review_policy,
+    recalculate_question_bank_coverage,
+    refresh_question_bank_bundle,
     review_question_bank_item,
     revise_question_bank_item,
 )
+from question_forms import question_form_distribution
 from question_search import (
     ConfiguredQuestionSearch,
     ExaQuestionSearch,
@@ -401,6 +404,33 @@ def test_comprehensive_tasks_are_multi_item_specific_and_require_teacher_review(
     assert all("综合运用全部章节完成最终任务" not in item["prompt"] for item in finals)
 
 
+def test_single_section_course_does_not_invent_cross_chapter_assessment():
+    course = _course()
+    course["nodes"] = [deepcopy(course["nodes"][0])]
+    course["evidence_catalog"] = []
+    course["material_bindings"] = []
+
+    bundle = build_question_bank(course)
+
+    assert not [
+        item
+        for item in bundle["items"]
+        if item["assessment_role"]
+        in {"coverage_task", "cross_chapter_transfer"}
+    ]
+
+
+def test_coverage_uses_stable_learning_objective_identity_when_objective_id_is_missing():
+    course = _course()
+    for node in course["nodes"]:
+        node.pop("objective_id", None)
+
+    bundle = build_question_bank(course)
+
+    assert bundle["coverage"]["covered_objective_count"] == 1
+    assert bundle["items"][0]["course_objective_refs"][0].startswith("lo_")
+
+
 def test_exam_sprint_assessment_uses_teacher_question_distribution():
     course = _course()
     course["course_purpose"] = "exam_sprint"
@@ -512,6 +542,41 @@ def test_teacher_rework_immediately_removes_published_question_from_practice():
             assessment_role="practice",
         )
     )
+
+
+def test_retired_questions_do_not_leak_into_active_status_summaries():
+    course = _course()
+    bundle = build_question_bank(course)
+    retired = next(
+        item
+        for item in bundle["items"]
+        if item.get("review_tier") == "mandatory_review"
+    )
+    retired["lifecycle_status"] = "retired"
+    retired["review_status"] = "retired"
+    refreshed = refresh_question_bank_bundle(bundle)
+
+    active_items = [
+        item
+        for item in refreshed["items"]
+        if item.get("lifecycle_status") != "retired"
+    ]
+    active_mandatory = sum(
+        1
+        for item in active_items
+        if item.get("review_tier") == "mandatory_review"
+    )
+    assert refreshed["review_queue"]["tier_counts"][
+        "mandatory_review"
+    ] == active_mandatory
+
+    recalculated = recalculate_question_bank_coverage(
+        course,
+        refreshed,
+    )
+    assert recalculated["coverage"][
+        "question_form_distribution"
+    ] == question_form_distribution(active_items)
 
 
 def test_legacy_review_queue_migrates_without_republishing_teacher_rejections():

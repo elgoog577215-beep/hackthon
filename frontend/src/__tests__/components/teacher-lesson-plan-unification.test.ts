@@ -117,6 +117,29 @@ describe('统一教案页面', () => {
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
   })
 
+  it('编辑多个字段时可以统一撤销和重做', async () => {
+    const wrapper = mount(TeacherLessonPlanDocument, {
+      props: { courseId: 'course-1', lesson, confirmed: true },
+    })
+    ;(wrapper.vm as any).beginEditing()
+    await flushPromises()
+
+    const objective = wrapper.get('.objective-section textarea')
+    await objective.setValue('第一次修改')
+    await flushPromises()
+    expect((wrapper.vm as any).canUndo).toBe(true)
+
+    ;(wrapper.vm as any).undoEdit()
+    await flushPromises()
+    expect((wrapper.get('.objective-section textarea').element as HTMLTextAreaElement).value)
+      .toBe('能解释爬虫的四步工作流程')
+
+    ;(wrapper.vm as any).redoEdit()
+    await flushPromises()
+    expect((wrapper.get('.objective-section textarea').element as HTMLTextAreaElement).value)
+      .toBe('第一次修改')
+  })
+
   it('AI 候选在同一份教案中预览并采用', async () => {
     const store = useTeacherLessonAuthoringStore()
     const candidatePlan = JSON.parse(JSON.stringify(lesson.plan.revisions[0]!.plan))

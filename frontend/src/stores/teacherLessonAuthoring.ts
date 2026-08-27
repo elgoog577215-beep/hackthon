@@ -24,6 +24,7 @@ export interface TeacherLessonPlanRevision {
   actor: string
   created_at: string
   confirmed_at?: string
+  restored_from_revision_id?: string
 }
 
 export interface TeacherLessonPlanAsset {
@@ -106,7 +107,19 @@ export interface TeacherLessonScriptState {
   }
   confirmed_at: string
   sections: TeacherLessonScriptSection[]
+  revisions?: TeacherLessonScriptRevisionSummary[]
   ai_candidate?: TeacherLessonScriptCandidate | null
+}
+
+export interface TeacherLessonScriptRevisionSummary {
+  revision_id: string
+  source_lesson_plan_revision_id: string
+  generation_source: string
+  actor: string
+  created_at?: string
+  updated_at?: string
+  restored_from_revision_id?: string
+  publication_eligible?: boolean
 }
 
 export interface TeacherLessonScriptCandidate {
@@ -628,6 +641,25 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.actionLessonId = ''
       }
     },
+    async restorePlanRevision(courseId: string, lessonUnitId: string, revisionId: string) {
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const current = this.lessonById(lessonUnitId)?.plan.working_revision_id || ''
+        const response = await http.post<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/revisions/${revisionId}/restore`,
+          { expected_current_revision_id: current },
+          requestConfig(),
+        )
+        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '教案历史版本恢复失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
+      }
+    },
     async confirmScript(courseId: string, lessonUnitId: string, revisionId: string) {
       this.actionLessonId = lessonUnitId
       this.error = ''
@@ -696,6 +728,25 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       } catch (error) {
         this.error = errorMessage(error, '讲稿保存失败')
         throw error
+      }
+    },
+    async restoreScriptRevision(courseId: string, lessonUnitId: string, revisionId: string) {
+      this.actionLessonId = lessonUnitId
+      this.error = ''
+      try {
+        const current = this.lessonById(lessonUnitId)?.script.current_revision_id || ''
+        const response = await http.post<{ lesson: TeacherLessonProjection }>(
+          `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/revisions/${revisionId}/restore`,
+          { expected_current_revision_id: current },
+          requestConfig(),
+        )
+        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        return response.data.lesson
+      } catch (error) {
+        this.error = errorMessage(error, '讲稿历史版本恢复失败')
+        throw error
+      } finally {
+        this.actionLessonId = ''
       }
     },
     async rewriteScriptSection(

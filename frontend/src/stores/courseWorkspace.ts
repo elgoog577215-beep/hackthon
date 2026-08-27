@@ -130,6 +130,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     practiceScope: 'node' as 'node' | 'final' | 'all',
     assets: null as LearningAssetsResponse | null,
     blueprint: null as any,
+    blueprintDraftVersions: [] as any[],
     generationReview: null as any,
     versions: [] as any[],
     currentVersionId: '' as string,
@@ -684,6 +685,26 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       } finally {
         this.saving = false
       }
+    },
+    async loadBlueprintDraftVersions(courseId: string) {
+      const res = await http.get(`/api/courses/${courseId}/blueprint/draft/versions`)
+      this.blueprintDraftVersions = res.data.versions || []
+      return this.blueprintDraftVersions
+    },
+    async restoreBlueprintDraftVersion(courseId: string, historyEntryId: string) {
+      const currentRevisionId = String(this.blueprint?.draft?.draft_revision_id || '')
+      const res = await http.post(
+        `/api/courses/${courseId}/blueprint/draft/versions/${historyEntryId}/restore`,
+        { expected_draft_revision_id: currentRevisionId },
+        teacherRequestConfig(),
+      )
+      this.blueprint = {
+        ...this.blueprint,
+        draft: res.data.draft,
+        has_unconfirmed_draft: true,
+      }
+      await this.loadBlueprintDraftVersions(courseId)
+      return res.data
     },
     async retryBlueprintRetrieval(courseId: string) {
       const res = await http.post(`/api/courses/${courseId}/blueprint/retrieval/retry`)

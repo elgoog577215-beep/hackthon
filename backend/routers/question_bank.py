@@ -342,10 +342,24 @@ async def get_question_bank(
         repository=question_bank_repository,
     )
     if not bundle:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "question_bank_not_built"},
-        )
+        return {
+            "schema_version": "question_bank_api_v1",
+            "course_id": course_id,
+            "bundle_revision_id": "",
+            "status": "not_built",
+            "coverage": {},
+            "assessment_profile": {},
+            "assessment_objectives": [],
+            "assessment_blueprint": {},
+            "reference_package": {},
+            "generation_summary": {},
+            "review_queue": {},
+            "web_enrichment": {},
+            "chapter_rebuild": _chapter_rebuild_progress(course, None),
+            "items": [],
+            "total": 0,
+            "access_scope": "teacher_authenticated_course_management",
+        }
     items = filter_question_bank_items(
         bundle,
         node_id=node_id,
@@ -858,6 +872,42 @@ def _same_rebuild_request(
     )
 
 
+def _settle_rebuild_from_previous_worker(
+    job: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Turn an orphaned in-flight job into an explicit retryable failure.
+
+    Rebuild coroutines live in the current API process.  After a process
+    restart, a persisted ``queued`` or ``running`` job cannot make further
+    progress even though its JSON state still looks active.  Comparing the
+    durable worker id with the current executor keeps the UI from polling a
+    phantom job forever and gives the teacher a safe retry path.
+    """
+
+    if not job or str(job.get("status") or "") not in {"queued", "running"}:
+        return job
+    previous_worker_id = str(job.get("worker_id") or "")
+    current_worker_id = str(
+        getattr(
+            question_bank_rebuild_executor,
+            "instance_id",
+            "question-bank-worker",
+        )
+    )
+    if (
+        not previous_worker_id
+        or not current_worker_id
+        or previous_worker_id == current_worker_id
+    ):
+        return job
+    return question_bank_rebuild_job_repository.fail(
+        str(job.get("job_id") or ""),
+        code="rebuild_worker_restarted",
+        message="后台生成进程已重启，原任务已安全终止，请重新生成",
+        retryable=True,
+    )
+
+
 @router.get("/rebuilds/active")
 async def get_active_question_bank_rebuild(
     course_id: str,
@@ -886,13 +936,15 @@ async def get_active_question_bank_rebuild(
                 course_id,
                 checkpoint_job_id,
             )
+    job = _settle_rebuild_from_previous_worker(job)
     if not job:
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "code": "question_bank_active_rebuild_not_found",
-            },
-        )
+        return {
+            "schema_version": "question_bank_rebuild_active_v1",
+            "course_id": course_id,
+            "status": "idle",
+            "active": False,
+            "job": None,
+        }
     return _job_response(job, deduplicated=False)
 
 
@@ -918,6 +970,7 @@ async def get_question_bank_rebuild(
                 "code": "question_bank_rebuild_job_not_found",
             },
         )
+    job = _settle_rebuild_from_previous_worker(job)
     return _job_response(job, deduplicated=False)
 
 
@@ -1414,6 +1467,14 @@ async def _execute_question_bank_rebuild(
             if node_id in set(course_node_ids)
         ]
     )
+    if payload.mode == "full" and payload.scope in {"course", "nodes"}:
+        # A full rebuild replaces this scope, so the outgoing questions must
+        # not be treated as forbidden historical duplicates.  Incremental
+        # generation keeps the history check; a full rebuild still compares
+        # the new questions with one another inside the current campaign.
+        course_for_bank[
+            "_assessment_ignore_historical_question_node_ids"
+        ] = list(campaign_node_ids)
     checkpoint = deepcopy(
         course.get("question_bank_chapter_rebuild") or {}
     )
@@ -1601,7 +1662,9 @@ async def _execute_question_bank_rebuild(
             chapter_bundle,
             node_ids=[node_id],
             preserve_reviewed=payload.mode == "incremental",
-            preserve_global_assessments=True,
+            preserve_global_assessments=(
+                payload.mode == "incremental"
+            ),
         )
         merged_bundle = recalculate_question_bank_coverage(
             course_for_bank,

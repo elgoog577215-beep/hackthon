@@ -57,6 +57,24 @@ describe('统一讲稿页面', () => {
     expect(wrapper.find('.script-document').exists()).toBe(true)
   })
 
+  it('讲稿跨教学块编辑时可以撤销和重做', async () => {
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
+    ;(wrapper.vm as any).beginEditing()
+    await flushPromises()
+
+    await wrapper.get('.script-body textarea').setValue('修改后的讲稿')
+    await flushPromises()
+    expect((wrapper.vm as any).canUndo).toBe(true)
+
+    ;(wrapper.vm as any).undoEdit()
+    await flushPromises()
+    expect((wrapper.get('.script-body textarea').element as HTMLTextAreaElement).value).toBe('原始讲稿内容')
+
+    ;(wrapper.vm as any).redoEdit()
+    await flushPromises()
+    expect((wrapper.get('.script-body textarea').element as HTMLTextAreaElement).value).toBe('修改后的讲稿')
+  })
+
   it('按已确认教案的教学块展示和逐块编辑讲稿', async () => {
     const structuredLesson = structuredClone(lesson)
     structuredLesson.script.sections[0] = {

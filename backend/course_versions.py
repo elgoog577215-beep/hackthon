@@ -9,6 +9,7 @@ import shutil
 import threading
 import uuid
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -163,11 +164,87 @@ class CourseVersionRepository:
             restored["restored_from_version_id"] = source_version_id
             return restored, entry
 
-    def save_draft(self, course_id: str, draft: dict[str, Any]) -> dict[str, Any]:
+    def save_draft(
+        self,
+        course_id: str,
+        draft: dict[str, Any],
+        *,
+        actor: str = "teacher",
+        operation: str = "save",
+        restored_from_history_entry_id: str = "",
+    ) -> dict[str, Any]:
         with self._lock(course_id):
+            saved = deepcopy(draft)
             path = self._course_dir(course_id) / "draft.json"
-            self._atomic_write(path, draft)
-            return deepcopy(draft)
+            self._atomic_write(path, saved)
+            self._save_draft_history_locked(
+                course_id,
+                saved,
+                actor=actor,
+                operation=operation,
+                restored_from_history_entry_id=restored_from_history_entry_id,
+            )
+            return deepcopy(saved)
+
+    def list_draft_versions(self, course_id: str) -> list[dict[str, Any]]:
+        self._validate_id(course_id)
+        history_dir = self._course_dir(course_id) / "draft_history"
+        if not history_dir.exists():
+            return []
+        entries = []
+        for path in history_dir.glob("*.json"):
+            entry = self._read_json(path)
+            entries.append({
+                key: deepcopy(entry.get(key))
+                for key in (
+                    "history_entry_id",
+                    "draft_revision_id",
+                    "created_at",
+                    "actor",
+                    "operation",
+                    "restored_from_history_entry_id",
+                    "course_name",
+                    "chapter_count",
+                    "section_count",
+                )
+            })
+        return sorted(entries, key=lambda item: str(item.get("created_at") or ""), reverse=True)
+
+    def restore_draft_version(
+        self,
+        course_id: str,
+        history_entry_id: str,
+        *,
+        expected_draft_revision_id: str = "",
+        expected_base_blueprint_revision_id: str = "",
+        actor: str = "teacher",
+    ) -> dict[str, Any]:
+        with self._lock(course_id):
+            self._validate_id(history_entry_id)
+            current = self.load_draft(course_id)
+            current_revision_id = str((current or {}).get("draft_revision_id") or "")
+            if expected_draft_revision_id and expected_draft_revision_id != current_revision_id:
+                raise CourseVersionConflict("Course blueprint draft has changed")
+            history_path = self._course_dir(course_id) / "draft_history" / f"{history_entry_id}.json"
+            if not history_path.exists():
+                raise KeyError(f"Unknown blueprint draft history entry: {history_entry_id}")
+            entry = self._read_json(history_path)
+            restored = deepcopy(entry.get("draft") or {})
+            if not restored:
+                raise KeyError(f"Unknown blueprint draft history entry: {history_entry_id}")
+            if (
+                expected_base_blueprint_revision_id
+                and str(restored.get("base_blueprint_revision_id") or "")
+                != expected_base_blueprint_revision_id
+            ):
+                raise CourseVersionConflict("Course blueprint has changed")
+            return self.save_draft(
+                course_id,
+                restored,
+                actor=actor,
+                operation="restore",
+                restored_from_history_entry_id=history_entry_id,
+            )
 
     def freeze_blueprint(self, course_id: str, course_data: dict[str, Any]) -> dict[str, Any]:
         """Persist one immutable blueprint revision and return its snapshot."""
@@ -196,6 +273,34 @@ class CourseVersionRepository:
         path = self._course_dir(course_id) / "draft.json"
         if path.exists():
             path.unlink()
+
+    def _save_draft_history_locked(
+        self,
+        course_id: str,
+        draft: dict[str, Any],
+        *,
+        actor: str,
+        operation: str,
+        restored_from_history_entry_id: str,
+    ) -> dict[str, Any]:
+        nodes = [item for item in draft.get("nodes") or [] if isinstance(item, dict)]
+        entry_id = f"odh_{uuid.uuid4().hex}"
+        entry = {
+            "schema_version": "outline_draft_history_v1",
+            "history_entry_id": entry_id,
+            "draft_revision_id": str(draft.get("draft_revision_id") or ""),
+            "created_at": datetime.now().isoformat(),
+            "actor": actor,
+            "operation": operation,
+            "restored_from_history_entry_id": restored_from_history_entry_id,
+            "course_name": str(draft.get("course_name") or ""),
+            "chapter_count": sum(1 for node in nodes if int(node.get("node_level") or 0) == 1),
+            "section_count": sum(1 for node in nodes if int(node.get("node_level") or 0) == 2),
+            "draft": deepcopy(draft),
+        }
+        history_path = self._course_dir(course_id) / "draft_history" / f"{entry_id}.json"
+        self._atomic_write(history_path, entry)
+        return entry
 
     def delete_candidate(self, course_id: str, candidate_id: str) -> bool:
         """Delete one candidate without touching formal course versions."""

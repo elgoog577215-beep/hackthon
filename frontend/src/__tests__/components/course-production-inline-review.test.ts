@@ -72,9 +72,11 @@ describe('课程生产内联确认', () => {
     expect(wrapper.text()).not.toContain('目录节点')
     expect(wrapper.find('.outline-review__header').exists()).toBe(false)
     expect(wrapper.find('.outline-review__course-name').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('线性代数')
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('线性代数')
 
-    await wrapper.get('.outline-review__section input').setValue('向量与空间')
+    const editor = wrapper.get('[data-testid="outline-rich-editor"]')
+    editor.get('h2').element.textContent = '向量与空间'
+    await editor.trigger('input')
     const buttons = wrapper.findAll('.outline-review__actions button')
     expect(buttons[0]!.attributes('disabled')).toBeUndefined()
     await buttons[0]!.trigger('click')
@@ -109,16 +111,9 @@ describe('课程生产内联确认', () => {
     })
     await flushPromises()
 
-    const chapters = wrapper.findAll('.outline-review__chapter')
-    expect(chapters).toHaveLength(2)
-    expect(chapters[0]!.findAll('input').map(input => (input.element as HTMLInputElement).value)).toEqual([
-      '第一章 基础',
-      '1.1 概念',
-    ])
-    expect(chapters[1]!.findAll('input').map(input => (input.element as HTMLInputElement).value)).toEqual([
-      '第二章 进阶',
-      '2.1 实践',
-    ])
+    const editor = wrapper.get('[data-testid="outline-rich-editor"]')
+    expect(editor.findAll('h2').map(heading => heading.text())).toEqual(['第一章 基础', '第二章 进阶'])
+    expect(editor.findAll('h3').map(heading => heading.text())).toEqual(['1.1 概念', '2.1 实践'])
     expect(wrapper.text()).not.toContain('快速定位')
   })
 
@@ -190,7 +185,7 @@ describe('课程生产内联确认', () => {
     )
     expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('20')
     expect(wrapper.get('[data-testid="retrieval-outline-notice"]').text()).toContain('0')
-    expect(wrapper.findAll('.outline-review__section')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').findAll('h2')).toHaveLength(1)
   })
 
   it('发布确认显示必要就绪信息并占据工作区底栏', async () => {
@@ -361,9 +356,11 @@ describe('课程生产内联确认', () => {
     expect(wrapper.text()).toContain('熟悉产品造型与结构')
     expect(wrapper.text()).toContain('玻璃材料与隔热原理')
     expect(wrapper.text()).toContain('重点补充')
-    expect(wrapper.text()).toContain('你熟悉造型，但对玻璃材料与隔热原理不确定。')
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').text()).toContain('验证材料与隔热方案')
 
-    await wrapper.get('.outline-review__section input').setValue('比较并验证材料与隔热方案')
+    const editor = wrapper.get('[data-testid="outline-rich-editor"]')
+    editor.get('h2').element.textContent = '比较并验证材料与隔热方案'
+    await editor.trigger('input')
     await wrapper.findAll('.outline-review__actions button')[0]!.trigger('click')
     await flushPromises()
 

@@ -12,7 +12,7 @@ from typing import Any, Iterable
 VERSION_SCHEMA = "course_version_v1"
 BLUEPRINT_SCHEMA = "blueprint_revision_v1"
 
-DISPLAY_FIELDS = ("node_name",)
+DISPLAY_FIELDS = ("node_name", "outline_editor_html")
 SEMANTIC_FIELDS = (
     "learning_objective",
     "scope_boundary",
@@ -365,7 +365,7 @@ def _blueprint_node(node: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "node_id",
         "parent_node_id",
-        "node_name",
+        *DISPLAY_FIELDS,
         "node_level",
         "node_type",
         *SEMANTIC_FIELDS,

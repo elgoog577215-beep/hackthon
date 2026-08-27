@@ -2716,6 +2716,17 @@ def _comprehensive_items(
     assessment_nodes = _assessment_nodes(course_data, nodes, purpose)
     if not assessment_nodes:
         return [], {}
+    if (
+        len(assessment_nodes) == 1
+        and purpose == "systematic"
+        and preferences.get("final_assessment") is not True
+    ):
+        # A single-session or single-section course does not have a truthful
+        # cross-chapter transfer target.  Its three-level practice set already
+        # closes the only learning objective.  A comprehensive assessment is
+        # still available when the teacher explicitly asks for one, but it is
+        # not silently added to a micro-course.
+        return [], {}
     objective_by_node = {
         str(item.get("node_id") or ""): item
         for item in objectives
@@ -2919,8 +2930,9 @@ def _cross_chapter_objective(
         "answer_modalities": ["integrated_deliverable"],
         "preferred_archetype_ids": ["integrated_performance"],
         "difficulty_contract": {
-            "target_level": str(
-                course_data.get("difficulty") or "intermediate"
+            "target_level": _node_difficulty(
+                course_data,
+                nodes[0] if nodes else {},
             ),
             "transfer_distance": "cross_chapter",
             "minimum_steps": 3,
@@ -2973,8 +2985,9 @@ def _v2_final_item(
             int(contract.get("estimated_minutes") or 25),
         ),
         "question_type": contract["question_type"],
-        "difficulty": str(
-            course_data.get("difficulty") or "intermediate"
+        "difficulty": _node_difficulty(
+            course_data,
+            nodes[0] if nodes else {},
         ),
         "practice_levels": ["final_assessment"],
         "assessment_role": role,
@@ -3473,7 +3486,7 @@ def _coverage_report(
             "node_id": str(node.get("node_id") or ""),
             "objective": str(node.get("learning_objective") or node.get("node_name") or ""),
             "knowledge_points": _node_key_points(node),
-            "difficulty": _node_difficulty({}, node),
+            "difficulty": _node_difficulty(course_data, node),
         }
         for node in nodes
     }
@@ -3493,7 +3506,7 @@ def _coverage_report(
             "node_id": str(node.get("node_id") or ""),
             "objective": str(node.get("learning_objective") or node.get("node_name") or ""),
             "knowledge_points": _node_key_points(node),
-            "difficulty": _node_difficulty({}, node),
+            "difficulty": _node_difficulty(course_data, node),
             "reason": "teacher_question_source_missing",
         }
         for node in nodes
@@ -3504,8 +3517,13 @@ def _coverage_report(
     # H1d：题库按规范作答形态的分布。question_type 表达的是学科教学意图
     # （同一种作答形态在不同学科族下有不同取值），答不了教师问的「这门课
     # 填空题占比多少」；question_form 与学科无关，只描述怎么作答怎么判分。
+    active = [
+        item
+        for item in items
+        if item.get("lifecycle_status") != "retired"
+    ]
     publishable = [
-        item for item in items
+        item for item in active
         if item.get("lifecycle_status") == "approved"
         and (item.get("quality_report") or {}).get("passed")
     ]
@@ -3516,7 +3534,7 @@ def _coverage_report(
         "missing_required_objectives": missing,
         "gaps": gaps,
         "status": "complete" if not missing else "blocked",
-        "question_form_distribution": question_form_distribution(items),
+        "question_form_distribution": question_form_distribution(active),
         "publishable_question_form_distribution": question_form_distribution(
             publishable
         ),
@@ -4426,11 +4444,10 @@ def _objective_ref(course_data: dict[str, Any], node: dict[str, Any]) -> str:
         node.get("objective_id")
         or stable_hash(
             {
-                "course": course_data.get("course_id"),
-                "node": node.get("node_id"),
-                "objective": node.get("learning_objective") or node.get("node_name"),
+                "course_id": course_data.get("course_id"),
+                "node_id": node.get("node_id"),
             },
-            prefix="obj_",
+            prefix="lo_",
         )
     )
 
@@ -4648,12 +4665,26 @@ def _node_difficulty(course_data: dict[str, Any], node: dict[str, Any]) -> str:
     return str(
         contract.get("target_level")
         or (contract.get("challenge") or {}).get("level")
+        or (course_data.get("difficulty_profile") or {}).get(
+            "target_level"
+        )
+        or (course_data.get("generation_request") or {}).get(
+            "difficulty"
+        )
+        or (course_data.get("course_generation_brief") or {}).get(
+            "difficulty"
+        )
         or course_data.get("difficulty")
         or "intermediate"
     )
 
 
 def _review_queue(items: list[dict[str, Any]]) -> dict[str, Any]:
+    active_items = [
+        item
+        for item in items
+        if item.get("lifecycle_status") != "retired"
+    ]
     blocking = [
         {
             "item_id": item.get("item_id"),
@@ -4667,7 +4698,7 @@ def _review_queue(items: list[dict[str, Any]]) -> dict[str, Any]:
             "risk_flags": deepcopy(item.get("risk_flags") or []),
             "quality_status": (item.get("quality_report") or {}).get("status"),
         }
-        for item in items
+        for item in active_items
         if item.get("lifecycle_status") == "needs_review"
     ]
     sampling = [
@@ -4685,7 +4716,7 @@ def _review_queue(items: list[dict[str, Any]]) -> dict[str, Any]:
                 item.get("quality_report") or {}
             ).get("status"),
         }
-        for item in items
+        for item in active_items
         if (
             item.get("review_tier") == "sample_review"
             and item.get("review_status") == "needs_review"
@@ -4694,7 +4725,7 @@ def _review_queue(items: list[dict[str, Any]]) -> dict[str, Any]:
     tier_counts = {
         tier: sum(
             1
-            for item in items
+            for item in active_items
             if item.get("review_tier") == tier
         )
         for tier in sorted(QUESTION_REVIEW_TIERS)

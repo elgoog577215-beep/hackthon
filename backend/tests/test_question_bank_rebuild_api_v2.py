@@ -12,6 +12,7 @@ from routers import question_bank
 
 class CapturingExecutor:
     def __init__(self) -> None:
+        self.instance_id = "question-bank-worker"
         self.submissions: list[dict] = []
 
     def submit(
@@ -259,10 +260,50 @@ def test_rebuild_api_recovers_active_job_for_course(
         "/api/courses/course-jobs/question-bank/rebuilds/active",
         headers={"X-User-Id": "teacher-1"},
     )
-    assert missing.status_code == 404
-    assert missing.json()["detail"]["code"] == (
-        "question_bank_active_rebuild_not_found"
+    assert missing.status_code == 200
+    assert missing.json() == {
+        "schema_version": "question_bank_rebuild_active_v1",
+        "course_id": "course-jobs",
+        "status": "idle",
+        "active": False,
+        "job": None,
+    }
+
+
+def test_status_marks_previous_worker_job_retryable_after_restart(
+    monkeypatch,
+    tmp_path,
+):
+    client, jobs, executor = _client(monkeypatch, tmp_path)
+    executor.instance_id = "worker-before-restart"
+    job, _ = jobs.create_job(
+        "course-jobs",
+        request_id="request-before-restart",
+        scope="course",
+        node_ids=[],
+        mode="full",
+        actor_id="teacher-1",
+        worker_id=executor.instance_id,
     )
+    jobs.start(job["job_id"])
+    executor.instance_id = "worker-after-restart"
+
+    response = client.get(
+        (
+            "/api/courses/course-jobs/question-bank/rebuilds/"
+            f"{job['job_id']}"
+        ),
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "failed"
+    assert payload["error"] == {
+        "code": "rebuild_worker_restarted",
+        "message": "后台生成进程已重启，原任务已安全终止，请重新生成",
+        "retryable": True,
+    }
 
 
 def test_rebuild_api_deduplicates_and_validates_node_scope(

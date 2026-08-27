@@ -1800,6 +1800,40 @@ def test_repository_keeps_sibling_lesson_assets_independent(tmp_path):
     assert len(view["lessons"]["L1-1"]["revisions"]) == 1
 
 
+def test_plan_history_restore_creates_a_new_working_revision(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    first = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        {"sections": [{"node_id": "L2-1-1", "learning_objective": "解释极限"}]},
+        source_outline_revision_id="outline-v1",
+    )
+    first_revision = first["working_revision_id"]
+    second = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        {"sections": [{"node_id": "L2-1-1", "learning_objective": "计算极限"}]},
+        source_outline_revision_id="outline-v1",
+    )
+    second_revision = second["working_revision_id"]
+
+    restored = repository.restore_plan_revision(
+        "course-1",
+        "L1-1",
+        first_revision,
+        expected_working_revision_id=second_revision,
+        actor="teacher-1",
+    )
+
+    restored_revision = restored["working_revision_id"]
+    assert restored_revision not in {first_revision, second_revision}
+    saved = next(item for item in restored["revisions"] if item["revision_id"] == restored_revision)
+    assert saved["generation_source"] == "history_restore"
+    assert saved["restored_from_revision_id"] == first_revision
+    assert saved["plan"]["sections"][0]["learning_objective"] == "解释极限"
+
+
 def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     service = TeacherLessonAuthoringService(repository)
@@ -2789,6 +2823,16 @@ def test_script_generation_edit_candidate_and_confirmation_share_one_asset_chain
         assert ppt_source.status_code == 200
         payload = json.dumps(ppt_source.json(), ensure_ascii=False)
         assert "AI 候选讲稿" in payload
+
+        restored = client.post(
+            f"/api/teacher/courses/course-1/lessons/L1-1/script/revisions/{first_revision}/restore",
+            json={"expected_current_revision_id": second_revision},
+            headers={"X-User-Id": "teacher-1"},
+        )
+        assert restored.status_code == 200
+        restored_script = restored.json()["lesson"]["script"]
+        assert restored_script["current_revision_id"] not in {first_revision, second_revision}
+        assert restored_script["revisions"][0]["restored_from_revision_id"] == first_revision
 
     assert FakeCourseService.registered is True
     assert len(FakeCourseService.script_calls) == 2

@@ -118,6 +118,7 @@ export async function resumeQuestionBankRebuild(
     if (Number(error?.response?.status || 0) === 404) return null
     throw error
   }
+  if (!response.data?.job_id) return null
   return pollQuestionBankRebuild(
     normalizeJob(response.data || {}),
     options,

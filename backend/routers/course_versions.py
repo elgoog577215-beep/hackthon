@@ -6,7 +6,7 @@ from copy import deepcopy
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, field_validator
 
@@ -27,6 +27,7 @@ from course_versioning import (
 )
 from course_versions import CourseVersionConflict, CourseVersionRepository, course_version_repository
 from dependencies import get_course_document_repository, get_course_or_404, get_task_manager_optional, require_task_manager
+from learner_context import resolve_user_id
 from storage import storage
 from storage_utils import save_course_compat
 from task_manager import TaskManager, TaskStateConflict
@@ -81,6 +82,10 @@ class BlueprintAdjustmentCancelRequest(BaseModel):
 
 class RestoreVersionRequest(BaseModel):
     reason: str = Field(default="恢复历史课程版本", max_length=500)
+
+
+class RestoreBlueprintDraftRequest(BaseModel):
+    expected_draft_revision_id: str = Field(default="", max_length=160)
 
 
 class RegenerateCourseRequest(BaseModel):
@@ -162,10 +167,14 @@ async def retry_blueprint_retrieval(
 
 
 @router.put("/blueprint/draft")
-async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
+async def save_blueprint_draft(
+    course_id: str,
+    body: BlueprintDraftRequest,
+    request: Request,
+):
     course = await _course_for_blueprint(course_id)
     current_revision = blueprint_revision_id(course)
-    if request.base_blueprint_revision_id and request.base_blueprint_revision_id != current_revision:
+    if body.base_blueprint_revision_id and body.base_blueprint_revision_id != current_revision:
         raise HTTPException(status_code=409, detail={
             "code": "blueprint_base_conflict",
             "message": "课程蓝图已更新，请重新载入后再编辑",
@@ -175,16 +184,16 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
     authoritative_draft = existing_draft or build_blueprint_draft(course)
     authoritative_revision = blueprint_draft_revision_id(authoritative_draft)
     if (
-        request.expected_draft_revision_id
-        and request.expected_draft_revision_id != authoritative_revision
+        body.expected_draft_revision_id
+        and body.expected_draft_revision_id != authoritative_revision
     ):
         raise HTTPException(status_code=409, detail={
             "code": "draft_revision_conflict",
             "message": "目录草稿已被其他页面修改，请重新载入后再操作",
             "current_draft_revision_id": authoritative_revision,
         })
-    if request.adjustment_proposal_id:
-        operations = request.adjustment_operations
+    if body.adjustment_proposal_id:
+        operations = body.adjustment_operations
         if not isinstance(operations, list):
             raise HTTPException(status_code=422, detail={
                 "code": "adjustment_operations_missing",
@@ -194,7 +203,7 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
             authoritative_revision,
             operations,
         )
-        if request.adjustment_proposal_id != expected_proposal_id:
+        if body.adjustment_proposal_id != expected_proposal_id:
             raise HTTPException(status_code=409, detail={
                 "code": "adjustment_proposal_mismatch",
                 "message": "调整方案与预览内容不一致，请重新生成方案",
@@ -208,7 +217,7 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
             raise HTTPException(status_code=422, detail=exc.as_issue()) from exc
     else:
         draft = build_blueprint_draft(course)
-        for field, value in request.model_dump(exclude_none=True).items():
+        for field, value in body.model_dump(exclude_none=True).items():
             if field not in {
                 "base_blueprint_revision_id",
                 "expected_draft_revision_id",
@@ -231,11 +240,17 @@ async def save_blueprint_draft(course_id: str, request: BlueprintDraftRequest):
     draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
     impact = analyze_blueprint_impact(course, draft)
     draft["impact_report"] = impact
-    saved = await run_in_threadpool(course_version_repository.save_draft, course_id, draft)
-    if request.adjustment_proposal_id:
+    saved = await run_in_threadpool(
+        course_version_repository.save_draft,
+        course_id,
+        draft,
+        actor=resolve_user_id(request.headers.get("X-User-Id")),
+        operation="ai_apply" if body.adjustment_proposal_id else "save",
+    )
+    if body.adjustment_proposal_id:
         logger.info(
             "outline_adjustment_applied proposal_id=%s draft_revision_id=%s",
-            request.adjustment_proposal_id,
+            body.adjustment_proposal_id,
             draft["draft_revision_id"],
         )
     return {
@@ -308,6 +323,62 @@ async def discard_blueprint_draft(course_id: str):
     await get_course_or_404(course_id)
     await run_in_threadpool(course_version_repository.delete_draft, course_id)
     return {"status": "discarded"}
+
+
+@router.get("/blueprint/draft/versions")
+async def list_blueprint_draft_versions(course_id: str):
+    await get_course_or_404(course_id)
+    return {
+        "status": "success",
+        "versions": await run_in_threadpool(
+            course_version_repository.list_draft_versions,
+            course_id,
+        ),
+    }
+
+
+@router.post("/blueprint/draft/versions/{history_entry_id}/restore")
+async def restore_blueprint_draft_version(
+    course_id: str,
+    body: RestoreBlueprintDraftRequest,
+    request: Request,
+    history_entry_id: str = Path(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9._-]+$"),
+):
+    course = await _course_for_blueprint(course_id)
+    try:
+        restored = await run_in_threadpool(
+            course_version_repository.restore_draft_version,
+            course_id,
+            history_entry_id,
+            expected_draft_revision_id=body.expected_draft_revision_id,
+            expected_base_blueprint_revision_id=blueprint_revision_id(course),
+            actor=resolve_user_id(request.headers.get("X-User-Id")),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CourseVersionConflict as exc:
+        base_changed = "blueprint has changed" in str(exc).lower()
+        raise HTTPException(status_code=409, detail={
+            "code": "blueprint_history_base_conflict" if base_changed else "draft_revision_conflict",
+            "message": (
+                "正式大纲已更新，这个历史版本不能直接恢复。"
+                if base_changed
+                else "大纲已在其他页面修改，请重新载入后再恢复。"
+            ),
+        }) from exc
+    current_revision = blueprint_revision_id(course)
+    if str(restored.get("base_blueprint_revision_id") or "") != current_revision:
+        raise HTTPException(status_code=409, detail={
+            "code": "blueprint_history_base_conflict",
+            "message": "正式大纲已更新，这个历史版本不能直接恢复。",
+        })
+    impact = analyze_blueprint_impact(course, restored)
+    return {
+        "status": "success",
+        "draft": restored,
+        "impact_report": impact,
+        "quality_report": restored.get("course_outline_quality_report") or {},
+    }
 
 
 @router.get("/blueprint/revisions/{revision_id}")

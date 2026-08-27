@@ -65,7 +65,13 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
         template: '<section data-testid="inline-outline-editor" :data-mode="editable ? \'edit\' : \'view\'" :data-variant="variant"><button type="button" @click="$emit(\'confirmed\')">确认</button></section>',
         emits: ['confirmed'],
         setup(_props: unknown, { expose }: any) {
-          expose({ finishEditing: outlineFinishEditing })
+          expose({
+            finishEditing: outlineFinishEditing,
+            confirmOutline: vi.fn(async () => true),
+            requestAiCandidate: vi.fn(async () => null),
+            resolveAiCandidate: vi.fn(async () => true),
+            focusAiCandidate: vi.fn(async () => undefined),
+          })
           return {}
         },
       },
@@ -113,7 +119,22 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.generation-surface>header').text()).toContain('正在展开各章小节')
   })
 
-  it('大纲进入待确认后保留同一展示区并直接成为编辑画布', async () => {
+  it('大纲失败后的重试沿用原任务检查点，不新建重复课程', async () => {
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-failed', 'course-1', 'C 语言程序设计')
+    task.status = 'error'
+    task.error = 'AI provider unavailable: authentication_failed'
+    const resume = vi.spyOn(generation, 'resumeTask').mockResolvedValue(undefined)
+
+    const wrapper = mountWorkbench()
+    await wrapper.get('.workbench-error button').trigger('click')
+    await flushPromises()
+
+    expect(resume).toHaveBeenCalledWith('course-1', 'job-failed')
+    expect(wrapper.emitted('generateOutline')).toBeUndefined()
+  })
+
+  it('大纲进入待确认后先展示正式文档，由老师主动进入编辑', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -134,14 +155,15 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('课程大纲已生成')
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('已保存完整章节结构')
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
     expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
-    expect(wrapper.get('[data-testid="outline-ai-action"]').text()).toContain('AI 助手')
-    expect(wrapper.find('[data-testid="outline-manual-action"]').exists()).toBe(false)
-    expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
+    expect(wrapper.find('[data-testid="outline-ai-action"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="outline-manual-action"]').text()).toContain('编辑大纲')
+    await wrapper.get('[data-testid="outline-manual-action"]').trigger('click')
+    expect(wrapper.emitted('update:outlineEditing')?.[0]).toEqual([true])
   })
 
-  it('正式大纲首屏可直接在稳定右栏打开 AI 编辑工作区', async () => {
+  it('正式大纲只保留稳定右栏的 AI 入口', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1章 程序环境与基础语法', node_level: 1,
@@ -150,9 +172,11 @@ describe('teacher course workbench outline streaming', () => {
     ] as any
 
     const wrapper = mountWorkbench()
+    await flushPromises()
 
-    const aiAction = wrapper.get('[data-testid="outline-ai-action"]')
-    expect(aiAction.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="outline-ai-action"]').exists()).toBe(false)
+    const aiAction = wrapper.get('.context-pane-tabs button:first-child')
+    expect(aiAction.text()).toContain('AI 助手')
     await aiAction.trigger('click')
 
     expect(wrapper.get('.teacher-workbench').classes()).not.toContain('is-ai-collaboration')
@@ -184,7 +208,7 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench()
 
     expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
   })
 
@@ -200,7 +224,7 @@ describe('teacher course workbench outline streaming', () => {
     reactiveTask.phaseDetail = { artifact_type: 'course_outline_ready' }
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
+    expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('view')
     expect(wrapper.find('form.stage-form').exists()).toBe(false)
   })
 
@@ -491,6 +515,40 @@ describe('teacher course workbench outline streaming', () => {
 
     expect(confirmScript).toHaveBeenCalledWith('course-1', 'L1-1', 'script-1')
     expect(wrapper.get('.stage-rail button.active').text()).toContain('讲稿')
+  })
+
+  it('旧质量规则阻断讲稿确认时提供重新生成入口', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45,
+      sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程' }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+      },
+      script: {
+        current_revision_id: 'script-old', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: true, confirmed: false, confirmed_at: '', publication_eligible: false,
+        quality_report: { blocking_issues: [{ code: 'quality_contract_stale', message: '旧质量规则' }] },
+        sections: [{ section_node_id: 'L2-1-1', title: '1.1 程序运行过程', content: '旧讲稿正文' }],
+      },
+      plan: {
+        lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: 'current', ppt_assets: [],
+        revisions: [{ revision_id: 'plan-1', lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', generation_source: 'model', status: 'confirmed', warnings: [], plan: {}, actor: 'teacher', created_at: '' }],
+      },
+    }] as any
+
+    const generateScript = vi.spyOn(lessonStore, 'generateScript').mockResolvedValue({ id: 'script-job-new' } as any)
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+
+    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('重新生成本讲讲稿')
+    expect(wrapper.get('.lesson-document-toolbar .primary-action').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('.lesson-document-toolbar .primary-action').attributes('title')).toContain('旧质量规则')
+    await wrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
+    await flushPromises()
+    expect(generateScript).toHaveBeenCalledWith('course-1', 'L1-1', '', [], '')
   })
 
   it('大章目录以浮层按需展开，小节在正文顶部横向切换', async () => {

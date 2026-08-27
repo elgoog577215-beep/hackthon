@@ -564,6 +564,16 @@ def historical_questions_for_node(
     node_id: str,
 ) -> list[dict[str, Any]]:
     """Collect prior frozen questions for one node without crossing objectives."""
+    ignored_node_ids = {
+        str(value)
+        for value in course_data.get(
+            "_assessment_ignore_historical_question_node_ids",
+            [],
+        )
+        if str(value).strip()
+    }
+    if str(node_id) in ignored_node_ids:
+        return []
     pools: list[Any] = [
         (course_data.get("learning_assets") or {}).get("questions"),
         (course_data.get("question_bank") or {}).get("items"),

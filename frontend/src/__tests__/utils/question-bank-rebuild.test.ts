@@ -232,8 +232,13 @@ describe('runQuestionBankRebuild', () => {
   })
 
   it('returns null when the course has no active rebuild', async () => {
-    get.mockRejectedValue({
-      response: { status: 404 },
+    get.mockResolvedValue({
+      data: {
+        schema_version: 'question_bank_rebuild_active_v1',
+        status: 'idle',
+        active: false,
+        job: null,
+      },
     })
 
     await expect(

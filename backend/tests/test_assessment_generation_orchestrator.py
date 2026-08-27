@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from dataclasses import replace
 
 import pytest
 
@@ -11,6 +12,8 @@ from assessment_orchestrator import (
     AssessmentGenerationOrchestrator,
     UniversalAssessmentModel,
     _batch_generation_prompt,
+    _batch_repair_prompt,
+    _repair_prompt,
     _SemanticEvaluationBatcher,
 )
 from assessment_generation_policy import (
@@ -847,6 +850,55 @@ async def test_semantic_batcher_coalesces_two_open_reviews():
     assert audit["call_timings"][0]["batch_size"] == 2
 
 
+async def test_semantic_batcher_recovers_when_flush_timer_is_lost(
+    monkeypatch,
+):
+    monkeypatch.setenv(
+        "ASSESSMENT_BATCH_FUTURE_GRACE_SECONDS",
+        "0.01",
+    )
+    model = BatchRepairingModel()
+    audit = {
+        "semantic_evaluation_calls": 0,
+        "batch_semantic_evaluation_calls": 0,
+        "batch_semantic_fallback_count": 0,
+        "call_timings": [],
+    }
+    base_policy = resolve_assessment_generation_policy("complete")
+    policy = replace(
+        base_policy,
+        stage_timeouts={
+            **base_policy.stage_timeouts,
+            "review": 0.02,
+        },
+    )
+    batcher = _SemanticEvaluationBatcher(
+        model=model,
+        audit=audit,
+        max_wait_seconds=0.01,
+        generation_policy=policy,
+    )
+    review = asyncio.create_task(batcher.evaluate(
+        contract={
+            "question_spec": {
+                "task": {"rendered_text": "open-lost-timer"},
+            },
+        },
+        independent={"answer": {"confidence": 0.95}, "checks": []},
+        objective={"objective_id": "objective-1"},
+        slot={"slot_id": "open-lost-timer"},
+    ))
+    await asyncio.sleep(0)
+    assert batcher._timer is not None
+    batcher._timer.cancel()
+
+    report = await asyncio.wait_for(review, timeout=0.5)
+
+    assert report["passed"] is True
+    assert audit["batch_semantic_fallback_count"] == 1
+    assert audit["semantic_evaluation_calls"] == 1
+
+
 async def test_solver_format_retry_keeps_generated_candidate():
     model = FlakySolverBatchModel()
 
@@ -1288,6 +1340,30 @@ def test_compact_batch_prompt_deduplicates_shared_course_context() -> None:
     assert prompt.count(shared_marker) == 1
     for index in range(3):
         assert prompt.count(f"slot-{index}") == 1
+
+
+def test_repair_prompts_preserve_non_choice_input_contract() -> None:
+    context = {
+        "assessment_slot": {
+            "slot_id": "slot-structured",
+            "question_form": "structured",
+            "input_mode": "structured_fields",
+        },
+    }
+    quality_report = {
+        "issues": [{"code": "DISTRACTOR_NOT_SAME_QUESTION"}],
+    }
+
+    single = _repair_prompt(context, {}, quality_report)
+    batch = _batch_repair_prompt([{
+        "slot_id": "slot-structured",
+        "context": context,
+        "candidate": {},
+        "quality_report": quality_report,
+    }])
+
+    assert "结构化作答题：options 必须为空数组" in single
+    assert "结构化作答题：options 必须为空数组" in batch
 
 
 async def test_complete_profile_keeps_repairs_bounded():

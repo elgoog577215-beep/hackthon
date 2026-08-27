@@ -115,7 +115,7 @@
             </div>
             <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
           </header>
-          <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" />
+          <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" @input="recordEditSnapshot" />
         </section>
       </div>
       <textarea
@@ -123,8 +123,10 @@
         v-model="drafts[selectedNode.section_node_id]"
         rows="24"
         :aria-label="selectedNode.title"
+        @input="recordEditSnapshot"
       />
       <div v-else-if="pendingCandidate && visibleContent" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
+        <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>AI 修改</strong><span>{{ selectedNode.title }}</span></aside>
         <MarkdownRenderer :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="visibleContent" />
       </div>
       <div v-else-if="selectedNode.blocks?.length" class="script-modules">
@@ -172,6 +174,7 @@ import { Check, LoaderCircle, Pencil, Sparkles, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import TextSelectionAiAction from './TextSelectionAiAction.vue'
+import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
 import type { TeacherLessonJob, TeacherLessonProjection, TeacherLessonScriptCandidate, TeacherLessonScriptState } from '../stores/teacherLessonAuthoring'
@@ -230,6 +233,13 @@ const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
 const generationRequirement = ref('')
+type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
+const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
+  Object.keys(drafts).forEach(key => { delete drafts[key] })
+  Object.keys(blockDrafts).forEach(key => { delete blockDrafts[key] })
+  Object.assign(drafts, snapshot.drafts)
+  Object.assign(blockDrafts, snapshot.blockDrafts)
+})
 
 const documentError = computed(() => {
   if (saveError.value) return toAppError(saveError.value, {
@@ -380,6 +390,7 @@ function beginEditing() {
     drafts[node.section_node_id] = node.content || ''
     node.blocks?.forEach(block => { blockDrafts[block.block_id] = block.content || '' })
   })
+  editHistory.reset({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
   editing.value = true
   saveError.value = null
 }
@@ -389,6 +400,13 @@ function cancelEditing() {
   saveError.value = null
   Object.keys(drafts).forEach(key => { delete drafts[key] })
   Object.keys(blockDrafts).forEach(key => { delete blockDrafts[key] })
+  editHistory.clear()
+}
+
+function recordEditSnapshot() {
+  queueMicrotask(() => {
+    if (editing.value) editHistory.record({ drafts: { ...drafts }, blockDrafts: { ...blockDrafts } })
+  })
 }
 
 async function saveDraft() {
@@ -545,6 +563,10 @@ defineExpose({
   beginEditing,
   cancelEditing,
   saveDraft,
+  canUndo: editHistory.canUndo,
+  canRedo: editHistory.canRedo,
+  undoEdit: editHistory.undo,
+  redoEdit: editHistory.redo,
 })
 </script>
 
@@ -556,6 +578,7 @@ defineExpose({
 .script-status-notice{display:grid;gap:3px;margin:14px 28px 0;padding:11px 13px;border:1px solid #d8dff0;border-radius:8px;color:#4b5870;background:#f8faff;font-size:12px;line-height:1.55}.script-status-notice strong{color:#29334a;font-size:12px}.script-status-notice[data-state="blocked"]{border-color:#efd2a8;background:#fff9ef}.script-status-notice[data-state="blocked"] strong{color:#9a4c0c}.script-status-notice[data-state="ready"]{border-color:#cce4d5;background:#f5fbf7}.script-status-notice[data-state="ready"] strong{color:#276749}
 @media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.script-footer{padding-inline:18px}}
 .script-content[data-state="candidate"]{border:1px solid #c8c7f2;background:#f8f8ff;outline:0}.script-content[data-state="candidate"]:focus{box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-tabs button:disabled{opacity:.45;cursor:not-allowed}
+.script-ai-change-bubble{width:max-content;max-width:100%;display:flex;align-items:center;gap:6px;margin:-3px 0 14px;padding:5px 9px;border:1px solid #c8c7f2;border-radius:999px;color:#4338ca;background:#fff;box-shadow:0 4px 12px rgba(67,56,202,.08);font-size:10px}.script-ai-change-bubble strong{font-size:10px}.script-ai-change-bubble span{overflow:hidden;color:#667085;text-overflow:ellipsis;white-space:nowrap}
 .script-document,.script-generation-panel{background:var(--teacher-component-surface,#fff)}
 .script-ai,.script-footer{background:var(--teacher-component-tint,#f7f7ff)}
 .script-actions button:hover,.script-generate textarea:disabled{background:var(--teacher-component-tint,#f7f7ff)}

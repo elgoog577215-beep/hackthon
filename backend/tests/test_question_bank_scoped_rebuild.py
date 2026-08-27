@@ -118,6 +118,30 @@ def test_scoped_rebuild_preserves_unselected_nodes_and_private_solutions():
     }
 
 
+def test_full_scoped_rebuild_retires_outgoing_global_assessment():
+    outgoing = _item(
+        "old-final",
+        "node-a",
+        status="needs_review",
+        practice_level="final_assessment",
+    )
+    outgoing["assessment_role"] = "cross_chapter_transfer"
+    previous = _bundle([outgoing])
+    rebuilt = _bundle([_item("new-practice", "node-a")])
+
+    merged = reconcile_scoped_question_bank(
+        previous,
+        rebuilt,
+        node_ids=["node-a"],
+        preserve_reviewed=False,
+        preserve_global_assessments=False,
+    )
+
+    by_id = {item["item_id"]: item for item in merged["items"]}
+    assert by_id["new-practice"]["lifecycle_status"] == "approved"
+    assert by_id["old-final"]["lifecycle_status"] == "retired"
+
+
 def test_scoped_rebuild_replaces_only_failed_practice_level():
     previous = _bundle([
         _item("old-concept", "node-a", practice_level="concept_check"),

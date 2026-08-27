@@ -302,28 +302,226 @@
           </section>
           </div>
 
-          <nav class="outline-view-switch" :aria-label="t('courseGeneration.outlineReview.viewSwitch', '大纲视图')">
-            <button
-              type="button"
-              :class="{ active: viewMode === 'document' }"
-              :aria-pressed="viewMode === 'document'"
-              @click="viewMode = 'document'"
-            >
-              <FileText :size="14" />
-              {{ t('courseGeneration.outlineReview.documentView', '正式大纲') }}
-            </button>
-            <button
-              type="button"
-              :class="{ active: viewMode === 'structure' }"
-              :aria-pressed="viewMode === 'structure'"
-              @click="viewMode = 'structure'"
-            >
-              <ListTree :size="14" />
-              {{ t('courseGeneration.outlineReview.structureView', '课程结构') }}
-            </button>
-          </nav>
+          <div
+            v-if="editable"
+            class="outline-document-toolbar"
+            :class="{ 'is-locked': Boolean(adjustmentProposal) }"
+            role="toolbar"
+            :aria-label="t('courseGeneration.outlineReview.editorToolbar', '大纲编辑工具栏')"
+          >
+            <div class="outline-editor-modes" :aria-label="t('courseGeneration.outlineReview.editorMode', '编辑方式')">
+              <button
+                type="button"
+                :class="{ 'is-active': editorMode === 'visual' }"
+                :aria-pressed="editorMode === 'visual'"
+                @click="setEditorMode('visual')"
+              >
+                <FileType2 :size="15" />{{ t('courseGeneration.outlineReview.visualMode', '文档') }}
+              </button>
+              <button
+                type="button"
+                :class="{ 'is-active': editorMode === 'markdown' }"
+                :aria-pressed="editorMode === 'markdown'"
+                @click="setEditorMode('markdown')"
+              >
+                <Braces :size="15" />Markdown
+              </button>
+            </div>
 
-          <article v-if="viewMode === 'document' && blueprintNodes.length" class="formal-outline" data-testid="formal-outline-document">
+            <template v-if="editorMode === 'visual'">
+              <i aria-hidden="true" />
+              <div class="outline-document-toolbar__group outline-document-toolbar__history">
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('common.undo', '撤销')" @mousedown.prevent="runEditorCommand('undo')">
+                  <Undo2 :size="16" /><span>{{ t('common.undo', '撤销') }}</span>
+                </button>
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('common.redo', '重做')" @mousedown.prevent="runEditorCommand('redo')">
+                  <Redo2 :size="16" /><span>{{ t('common.redo', '重做') }}</span>
+                </button>
+              </div>
+              <label class="outline-block-style">
+                <span>{{ t('courseGeneration.outlineReview.textStyle', '文字样式') }}</span>
+                <select :disabled="adjustmentBusy" :aria-label="t('courseGeneration.outlineReview.textStyle', '文字样式')" @change="applyEditorBlockStyle">
+                  <option value="p">{{ t('courseGeneration.outlineReview.bodyText', '正文') }}</option>
+                  <option value="h2">{{ t('courseGeneration.outlineReview.chapterHeading', '章标题') }}</option>
+                  <option value="h3">{{ t('courseGeneration.outlineReview.sectionHeading', '小节标题') }}</option>
+                </select>
+              </label>
+              <i aria-hidden="true" />
+              <div class="outline-document-toolbar__group">
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('courseGeneration.outlineReview.bold', '加粗')" @mousedown.prevent="runEditorCommand('bold')">
+                  <Bold :size="16" /><span>{{ t('courseGeneration.outlineReview.bold', '加粗') }}</span>
+                </button>
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('courseGeneration.outlineReview.italic', '斜体')" @mousedown.prevent="runEditorCommand('italic')">
+                  <Italic :size="16" /><span>{{ t('courseGeneration.outlineReview.italic', '斜体') }}</span>
+                </button>
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('courseGeneration.outlineReview.underline', '下划线')" @mousedown.prevent="runEditorCommand('underline')">
+                  <Underline :size="16" /><span>{{ t('courseGeneration.outlineReview.underline', '下划线') }}</span>
+                </button>
+              </div>
+              <i aria-hidden="true" />
+              <div class="outline-document-toolbar__group">
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('courseGeneration.outlineReview.bulletList', '项目符号')" @mousedown.prevent="runEditorCommand('insertUnorderedList')">
+                  <List :size="16" /><span>{{ t('courseGeneration.outlineReview.bulletList', '项目符号') }}</span>
+                </button>
+                <button class="format-icon" type="button" :disabled="adjustmentBusy" :title="t('courseGeneration.outlineReview.numberedList', '编号')" @mousedown.prevent="runEditorCommand('insertOrderedList')">
+                  <ListOrdered :size="16" /><span>{{ t('courseGeneration.outlineReview.numberedList', '编号') }}</span>
+                </button>
+              </div>
+              <div ref="moreControlRef" class="outline-toolbar-control">
+                <button
+                  type="button"
+                  class="outline-menu-trigger"
+                  :class="{ 'is-active': moreMenuOpen }"
+                  :disabled="adjustmentBusy"
+                  aria-haspopup="menu"
+                  :aria-expanded="moreMenuOpen"
+                  @mousedown.prevent="toggleMoreMenu"
+                >
+                  <MoreHorizontal :size="16" />{{ t('courseGeneration.outlineReview.moreFormatting', '更多格式') }}<ChevronDown :size="13" />
+                </button>
+                <div v-if="moreMenuOpen" class="outline-format-menu" role="menu">
+                  <section>
+                    <span>{{ t('courseGeneration.outlineReview.alignment', '段落对齐') }}</span>
+                    <div>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.alignLeft', '左对齐')" @mousedown.prevent="applyEditorAlignment('left')"><AlignLeft :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.alignCenter', '居中')" @mousedown.prevent="applyEditorAlignment('center')"><AlignCenter :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.alignRight', '右对齐')" @mousedown.prevent="applyEditorAlignment('right')"><AlignRight :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.alignJustify', '两端对齐')" @mousedown.prevent="applyEditorAlignment('justify')"><AlignJustify :size="17" /></button>
+                    </div>
+                  </section>
+                  <section>
+                    <span>{{ t('courseGeneration.outlineReview.paragraph', '段落') }}</span>
+                    <div>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.decreaseIndent', '减少缩进')" @mousedown.prevent="adjustEditorIndent(-1)"><IndentDecrease :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.increaseIndent', '增加缩进')" @mousedown.prevent="adjustEditorIndent(1)"><IndentIncrease :size="17" /></button>
+                    </div>
+                  </section>
+                  <section>
+                    <span>{{ t('courseGeneration.outlineReview.character', '字符') }}</span>
+                    <div>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.strikethrough', '删除线')" @mousedown.prevent="runEditorCommand('strikeThrough')"><Strikethrough :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.superscript', '上标')" @mousedown.prevent="runEditorCommand('superscript')"><Superscript :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.subscript', '下标')" @mousedown.prevent="runEditorCommand('subscript')"><Subscript :size="17" /></button>
+                      <button type="button" role="menuitem" :title="t('courseGeneration.outlineReview.highlight', '高亮')" @mousedown.prevent="highlightEditorSelection"><Highlighter :size="17" /></button>
+                    </div>
+                  </section>
+                  <button type="button" class="outline-format-menu__clear" role="menuitem" @mousedown.prevent="clearEditorFormatting">
+                    <RemoveFormatting :size="16" />{{ t('courseGeneration.outlineReview.clearFormatting', '清除格式') }}
+                  </button>
+                  <small class="outline-format-menu__count">{{ t('courseGeneration.outlineReview.characterCount', '{count} 字').replace('{count}', String(editorCharacterCount)) }}</small>
+                </div>
+              </div>
+              <div ref="insertControlRef" class="outline-insert-control">
+                <button
+                  type="button"
+                  class="outline-insert-trigger"
+                  :class="{ 'is-active': insertMenuOpen }"
+                  :disabled="adjustmentBusy"
+                  aria-haspopup="menu"
+                  :aria-expanded="insertMenuOpen"
+                  @mousedown.prevent="toggleInsertMenu"
+                >
+                  <Plus :size="15" />{{ t('courseGeneration.outlineReview.insert', '插入') }}<ChevronDown :size="13" />
+                </button>
+                <div v-if="insertMenuOpen" class="outline-insert-menu" role="menu">
+                  <button type="button" role="menuitem" @mousedown.prevent="insertEditorTable">
+                    <Table2 :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertTable', '表格') }}</strong><small>3 × 3</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="insertEditorDiagram">
+                    <ChartNoAxesCombined :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertDiagram', '流程图') }}</strong><small>{{ t('courseGeneration.outlineReview.insertDiagramHelp', 'Markdown 中实时预览') }}</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="openInsertPrompt('formula')">
+                    <Sigma :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertFormula', '公式') }}</strong><small>{{ t('courseGeneration.outlineReview.insertFormulaHelp', '支持 LaTeX') }}</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="openInsertPrompt('link')">
+                    <Link2 :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertLink', '链接') }}</strong><small>{{ t('courseGeneration.outlineReview.insertLinkHelp', '选中文字后添加') }}</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="openInsertPrompt('image')">
+                    <ImagePlus :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertImage', '图片') }}</strong><small>{{ t('courseGeneration.outlineReview.insertImageHelp', '通过图片地址插入') }}</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="insertEditorBlock('blockquote')">
+                    <Quote :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertQuote', '引用') }}</strong><small>{{ t('courseGeneration.outlineReview.insertQuoteHelp', '重点说明') }}</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="insertEditorBlock('pre')">
+                    <Code2 :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertCode', '代码块') }}</strong><small>{{ t('courseGeneration.outlineReview.insertCodeHelp', '程序代码') }}</small></span>
+                  </button>
+                  <button type="button" role="menuitem" @mousedown.prevent="insertEditorDivider">
+                    <Minus :size="17" /><span><strong>{{ t('courseGeneration.outlineReview.insertDivider', '分隔线') }}</strong><small>{{ t('courseGeneration.outlineReview.insertDividerHelp', '划分内容段落') }}</small></span>
+                  </button>
+                </div>
+                <form v-if="insertPrompt" class="outline-insert-prompt" @submit.prevent="confirmInsertPrompt">
+                  <label>
+                    <span>{{ insertPrompt === 'formula'
+                      ? t('courseGeneration.outlineReview.formulaSource', 'LaTeX 公式')
+                      : insertPrompt === 'link'
+                        ? t('courseGeneration.outlineReview.linkAddress', '链接地址')
+                        : t('courseGeneration.outlineReview.imageAddress', '图片地址') }}</span>
+                    <input
+                      ref="insertUrlInputRef"
+                      v-model="insertUrl"
+                      :type="insertPrompt === 'formula' ? 'text' : 'url'"
+                      :inputmode="insertPrompt === 'formula' ? 'text' : 'url'"
+                      required
+                      :placeholder="insertPrompt === 'formula' ? 'E = mc^2' : 'https://'"
+                    />
+                  </label>
+                  <div>
+                    <button type="button" @click="closeInsertControls">{{ t('common.cancel', '取消') }}</button>
+                    <button type="submit" class="primary">{{ t('courseGeneration.outlineReview.insertNow', '插入') }}</button>
+                  </div>
+                </form>
+              </div>
+              <div ref="findControlRef" class="outline-toolbar-control outline-find-control">
+                <button
+                  type="button"
+                  class="outline-menu-trigger outline-find-trigger"
+                  :class="{ 'is-active': findPanelOpen }"
+                  :disabled="adjustmentBusy"
+                  :aria-expanded="findPanelOpen"
+                  @mousedown.prevent="toggleFindPanel"
+                >
+                  <Search :size="15" />{{ t('courseGeneration.outlineReview.find', '查找') }}
+                </button>
+                <form v-if="findPanelOpen" class="outline-find-panel" @submit.prevent="stepFindMatch(1)">
+                  <label>
+                    <span>{{ t('courseGeneration.outlineReview.findText', '查找内容') }}</span>
+                    <div>
+                      <Search :size="15" />
+                      <input
+                        ref="findInputRef"
+                        v-model="findQuery"
+                        type="search"
+                        :placeholder="t('courseGeneration.outlineReview.findPlaceholder', '输入要查找的文字')"
+                        @input="refreshFindMatches(true)"
+                        @keydown.enter.prevent="stepFindMatch($event.shiftKey ? -1 : 1)"
+                        @keydown.esc.prevent="closeFindPanel"
+                      />
+                      <small>{{ findMatchCount ? `${findMatchIndex + 1}/${findMatchCount}` : '0/0' }}</small>
+                    </div>
+                  </label>
+                  <div class="outline-find-panel__navigation">
+                    <button type="button" :disabled="!findMatchCount" :title="t('courseGeneration.outlineReview.previousMatch', '上一个')" @click="stepFindMatch(-1)"><ChevronUp :size="15" /></button>
+                    <button type="button" :disabled="!findMatchCount" :title="t('courseGeneration.outlineReview.nextMatch', '下一个')" @click="stepFindMatch(1)"><ChevronDown :size="15" /></button>
+                  </div>
+                  <label>
+                    <span>{{ t('courseGeneration.outlineReview.replaceWith', '替换为') }}</span>
+                    <div><Replace :size="15" /><input v-model="replaceQuery" type="text" /></div>
+                  </label>
+                  <div class="outline-find-panel__actions">
+                    <button type="button" :disabled="!findMatchCount" @click="replaceCurrentMatch">{{ t('courseGeneration.outlineReview.replace', '替换') }}</button>
+                    <button type="button" :disabled="!findMatchCount" @click="replaceAllMatches">{{ t('courseGeneration.outlineReview.replaceAll', '全部替换') }}</button>
+                  </div>
+                </form>
+              </div>
+            </template>
+            <p v-else class="outline-markdown-guide">
+              <Heading2 :size="14" />## {{ t('courseGeneration.outlineReview.chapterHeading', '章标题') }}
+              <span>·</span>
+              <Heading3 :size="14" />### {{ t('courseGeneration.outlineReview.sectionHeading', '小节标题') }}
+            </p>
+          </div>
+
+          <article v-if="blueprintNodes.length" ref="chaptersRef" class="formal-outline" data-testid="formal-outline-document">
             <header class="formal-outline__masthead">
               <div class="formal-outline__kicker">
                 <FileText :size="15" />
@@ -384,280 +582,40 @@
               <footer>{{ t('courseGeneration.outlineReview.qualityNonBlocking', '这些是非阻断建议；原大纲仍可继续编辑和确认。') }}</footer>
             </section>
 
-            <section class="formal-outline__schedule">
-              <header>
-                <div>
-                  <span>{{ t('courseGeneration.outlineReview.scheduleKicker', '教学进度') }}</span>
-                  <h2>{{ t('courseGeneration.outlineReview.scheduleTitle', '章节与学习任务安排') }}</h2>
-                </div>
-                <p>{{ t('courseGeneration.outlineReview.scheduleDescription', '每个小节都对应一项可观察目标与达成检验。') }}</p>
-              </header>
-              <article v-for="(chapter, chapterIndex) in documentChapters" :key="chapter.node_id || chapter.chapter_number || chapterIndex" class="formal-outline__chapter-block">
-                <header>
-                  <span>{{ String(chapterIndex + 1).padStart(2, '0') }}</span>
-                  <div>
-                    <h3>{{ plainOutlineTitle(chapter.title) }}</h3>
-                    <p v-if="chapter.learning_focus || chapter.learning_objective">{{ chapter.learning_focus || chapter.learning_objective }}</p>
-                  </div>
-                  <small>{{ (chapter.sections || []).length }} {{ t('courseWorkbench.form.sectionUnit', '小节') }}</small>
-                </header>
-                <ol>
-                  <li v-for="(section, sectionIndex) in chapter.sections || []" :key="section.node_id || section.section_number || sectionIndex">
-                    <span>{{ section.section_number || `${chapterIndex + 1}.${sectionIndex + 1}` }}</span>
-                    <div>
-                      <h4>{{ plainOutlineTitle(section.title || section.node_name) }}</h4>
-                      <p>{{ section.learning_objective || t('courseGeneration.outlineReview.objectivePending', '学习目标待完善') }}</p>
-                      <p v-if="section.scope_boundary" class="formal-outline__boundary">{{ section.scope_boundary }}</p>
-                      <div v-if="assessmentItems(section.assessment).length" class="formal-outline__assessment">
-                        <strong>{{ t('courseGeneration.outlineReview.assessmentLabel', '达成检验') }}</strong>
-                        <span>{{ assessmentItems(section.assessment).join('；') }}</span>
-                      </div>
-                    </div>
-                  </li>
-                </ol>
-              </article>
+            <section
+              v-if="editorMode === 'visual'"
+              ref="richEditorRef"
+              class="formal-outline__schedule outline-rich-editor"
+              :class="{ 'is-editable': editable }"
+              :contenteditable="editable && !adjustmentBusy && !adjustmentProposal ? 'true' : 'false'"
+              :aria-label="t('courseGeneration.outlineReview.richEditorLabel', '课程大纲正文编辑器')"
+              :aria-readonly="!editable"
+              :spellcheck="editable"
+              data-testid="outline-rich-editor"
+              v-html="outlineEditorHtml"
+              @input="handleRichEditorInput"
+              @blur="syncRichEditorToNodes"
+              @paste="handleRichEditorPaste"
+              @keydown="handleEditorKeydown"
+            />
+            <section v-else class="outline-markdown-workspace" data-testid="outline-markdown-editor">
+              <label class="outline-markdown-pane outline-markdown-pane--source">
+                <span>{{ t('courseGeneration.outlineReview.markdownSource', 'Markdown 源码') }}</span>
+                <textarea
+                  v-model="markdownDraft"
+                  :disabled="adjustmentBusy"
+                  :aria-label="t('courseGeneration.outlineReview.markdownSource', 'Markdown 源码')"
+                  spellcheck="false"
+                  @input="handleMarkdownInput"
+                />
+              </label>
+              <div class="outline-markdown-pane outline-markdown-pane--preview">
+                <span>{{ t('courseGeneration.outlineReview.markdownPreview', '实时预览') }}</span>
+                <MarkdownRenderer class="outline-markdown-preview" :content="markdownDraft" :enable-code-run="false" />
+              </div>
             </section>
           </article>
 
-          <div class="outline-review__chapters" v-show="viewMode === 'structure'" ref="chaptersRef" data-testid="outline-chapter-list">
-            <div class="outline-review__list-toolbar">
-              <strong v-if="!isInline">{{ t('courseGeneration.outlineReview.manualEditTitle', '课程结构') }}</strong>
-              <div class="outline-review__toolbar-actions">
-                <button v-if="!isInline || editable" data-testid="add-outline-chapter" type="button" :disabled="adjustmentBusy" @click="addChapter">
-                  <Plus :size="14" />{{ t('courseGeneration.outlineReview.addChapter', '新增章') }}
-                </button>
-              </div>
-            </div>
-            <section
-              v-for="(group, groupIndex) in outlineGroups"
-              :key="group.key"
-              class="outline-review__chapter"
-              :class="{
-                'outline-review__chapter--ungrouped': !group.chapter,
-                'is-selected': group.chapter && selectedNodeId === String(group.chapter.node.node_id || ''),
-              }"
-            >
-              <header
-                v-if="group.chapter"
-                class="outline-review__chapter-heading"
-                @click.stop="selectOutlineNode(group.chapter.node)"
-                @focusin="selectOutlineNode(group.chapter.node)"
-              >
-                <span v-if="isInline" class="outline-review__chapter-index">{{ String(groupIndex + 1).padStart(2, '0') }}</span>
-                <div v-if="!isInline && group.chapter.node.learning_path_role" class="outline-review__node-meta">
-                  <span :data-role="normalizedPathRole(group.chapter.node.learning_path_role)">
-                    {{ pathRoleLabel(group.chapter.node.learning_path_role) }}
-                  </span>
-                  <p v-if="group.chapter.node.path_reason">{{ group.chapter.node.path_reason }}</p>
-                </div>
-                <div class="outline-review__node-fields">
-                  <input
-                    v-model="group.chapter.node.node_name"
-                    :data-outline-node-id="String(group.chapter.node.node_id || '')"
-                    type="text"
-                    :disabled="adjustmentBusy"
-                    :readonly="isInline && !editable"
-                    :tabindex="isInline && !editable ? -1 : undefined"
-                    :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
-                    @input="invalidateProposal"
-                  />
-                  <p
-                    v-if="'learning_objective' in group.chapter.node && isInline && !editable"
-                    class="outline-review__objective-text"
-                  >{{ group.chapter.node.learning_objective || t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）') }}</p>
-                  <textarea
-                    v-else-if="'learning_objective' in group.chapter.node"
-                    v-model="group.chapter.node.learning_objective"
-                    rows="1"
-                    :disabled="adjustmentBusy"
-                    :readonly="isInline && !editable"
-                    :tabindex="isInline && !editable ? -1 : undefined"
-                    :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
-                    :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
-                    @input="invalidateProposal"
-                  />
-                </div>
-                <div v-if="!isInline || editable" class="outline-review__node-actions">
-                  <button
-                    v-if="selectedNodeId === String(group.chapter.node.node_id || '')"
-                    type="button"
-                    class="outline-review__node-ai"
-                    data-testid="outline-node-ai-action"
-                    :title="t('courseGeneration.outlineReview.aiModifyNode', '让 AI 修改这一块')"
-                    :aria-label="t('courseGeneration.outlineReview.aiModifyChapter', '让 AI 修改本章')"
-                    :disabled="adjustmentBusy || !!adjustmentProposal"
-                    @click.stop="openNodeAi(group.chapter.node)"
-                  ><Sparkles :size="14" /><span>{{ t('courseGeneration.outlineReview.aiModifyShort', 'AI 修改') }}</span></button>
-                  <button type="button" :title="t('courseGeneration.outlineReview.addSection', '新增小节')" :disabled="adjustmentBusy" @click="addSection(group.chapter.node)"><Plus :size="14" /></button>
-                  <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, -1)" @click="moveOutlineNode(group.chapter.node, -1)"><ArrowUp :size="14" /></button>
-                  <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(group.chapter.node, 1)" @click="moveOutlineNode(group.chapter.node, 1)"><ArrowDown :size="14" /></button>
-                  <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeChapter', '删除本章')" :disabled="adjustmentBusy" @click="removeOutlineNode(group.chapter.node)"><Trash2 :size="14" /></button>
-                </div>
-              </header>
-
-              <section
-                v-if="group.chapter && aiTargetNodeId === String(group.chapter.node.node_id || '')"
-                class="outline-review__node-ai-panel"
-                :aria-busy="generatingProposal || applyingProposal"
-                @click.stop
-              >
-                <template v-if="!adjustmentProposal">
-                  <div class="outline-review__node-ai-quick-actions">
-                    <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(group.chapter.node, '优化本章标题和学习目标，使表达更准确、简洁')">{{ t('courseGeneration.outlineReview.aiPolish', '优化表达') }}</button>
-                    <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(group.chapter.node, '细化本章学习目标，使其具体、可观察、可检查')">{{ t('courseGeneration.outlineReview.aiRefineObjective', '细化目标') }}</button>
-                  </div>
-                  <div class="outline-review__node-ai-input">
-                    <Sparkles :size="15" />
-                    <input
-                      v-model="nodeAiInstruction"
-                      type="text"
-                      maxlength="1200"
-                      :disabled="adjustmentBusy || !!adjustmentProposal"
-                      :placeholder="t('courseGeneration.outlineReview.aiNodePlaceholder', '告诉 AI 这一块要怎么改')"
-                      @keydown.enter.prevent="runNodeAi(group.chapter.node)"
-                    />
-                    <button type="button" :disabled="adjustmentBusy || !nodeAiInstruction.trim()" @click="runNodeAi(group.chapter.node)">
-                      <LoaderCircle v-if="generatingProposal" :size="14" />
-                      <ArrowRight v-else :size="14" />
-                      {{ t('courseGeneration.outlineReview.aiGenerate', '生成修改') }}
-                    </button>
-                  </div>
-                </template>
-                <div v-else class="outline-review__node-proposal" data-testid="outline-node-ai-proposal">
-                  <div>
-                    <Sparkles :size="15" /><strong>{{ t('courseGeneration.outlineReview.aiProposal', 'AI 修改建议') }}</strong><span>{{ adjustmentProposal.summary }}</span>
-                    <small v-if="adjustmentProposal.blocking_issues?.length" role="alert">{{ adjustmentProposal.blocking_issues[0].message }}</small>
-                  </div>
-                  <div v-if="nodeProposalChanges(String(group.chapter.node.node_id || '')).length" class="outline-review__node-diff">
-                    <div v-for="change in nodeProposalChanges(String(group.chapter.node.node_id || ''))" :key="change.field">
-                      <strong>{{ change.label }}</strong>
-                      <del>{{ proposalValue(change.before) }}</del>
-                      <ArrowRight :size="13" />
-                      <ins>{{ proposalValue(change.after) }}</ins>
-                    </div>
-                  </div>
-                  <div class="outline-review__node-proposal-actions">
-                    <button type="button" :disabled="applyingProposal" @click="cancelAdjustmentProposal">{{ t('courseGeneration.outlineReview.proposalCancel', '放弃') }}</button>
-                    <button type="button" class="primary" :disabled="applyingProposal || !adjustmentProposal.can_apply" @click="applyAdjustmentProposal">
-                      <LoaderCircle v-if="applyingProposal" :size="14" />
-                      {{ applyingProposal ? t('courseGeneration.outlineReview.proposalApplying', '正在采用') : t('courseGeneration.outlineReview.applyNodeProposal', '采用修改') }}
-                    </button>
-                  </div>
-                </div>
-              </section>
-
-              <div v-if="group.sections.length" class="outline-review__section-list">
-                <article
-                  v-for="(item, sectionIndex) in group.sections"
-                  :key="item.node.node_id || item.index"
-                  class="outline-review__section"
-                  :class="{ 'is-selected': selectedNodeId === String(item.node.node_id || '') }"
-                  @click.stop="selectOutlineNode(item.node)"
-                  @focusin="selectOutlineNode(item.node)"
-                >
-                  <span v-if="isInline" class="outline-review__section-index">{{ groupIndex + 1 }}.{{ sectionIndex + 1 }}</span>
-                  <div v-if="!isInline && item.node.learning_path_role" class="outline-review__node-meta">
-                    <span :data-role="normalizedPathRole(item.node.learning_path_role)">
-                      {{ pathRoleLabel(item.node.learning_path_role) }}
-                    </span>
-                    <p v-if="item.node.path_reason">{{ item.node.path_reason }}</p>
-                  </div>
-                  <div class="outline-review__node-fields">
-                  <input
-                    v-model="item.node.node_name"
-                    :data-outline-node-id="String(item.node.node_id || '')"
-                    type="text"
-                      :disabled="adjustmentBusy"
-                      :readonly="isInline && !editable"
-                      :tabindex="isInline && !editable ? -1 : undefined"
-                      :aria-label="t('courseTasks.blueprint.nodeName', '章节名称')"
-                      @input="invalidateProposal"
-                    />
-                    <p
-                      v-if="isInline && !editable"
-                      class="outline-review__objective-text"
-                    >{{ item.node.learning_objective || t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）') }}</p>
-                    <textarea
-                      v-else
-                      v-model="item.node.learning_objective"
-                      rows="1"
-                      :disabled="adjustmentBusy"
-                      :readonly="isInline && !editable"
-                      :tabindex="isInline && !editable ? -1 : undefined"
-                      :placeholder="t('courseGeneration.outlineReview.objectivePlaceholder', '学习目标（可选）')"
-                      :aria-label="t('courseTasks.blueprint.objective', '学习目标')"
-                      @input="invalidateProposal"
-                    />
-                  </div>
-                  <div v-if="!isInline || editable" class="outline-review__node-actions">
-                    <button
-                      v-if="selectedNodeId === String(item.node.node_id || '')"
-                      type="button"
-                      class="outline-review__node-ai"
-                      data-testid="outline-node-ai-action"
-                      :title="t('courseGeneration.outlineReview.aiModifyNode', '让 AI 修改这一块')"
-                      :aria-label="t('courseGeneration.outlineReview.aiModifySection', '让 AI 修改本小节')"
-                      :disabled="adjustmentBusy || !!adjustmentProposal"
-                      @click.stop="openNodeAi(item.node)"
-                    ><Sparkles :size="14" /><span>{{ t('courseGeneration.outlineReview.aiModifyShort', 'AI 修改') }}</span></button>
-                    <button type="button" :title="t('courseGeneration.outlineReview.moveUp', '上移')" :disabled="adjustmentBusy || !canMoveNode(item.node, -1)" @click="moveOutlineNode(item.node, -1)"><ArrowUp :size="14" /></button>
-                    <button type="button" :title="t('courseGeneration.outlineReview.moveDown', '下移')" :disabled="adjustmentBusy || !canMoveNode(item.node, 1)" @click="moveOutlineNode(item.node, 1)"><ArrowDown :size="14" /></button>
-                    <button type="button" class="danger" :title="t('courseGeneration.outlineReview.removeSection', '删除小节')" :disabled="adjustmentBusy" @click="removeOutlineNode(item.node)"><Trash2 :size="14" /></button>
-                  </div>
-                  <section
-                    v-if="aiTargetNodeId === String(item.node.node_id || '')"
-                    class="outline-review__node-ai-panel"
-                    :aria-busy="generatingProposal || applyingProposal"
-                    @click.stop
-                  >
-                    <template v-if="!adjustmentProposal">
-                      <div class="outline-review__node-ai-quick-actions">
-                        <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(item.node, '优化本小节标题和学习目标，使表达更准确、简洁')">{{ t('courseGeneration.outlineReview.aiPolish', '优化表达') }}</button>
-                        <button type="button" :disabled="adjustmentBusy" @click="runNodeAiPreset(item.node, '细化本小节学习目标，使其具体、可观察、可检查')">{{ t('courseGeneration.outlineReview.aiRefineObjective', '细化目标') }}</button>
-                      </div>
-                      <div class="outline-review__node-ai-input">
-                        <Sparkles :size="15" />
-                        <input
-                          v-model="nodeAiInstruction"
-                          type="text"
-                          maxlength="1200"
-                          :disabled="adjustmentBusy"
-                          :placeholder="t('courseGeneration.outlineReview.aiNodePlaceholder', '告诉 AI 这一块要怎么改')"
-                          @keydown.enter.prevent="runNodeAi(item.node)"
-                        />
-                        <button type="button" :disabled="adjustmentBusy || !nodeAiInstruction.trim()" @click="runNodeAi(item.node)">
-                          <LoaderCircle v-if="generatingProposal" :size="14" />
-                          <ArrowRight v-else :size="14" />
-                          {{ t('courseGeneration.outlineReview.aiGenerate', '生成修改') }}
-                        </button>
-                      </div>
-                    </template>
-                    <div v-else class="outline-review__node-proposal" data-testid="outline-node-ai-proposal">
-                      <div>
-                        <Sparkles :size="15" /><strong>{{ t('courseGeneration.outlineReview.aiProposal', 'AI 修改建议') }}</strong><span>{{ adjustmentProposal.summary }}</span>
-                        <small v-if="adjustmentProposal.blocking_issues?.length" role="alert">{{ adjustmentProposal.blocking_issues[0].message }}</small>
-                      </div>
-                      <div v-if="nodeProposalChanges(String(item.node.node_id || '')).length" class="outline-review__node-diff">
-                        <div v-for="change in nodeProposalChanges(String(item.node.node_id || ''))" :key="change.field">
-                          <strong>{{ change.label }}</strong>
-                          <del>{{ proposalValue(change.before) }}</del>
-                          <ArrowRight :size="13" />
-                          <ins>{{ proposalValue(change.after) }}</ins>
-                        </div>
-                      </div>
-                      <div class="outline-review__node-proposal-actions">
-                        <button type="button" :disabled="applyingProposal" @click="cancelAdjustmentProposal">{{ t('courseGeneration.outlineReview.proposalCancel', '放弃') }}</button>
-                        <button type="button" class="primary" :disabled="applyingProposal || !adjustmentProposal.can_apply" @click="applyAdjustmentProposal">
-                          <LoaderCircle v-if="applyingProposal" :size="14" />
-                          {{ applyingProposal ? t('courseGeneration.outlineReview.proposalApplying', '正在采用') : t('courseGeneration.outlineReview.applyNodeProposal', '采用修改') }}
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-                </article>
-              </div>
-            </section>
-          </div>
 
           <p v-if="!blueprintNodes.length" class="outline-review__empty">
             {{ t('courseGeneration.outlineReview.empty', '目录尚未形成，请重新载入后再确认。') }}
@@ -665,7 +623,7 @@
         </div>
       </template>
 
-      <footer class="outline-review__footer" v-if="!isInline || requiresConfirmation || (editable && dirty) || (isInline && surface === 'teacher' && !editable) || actionError">
+      <footer class="outline-review__footer" v-if="!isInline || (confirmationPlacement === 'internal' && requiresConfirmation) || (editable && dirty) || (confirmationPlacement === 'internal' && isInline && surface === 'teacher' && !editable) || actionError">
         <p v-if="actionError" class="outline-review__action-error" role="alert">{{ actionError }}</p>
         <div class="outline-review__actions">
           <span
@@ -690,7 +648,7 @@
               : t('courseGeneration.outlineReview.save', '保存修改') }}
           </button>
           <button
-            v-if="!isInline || requiresConfirmation"
+            v-if="!isInline || (confirmationPlacement === 'internal' && requiresConfirmation)"
             type="button"
             class="primary"
             :disabled="loading || acting || !!adjustmentProposal || !blueprintNodes.length"
@@ -710,14 +668,17 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { ArrowDown, ArrowRight, ArrowUp, CircleCheck, FileText, ListTree, LoaderCircle, Plus, Save, Sparkles, Trash2, TriangleAlert } from 'lucide-vue-next'
+import DOMPurify from 'dompurify'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowRight, Bold, Braces, ChartNoAxesCombined, ChevronDown, ChevronUp, CircleCheck, Code2, FileText, FileType2, Heading2, Heading3, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, LoaderCircle, Minus, MoreHorizontal, Plus, Quote, Redo2, RemoveFormatting, Replace, Save, Search, Sigma, Sparkles, Strikethrough, Subscript, Superscript, Table2, TriangleAlert, Underline, Undo2 } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { t } from '../shared/i18n'
+import { renderMarkdown } from '../utils/markdown'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 
 const props = withDefaults(defineProps<{
@@ -729,6 +690,7 @@ const props = withDefaults(defineProps<{
   editable?: boolean
   variant?: 'full' | 'inline'
   requiresConfirmation?: boolean
+  confirmationPlacement?: 'internal' | 'external'
   assistantOpen?: boolean
 }>(), {
   courseName: '',
@@ -738,6 +700,7 @@ const props = withDefaults(defineProps<{
   editable: true,
   variant: 'full',
   requiresConfirmation: true,
+  confirmationPlacement: 'internal',
   assistantOpen: false,
 })
 
@@ -759,7 +722,6 @@ const retrievalArtifact = ref<Record<string, any>>({})
 // 而不是显示"完整"，因为"沉默被当成完整"正是这个问题的由来。
 const coverageArtifact = ref<Record<string, any>>({})
 const qualityArtifact = ref<Record<string, any>>({})
-const viewMode = ref<'document' | 'structure'>('document')
 const repairingQualityCode = ref('')
 const coverageVerdict = computed(() => (
   coverageArtifact.value?.available ? coverageArtifact.value : null
@@ -804,10 +766,31 @@ const proposalNotice = ref('')
 const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
 const chaptersRef = ref<HTMLElement | null>(null)
+const richEditorRef = ref<HTMLElement | null>(null)
+const insertControlRef = ref<HTMLElement | null>(null)
+const moreControlRef = ref<HTMLElement | null>(null)
+const findControlRef = ref<HTMLElement | null>(null)
+const insertUrlInputRef = ref<HTMLInputElement | null>(null)
+const findInputRef = ref<HTMLInputElement | null>(null)
+const richEditorDirty = ref(false)
+const editorMode = ref<'visual' | 'markdown'>('visual')
+const markdownDraft = ref('')
+const insertMenuOpen = ref(false)
+const moreMenuOpen = ref(false)
+const findPanelOpen = ref(false)
+const findQuery = ref('')
+const replaceQuery = ref('')
+const findMatchCount = ref(0)
+const findMatchIndex = ref(0)
+const editorCharacterCount = ref(0)
+const insertPrompt = ref<'link' | 'image' | 'formula' | ''>('')
+const insertUrl = ref('')
+let rememberedEditorRange: Range | null = null
 const adjustmentRequestId = ref('')
-const selectedNodeId = ref('')
 const aiTargetNodeId = ref('')
 const nodeAiInstruction = ref('')
+const editHistory = ref<any[][]>([])
+const editHistoryIndex = ref(-1)
 
 const isInline = computed(() => props.variant === 'inline')
 const inlineSetupVisible = computed(() => !isInline.value || Boolean(
@@ -865,6 +848,8 @@ const blueprintNodes = computed<any[]>(() => (
       ? blueprintDraft.value.course_blueprint.nodes
       : []
 ))
+const canUndo = computed(() => editHistoryIndex.value > 0)
+const canRedo = computed(() => editHistoryIndex.value >= 0 && editHistoryIndex.value < editHistory.value.length - 1)
 const outlineGroups = computed(() => {
   const chapters = blueprintNodes.value
     .map((node, index) => ({ node, index }))
@@ -911,20 +896,86 @@ const documentPrerequisites = computed<string[]>(() => (
     ? documentPlan.value.prerequisites.map((item: any) => String(item || '').trim()).filter(Boolean)
     : []
 ))
-const documentChapters = computed<any[]>(() => (
-  Array.isArray(documentPlan.value.chapters) && documentPlan.value.chapters.length
-    ? documentPlan.value.chapters
-    : outlineGroups.value.map((group, chapterIndex) => ({
-      chapter_number: chapterIndex + 1,
-      title: group.chapter?.node.node_name || '',
-      learning_focus: group.chapter?.node.learning_objective || '',
-      sections: group.sections.map(({ node }, sectionIndex) => ({
-        ...node,
-        section_number: `${chapterIndex + 1}.${sectionIndex + 1}`,
-        title: node.node_name,
-      })),
-    }))
-))
+function proposalNodeChange(nodeId: string) {
+  const diff = adjustmentProposal.value?.diff || {}
+  const moved = (diff.moved || []).find((item: any) => String(item.node_id || '') === nodeId)
+  if (moved) return {
+    kind: 'move',
+    label: `${t('courseGeneration.outlineReview.diffMoved', '移动')} · ${moved.old_position || '原位置'} → ${moved.new_position || '新位置'}`,
+  }
+  const updated = (diff.updated || []).find((item: any) => String(item.node_id || '') === nodeId)
+  if (updated) return {
+    kind: 'update',
+    label: `${t('courseGeneration.outlineReview.diffUpdated', '内容修改')} · ${changedFieldSummary(updated.changes)}`,
+  }
+  const removed = (diff.removed || []).find((item: any) => String(item.node_id || '') === nodeId)
+  if (removed) return { kind: 'remove', label: t('courseGeneration.outlineReview.diffRemoved', '删除') }
+  return null
+}
+function proposalNodeAttributes(nodeId: string) {
+  const change = proposalNodeChange(nodeId)
+  if (!change) return ''
+  return ` class="ai-change-target" data-ai-change="${escapeEditorAttribute(change.kind)}" data-ai-change-label="${escapeEditorAttribute(change.label)}"`
+}
+const documentChapters = computed<any[]>(() => {
+  const plannedChapters = Array.isArray(documentPlan.value.chapters) ? documentPlan.value.chapters : []
+  const chapters = outlineGroups.value
+    .filter(group => Boolean(group.chapter))
+    .map((group, chapterIndex) => {
+      const chapterNode = group.chapter!.node
+      const plannedChapter = plannedChapters.find((item: any) => String(item.node_id || '') === String(chapterNode.node_id || ''))
+        || plannedChapters[chapterIndex]
+        || {}
+      const plannedSections = Array.isArray(plannedChapter.sections) ? plannedChapter.sections : []
+      return {
+        ...plannedChapter,
+        _node: chapterNode,
+        node_id: chapterNode.node_id,
+        chapter_number: chapterIndex + 1,
+        title: chapterNode.node_name,
+        learning_focus: chapterNode.learning_objective || plannedChapter.learning_focus || '',
+        learning_objective: chapterNode.learning_objective || plannedChapter.learning_objective || '',
+        sections: group.sections.map(({ node }, sectionIndex) => {
+          const plannedSection = plannedSections.find((item: any) => String(item.node_id || '') === String(node.node_id || ''))
+            || plannedSections[sectionIndex]
+            || {}
+          return {
+            ...plannedSection,
+            ...node,
+            _node: node,
+            section_number: `${chapterIndex + 1}.${sectionIndex + 1}`,
+            title: node.node_name,
+          }
+        }),
+      }
+    })
+  if (chapters.length || !blueprintNodes.value.length) return chapters
+  return blueprintNodes.value.map((node, chapterIndex) => ({
+    _node: node,
+    node_id: node.node_id,
+    chapter_number: chapterIndex + 1,
+    title: node.node_name,
+    learning_focus: node.learning_objective || '',
+    learning_objective: node.learning_objective || '',
+    sections: [],
+  }))
+})
+const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: any) => {
+  const chapterNode = chapter._node || chapter
+  const chapterId = escapeEditorAttribute(String(chapterNode.node_id || outlineNodeId('chapter')))
+  const chapterTitle = editorFieldHtml(chapterNode, 'title_html', chapterNode.node_name || chapter.title)
+  const chapterBody = editorBodyHtml(chapterNode, chapterNode.learning_objective || chapter.learning_focus)
+  const chapterChange = proposalNodeAttributes(String(chapterNode.node_id || ''))
+  const sections = (chapter.sections || []).map((section: any) => {
+    const sectionNode = section._node || section
+    const sectionId = escapeEditorAttribute(String(sectionNode.node_id || outlineNodeId('section')))
+    const sectionTitle = editorFieldHtml(sectionNode, 'title_html', sectionNode.node_name || section.title)
+    const sectionBody = editorBodyHtml(sectionNode, sectionNode.learning_objective)
+    const sectionChange = proposalNodeAttributes(String(sectionNode.node_id || ''))
+    return `<h3 data-node-id="${sectionId}"${sectionChange}>${sectionTitle}</h3><div data-node-body="${sectionId}"${sectionChange}>${sectionBody}</div>`
+  }).join('')
+  return `<h2 data-node-id="${chapterId}"${chapterChange}>${chapterTitle}</h2><div data-node-body="${chapterId}"${chapterChange}>${chapterBody}</div>${sections}`
+}).join(''))
 const documentSectionCount = computed(() => documentChapters.value.reduce(
   (total, chapter) => total + (Array.isArray(chapter.sections) ? chapter.sections.length : 0),
   0,
@@ -955,51 +1006,951 @@ const draftSignature = computed(() => JSON.stringify({
     scope_boundary: node.scope_boundary || '',
     assessment: node.assessment || [],
     prerequisite_node_ids: node.prerequisite_node_ids || [],
+    outline_editor_html: node.outline_editor_html || {},
   })),
 }))
-const dirty = computed(() => Boolean(baseline.value && draftSignature.value !== baseline.value))
+const dirty = computed(() => richEditorDirty.value || Boolean(baseline.value && draftSignature.value !== baseline.value))
 
 onMounted(() => {
-  viewMode.value = props.editable ? 'structure' : 'document'
+  document.addEventListener('selectionchange', rememberEditorSelection)
+  document.addEventListener('pointerdown', closeEditorOverlaysOnOutsidePointer)
   void loadBlueprint()
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('selectionchange', rememberEditorSelection)
+  document.removeEventListener('pointerdown', closeEditorOverlaysOnOutsidePointer)
 })
 watch(() => props.courseId, (courseId, previous) => {
   if (courseId && courseId !== previous) void loadBlueprint()
 })
 watch(() => props.editable, editable => {
-  viewMode.value = editable ? 'structure' : 'document'
   if (!editable) {
-    selectedNodeId.value = ''
+    syncActiveEditorToNodes()
+    editorMode.value = 'visual'
+    closeEditorOverlays()
+    rememberedEditorRange = null
     aiTargetNodeId.value = ''
     nodeAiInstruction.value = ''
   }
 })
+watch(outlineEditorHtml, () => {
+  void nextTick(refreshEditorStats)
+}, { immediate: true })
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value))
 }
 
+const EDITOR_ALLOWED_TAGS = [
+  'a', 'b', 'strong', 'em', 'i', 'u', 's', 'mark', 'sup', 'sub', 'br', 'p', 'div', 'h2', 'h3', 'ul', 'ol', 'li',
+  'blockquote', 'span', 'img', 'figure', 'figcaption', 'table', 'thead', 'tbody',
+  'tr', 'th', 'td', 'pre', 'code', 'hr',
+]
+const EDITOR_ALLOWED_ATTR = [
+  'href', 'target', 'rel', 'src', 'alt', 'title', 'colspan', 'rowspan', 'data-language',
+  'data-align', 'data-indent', 'data-formula', 'data-title-format', 'data-node-id', 'data-node-body',
+]
+
+function escapeEditorText(value: unknown) {
+  const element = document.createElement('span')
+  element.textContent = String(value || '')
+  return element.innerHTML
+}
+
+function escapeEditorAttribute(value: string) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/`/g, '&#96;')
+}
+
+function sanitizeEditorHtml(value: unknown) {
+  return String(DOMPurify.sanitize(String(value || ''), {
+    ALLOWED_TAGS: EDITOR_ALLOWED_TAGS,
+    ALLOWED_ATTR: EDITOR_ALLOWED_ATTR,
+  }))
+}
+
+function editorPlainText(value: unknown) {
+  const element = document.createElement('div')
+  element.innerHTML = sanitizeEditorHtml(value)
+  const blocks = Array.from(element.querySelectorAll('p, li, blockquote, div'))
+    .map(item => String(item.textContent || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  return (blocks.length ? blocks.join('\n') : String(element.textContent || ''))
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function normalizedEditorText(value: unknown) {
+  return String(value || '').replace(/\s+/g, ' ').trim()
+}
+
+function editorFieldHtml(node: Record<string, any>, field: 'title_html' | 'body_html', plainValue: unknown) {
+  const stored = sanitizeEditorHtml(node?.outline_editor_html?.[field])
+  if (stored && normalizedEditorText(editorPlainText(stored)) === normalizedEditorText(plainValue)) return stored
+  return escapeEditorText(plainValue)
+}
+
+function editorBodyHtml(node: Record<string, any>, plainValue: unknown) {
+  const stored = sanitizeEditorHtml(node?.outline_editor_html?.body_html)
+  if (stored) return /<(?:p|div|ul|ol|blockquote|table|pre|figure|hr)\b/i.test(stored) ? stored : `<p>${stored}</p>`
+  const fallback = escapeEditorText(plainValue)
+  return fallback ? `<p>${fallback}</p>` : '<p><br></p>'
+}
+
+function editorLearningObjective(value: unknown, fallback: unknown = '') {
+  const element = document.createElement('div')
+  element.innerHTML = sanitizeEditorHtml(value)
+  const candidate = Array.from(element.querySelectorAll('p, li, blockquote'))
+    .find(item => !item.closest('table, pre') && String(item.textContent || '').trim())
+  const text = String(candidate?.textContent || '').replace(/\s+/g, ' ').trim()
+  return text || String(fallback || '').trim()
+}
+
+function safeEditorInsertUrl(value: unknown) {
+  try {
+    const parsed = new URL(String(value || '').trim())
+    return ['https:', 'http:'].includes(parsed.protocol) ? parsed.toString() : ''
+  } catch {
+    return ''
+  }
+}
+
+function markdownTable(element: HTMLElement) {
+  const rows = Array.from(element.querySelectorAll('tr')).map(row => (
+    Array.from(row.querySelectorAll(':scope > th, :scope > td'))
+      .map(cell => String(cell.textContent || '').replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim())
+  )).filter(row => row.length)
+  if (!rows.length) return ''
+  const width = Math.max(...rows.map(row => row.length))
+  const normalized = rows.map(row => [...row, ...Array(Math.max(0, width - row.length)).fill('')])
+  const header = normalized[0]!
+  const body = normalized.slice(1)
+  return [
+    `| ${header.join(' | ')} |`,
+    `| ${header.map(() => '---').join(' | ')} |`,
+    ...body.map(row => `| ${row.join(' | ')} |`),
+  ].join('\n')
+}
+
+function htmlNodeToMarkdown(node: ChildNode): string {
+  if (node.nodeType === 3) return String(node.textContent || '')
+  if (!(node instanceof HTMLElement)) return ''
+  const tag = node.tagName.toLowerCase()
+  const inner = Array.from(node.childNodes).map(htmlNodeToMarkdown).join('')
+  const formula = String(node.dataset.formula || '').trim()
+  if (formula) return `$${formula.replace(/\$/g, '\\$')}$`
+  if (tag === 'br') return '\n'
+  if (tag === 'strong' || tag === 'b') return `**${inner}**`
+  if (tag === 'em' || tag === 'i') return `*${inner}*`
+  if (tag === 'u') return `<u>${inner}</u>`
+  if (tag === 's') return `~~${inner}~~`
+  if (tag === 'mark' || tag === 'sup' || tag === 'sub') return `<${tag}>${inner}</${tag}>`
+  if (tag === 'code' && node.parentElement?.tagName.toLowerCase() !== 'pre') return `\`${inner.replace(/`/g, '\\`')}\``
+  if (tag === 'a') {
+    const href = safeEditorInsertUrl(node.getAttribute('href'))
+    return href ? `[${inner || href}](${href})` : inner
+  }
+  if (tag === 'img') {
+    const src = safeEditorInsertUrl(node.getAttribute('src'))
+    const alt = String(node.getAttribute('alt') || t('courseGeneration.outlineReview.imageAlt', '大纲图片')).replace(/[\[\]]/g, '')
+    return src ? `![${alt}](${src})` : ''
+  }
+  if (tag === 'p') {
+    const align = ['left', 'center', 'right', 'justify'].includes(String(node.dataset.align || ''))
+      ? ` data-align="${node.dataset.align}"`
+      : ''
+    const indent = /^[1-4]$/.test(String(node.dataset.indent || ''))
+      ? ` data-indent="${node.dataset.indent}"`
+      : ''
+    return align || indent
+      ? `<p${align}${indent}>${inner.trim()}</p>\n\n`
+      : `${inner.trim()}\n\n`
+  }
+  if (tag === 'blockquote') return `${inner.trim().split('\n').map(line => `> ${line}`).join('\n')}\n\n`
+  if (tag === 'ul' || tag === 'ol') {
+    const items = Array.from(node.children).filter(item => item.tagName.toLowerCase() === 'li')
+    const list = items.map((item, index) => `${tag === 'ol' ? `${index + 1}.` : '-'} ${Array.from(item.childNodes).map(htmlNodeToMarkdown).join('').trim()}`).join('\n')
+    const extras = Array.from(node.childNodes)
+      .filter(child => !(child instanceof HTMLElement) || child.tagName.toLowerCase() !== 'li')
+      .map(htmlNodeToMarkdown)
+      .join('')
+      .trim()
+    return `${list}${extras ? `\n\n${extras}` : ''}\n\n`
+  }
+  if (tag === 'pre') {
+    const language = String(node.dataset.language || '').trim()
+    return `\`\`\`${language}\n${String(node.textContent || '').trim()}\n\`\`\`\n\n`
+  }
+  if (tag === 'table') return `${markdownTable(node)}\n\n`
+  if (tag === 'hr') return '---\n\n'
+  return inner
+}
+
+function htmlToMarkdown(value: unknown) {
+  const element = document.createElement('div')
+  element.innerHTML = sanitizeEditorHtml(value)
+  return Array.from(element.childNodes)
+    .map(htmlNodeToMarkdown)
+    .join('')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function outlineNodesToMarkdown() {
+  return blueprintNodes.value.map(node => {
+    const level = Number(node.node_level || 2) === 1 ? '##' : '###'
+    const title = String(node.node_name || '').replace(/\s+/g, ' ').trim()
+    const cachedMarkdown = String(node?.outline_editor_html?.body_markdown || '').trim()
+    const body = cachedMarkdown || htmlToMarkdown(editorBodyHtml(node, node.learning_objective))
+    return `${level} ${title}${body ? `\n\n${body}` : ''}`
+  }).join('\n\n').trim()
+}
+
+function markdownHeadingText(value: unknown) {
+  const element = document.createElement('div')
+  element.innerHTML = renderMarkdown(String(value || ''))
+  return String(element.textContent || value || '').replace(/\s+/g, ' ').trim()
+}
+
+function markdownToEditorHtml(value: unknown) {
+  let source = String(value || '')
+  source = source.replace(/\$\$([\s\S]+?)\$\$/g, (_match, formula) => {
+    const normalized = String(formula || '').trim()
+    return `<p data-align="center"><span data-formula="${escapeEditorAttribute(normalized)}">${escapeEditorText(normalized)}</span></p>`
+  })
+  source = source.replace(/(?<!\\)\$([^$\n]+?)\$/g, (_match, formula) => {
+    const normalized = String(formula || '').trim()
+    return `<span data-formula="${escapeEditorAttribute(normalized)}">${escapeEditorText(normalized)}</span>`
+  })
+  return sanitizeEditorHtml(renderMarkdown(source))
+}
+
+function markdownSegments(value: string) {
+  const segments: Array<{ level: 1 | 2; title: string; body: string }> = []
+  let active: { level: 1 | 2; title: string; lines: string[] } | null = null
+  let fence = ''
+  for (const line of value.replace(/\r\n?/g, '\n').split('\n')) {
+    const fenceMatch = line.match(/^\s*(```+|~~~+)/)
+    const fenceToken = fenceMatch?.[1] || ''
+    if (fenceToken) fence = fence ? (fence[0] === fenceToken[0] ? '' : fence) : fenceToken
+    const heading = !fence ? line.match(/^\s{0,3}(#{1,3})\s+(.+?)\s*#*\s*$/) : null
+    const headingMarks = heading?.[1] || ''
+    const headingTitle = heading?.[2] || ''
+    if (headingMarks && headingTitle) {
+      if (active) segments.push({ level: active.level, title: active.title, body: active.lines.join('\n').trim() })
+      active = {
+        level: headingMarks.length >= 3 ? 2 : 1,
+        title: markdownHeadingText(headingTitle),
+        lines: [],
+      }
+      continue
+    }
+    if (active) active.lines.push(line)
+  }
+  if (active) segments.push({ level: active.level, title: active.title, body: active.lines.join('\n').trim() })
+  return segments.filter(segment => segment.title)
+}
+
+function syncMarkdownToNodes() {
+  const segments = markdownSegments(markdownDraft.value)
+  if (!segments.some(segment => segment.level === 1)) {
+    actionError.value = t('courseGeneration.outlineReview.chapterRequiredMarkdown', 'Markdown 中至少需要一个 ## 章标题。')
+    return false
+  }
+  const existing = blueprintNodes.value
+  const usedIds = new Set<string>()
+  let currentChapterId = ''
+  const parsed = segments.map((segment, index) => {
+    let level = segment.level
+    if (level === 2 && !currentChapterId) level = 1
+    const matched = existing.find(node => (
+      !usedIds.has(String(node.node_id || ''))
+      && Number(node.node_level || 2) === level
+      && normalizedEditorText(node.node_name) === normalizedEditorText(segment.title)
+    )) || existing.find(node => !usedIds.has(String(node.node_id || '')) && Number(node.node_level || 2) === level)
+    const nodeId = String(matched?.node_id || outlineNodeId(level === 1 ? 'chapter' : 'section'))
+    usedIds.add(nodeId)
+    if (level === 1) currentChapterId = nodeId
+    const bodyHtml = markdownToEditorHtml(segment.body)
+    return {
+      ...clone(matched || {}),
+      node_id: nodeId,
+      parent_node_id: level === 1 ? String(matched?.parent_node_id || 'root') : currentChapterId,
+      node_name: segment.title,
+      node_level: level,
+      learning_objective: editorLearningObjective(bodyHtml, matched?.learning_objective),
+      prerequisite_node_ids: Array.isArray(matched?.prerequisite_node_ids) ? matched.prerequisite_node_ids : [],
+      outline_editor_html: {
+        ...(matched?.outline_editor_html || {}),
+        title_html: escapeEditorText(segment.title),
+        body_html: bodyHtml,
+        body_markdown: segment.body,
+      },
+      _markdown_index: index,
+    }
+  }).map(({ _markdown_index, ...node }) => node)
+  const keptIds = new Set(parsed.map(node => String(node.node_id || '')))
+  parsed.forEach(node => {
+    node.prerequisite_node_ids = node.prerequisite_node_ids.filter((id: string) => keptIds.has(String(id)))
+  })
+  replaceBlueprintNodes(parsed)
+  recordEditHistory()
+  richEditorDirty.value = false
+  actionError.value = ''
+  return true
+}
+
+async function setEditorMode(mode: 'visual' | 'markdown') {
+  if (mode === editorMode.value || adjustmentBusy.value) return
+  closeEditorOverlays()
+  if (mode === 'markdown') {
+    if (!syncRichEditorToNodes()) return
+    markdownDraft.value = outlineNodesToMarkdown()
+  } else if (!syncMarkdownToNodes()) {
+    return
+  }
+  editorMode.value = mode
+  rememberedEditorRange = null
+  await nextTick()
+  refreshEditorStats()
+}
+
+function handleMarkdownInput() {
+  richEditorDirty.value = true
+  refreshEditorStats()
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '大纲已修改，保存后生效'))
+}
+
+function handleRichEditorInput() {
+  richEditorDirty.value = true
+  refreshEditorStats()
+  if (findPanelOpen.value && findQuery.value) refreshFindMatches(false)
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '大纲已修改，保存后生效'))
+}
+
+function refreshEditorStats() {
+  const value = editorMode.value === 'markdown'
+    ? markdownDraft.value
+    : String(richEditorRef.value?.textContent || editorPlainText(outlineEditorHtml.value))
+  editorCharacterCount.value = value.replace(/\s/g, '').length
+}
+
+function selectionBelongsToEditor() {
+  const selection = window.getSelection()
+  return Boolean(selection?.anchorNode && richEditorRef.value?.contains(selection.anchorNode))
+}
+
+function rememberEditorSelection() {
+  const selection = window.getSelection()
+  if (!selection?.rangeCount || !selectionBelongsToEditor()) return
+  rememberedEditorRange = selection.getRangeAt(0).cloneRange()
+}
+
+function normalizeNestedEditorHeadings() {
+  const editor = richEditorRef.value
+  if (!editor) return
+  editor.querySelectorAll<HTMLElement>('[data-node-body] h2, [data-node-body] h3').forEach(heading => {
+    const body = heading.closest<HTMLElement>('[data-node-body]')
+    if (!body || body.parentElement !== editor) return
+    const trailingNodes: ChildNode[] = []
+    let sibling = heading.nextSibling
+    while (sibling) {
+      trailingNodes.push(sibling)
+      sibling = sibling.nextSibling
+    }
+    const nextBody = document.createElement('div')
+    nextBody.dataset.nodeBody = String(heading.dataset.nodeId || outlineNodeId('body'))
+    trailingNodes.forEach(node => nextBody.appendChild(node))
+    if (!nextBody.childNodes.length) nextBody.innerHTML = '<p><br></p>'
+    body.parentNode?.insertBefore(heading, body.nextSibling)
+    body.parentNode?.insertBefore(nextBody, heading.nextSibling)
+    if (!body.textContent?.trim() && !body.querySelector('img, ul, ol')) body.innerHTML = '<p><br></p>'
+  })
+}
+
+function restoreEditorSelection() {
+  const editor = richEditorRef.value
+  if (!editor) return false
+  const selection = window.getSelection()
+  const savedRange = selectionBelongsToEditor() && selection?.rangeCount
+    ? selection.getRangeAt(0).cloneRange()
+    : rememberedEditorRange
+  editor.focus({ preventScroll: true })
+  if (savedRange) {
+    selection?.removeAllRanges()
+    selection?.addRange(savedRange)
+    return true
+  }
+  const range = document.createRange()
+  range.selectNodeContents(editor)
+  range.collapse(false)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  return true
+}
+
+function runEditorCommand(command: string, value?: string) {
+  const editor = richEditorRef.value
+  if (!editor || !props.editable || adjustmentBusy.value) return
+  restoreEditorSelection()
+  const commandValue = command === 'formatBlock' && value ? `<${value}>` : value
+  if (typeof document.execCommand === 'function') document.execCommand(command, false, commandValue)
+  rememberEditorSelection()
+  normalizeNestedEditorHeadings()
+  handleRichEditorInput()
+}
+
+function selectedEditorBlocks() {
+  const editor = richEditorRef.value
+  if (!editor || !restoreEditorSelection()) return [] as HTMLElement[]
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return [] as HTMLElement[]
+  const range = selection.getRangeAt(0)
+  const blocks = Array.from(editor.querySelectorAll<HTMLElement>('h2, h3, p, li, blockquote, pre, td, th'))
+    .filter(block => {
+      try {
+        return range.intersectsNode(block)
+      } catch {
+        return false
+      }
+    })
+  if (blocks.length) return blocks
+  const anchor = selection.anchorNode instanceof HTMLElement
+    ? selection.anchorNode
+    : selection.anchorNode?.parentElement
+  const block = anchor?.closest<HTMLElement>('h2, h3, p, li, blockquote, pre, td, th')
+  return block && editor.contains(block) ? [block] : []
+}
+
+function editorFormattingTarget(block: HTMLElement) {
+  if (!['h2', 'h3'].includes(block.tagName.toLowerCase())) return block
+  let target = block.querySelector<HTMLElement>(':scope > [data-title-format]')
+  if (target) return target
+  target = document.createElement('span')
+  target.dataset.titleFormat = 'true'
+  while (block.firstChild) target.appendChild(block.firstChild)
+  block.appendChild(target)
+  return target
+}
+
+function applyEditorAlignment(alignment: 'left' | 'center' | 'right' | 'justify') {
+  selectedEditorBlocks().forEach(block => {
+    const target = editorFormattingTarget(block)
+    if (alignment === 'left') delete target.dataset.align
+    else target.dataset.align = alignment
+  })
+  moreMenuOpen.value = false
+  rememberEditorSelection()
+  handleRichEditorInput()
+}
+
+function adjustEditorIndent(delta: -1 | 1) {
+  selectedEditorBlocks().forEach(block => {
+    const target = editorFormattingTarget(block)
+    const current = Number(target.dataset.indent || 0)
+    const nextValue = Math.max(0, Math.min(4, current + delta))
+    if (nextValue) target.dataset.indent = String(nextValue)
+    else delete target.dataset.indent
+  })
+  moreMenuOpen.value = false
+  rememberEditorSelection()
+  handleRichEditorInput()
+}
+
+function highlightEditorSelection() {
+  if (!restoreEditorSelection()) return
+  const selection = window.getSelection()
+  if (!selection?.rangeCount || selection.isCollapsed) return
+  const range = selection.getRangeAt(0)
+  let applied = false
+  if (typeof document.execCommand === 'function') {
+    applied = document.execCommand('hiliteColor', false, '#fff0a8')
+      || document.execCommand('backColor', false, '#fff0a8')
+  }
+  richEditorRef.value?.querySelectorAll<HTMLElement>('[style*="background"]').forEach(element => {
+    const mark = document.createElement('mark')
+    while (element.firstChild) mark.appendChild(element.firstChild)
+    element.replaceWith(mark)
+    applied = true
+  })
+  if (!applied) {
+    const mark = document.createElement('mark')
+    try {
+      mark.appendChild(range.extractContents())
+      range.insertNode(mark)
+    } catch {
+      return
+    }
+  }
+  moreMenuOpen.value = false
+  rememberEditorSelection()
+  handleRichEditorInput()
+}
+
+function clearEditorFormatting() {
+  const blocks = selectedEditorBlocks()
+  if (typeof document.execCommand === 'function') document.execCommand('removeFormat', false)
+  blocks.forEach(block => {
+    const target = block.matches('[data-title-format]')
+      ? block
+      : block.querySelector<HTMLElement>(':scope > [data-title-format]') || block
+    delete target.dataset.align
+    delete target.dataset.indent
+  })
+  moreMenuOpen.value = false
+  rememberEditorSelection()
+  handleRichEditorInput()
+}
+
+function applyEditorBlockStyle(event: Event) {
+  const select = event.target as HTMLSelectElement
+  runEditorCommand('formatBlock', select.value)
+  select.value = 'p'
+}
+
+function insertEditorHtml(html: string) {
+  const editor = richEditorRef.value
+  if (!editor || !restoreEditorSelection()) return
+  const safeHtml = sanitizeEditorHtml(html)
+  const selection = window.getSelection()
+  const range = selectionBelongsToEditor() && selection?.rangeCount
+    ? selection.getRangeAt(0)
+    : null
+  if (range) {
+    range.deleteContents()
+    const fragment = range.createContextualFragment(safeHtml)
+    const lastNode = fragment.lastChild
+    range.insertNode(fragment)
+    if (lastNode) {
+      range.setStartAfter(lastNode)
+      range.collapse(true)
+      selection?.removeAllRanges()
+      selection?.addRange(range)
+    }
+  } else {
+    editor.insertAdjacentHTML('beforeend', safeHtml)
+  }
+  closeInsertControls()
+  rememberEditorSelection()
+  handleRichEditorInput()
+}
+
+function toggleInsertMenu() {
+  rememberEditorSelection()
+  moreMenuOpen.value = false
+  closeFindPanel()
+  insertPrompt.value = ''
+  insertUrl.value = ''
+  insertMenuOpen.value = !insertMenuOpen.value
+}
+
+function closeInsertControls() {
+  insertMenuOpen.value = false
+  insertPrompt.value = ''
+  insertUrl.value = ''
+}
+
+function toggleMoreMenu() {
+  rememberEditorSelection()
+  closeInsertControls()
+  closeFindPanel()
+  moreMenuOpen.value = !moreMenuOpen.value
+}
+
+function closeFindPanel() {
+  findPanelOpen.value = false
+  findMatchCount.value = 0
+  findMatchIndex.value = 0
+}
+
+async function toggleFindPanel() {
+  rememberEditorSelection()
+  closeInsertControls()
+  moreMenuOpen.value = false
+  findPanelOpen.value = !findPanelOpen.value
+  if (!findPanelOpen.value) return
+  await nextTick()
+  findInputRef.value?.focus()
+  findInputRef.value?.select()
+  refreshFindMatches(true)
+}
+
+function closeEditorOverlays() {
+  closeInsertControls()
+  closeFindPanel()
+  moreMenuOpen.value = false
+}
+
+function closeEditorOverlaysOnOutsidePointer(event: PointerEvent) {
+  const target = event.target
+  if (!(target instanceof globalThis.Node)) return
+  if (!insertControlRef.value?.contains(target)) closeInsertControls()
+  if (!moreControlRef.value?.contains(target)) moreMenuOpen.value = false
+  if (!findControlRef.value?.contains(target)) closeFindPanel()
+}
+
+async function openInsertPrompt(type: 'link' | 'image' | 'formula') {
+  rememberEditorSelection()
+  moreMenuOpen.value = false
+  closeFindPanel()
+  insertMenuOpen.value = false
+  insertPrompt.value = type
+  insertUrl.value = ''
+  await nextTick()
+  insertUrlInputRef.value?.focus()
+}
+
+function confirmInsertPrompt() {
+  if (insertPrompt.value === 'formula') {
+    const formula = insertUrl.value.trim()
+    if (!formula) return
+    insertEditorHtml(`<span data-formula="${escapeEditorAttribute(formula)}">${escapeEditorText(formula)}</span>`)
+    return
+  }
+  const url = safeEditorInsertUrl(insertUrl.value)
+  if (!url) {
+    actionError.value = t('courseGeneration.outlineReview.invalidInsertAddress', '请输入有效的 http 或 https 地址。')
+    return
+  }
+  const escapedUrl = escapeEditorAttribute(url)
+  if (insertPrompt.value === 'image') {
+    insertEditorHtml(`<figure><img src="${escapedUrl}" alt="${escapeEditorAttribute(t('courseGeneration.outlineReview.imageAlt', '大纲图片'))}"><figcaption>${escapeEditorText(t('courseGeneration.outlineReview.imageCaption', '图片说明'))}</figcaption></figure><p><br></p>`)
+    return
+  }
+  restoreEditorSelection()
+  const selection = window.getSelection()
+  if (selection && !selection.isCollapsed && typeof document.execCommand === 'function') {
+    document.execCommand('createLink', false, url)
+    const anchor = selection.anchorNode instanceof HTMLElement
+      ? selection.anchorNode.closest('a')
+      : selection.anchorNode?.parentElement?.closest('a')
+    anchor?.setAttribute('target', '_blank')
+    anchor?.setAttribute('rel', 'noopener noreferrer')
+    closeInsertControls()
+    handleRichEditorInput()
+    return
+  }
+  insertEditorHtml(`<a href="${escapedUrl}" target="_blank" rel="noopener noreferrer">${escapeEditorText(url)}</a>`)
+}
+
+function insertEditorTable() {
+  insertEditorHtml([
+    '<table><thead><tr>',
+    `<th>${escapeEditorText(t('courseGeneration.outlineReview.tableHeader', '标题'))} 1</th>`,
+    `<th>${escapeEditorText(t('courseGeneration.outlineReview.tableHeader', '标题'))} 2</th>`,
+    `<th>${escapeEditorText(t('courseGeneration.outlineReview.tableHeader', '标题'))} 3</th>`,
+    '</tr></thead><tbody>',
+    '<tr><td><br></td><td><br></td><td><br></td></tr>',
+    '<tr><td><br></td><td><br></td><td><br></td></tr>',
+    '</tbody></table><p><br></p>',
+  ].join(''))
+}
+
+function insertEditorDiagram() {
+  const source = 'flowchart LR\n  A[开始] --> B[学习活动]\n  B --> C[达成目标]'
+  insertEditorHtml(`<pre data-language="mermaid"><code>${escapeEditorText(source)}</code></pre><p><br></p>`)
+}
+
+function insertEditorBlock(tag: 'blockquote' | 'pre') {
+  closeInsertControls()
+  runEditorCommand('formatBlock', tag)
+}
+
+function insertEditorDivider() {
+  insertEditorHtml('<hr><p><br></p>')
+}
+
+function handleRichEditorPaste(event: ClipboardEvent) {
+  if (!props.editable) return
+  event.preventDefault()
+  const html = event.clipboardData?.getData('text/html') || ''
+  if (html) {
+    const container = document.createElement('div')
+    container.innerHTML = html
+    container.querySelectorAll('h1, h2').forEach(heading => {
+      const normalized = document.createElement('h2')
+      normalized.innerHTML = heading.innerHTML
+      heading.replaceWith(normalized)
+    })
+    container.querySelectorAll('h3, h4, h5, h6').forEach(heading => {
+      const normalized = document.createElement('h3')
+      normalized.innerHTML = heading.innerHTML
+      heading.replaceWith(normalized)
+    })
+    container.querySelectorAll<HTMLElement>('*').forEach(element => {
+      element.removeAttribute('class')
+      element.removeAttribute('id')
+      element.removeAttribute('style')
+      element.removeAttribute('lang')
+      element.removeAttribute('dir')
+    })
+    const safeHtml = sanitizeEditorHtml(container.innerHTML)
+    if (safeHtml) {
+      insertEditorHtml(safeHtml)
+      normalizeNestedEditorHeadings()
+      return
+    }
+  }
+  const text = event.clipboardData?.getData('text/plain') || ''
+  restoreEditorSelection()
+  if (typeof document.execCommand === 'function') document.execCommand('insertText', false, text)
+  handleRichEditorInput()
+}
+
+type EditorTextMatch = { node: Text; start: number; end: number }
+
+function collectEditorTextMatches() {
+  const editor = richEditorRef.value
+  const query = findQuery.value.trim().toLocaleLowerCase()
+  if (!editor || !query) return [] as EditorTextMatch[]
+  const walker = document.createTreeWalker(editor, window.NodeFilter.SHOW_TEXT)
+  const matches: EditorTextMatch[] = []
+  let current = walker.nextNode()
+  while (current) {
+    const node = current as Text
+    const value = String(node.nodeValue || '')
+    const normalized = value.toLocaleLowerCase()
+    let offset = 0
+    while (offset <= normalized.length - query.length) {
+      const index = normalized.indexOf(query, offset)
+      if (index < 0) break
+      matches.push({ node, start: index, end: index + query.length })
+      offset = index + Math.max(1, query.length)
+    }
+    current = walker.nextNode()
+  }
+  return matches
+}
+
+function selectFindMatch(match: EditorTextMatch | undefined) {
+  if (!match) return
+  const selection = window.getSelection()
+  const range = document.createRange()
+  range.setStart(match.node, match.start)
+  range.setEnd(match.node, match.end)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  match.node.parentElement?.scrollIntoView?.({ block: 'center', behavior: 'smooth' })
+}
+
+function refreshFindMatches(selectFirst = false) {
+  const matches = collectEditorTextMatches()
+  findMatchCount.value = matches.length
+  if (!matches.length) {
+    findMatchIndex.value = 0
+    return
+  }
+  if (selectFirst || findMatchIndex.value >= matches.length) findMatchIndex.value = 0
+  selectFindMatch(matches[findMatchIndex.value])
+}
+
+function stepFindMatch(delta: -1 | 1) {
+  const matches = collectEditorTextMatches()
+  findMatchCount.value = matches.length
+  if (!matches.length) return
+  findMatchIndex.value = (findMatchIndex.value + delta + matches.length) % matches.length
+  selectFindMatch(matches[findMatchIndex.value])
+}
+
+function replaceCurrentMatch() {
+  const matches = collectEditorTextMatches()
+  const match = matches[findMatchIndex.value]
+  if (!match) return
+  const range = document.createRange()
+  range.setStart(match.node, match.start)
+  range.setEnd(match.node, match.end)
+  range.deleteContents()
+  range.insertNode(document.createTextNode(replaceQuery.value))
+  handleRichEditorInput()
+  refreshFindMatches(false)
+  findInputRef.value?.focus()
+}
+
+function replaceAllMatches() {
+  const query = findQuery.value.trim()
+  if (!query) return
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(escaped, 'giu')
+  const nodes = new Set(collectEditorTextMatches().map(match => match.node))
+  nodes.forEach(node => {
+    node.nodeValue = String(node.nodeValue || '').replace(pattern, () => replaceQuery.value)
+  })
+  handleRichEditorInput()
+  refreshFindMatches(true)
+  findInputRef.value?.focus()
+}
+
+function handleEditorKeydown(event: KeyboardEvent) {
+  const modifier = event.metaKey || event.ctrlKey
+  const key = event.key.toLowerCase()
+  if (modifier && key === 's') {
+    event.preventDefault()
+    void saveDraft()
+    return
+  }
+  if (modifier && key === 'k') {
+    event.preventDefault()
+    void openInsertPrompt('link')
+    return
+  }
+  if (modifier && key === 'f') {
+    event.preventDefault()
+    void toggleFindPanel()
+    return
+  }
+  if (modifier && event.altKey && (key === '1' || key === '2')) {
+    event.preventDefault()
+    runEditorCommand('formatBlock', key === '1' ? 'h2' : 'h3')
+    return
+  }
+  if (event.key === 'Escape') closeEditorOverlays()
+}
+
+function syncRichEditorToNodes() {
+  const editor = richEditorRef.value
+  if (!editor || !richEditorDirty.value) return true
+  normalizeNestedEditorHeadings()
+  const existingById = new Map(blueprintNodes.value.map(node => [String(node.node_id || ''), node]))
+  const parsed: any[] = []
+  let currentChapterId = ''
+  let activeNode: any | null = null
+  let bodyFragments: string[] = []
+  const leadingFragments: string[] = []
+
+  const flushBody = () => {
+    if (!activeNode) return
+    const bodyHtml = sanitizeEditorHtml(bodyFragments.join(''))
+    activeNode.learning_objective = editorLearningObjective(bodyHtml, activeNode.learning_objective)
+    const editorHtml = {
+      ...(activeNode.outline_editor_html || {}),
+      body_html: bodyHtml,
+    }
+    delete editorHtml.body_markdown
+    activeNode.outline_editor_html = editorHtml
+    bodyFragments = []
+  }
+
+  Array.from(editor.childNodes).forEach(child => {
+    const element = child instanceof HTMLElement ? child : null
+    const tagName = element?.tagName.toLowerCase()
+    if (tagName === 'h2' || tagName === 'h3') {
+      flushBody()
+      const nodeName = String(element?.textContent || '').replace(/\s+/g, ' ').trim()
+      if (!nodeName) {
+        activeNode = null
+        return
+      }
+      let level = tagName === 'h2' ? 1 : 2
+      if (level === 2 && !currentChapterId) level = 1
+      const nodeId = String(element?.dataset.nodeId || outlineNodeId(level === 1 ? 'chapter' : 'section'))
+      const existing = existingById.get(nodeId) || {}
+      activeNode = {
+        ...clone(existing),
+        node_id: nodeId,
+        parent_node_id: level === 1 ? String(existing.parent_node_id || 'root') : currentChapterId,
+        node_name: nodeName,
+        node_level: level,
+        learning_objective: String(existing.learning_objective || ''),
+        prerequisite_node_ids: Array.isArray(existing.prerequisite_node_ids) ? existing.prerequisite_node_ids : [],
+        outline_editor_html: {
+          ...(existing.outline_editor_html || {}),
+          title_html: sanitizeEditorHtml(element?.innerHTML || nodeName),
+          body_html: '',
+        },
+      }
+      if (level === 1) currentChapterId = nodeId
+      parsed.push(activeNode)
+      if (parsed.length === 1 && leadingFragments.length) {
+        bodyFragments.push(...leadingFragments)
+        leadingFragments.length = 0
+      }
+      return
+    }
+    if (!activeNode) {
+      if (element) leadingFragments.push(element.outerHTML)
+      else if (child.textContent) leadingFragments.push(`<p>${escapeEditorText(child.textContent)}</p>`)
+      return
+    }
+    if (element?.hasAttribute('data-node-body')) bodyFragments.push(element.innerHTML)
+    else if (element) bodyFragments.push(element.outerHTML)
+    else if (child.textContent) bodyFragments.push(`<p>${escapeEditorText(child.textContent)}</p>`)
+  })
+  flushBody()
+
+  if (!parsed.some(node => Number(node.node_level || 2) === 1)) {
+    actionError.value = t('courseGeneration.outlineReview.chapterRequired', '大纲至少需要保留一个章标题。')
+    return false
+  }
+  const keptIds = new Set(parsed.map(node => String(node.node_id || '')))
+  parsed.forEach(node => {
+    node.prerequisite_node_ids = (node.prerequisite_node_ids || []).filter((id: string) => keptIds.has(String(id)))
+  })
+  replaceBlueprintNodes(parsed)
+  recordEditHistory()
+  richEditorDirty.value = false
+  actionError.value = ''
+  return true
+}
+
+function syncActiveEditorToNodes() {
+  return editorMode.value === 'markdown' ? syncMarkdownToNodes() : syncRichEditorToNodes()
+}
+
+function currentNodeSnapshot() {
+  return clone(blueprintNodes.value)
+}
+
+function replaceBlueprintNodes(nodes: any[]) {
+  if (Array.isArray(blueprintDraft.value?.nodes)) {
+    blueprintDraft.value.nodes = clone(nodes)
+    return
+  }
+  blueprintDraft.value.course_blueprint = {
+    ...(blueprintDraft.value.course_blueprint || {}),
+    nodes: clone(nodes),
+  }
+}
+
+function resetEditHistory() {
+  editHistory.value = [currentNodeSnapshot()]
+  editHistoryIndex.value = 0
+}
+
+function recordEditHistory() {
+  const snapshot = currentNodeSnapshot()
+  const signature = JSON.stringify(snapshot)
+  const current = editHistory.value[editHistoryIndex.value]
+  if (current && JSON.stringify(current) === signature) return
+  editHistory.value = editHistory.value.slice(0, editHistoryIndex.value + 1)
+  editHistory.value.push(snapshot)
+  editHistoryIndex.value = editHistory.value.length - 1
+}
+
+function restoreEditHistory(index: number) {
+  const snapshot = editHistory.value[index]
+  if (!snapshot) return
+  replaceBlueprintNodes(snapshot)
+  editHistoryIndex.value = index
+  markManualChange(t('courseGeneration.outlineReview.manualChanged', '大纲已修改，保存后生效'))
+}
+
+function undoEdit() {
+  if (canUndo.value) restoreEditHistory(editHistoryIndex.value - 1)
+}
+
+function redoEdit() {
+  if (canRedo.value) restoreEditHistory(editHistoryIndex.value + 1)
+}
+
 function listText(value: unknown) {
   if (!Array.isArray(value)) return ''
   return value.map(item => String(item || '').trim()).filter(Boolean).join('；')
-}
-
-function normalizedPathRole(value: unknown) {
-  const role = String(value || '')
-  return ['focus', 'standard', 'compressed', 'verify_in_project', 'milestone'].includes(role)
-    ? role
-    : 'standard'
-}
-
-function pathRoleLabel(value: unknown) {
-  const labels = {
-    focus: t('courseGeneration.outlineReview.pathRoles.focus', '重点补充'),
-    standard: t('courseGeneration.outlineReview.pathRoles.standard', '正常学习'),
-    compressed: t('courseGeneration.outlineReview.pathRoles.compressed', '快速通过'),
-    verify_in_project: t('courseGeneration.outlineReview.pathRoles.verifyInProject', '项目中验证'),
-    milestone: t('courseGeneration.outlineReview.pathRoles.milestone', '项目节点'),
-  }
-  return labels[normalizedPathRole(value) as keyof typeof labels]
 }
 
 function seedNodesFromCourse() {
@@ -1038,10 +1989,16 @@ async function loadBlueprint() {
       || {},
     )
     blueprintDraft.value = clone(data.draft || data.current || data || {})
+    richEditorDirty.value = false
+    editorMode.value = 'visual'
+    markdownDraft.value = ''
+    closeInsertControls()
+    rememberedEditorRange = null
     seedNodesFromCourse()
     if (!blueprintDraft.value.course_name) blueprintDraft.value.course_name = props.courseName
     syncNavigationFromDraft()
     baseline.value = draftSignature.value
+    resetEditHistory()
     adjustmentProposal.value = null
     proposalNotice.value = ''
   } catch {
@@ -1077,8 +2034,10 @@ function draftPayload(
 
 async function persistDraft(showMessage = true) {
   if (!blueprintNodes.value.length) return
+  if (!syncActiveEditorToNodes()) throw new Error('invalid-outline-editor-document')
   const result = await workspace.saveBlueprint(props.courseId, draftPayload())
   if (result?.draft) blueprintDraft.value = clone(result.draft)
+  richEditorDirty.value = false
   qualityArtifact.value = clone(result?.quality_report || result?.draft?.course_outline_quality_report || {})
   syncNavigationFromDraft()
   baseline.value = draftSignature.value
@@ -1104,6 +2063,9 @@ async function retryRetrieval() {
     const candidate = retrievalArtifact.value?.proposal?.candidate_draft
     if (candidate) {
       blueprintDraft.value = clone(candidate)
+      richEditorDirty.value = false
+      editorMode.value = 'visual'
+      markdownDraft.value = ''
       baseline.value = draftSignature.value
       syncNavigationFromDraft()
     }
@@ -1149,31 +2111,6 @@ function proposalFitsNodeTarget(proposal: Record<string, any>, nodeId: string) {
   ))
 }
 
-function nodeProposalChanges(nodeId: string) {
-  const updated = (adjustmentProposal.value?.diff?.updated || []).find(
-    (item: Record<string, any>) => String(item.node_id || '') === nodeId,
-  )
-  const labels: Record<string, string> = {
-    node_name: t('courseTasks.blueprint.nodeName', '章节名称'),
-    learning_objective: t('courseTasks.blueprint.objective', '学习目标'),
-    scope_boundary: t('courseGeneration.outlineReview.scopeBoundary', '内容边界'),
-    assessment: t('courseGeneration.outlineReview.assessmentLabel', '达成检验'),
-    prerequisite_node_ids: t('courseGeneration.outlineReview.changedDependencies', '前置依赖'),
-  }
-  return Object.entries(updated?.changes || {}).map(([field, values]: [string, any]) => ({
-    field,
-    label: labels[field] || field,
-    before: values?.before,
-    after: values?.after,
-  }))
-}
-
-function proposalValue(value: unknown) {
-  if (Array.isArray(value)) return value.length ? value.join('、') : '—'
-  const text = String(value ?? '').trim()
-  return text || '—'
-}
-
 function outlineNodeId(prefix: string) {
   const suffix = typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
@@ -1185,151 +2122,6 @@ function markManualChange(message: string) {
   invalidateProposal()
   proposalNotice.value = message
   liveStatus.value = message
-}
-
-function selectOutlineNode(node: Record<string, any>) {
-  selectedNodeId.value = String(node?.node_id || '')
-}
-
-function openNodeAi(node: Record<string, any>) {
-  if (adjustmentBusy.value || adjustmentProposal.value) return
-  const nodeId = String(node?.node_id || '')
-  if (!nodeId) return
-  selectedNodeId.value = nodeId
-  aiTargetNodeId.value = nodeId
-  nodeAiInstruction.value = ''
-  liveStatus.value = t('courseGeneration.outlineReview.aiNodeReady', '已选中当前内容，可直接提出修改要求')
-}
-
-function scopedNodeInstruction(node: Record<string, any>, instruction: string) {
-  const nodeId = String(node?.node_id || '')
-  const nodeName = String(node?.node_name || '').trim()
-  return [
-    `仅允许修改大纲节点「${nodeName}」（节点 ID：${nodeId}）。`,
-    '不得新增、删除、移动或修改其他节点；保留当前课程的知识边界和前置关系。',
-    instruction,
-  ].join('\n')
-}
-
-async function runNodeAi(node: Record<string, any>) {
-  const instruction = nodeAiInstruction.value.trim()
-  if (!instruction || adjustmentBusy.value || adjustmentProposal.value) return
-  const nodeId = String(node?.node_id || '')
-  if (!nodeId) return
-  selectedNodeId.value = nodeId
-  aiTargetNodeId.value = nodeId
-  adjustmentInstruction.value = scopedNodeInstruction(node, instruction)
-  await generateAdjustmentProposal()
-}
-
-async function runNodeAiPreset(node: Record<string, any>, instruction: string) {
-  nodeAiInstruction.value = instruction
-  await runNodeAi(node)
-}
-
-async function focusOutlineNode(nodeId: string) {
-  await nextTick()
-  const chapterInput = Array.from(
-    chaptersRef.value?.querySelectorAll<HTMLInputElement>('[data-outline-node-id]') || [],
-  ).find(input => input.dataset.outlineNodeId === nodeId)
-  if (!chapterInput) return
-  if (typeof chapterInput.scrollIntoView === 'function') {
-    chapterInput.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  }
-  chapterInput.focus({ preventScroll: true })
-  chapterInput.select()
-}
-
-async function addChapter() {
-  const chapterCount = blueprintNodes.value.filter(node => Number(node.node_level || 2) === 1).length
-  const nodeId = outlineNodeId('chapter')
-  blueprintNodes.value.push({
-    node_id: nodeId,
-    parent_node_id: 'root',
-    node_name: t('courseGeneration.outlineReview.newChapterName', '新章节 {number}').replace('{number}', String(chapterCount + 1)),
-    node_level: 1,
-    learning_objective: '',
-    prerequisite_node_ids: [],
-  })
-  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
-  await focusOutlineNode(nodeId)
-}
-
-async function addSection(chapter: any) {
-  const parentId = String(chapter?.node_id || '')
-  if (!parentId) return
-  const siblings = blueprintNodes.value.filter(node => String(node.parent_node_id || '') === parentId)
-  const chapterIndex = blueprintNodes.value.indexOf(chapter)
-  let insertAt = chapterIndex + 1
-  while (insertAt < blueprintNodes.value.length && Number(blueprintNodes.value[insertAt]?.node_level || 2) !== 1) insertAt += 1
-  const nodeId = outlineNodeId('section')
-  blueprintNodes.value.splice(insertAt, 0, {
-    node_id: nodeId,
-    parent_node_id: parentId,
-    node_name: t('courseGeneration.outlineReview.newSectionName', '新小节 {number}').replace('{number}', String(siblings.length + 1)),
-    node_level: 2,
-    learning_objective: '',
-    prerequisite_node_ids: [],
-  })
-  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
-  await focusOutlineNode(nodeId)
-}
-
-function siblingNodes(node: any) {
-  const level = Number(node?.node_level || 2)
-  return blueprintNodes.value.filter(candidate => level === 1
-    ? Number(candidate.node_level || 2) === 1
-    : Number(candidate.node_level || 2) !== 1 && String(candidate.parent_node_id || '') === String(node.parent_node_id || ''))
-}
-
-function canMoveNode(node: any, direction: -1 | 1) {
-  const siblings = siblingNodes(node)
-  const index = siblings.indexOf(node)
-  return direction < 0 ? index > 0 : index >= 0 && index < siblings.length - 1
-}
-
-function moveOutlineNode(node: any, direction: -1 | 1) {
-  if (!canMoveNode(node, direction)) return
-  if (Number(node.node_level || 2) !== 1) {
-    const siblings = siblingNodes(node)
-    const target = siblings[siblings.indexOf(node) + direction]
-    const sourceIndex = blueprintNodes.value.indexOf(node)
-    const targetIndex = blueprintNodes.value.indexOf(target)
-    blueprintNodes.value.splice(sourceIndex, 1)
-    blueprintNodes.value.splice(targetIndex, 0, node)
-  } else {
-    const chapters = siblingNodes(node)
-    const target = chapters[chapters.indexOf(node) + direction]
-    const blockFor = (chapter: any) => blueprintNodes.value.filter(candidate => candidate === chapter || String(candidate.parent_node_id || '') === String(chapter.node_id || ''))
-    const blocks = chapters.map(blockFor)
-    const sourceBlockIndex = chapters.indexOf(node)
-    const targetBlockIndex = chapters.indexOf(target)
-    const sourceBlock = blocks[sourceBlockIndex]!
-    const targetBlock = blocks[targetBlockIndex]!
-    blocks[sourceBlockIndex] = targetBlock
-    blocks[targetBlockIndex] = sourceBlock
-    const chapterIds = new Set(chapters.flatMap(chapter => blockFor(chapter).map(item => item.node_id)))
-    const untouched = blueprintNodes.value.filter(candidate => !chapterIds.has(candidate.node_id))
-    blueprintNodes.value.splice(0, blueprintNodes.value.length, ...blocks.flat(), ...untouched)
-  }
-  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
-}
-
-function removeOutlineNode(node: any) {
-  const removedIds = new Set<string>([String(node.node_id || '')])
-  if (Number(node.node_level || 2) === 1) {
-    blueprintNodes.value.forEach(candidate => {
-      if (String(candidate.parent_node_id || '') === String(node.node_id || '')) removedIds.add(String(candidate.node_id || ''))
-    })
-  }
-  const kept = blueprintNodes.value.filter(candidate => !removedIds.has(String(candidate.node_id || '')))
-  kept.forEach(candidate => {
-    if (Array.isArray(candidate.prerequisite_node_ids)) {
-      candidate.prerequisite_node_ids = candidate.prerequisite_node_ids.filter((id: string) => !removedIds.has(String(id)))
-    }
-  })
-  blueprintNodes.value.splice(0, blueprintNodes.value.length, ...kept)
-  markManualChange(t('courseGeneration.outlineReview.manualChanged', '目录已修改，保存后生效'))
 }
 
 function invalidateProposal() {
@@ -1442,9 +2234,13 @@ async function applyAdjustmentProposal() {
     adjustmentProposal.value = null
     emit('ai-candidate-change', null)
     blueprintDraft.value = clone(result?.draft || candidate)
+    richEditorDirty.value = false
+    editorMode.value = 'visual'
+    markdownDraft.value = ''
     qualityArtifact.value = clone(result?.quality_report || result?.draft?.course_outline_quality_report || {})
     syncNavigationFromDraft()
     baseline.value = draftSignature.value
+    resetEditHistory()
     aiTargetNodeId.value = ''
     nodeAiInstruction.value = ''
     proposalNotice.value = t('courseGeneration.outlineReview.proposalApplied', '方案已应用并保存')
@@ -1476,14 +2272,6 @@ function plainOutlineTitle(value: unknown) {
     .replace(/^\s*第\s*\d+\s*章\s*/, '')
     .replace(/^\s*\d+(?:\.\d+)?\s*/, '')
     .trim()
-}
-
-function assessmentItems(value: unknown) {
-  if (Array.isArray(value)) {
-    return value.map(item => String(item || '').trim()).filter(Boolean)
-  }
-  const item = String(value || '').trim()
-  return item ? [item] : []
 }
 
 function qualityIssueLocation(issue: Record<string, any>) {
@@ -1550,7 +2338,7 @@ async function saveDraft() {
   try {
     await persistDraft()
   } catch {
-    actionError.value = t('courseGeneration.outlineReview.saveFailed', '目录修改保存失败，请检查后重试。')
+    if (!actionError.value) actionError.value = t('courseGeneration.outlineReview.saveFailed', '目录修改保存失败，请检查后重试。')
   } finally {
     saving.value = false
   }
@@ -1565,10 +2353,36 @@ async function finishEditing() {
     await persistDraft()
     return true
   } catch {
-    actionError.value = t('courseGeneration.outlineReview.saveFailed', '目录修改保存失败，请检查后重试。')
+    if (!actionError.value) actionError.value = t('courseGeneration.outlineReview.saveFailed', '目录修改保存失败，请检查后重试。')
     return false
   } finally {
     saving.value = false
+  }
+}
+
+async function restoreHistoryVersion(historyEntryId: string) {
+  if (!historyEntryId || acting.value || dirty.value) return false
+  actionError.value = ''
+  try {
+    const result = await workspace.restoreBlueprintDraftVersion(props.courseId, historyEntryId)
+    blueprintDraft.value = clone(result.draft || {})
+    qualityArtifact.value = clone(result.quality_report || blueprintDraft.value.course_outline_quality_report || {})
+    richEditorDirty.value = false
+    editorMode.value = 'visual'
+    markdownDraft.value = ''
+    rememberedEditorRange = null
+    syncNavigationFromDraft()
+    baseline.value = draftSignature.value
+    resetEditHistory()
+    adjustmentProposal.value = null
+    await nextTick()
+    refreshEditorStats()
+    ElMessage.success(t('courseGeneration.outlineReview.historyRestored', '已恢复大纲历史版本'))
+    return true
+  } catch (error: any) {
+    actionError.value = error?.response?.data?.detail?.message
+      || t('courseGeneration.outlineReview.historyRestoreFailed', '大纲历史版本恢复失败，请重试。')
+    return false
   }
 }
 
@@ -1595,7 +2409,19 @@ async function confirmOutline() {
   }
 }
 
-defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCandidate })
+defineExpose({
+  finishEditing,
+  confirmOutline,
+  requestAiCandidate,
+  resolveAiCandidate,
+  focusAiCandidate,
+  dirty,
+  canUndo,
+  canRedo,
+  undoEdit,
+  redoEdit,
+  restoreHistoryVersion,
+})
 </script>
 
 <style scoped>
@@ -2293,6 +3119,255 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
 .outline-review__actions svg.lucide-loader-circle { animation:outline-review-spin .9s linear infinite; }
 .outline-review__toolbar-actions { display:flex; align-items:center; gap:7px; margin-left:auto; }
 
+.outline-document-toolbar {
+  position:sticky;
+  z-index:7;
+  top:0;
+  min-height:56px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:0 10px;
+  border-bottom:1px solid #e1e5ec;
+  color:#536176;
+  background:rgba(255,255,255,.98);
+  box-shadow:0 7px 18px rgba(30,41,59,.055);
+  overflow:visible;
+}
+.outline-document-toolbar.is-locked{opacity:.62}.outline-document-toolbar.is-locked>*{pointer-events:none}
+.outline-rich-editor :deep(.ai-change-target){position:relative;border-radius:5px;background:rgba(238,242,255,.82);box-shadow:0 0 0 1px rgba(99,102,241,.28)}.outline-rich-editor :deep(h2.ai-change-target),.outline-rich-editor :deep(h3.ai-change-target){padding-right:170px}.outline-rich-editor :deep(h2.ai-change-target::after),.outline-rich-editor :deep(h3.ai-change-target::after){position:absolute;top:50%;right:8px;max-width:155px;overflow:hidden;padding:4px 8px;transform:translateY(-50%);border:1px solid #c8c7f2;border-radius:999px;color:#4338ca;background:#fff;box-shadow:0 4px 12px rgba(67,56,202,.1);content:attr(data-ai-change-label);font-size:9.5px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.outline-rich-editor :deep([data-ai-change="remove"]){background:rgba(255,241,242,.88);box-shadow:0 0 0 1px rgba(220,97,112,.35)}.outline-rich-editor :deep([data-ai-change="remove"]::after){border-color:#f1c7cd;color:#b4233c}
+.outline-document-toolbar__group { display:flex; flex:0 0 auto; align-items:center; gap:2px; }
+.outline-document-toolbar > i { width:1px; height:22px; flex:0 0 auto; margin:0 2px; background:#e1e5ec; }
+.outline-document-toolbar button {
+  min-height:34px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:0 7px;
+  border:1px solid transparent;
+  border-radius:7px;
+  color:#526077;
+  background:transparent;
+  font-size:11.5px;
+  font-weight:720;
+  cursor:pointer;
+}
+.outline-document-toolbar button.format-icon { width:34px; padding:0; }
+.outline-document-toolbar button.format-icon > span,
+.outline-block-style > span {
+  position:absolute;
+  width:1px;
+  height:1px;
+  overflow:hidden;
+  clip:rect(0,0,0,0);
+  white-space:nowrap;
+}
+.outline-document-toolbar button:hover:not(:disabled) { color:#3730a3; background:#f1f2f8; }
+.outline-document-toolbar button:focus-visible { outline:2px solid #5b57e8; outline-offset:1px; }
+.outline-document-toolbar button:disabled { color:#adb5c1; opacity:.62; cursor:not-allowed; }
+.outline-document-toolbar button.danger:hover:not(:disabled) { color:#b42318; background:#fff2f0; }
+.outline-editor-modes {
+  flex:0 0 auto;
+  display:flex;
+  align-items:center;
+  gap:2px;
+  padding:3px;
+  border:1px solid #e2e5ec;
+  border-radius:9px;
+  background:#f5f6f8;
+}
+.outline-editor-modes button { min-height:29px; padding-inline:9px; border-radius:6px; }
+.outline-editor-modes button.is-active { color:#3730a3; background:#fff; box-shadow:0 1px 3px rgba(30,41,59,.11); }
+.outline-block-style { position:relative; flex:0 0 auto; }
+.outline-block-style select {
+  width:92px;
+  height:34px;
+  padding:0 26px 0 10px;
+  border:1px solid transparent;
+  border-radius:7px;
+  color:#445066;
+  background-color:transparent;
+  font-size:11.5px;
+  font-weight:720;
+  outline:none;
+  cursor:pointer;
+}
+.outline-block-style select:hover { color:#3730a3; background-color:#f1f2f8; }
+.outline-block-style select:focus-visible { outline:2px solid #5b57e8; outline-offset:1px; }
+.outline-insert-control,
+.outline-toolbar-control { position:relative; flex:0 0 auto; }
+.outline-document-toolbar .outline-insert-trigger.is-active,
+.outline-document-toolbar .outline-menu-trigger.is-active { color:#3730a3; background:#f1f2f8; }
+.outline-insert-menu,
+.outline-insert-prompt,
+.outline-format-menu,
+.outline-find-panel {
+  position:absolute;
+  z-index:20;
+  top:42px;
+  right:0;
+  width:300px;
+  padding:8px;
+  border:1px solid #dfe3eb;
+  border-radius:11px;
+  background:#fff;
+  box-shadow:0 18px 42px rgba(30,41,59,.18);
+}
+.outline-insert-menu { display:grid; grid-template-columns:1fr 1fr; gap:3px; }
+.outline-document-toolbar .outline-insert-menu > button {
+  min-height:54px;
+  justify-content:flex-start;
+  gap:9px;
+  padding:8px 9px;
+  text-align:left;
+}
+.outline-insert-menu > button > span { min-width:0; display:grid; gap:2px; }
+.outline-insert-menu strong { color:#303a50; font-size:12px; }
+.outline-insert-menu small { color:#8a93a3; font-size:10px; font-weight:500; }
+.outline-insert-prompt { width:330px; padding:13px; }
+.outline-insert-prompt label { display:grid; gap:6px; }
+.outline-insert-prompt label > span { color:#4a5568; font-size:11px; font-weight:750; }
+.outline-insert-prompt input { height:38px; padding:0 10px; border-color:#d6dbe5; background:#fff; font-size:12px; }
+.outline-insert-prompt > div { display:flex; justify-content:flex-end; gap:6px; margin-top:10px; }
+.outline-document-toolbar .outline-insert-prompt button { min-height:32px; border-color:#dfe3eb; }
+.outline-document-toolbar .outline-insert-prompt button.primary { border-color:#454ca8; color:#fff; background:#454ca8; }
+.outline-format-menu {
+  right:auto;
+  left:0;
+  width:252px;
+  display:grid;
+  gap:8px;
+  padding:12px;
+}
+.outline-format-menu section { display:grid; grid-template-columns:72px minmax(0,1fr); align-items:center; gap:8px; }
+.outline-format-menu section > span { color:#7b8494; font-size:10px; font-weight:740; }
+.outline-format-menu section > div { display:flex; align-items:center; gap:3px; }
+.outline-document-toolbar .outline-format-menu section button { width:34px; min-height:32px; padding:0; border-color:#e7e9ee; }
+.outline-document-toolbar .outline-format-menu__clear { width:100%; min-height:34px; justify-content:flex-start; border-top:1px solid #eceef2; border-radius:0; padding:8px 5px 0; }
+.outline-format-menu__count { justify-self:end; margin-top:-32px; padding:9px 5px 0; color:#929aaa; font-size:10px; font-weight:620; font-variant-numeric:tabular-nums; }
+.outline-find-panel {
+  right:0;
+  width:356px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:9px 7px;
+  padding:13px;
+}
+.outline-find-panel label { min-width:0; display:grid; gap:5px; }
+.outline-find-panel label > span { color:#6e7889; font-size:10px; font-weight:760; }
+.outline-find-panel label > div { height:36px; display:flex; align-items:center; gap:7px; padding:0 9px; border:1px solid #d9dee7; border-radius:7px; color:#7d8797; background:#fff; }
+.outline-find-panel input { min-width:0; flex:1; height:30px; padding:0; border:0; box-shadow:none; color:#303a50; background:transparent; font-size:12px; }
+.outline-find-panel input:focus { border:0; box-shadow:none; outline:none; }
+.outline-find-panel small { color:#8b94a3; font-size:10px; white-space:nowrap; }
+.outline-find-panel__navigation { display:flex; align-items:flex-end; gap:3px; }
+.outline-document-toolbar .outline-find-panel__navigation button { width:34px; min-height:36px; padding:0; border-color:#dfe3eb; }
+.outline-find-panel__actions { grid-column:1 / -1; display:flex; justify-content:flex-end; gap:5px; }
+.outline-document-toolbar .outline-find-panel__actions button { min-height:31px; border-color:#dfe3eb; }
+.outline-markdown-guide { display:flex; align-items:center; gap:6px; margin:0; color:#737d8f; font-size:11px; }
+.outline-rich-editor {
+  min-height:420px;
+  padding-bottom:64px;
+  caret-color:#4038c7;
+  color:#30394c;
+  outline:none;
+}
+.outline-rich-editor.is-editable { cursor:text; }
+.outline-rich-editor.is-editable:focus { box-shadow:inset 3px 0 0 #deddf8; }
+.outline-rich-editor :deep(h2) {
+  margin:0;
+  padding:27px 0 10px;
+  border-top:1px solid #dfe3e9;
+  color:#1d2639;
+  font-size:21px;
+  font-weight:820;
+  line-height:1.4;
+  letter-spacing:-.015em;
+}
+.outline-rich-editor :deep(h2:first-child) { border-top:0; }
+.outline-rich-editor :deep(h3) {
+  margin:22px 0 7px 28px;
+  padding-top:18px;
+  border-top:1px solid #edf0f4;
+  color:#2c364b;
+  font-size:15px;
+  font-weight:760;
+  line-height:1.5;
+}
+.outline-rich-editor :deep([data-node-body]) {
+  margin:0 0 2px 28px;
+  color:#626d80;
+  font-size:13px;
+  line-height:1.75;
+}
+.outline-rich-editor :deep(h2 + [data-node-body]) { margin-left:0; color:#6c7688; }
+.outline-rich-editor :deep([data-node-body] p) { min-height:1.75em; margin:0; }
+.outline-rich-editor :deep([data-node-body] ul),
+.outline-rich-editor :deep([data-node-body] ol) { margin:7px 0; padding-left:24px; }
+.outline-rich-editor :deep([data-node-body] li) { margin:3px 0; padding-left:2px; }
+.outline-rich-editor :deep(a) { color:#3f47a8; text-decoration:underline; text-underline-offset:2px; }
+.outline-rich-editor :deep(mark) { padding:0 .08em; color:inherit; background:#fff0a8; }
+.outline-rich-editor :deep([data-align="center"]) { text-align:center; }
+.outline-rich-editor :deep([data-align="right"]) { text-align:right; }
+.outline-rich-editor :deep([data-align="justify"]) { text-align:justify; text-justify:inter-ideograph; }
+.outline-rich-editor :deep([data-title-format]) { display:block; }
+.outline-rich-editor :deep([data-indent="1"]) { margin-left:2em; }
+.outline-rich-editor :deep([data-indent="2"]) { margin-left:4em; }
+.outline-rich-editor :deep([data-indent="3"]) { margin-left:6em; }
+.outline-rich-editor :deep([data-indent="4"]) { margin-left:8em; }
+.outline-rich-editor :deep([data-formula]) { display:inline-block; padding:1px 6px; border:1px solid #e0e3eb; border-radius:5px; color:#293249; background:#f8f9fb; font-family:"Cambria Math",KaTeX_Math,serif; font-size:1.05em; }
+.outline-rich-editor :deep(blockquote) { margin:12px 0; padding:9px 14px; border:1px solid #e0e3f3; border-radius:7px; color:#536176; background:#f7f7fc; }
+.outline-rich-editor :deep(pre) { overflow:auto; margin:12px 0; padding:13px 15px; border:1px solid #e1e5ec; border-radius:8px; color:#374151; background:#f7f8fa; font:12px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; white-space:pre-wrap; }
+.outline-rich-editor :deep(table) { width:100%; margin:14px 0; border-collapse:collapse; table-layout:fixed; color:#465166; }
+.outline-rich-editor :deep(th),
+.outline-rich-editor :deep(td) { min-width:70px; padding:8px 10px; border:1px solid #d9dee7; text-align:left; vertical-align:top; }
+.outline-rich-editor :deep(th) { color:#303a50; background:#f4f5f8; font-weight:760; }
+.outline-rich-editor :deep(figure) { margin:16px 0; text-align:center; }
+.outline-rich-editor :deep(figure img) { max-width:100%; max-height:440px; border-radius:6px; }
+.outline-rich-editor :deep(figcaption) { margin-top:6px; color:#8790a0; font-size:11px; }
+.outline-rich-editor :deep(hr) { margin:22px 0; border:0; border-top:1px solid #dfe3e9; }
+.outline-rich-editor.is-editable :deep(h2:hover),
+.outline-rich-editor.is-editable :deep(h3:hover),
+.outline-rich-editor.is-editable :deep([data-node-body]:hover) { background:#fafaff; }
+.outline-markdown-workspace {
+  min-height:520px;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  margin:28px clamp(18px,4vw,44px) 0;
+  overflow:hidden;
+  border:1px solid #dfe3eb;
+  border-radius:10px;
+  background:#fff;
+}
+.outline-markdown-pane { min-width:0; display:grid; grid-template-rows:38px minmax(0,1fr); }
+.outline-markdown-pane > span { display:flex; align-items:center; padding:0 14px; border-bottom:1px solid #e7eaf0; color:#707b8e; background:#f8f9fb; font-size:10px; font-weight:780; letter-spacing:.04em; }
+.outline-markdown-pane--source { border-right:1px solid #dfe3eb; }
+.outline-markdown-pane--source textarea {
+  min-height:480px;
+  padding:18px;
+  border:0;
+  border-radius:0;
+  color:#2f394d;
+  background:#fcfcfd;
+  font:12px/1.75 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  resize:none;
+}
+.outline-markdown-pane--source textarea:hover { background:#fcfcfd; }
+.outline-markdown-pane--source textarea:focus { border:0; box-shadow:inset 3px 0 0 #deddf8; }
+.outline-markdown-preview { min-height:480px; overflow:auto; padding:18px 20px; color:#3d475a; font-size:12px; line-height:1.75; }
+.outline-markdown-preview :deep(h1),
+.outline-markdown-preview :deep(h2),
+.outline-markdown-preview :deep(h3) { margin:1.25em 0 .55em; color:#20293b; line-height:1.4; }
+.outline-markdown-preview :deep(h1:first-child),
+.outline-markdown-preview :deep(h2:first-child),
+.outline-markdown-preview :deep(h3:first-child) { margin-top:0; }
+.outline-markdown-preview :deep(h2) { font-size:18px; }
+.outline-markdown-preview :deep(h3) { font-size:14px; }
+.outline-markdown-preview :deep(table) { width:100%; border-collapse:collapse; }
+.outline-markdown-preview :deep(th),
+.outline-markdown-preview :deep(td) { padding:7px 9px; border:1px solid #d9dee7; text-align:left; }
+.outline-markdown-preview :deep(pre) { overflow:auto; padding:12px; border-radius:7px; background:#f5f6f8; }
+
 .outline-review[data-variant="inline"] {
   height:auto;
   display:block;
@@ -2307,9 +3382,28 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   overflow:visible;
   background:transparent;
 }
-.outline-review[data-variant="inline"] .outline-review__body { overflow:visible; }
-.outline-review[data-variant="inline"] .outline-view-switch { padding:14px 20px 8px; }
-.outline-review[data-variant="inline"] .formal-outline { padding-inline:20px; }
+.outline-review[data-variant="inline"] .outline-review__body { overflow:visible; background:#fff; }
+.outline-review[data-variant="inline"] .formal-outline {
+  width:100%;
+  margin:0;
+  padding:0 0 56px;
+  background:#fff;
+  box-shadow:none;
+}
+.outline-review[data-variant="inline"] .formal-outline__masthead {
+  overflow:visible;
+  padding:54px 64px 32px;
+  border:0;
+  border-radius:0;
+  background:#fff;
+  box-shadow:none;
+}
+.outline-review[data-variant="inline"] .formal-outline__masthead::after { display:none; }
+.outline-review[data-variant="inline"] .formal-outline__brief { padding-inline:64px; }
+.outline-review[data-variant="inline"] .outline-quality,
+.outline-review[data-variant="inline"] .formal-outline__schedule { margin-inline:64px; padding-inline:0; }
+.outline-review[data-variant="inline"] .formal-outline__schedule { padding-top:28px; }
+.outline-review[data-variant="inline"] .outline-markdown-workspace { margin:28px 64px 0; }
 .outline-review[data-variant="inline"] .outline-review__loading,
 .outline-review[data-variant="inline"] .outline-review__load-error { min-height:180px; }
 .outline-review[data-variant="inline"] .outline-review__setup {
@@ -2442,6 +3536,14 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
 @keyframes outline-review-spin { to { transform:rotate(360deg); } }
 @media (max-width:767px) {
   .outline-review { padding:0 16px; }
+  .outline-document-toolbar { gap:4px; padding-inline:8px; overflow-x:auto; overflow-y:visible; }
+  .outline-document-toolbar > i { margin-inline:0; }
+  .outline-block-style select { width:88px; }
+  .outline-insert-menu,
+  .outline-insert-prompt,
+  .outline-format-menu,
+  .outline-find-panel { position:fixed; top:auto; right:12px; bottom:12px; left:12px; width:auto; }
+  .outline-markdown-guide { white-space:nowrap; }
   .outline-review__setup { min-height:0; }
   .outline-review__starting-point { margin:0; padding:11px 0 13px; }
   .outline-review__starting-point > div { grid-template-columns:1fr; gap:8px; }
@@ -2469,6 +3571,11 @@ defineExpose({ finishEditing, requestAiCandidate, resolveAiCandidate, focusAiCan
   .outline-view-switch { padding-inline:0; }
   .outline-review[data-variant="inline"] .outline-view-switch { padding-inline:14px; }
   .outline-review[data-variant="inline"] .formal-outline { padding-inline:14px; }
+  .outline-review[data-variant="inline"] .outline-markdown-workspace,
+  .outline-markdown-workspace { grid-template-columns:1fr; margin:22px 12px 0; }
+  .outline-markdown-pane--source { border-right:0; border-bottom:1px solid #dfe3eb; }
+  .outline-markdown-pane--source textarea,
+  .outline-markdown-preview { min-height:340px; }
   .outline-review[data-variant="inline"] .outline-review__chapters { padding:20px 14px 30px; }
   .formal-outline__masthead { padding:30px 24px 24px; }
   .formal-outline__masthead h1 { font-size:28px; }

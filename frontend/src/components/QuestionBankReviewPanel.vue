@@ -28,9 +28,7 @@
         >
           <ShieldCheck :size="14" />
           <span>{{ t('questionBank.studio.qualityReview', '质量检查') }}</span>
-          <small>{{ issueObjectiveRows.length
-            ? t('questionBank.studio.issues', '{count} 项待处理').replace('{count}', String(issueObjectiveRows.length))
-            : t('questionBank.objective.allCovered', '全部已覆盖') }}</small>
+          <small>{{ qualitySummaryText }}</small>
           <ChevronUp v-if="qualityPanelOpen" :size="14" />
           <ChevronDown v-else :size="14" />
         </button>
@@ -1109,6 +1107,27 @@ const issueObjectiveRows = computed(() => objectiveRows.value.filter(
 const coveredObjectiveRows = computed(() => objectiveRows.value.filter(
   row => row.status === 'covered',
 ))
+const qualitySummaryText = computed(() => {
+  const pendingReviewCount = Number(reviewQueue.value.blocking_count || 0)
+  if (pendingReviewCount > 0) {
+    return t(
+      'questionBank.studio.pendingReview',
+      '{count} 道待审核',
+    ).replace('{count}', String(pendingReviewCount))
+  }
+  const coverageGapCount = Math.max(
+    issueObjectiveRows.value.length,
+    Number(coverage.value.required_objective_count || 0)
+      - Number(coverage.value.covered_objective_count || 0),
+  )
+  if (coverageGapCount > 0) {
+    return t(
+      'questionBank.studio.coverageGap',
+      '{count} 项待覆盖',
+    ).replace('{count}', String(coverageGapCount))
+  }
+  return t('questionBank.objective.allCovered', '全部已覆盖')
+})
 const coveredObjectivePageCount = computed(() => Math.max(
   1,
   Math.ceil(

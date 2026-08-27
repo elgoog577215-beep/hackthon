@@ -733,6 +733,34 @@ class UniversalAssessmentModel(AIBase):
             ) from exc
 
 
+def _batch_future_timeout_seconds(
+    call_policy: AssessmentModelCallPolicy,
+    max_wait_seconds: float,
+) -> float:
+    """Bound the queue, provider call, and future hand-off as one operation.
+
+    Provider calls already have stage timeouts, but a cancelled timer or a
+    failed flush can leave the awaiting Future unresolved before a provider
+    call even starts.  This outer guard closes that gap and lets each batcher
+    fall back to its single-item path.
+    """
+
+    grace_seconds = max(
+        0.01,
+        float(
+            os.getenv(
+                "ASSESSMENT_BATCH_FUTURE_GRACE_SECONDS",
+                "5",
+            )
+        ),
+    )
+    return (
+        max(0.0, max_wait_seconds)
+        + float(call_policy.timeout_seconds or 120.0)
+        + grace_seconds
+    )
+
+
 class _SemanticEvaluationBatcher:
     """Coalesce nearby open-question reviews without blocking indefinitely."""
 
@@ -822,7 +850,24 @@ class _SemanticEvaluationBatcher:
                 )
         if should_flush:
             await self._flush()
-        return await future
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(future),
+                timeout=_batch_future_timeout_seconds(
+                    call_policy,
+                    self.max_wait_seconds,
+                ),
+            )
+        except TimeoutError:
+            future.cancel()
+            self.audit["batch_semantic_fallback_count"] += 1
+            return await self._evaluate_one(
+                contract=contract,
+                independent=independent,
+                objective=objective,
+                slot=slot,
+                call_policy=call_policy,
+            )
 
     async def _flush_after_wait(self) -> None:
         try:
@@ -1074,7 +1119,20 @@ class _CandidateRepairBatcher:
                 )
         if should_flush:
             await self._flush(key)
-        return await future
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(future),
+                timeout=_batch_future_timeout_seconds(
+                    call_policy,
+                    self.max_wait_seconds,
+                ),
+            )
+        except TimeoutError:
+            future.cancel()
+            self.audit["batch_repair_fallback_count"] = int(
+                self.audit.get("batch_repair_fallback_count") or 0
+            ) + 1
+            return None
 
     async def _flush_after_wait(
         self,
@@ -1233,7 +1291,25 @@ class _IndependentSolutionBatcher:
                 )
         if should_flush:
             await self._flush(key)
-        return await future
+        try:
+            return await asyncio.wait_for(
+                asyncio.shield(future),
+                timeout=_batch_future_timeout_seconds(
+                    call_policy,
+                    self.max_wait_seconds,
+                ),
+            )
+        except TimeoutError:
+            future.cancel()
+            self.audit[
+                "batch_independent_solution_fallback_count"
+            ] = int(
+                self.audit.get(
+                    "batch_independent_solution_fallback_count"
+                )
+                or 0
+            ) + 1
+            return None
 
     async def _flush_after_wait(
         self,
@@ -5132,14 +5208,30 @@ def _repair_prompt_v2(
             "result checks. For a choice question, explain every option. "
         ),
     }
+    input_mode = str(
+        (context.get("assessment_slot") or {}).get("input_mode") or ""
+    )
     for issue_code, directive in semantic_repair_directives.items():
         if issue_code in issue_codes:
-            targeted_directive += directive
+            if (
+                issue_code == "DISTRACTOR_NOT_SAME_QUESTION"
+                and input_mode != "choice"
+            ):
+                targeted_directive += (
+                    "Remove all options and every select/choice instruction. "
+                    "Rewrite the task so each required structured field answers "
+                    "the locked primary question directly. "
+                )
+            else:
+                targeted_directive += directive
+    form_directive = _form_directive(_slot_question_form(context))
     return (
         f"{targeted_directive}\n"
         "根据质量报告中的问题代码执行一次定向修复。保持蓝图槽位锁定的"
         "题型、难度、目标、作答契约和验证器，只修改报告明确指出的部分；"
-        "不得降低要求。返回完整 question_spec 和 solution JSON。\n"
+        "不得降低要求。"
+        f"{form_directive}"
+        "返回完整 question_spec 和 solution JSON。\n"
         f"上下文：{json.dumps(context, ensure_ascii=False)}\n"
         f"原候选：{json.dumps(candidate, ensure_ascii=False)}\n"
         f"质量报告：{json.dumps(validation, ensure_ascii=False)}"
@@ -5337,6 +5429,8 @@ def _batch_repair_prompt(items: list[dict[str, Any]]) -> str:
         "context锁定的题型、难度、目标、输入契约和验证器。"
         "普通代码材料不得超过20个有效代码行；题面引用代码时必须"
         "包含完整且带语言标记的Markdown代码围栏。"
+        + _batch_form_directives(items)
+        +
         "必须为每个REPAIR_ITEM返回且只返回一个candidate，不能遗漏、"
         "合并或交换slot_id。只输出JSON，不输出解释或私有思维过程。\n"
         "<REQUIRED_OUTPUT_ENVELOPE>\n"

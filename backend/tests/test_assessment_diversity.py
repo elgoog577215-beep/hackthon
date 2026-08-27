@@ -247,6 +247,24 @@ def test_historical_questions_are_scoped_and_deduplicated_by_revision():
     ]
 
 
+def test_full_rebuild_can_ignore_outgoing_questions_in_replaced_scope():
+    course = {
+        "_assessment_ignore_historical_question_node_ids": ["node-1"],
+        "learning_assets": {
+            "questions": [{
+                "node_id": "node-1",
+                "revision_id": "rev-outgoing",
+                "prompt": "the outgoing question",
+            }],
+        },
+    }
+
+    assert historical_questions_for_node(
+        course,
+        node_id="node-1",
+    ) == []
+
+
 def test_subject_plugin_threshold_can_override_global(monkeypatch):
     question = _question(
         "Given vectors u=(1,2) and v=(3,4).",

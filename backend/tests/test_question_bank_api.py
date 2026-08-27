@@ -384,6 +384,44 @@ def _client(
     return TestClient(app), repository
 
 
+def test_unbuilt_question_bank_is_a_normal_empty_state(monkeypatch, tmp_path):
+    client, _ = _client(monkeypatch, tmp_path)
+
+    response = client.get(
+        "/api/courses/course-api/question-bank",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema_version": "question_bank_api_v1",
+        "course_id": "course-api",
+        "bundle_revision_id": "",
+        "status": "not_built",
+        "coverage": {},
+        "assessment_profile": {},
+        "assessment_objectives": [],
+        "assessment_blueprint": {},
+        "reference_package": {},
+        "generation_summary": {},
+        "review_queue": {},
+        "web_enrichment": {},
+        "chapter_rebuild": {
+            "schema_version": "question_bank_chapter_rebuild_v1",
+            "status": "not_started",
+            "published_node_ids": [],
+            "inferred_node_ids": [],
+            "completed_chapters": 0,
+            "total_chapters": 1,
+            "remaining_chapters": 1,
+            "can_resume": False,
+        },
+        "items": [],
+        "total": 0,
+        "access_scope": "teacher_authenticated_course_management",
+    }
+
+
 def _rebuild(client, request_id, *, mode="incremental"):
     created = client.post(
         "/api/courses/course-api/question-bank/rebuild",
@@ -505,8 +543,8 @@ def test_question_bank_rebuild_is_idempotent_and_returns_coverage(monkeypatch, t
     )
 
     result = first_job["result"]
-    assert first_job["status"] == "waiting_review"
-    assert result["coverage"]["coverage_ratio"] == 0
+    assert first_job["status"] == "completed"
+    assert result["coverage"]["coverage_ratio"] == 1
     assert second.status_code == 202
     assert second.json()["job_id"] == first["job_id"]
     assert second.json()["deduplicated"] is True
@@ -922,7 +960,7 @@ def test_question_bank_rebuild_preserves_teacher_review_decisions(monkeypatch, t
     assert preserved["review_history"]
 
 
-def test_rebuild_overlays_bank_on_passing_legacy_assets_when_full_recompile_fails(
+def test_rebuild_overlays_complete_bank_on_passing_legacy_assets_when_full_recompile_fails(
     monkeypatch,
     tmp_path,
 ):
@@ -970,20 +1008,16 @@ def test_rebuild_overlays_bank_on_passing_legacy_assets_when_full_recompile_fail
     _, response = _rebuild(client, "request-legacy-overlay")
     result = response["result"]
 
-    assert result["publication_mode"] == (
-        "question_bank_partial_overlay"
-    )
+    assert result["publication_mode"] == "question_bank_overlay"
     active = repository.asset_repository.load_bundle("course-api")
     assert active["quality_report"]["passed"] is True
-    assert active["publication_mode"] == (
-        "question_bank_partial_overlay"
-    )
+    assert active["publication_mode"] == "question_bank_overlay"
     binding = active["assets"]["question_bank_publications"][0]
     assert (
         binding["question_bank_bundle_revision_id"]
         == result["bundle_revision_id"]
     )
-    assert binding["quality_report"]["passed"] is False
+    assert binding["quality_report"]["passed"] is True
     assert active["bundle_revision_id"] != stored_legacy[
         "bundle_revision_id"
     ]

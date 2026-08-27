@@ -35,19 +35,61 @@
     >
       <header v-if="!['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage)" class="center-heading">
         <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
-        <div v-if="showOutlineWorkspace" class="center-heading-actions">
-          <button
-            class="ai-outline-action"
-            data-testid="outline-ai-action"
-            type="button"
-            :aria-expanded="aiCollaborationOpen && aiDomain === 'outline'"
-            @click="openAiCollaboration('outline')"
-          >
-            <Sparkles :size="15" />
-            {{ t('courseWorkbench.outlineAssistant', 'AI 助手') }}
-          </button>
-        </div>
       </header>
+
+      <template v-if="showOutlineWorkspace">
+        <TeacherDocumentCommandBar
+          :label="t('courseWorkbench.outlineDocument.actions', '大纲操作')"
+          :editing="editingOutline"
+          :can-undo="outlineCanUndo"
+          :can-redo="outlineCanRedo"
+          :disabled="stageSwitching || outlineConfirming || aiCollaborationBusy"
+          :history-open="historyOpen && historyDomain === 'outline'"
+          :history-count="outlineHistoryCount"
+          :status-label="outlineDocumentStatusLabel"
+          :status-tone="outlineDocumentStatusTone"
+          @undo="outlineEditor?.undoEdit()"
+          @redo="outlineEditor?.redoEdit()"
+          @history="toggleDocumentHistory('outline')"
+        >
+          <button type="button" :disabled="stageSwitching || outlineConfirming" @click="openAiCollaboration('outline')"><Sparkles :size="15" />AI 修改</button>
+          <button
+            class="outline-manual-action"
+            data-testid="outline-manual-action"
+            type="button"
+            :aria-pressed="editingOutline"
+            :disabled="stageSwitching || outlineConfirming"
+            @click="toggleOutlineEditing"
+          >
+            <Check v-if="editingOutline" :size="15" />
+            <Pencil v-else :size="15" />
+            {{ editingOutline
+              ? t('courseWorkbench.finishOutlineEditing', '完成编辑')
+              : t('courseWorkbench.editOutline', '编辑大纲') }}
+          </button>
+          <button
+            v-if="outlineAwaitingReview"
+            class="primary-action outline-confirm-action"
+            data-testid="outline-confirm-action"
+            type="button"
+            :disabled="stageSwitching || outlineConfirming"
+            @click="confirmInlineOutline"
+          >
+            <LoaderCircle v-if="outlineConfirming" :size="15" class="spin" />
+            <Check v-else :size="15" />
+            {{ t('courseWorkbench.confirmOutline', '确认课程大纲') }}
+          </button>
+        </TeacherDocumentCommandBar>
+        <TeacherDocumentHistoryPanel
+          v-if="historyOpen && historyDomain === 'outline'"
+          title="大纲历史版本"
+          :items="documentHistoryItems"
+          :restoring-id="historyRestoringId"
+          :restore-disabled="editingOutline"
+          @close="closeDocumentHistory"
+          @restore="restoreDocumentHistory"
+        />
+      </template>
 
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
@@ -87,7 +129,12 @@
         <footer><span>{{ t('courseWorkbench.shapeReview.total', '确认后将生成 {count} 个小节').replace('{count}', String(totalSectionCount)) }}</span><button class="primary" type="button" :disabled="shapeConfirming || !shapeCountsValid" @click="confirmOutlineShape"><Sparkles :size="16" />{{ shapeConfirming ? t('courseWorkbench.shapeReview.confirming', '正在继续…') : t('courseWorkbench.shapeReview.confirm', '确认并生成小章节') }}</button></footer>
       </section>
 
-      <section v-else-if="showOutlineWorkspace" class="formal-surface outline-workspace" data-testid="outline-workspace">
+      <section
+        v-else-if="showOutlineWorkspace"
+        class="formal-surface outline-workspace"
+        :class="{ 'is-outline-editing': editingOutline }"
+        data-testid="outline-workspace"
+      >
         <CourseOutlineReview
           ref="outlineEditor"
           class="inline-outline-review"
@@ -95,8 +142,9 @@
           :course-name="courseTitle"
           :nodes="courseStore.nodes"
           :task="generationTask"
-          :editable="true"
+          :editable="editingOutline"
           :requires-confirmation="outlineAwaitingReview"
+          confirmation-placement="external"
           :assistant-open="aiCollaborationOpen && aiDomain === 'outline'"
           variant="inline"
           surface="teacher"
@@ -289,8 +337,21 @@
             <strong>{{ section.title }}</strong>
           </button>
         </nav>
-        <div v-if="activeStage === 'lesson' && lessonToolbarVisible" class="lesson-document-toolbar" :aria-label="t('courseWorkbench.lessonDocument.actions', '教案操作')">
-          <div class="lesson-toolbar-actions">
+        <TeacherDocumentCommandBar
+          v-if="activeStage === 'lesson' && lessonToolbarVisible"
+          :label="t('courseWorkbench.lessonDocument.actions', '教案操作')"
+          :editing="lessonDocumentEditing"
+          :can-undo="lessonCanUndo"
+          :can-redo="lessonCanRedo"
+          :disabled="lessonConfirming || aiCollaborationBusy"
+          :history-open="historyOpen && historyDomain === 'lesson'"
+          :history-count="lessonHistoryCount"
+          :status-label="lessonHeaderStatusLabel"
+          :status-tone="documentStatusTone"
+          @undo="lessonPlanDocument?.undoEdit()"
+          @redo="lessonPlanDocument?.redoEdit()"
+          @history="toggleDocumentHistory('lesson')"
+        >
             <template v-if="aiCandidatePending">
               <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiCandidate', 'AI 方案') }}</button>
               <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.lessonDocument.discardAi', '放弃') }}</button>
@@ -326,8 +387,16 @@
                   : t('courseWorkbench.confirmLessonPlan', '确认本讲教案') }}
               </button>
             </template>
-          </div>
-        </div>
+        </TeacherDocumentCommandBar>
+        <TeacherDocumentHistoryPanel
+          v-if="activeStage === 'lesson' && historyOpen && historyDomain === 'lesson'"
+          title="教案历史版本"
+          :items="documentHistoryItems"
+          :restoring-id="historyRestoringId"
+          :restore-disabled="lessonDocumentEditing"
+          @close="closeDocumentHistory"
+          @restore="restoreDocumentHistory"
+        />
         <AppErrorNotice v-if="lessonStageBlocked && lessonPrerequisiteError" class="prerequisite-error" :presentation="lessonPrerequisiteError" compact>
           <template #action><button type="button" :disabled="lessonStore.loading" @click="resolveLessonPrerequisite">{{ lessonPrerequisiteState.action }}</button></template>
         </AppErrorNotice>
@@ -458,8 +527,21 @@
             @open-ai-selection="openAiFromSelection('script', $event)"
           >
             <template #toolbar>
-              <div v-if="scriptToolbarVisible" class="lesson-document-toolbar" :aria-label="t('courseWorkbench.scriptDocument.actions', '讲稿操作')">
-                <div class="lesson-toolbar-actions">
+              <TeacherDocumentCommandBar
+                v-if="scriptToolbarVisible"
+                :label="t('courseWorkbench.scriptDocument.actions', '讲稿操作')"
+                :editing="scriptDocumentEditing"
+                :can-undo="scriptCanUndo"
+                :can-redo="scriptCanRedo"
+                :disabled="scriptConfirming || aiCollaborationBusy"
+                :history-open="historyOpen && historyDomain === 'script'"
+                :history-count="scriptHistoryCount"
+                :status-label="lessonHeaderStatusLabel"
+                :status-tone="documentStatusTone"
+                @undo="scriptDocument?.undoEdit()"
+                @redo="scriptDocument?.redoEdit()"
+                @history="toggleDocumentHistory('script')"
+              >
                   <template v-if="aiCandidatePending">
                     <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiCandidate', 'AI 方案') }}</button>
                     <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.scriptDocument.discardAi', '放弃') }}</button>
@@ -480,14 +562,27 @@
                   <template v-else>
                     <button type="button" :disabled="scriptDocumentAiBusy || scriptConfirming" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
                     <button type="button" :disabled="scriptConfirming" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲稿') }}</button>
-                    <button v-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming || !scriptPublicationEligible" :title="scriptPublicationBlockReason" @click="confirmScript">
+                    <button v-if="!scriptConfirmed && !scriptPublicationEligible" class="primary-action" type="button" :disabled="scriptGenerationBusy || scriptConfirming" :title="scriptPublicationBlockReason" @click="generateScript()">
+                      <LoaderCircle v-if="scriptGenerationBusy" :size="15" class="spin" />
+                      <RefreshCw v-else :size="15" />
+                      {{ scriptGenerationBusy ? t('courseWorkbench.scriptGenerating', '正在生成…') : t('courseWorkbench.scriptRegenerate', '重新生成本讲讲稿') }}
+                    </button>
+                    <button v-else-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming" @click="confirmScript">
                       <LoaderCircle v-if="scriptConfirming" :size="15" class="spin" />
                       <Check v-else :size="15" />
                       {{ scriptConfirming ? t('courseWorkbench.scriptDocument.confirming', '正在确认…') : t('courseWorkbench.scriptDocument.confirm', '确认本讲讲稿') }}
                     </button>
                   </template>
-                </div>
-              </div>
+              </TeacherDocumentCommandBar>
+              <TeacherDocumentHistoryPanel
+                v-if="historyOpen && historyDomain === 'script'"
+                title="讲稿历史版本"
+                :items="documentHistoryItems"
+                :restoring-id="historyRestoringId"
+                :restore-disabled="scriptDocumentEditing"
+                @close="closeDocumentHistory"
+                @restore="restoreDocumentHistory"
+              />
             </template>
           </TeacherScriptDocument>
         </template>
@@ -631,7 +726,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -640,6 +735,8 @@ import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
+import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
+import TeacherDocumentHistoryPanel, { type TeacherDocumentHistoryItem } from './TeacherDocumentHistoryPanel.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
@@ -682,6 +779,10 @@ type LessonPlanDocumentHandle = {
   beginEditing: () => void
   cancelEditing: () => void
   saveDraft: () => Promise<void>
+  canUndo: boolean
+  canRedo: boolean
+  undoEdit: () => boolean
+  redoEdit: () => boolean
 }
 type ProductionAiDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<Record<string, any> | null>
@@ -698,6 +799,10 @@ type ScriptDocumentHandle = ProductionAiDocumentHandle & {
   beginEditing: () => void
   cancelEditing: () => void
   saveDraft: () => Promise<void>
+  canUndo: boolean
+  canRedo: boolean
+  undoEdit: () => boolean
+  redoEdit: () => boolean
 }
 type AiLessonPlanModule = {
   module_id?: string
@@ -715,6 +820,13 @@ type AiLessonPlanSection = {
 }
 type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
+  confirmOutline: () => Promise<void>
+  dirty: boolean
+  canUndo: boolean
+  canRedo: boolean
+  undoEdit: () => void
+  redoEdit: () => void
+  restoreHistoryVersion: (historyEntryId: string) => Promise<boolean>
 }
 const props = withDefaults(defineProps<{ courseId: string; courseTitle: string; generationOptions: CourseGenerationOptions & { subject?: string }; generationStarting?: boolean; materialRefreshToken?: number; initialStage?: StageId; initialLessonId?: string; outlineEditing?: boolean }>(), { materialRefreshToken: 0, initialStage: 'foundation', initialLessonId: '', outlineEditing: false })
 const emit = defineEmits<{
@@ -726,6 +838,7 @@ const emit = defineEmits<{
 const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const stageSwitching = ref(false)
+const outlineConfirming = ref(false)
 const selectedLessonSectionId = ref('')
 const lessonOutlineOpen = ref(false)
 const lessonOutlineRoot = ref<HTMLElement | null>(null)
@@ -757,6 +870,10 @@ const aiClarificationOptions = ref<string[]>([])
 const lastAiOperation = ref<'generate' | 'accept' | 'reject' | ''>('')
 const replacingAiCandidate = ref(false)
 const outlineEditor = ref<OutlineEditorHandle | null>(null)
+type TeacherHistoryDomain = 'outline' | 'lesson' | 'script'
+const historyOpen = ref(false)
+const historyDomain = ref<TeacherHistoryDomain>('outline')
+const historyRestoringId = ref('')
 const editingOutline = computed({
   get: () => props.outlineEditing,
   set: value => emit('update:outlineEditing', value),
@@ -1055,12 +1172,13 @@ const contextAiAvailable = computed(() => {
 const aiCandidateFieldLabels = computed(() => {
   if (aiDomain.value === 'outline') {
     const diff = aiCandidate.value?.diff || {}
-    return [
-      Array.isArray(diff.added) && diff.added.length ? `新增 ${diff.added.length} 项` : '',
-      Array.isArray(diff.removed) && diff.removed.length ? `删除 ${diff.removed.length} 项` : '',
-      Array.isArray(diff.moved) && diff.moved.length ? `移动 ${diff.moved.length} 项` : '',
-      Array.isArray(diff.updated) && diff.updated.length ? `修改 ${diff.updated.length} 项` : '',
-    ].filter(Boolean)
+    const operationLabels = [
+      ...(Array.isArray(diff.moved) ? diff.moved.map((item: any) => `移动 ${item.node_name || '章节'}：${item.old_position || '原位置'} → ${item.new_position || '新位置'}`) : []),
+      ...(Array.isArray(diff.updated) ? diff.updated.map((item: any) => `修改 ${item.node_name || '章节'}`) : []),
+      ...(Array.isArray(diff.added) ? diff.added.map((item: any) => `新增 ${item.node_name || '章节'}`) : []),
+      ...(Array.isArray(diff.removed) ? diff.removed.map((item: any) => `删除 ${item.node_name || '章节'}`) : []),
+    ]
+    return operationLabels.length ? operationLabels : ['大纲内容']
   }
   if (aiDomain.value === 'script') return [t('courseWorkbench.aiCollaboration.scriptBody', '讲稿正文')]
   if (aiDomain.value === 'question-bank') return [
@@ -1129,6 +1247,87 @@ const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Bo
 const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
 const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving))
 const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy))
+const outlineCanUndo = computed(() => Boolean(outlineEditor.value?.canUndo))
+const outlineCanRedo = computed(() => Boolean(outlineEditor.value?.canRedo))
+const outlineDocumentDirty = computed(() => Boolean(outlineEditor.value?.dirty))
+const lessonCanUndo = computed(() => Boolean(lessonPlanDocument.value?.canUndo))
+const lessonCanRedo = computed(() => Boolean(lessonPlanDocument.value?.canRedo))
+const scriptCanUndo = computed(() => Boolean(scriptDocument.value?.canUndo))
+const scriptCanRedo = computed(() => Boolean(scriptDocument.value?.canRedo))
+const outlineHistoryCount = computed(() => courseWorkspaceStore.blueprintDraftVersions.length)
+const lessonHistoryCount = computed(() => selectedLesson.value?.plan.revisions.length || 0)
+const scriptHistoryCount = computed(() => selectedLesson.value?.script.revisions?.length || 0)
+const outlineDocumentStatusLabel = computed(() => {
+  if (outlineConfirming.value) return '正在确认…'
+  if (stageSwitching.value && editingOutline.value) return '正在保存…'
+  if (aiCandidatePending.value && aiDomain.value === 'outline') return 'AI 修改待确认'
+  if (editingOutline.value) return outlineDocumentDirty.value ? '编辑中·未保存' : '编辑中·已保存'
+  return '已保存'
+})
+const outlineDocumentStatusTone = computed<'normal' | 'busy' | 'warning'>(() => {
+  if (outlineConfirming.value || stageSwitching.value) return 'busy'
+  if ((editingOutline.value && outlineDocumentDirty.value) || (aiCandidatePending.value && aiDomain.value === 'outline')) return 'warning'
+  return 'normal'
+})
+const documentStatusTone = computed<'normal' | 'busy' | 'warning'>(() => {
+  if (lessonHeaderBusy.value || aiCollaborationBusy.value) return 'busy'
+  if (lessonHeaderEditing.value || aiCandidatePending.value) return 'warning'
+  return 'normal'
+})
+const formatHistoryTime = (value: unknown) => {
+  const date = new Date(String(value || ''))
+  if (Number.isNaN(date.getTime())) return '时间未记录'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(date)
+}
+const historySourceLabel = (value: unknown) => {
+  const source = String(value || '')
+  if (source === 'history_restore' || source === 'restore') return '恢复的版本'
+  if (source === 'ai_apply' || source === 'ai_optimization') return 'AI 修改'
+  if (source.includes('model')) return 'AI 生成'
+  if (source.includes('fallback') || source.includes('recovery')) return '恢复草稿'
+  if (source.startsWith('legacy')) return '旧版内容'
+  return '手动编辑'
+}
+const documentHistoryItems = computed<TeacherDocumentHistoryItem[]>(() => {
+  if (historyDomain.value === 'outline') {
+    const currentRevision = String(courseWorkspaceStore.blueprint?.draft?.draft_revision_id || '')
+    let currentMarked = false
+    return courseWorkspaceStore.blueprintDraftVersions.map((item: any) => {
+      const current = !currentMarked && String(item.draft_revision_id || '') === currentRevision
+      if (current) currentMarked = true
+      return {
+        id: String(item.history_entry_id || ''),
+        title: historySourceLabel(item.operation),
+        time: formatHistoryTime(item.created_at),
+        actor: String(item.actor || ''),
+        detail: `${Number(item.chapter_count || 0)} 章 · ${Number(item.section_count || 0)} 小节`,
+        current,
+      }
+    })
+  }
+  if (historyDomain.value === 'lesson') {
+    const currentRevision = String(selectedLesson.value?.plan.working_revision_id || '')
+    return [...(selectedLesson.value?.plan.revisions || [])].reverse().map(item => ({
+      id: item.revision_id,
+      title: historySourceLabel(item.generation_source),
+      time: formatHistoryTime(item.created_at),
+      actor: item.actor,
+      detail: item.restored_from_revision_id ? '从历史版本恢复' : '',
+      current: item.revision_id === currentRevision,
+    }))
+  }
+  const currentRevision = String(selectedLesson.value?.script.current_revision_id || '')
+  return (selectedLesson.value?.script.revisions || []).map(item => ({
+    id: item.revision_id,
+    title: historySourceLabel(item.generation_source),
+    time: formatHistoryTime(item.created_at || item.updated_at),
+    actor: item.actor,
+    detail: item.restored_from_revision_id ? '从历史版本恢复' : '',
+    current: item.revision_id === currentRevision,
+  }))
+})
 const currentPptAsset = computed(() => selectedLesson.value?.plan.ppt_assets.find(asset => (
   ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current'
 )))
@@ -1656,6 +1855,13 @@ async function saveRelationships(targetId: string, targetType: string, label: st
 async function submitFoundation() {
   generationRequested.value = true
   try {
+    if (generationFailed.value && generationTask.value?.id) {
+      await generationStore.resumeTask(
+        props.courseId,
+        generationTask.value.id,
+      )
+      return
+    }
     const baseTeacherBrief = { ...(props.generationOptions.teacher_course_brief || {}) }
     delete baseTeacherBrief.chapter_count
     delete baseTeacherBrief.section_count
@@ -1777,6 +1983,45 @@ async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft
 function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
+async function toggleDocumentHistory(domain: TeacherHistoryDomain) {
+  if (historyOpen.value && historyDomain.value === domain) {
+    closeDocumentHistory()
+    return
+  }
+  historyDomain.value = domain
+  historyOpen.value = true
+  if (domain === 'outline') {
+    await courseWorkspaceStore.loadBlueprintDraftVersions(props.courseId).catch(() => undefined)
+  }
+}
+function closeDocumentHistory() {
+  historyOpen.value = false
+  historyRestoringId.value = ''
+}
+async function restoreDocumentHistory(revisionId: string) {
+  if (!revisionId || historyRestoringId.value) return
+  if (editingOutline.value || lessonDocumentEditing.value || scriptDocumentEditing.value) return
+  historyRestoringId.value = revisionId
+  try {
+    if (historyDomain.value === 'outline') {
+      await outlineEditor.value?.restoreHistoryVersion(revisionId)
+      await courseWorkspaceStore.loadBlueprintDraftVersions(props.courseId)
+    } else if (historyDomain.value === 'lesson' && selectedLessonId.value) {
+      await lessonStore.restorePlanRevision(props.courseId, selectedLessonId.value, revisionId)
+    } else if (historyDomain.value === 'script' && selectedLessonId.value) {
+      await lessonStore.restoreScriptRevision(props.courseId, selectedLessonId.value, revisionId)
+    }
+    handleAiCandidateChange(null)
+  } catch {
+    if (historyDomain.value === 'lesson') {
+      lessonConfirmError.value = lessonStore.error || '教案历史版本恢复失败，请重试。'
+    } else if (historyDomain.value === 'script') {
+      scriptConfirmError.value = lessonStore.error || '讲稿历史版本恢复失败，请重试。'
+    }
+  } finally {
+    historyRestoringId.value = ''
+  }
+}
 function selectLesson(lessonId?: string) {
   if (!lessonId) return
   if (aiCandidatePending.value && selectedLessonId.value !== lessonId) return
@@ -1828,7 +2073,7 @@ function lessonGenerationStateLabel(lesson: any): string {
   return labels[state]
 }
 async function handleScriptSaved() { scriptConfirmError.value = ''; await lessonStore.load(props.courseId) }
-async function generateScript(requirements: string) {
+async function generateScript(requirements = '') {
   if (!selectedLesson.value || !confirmedLessonRevision.value || scriptGenerationBusy.value) return
   scriptGenerating.value = true
   scriptGenerationError.value = ''
@@ -1881,6 +2126,30 @@ async function preparePptSources() {
 }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
 function handleInlineOutlineConfirmed() { emit('outlineConfirmed') }
+async function confirmInlineOutline() {
+  if (!outlineEditor.value || outlineConfirming.value) return
+  outlineConfirming.value = true
+  try {
+    await outlineEditor.value.confirmOutline()
+  } finally {
+    outlineConfirming.value = false
+  }
+}
+async function toggleOutlineEditing() {
+  if (stageSwitching.value) return
+  if (!editingOutline.value) {
+    editingOutline.value = true
+    return
+  }
+  if (!outlineEditor.value) return
+  stageSwitching.value = true
+  try {
+    const saved = await outlineEditor.value.finishEditing()
+    if (saved) editingOutline.value = false
+  } finally {
+    stageSwitching.value = false
+  }
+}
 async function requestStageChange(stage: StageId) {
   if (stage === activeStage.value || stageSwitching.value) return
   stageSwitching.value = true
@@ -1932,7 +2201,7 @@ watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (va
 watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
 watch(() => props.initialStage, stage => { void requestStageChange(stage) })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
-watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; closeAiCollaboration(); closeLessonOutline(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, stage => { if (stage !== 'foundation') editingOutline.value = false; closeAiCollaboration(); closeLessonOutline(); closeDocumentHistory(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(aiCollaborationOpen, open => {
   if (open) closeLessonOutline()
   else aiSourcesOpen.value = false
@@ -1964,6 +2233,7 @@ watch(() => lessonStore.lessons, lessons => {
 }, { immediate: true, deep: true })
 watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
+  if (previousLessonId && lessonId !== previousLessonId) closeDocumentHistory()
   lessonConfirmError.value = ''
   scriptGenerationError.value = ''
   scriptConfirmError.value = ''
@@ -1998,8 +2268,11 @@ onBeforeUnmount(() => {
 .center-heading-actions>button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .center-heading-actions>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .center-heading-actions>button:disabled{opacity:.48;cursor:not-allowed}
-.center-heading-actions>.ai-outline-action{border-color:#d7d9ed;color:#4f55a9;background:#f8f8ff;box-shadow:none}
-.center-heading-actions>.ai-outline-action:hover{border-color:#bfc2e8;color:#3f4595;background:#f1f1ff}
+.center-heading-actions>.outline-manual-action{border-color:#d7dde7;color:#475569;background:#fff;box-shadow:none}
+.center-heading-actions>.outline-manual-action:hover:not(:disabled){border-color:#bfc7d4;color:#3730a3;background:#f8f8fc}
+.center-heading-actions>.outline-manual-action[aria-pressed="true"]{border-color:#c9c8ee;color:#3730a3;background:#f4f3ff}
+.center-heading-actions>.outline-confirm-action{border-color:#454ca8;color:#fff;background:#454ca8;box-shadow:0 7px 18px rgba(69,76,168,.16)}
+.center-heading-actions>.outline-confirm-action:hover:not(:disabled){border-color:#3f4598;background:#3f4598}
 .stage-form>footer{justify-content:flex-end}
 .foundation-presets{display:grid;margin:2px 0 0;padding:4px 0;border-top:1px solid #e8ebf2;border-bottom:1px solid #e8ebf2}.foundation-presets>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:17px 2px 14px}.foundation-presets>header>div{display:grid;gap:4px}.foundation-presets>header strong{color:#273247;font-size:14px}.foundation-presets>header span{color:#778195;font-size:12px;line-height:1.55}.foundation-presets>header>small{padding-top:2px;color:#555db6;font-size:11px;font-weight:750;white-space:nowrap}.foundation-preset-row{display:grid;grid-template-columns:150px minmax(0,1fr);align-items:center;gap:18px;padding:15px 2px;border-top:1px solid #eff1f5}.foundation-preset-row>div:first-child{display:grid;gap:3px}.foundation-preset-row>div:first-child strong{color:#354056;font-size:12px}.foundation-preset-row>div:first-child span{color:#8991a0;font-size:10px;line-height:1.45}.foundation-preset-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.foundation-preset-options>button{min-width:0;min-height:58px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:7px;padding:8px 10px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-preset-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-preset-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-preset-options>button:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-preset-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-preset-options>button>svg{color:#555db6}.foundation-preset-options>button>span{min-width:0;display:grid;gap:2px}.foundation-preset-options>button strong{overflow:hidden;color:inherit;font-size:11px;font-weight:800;text-overflow:ellipsis;white-space:nowrap}.foundation-preset-options>button small{overflow:hidden;color:#828b9c;font-size:9px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:11px;line-height:1.5}.stage-form>footer{justify-content:space-between}
 .foundation-semantics{display:grid;margin:2px 0 0;border-block:1px solid #e8ebf2}.foundation-semantics>header{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:18px 2px 15px}.foundation-semantics>header>div{display:grid;gap:4px}.foundation-semantics>header strong{color:#273247;font-size:14px}.foundation-semantics>header span{max-width:68ch;color:#778195;font-size:12px;line-height:1.55}.foundation-semantics>header>small{padding-top:2px;color:#555db6;font-size:11px;font-weight:750;white-space:nowrap}.foundation-semantic-row{display:grid;grid-template-columns:145px minmax(0,1fr);align-items:center;gap:18px;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-semantic-row>div:first-child{display:grid;gap:4px}.foundation-semantic-row>div:first-child strong{color:#354056;font-size:12px}.foundation-semantic-row>div:first-child span{color:#8991a0;font-size:10px;line-height:1.45}.foundation-semantic-options{display:grid;gap:8px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:repeat(3,minmax(0,1fr))}.foundation-semantic-options>button{min-width:0;min-height:62px;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:8px;padding:9px 11px;border:1px solid #dfe3eb;border-radius:10px;color:#5e687b;background:#fff;text-align:left;cursor:pointer;transition:border-color .18s ease,background-color .18s ease,color .18s ease,transform .18s cubic-bezier(.16,1,.3,1)}.foundation-semantic-options>button:not(.selected){grid-template-columns:minmax(0,1fr)}.foundation-semantic-options>button:hover{transform:translateY(-1px);border-color:#c7cae9;background:#fafaff}.foundation-semantic-options>button:focus-visible,.foundation-subject-select select:focus-visible{outline:3px solid rgba(79,70,217,.14);outline-offset:1px}.foundation-semantic-options>button.selected{border-color:#bfc2e8;color:#41489f;background:#f4f4ff}.foundation-semantic-options>button>svg{color:#555db6}.foundation-semantic-options>button>span{min-width:0;display:grid;gap:3px}.foundation-semantic-options>button strong{color:inherit;font-size:11px;font-weight:800;line-height:1.35}.foundation-semantic-options>button small{color:#7d8799;font-size:9px;line-height:1.4}.foundation-semantic-row--compact{align-items:start}.foundation-subject-select{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);align-items:center;gap:14px}.foundation-subject-select select{width:100%;min-height:42px;padding:8px 34px 8px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px}.foundation-subject-select small{color:#7b8495;font-size:10px;line-height:1.5}.foundation-purpose-fields{display:grid;padding:16px 2px;border-top:1px solid #eff1f5}.foundation-purpose-fields--two{grid-template-columns:minmax(160px,.55fr) minmax(0,1.45fr);gap:14px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}.stage-form>footer>span{max-width:520px;color:#7b8495;font-size:11px;line-height:1.5}.stage-form>footer{justify-content:space-between}
@@ -2014,7 +2287,7 @@ onBeforeUnmount(() => {
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0}
 .workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-error{margin:-4px 0 0}.lesson-generation-float{position:sticky;z-index:8;top:14px;width:min(760px,calc(100% - 40px));overflow:hidden;margin:14px auto 0;border-radius:12px;background:rgba(255,255,255,.98);box-shadow:0 12px 30px rgba(30,41,59,.14)}.lesson-generation-float>header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 15px 0 17px}.lesson-generation-float>header>div:first-child{min-width:0;display:flex;align-items:center;gap:10px;color:#4f46e5}.lesson-generation-float>header span{min-width:0;display:grid;gap:3px}.lesson-generation-float>header strong{overflow:hidden;color:#263147;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-float>header small{overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-controls{flex:0 0 auto;display:flex;align-items:center;gap:12px}.lesson-generation-controls>span{display:block;color:#6366f1;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-generation-controls>button{min-height:34px;padding:0 11px;border:0;border-radius:8px;color:#475569;background:#f1f3f7;font-size:12px;font-weight:700;cursor:pointer}.lesson-generation-controls>button:hover{color:#3730a3;background:#ececff}.lesson-generation-controls>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-generation-float>.generation-progress{height:3px}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:10px;font-weight:800;letter-spacing:.08em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:13px;line-height:1.85}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px}
-.workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
+.workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace.is-outline-editing{overflow:visible}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .center-heading,.workbench-center.is-lesson-workspace .lesson-stage{max-width:1160px}.lesson-workspace{min-width:0}.lesson-stage-content{min-width:0}.lesson-stage.has-lesson-outline{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}.has-lesson-outline .lesson-workspace{display:grid;grid-template-columns:206px minmax(0,1fr);gap:12px;transition:grid-template-columns .2s cubic-bezier(.2,.8,.2,1)}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:30px minmax(0,1fr)}.has-lesson-outline .lesson-stage-content{overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.lesson-outline{min-width:0;align-self:start;display:grid;grid-template-columns:minmax(0,1fr) 28px;background:transparent}.is-outline-collapsed .lesson-outline{grid-template-columns:28px}.lesson-outline>nav{max-height:calc(100vh - 205px);overflow:auto;padding:0 4px 0 0}.lesson-outline-chapter{display:grid}.lesson-outline-chapter-button{min-height:48px;display:grid;grid-template-columns:9px minmax(0,1fr);align-items:center;gap:7px;width:100%;padding:6px 5px;border:0;color:#94a3b8;background:transparent;text-align:left;cursor:pointer}.lesson-outline-chapter-marker{width:5px;height:5px;justify-self:center;border:1px solid #b8c2d0;border-radius:50%;background:transparent}.lesson-outline-chapter-marker[data-state="generating"]{border-color:#6366f1;background:#6366f1;animation:lesson-pulse 1.4s ease-in-out infinite}.lesson-outline-chapter-marker[data-state="review"]{border-color:#d97706;background:#f59e0b}.lesson-outline-chapter-marker[data-state="confirmed"]{border-color:#16a34a;background:#22c55e}.lesson-outline-chapter-marker[data-state="failed"]{border-color:#dc2626;background:#ef4444}.lesson-outline-chapter-copy{min-width:0;display:grid;gap:2px}.lesson-outline-chapter-copy strong{overflow:hidden;color:#59677b;font-size:11.5px;font-weight:600;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.lesson-outline-chapter-copy small{color:#8a97aa;font-size:9.5px;line-height:1.3}.lesson-outline-chapter-button:hover strong{color:#334155}.lesson-outline-chapter-button.active .lesson-outline-chapter-marker{box-shadow:0 0 0 3px rgba(99,102,241,.12)}.lesson-outline-chapter-button.active strong{color:#373b71;font-weight:700}.lesson-outline-chapter-button.active small{color:#6366f1}.lesson-section-tabs{display:flex;min-width:0;overflow-x:auto;padding:0 18px;border-bottom:1px solid #e7ebf2;background:#fff;scrollbar-width:thin}.lesson-section-tabs button{min-height:56px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 14px;border:0;color:#718096;background:transparent;cursor:pointer;white-space:nowrap}.lesson-section-tabs button>span{color:#94a3b8;font-size:10px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-section-tabs button>strong{max-width:260px;overflow:hidden;font-size:12px;font-weight:600;text-overflow:ellipsis}.lesson-section-tabs button:hover{color:#475569}.lesson-section-tabs button.active{color:#3730a3;box-shadow:inset 0 -2px #5b57e8}.lesson-section-tabs button.active>span{color:#6366f1}.lesson-section-tabs button.active>strong{font-weight:700}.has-lesson-outline :deep(.lesson-document .document-title h3){overflow:visible;line-height:1.35;text-overflow:clip;white-space:normal}.has-lesson-outline :deep(.lesson-document .flow-table){overflow:auto}.has-lesson-outline :deep(.lesson-document .flow-row){min-width:800px}@keyframes lesson-pulse{50%{opacity:.42;transform:scale(.72)}}
 .lesson-stage{padding:0;overflow:hidden}.lesson-navigator{min-height:54px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid #e7ebf2;background:#fbfcfe}.lesson-navigator>button{min-height:36px;display:flex;align-items:center;gap:5px;padding:0 11px;border:1px solid #d9dcfa;border-radius:8px;color:#4338ca;background:#f3f2ff;font-size:12px;font-weight:750;cursor:pointer;transition:color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease}.lesson-navigator>button:hover:not(:disabled){transform:translateY(-1px);border-color:#aaa7f2;color:#3730a3;background:#eae8ff}.lesson-navigator>button:focus-visible{outline:3px solid rgba(91,87,232,.18);outline-offset:2px}.lesson-navigator>button:disabled{border-color:transparent;color:#94a3b8;background:transparent;opacity:.48;cursor:not-allowed}.lesson-selector{min-width:0;display:flex;align-items:center;justify-content:center;gap:0;padding:0;border:0}.lesson-selector>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.lesson-selector select{width:min(100%,560px);min-height:36px;padding:0 34px 0 12px;border:0;border-radius:7px;color:#263147;background:transparent;font-size:13px;font-weight:750;text-align:center;box-shadow:none}.lesson-selector select:hover{background:#f3f5fa}.lesson-selector select:focus{background:#fff}.stage-form>.lesson-form-actions{justify-content:flex-end}.stage-next-bar{min-height:64px;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.ppt-entry{min-height:180px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;padding:36px 28px}.ppt-entry>svg{color:#5b57e8}.ppt-entry>div{min-width:0;display:grid;gap:5px}.ppt-entry strong{color:#1f2a40;font-size:15px}.ppt-entry span{color:#64748b;font-size:12px}.question-workbench-surface{max-width:860px;margin:0 auto;padding:0;border:0;border-radius:0;box-shadow:none}
@@ -2117,7 +2390,7 @@ onBeforeUnmount(() => {
 /* Lesson identity lives above the document; document actions stay with the document itself. */
 .workbench-center.is-lesson-workspace:has(.lesson-navigator.has-document-actions){padding-top:24px}
 .workbench-center.is-lesson-workspace .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}
-.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:16px;min-height:64px;padding:0 4px 12px;border:0;border-bottom:1px solid #e7ebf2;border-radius:0;background:var(--teacher-component-surface)}
+.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:16px;min-height:64px;padding:0 4px 12px;border:0;border-radius:0;background:transparent}
 .lesson-heading-cluster{min-width:0;display:flex;align-items:center;gap:12px}
 .lesson-navigator.has-document-actions .lesson-current-group{min-width:0;justify-content:flex-start}
 .lesson-navigator.has-document-actions .lesson-outline-control{width:min(100%,720px);justify-content:flex-start}
