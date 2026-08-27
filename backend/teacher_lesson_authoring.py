@@ -1064,7 +1064,7 @@ def teacher_lesson_v6_source(
                     "concept_refs": knowledge_names,
                     "planned_minutes": script_block.get("planned_minutes"),
                     "ppt_page_group_id": ppt_page_group_id,
-                    "content_perspective": "neutral",
+                    "content_perspective": "teacher_delivery",
                     "source_kind": "confirmed_teacher_script_block",
                     "legacy_adapter": module_id == "legacy_script",
                 },
@@ -1108,7 +1108,7 @@ def teacher_lesson_v6_source(
             "lesson_unit_id": lesson_unit_id,
             "lesson_plan_revision_id": str(plan_revision.get("revision_id") or ""),
             "script_revision_id": script_revision_id,
-            "script_content_perspective": "neutral",
+            "script_content_perspective": "teacher_delivery",
         },
     }
     document = document_from_generation_draft(synthetic)

@@ -319,9 +319,9 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
     assert 1800 <= contract["modules"][1]["max_characters"] <= 2600
 
     compiled = compile_teacher_script_section(
-        "## 本节任务\n\n本节聚焦于一个可验证的核心问题，成果是形成稳定的概念判断标准。\n\n"
-        "## 概念模型\n\n概念模型由定义、成立条件与适用边界三个部分构成，正反例共同验证这一结构。\n\n"
-        "## 检查与反馈\n\n新情境需要逐项对照定义、条件与边界。典型错误可通过缺失的条件定位并修正。",
+        "## 本节任务\n\n我们先明确本节要解决的核心问题：怎样形成稳定、可检查的概念判断标准。\n\n"
+        "## 概念模型\n\n带着这个问题来看，概念模型由定义、成立条件与适用边界三个部分构成，正反例共同验证这一结构。\n\n"
+        "## 检查与反馈\n\n最后请大家用一个新情境逐项对照定义、条件与边界。典型错误是漏掉成立条件；核对标准是三项齐全，发现错误后要说明修正原因并再次判断。",
         contract,
     )
     assert compiled["quality_report"]["passed"] is True
@@ -366,7 +366,7 @@ def test_teacher_script_inherits_confirmed_archetype_and_module_order():
         for item in projected_blocks
     )
     assert all(
-        item["metadata"]["content_perspective"] == "neutral"
+        item["metadata"]["content_perspective"] == "teacher_delivery"
         for item in projected_blocks
     )
     assert all(
@@ -670,7 +670,7 @@ def test_teacher_script_compile_moves_task_prose_outside_display_formula():
     title = contract["modules"][0]["title"]
     compiled = compile_teacher_script_section(
         (
-            f"## {title}\n\n任务条件：判断矩阵的主元。\n\n$$\n"
+            f"## {title}\n\n我们现在来判断矩阵的主元。任务条件如下。\n\n$$\n"
             "A=\\begin{bmatrix}1 & 0 \\\\ 0 & 1\\end{bmatrix}\n\n"
             "输出要求：圈出主元并说明依据。\n"
             "参考解法：逐行寻找首个非零元，再核对其下方是否全零。"
@@ -780,7 +780,7 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v6"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v7"
 
 
 def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
@@ -844,7 +844,7 @@ def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
     assert exc_info.value.code == "lesson_script_quality_blocked"
 
 
-def test_teacher_script_rejects_classroom_cues_internal_language_and_truncation():
+def test_teacher_script_rejects_mechanical_cues_plan_voice_and_truncation():
     outline = {
         "node_id": "L2-1-1",
         "node_name": "中性讲稿",
@@ -859,7 +859,7 @@ def test_teacher_script_rejects_classroom_cues_internal_language_and_truncation(
         }],
     }
     contract = compile_teacher_script_module_contract(outline, plan)
-    assert contract["content_perspective"] == "neutral"
+    assert contract["content_perspective"] == "teacher_delivery"
     assert contract["modules"][0]["source_plan_context"] == {
         "teacher_activity": "请大家观察反例。",
         "student_activity": "完成判断。",
@@ -875,13 +875,13 @@ def test_teacher_script_rejects_classroom_cues_internal_language_and_truncation(
     }
     assert codes >= {
         "teacher_script:classroom_delivery_cue",
-        "teacher_script:directed_perspective",
+        "teacher_script:lesson_plan_voice",
         "teacher_script:internal_process_leakage",
         "teacher_script:incomplete_block_ending",
     }
 
 
-def test_teacher_script_service_generates_neutral_course_body(monkeypatch):
+def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
     service = CourseService()
     captured = {}
 
@@ -889,7 +889,7 @@ def test_teacher_script_service_generates_neutral_course_body(monkeypatch):
         captured["user_prompt"] = user_prompt
         captured["system_prompt"] = system_prompt
         captured["kwargs"] = kwargs
-        return "## 核心教学\n\n核心概念由定义、成立条件和适用边界共同构成。正例满足全部条件，反例则显示概念边界。"
+        return "## 核心教学\n\n我们先看核心概念怎样成立：它由定义、成立条件和适用边界共同构成。正例满足全部条件，反例则显示概念边界。"
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
     result = asyncio.run(service.generate_teacher_script_section(
@@ -923,13 +923,13 @@ def test_teacher_script_service_generates_neutral_course_body(monkeypatch):
     ))
 
     assert result["quality_report"]["passed"] is True
-    assert "中性的课程讲稿正文" in captured["system_prompt"]
+    assert "教师站在讲台上实际说的完整讲稿" in captured["system_prompt"]
     assert "本节课型：概念建构" in captured["system_prompt"]
     assert "学科类型与当前教学块策略" in captured["system_prompt"]
     assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
-    assert "不使用教师视角或学生视角" in captured["system_prompt"]
+    assert "提问写出问题原话" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
-    assert "只属于教案" in captured["system_prompt"]
+    assert "改写为教师当场会说的话" in captured["system_prompt"]
     assert "不得超过" in captured["system_prompt"]
     assert "自学课程的完整小节" not in captured["system_prompt"]
     assert captured["kwargs"]["use_fast_model"] is True
@@ -1013,8 +1013,8 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
             return "## 核心教学\n\n" + "重复讲解。" * 400
         return (
             "## 核心教学\n\n"
-            "概念的完整表达包含定义、成立条件与适用边界。"
-            "一个正例用于验证三者是否被同时满足。"
+            "我们把重复内容收束成一个判断框架：概念的完整表达包含定义、成立条件与适用边界。"
+            "接着看一个正例，用它验证三者是否被同时满足。"
         )
 
     monkeypatch.setattr(service, "_call_llm", fake_call)
@@ -1038,7 +1038,7 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
     ))
 
     assert len(calls) == 3
-    assert "请压缩下面的中性课程讲稿" in calls[-1]
+    assert "请压缩下面的教师讲稿" in calls[-1]
     assert result["quality_report"]["passed"] is True
 
 
@@ -1116,7 +1116,7 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
     async def first_generator(_outline, _plan, module, _completed):
         if module["module_id"] == "feedback_check":
             raise RuntimeError("provider interrupted")
-        return "核心概念由定义、成立条件与适用边界构成，正反例共同界定可检查的判断标准。"
+        return "我们先把判断框架立起来：核心概念由定义、成立条件与适用边界构成，正反例共同界定可检查的标准。"
 
     failed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -1145,7 +1145,7 @@ def test_script_job_keeps_completed_blocks_and_resumes_only_missing_work(tmp_pat
     async def resume_generator(_outline, _plan, module, completed):
         resumed_modules.append(module["module_id"])
         assert [item["module_id"] for item in completed] == ["core_explanation"]
-        return "新情境的判断需要逐项核对定义、成立条件和边界；常见错误可通过这三项标准定位并修正。"
+        return "最后请大家判断一个新情境，逐项核对定义、成立条件和边界。典型错误是漏掉条件；核对标准是三项齐全，发现错误后要说明修正原因。"
 
     completed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -1198,7 +1198,7 @@ def test_script_resume_discards_only_invalid_checkpoint_block(tmp_path):
 
     async def generator(_outline, _plan, module, _completed):
         generated.append(module["module_id"])
-        return "完整计算为 $F_x=6-3=3$，结果还需与方向规定一起核对。"
+        return "我们重新把计算补完整：$F_x=6-3=3$。现在请大家再按方向规定核对一次结果。"
 
     completed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -1280,7 +1280,7 @@ def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_pat
         "blocks": [
             {
                 **by_module["lesson_goal"],
-                "content": "本节先明确核心概念的判断目标、适用条件和最终可检查的课堂产出。",
+                "content": "我们先明确本节的判断目标、适用条件和最终可检查的课堂产出。",
                 "generation_source": "model",
             },
             {
@@ -1292,7 +1292,7 @@ def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_pat
             },
             {
                 **by_module["feedback_check"],
-                "content": "反馈阶段逐项核对结论、推理依据和边界，指出错误后要求学习者重新说明理由。",
+                "content": "最后请大家逐项核对结论、推理依据和边界。典型错误是只给结论；核对标准是三项齐全，发现错误后要说明修正原因并重新回答。",
                 "generation_source": "model",
             },
         ],
@@ -1307,7 +1307,7 @@ def test_script_resume_restores_a_missing_middle_block_in_contract_order(tmp_pat
 
     async def generator(_outline, _plan, module, _completed):
         generated.append(module["module_id"])
-        return "学习者独立分析一个新情境，写出判断结论、使用依据和结果检查，并与同伴比较差异。"
+        return "接下来请大家独立分析一个新情境，写出判断结论、使用依据和结果检查，再与同伴比较差异。"
 
     completed = asyncio.run(service.run_script_job(
         course_id="course-1",
@@ -1399,8 +1399,8 @@ def test_script_resume_regenerates_repetitive_checkpoint_blocks(tmp_path):
     )
     generated = []
     replacements = {
-        "core_explanation": "核心概念由对象、成立条件和适用边界共同界定；正例验证条件，反例负责暴露边界。",
-        "feedback_check": "核对时先检查对象是否满足条件，再比较结论与边界；若判断错误，必须指出具体违反哪一项。",
+        "core_explanation": "接着来看核心概念：它由对象、成立条件和适用边界共同界定；正例验证条件，反例负责暴露边界。",
+        "feedback_check": "最后请大家先检查对象是否满足条件，再比较结论与边界；若判断错误，必须指出具体违反哪一项。",
     }
 
     async def generator(_outline, _plan, module, completed):
@@ -1488,7 +1488,6 @@ def test_script_provider_fallback_finishes_complete_editable_revision(tmp_path):
     assert {
         item["code"] for item in revision["quality_report"]["blocking_issues"]
     } >= {
-        "teacher_script:placeholder_content",
         "teacher_script:recovery_draft_not_publishable",
     }
     with pytest.raises(TeacherLessonAuthoringError) as exc_info:

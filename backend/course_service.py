@@ -2376,6 +2376,14 @@ class CourseService(AIBase):
                         "planned_minutes": int(module.get("planned_minutes") or 0),
                         "teacher_activity": str(module.get("teacher_activity") or ""),
                         "student_activity": str(module.get("student_activity") or ""),
+                        "expected_output": str(module.get("expected_output") or ""),
+                        "check_method": str(module.get("check_method") or ""),
+                        "feedback_strategy": str(module.get("feedback_strategy") or ""),
+                        "adaptation_options": list(module.get("adaptation_options") or []),
+                        "engagement_mode": str(module.get("engagement_mode") or ""),
+                        "access_support": str(module.get("access_support") or ""),
+                        "grouping": str(module.get("grouping") or ""),
+                        "transition": str(module.get("transition") or ""),
                     }
                     for module in item.get("teaching_modules") or []
                     if isinstance(module, dict) and str(module.get("module_id") or "")
@@ -2412,7 +2420,8 @@ class CourseService(AIBase):
             "learning_objective 字符串，key_points、key_difficulties、in_class_checks、homework、"
             "teaching_notes 字符串数组，以及 teaching_modules 数组。"
             "每个 teaching_module 必须保持 module_id 和原顺序，并返回 teaching_purpose、planned_minutes、"
-            "teacher_activity、student_activity。"
+            "teacher_activity、student_activity、expected_output、check_method、feedback_strategy、"
+            "adaptation_options、engagement_mode、access_support、grouping、transition。"
             "必须按教师要求产生可见修改，但只修改实现要求所必需的字段，其余字段逐字保持输入值。"
             "教学目标要可观察，课堂活动与检查要对应目标；除非教师明确要求调整节奏，否则保持原有总时长。"
             "不得返回 knowledge_context 或 selected_material_evidence，不得改写知识事实或生成学生课程正文。"
@@ -2511,6 +2520,22 @@ class CourseService(AIBase):
                     "teacher_activity": teacher_activity,
                     "student_activity": student_activity,
                 })
+                for field in (
+                    "expected_output", "check_method", "feedback_strategy",
+                    "engagement_mode", "access_support", "grouping", "transition",
+                ):
+                    optimized_module[field] = str(
+                        candidate_module.get(field)
+                        if candidate_module.get(field) is not None
+                        else source_module.get(field) or ""
+                    ).strip()
+                raw_adaptations = candidate_module.get("adaptation_options")
+                if not isinstance(raw_adaptations, list):
+                    raw_adaptations = source_module.get("adaptation_options") or []
+                optimized_module["adaptation_options"] = [
+                    str(value).strip() for value in raw_adaptations
+                    if str(value).strip()
+                ]
                 optimized_modules.append(optimized_module)
                 if any(
                     optimized_module.get(field) != source_module.get(field)
@@ -2519,6 +2544,14 @@ class CourseService(AIBase):
                         "planned_minutes",
                         "teacher_activity",
                         "student_activity",
+                        "expected_output",
+                        "check_method",
+                        "feedback_strategy",
+                        "adaptation_options",
+                        "engagement_mode",
+                        "access_support",
+                        "grouping",
+                        "transition",
                     )
                 ):
                     changed = True
@@ -6556,12 +6589,11 @@ class CourseService(AIBase):
         requirements: str = "",
         user_id: str = DEFAULT_USER_ID,
     ) -> dict[str, Any]:
-        """Generate one neutral course script from the confirmed module contract.
+        """Generate the teacher's direct-teaching script from the confirmed plan.
 
-        The outline/plan pipeline has already selected subject mode, lesson
-        archetype and modules. This stage writes the durable course-content body;
-        it must not choose a second generic template or copy classroom delivery
-        actions from the lesson plan into the script.
+        The plan already owns the subject mode, lesson type and blocks. This
+        stage turns that frozen teaching design into polished words the teacher
+        can actually say, without choosing a second structure.
         """
         contract = compile_teacher_script_module_contract(
             outline_section,
@@ -6609,6 +6641,32 @@ class CourseService(AIBase):
                 str(module.get("output_contract") or ""),
                 str(module.get("prompt_instruction") or ""),
                 str((module.get("artifact_contract") or {}).get("guidance") or ""),
+                (
+                    f"教案教师动作：{(module.get('source_plan_context') or {}).get('teacher_activity')}"
+                    if (module.get("source_plan_context") or {}).get("teacher_activity") else ""
+                ),
+                (
+                    f"学习者行动：{(module.get('source_plan_context') or {}).get('student_activity')}"
+                    if (module.get("source_plan_context") or {}).get("student_activity") else ""
+                ),
+                (
+                    f"预期证据：{(module.get('source_plan_context') or {}).get('expected_output')}"
+                    if (module.get("source_plan_context") or {}).get("expected_output") else ""
+                ),
+                (
+                    f"检查方法：{(module.get('source_plan_context') or {}).get('check_method')}"
+                    if (module.get("source_plan_context") or {}).get("check_method") else ""
+                ),
+                (
+                    f"反馈与调整：{(module.get('source_plan_context') or {}).get('feedback_strategy')}；"
+                    f"{json.dumps((module.get('source_plan_context') or {}).get('adaptation_options') or [], ensure_ascii=False)}"
+                    if (module.get("source_plan_context") or {}).get("feedback_strategy")
+                    or (module.get("source_plan_context") or {}).get("adaptation_options") else ""
+                ),
+                (
+                    f"衔接：{(module.get('source_plan_context') or {}).get('transition')}"
+                    if (module.get("source_plan_context") or {}).get("transition") else ""
+                ),
                 role_structure,
                 (
                     f"篇幅：约 {module.get('target_characters')} 字，"
@@ -6628,8 +6686,9 @@ class CourseService(AIBase):
 
         archetype = contract.get("lesson_archetype") or {}
         system_prompt = "\n".join([
-            "你正在生成可直接用于授课的中性的课程讲稿正文底稿。它必须是详细、严谨、自然连贯的完整讲解，不是大纲、提词卡、字段回填或课堂执行脚本。",
-            "讲稿既要让教师能够顺着正文完整讲清，也要让学生能够独立复习；使用客观课程正文视角，不使用教师视角或学生视角，但每个关键结论都要给出必要的解释、推演、例子或核对方法。",
+            "你正在写教师站在讲台上实际说的完整讲稿。它必须专业、自然、连贯，教师拿来就能讲，不是教材正文、大纲、提词卡、字段回填或逐字录音稿。",
+            "使用现代、克制、清楚的教师口吻，可以自然地说“我们先看”“请大家试一下”“这里容易出现两种回答”。知识、推理、例题和边界必须完整，口语化不能牺牲专业性。",
+            "把教案动作转成真实讲述：提问写出问题原话；活动写出教师怎样布置、学生可能怎样回应、教师怎样接住；反馈写出针对不同表现的回应和再次检查。不要输出机械的【提问】【板书】【巡视】【等待回应】标签。",
             "讲稿结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成内容块，不能重新套用跨学科通用模板。",
             f"本节课型：{archetype.get('label') or '沿用已确认教案'}。",
             f"课型目的：{archetype.get('purpose') or '完成本节已确认教学目标'}。",
@@ -6640,14 +6699,15 @@ class CourseService(AIBase):
             "必须严格按下面的顺序和标题输出，每个标题恰好出现一次，不得增加、删除、合并或改名：",
             *module_lines,
             "",
-            "每个内容块都要形成独立完整的书面表达：概念有定义与边界，推理有中间步骤，例题有条件与解法，辨析有错因与修正，总结有知识关系。",
+            "每个内容块都要形成可直接讲授的完整段落：概念有定义与边界，推理有中间步骤，例题有条件与解法，辨析有错因与修正，总结有知识关系。",
             "禁止输出“本块内容完整”“围绕已确认知识范围展开”“内容与方法”“展开过程”“任务与检验”等模板占位句；不能用复述块标题代替真实教学内容。",
             "相邻教学块必须承担不同的知识推进责任，不得只替换标题、术语或公式后重复同一套句式。",
-            "不得出现“同学们好”“请大家”等面向学生的口令，不得出现“教师应”“学生完成”等教案动作，不得使用【提问】【板书】【演示】【等待回应】【巡视】等舞台提示。这些信息只属于教案。",
-            "已确认教案中的教师活动、学生活动和时间分配只用于判断内容深度与顺序，不得复制进讲稿正文。",
+            "允许自然面向学生讲话，但不要每块都机械重复“同学们好”。不得写“教师应当……”“学生需要……”这类教案说明；要改写为教师当场会说的话。",
+            "已确认教案中的教师活动、学生活动、证据和反馈用于决定讲稿实际怎样说，不能逐字段照抄，也不能从讲稿中删掉真实课堂所需的提问、活动和回应。",
             "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
+            "除第一块外，每块开头要用一句自然语言承接上一块，说明为什么现在进入这个问题、例子、活动或反馈，避免拼接感。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
-            "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；不复制学生个性化、课堂调度或旧整课流程。",
+            "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；把课堂调度改写为自然教师语言，不复制内部流程。",
             "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式优先使用成对闭合的 `\\(...\\)` 或 `\\[...\\]`，也可使用完整的 `$...$`、`$$...$$`，不得把公式拆断。",
             "块级公式的 `$$` 必须在公式或矩阵结束后立即闭合；任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外，禁止用一对 `$$` 包住公式与后续整段正文。",
             "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
@@ -6670,7 +6730,7 @@ class CourseService(AIBase):
             "课程、讲次与选定资料上下文：",
             json.dumps(lesson_context or {}, ensure_ascii=False),
         ])
-        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》的中性课程讲稿正文。"
+        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》中教师可以直接开口讲的讲稿。"
         async def call_script_model(
             prompt: str,
             instructions: str,
@@ -6744,20 +6804,23 @@ class CourseService(AIBase):
             for item in last_report.get("blocking_issues") or []
             if isinstance(item, dict)
         }
-        if last_text and blocking_codes == {"teacher_script:block_too_long"}:
+        if last_text and blocking_codes and blocking_codes <= {
+            "teacher_script:block_too_long",
+            "teacher_script:not_directly_teachable",
+        }:
             length_rules = "\n".join(
                 f"- `## {item.get('title')}` 正文不超过 {item.get('max_characters')} 字"
                 for item in modules
             )
             compacted_response = await call_script_model(
                 (
-                    "请压缩下面的中性课程讲稿。保留正确事实、定义、推理、公式、例题或实验链与核对标准；"
-                    "删掉重复开场、同义反复和旁支扩写，不得加入教师或学生视角。\n\n"
+                    "请压缩下面的教师讲稿。保留正确事实、定义、推理、公式、例题或实验链、"
+                    "自然过渡、关键提问、活动指令与反馈；删掉重复开场、同义反复和旁支扩写。\n\n"
                     + last_text
                 ),
                 (
-                    "你是中性课程讲稿编辑。只输出压缩后的 Markdown，"
-                    "标题、顺序和教学事实不得改变，严格执行字数上限。\n"
+                    "你是教师讲稿编辑。只输出压缩后的 Markdown；保持教师可以直接开口讲的自然语气，"
+                    "标题、顺序、教学事实和课堂闭环不得改变，严格执行字数上限。\n"
                     + length_rules
                 ),
                 output_tokens=max(

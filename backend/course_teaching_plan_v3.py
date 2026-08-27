@@ -40,8 +40,16 @@ def _module_execution(raw: dict[str, Any]) -> dict[str, Any]:
         "planned_minutes": _optional_int(raw.get("planned_minutes")),
         "teacher_activity": str(raw.get("teacher_activity") or "").strip(),
         "student_activity": str(raw.get("student_activity") or "").strip(),
+        "expected_output": str(raw.get("expected_output") or "").strip(),
+        "check_method": str(raw.get("check_method") or "").strip(),
+        "feedback_strategy": str(raw.get("feedback_strategy") or "").strip(),
+        "adaptation_options": _unique(list(raw.get("adaptation_options") or [])),
+        "engagement_mode": str(raw.get("engagement_mode") or "").strip(),
+        "access_support": str(raw.get("access_support") or "").strip(),
+        "grouping": str(raw.get("grouping") or "").strip(),
+        "transition": str(raw.get("transition") or "").strip(),
     }
-    return {key: value for key, value in fields.items() if value not in (None, "")}
+    return {key: value for key, value in fields.items() if value not in (None, "", [])}
 
 
 def _issue(code: str, message: str, *, severity: str = "blocking") -> dict[str, str]:

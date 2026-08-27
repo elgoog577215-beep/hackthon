@@ -1,8 +1,8 @@
-"""中性课程讲稿的结构化真源与确定性质量门。
+"""可直接讲授的教师讲稿结构真源与确定性质量门。
 
-讲稿不重新选择学科类型、学科细分、课型或教学模板。它把已确认教案中的教学模块
-编译为中性、完整、可逐块编辑的课程内容正文。教案保留“怎么教”的课堂动作，
-讲稿只保留“教什么”的知识、推理、案例与练习，并作为 PPT 文书的唯一内容上游。
+讲稿不重新选择学科类型、课型或教学模板。它把已确认教案中的教学模块编译为
+教师站在讲台上可以自然说出的完整讲述：既讲清知识，也写出过渡、提问、活动指令、
+可能回应和反馈。机械舞台标签仍留在教案，真实教师语言进入讲稿。
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from course_pedagogy import MODULES, module_block_role
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-SCRIPT_PIPELINE_VERSION = "neutral_course_script_v6"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v6"
+SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v7"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v7"
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -40,10 +40,17 @@ _HEADING_PATTERN = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _DELIVERY_CUE_PATTERN = re.compile(
     r"【(?:提问|板书|演示|投影|等待(?:回应)?|巡视|计时|教师活动|学生活动|课堂提示)】"
 )
-_DIRECTED_AUDIENCE_PATTERN = re.compile(
-    r"同学们好|请(?:大家|同学|学生)|"
-    r"教师(?:应|需要|可以|讲解|演示|提问|引导|巡视)|"
-    r"学生(?:应|需要|请|完成|讨论|回答|操作|提交)"
+_LESSON_PLAN_VOICE_PATTERN = re.compile(
+    r"教师(?:应|需要|可以|负责|讲解|演示|提问|引导|巡视)|"
+    r"学生(?:应|需要|负责|完成|讨论|回答|操作|提交)"
+)
+_DIRECT_TEACHING_PATTERN = re.compile(
+    r"我们|大家|同学|你们|请|先看|来看|想一想|试一试|注意|"
+    r"接下来|回到|到这里|现在|下面|不妨|可以发现|再看"
+)
+_TRANSITION_PATTERN = re.compile(
+    r"接下来|刚才|现在|再看|回到|带着这个|下面|前面|到这里|"
+    r"到这一步|最后|因此|接着|由此|进一步"
 )
 _INTERNAL_PROCESS_PATTERN = re.compile(
     r"全链路验收|不冒充模型生成|模型生成|内部提示词|"
@@ -336,7 +343,7 @@ def teacher_script_artifact_contract(
         "general": "内容必须落到具体情境、操作、产物或可检查判断，不能停留在摘要和口号。",
     }[discipline]
     if role == "activity":
-        guidance += " 练习必须写清任务情境、已知条件、输出要求、参考解法或验收标准，不写课堂口令。"
+        guidance += " 练习必须用教师可直接说出的语言写清任务情境、已知条件、输出要求、等待点、可能回应与验收标准。"
     elif role == "feedback":
         guidance += " 辨析必须包含核对标准、典型错误、修正原因和再次验证。"
     elif role in {"reasoning", "example"}:
@@ -353,12 +360,11 @@ def teacher_script_length_contract(
     role: str,
     planned_minutes: Any,
 ) -> dict[str, int]:
-    """Give every module a complete but bounded neutral-content budget.
+    """Give every module a complete but bounded direct-teaching budget.
 
-    The script is the durable course-content body, not a verbatim classroom
-    transcript and not a short cue card.  The minute budget controls depth,
-    while generous hard bounds prevent a complete reasoning chain, example,
-    formula, or runnable artifact from being truncated.
+    The script is a polished teacher utterance, not a raw transcript and not a
+    short cue card. The minute budget controls depth while leaving room for
+    explanation, transitions, questions, likely responses and feedback.
     """
     compact_roles = {
         "orientation", "prerequisite", "objective", "checkpoint", "summary",
@@ -454,6 +460,14 @@ def compile_teacher_script_module_contract(
             "source_plan_context": {
                 "teacher_activity": _text(actual.get("teacher_activity")),
                 "student_activity": _text(actual.get("student_activity")),
+                **({"expected_output": _text(actual.get("expected_output"))} if _text(actual.get("expected_output")) else {}),
+                **({"check_method": _text(actual.get("check_method"))} if _text(actual.get("check_method")) else {}),
+                **({"feedback_strategy": _text(actual.get("feedback_strategy"))} if _text(actual.get("feedback_strategy")) else {}),
+                **({"adaptation_options": _text_list(actual.get("adaptation_options"))} if _text_list(actual.get("adaptation_options")) else {}),
+                **({"engagement_mode": _text(actual.get("engagement_mode"))} if _text(actual.get("engagement_mode")) else {}),
+                **({"access_support": _text(actual.get("access_support"))} if _text(actual.get("access_support")) else {}),
+                **({"grouping": _text(actual.get("grouping"))} if _text(actual.get("grouping")) else {}),
+                **({"transition": _text(actual.get("transition"))} if _text(actual.get("transition")) else {}),
             },
             "output_contract": _text(
                 frozen.get("output_contract")
@@ -481,7 +495,7 @@ def compile_teacher_script_module_contract(
         }
     return {
         "schema_version": SCRIPT_SCHEMA_VERSION,
-        "content_perspective": "neutral",
+        "content_perspective": "teacher_delivery",
         "section_node_id": section_id,
         "title": _text(
             outline_section.get("node_name")
@@ -521,49 +535,52 @@ def compile_teacher_script_fallback_content(
     The confirmed lesson plan already owns the teaching purpose, knowledge
     scope, guidance and activity contract.  A quota or authentication outage
     should therefore not leave 0/N blank blocks.  This compiler never invents
-    a new module or fact; it turns that confirmed contract into neutral course
-    prose and is always reported as a local fallback by the job orchestrator.
+    a new module or fact; it turns that confirmed contract into an editable
+    direct-teaching draft and is always reported as a local fallback.
     """
 
-    def neutral(value: Any) -> str:
+    def spoken(value: Any) -> str:
         text = _text(value)
         replacements = {
-            "教师": "讲解过程",
-            "学生": "学习者",
-            "请大家": "学习者需",
-            "请同学": "学习者需",
+            "教师应": "接下来要",
+            "教师需要": "接下来要",
+            "学生应": "请大家",
+            "学生需要": "请大家",
+            "学生完成": "请大家完成",
         }
         for source, target in replacements.items():
             text = text.replace(source, target)
         return text
 
-    title = neutral(module.get("title")) or "当前教学块"
-    purpose = neutral(module.get("teaching_purpose"))
-    guidance = neutral(module.get("teaching_guidance"))
+    title = spoken(module.get("title")) or "当前教学块"
+    purpose = spoken(module.get("teaching_purpose"))
+    guidance = spoken(module.get("teaching_guidance"))
     knowledge = "、".join(_text_list(module.get("knowledge_names")))
     source_context = module.get("source_plan_context") or {}
-    activity = neutral(source_context.get("student_activity"))
-    explanation = neutral(source_context.get("teacher_activity"))
+    activity = spoken(source_context.get("student_activity"))
+    explanation = spoken(source_context.get("teacher_activity"))
+    expected_output = spoken(source_context.get("expected_output"))
+    feedback = spoken(source_context.get("feedback_strategy"))
     role = _text(module.get("role"))
     artifact = module.get("artifact_contract") or {}
 
     paragraphs = [
-        f"{title}围绕{knowledge or '已确认的当前知识范围'}展开。"
-        f"{purpose or '本块用于形成一个完整、可检查的学习结果'}。",
+        f"现在我们进入{title}。这一段要解决的是{knowledge or '当前核心问题'}。"
+        f"{purpose or '到这里，大家需要形成一个可以当场检查的结果'}。",
     ]
     if guidance:
-        paragraphs.append(f"内容与方法：{guidance}。")
+        paragraphs.append(f"先看清这里的方法：{guidance}。")
     if explanation:
-        paragraphs.append(f"展开过程：{explanation}。")
+        paragraphs.append(f"我们一步一步来看。{explanation}。")
     if activity or role in {"activity", "feedback", "checkpoint"}:
         paragraphs.append(
-            f"任务与检验：{activity or '根据已知条件完成当前任务'}。"
-            "结果需逐项核对条件、过程与结论；若出现错误，"
-            "依据同一标准修正并再次验证。"
+            f"现在请大家{activity or '根据已知条件完成当前任务'}。"
+            f"完成后我们用{expected_output or '条件、过程与结论'}逐项核对。"
+            f"如果还没有达到标准，{feedback or '先找出差距，修正后再做一次'}。"
         )
     if _text(artifact.get("hard_artifact")) == "formula":
         paragraphs.append(
-            "形式化检查锦标："
+            "最后用这个形式化关系检查我们的推理："
             r"\(\mathrm{given}\Rightarrow\mathrm{derivation}"
             r"\Rightarrow\mathrm{verified\ result}\)"
             "。公式中的对象、条件和结论必须与当前知识范围一致。"
@@ -691,7 +708,7 @@ def normalize_teacher_script_section(
             }]
     return {
         "schema_version": SCRIPT_SCHEMA_VERSION,
-        "content_perspective": "neutral",
+        "content_perspective": "teacher_delivery",
         "section_node_id": _text(
             value.get("section_node_id") or compiled.get("section_node_id")
         ),
@@ -819,13 +836,13 @@ def validate_teacher_script_section(
             add(
                 blocking,
                 "teacher_script:classroom_delivery_cue",
-                f"“{_text(block.get('title'))}”包含应属于教案的提问、板书、巡视或等待提示。",
+                f"“{_text(block.get('title'))}”仍用机械的提问、板书、巡视或等待标签，没有改写成自然教师语言。",
             )
-        if _DIRECTED_AUDIENCE_PATTERN.search(content):
+        if _LESSON_PLAN_VOICE_PATTERN.search(content):
             add(
                 blocking,
-                "teacher_script:directed_perspective",
-                f"“{_text(block.get('title'))}”仍在指挥教师或学生，未保持中性课程正文视角。",
+                "teacher_script:lesson_plan_voice",
+                f"“{_text(block.get('title'))}”仍在描述教师或学生应当做什么，没有写成教师可以直接说的话。",
             )
         if _INTERNAL_PROCESS_PATTERN.search(content):
             add(
@@ -914,6 +931,22 @@ def validate_teacher_script_section(
                     "不足以形成可直接授课的完整讲解或任务。"
                 ),
             )
+    combined_content = "\n".join(_text(block.get("content")) for block in blocks)
+    if len(combined_content) >= 120 and not _DIRECT_TEACHING_PATTERN.search(combined_content):
+        add(
+            blocking,
+            "teacher_script:not_directly_teachable",
+            "整节讲稿缺少自然讲解、提问或引导语言，仍像教材正文，不能直接站在讲台上讲。",
+        )
+    if len(blocks) > 1 and not any(
+        _TRANSITION_PATTERN.search(_text(block.get("content")))
+        for block in blocks[1:]
+    ):
+        add(
+            blocking,
+            "teacher_script:missing_transition",
+            "相邻教学块之间没有自然承接，教师实际讲授时会出现明显跳段。",
+        )
     return {
         "schema_version": SCRIPT_QUALITY_VERSION,
         "pipeline_version": SCRIPT_PIPELINE_VERSION,
@@ -936,10 +969,11 @@ def validate_teacher_script_section(
                 len(_DELIVERY_CUE_PATTERN.findall(_text(block.get("content"))))
                 for block in blocks
             ),
-            "directed_perspective_count": sum(
-                len(_DIRECTED_AUDIENCE_PATTERN.findall(_text(block.get("content"))))
+            "lesson_plan_voice_count": sum(
+                len(_LESSON_PLAN_VOICE_PATTERN.findall(_text(block.get("content"))))
                 for block in blocks
             ),
+            "direct_teaching_cue_count": len(_DIRECT_TEACHING_PATTERN.findall(combined_content)),
             "internal_process_leakage_count": sum(
                 len(_INTERNAL_PROCESS_PATTERN.findall(_text(block.get("content"))))
                 for block in blocks

@@ -19,6 +19,9 @@ from course_pedagogy import (
     module_block_role,
 )
 from teaching_semantics import (
+    LESSON_TYPE_CONTRACTS,
+    compile_lesson_semantics,
+    compile_teaching_block_contract,
     lesson_phase,
     order_teaching_blocks,
     recommend_lesson_type,
@@ -27,14 +30,10 @@ from teaching_semantics import (
 
 
 SCHEMA_VERSION = "teacher_lesson_arrangement_v1"
+# 保留现有外部结构版本；类型内容由统一语义库投影，避免第二套课型注册表。
 LESSON_TYPES: dict[str, dict[str, str]] = {
-    "theory": {"label": "理论讲授", "purpose": "建立概念、原理、关系与适用边界。"},
-    "practice": {"label": "实践操作", "purpose": "通过示范、操作和反馈形成可执行能力。"},
-    "theory_practice": {"label": "讲练结合", "purpose": "把原理讲解、示例练习与反馈组织在同一讲中。"},
-    "case_discussion": {"label": "案例研讨", "purpose": "围绕具体案例分析证据、判断与取舍。"},
-    "experiment_inquiry": {"label": "实验探究", "purpose": "通过问题、实验、观察和证据形成结论。"},
-    "project_workshop": {"label": "项目工作坊", "purpose": "围绕阶段成果组织协作、制作、展示与反馈。"},
-    "review_assessment": {"label": "复习测评", "purpose": "通过提取练习、诊断反馈和迁移任务巩固掌握。"},
+    key: {"label": value["label"], "purpose": value["purpose"]}
+    for key, value in LESSON_TYPE_CONTRACTS.items()
 }
 
 
@@ -157,6 +156,44 @@ def _course_teaching_type(course_data: dict[str, Any]) -> str:
         ),
     )
     return resolved
+
+
+def _course_semantic_inputs(course_data: dict[str, Any]) -> dict[str, str]:
+    brief = course_data.get("course_generation_brief") or {}
+    request = course_data.get("generation_request") or {}
+    return {
+        "learning_purpose": _text(
+            brief.get("learning_purpose")
+            or request.get("learning_purpose")
+            or course_data.get("learning_purpose")
+        ),
+        "subject_type": _text(
+            brief.get("subject_type")
+            or request.get("subject_type")
+            or request.get("pedagogy_mode")
+            or course_data.get("subject_type")
+            or "auto"
+        ),
+    }
+
+
+def _classroom_constraints(course_data: dict[str, Any], duration: int) -> dict[str, Any]:
+    brief = course_data.get("teacher_course_brief") or {}
+    request = course_data.get("generation_request") or {}
+    raw = {
+        **(request.get("classroom_constraints") or {}),
+        **(brief.get("classroom_constraints") or {}),
+    }
+    raw["lesson_duration_minutes"] = duration
+    for key in (
+        "class_size", "delivery_mode", "grouping", "equipment",
+        "safety_and_access", "assessment_pressure",
+    ):
+        if key not in raw:
+            value = brief.get(key) or request.get(key)
+            if value not in (None, "", [], {}):
+                raw[key] = value
+    return raw
 
 
 def _allocate_minutes(total: int, count: int) -> list[int]:
@@ -295,13 +332,39 @@ def recommend_lesson_arrangement(
         legacy_candidate=legacy_lesson_type,
     )
     raw_blocks = order_teaching_blocks(raw_blocks, lesson_type)
+    semantic_inputs = _course_semantic_inputs(course_data)
+    lesson_goal = _text(
+        chapter.get("learning_objective")
+        or chapter.get("learning_goal")
+        or chapter.get("title")
+    )
+    lesson_semantics = compile_lesson_semantics(
+        learning_purpose=semantic_inputs["learning_purpose"],
+        subject_type=semantic_inputs["subject_type"],
+        course_teaching_type=course_teaching_type,
+        lesson_type=lesson_type,
+        phase=phase,
+        lesson_goal=lesson_goal,
+        classroom_constraints=_classroom_constraints(course_data, duration),
+        legacy_candidate=legacy_lesson_type,
+    )
+    raw_blocks = [
+        compile_teaching_block_contract(block, lesson_type=lesson_type)
+        for block in raw_blocks
+    ]
     return {
         "schema_version": SCHEMA_VERSION,
+        "teaching_semantics_version": lesson_semantics["teaching_semantics_version"],
         "revision_id": "",
         "lesson_unit_id": lesson_unit_id,
         "source_outline_revision_id": source_outline_revision_id,
         "lesson_type": lesson_type,
         "lesson_type_label": LESSON_TYPES[lesson_type]["label"],
+        "lesson_type_recommendation_reason": lesson_semantics["lesson_type_recommendation_reason"],
+        "lesson_type_contract": lesson_semantics["lesson_type_contract"],
+        "required_learning_cycle": lesson_semantics["required_learning_cycle"],
+        "classroom_constraints": lesson_semantics["classroom_constraints"],
+        "quality_rules": lesson_semantics["quality_rules"],
         "course_teaching_type": course_teaching_type,
         "lesson_phase": phase,
         "blocks": raw_blocks,
@@ -331,7 +394,7 @@ def normalize_lesson_arrangement(
             planned_minutes = max(1, min(240, int(raw.get("planned_minutes") or 1)))
         except (TypeError, ValueError):
             planned_minutes = 1
-        blocks.append({
+        blocks.append(compile_teaching_block_contract({
             "block_id": _text(raw.get("block_id")) or _stable_id(section_id, module_id, str(index), prefix="lab"),
             "module_id": module_id,
             "section_node_id": section_id,
@@ -344,15 +407,33 @@ def normalize_lesson_arrangement(
             "teacher_activity": _text(raw.get("teacher_activity")),
             "student_activity": _text(raw.get("student_activity")),
             "expected_output": _text(raw.get("expected_output")),
+            "check_method": _text(raw.get("check_method")),
+            "feedback_strategy": _text(raw.get("feedback_strategy")),
+            "adaptation_options": deepcopy(raw.get("adaptation_options") or []),
+            "engagement_mode": _text(raw.get("engagement_mode")),
+            "access_support": _text(raw.get("access_support")),
+            "grouping": _text(raw.get("grouping")),
+            "transition": _text(raw.get("transition")),
             "required": bool(raw.get("required", True)),
-        })
+        }, lesson_type=lesson_type))
     return {
         "schema_version": SCHEMA_VERSION,
+        "teaching_semantics_version": _text(value.get("teaching_semantics_version")),
         "revision_id": _text(value.get("revision_id")),
         "lesson_unit_id": lesson_unit_id,
         "source_outline_revision_id": source_outline_revision_id,
         "lesson_type": lesson_type,
         "lesson_type_label": LESSON_TYPES[lesson_type]["label"],
+        "lesson_type_recommendation_reason": _text(value.get("lesson_type_recommendation_reason")),
+        "lesson_type_contract": deepcopy(
+            value.get("lesson_type_contract") or LESSON_TYPE_CONTRACTS[lesson_type]
+        ),
+        "required_learning_cycle": deepcopy(
+            value.get("required_learning_cycle")
+            or LESSON_TYPE_CONTRACTS[lesson_type]["learning_cycle"]
+        ),
+        "classroom_constraints": deepcopy(value.get("classroom_constraints") or {}),
+        "quality_rules": deepcopy(value.get("quality_rules") or []),
         "blocks": blocks,
     }
 
@@ -382,6 +463,14 @@ def validate_lesson_arrangement(
         issues.append({"code": "lesson_arrangement:block_name", "message": "教学块名称不能为空。"})
     if any(int(item.get("planned_minutes") or 0) <= 0 for item in blocks):
         issues.append({"code": "lesson_arrangement:block_minutes", "message": "每个教学块都需要有效时长。"})
+    if any(_text(item.get("engagement_mode")) not in {"passive", "active", "constructive", "interactive"} for item in blocks):
+        issues.append({"code": "lesson_arrangement:engagement_mode", "message": "每个教学块都需要明确可观察的认知投入方式。"})
+    if any(not _text(item.get("check_method")) for item in blocks):
+        issues.append({"code": "lesson_arrangement:check_method", "message": "每个教学块都需要说明怎样取得学习证据。"})
+    if any(not _text(item.get("feedback_strategy")) for item in blocks):
+        issues.append({"code": "lesson_arrangement:feedback_strategy", "message": "每个教学块都需要说明教师怎样依据证据作出下一步调整。"})
+    if any(not list(item.get("adaptation_options") or []) for item in blocks):
+        issues.append({"code": "lesson_arrangement:adaptation_options", "message": "每个教学块都需要保留达到、部分达到和未达到时的处理路径。"})
     return issues
 
 
@@ -422,6 +511,14 @@ def apply_lesson_arrangement_to_plan(
                 "planned_minutes": int(block.get("planned_minutes") or 1),
                 "teacher_activity": _text(block.get("teacher_activity")),
                 "student_activity": _text(block.get("student_activity")),
+                "expected_output": _text(block.get("expected_output")),
+                "check_method": _text(block.get("check_method")),
+                "feedback_strategy": _text(block.get("feedback_strategy")),
+                "adaptation_options": deepcopy(block.get("adaptation_options") or []),
+                "engagement_mode": _text(block.get("engagement_mode")),
+                "access_support": _text(block.get("access_support")),
+                "grouping": _text(block.get("grouping")),
+                "transition": _text(block.get("transition")),
                 "lesson_archetype_id": f"teacher_{lesson_type}",
                 "lesson_archetype_label": type_contract["label"],
             })
@@ -433,6 +530,16 @@ def apply_lesson_arrangement_to_plan(
             "source": "teacher_confirmed_arrangement",
         }
     result["teacher_lesson_arrangement"] = json.loads(json.dumps(arrangement, ensure_ascii=False))
+    result["teacher_lesson_semantics"] = {
+        "teaching_semantics_version": _text(arrangement.get("teaching_semantics_version")),
+        "lesson_type": lesson_type,
+        "lesson_type_contract": deepcopy(
+            arrangement.get("lesson_type_contract") or LESSON_TYPE_CONTRACTS[lesson_type]
+        ),
+        "required_learning_cycle": deepcopy(arrangement.get("required_learning_cycle") or []),
+        "classroom_constraints": deepcopy(arrangement.get("classroom_constraints") or {}),
+        "quality_rules": deepcopy(arrangement.get("quality_rules") or []),
+    }
     return result
 
 

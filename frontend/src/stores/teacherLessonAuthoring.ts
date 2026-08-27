@@ -55,6 +55,14 @@ export interface TeacherLessonArrangementBlock {
   teacher_activity: string
   student_activity: string
   expected_output: string
+  check_method?: string
+  feedback_strategy?: string
+  adaptation_options?: string[]
+  engagement_mode?: 'passive' | 'active' | 'constructive' | 'interactive' | string
+  access_support?: string[]
+  grouping?: string
+  transition?: string
+  block_contract_version?: string
   required: boolean
 }
 
@@ -65,6 +73,12 @@ export interface TeacherLessonArrangement {
   source_outline_revision_id: string
   lesson_type: 'theory' | 'practice' | 'theory_practice' | 'case_discussion' | 'experiment_inquiry' | 'project_workshop' | 'review_assessment'
   lesson_type_label: string
+  teaching_semantics_version?: string
+  lesson_type_recommendation_reason?: string
+  lesson_type_contract?: Record<string, unknown>
+  required_learning_cycle?: string[]
+  classroom_constraints?: Record<string, unknown>
+  quality_rules?: string[]
   blocks: TeacherLessonArrangementBlock[]
   status: 'suggested' | 'draft' | 'confirmed'
   confirmed: boolean
@@ -130,7 +144,7 @@ export interface TeacherLessonScriptSection {
   title: string
   content: string
   schema_version?: 'teacher_script_v2'
-  content_perspective?: 'neutral'
+  content_perspective?: 'neutral' | 'teacher_delivery'
   lesson_archetype?: Record<string, any>
   blocks?: TeacherLessonScriptBlock[]
   pipeline_version?: string

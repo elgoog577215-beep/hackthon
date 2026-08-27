@@ -167,8 +167,13 @@ class CoursePromptComposer:
                 "audience",
                 "course_shape_constraints",
                 "course_type_contract",
+                "teaching_definition",
+                "universal_teaching_principles",
+                "learning_purpose_contract",
+                "subject_type_contract",
                 "course_teaching_type_contract",
                 "course_lesson_type_distribution",
+                "classroom_constraint_contract",
                 "course_intent",
                 "learner_starting_profile",
                 "personalization_rationale",
@@ -194,6 +199,8 @@ class CoursePromptComposer:
 ## 学习目的契约
 - 学习目的：{brief.get('learning_purpose_label') or brief.get('course_type_label') or '系统学习'}
 - 结果要求：{brief.get('learning_purpose_result') or (course_type_contract.get('completion_evidence') or '')}
+- 目的专属学习弧：{json.dumps((brief.get('learning_purpose_contract') or {}).get('learning_arc') or [], ensure_ascii=False)}
+- 目的专属证据：{(brief.get('learning_purpose_contract') or {}).get('evidence_strategy') or ''}
 - 整课目标规则：{json.dumps(course_type_contract, ensure_ascii=False)}
 - 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
 - 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
@@ -203,6 +210,12 @@ class CoursePromptComposer:
 - 课程教学类型：{brief.get('course_teaching_type_label') or '综合课'}
 - 整课编排规则：{json.dumps(brief.get('course_teaching_type_contract') or {}, ensure_ascii=False)}
 - 讲次课型比例：{json.dumps(brief.get('course_lesson_type_distribution') or {}, ensure_ascii=False)}
+
+## 教学与学科契约
+- 教学定义：{(brief.get('teaching_definition') or {}).get('definition') or ''}
+- 学科类型：{brief.get('subject_type_label') or '自动判断'}
+- 学科成立方式：{json.dumps(brief.get('subject_type_contract') or {}, ensure_ascii=False)}
+- 共同教学底线：{json.dumps(brief.get('universal_teaching_principles') or [], ensure_ascii=False)}
 
 ## 难度与适配
 - 难度：{json.dumps(difficulty_profile, ensure_ascii=False)}
@@ -225,8 +238,8 @@ class CoursePromptComposer:
 4. 每章只定义一个清晰、互不重复的学习推进范围，不能把小节详情塞进章节焦点。
 5. 章节按学习先后排列，后续章节不得重复承担前面已经完成的核心责任。
 6. 只返回章节骨架，不返回 `sections`、知识点、关系、正文或题目。
-7. 教学画像中的学科分型、质量底线和最终考核是章节推进的设计依据：课程必须为最终
-   可观察成果逐章建立必要能力，不能只按主题名或教材目录罗列章节。
+7. 学科合同、共同教学底线和最终考核是章节推进的设计依据：课程必须为最终
+   可观察成果逐章建立必要能力与证据，不能只按主题名或教材目录罗列章节。
 8. 必须遵守教学类型契约。学习路径标签只能依据上面的起点信息；自述能力必须标为待验证，
    不得直接宣称已经掌握。
 {coverage_rules}
@@ -759,7 +772,8 @@ class CoursePromptComposer:
    某一类自查后确实不成立就不写那一类，宁缺毋滥；本节只有两三个知识点时
    缺少上面这几类是正常的。但"某一类没有"不等于"整节没有关系"——覆盖要求仍然要满足。
 8. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
-   集合。必需块即使省略也会由系统恢复，返回的模块只表达具体局部职责。
+   集合。每个模块必须闭合“教师动作 → 学习者可观察行动 → 产出与检查 → 反馈后的下一步”；
+   不能只写教师讲什么，也不能用“参与讨论、认真听讲”冒充学习证据。
 9. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
    评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
 10. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
@@ -778,11 +792,15 @@ class CoursePromptComposer:
 14. 「正式教案模板」只是展示和导出契约，不是第二份教案。知识与能力、过程与方法、
    迁移与创新应有机落在已有的能力点、掌握标准、教学活动和作业中；不增加平行字段，
    也不为补齐「创新」标题编造空洞目标。
-15. 教学流程必须完成「进入问题或任务 → 核心教学 → 学习者行动 → 检查或总结证据」的职责闭环；
+15. 教学流程必须完成「进入问题或任务 → 核心教学 → 学习者行动 → 就近证据 → 反馈调整 → 迁移或收束」的职责闭环；
    具体环节仍由教学类型、学科画像、本讲课型和允许的教学块决定，不得把所有课都写成
    「案例导入—理论讲授—总结讨论」同一套流程。
 16. `resource_refs` 只能使用已给定的证据名称或标识；没有已确认来源时留空，不得自行生成书目、
    课程、案例、数据或链接。
+17. `engagement_mode` 只能取 `passive|active|constructive|interactive`。关键学习环节优先让学生
+   产生解释、推导、作品、操作记录或基于证据的互动；互动必须围绕共同产物或观点修订，不能只写分组。
+18. `adaptation_options` 至少覆盖达到、部分达到和未达到三种现场结果。调整可以改变提示、表征、
+   分组、任务粒度或挑战度，但不得静默降低本讲核心目标与学科标准。
 
 ## JSON Schema
 {{
@@ -849,7 +867,15 @@ class CoursePromptComposer:
         "teaching_guidance": "正文必须体现的讲法或学习者行动",
         "planned_minutes": 15,
         "teacher_activity": "教师演示或追问的具体动作",
-        "student_activity": "学生完成的可观察动作"
+        "student_activity": "学生完成的可观察动作",
+        "expected_output": "学生在本环节留下的回答、过程、作品或操作结果",
+        "check_method": "教师依据什么表现与标准判断当前达成情况",
+        "feedback_strategy": "怎样指出差距、给出下一步并安排再次表现",
+        "adaptation_options": ["达到标准时怎样推进", "部分达到时怎样补支架", "未达到时怎样重教并复查"],
+        "engagement_mode": "constructive",
+        "access_support": "怎样减少无关进入障碍，同时保持核心标准",
+        "grouping": "个人、同伴或小组及其责任方式",
+        "transition": "本环节证据怎样自然衔接下一环节"
       }}],
       "planned_minutes": 45,
       "key_difficulties": ["需要重点突破的概念或操作"],

@@ -220,7 +220,7 @@ describe('统一讲稿页面', () => {
     const recoveryLesson = structuredClone(lesson)
     recoveryLesson.script.publication_eligible = false
     recoveryLesson.script.generation_source = 'model_block_pipeline_with_recovery_preview'
-    recoveryLesson.script.quality_contract_version = 'teacher_script_quality_v6'
+    recoveryLesson.script.quality_contract_version = 'teacher_script_quality_v7'
     recoveryLesson.script.quality_report = {
       passed: false,
       publication_eligible: false,
