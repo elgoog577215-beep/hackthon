@@ -135,7 +135,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('课程大纲已生成')
     expect(wrapper.get('[data-testid="outline-workspace"]').text()).not.toContain('已保存完整章节结构')
     expect(wrapper.get('[data-testid="inline-outline-editor"]').attributes('data-mode')).toBe('edit')
-    expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
+    expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
     expect(wrapper.get('[data-testid="outline-ai-action"]').text()).toContain('AI 助手')
     expect(wrapper.find('[data-testid="outline-manual-action"]').exists()).toBe(false)
     expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
@@ -172,7 +172,7 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
 
     expect(outlineFinishEditing).toHaveBeenCalledTimes(1)
-    expect(wrapper.get('.stage-rail nav button.active').text()).toContain('课程基础')
+    expect(wrapper.get('.stage-rail nav button.active').text()).toContain('大纲')
   })
 
   it('最终检查点暂时没有投影时保留审阅状态而不退回初始表单', () => {
@@ -321,7 +321,7 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.get('.prerequisite button').trigger('click')
 
     expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
-    expect(wrapper.get('.center-heading h2').text()).toBe('课程基础')
+    expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
   })
 
   it('课次投影读取失败时显示真实错误并复用现有重载动作', async () => {

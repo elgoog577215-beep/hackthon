@@ -709,7 +709,7 @@
       "failed": "无法继续生成，请稍后重试"
     },
     "stages": {
-      "foundation": "课程基础", "foundationHelp": "大纲与教学日历",
+      "foundation": "大纲", "foundationHelp": "确定课程目标、教学编排与课程结构",
       "lesson": "教案", "lessonHelp": "按课次组织教学",
       "questionBank": "题库", "questionBankHelp": "可选 · 出题与组卷",
       "script": "讲稿", "scriptHelp": "轻量可编辑正文",

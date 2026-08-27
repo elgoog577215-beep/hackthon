@@ -709,7 +709,7 @@
       "failed": "Could not continue generation. Try again later."
     },
     "stages": {
-      "foundation": "Course foundation", "foundationHelp": "Outline and teaching calendar",
+      "foundation": "Outline", "foundationHelp": "Define course goals, teaching arrangement, and course structure",
       "lesson": "Lesson plans", "lessonHelp": "Plan each session",
       "questionBank": "Question bank", "questionBankHelp": "Optional · questions and papers",
       "script": "Script", "scriptHelp": "Lightweight editable content",

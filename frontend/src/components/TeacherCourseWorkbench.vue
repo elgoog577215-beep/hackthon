@@ -845,7 +845,7 @@ const questionBankReady = ref(false)
 const questionBankImportMode = ref(false)
 const questionBankRevisionId = ref('')
 const stages = computed(() => [
-  { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '课程基础'), icon: markRaw(Layers3) },
+  { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '大纲'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
   { id: 'question-bank' as const, step: '03', label: t('courseWorkbench.stages.questionBank', '题库'), icon: markRaw(ListChecks) },
   { id: 'script' as const, step: '04', label: t('courseWorkbench.stages.script', '讲稿'), icon: markRaw(BookOpenText) },
