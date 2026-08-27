@@ -156,7 +156,9 @@ def generate_universal_question_contract(
             ),
         },
         "difficulty_contract": deepcopy(
-            resolved_objective.get("difficulty_contract") or {}
+            (slot or {}).get("difficulty_contract")
+            or resolved_objective.get("difficulty_contract")
+            or {}
         ),
         "risk_contract": {
             "risk_level": risk_level,

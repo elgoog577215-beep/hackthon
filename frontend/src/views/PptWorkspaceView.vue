@@ -41,8 +41,9 @@
       :confirming="pptManuscriptConfirming"
       :error="pptManuscriptConfirmError || buildErrorLabel"
       :failure="effectiveBuildFailure"
-      @back="backToCourse"
+      @back="closeManuscriptWorkflow"
       @generate-manuscript="openGenerator(false)"
+      @regenerate-manuscript="openGenerator(true)"
       @confirm-manuscript="confirmPptManuscript"
       @generate-ppt="generatePptFromConfirmedManuscript"
     />
@@ -135,6 +136,7 @@
         @ask-ai="openAiForSlide"
         @open-course="openSameSourceCourse"
         @confirm-manuscript="confirmPptManuscript"
+        @review-manuscript="openManuscriptWorkflow"
       />
 
       <TeachingRepresentationsOverlay
@@ -341,6 +343,7 @@ const pptManuscriptState = ref<{
 } | null>(null)
 const pptManuscriptConfirming = ref(false)
 const pptManuscriptConfirmError = ref('')
+const manuscriptWorkflowForced = ref(false)
 let pptAiCandidateAttempt = 0
 let pptAiMessageSequence = 0
 
@@ -400,6 +403,7 @@ const slideRepresentation = computed(() => (
 ))
 const showManuscriptWorkflow = computed(() => {
   if (!isTeacherSurface.value || !pptManuscriptState.value) return false
+  if (manuscriptWorkflowForced.value) return true
   if (pptManuscriptState.value.generation_branch === 'original_ppt_review') return true
   if (!slideRepresentation.value) return true
   if (pptManuscriptState.value.status === 'not_generated') return false
@@ -409,6 +413,18 @@ const showManuscriptWorkflow = computed(() => {
       !== slideRepresentation.value.representation_id
   )
 })
+
+function openManuscriptWorkflow() {
+  manuscriptWorkflowForced.value = true
+}
+
+function closeManuscriptWorkflow() {
+  if (manuscriptWorkflowForced.value && slideRepresentation.value) {
+    manuscriptWorkflowForced.value = false
+    return
+  }
+  backToCourse()
+}
 const content = computed(() => store.selectedSpec?.payload?.content || null)
 const pptAiPage = computed<Record<string, any> | null>(() => {
   const pages = Array.isArray(content.value?.pages) ? content.value.pages : []
@@ -1106,6 +1122,7 @@ async function generatePptFromConfirmedManuscript() {
     const representation = preferredVariantRepresentation()
       || targetSlideRepresentations.value[0]
     if (representation) await store.select(representation.representation_id)
+    manuscriptWorkflowForced.value = false
   } catch {
     return
   }

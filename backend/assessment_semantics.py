@@ -320,6 +320,48 @@ def compile_question_design_brief(
         for value in objective.get("observable_evidence") or []
         if str(value).strip()
     ]
+    focus_index = (
+        int(variant_index) % len(knowledge)
+        if knowledge
+        else 0
+    )
+    primary_knowledge = (
+        knowledge[focus_index]
+        if knowledge
+        else str(objective.get("objective") or "")
+    )
+    primary_misconception = (
+        misconceptions[int(variant_index) % len(misconceptions)]
+        if misconceptions
+        else ""
+    )
+    scope_by_level = {
+        "concept_check": {
+            "primary_skill": f"辨析{primary_knowledge}的含义、成立条件与常见误区",
+            "observable": f"能识别{primary_knowledge}的一个决定性特征，并排除一个典型误解",
+            "learner_action_limit": 1,
+            "reasoning_step_range": [1, 2],
+            "task_character_target": 120,
+        },
+        "objective_practice": {
+            "primary_skill": f"在一个自足实例中运用{primary_knowledge}完成必要计算或推理",
+            "observable": f"能运用{primary_knowledge}解决一个典型问题，写出关键步骤并完成一次结果检查",
+            "learner_action_limit": 2,
+            "reasoning_step_range": [2, 4],
+            "task_character_target": 180,
+        },
+        "mastery_check": {
+            "primary_skill": f"在变式情境中独立运用{primary_knowledge}、解释边界并检验结果",
+            "observable": f"能在变化后的情境中独立运用{primary_knowledge}，说明条件、关键步骤并检验结论",
+            "learner_action_limit": 3,
+            "reasoning_step_range": [4, 6],
+            "task_character_target": 240,
+        },
+    }
+    resolved_scope = scope_by_level.get(
+        practice_level,
+        scope_by_level["objective_practice"],
+    )
     brief = {
         "schema_version": QUESTION_DESIGN_BRIEF_SCHEMA,
         "objective_id": objective.get("objective_id"),
@@ -327,15 +369,9 @@ def compile_question_design_brief(
         "slot_id": slot.get("slot_id"),
         "practice_level": practice_level,
         "variant_index": int(variant_index),
-        "primary_knowledge": knowledge[0] if knowledge else str(
-            objective.get("objective") or ""
-        ),
-        "primary_skill": skills[0] if skills else str(
-            objective.get("objective") or ""
-        ),
-        "primary_misconception": (
-            misconceptions[0] if misconceptions else ""
-        ),
+        "primary_knowledge": primary_knowledge,
+        "primary_skill": resolved_scope["primary_skill"],
+        "primary_misconception": primary_misconception,
         "question_type": question_type,
         "discipline_family": str(
             slot.get("discipline_family") or "general"
@@ -352,16 +388,34 @@ def compile_question_design_brief(
             variant_index=variant_index,
             objective=objective,
         ),
-        "required_observable_evidence": (
-            observable[:3]
-            or semantics.get("semantic_obligations", [])[:2]
-        ),
+        "required_observable_evidence": [resolved_scope["observable"]],
+        "assessment_scope_contract": {
+            "one_primary_target": True,
+            "learner_action_limit": resolved_scope[
+                "learner_action_limit"
+            ],
+            "reasoning_step_range": resolved_scope[
+                "reasoning_step_range"
+            ],
+            "task_character_target": resolved_scope[
+                "task_character_target"
+            ],
+            "source_skill_index": (
+                int(variant_index) % len(skills)
+                if skills
+                else -1
+            ),
+            "source_observable_index": (
+                int(variant_index) % len(observable)
+                if observable
+                else -1
+            ),
+        },
         "answer_fact_contract": {
             "source": "content_evidence_then_course_objective",
             "fact_basis": (
                 references.get("content_fact_basis")
-                or knowledge[:3]
-                or [str(objective.get("objective") or "")]
+                or [primary_knowledge]
             ),
             "derivation_mode": semantics.get("answer_derivation"),
             "locked_before_question_wording": True,

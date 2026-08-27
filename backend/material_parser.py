@@ -6,14 +6,23 @@ import asyncio
 import hashlib
 import importlib.metadata
 import mimetypes
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
 from material_models import DocumentBlock, DocumentLocator, MaterialAsset, ParsedDocument
-from material_storage import IMAGE_EXTENSIONS, TEXT_EXTENSIONS, MaterialRepository
+from material_storage import (
+    IMAGE_EXTENSIONS,
+    LEGACY_OFFICE_EXTENSIONS,
+    TEXT_EXTENSIONS,
+    MaterialRepository,
+)
 
 PARSE_OPTIONS_VERSION = "material_parse_v1"
 
@@ -28,6 +37,11 @@ class DocumentParser(Protocol):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _compact(value: Any, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    return text if len(text) <= limit else f"{text[: limit - 1].rstrip()}…"
 
 
 def _options_hash(parser_name: str) -> str:
@@ -220,25 +234,199 @@ class DoclingDocumentParser:
         if not input_document.valid:
             raise RuntimeError("Docling 文件后端无法打开该资料")
         backend = input_document._backend
+        warnings: list[str] = []
+        parse_status = "parsed"
+        visual_quality: dict[str, Any] = {}
         if asset.extension == ".pdf":
             blocks = _blocks_from_pdf_backend(backend)
         else:
             document = backend.convert()
             blocks = _blocks_from_docling(document.export_to_dict(), asset.extension)
+            if asset.extension == ".pptx":
+                visual_blocks, visual_quality, visual_warnings = _pptx_visual_evidence(
+                    source_path,
+                    starting_order=len(blocks),
+                )
+                blocks.extend(visual_blocks)
+                warnings.extend(visual_warnings)
+                if visual_quality.get("animation_slide_count") or visual_quality.get("unread_picture_count"):
+                    parse_status = "degraded"
         if not blocks:
-            raise RuntimeError("Docling 没有提取到可用文本；图片型 PDF 需要另行配置 OCR")
+            raise RuntimeError("Docling 没有提取到可用文本")
         return ParsedDocument(
             document_id=f"doc-{uuid.uuid4().hex}",
             asset_id=asset.asset_id,
             source_sha256=asset.sha256,
-            parse_status="parsed",
+            parse_status=parse_status,
             parser_name=self.name,
             parser_version=self.version,
             parse_options_hash=_options_hash(self.name),
             blocks=blocks,
-            quality=_quality(blocks),
+            quality={**_quality(blocks), **visual_quality},
+            warnings=warnings,
             created_at=_now(),
         )
+
+
+class ScannedPdfOcrParser:
+    """Local page OCR for PDFs whose text layer is empty.
+
+    This adapter runs only after the lightweight PDF text backend fails.  It
+    renders pages in memory, keeps page locators and confidence, and never sends
+    teacher material to an external service.
+    """
+
+    name = "rapidocr_pdf"
+
+    @property
+    def version(self) -> str:
+        for package in ("rapidocr", "rapidocr-onnxruntime"):
+            try:
+                return importlib.metadata.version(package)
+            except importlib.metadata.PackageNotFoundError:
+                continue
+        return "unavailable"
+
+    def supports(self, extension: str) -> bool:
+        return extension == ".pdf"
+
+    def parse(self, asset: MaterialAsset, source_path: Path) -> ParsedDocument:
+        try:
+            import pypdfium2 as pdfium
+        except ImportError as exc:
+            raise RuntimeError("扫描 PDF OCR 组件未安装") from exc
+        RapidOCR = _rapidocr_class()
+
+        maximum_pages = max(1, int(os.getenv("MATERIAL_OCR_MAX_PAGES", "250")))
+        document = pdfium.PdfDocument(str(source_path))
+        page_count = len(document)
+        if page_count > maximum_pages:
+            document.close()
+            raise RuntimeError(f"扫描 PDF 共 {page_count} 页，超过 OCR 上限 {maximum_pages} 页")
+
+        engine = RapidOCR()
+        blocks: list[DocumentBlock] = []
+        confidences: list[float] = []
+        try:
+            with tempfile.TemporaryDirectory(prefix="lingzhi-pdf-ocr-") as temp_value:
+                temp_dir = Path(temp_value)
+                for page_index in range(page_count):
+                    page = document[page_index]
+                    image_path = temp_dir / f"page-{page_index + 1}.png"
+                    try:
+                        page.render(scale=2.0).to_pil().save(image_path, format="PNG")
+                    finally:
+                        page.close()
+                    for segment in _ocr_image(
+                        image_path,
+                        engine=engine,
+                        page_number=page_index + 1,
+                    ):
+                        text = str(segment.get("text") or "").strip()
+                        if not text:
+                            continue
+                        confidence = max(0.0, min(1.0, float(segment.get("confidence") or 0)))
+                        confidences.append(confidence)
+                        blocks.append(DocumentBlock(
+                            block_id=f"blk-{len(blocks) + 1}",
+                            kind=_detect_block_kind(text),
+                            text=text,
+                            order=len(blocks),
+                            locator=DocumentLocator(
+                                page=page_index + 1,
+                                bbox=_normalized_bbox(segment.get("bbox")),
+                            ),
+                            metadata={
+                                "ocr_engine": self.name,
+                                "ocr_confidence": round(confidence, 4),
+                            },
+                        ))
+        finally:
+            document.close()
+        if not blocks:
+            raise RuntimeError("OCR 没有从扫描 PDF 中提取到可用文字")
+        average_confidence = round(sum(confidences) / max(1, len(confidences)), 4)
+        warnings = ["扫描 PDF 由本地 OCR 提取，版式、手写内容和图片语义需要教师复核"]
+        if average_confidence < 0.85:
+            warnings.append("OCR 平均置信度低于 0.85，相关内容必须进入教师审核")
+        return ParsedDocument(
+            document_id=f"doc-{uuid.uuid4().hex}",
+            asset_id=asset.asset_id,
+            source_sha256=asset.sha256,
+            parse_status="degraded",
+            parser_name=self.name,
+            parser_version=self.version,
+            parse_options_hash=_options_hash(self.name),
+            blocks=blocks,
+            quality={
+                **_quality(blocks),
+                "ocr_confidence": average_confidence,
+                "ocr_engine": self.name,
+                "source_page_count": page_count,
+            },
+            warnings=warnings,
+            created_at=_now(),
+        )
+
+
+class LegacyOfficeConversionParser:
+    """Convert legacy binary Office files in a disposable directory."""
+
+    name = "libreoffice_legacy"
+    version = "1"
+    targets = {".doc": ".docx", ".ppt": ".pptx", ".xls": ".xlsx"}
+
+    def supports(self, extension: str) -> bool:
+        return extension in LEGACY_OFFICE_EXTENSIONS
+
+    def parse(self, asset: MaterialAsset, source_path: Path) -> ParsedDocument:
+        executable = shutil.which("soffice") or shutil.which("libreoffice")
+        if not executable:
+            raise RuntimeError("旧版 Office 转换组件不可用")
+        target_extension = self.targets[asset.extension]
+        with tempfile.TemporaryDirectory(prefix="lingzhi-office-") as temp_value:
+            temp_dir = Path(temp_value)
+            input_path = temp_dir / f"source{asset.extension}"
+            shutil.copy2(source_path, input_path)
+            profile_dir = temp_dir / "profile"
+            result = subprocess.run(
+                [
+                    executable,
+                    "--headless",
+                    f"-env:UserInstallation={profile_dir.as_uri()}",
+                    "--convert-to",
+                    target_extension.lstrip("."),
+                    "--outdir",
+                    str(temp_dir),
+                    str(input_path),
+                ],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=120,
+            )
+            converted_path = temp_dir / f"source{target_extension}"
+            if result.returncode != 0 or not converted_path.is_file():
+                detail = _compact(result.stderr or result.stdout or "转换没有生成目标文件", 500)
+                raise RuntimeError(f"旧版 Office 转换失败：{detail}")
+            converted_asset = asset.model_copy(update={"extension": target_extension})
+            errors: list[str] = []
+            for parser in (DoclingDocumentParser(), MarkItDownFallbackParser()):
+                try:
+                    document = parser.parse(converted_asset, converted_path)
+                    document.parser_name = f"{self.name}+{document.parser_name}"
+                    document.parser_version = f"{self.version}+{document.parser_version}"
+                    document.parse_options_hash = _options_hash(document.parser_name)
+                    document.warnings = [
+                        "旧版 Office 原件已在临时目录转换；正文可用，但复杂版式、宏和动画需复核",
+                        *document.warnings,
+                    ]
+                    if asset.extension == ".ppt" and document.parse_status == "parsed":
+                        document.parse_status = "degraded"
+                    return document
+                except Exception as exc:
+                    errors.append(f"{parser.name}: {exc}")
+            raise RuntimeError("；".join(errors) or "转换后的 Office 文件无法解析")
 
 
 class MarkItDownFallbackParser:
@@ -294,6 +482,10 @@ async def parse_material_asset(
         parsers = [TextDocumentParser()]
     elif asset.extension in IMAGE_EXTENSIONS:
         parsers = [ImageOcrParser()]
+    elif asset.extension in LEGACY_OFFICE_EXTENSIONS:
+        parsers = [LegacyOfficeConversionParser()]
+    elif asset.extension == ".pdf":
+        parsers = [DoclingDocumentParser(), ScannedPdfOcrParser(), MarkItDownFallbackParser()]
     else:
         parsers = [DoclingDocumentParser(), MarkItDownFallbackParser()]
 
@@ -369,6 +561,10 @@ async def parse_document_path(
         parsers: list[DocumentParser] = [TextDocumentParser()]
     elif extension in IMAGE_EXTENSIONS:
         parsers = [ImageOcrParser()]
+    elif extension in LEGACY_OFFICE_EXTENSIONS:
+        parsers = [LegacyOfficeConversionParser()]
+    elif extension == ".pdf":
+        parsers = [DoclingDocumentParser(), ScannedPdfOcrParser(), MarkItDownFallbackParser()]
     else:
         parsers = [DoclingDocumentParser(), MarkItDownFallbackParser()]
     errors: list[str] = []
@@ -471,6 +667,138 @@ def _blocks_from_pdf_backend(backend: Any) -> list[DocumentBlock]:
     return blocks
 
 
+def _pptx_visual_evidence(
+    source_path: Path,
+    *,
+    starting_order: int,
+) -> tuple[list[DocumentBlock], dict[str, Any], list[str]]:
+    """Extract compact visual evidence without inventing picture semantics."""
+    try:
+        from pptx import Presentation
+        from pptx.enum.shapes import MSO_SHAPE_TYPE
+    except ImportError as exc:
+        raise RuntimeError("PPTX 视觉证据组件未安装") from exc
+
+    presentation = Presentation(str(source_path))
+    slide_width = max(1, int(presentation.slide_width or 1))
+    slide_height = max(1, int(presentation.slide_height or 1))
+    blocks: list[DocumentBlock] = []
+    chart_count = 0
+    picture_count = 0
+    unread_picture_count = 0
+    note_slide_count = 0
+    animation_slide_count = 0
+    for slide_number, slide in enumerate(presentation.slides, start=1):
+        shape_evidence: list[dict[str, Any]] = []
+        chart_summaries: list[str] = []
+        slide_picture_count = 0
+        for shape in list(slide.shapes)[:160]:
+            shape_type = getattr(shape, "shape_type", None)
+            shape_name = _compact(getattr(shape, "name", "") or "未命名对象", 120)
+            evidence = {
+                "name": shape_name,
+                "shape_type": str(shape_type),
+                "bbox": {
+                    "x": round(float(getattr(shape, "left", 0) or 0) / slide_width, 6),
+                    "y": round(float(getattr(shape, "top", 0) or 0) / slide_height, 6),
+                    "width": round(float(getattr(shape, "width", 0) or 0) / slide_width, 6),
+                    "height": round(float(getattr(shape, "height", 0) or 0) / slide_height, 6),
+                },
+            }
+            if bool(getattr(shape, "has_chart", False)):
+                chart_count += 1
+                chart = shape.chart
+                series_names = [
+                    _compact(getattr(series, "name", "") or "未命名系列", 80)
+                    for series in list(chart.series)[:20]
+                ]
+                chart_title = ""
+                if bool(getattr(chart, "has_title", False)):
+                    chart_title = _compact(chart.chart_title.text_frame.text, 140)
+                evidence["chart"] = {
+                    "title": chart_title,
+                    "series_names": series_names,
+                    "series_count": len(chart.series),
+                }
+                chart_summaries.append(
+                    f"图表“{chart_title or shape_name}”含 {len(chart.series)} 个系列"
+                    + (f"（{'、'.join(series_names)}）" if series_names else "")
+                )
+            if shape_type == MSO_SHAPE_TYPE.PICTURE:
+                picture_count += 1
+                slide_picture_count += 1
+                alt_text = _compact(
+                    getattr(shape, "alternative_text", "")
+                    or getattr(shape, "description", ""),
+                    240,
+                )
+                if alt_text:
+                    evidence["alternative_text"] = alt_text
+                else:
+                    unread_picture_count += 1
+            shape_evidence.append(evidence)
+
+        has_animation = bool(slide._element.xpath(".//p:timing"))
+        if has_animation:
+            animation_slide_count += 1
+        notes_text = ""
+        try:
+            notes_text = _compact(slide.notes_slide.notes_text_frame.text, 1600)
+        except (AttributeError, KeyError, ValueError):
+            notes_text = ""
+        if notes_text:
+            note_slide_count += 1
+        summary_parts = [
+            f"幻灯片 {slide_number} 含 {len(shape_evidence)} 个可定位对象",
+        ]
+        if chart_summaries:
+            summary_parts.extend(chart_summaries)
+        if slide_picture_count:
+            summary_parts.append(f"含 {slide_picture_count} 张图片，未对无替代文本图片臆测语义")
+        if has_animation:
+            summary_parts.append("检测到动画时间线，未解释播放顺序和触发语义")
+        blocks.append(DocumentBlock(
+            block_id=f"blk-{starting_order + len(blocks) + 1}",
+            kind="other",
+            text="；".join(summary_parts),
+            order=starting_order + len(blocks),
+            locator=DocumentLocator(page=slide_number, slide=slide_number),
+            metadata={
+                "evidence_kind": "pptx_visual_structure",
+                "shape_count": len(shape_evidence),
+                "shapes": shape_evidence,
+                "has_animation": has_animation,
+            },
+        ))
+        if notes_text:
+            blocks.append(DocumentBlock(
+                block_id=f"blk-{starting_order + len(blocks) + 1}",
+                kind="paragraph",
+                text=notes_text,
+                order=starting_order + len(blocks),
+                locator=DocumentLocator(page=slide_number, slide=slide_number),
+                metadata={"evidence_kind": "speaker_notes"},
+            ))
+
+    warnings = ["PPTX 已补充对象布局、图表系列、讲者备注与动画存在性证据"]
+    if unread_picture_count:
+        warnings.append(
+            f"{unread_picture_count} 张图片没有替代文本，未将图片内容冒充为可引用事实"
+        )
+    if animation_slide_count:
+        warnings.append(
+            f"{animation_slide_count} 页检测到动画；当前仅保留存在性，不解释播放顺序、触发和转场语义"
+        )
+    return blocks, {
+        "visual_evidence_slide_count": len(presentation.slides),
+        "chart_count": chart_count,
+        "picture_count": picture_count,
+        "unread_picture_count": unread_picture_count,
+        "speaker_note_slide_count": note_slide_count,
+        "animation_slide_count": animation_slide_count,
+    }, warnings
+
+
 def _docling_kind(label: str, text: str) -> str:
     mapping = {
         "title": "title",
@@ -507,18 +835,38 @@ def _normalized_bbox(raw: Any) -> dict[str, float] | None:
     return result or None
 
 
-def _ocr_image(path: Path) -> list[dict[str, Any]]:
+def _ocr_image(
+    path: Path,
+    *,
+    engine: Any | None = None,
+    page_number: int = 1,
+) -> list[dict[str, Any]]:
     """Run optional local OCR without sending course material to a third party."""
     try:
         from PIL import Image
-        from rapidocr_onnxruntime import RapidOCR
     except ImportError as exc:
         raise RuntimeError(
-            "图片 OCR 组件未安装；请安装 rapidocr-onnxruntime 后重试"
+            "图片 OCR 图像组件未安装"
         ) from exc
+    RapidOCR = _rapidocr_class()
 
-    engine = RapidOCR()
-    raw_result, _elapsed = engine(str(path))
+    ocr_engine = engine or RapidOCR()
+    output = ocr_engine(str(path))
+    if hasattr(output, "boxes") and hasattr(output, "txts"):
+        boxes = getattr(output, "boxes", None)
+        texts = getattr(output, "txts", None)
+        scores = getattr(output, "scores", None)
+        raw_result = [
+            [points, text, confidence]
+            for points, text, confidence in zip(
+                boxes if boxes is not None else [],
+                texts if texts is not None else [],
+                scores if scores is not None else [],
+                strict=False,
+            )
+        ]
+    else:
+        raw_result = output[0] if isinstance(output, tuple) and output else output
     if not raw_result:
         return []
     with Image.open(path) as image:
@@ -528,8 +876,9 @@ def _ocr_image(path: Path) -> list[dict[str, Any]]:
         if not isinstance(raw, (list, tuple)) or len(raw) < 3:
             continue
         points, text, confidence = raw[0], raw[1], raw[2]
-        xs = [float(point[0]) for point in points or [] if len(point) >= 2]
-        ys = [float(point[1]) for point in points or [] if len(point) >= 2]
+        point_values = points if points is not None else []
+        xs = [float(point[0]) for point in point_values if len(point) >= 2]
+        ys = [float(point[1]) for point in point_values if len(point) >= 2]
         bbox = None
         if xs and ys and width > 0 and height > 0:
             left, right = min(xs), max(xs)
@@ -544,16 +893,35 @@ def _ocr_image(path: Path) -> list[dict[str, Any]]:
             "text": str(text or ""),
             "confidence": float(confidence or 0),
             "bbox": bbox,
-            "page": 1,
+            "page": page_number,
         })
     return result
+
+
+def _rapidocr_class() -> Any:
+    """Load either the current or legacy RapidOCR package behind one adapter."""
+    try:
+        from rapidocr import RapidOCR
+
+        return RapidOCR
+    except ImportError:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+
+            return RapidOCR
+        except ImportError as exc:
+            raise RuntimeError(
+                "OCR 组件未安装；Python 3.13+ 请安装 rapidocr，旧环境请安装 rapidocr-onnxruntime"
+            ) from exc
 
 
 __all__ = [
     "DoclingDocumentParser",
     "DocumentParser",
+    "LegacyOfficeConversionParser",
     "MarkItDownFallbackParser",
     "ImageOcrParser",
+    "ScannedPdfOcrParser",
     "TextDocumentParser",
     "parse_document_path",
     "parse_material_asset",

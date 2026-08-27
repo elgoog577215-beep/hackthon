@@ -26,5 +26,8 @@ describe('material upload helpers', () => {
     Object.defineProperty(oversized, 'size', { value: 50 * 1024 * 1024 + 1 })
     expect(validateMaterialFile(oversized, messages)).toBe('too-large:50')
     expect(validateMaterialFile(new File(['ok'], 'notes.pdf'), messages)).toBe('')
+    expect(validateMaterialFile(new File(['ok'], 'old-course.ppt'), messages)).toBe('')
+    expect(validateMaterialFile(new File(['ok'], 'old-plan.doc'), messages)).toBe('')
+    expect(validateMaterialFile(new File(['ok'], 'old-data.xls'), messages)).toBe('')
   })
 })

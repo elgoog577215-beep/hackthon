@@ -58,7 +58,7 @@ _FAMILY_SLOT_RECIPES: dict[str, tuple[dict[str, str], ...]] = {
     "math_formal": (
         _slot("concept_classification", "choice", "exact_validator", "selected_response"),
         _slot("numeric_calculation", "numeric_unit", "numeric_unit_validator", "numeric_response"),
-        _slot("symbolic_derivation", "structured_fields", "symbolic_validator", "symbolic_derivation"),
+        _slot("symbolic_derivation", "structured_fields", "expert_rubric_validator", "symbolic_derivation"),
     ),
     "programming_engineering": (
         _slot("code_execution", "choice", "state_trace_validator", "output_prediction"),
@@ -313,8 +313,9 @@ def compile_course_assessment_blueprint(
                 "practice_level": practice_level,
                 **recipe,
                 "response_format": archetype["response_format"],
-                "difficulty_contract": deepcopy(
-                    objective.get("difficulty_contract") or {}
+                "difficulty_contract": _slot_difficulty_contract(
+                    objective.get("difficulty_contract") or {},
+                    practice_level,
                 ),
                 "knowledge": deepcopy(objective.get("knowledge") or []),
                 "skills": deepcopy(objective.get("skills") or []),
@@ -714,6 +715,83 @@ def _distribution(
         value = str(item.get(field) or "")
         if value:
             result[value] = result.get(value, 0) + 1
+    return result
+
+
+def _slot_difficulty_contract(
+    course_contract: dict[str, Any],
+    practice_level: str,
+) -> dict[str, Any]:
+    """Translate one course target into a three-step assessment progression."""
+    course_target = str(
+        course_contract.get("target_level") or "intermediate"
+    )
+    result = {
+        "contract_version": str(
+            course_contract.get("contract_version")
+            or "course_difficulty_v1"
+        ),
+        "course_target_level": course_target,
+        "anti_patterns": deepcopy(
+            course_contract.get("anti_patterns") or []
+        ),
+    }
+    if practice_level == "concept_check":
+        result.update({
+            "target_level": "foundational",
+            "node_role": "concept_discrimination",
+            "cognitive_demand": "single_decisive_discrimination",
+            "expected_reasoning_steps": [1, 2],
+            "learner_action_limit": 1,
+            "subject_task": "识别一个决定性特征并排除一个典型误解",
+            "required_evidence": [
+                "识别一个决定性特征",
+                "排除一个典型误解",
+            ],
+            "exercise_contract": {
+                "autonomy": 1,
+                "reasoning_steps": [1, 2],
+                "transfer_distance": 1,
+            },
+        })
+    elif practice_level == "mastery_check":
+        result.update({
+            "target_level": course_target,
+            "node_role": "bounded_transfer",
+            "cognitive_demand": "bounded_transfer_and_check",
+            "expected_reasoning_steps": [4, 6],
+            "learner_action_limit": 3,
+            "subject_task": "在一个有界变式中选择方法、说明条件并检查结果",
+            "required_evidence": [
+                "完成一个有界变式",
+                "说明条件与关键步骤",
+                "完成一次结果检查",
+            ],
+            "exercise_contract": {
+                "autonomy": 3,
+                "reasoning_steps": [4, 6],
+                "transfer_distance": 3,
+            },
+        })
+    else:
+        result.update({
+            "target_level": course_target,
+            "node_role": "bounded_application",
+            "cognitive_demand": "single_application_and_check",
+            "expected_reasoning_steps": [2, 4],
+            "learner_action_limit": 2,
+            "subject_task": "在一个自足实例中完成必要应用并检查结果",
+            "required_evidence": [
+                "完成一个典型应用",
+                "写出关键步骤",
+                "完成一次结果检查",
+            ],
+            "exercise_contract": {
+                "autonomy": 2,
+                "reasoning_steps": [2, 4],
+                "transfer_distance": 2,
+            },
+        })
     return result
 
 

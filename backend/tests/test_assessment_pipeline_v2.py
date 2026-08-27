@@ -118,6 +118,54 @@ def test_objective_uses_canonical_course_difficulty_profile():
     }
 
 
+def test_math_variable_language_does_not_become_experiment_plan():
+    course = _course("math_formal")
+    course["nodes"][0].update({
+        "learning_objective": "说明自变量趋近时函数极限与导数的关系",
+        "assessment": ["比较平均变化率与瞬时变化率并写出差商"],
+    })
+    profile = compile_course_assessment_profile(course)
+    objective = compile_assessment_objectives(course, profile)[0]
+    blueprint = compile_course_assessment_blueprint(
+        course,
+        profile=profile,
+        objectives=[objective],
+    )
+    concept_slot = blueprint["nodes"][0]["slots"][0]
+    contract = generate_universal_question_contract(
+        course,
+        course["nodes"][0],
+        profile=profile,
+        objective=objective,
+        practice_level=concept_slot["practice_level"],
+        variant_index=0,
+        slot=concept_slot,
+    )
+
+    assert "experiment_plan" not in objective["answer_modalities"]
+    assert concept_slot["difficulty_contract"]["target_level"] == (
+        "foundational"
+    )
+    assert concept_slot["difficulty_contract"]["node_role"] == (
+        "concept_discrimination"
+    )
+    assert "mastery" not in concept_slot["difficulty_contract"]
+    assert concept_slot["difficulty_contract"]["exercise_contract"] == {
+        "autonomy": 1,
+        "reasoning_steps": [1, 2],
+        "transfer_distance": 1,
+    }
+    assert contract["question_spec"]["difficulty_contract"] == (
+        concept_slot["difficulty_contract"]
+    )
+
+    mastery_slot = blueprint["nodes"][0]["slots"][2]
+    assert mastery_slot["input_mode"] == "structured_fields"
+    assert mastery_slot["validation_mode"] == (
+        "expert_rubric_validator"
+    )
+
+
 def test_programming_blueprint_is_not_all_implementation_tasks():
     course = _course("programming_engineering")
     course["nodes"][0]["learning_objective"] = (

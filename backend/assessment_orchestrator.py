@@ -1642,11 +1642,20 @@ class AssessmentGenerationOrchestrator:
                     practice_level=practice_level,
                     variant_index=variant_index,
                 )
+                scoped_objective = _objective_for_design_brief(
+                    objective,
+                    design_brief=design_brief,
+                    slot=slot,
+                )
+                slot = _slot_for_design_brief(
+                    slot,
+                    design_brief=design_brief,
+                )
                 base = generate_universal_question_contract(
                     prepared,
                     node,
                     profile=profile,
-                    objective=objective,
+                    objective=scoped_objective,
                     practice_level=practice_level,
                     variant_index=variant_index,
                     slot=slot,
@@ -1656,7 +1665,7 @@ class AssessmentGenerationOrchestrator:
                 base["retrieval_summary"] = deepcopy(reference_summary)
                 context = _generation_context(
                     profile=profile,
-                    objective=objective,
+                    objective=scoped_objective,
                     slot=slot,
                     references=references,
                     content_evidence=content_evidence,
@@ -1764,7 +1773,7 @@ class AssessmentGenerationOrchestrator:
                             semantic_report = await self._semantic_report(
                                 contract,
                                 independent=independent,
-                                objective=objective,
+                                objective=scoped_objective,
                                 slot=slot,
                                 audit=audit,
                             )
@@ -1843,7 +1852,7 @@ class AssessmentGenerationOrchestrator:
                             continue
                         quality = evaluate_question_contract_quality(
                             contract,
-                            objective=objective,
+                            objective=scoped_objective,
                             slot=slot,
                             references=references,
                             existing_prompts=existing_prompts,
@@ -2400,12 +2409,21 @@ class AssessmentGenerationOrchestrator:
                 practice_level=practice_level,
                 variant_index=variant_index,
             )
+            scoped_objective = _objective_for_design_brief(
+                objective,
+                design_brief=design_brief,
+                slot=slot,
+            )
+            slot = _slot_for_design_brief(
+                slot,
+                design_brief=design_brief,
+            )
             contexts.append(
                 _compact_batch_generation_context(
                     _context_with_diversity_constraints(
                         _generation_context(
                             profile=profile,
-                            objective=objective,
+                            objective=scoped_objective,
                             slot=slot,
                             references=references,
                             content_evidence=content_evidence,
@@ -2550,11 +2568,20 @@ class AssessmentGenerationOrchestrator:
             practice_level=practice_level,
             variant_index=variant_index,
         )
+        scoped_objective = _objective_for_design_brief(
+            objective,
+            design_brief=design_brief,
+            slot=slot,
+        )
+        slot = _slot_for_design_brief(
+            slot,
+            design_brief=design_brief,
+        )
         base = generate_universal_question_contract(
             prepared,
             node,
             profile=profile,
-            objective=objective,
+            objective=scoped_objective,
             practice_level=practice_level,
             variant_index=variant_index,
             slot=slot,
@@ -2564,7 +2591,7 @@ class AssessmentGenerationOrchestrator:
         base["retrieval_summary"] = deepcopy(reference_summary)
         context = _generation_context(
             profile=profile,
-            objective=objective,
+            objective=scoped_objective,
             slot=slot,
             references=references,
             content_evidence=content_evidence,
@@ -2720,7 +2747,7 @@ class AssessmentGenerationOrchestrator:
                     semantic_report = await self._semantic_report(
                         contract,
                         independent=independent,
-                        objective=objective,
+                        objective=scoped_objective,
                         slot=slot,
                         audit=audit,
                         semantic_batcher=semantic_batcher,
@@ -2833,7 +2860,7 @@ class AssessmentGenerationOrchestrator:
                 async with quality_lock:
                     quality = evaluate_question_contract_quality(
                         contract,
-                        objective=objective,
+                        objective=scoped_objective,
                         slot=slot,
                         references=references,
                         existing_prompts=[
@@ -4287,6 +4314,103 @@ def _mark_discarded(
     ]
 
 
+def _objective_for_design_brief(
+    objective: dict[str, Any],
+    *,
+    design_brief: dict[str, Any],
+    slot: dict[str, Any],
+) -> dict[str, Any]:
+    """Project one course objective into the current assessment slot.
+
+    The full objective still owns course coverage.  A single question owns
+    only the target frozen in its design brief; passing the full objective to
+    the public spec or semantic reviewer makes a healthy concept check fail
+    for not behaving like the chapter's mastery task.
+    """
+    result = deepcopy(objective)
+    primary_knowledge = str(
+        design_brief.get("primary_knowledge") or ""
+    ).strip()
+    primary_skill = str(
+        design_brief.get("primary_skill") or ""
+    ).strip()
+    primary_misconception = str(
+        design_brief.get("primary_misconception") or ""
+    ).strip()
+    evidence = [
+        str(value).strip()
+        for value in design_brief.get("required_observable_evidence") or []
+        if str(value).strip()
+    ]
+    result.update({
+        "objective": primary_skill or result.get("objective"),
+        "knowledge": [primary_knowledge] if primary_knowledge else [],
+        "skills": [primary_skill] if primary_skill else [],
+        "misconceptions": (
+            [primary_misconception]
+            if primary_misconception
+            else []
+        ),
+        "observable_evidence": evidence,
+        "answer_modalities": [
+            str(design_brief.get("question_type") or "").strip()
+        ] if str(design_brief.get("question_type") or "").strip() else [],
+        "difficulty_contract": deepcopy(
+            slot.get("difficulty_contract")
+            or result.get("difficulty_contract")
+            or {}
+        ),
+    })
+    return result
+
+
+def _slot_for_design_brief(
+    slot: dict[str, Any],
+    *,
+    design_brief: dict[str, Any],
+) -> dict[str, Any]:
+    """Project the course blueprint slot into one public question contract.
+
+    The immutable blueprint still plans course-wide coverage, while the
+    generator, reviewer and quality gate must see only the target owned by the
+    current question.  Otherwise a concept-choice slot can be rejected for not
+    producing the chapter's later mastery deliverable.
+    """
+    result = deepcopy(slot)
+    primary_knowledge = str(
+        design_brief.get("primary_knowledge") or ""
+    ).strip()
+    primary_skill = str(
+        design_brief.get("primary_skill") or ""
+    ).strip()
+    primary_misconception = str(
+        design_brief.get("primary_misconception") or ""
+    ).strip()
+    evidence = [
+        str(value).strip()
+        for value in design_brief.get("required_observable_evidence") or []
+        if str(value).strip()
+    ]
+    result.update({
+        "knowledge": [primary_knowledge] if primary_knowledge else [],
+        "skills": [primary_skill] if primary_skill else [],
+        "misconceptions": (
+            [primary_misconception]
+            if primary_misconception
+            else []
+        ),
+        "observable_evidence": evidence,
+    })
+    input_mode = str(result.get("input_mode") or "").strip()
+    if input_mode == "choice":
+        result["response_format"] = "choice"
+    elif input_mode == "numeric_unit":
+        result["response_format"] = "numeric_with_unit"
+    elif input_mode == "short_text":
+        result["response_format"] = "short_text"
+    return result
+
+
 def _generation_context(
     *,
     profile: dict[str, Any],
@@ -4300,6 +4424,10 @@ def _generation_context(
     variant_index: int,
     teacher_instruction: str = "",
 ) -> dict[str, Any]:
+    brief = deepcopy(design_brief or {})
+    scoped_evidence = list(
+        brief.get("required_observable_evidence") or []
+    )
     return {
         "profile": {
             "profile_revision_id": profile.get("profile_revision_id"),
@@ -4310,21 +4438,31 @@ def _generation_context(
             "course_purpose": profile.get("course_purpose"),
         },
         "objective": {
-            key: deepcopy(objective.get(key))
-            for key in (
-                "objective_id",
-                "objective",
-                "knowledge",
-                "skills",
-                "misconceptions",
-                "observable_evidence",
-                "answer_modalities",
-                "difficulty_contract",
-                "risk_level",
-            )
+            "objective_id": objective.get("objective_id"),
+            "objective": brief.get("primary_skill")
+            or objective.get("objective"),
+            "knowledge": [brief.get("primary_knowledge")]
+            if brief.get("primary_knowledge")
+            else [],
+            "skills": [brief.get("primary_skill")]
+            if brief.get("primary_skill")
+            else [],
+            "misconceptions": [brief.get("primary_misconception")]
+            if brief.get("primary_misconception")
+            else [],
+            "observable_evidence": scoped_evidence,
+            "answer_modalities": deepcopy(
+                objective.get("answer_modalities") or []
+            ),
+            "difficulty_contract": deepcopy(
+                slot.get("difficulty_contract")
+                or objective.get("difficulty_contract")
+                or {}
+            ),
+            "risk_level": objective.get("risk_level"),
         },
         "assessment_slot": deepcopy(slot),
-        "question_design_brief": deepcopy(design_brief or {}),
+        "question_design_brief": brief,
         "teacher_authoring_instruction": " ".join(
             str(teacher_instruction or "").split()
         )[:2000],
@@ -4933,6 +5071,15 @@ def _authoring_quality_directive() -> str:
         "diagnostic distractors. A difficulty label or verbose wording does not "
         "make a question difficult. The learner action must directly elicit "
         "the objective's observable_evidence. "
+        "Treat assessment_scope_contract as a hard complexity budget. Assess "
+        "one primary target only: never expand every clause from the source "
+        "course objective into one question. A concept_check asks for one "
+        "decisive discrimination, objective_practice one bounded application "
+        "and check, and mastery_check one transfer task with no more than the "
+        "declared learner_action_limit and reasoning_step_range. The three "
+        "slots collectively cover the chapter; no single slot must cover it "
+        "all. Keep task.rendered_text within task_character_target when one is "
+        "declared. "
         "output_prediction must ask for a concrete output, exception, state, "
         "identity, or call order. debugging_trace must contain a real "
         "reproducible defect and an answer with location, cause, repair and "

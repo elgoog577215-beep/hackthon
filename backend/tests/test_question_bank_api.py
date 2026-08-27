@@ -865,6 +865,70 @@ def test_failed_chapter_keeps_old_questions_and_retry_resumes_remaining(
     assert repository.course_storage.save_count == 2
 
 
+def test_failed_chapter_scoped_retry_closes_course_checkpoint(
+    monkeypatch,
+    tmp_path,
+):
+    client, repository = _client(
+        monkeypatch,
+        tmp_path,
+        course=_two_chapter_course(),
+        orchestrator=DeterministicAssessmentOrchestrator(
+            fail_node_id="node-2",
+        ),
+    )
+
+    created = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-scoped-repair-source",
+            "mode": "full",
+        },
+    )
+    failed = client.get(
+        created.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    ).json()
+    assert failed["status"] == "failed"
+    assert repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]["published_node_ids"] == ["node-1"]
+
+    monkeypatch.setattr(
+        question_bank,
+        "assessment_generation_orchestrator",
+        DeterministicAssessmentOrchestrator(),
+    )
+    repaired = client.post(
+        "/api/courses/course-api/question-bank/rebuild",
+        headers={"X-User-Id": "teacher-1"},
+        json={
+            "request_id": "request-scoped-repair-node-2",
+            "scope": "nodes",
+            "node_ids": ["node-2"],
+            "mode": "incremental",
+            "resume_existing": True,
+        },
+    )
+    assert repaired.status_code == 202
+    finished = client.get(
+        repaired.json()["status_url"],
+        headers={"X-User-Id": "teacher-1"},
+    ).json()
+    assert finished["status"] in {"completed", "waiting_review"}
+
+    checkpoint = repository.course_storage.course[
+        "question_bank_chapter_rebuild"
+    ]
+    assert checkpoint["status"] == "completed"
+    assert checkpoint["job_id"] == finished["job_id"]
+    assert checkpoint["published_node_ids"] == [
+        "node-1",
+        "node-2",
+    ]
+
+
 def test_failed_chapter_message_distinguishes_provider_failure():
     assert "模型服务当前不可用" in question_bank._failed_chapters_message([
         {"error_code": "ai_provider_rate_limited"},

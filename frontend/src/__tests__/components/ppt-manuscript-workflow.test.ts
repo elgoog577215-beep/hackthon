@@ -12,6 +12,44 @@ const emptyState = {
 }
 
 describe('PptManuscriptWorkflow', () => {
+  it('lets a teacher regenerate a draft before confirming it', async () => {
+    const wrapper = mount(PptManuscriptWorkflow, {
+      props: {
+        title: '第6章 微积分基本定理',
+        state: {
+          ...emptyState,
+          status: 'draft',
+          confirmable: true,
+          manuscript: { page_count: 1, pages: [] },
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="regenerate-ppt-manuscript"]').trigger('click')
+
+    expect(wrapper.emitted('regenerate-manuscript')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="confirm-ppt-manuscript"]').exists()).toBe(true)
+  })
+
+  it('lets a teacher reopen and regenerate a confirmed manuscript', async () => {
+    const wrapper = mount(PptManuscriptWorkflow, {
+      props: {
+        title: '第1章 变化与累积',
+        state: {
+          ...emptyState,
+          status: 'confirmed',
+          can_generate_ppt: true,
+          manuscript: { page_count: 1, pages: [] },
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="regenerate-ppt-manuscript"]').trigger('click')
+
+    expect(wrapper.emitted('regenerate-manuscript')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(true)
+  })
+
   it('explains an oversized request as a recoverable manuscript failure', async () => {
     const wrapper = mount(PptManuscriptWorkflow, {
       props: {

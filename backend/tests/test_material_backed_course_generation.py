@@ -906,6 +906,7 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
 @pytest.mark.asyncio
 async def test_outline_provider_failure_is_not_reported_as_structure_error():
     service = CourseService()
+    service.codex_local_provider = None
     service.api_key = None
     service.modelscope_fallback_api_key = None
     service.modelscope_fallback_client = None
@@ -1352,6 +1353,48 @@ async def test_structured_call_can_outlive_wall_clock_while_stream_is_active(
 
     assert result == '{"status":"ok"}'
     assert time.monotonic() - started >= 1.15
+
+
+@pytest.mark.asyncio
+async def test_active_structured_call_still_persists_job_heartbeats(monkeypatch):
+    service = CourseService()
+    phases = []
+
+    async def active_reasoning(*_args, on_stream_activity=None, **_kwargs):
+        for _ in range(10):
+            await asyncio.sleep(0.005)
+            on_stream_activity()
+        return '{"status":"ok"}'
+
+    async def capture_phase(
+        phase,
+        progress,
+        message,
+        phase_progress,
+        phase_detail,
+    ):
+        phases.append({
+            "phase": phase,
+            "progress": progress,
+            "message": message,
+            "phase_progress": phase_progress,
+            "phase_detail": phase_detail,
+        })
+
+    monkeypatch.setattr(service, "_call_llm", active_reasoning)
+    result = await service._call_llm_with_heartbeat(
+        "生成结构化结果",
+        "只输出 JSON",
+        enable_thinking=False,
+        on_phase=capture_phase,
+        phase="structured_generation",
+        base_progress=35,
+        heartbeat_seconds=0.02,
+        stage_timeout_seconds=0.1,
+    )
+
+    assert result == '{"status":"ok"}'
+    assert any(item["phase_detail"].get("heartbeat") for item in phases)
 
 
 @pytest.mark.asyncio

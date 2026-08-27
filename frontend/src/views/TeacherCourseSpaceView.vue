@@ -501,7 +501,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, BookOpen, BookOpenText, CalendarDays, ChevronDown, ChevronRight, ClipboardList, Download, Eye,
   FileCheck2, FileText, Folder, FolderInput, FolderOpen, FolderOutput, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
-  LayoutGrid, Link2, Pencil, Plus, Presentation, RefreshCw, RotateCcw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UploadCloud, X,
+  LayoutGrid, Link2, Pencil, Presentation, RefreshCw, RotateCcw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UploadCloud, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'

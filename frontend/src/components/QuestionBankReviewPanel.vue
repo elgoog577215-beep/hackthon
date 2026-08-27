@@ -203,6 +203,17 @@
       <small v-if="rebuildErrorMessage" class="question-bank-progress__error">
         {{ rebuildErrorMessage }}
       </small>
+      <button
+        v-if="canRetryFailedChapters"
+        type="button"
+        class="question-bank-progress__retry"
+        data-testid="retry-failed-question-bank-chapters"
+        :disabled="rebuilding"
+        @click="retryFailedChapters"
+      >
+        <RefreshCw :size="14" :class="{ spin: rebuilding }" />
+        {{ t('questionBank.retryFailedChapters', '重试失败章节') }}
+      </button>
     </section>
 
     <div v-if="loading" class="question-bank-panel__state">
@@ -1213,6 +1224,18 @@ const chapterProgressLabel = computed(() => {
       : '',
   ].filter(Boolean).join(' · ')
 })
+const failedChapterNodeIds = computed(() => [
+  ...new Set(
+    (rebuildJob.value?.stage_details?.failed_chapters || [])
+      .map(item => String(item?.node_id || '').trim())
+      .filter(Boolean),
+  ),
+])
+const canRetryFailedChapters = computed(() => Boolean(
+  rebuildJob.value?.status === 'failed'
+  && rebuildJob.value?.error?.retryable !== false
+  && failedChapterNodeIds.value.length,
+))
 const webStatusLabel = computed(() => {
   const status = String(webEnrichment.value.status || '')
   const labels: Record<string, string> = {
@@ -1626,6 +1649,11 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
   }
 }
 
+async function retryFailedChapters() {
+  if (!failedChapterNodeIds.value.length) return
+  await rebuild(failedChapterNodeIds.value, true)
+}
+
 function isAbortError(error: any) {
   return error?.name === 'AbortError'
 }
@@ -1939,6 +1967,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-summary strong { color: var(--lz-text-strong); font-size: 14px; }
 .question-bank-progress { display:grid; grid-template-columns:1fr auto; gap:8px 12px; padding:12px 14px; border:1px solid #bfdbfe; border-radius:10px; background:#eff6ff; }.question-bank-progress div { display:grid; gap:2px; }.question-bank-progress strong { color:#1e3a8a; font-size:12px; }.question-bank-progress span,.question-bank-progress b { color:#475569; font-size:10px; }.question-bank-progress i { grid-column:1/-1; height:6px; overflow:hidden; border-radius:999px; background:#dbeafe; }.question-bank-progress i span { display:block; width:100%; height:100%; border-radius:inherit; background:#2563eb; transform-origin:left center; transition:transform .25s ease; }.question-bank-progress[data-status="completed"],.question-bank-progress[data-status="waiting_review"] { border-color:#a7f3d0; background:#ecfdf5; }.question-bank-progress[data-status="completed"] strong,.question-bank-progress[data-status="waiting_review"] strong { color:#065f46; }.question-bank-progress[data-status="completed"] i,.question-bank-progress[data-status="waiting_review"] i { background:#d1fae5; }.question-bank-progress[data-status="completed"] i span,.question-bank-progress[data-status="waiting_review"] i span { background:#059669; }.question-bank-progress[data-status="failed"] { border-color:#fecaca; background:#fff7ed; }.question-bank-progress[data-status="failed"] strong,.question-bank-progress__error { color:#b91c1c; }.question-bank-progress__error { grid-column:1/-1; font-size:10px; }
 .question-bank-progress__chapter { color:#1d4ed8; font-size:10px; }
+.question-bank-progress__retry { grid-column:1/-1; justify-self:start; min-height:30px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #fca5a5; border-radius:8px; color:#991b1b; background:#fff; font-size:10px; font-weight:720; cursor:pointer; }.question-bank-progress__retry:hover:not(:disabled) { border-color:#dc2626; color:#fff; background:#dc2626; }.question-bank-progress__retry:disabled { opacity:.55; cursor:not-allowed; }
 .assessment-profile,.assessment-matrix { display:grid; gap:10px; padding:13px 12px; border:0; border-radius:0; background:transparent; }
 .assessment-profile+.assessment-matrix { border-top:1px solid #edf0f5; }
 .assessment-profile header,.assessment-matrix>header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }

@@ -45,7 +45,9 @@ _GENERIC_TEACHING_PAGE_TITLES = frozenset({
     "任务条件",
     "输出要求",
     "参考解法",
+    "参考结论",
     "核对标准",
+    "验收标准",
     "本节任务",
     "核心教学",
     "学习者行动",
@@ -1179,8 +1181,8 @@ def _semantic_grounding_ratio(claim: str, source: str) -> float:
 
 _DANGLING_TITLE_END_RE = re.compile(
     r"(?:[：:；;，,、/\\]|[（(《〈【\[]|"
-    r"(?:与|和|及|或|以及|并|并且|同时|为|对|从|向|到|的|有|由|得|"
-    r"写成|写为|表示为|转化为|化为|混淆了|记录为|均)|"
+    r"(?:与|和|及|或|以及|并|并且|同时|(?<=[\sA-Za-z0-9)\]）])为|对|从|向|到|的|有|由|得|"
+    r"写成|写为|表示为|转化为|化为|混淆了|记录为|只要满足|使得|是|均)|"
     r"(?:[一二三四五六七八九十\d]+阶、[一二三四五六七八九十\d]+阶)|"
     r"\b(?:and|or|to|of|with|versus|vs\.?)\b)\s*$",
     re.IGNORECASE,
@@ -1194,7 +1196,9 @@ _DANGLING_TITLE_START_RE = re.compile(
 _RAW_MATH_TITLE_RE = re.compile(
     r"(?:\\(?:begin|end|frac|mathbf|boldsymbol|mathrm|mathbb|operatorname|"
     r"text|leftarrow|rightarrow|leftrightarrow|xrightarrow)\b|"
-    r"\b(?:beginarray|endarray|mathbf[a-z]|frac\d+|leftarrow|rightarrow|"
+    r"\b(?:beginarray|endarray|"
+    r"(?:mathbf|boldsymbol|mathrm|mathbb|operatorname)(?:\s+[A-Z]|[A-Za-z0-9]+)|"
+    r"text[A-Za-z0-9]+|frac\d+|leftarrow|rightarrow|"
     r"leftrightarrow|xrightarrow|ine\s+[A-Za-z0-9]|"
     r"[A-Za-z](?:ne|neq|le|leq|ge|geq|approx|times|cdot|quad|mid)\d*)\b)",
     re.IGNORECASE,
@@ -6113,6 +6117,13 @@ def _formula_like_title(value: str) -> bool:
     title = str(value or "").strip()
     if not title:
         return True
+    if re.fullmatch(
+        r"(?:(?:平方|立方)?(?:毫米|厘米|米|千米)|(?:毫|千)?升|"
+        r"秒|分钟|小时|克|千克|牛顿|焦耳|瓦特|帕斯卡)"
+        r"(?:[/／每](?:秒|分钟|小时))?[。.]?",
+        title,
+    ):
+        return True
     if "$" in title or re.search(r"\\[A-Za-z]+", title):
         return True
     if _RAW_MATH_TITLE_RE.search(title):
@@ -6121,11 +6132,40 @@ def _formula_like_title(value: str) -> bool:
         return True
     if "&" in title or "\\\\" in title:
         return True
+    if title.count("|") >= 2:
+        return True
     if re.search(r"[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9{]|(?:·s|\\?mid|\\?dots)", title):
         return True
     if "_" in title or "^" in title:
         return True
-    if re.search(r"[_^=<>≤≥≈]", title) and not re.search(r"[\u3400-\u9fff]", title):
+    if re.search(r"[_^=<>≤≥≈∈→←↔]", title) and not re.search(r"[\u3400-\u9fff]", title):
+        return True
+    # A compiler continuation can inherit a formula fragment with only a
+    # discourse word in front (for example ``那么 A'(x)=f(x)``).  The Chinese
+    # prefix does not turn that fragment into an audience-facing teaching
+    # claim, so keep looking for a complete source sentence instead.
+    semantic_remainder = re.sub(
+        r"^(?:(?:那么|所以|因此|于是|则|有|令|设|固定|当|对每个|对任意|对于|任意|都存在|存在|使得|其中|满足)\s*)+",
+        "",
+        title,
+    )
+    remaining_cjk = re.findall(r"[\u3400-\u9fff]", semantic_remainder)
+    has_cjk_discourse = bool(re.search(r"[\u3400-\u9fff]", title))
+    if (
+        has_cjk_discourse
+        and len(remaining_cjk) <= 1
+        and re.search(
+            r"[=<>≤≥≈∈→←↔]|[A-Za-z](?:['′])?\s*\(|\b[A-Za-z]{1,3}\b",
+            semantic_remainder,
+        )
+    ):
+        return True
+    if (
+        has_cjk_discourse
+        and len(remaining_cjk) <= 3
+        and re.match(r"^[\s($\[A-Za-z0-9=<>≤≥≈∈→←↔]", semantic_remainder)
+        and re.search(r"[=<>≤≥≈∈→←↔]", semantic_remainder)
+    ):
         return True
     return False
 
@@ -7159,6 +7199,168 @@ def _compile_course_agenda_pages(
     return pages
 
 
+def _compile_teacher_lesson_path_page(
+    document: CourseDocument,
+    template: TemplateLayoutPackContractV1,
+) -> SlidePageV6:
+    """Build one source-bound learning path when a lesson has one section.
+
+    A one-section lesson still needs an opening path.  Its confirmed script
+    groups are the formal source for that path; deriving it here keeps the
+    structural opening inside the existing V6 compilation chain instead of
+    asking the story model to invent an extra page.
+    """
+
+    layout = template.get_layout(template.layout_id("agenda-path"))
+    if layout is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_layout_unavailable",
+            message="The published template does not provide a lesson path layout",
+        )
+    item_slot = next(
+        (slot for slot in layout.slots if slot.slot_kind == "items"),
+        None,
+    )
+    if item_slot is None:
+        raise V6BuildError(
+            stage="template",
+            code="template_required_slot_unfilled",
+            message="The lesson path layout has no ordered item slot",
+        )
+    source_blocks = sorted(
+        _formal_blocks(document),
+        key=lambda block: (block.section_id, block.position, block.block_id),
+    )
+    if not source_blocks:
+        raise V6BuildError(
+            stage="source",
+            code="lesson_path_source_binding_missing",
+            message="The lesson path requires confirmed script blocks",
+        )
+
+    grouped_blocks: list[list[CourseBlock]] = []
+    group_index: dict[tuple[str, str], int] = {}
+    for block in source_blocks:
+        group_key = (block.section_id, str(block.parent_group_id or block.block_id))
+        existing_index = group_index.get(group_key)
+        if existing_index is None:
+            group_index[group_key] = len(grouped_blocks)
+            grouped_blocks.append([block])
+        else:
+            grouped_blocks[existing_index].append(block)
+
+    max_items = int(item_slot.max_items or 6)
+    if len(grouped_blocks) > max_items:
+        bucket_count = max_items
+        base_size, larger_buckets = divmod(len(grouped_blocks), bucket_count)
+        regrouped: list[list[CourseBlock]] = []
+        cursor = 0
+        for index in range(bucket_count):
+            size = base_size + (1 if index < larger_buckets else 0)
+            regrouped.append([
+                block
+                for group in grouped_blocks[cursor: cursor + size]
+                for block in group
+            ])
+            cursor += size
+        grouped_blocks = regrouped
+
+    entries: list[dict[str, Any]] = []
+    for index, blocks in enumerate(grouped_blocks, start=1):
+        titles = list(dict.fromkeys(
+            title
+            for block in blocks
+            if (
+                title := _visible_prose_text(
+                    str((block.payload or {}).get("title") or "")
+                ).strip()
+            )
+        ))
+        if not titles:
+            section = next(
+                (
+                    item for item in document.sections
+                    if item.section_id == blocks[0].section_id
+                ),
+                None,
+            )
+            fallback_title = _visible_prose_text(
+                str(section.title if section is not None else "")
+            ).strip()
+            if fallback_title:
+                titles = [fallback_title]
+        if not titles:
+            raise V6BuildError(
+                stage="source",
+                code="lesson_path_title_missing",
+                message="A confirmed script group cannot be represented in the lesson path",
+                chapter_id=blocks[0].section_id,
+            )
+        entries.append({
+            "index": index,
+            "title": " → ".join(titles),
+            "source_block_ids": [block.block_id for block in blocks],
+            "source_section_ids": list(dict.fromkeys(
+                block.section_id for block in blocks
+            )),
+        })
+
+    content = "\n".join(str(entry["title"]) for entry in entries)
+    if item_slot.max_chars and len(content) > int(item_slot.max_chars):
+        raise V6BuildError(
+            stage="template",
+            code="template_slot_capacity_exceeded",
+            message="Confirmed lesson path exceeds the published agenda capacity",
+            page_id="lesson-path",
+        )
+    source_block_ids = [block.block_id for block in source_blocks]
+    source_section_ids = list(dict.fromkeys(
+        block.section_id for block in source_blocks
+    ))
+    page_id = "lesson-path"
+    return SlidePageV6(
+        page_id=page_id,
+        page_ordinal=0,
+        teaching_unit_id="lesson-path",
+        title="本讲学习路径",
+        resolved_layout=layout.template_layout_id,
+        web_renderer_adapter=layout.web_renderer_adapter,
+        pptx_renderer_adapter=layout.pptx_renderer_adapter,
+        regions=[SlideRegionV6(
+            region_id=f"{page_id}:{item_slot.slot_id}",
+            slot_id=item_slot.slot_id,
+            content_kind=item_slot.slot_kind,
+            content=content,
+            source_block_ids=source_block_ids,
+            source_section_ids=source_section_ids,
+            metadata={"agenda_entries": entries},
+        )],
+        source_block_ids=source_block_ids,
+        source_section_ids=source_section_ids,
+        visual_decision=SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_block_ids=source_block_ids,
+            source_section_ids=source_section_ids,
+            resolved_template_layout_id=layout.template_layout_id,
+        ),
+        speaker_notes=SlideSpeakerNotesV2(
+            source_document_revision=document.document_revision,
+            teaching_unit_id="lesson-path",
+            source_blocks=[SourceNoteBlockV2(
+                block_id=block.block_id,
+                block_revision=block.internal_revision,
+                full_text=block_source_text(block),
+                source_kind=block.kind,
+                source_payload=dict(block.payload or {}),
+                asset_refs=list(block.asset_refs),
+            ) for block in source_blocks],
+            source_section_ids=source_section_ids,
+        ),
+    )
+
+
 def _compile_course_cover_page(
     document: CourseDocument,
     template: TemplateLayoutPackContractV1,
@@ -7974,6 +8176,8 @@ def _materialize_ppt_page_specs_v1(
             ))
     teacher_lesson_document = document.course_id.startswith("teacher-lesson-")
     agenda_pages = _compile_course_agenda_pages(document, template)
+    if teacher_lesson_document and not agenda_pages:
+        agenda_pages = [_compile_teacher_lesson_path_page(document, template)]
     if agenda_pages and not (
         pages and pages[0].resolved_layout.endswith("/cover-minimal")
     ):

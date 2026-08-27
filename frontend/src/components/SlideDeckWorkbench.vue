@@ -193,13 +193,13 @@
           v-if="standalone && manuscriptConfirmationRequired && resolvedPptManuscript?.page_count"
           type="button"
           data-testid="ppt-confirm-manuscript"
-          :disabled="building || manuscriptConfirming || manuscriptStatus === 'confirmed' || resolvedPptManuscript?.quality_status === 'blocked'"
-          :title="resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlockedHint', '文书质量未通过，请重新生成或修改后再确认') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmedExportHint', '已确认，可导出正式 PPTX') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
-          @click="emit('confirm-manuscript')"
+          :disabled="building || manuscriptConfirming || resolvedPptManuscript?.quality_status === 'blocked'"
+          :title="resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlockedHint', '文书质量未通过，请重新生成或修改后再确认') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.reviewManuscriptHint', '查看或重新生成已确认的 PPT 文书') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
+          @click="manuscriptStatus === 'confirmed' ? emit('review-manuscript') : emit('confirm-manuscript')"
         >
           <LoaderCircle v-if="manuscriptConfirming" :size="16" class="spinning" />
           <CircleCheck v-else :size="16" />
-          <span>{{ resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptNeedsRevision', 'PPT 文书需修改') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.manuscriptConfirmed', 'PPT 文书已确认') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}</span>
+          <span>{{ resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptNeedsRevision', 'PPT 文书需修改') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.reviewManuscript', '查看 PPT 文书') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}</span>
         </button>
         <button type="button" class="slide-workbench__export" :disabled="exportDisabled" :title="exportTitle" @click="downloadSlides">
           <LoaderCircle v-if="exportBusy" :size="16" class="spinning" />
@@ -676,6 +676,7 @@ const emit = defineEmits<{
   (event: 'ask-ai', payload: { text: string; nodeId: string; anchor: Record<string, unknown>; prefill: string }): void
   (event: 'back' | 'rebuild' | 'configure' | 'open-materials' | 'upgrade-course-logic'): void
   (event: 'confirm-manuscript'): void
+  (event: 'review-manuscript'): void
   (event: 'variant-change', payload: { mode: SlideDeckMode; theme: V3Theme }): void
   (event: 'bundle-part-change', representationId: string): void
   (event: 'open-course', payload: PptSameSourceHighlightState): void

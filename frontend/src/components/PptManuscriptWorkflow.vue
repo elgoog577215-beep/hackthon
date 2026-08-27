@@ -98,26 +98,45 @@
         >
           <Sparkles :size="17" />{{ busy ? t('pptWorkspace.generatingManuscript', '正在生成文书…') : retryLabel }}
         </button>
-        <button
-          v-else-if="state.status === 'draft'"
-          type="button"
-          class="is-primary"
-          :disabled="busy || !state.confirmable"
-          data-testid="confirm-ppt-manuscript"
-          @click="emit('confirm-manuscript')"
-        >
-          <Check :size="17" />{{ confirming ? t('pptWorkspace.confirmingManuscript', '正在确认…') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}
-        </button>
-        <button
-          v-else
-          type="button"
-          class="is-primary"
-          :disabled="busy || !state.can_generate_ppt"
-          data-testid="generate-ppt-from-manuscript"
-          @click="emit('generate-ppt')"
-        >
-          <Presentation :size="17" />{{ busy ? t('pptWorkspace.generatingDeck', '正在生成 PPT…') : t('pptWorkspace.generateDeck', '根据已确认文书生成 PPT') }}
-        </button>
+        <template v-else-if="state.status === 'draft'">
+          <button
+            type="button"
+            :disabled="busy"
+            data-testid="regenerate-ppt-manuscript"
+            @click="emit('regenerate-manuscript')"
+          >
+            <Sparkles :size="17" />{{ t('pptWorkspace.regenerateManuscript', '重新生成 PPT 文书') }}
+          </button>
+          <button
+            type="button"
+            class="is-primary"
+            :disabled="busy || !state.confirmable"
+            data-testid="confirm-ppt-manuscript"
+            @click="emit('confirm-manuscript')"
+          >
+            <Check :size="17" />{{ confirming ? t('pptWorkspace.confirmingManuscript', '正在确认…') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}
+          </button>
+        </template>
+        <template v-else>
+          <button
+            v-if="state.status === 'confirmed'"
+            type="button"
+            :disabled="busy"
+            data-testid="regenerate-ppt-manuscript"
+            @click="emit('regenerate-manuscript')"
+          >
+            <Sparkles :size="17" />{{ t('pptWorkspace.regenerateManuscript', '重新生成 PPT 文书') }}
+          </button>
+          <button
+            type="button"
+            class="is-primary"
+            :disabled="busy || !state.can_generate_ppt"
+            data-testid="generate-ppt-from-manuscript"
+            @click="emit('generate-ppt')"
+          >
+            <Presentation :size="17" />{{ busy ? t('pptWorkspace.generatingDeck', '正在生成 PPT…') : t('pptWorkspace.generateDeck', '根据已确认文书生成 PPT') }}
+          </button>
+        </template>
       </footer>
     </template>
   </section>
@@ -140,6 +159,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (event: 'back'): void
   (event: 'generate-manuscript'): void
+  (event: 'regenerate-manuscript'): void
   (event: 'confirm-manuscript'): void
   (event: 'generate-ppt'): void
 }>()
@@ -275,8 +295,9 @@ function pageTypeLabel(value: string) {
 .ppt-manuscript-workflow__original { padding:50px 28px; text-align:center; flex-direction:column; color:#475467; }
 .ppt-manuscript-workflow__original h2 { color:#172033; margin:4px 0; }
 .ppt-manuscript-workflow__original button { padding:10px 16px; border:0; border-radius:9px; background:#3857d6; color:white; }
-.ppt-manuscript-workflow__actions { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:14px 36px; border-top:1px solid #dfe3eb; background:rgba(255,255,255,.96); display:flex; justify-content:flex-end; }
+.ppt-manuscript-workflow__actions { position:fixed; left:0; right:0; bottom:0; z-index:5; padding:14px 36px; border-top:1px solid #dfe3eb; background:rgba(255,255,255,.96); display:flex; justify-content:flex-end; gap:10px; }
 .ppt-manuscript-workflow__actions button { min-width:220px; padding:11px 18px; border:0; border-radius:9px; display:flex; align-items:center; justify-content:center; gap:8px; font-weight:750; }
+.ppt-manuscript-workflow__actions button:not(.is-primary) { background:#eef1f7; color:#28344d; }
 .ppt-manuscript-workflow__actions button.is-primary { background:#3857d6; color:white; }
 .ppt-manuscript-workflow__actions button:disabled { opacity:.55; }
 </style>

@@ -30,10 +30,12 @@ from slide_deck_v6 import (
     _formula_visual_line_count,
     _formula_candidates,
     _formula_canvas_text,
+    _formula_like_title,
     _ppt_manuscript_quality_issues,
     _protected_tokens,
     _split_artifact_block,
     _title_is_incomplete,
+    _title_is_generic_or_stub,
     build_signature_v6,
     classify_v6_failure,
     compile_ppt_manuscript_v1,
@@ -141,6 +143,7 @@ def test_continuation_title_candidates_exclude_internal_structure_labels() -> No
         "当前列若主元位置为零而下方有非零元",
         "一个 n",
         "设主元为 ane0",
+        "原函数定义域为 mathbb R",
     ],
 )
 def test_title_quality_rejects_truncated_or_raw_math_fragments(title: str) -> None:
@@ -157,6 +160,46 @@ def test_title_quality_rejects_truncated_or_raw_math_fragments(title: str) -> No
 )
 def test_title_quality_keeps_complete_audience_ready_claims(title: str) -> None:
     assert not _title_is_incomplete(title)
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "dt→ f(x).",
+        "固定 a∈ I",
+        "对每个 x∈ I",
+        "对任意 varepsilon>0",
+        "都存在 delta>0",
+        "其中 h≠0",
+        "那么 A'(x)=f(x)",
+        "(s(3)-s(1))/(3-1)=(15-3)/(2)=6 米/秒",
+        "=(1+0-1-2)×1=-2 立方米.",
+        "f | 递增 | 递减 | 递增",
+        "立方米.",
+    ],
+)
+def test_title_quality_rejects_formula_fragments_with_thin_discourse_prefix(
+    title: str,
+) -> None:
+    assert _formula_like_title(title)
+
+
+def test_title_quality_does_not_treat_behavior_as_a_dangling_connector() -> None:
+    assert not _title_is_incomplete("第2章 极限：用趋近刻画局部行为")
+    assert not _title_is_incomplete("连续性条件满足")
+
+
+def test_title_quality_rejects_a_bare_acceptance_label() -> None:
+    assert _title_is_generic_or_stub("验收标准")
+    assert _title_is_generic_or_stub("参考结论")
+
+
+@pytest.mark.parametrize(
+    "title",
+    ["使得定义域中的 x 只要满足", "由此使得", "完整临界点集合是"],
+)
+def test_title_quality_rejects_dangling_condition_clauses(title: str) -> None:
+    assert _title_is_incomplete(title)
 
 
 def test_artifact_free_prose_uses_frozen_formula_fences_not_projection() -> None:
@@ -3665,6 +3708,121 @@ def test_teacher_lesson_compilation_has_cover_path_and_recap() -> None:
         "1.1 向量的代数定义与基本运算",
         "1.2 高斯消元法的标准流程",
     ]
+
+
+def test_single_section_teacher_lesson_derives_path_from_confirmed_script_groups() -> None:
+    document = refresh_document_revision(CourseDocument(
+        course_id="teacher-lesson-calculus",
+        title="第6章 微积分基本定理：连接变化与累积",
+        sections=[
+            CourseSection(section_id="lesson", title="第6章", position=0),
+            CourseSection(
+                section_id="fundamental-theorem",
+                parent_section_id="lesson",
+                title="6.1 微积分基本定理：从变化率到累计量",
+                position=1,
+            ),
+        ],
+        blocks=[
+            CourseBlock(
+                block_id="objective",
+                section_id="fundamental-theorem",
+                parent_group_id="opening",
+                position=0,
+                role="concept",
+                payload={"title": "本节任务", "text": "辨认固定起点与变动终点。"},
+            ),
+            CourseBlock(
+                block_id="definition",
+                section_id="fundamental-theorem",
+                parent_group_id="core",
+                position=1,
+                role="concept",
+                payload={"title": "正式定义", "text": "定义变上限积分函数。"},
+            ),
+            CourseBlock(
+                block_id="derivation",
+                section_id="fundamental-theorem",
+                parent_group_id="core",
+                position=2,
+                role="reasoning",
+                payload={"title": "证明与推导", "text": "由积分中值定理完成推导。"},
+            ),
+            CourseBlock(
+                block_id="feedback",
+                section_id="fundamental-theorem",
+                parent_group_id="practice",
+                position=3,
+                role="concept",
+                payload={"title": "检查与反馈", "text": "检查公式适用条件。"},
+            ),
+        ],
+    ))
+    graph = compile_course_presentation_graph(document, teaching_plan={})
+    template = compile_builtin_template_layout_contract_v1("academic-editorial")
+    story_pages: list[SlideStoryPageV3] = []
+    visual_decisions: list[SlideVisualDecisionV2] = []
+    grounded_titles = [
+        "辨认固定起点与变动终点",
+        "由积分中值定理完成推导",
+        "检查公式适用条件",
+    ]
+    for ordinal, unit in enumerate(graph.units):
+        page_id = f"lesson-page-{ordinal + 1}"
+        layout_id = template.layout_id("content-stack")
+        story_pages.append(SlideStoryPageV3(
+            page_id=page_id,
+            teaching_unit_id=unit.teaching_unit_id,
+            template_layout_id=layout_id,
+            title=grounded_titles[ordinal],
+            source_block_ids=unit.primary_block_ids,
+            page_ordinal=ordinal,
+        ))
+        visual_decisions.append(SlideVisualDecisionV2(
+            page_id=page_id,
+            decision="text_native",
+            source_block_ids=unit.primary_block_ids,
+            resolved_template_layout_id=layout_id,
+        ))
+    story = SlideStoryPlanV3(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        batches=[SlideStoryBatchV3(
+            batch_id="teacher-lesson-story",
+            chapter_id="fundamental-theorem",
+            provider="fixture",
+            model="fixture",
+            duration_ms=1,
+            attempts=1,
+            validation_status="passed",
+            pages=story_pages,
+        )],
+    )
+    visual = SlideVisualPlanV2(
+        source_document_revision=document.document_revision,
+        template_digest=template.template_digest,
+        decisions=visual_decisions,
+    )
+
+    manuscript = compile_ppt_manuscript_v1(
+        document,
+        graph,
+        story,
+        visual,
+        template,
+    )
+
+    assert manuscript.quality_status == "passed"
+    assert manuscript.pages[0].layout_id.endswith("/cover-minimal")
+    path = manuscript.pages[1]
+    assert path.layout_id.endswith("/agenda-path")
+    assert path.visible_copy == [
+        "本节任务\n正式定义 → 证明与推导\n检查与反馈"
+    ]
+    assert path.source_script_block_ids == [
+        "objective", "definition", "derivation", "feedback",
+    ]
+    assert manuscript.pages[-1].layout_id.endswith("/chapter-recap")
 
 
 def test_course_agenda_uses_source_descriptions_and_sample_backed_page_density() -> None:

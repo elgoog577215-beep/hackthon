@@ -832,6 +832,13 @@ describe('QuestionBankReviewPanel', () => {
           current_stage: 'question_generation',
           message: '生成题目时中断',
           status_url: '/jobs/job-failed',
+          error: { retryable: true },
+          stage_details: {
+            failed_chapters: [{
+              node_id: 'node-failed',
+              node_name: '失败章节',
+            }],
+          },
         },
       },
     )
@@ -858,6 +865,25 @@ describe('QuestionBankReviewPanel', () => {
       '重新生成失败，当前有效题库保持不变',
     )
     expect(progress.text()).toContain('模型服务暂时不可用')
+    runQuestionBankRebuild.mockResolvedValueOnce({
+      job_id: 'job-retry',
+      status: 'waiting_review',
+      progress: 100,
+      status_url: '/jobs/job-retry',
+    })
+    await wrapper
+      .get('[data-testid="retry-failed-question-bank-chapters"]')
+      .trigger('click')
+    await flushPromises()
+    expect(runQuestionBankRebuild).toHaveBeenLastCalledWith(
+      'course-1',
+      expect.objectContaining({
+        scope: 'nodes',
+        node_ids: ['node-failed'],
+        mode: 'incremental',
+      }),
+      expect.any(Object),
+    )
   })
 
   it('教师可按需读取私有答案与独立验证差异', async () => {

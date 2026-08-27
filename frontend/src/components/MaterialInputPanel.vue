@@ -34,7 +34,7 @@
         <span class="material-dropzone__mark"><FolderUp :size="19" /></span>
         <div>
           <strong>{{ t('courseGeneration.materials.dropTitle', '拖入文件，或从电脑中选择') }}</strong>
-          <span>{{ t('courseGeneration.materials.supportHint', '支持 PDF、Office、Markdown 与常见文本格式，单个文件不超过 50 MB') }}</span>
+          <span>{{ t('courseGeneration.materials.supportHint', '支持 PDF（含扫描件）、新旧 Office、图片、Markdown 与常见文本格式，单个文件不超过 50 MB') }}</span>
         </div>
       </div>
       <div class="material-dropzone__actions">
@@ -61,7 +61,7 @@
             class="sr-only"
             type="file"
             multiple
-            accept=".pdf,.docx,.pptx,.xlsx,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css"
+            accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff,.md,.markdown,.txt,.csv,.json,.py,.js,.ts,.html,.css"
             @change="handleFiles"
           />
         </label>

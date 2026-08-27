@@ -241,6 +241,7 @@ def _normalize_option_analysis(value: Any) -> list[dict[str, Any]]:
         explanation = str(
             entry.get("explanation")
             or entry.get("reason")
+            or entry.get("analysis")
             or ""
         ).strip()
         if option_id and explanation:

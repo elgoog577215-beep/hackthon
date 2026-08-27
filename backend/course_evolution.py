@@ -68,6 +68,7 @@ CANONICAL_OPERATION_TYPES = frozenset({
     "FOLD_COURSE_BLOCK",
     "REORDER_COURSE_BLOCK",
     "RESEQUENCE_COURSE_PATH",
+    "REBUILD_COURSE_OUTLINE",
     "ADJUST_COURSE_DIFFICULTY",
 })
 # How long an operation the learner explicitly declined stays out of follow-up
@@ -142,6 +143,7 @@ class CourseEvolutionOperation(BaseModel):
         "FOLD_COURSE_BLOCK",
         "REORDER_COURSE_BLOCK",
         "RESEQUENCE_COURSE_PATH",
+        "REBUILD_COURSE_OUTLINE",
         "ADJUST_COURSE_DIFFICULTY",
     ]
     target_block_id: str
@@ -555,6 +557,12 @@ def accept_change_set(
         raise ValueError("Course change set has not finished generating")
     if selected_scope not in change_set.allowed_scopes:
         raise ValueError("Selected scope is not allowed for this change set")
+    if (
+        change_set.teacher_change_planning is not None
+        and change_set.teacher_change_planning.structural_operations
+        and change_set.teacher_change_planning.structure_review_status != "confirmed"
+    ):
+        raise ValueError("Confirm the proposed course structure before applying it")
 
     eligible_operations = [
         operation
@@ -629,6 +637,7 @@ def accept_change_set(
         folded_retire_block_ids,
         reorderings,
         section_moves,
+        outline_rebuild,
     ) = _course_block_mutations(
         change_set,
         document,
@@ -647,6 +656,7 @@ def accept_change_set(
         insertions=insertions,
         replacements=replacements,
         section_moves=section_moves,
+        outline_rebuild=outline_rebuild,
         accepted_operation_ids=accepted_operation_ids,
         excluded_operation_ids=excluded_operation_ids,
         accepted_operation_id_set=accepted_operation_id_set,
@@ -679,8 +689,17 @@ def accept_change_set(
             ],
             reorderings=reorderings,
             section_moves=section_moves,
-            reason=f"学习证据驱动课程生长：{change_set.hypothesis_id}",
-            actor=f"learner:{user_id}",
+            outline_rebuild=outline_rebuild,
+            reason=(
+                f"教师确认课程修改：{change_set.request_text}"
+                if change_set.source_kind == "manual_request"
+                else f"学习证据驱动课程生长：{change_set.hypothesis_id}"
+            ),
+            actor=(
+                f"teacher:{user_id}"
+                if change_set.source_kind == "manual_request"
+                else f"learner:{user_id}"
+            ),
         ))
     except CourseDocumentConflict as exc:
         change_set.status = "stale"
@@ -713,6 +732,7 @@ def _application_outcome(
     insertions: list[dict[str, Any]],
     replacements: list[dict[str, Any]],
     section_moves: list[dict[str, str]],
+    outline_rebuild: dict[str, Any] | None,
     accepted_operation_ids: list[str],
     excluded_operation_ids: list[str],
     accepted_operation_id_set: set[str],
@@ -722,6 +742,37 @@ def _application_outcome(
     Computed before the course commit so recovery can finalize an acknowledged
     group without recompiling against a document that the group already changed.
     """
+    outline_journal = (
+        {
+            "before_sections": [
+                item.model_dump(mode="json") for item in document.sections
+            ],
+            "before_block_states": [
+                {
+                    "block_id": item.block_id,
+                    "section_id": item.section_id,
+                    "position": item.position,
+                    "status": item.status,
+                }
+                for item in document.blocks
+            ],
+            "after_section_ids": [
+                str(item.get("section_id") or "")
+                for item in (outline_rebuild or {}).get("sections") or []
+            ],
+        }
+        if outline_rebuild
+        else {}
+    )
+    outline_section_ids = {
+        str(item.get("section_id") or "")
+        for item in (outline_rebuild or {}).get("sections") or []
+        if isinstance(item, dict)
+    }
+    outline_mapping = {
+        str(source): str(target)
+        for source, target in ((outline_rebuild or {}).get("section_id_map") or {}).items()
+    }
     return {
         "inserted_block_ids": [item["block"].block_id for item in insertions],
         "replaced_block_ids": [str(item["block_id"]) for item in replacements],
@@ -739,6 +790,19 @@ def _application_outcome(
                 ),
             }
             for item in section_moves
+        ],
+        "outline_rebuild_journal": outline_journal,
+        "outline_affected_block_ids": [
+            block.block_id
+            for block in document.blocks
+            if outline_rebuild
+            and (
+                outline_mapping.get(block.section_id, block.section_id) != block.section_id
+                or (
+                    block.section_id not in outline_mapping
+                    and block.section_id not in outline_section_ids
+                )
+            )
         ],
         "folded_block_ids": [
             operation.target_block_id
@@ -871,6 +935,7 @@ def _finalize_applied_change_set(
         *outcome["inserted_block_ids"],
         *outcome["folded_block_ids"],
         *outcome["reordered_block_ids"],
+        *outcome.get("outline_affected_block_ids", []),
     ]))
     change_set.application_receipt = {
         **deepcopy(receipt),
@@ -886,6 +951,49 @@ def _finalize_applied_change_set(
         change_set,
         declined_at=change_set.accepted_at,
     )
+    if change_set.source_kind == "manual_request":
+        affected_units = list(change_set.impact_summary.get("affected_units") or [])
+        accepted = set(outcome["accepted_operation_ids"])
+        receipt_items: list[dict[str, Any]] = []
+        for item in affected_units:
+            operation_id = str(item.get("operation_id") or "")
+            if operation_id and operation_id in accepted:
+                status = "applied"
+                detail = "已写入正式课程文档"
+            elif str(item.get("candidate_status") or "") == "failed":
+                status = "failed"
+                detail = str(item.get("candidate_error") or "候选生成失败")
+            else:
+                status = "unchanged"
+                detail = "本次未生成可安全应用的正式候选，原内容保持不变"
+            receipt_items.append({
+                "migration_id": str(item.get("migration_id") or ""),
+                "unit_id": str(item.get("unit_id") or ""),
+                "asset_type": str(item.get("asset_type") or ""),
+                "title": str(item.get("title") or ""),
+                "operation_id": operation_id,
+                "status": status,
+                "detail": detail,
+            })
+        change_set.application_receipt.update({
+            "receipt_schema_version": "teacher_course_change_receipt_v1",
+            "applied_count": sum(item["status"] == "applied" for item in receipt_items),
+            "failed_count": sum(item["status"] == "failed" for item in receipt_items),
+            "unchanged_count": sum(item["status"] == "unchanged" for item in receipt_items),
+            "items": receipt_items,
+        })
+        change_set.impact_summary["effect_baseline"] = {
+            "captured_at": change_set.accepted_at,
+            "change_kind": "teacher_whole_course_request",
+            "selected_scope": selected_scope,
+            "target_block_ids": [
+                operation.target_block_id
+                for operation in change_set.operations
+                if operation.operation_id in set(outcome["accepted_operation_ids"])
+            ],
+        }
+        return
+
     hypothesis = _hypothesis(state, change_set.hypothesis_id)
     baseline_evidence = [
         item for item in state.evidence_items
@@ -1084,9 +1192,10 @@ def reject_change_set(
         "reason": reason,
         "cooldown_until": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
     }
-    hypothesis = _hypothesis(state, change_set.hypothesis_id)
-    hypothesis.status = "rejected"
-    hypothesis.updated_at = change_set.resolved_at
+    if change_set.source_kind != "manual_request":
+        hypothesis = _hypothesis(state, change_set.hypothesis_id)
+        hypothesis.status = "rejected"
+        hypothesis.updated_at = change_set.resolved_at
     return repository.save(state)
 
 
@@ -1109,6 +1218,7 @@ def undo_change_set(
         if (
             not change_set.applied_block_ids
             and not change_set.application_receipt.get("section_move_journal")
+            and not change_set.application_receipt.get("outline_rebuild_journal")
         ):
             raise ValueError("Applied course evolution plan has no recorded course blocks")
         document_repository = document_repository or _default_document_repository()
@@ -1177,6 +1287,15 @@ def undo_change_set(
             )
             if str(item.get("section_id") or "")
         ]
+        outline_journal = change_set.application_receipt.get("outline_rebuild_journal") or {}
+        reverse_outline_rebuild = (
+            {
+                "sections": deepcopy(outline_journal.get("before_sections") or []),
+                "block_states": deepcopy(outline_journal.get("before_block_states") or []),
+            }
+            if outline_journal
+            else None
+        )
         try:
             receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
                 course_id,
@@ -1188,8 +1307,17 @@ def undo_change_set(
                 restore_block_ids=restore_block_ids,
                 reorderings=reverse_reorderings,
                 section_moves=reverse_section_moves,
-                reason=f"撤销学习证据驱动课程生长：{change_set.hypothesis_id}",
-                actor=f"learner:{user_id}",
+                outline_rebuild=reverse_outline_rebuild,
+                reason=(
+                    f"撤销教师课程修改：{change_set.request_text}"
+                    if change_set.source_kind == "manual_request"
+                    else f"撤销学习证据驱动课程生长：{change_set.hypothesis_id}"
+                ),
+                actor=(
+                    f"teacher:{user_id}"
+                    if change_set.source_kind == "manual_request"
+                    else f"learner:{user_id}"
+                ),
             ))
         except CourseDocumentConflict as exc:
             raise ValueError(str(exc)) from exc
@@ -1197,9 +1325,10 @@ def undo_change_set(
     change_set.status = "undone"
     change_set.resolved_at = _now()
     change_set.updated_at = change_set.resolved_at
-    hypothesis = _hypothesis(state, change_set.hypothesis_id)
-    hypothesis.status = "observing"
-    hypothesis.updated_at = change_set.resolved_at
+    if change_set.source_kind != "manual_request":
+        hypothesis = _hypothesis(state, change_set.hypothesis_id)
+        hypothesis.status = "observing"
+        hypothesis.updated_at = change_set.resolved_at
     return repository.save(state)
 
 
@@ -3643,6 +3772,7 @@ def _course_block_mutations(
     list[str],
     list[dict[str, str]],
     list[dict[str, str]],
+    dict[str, Any] | None,
 ]:
     """Compile every reviewed operation of one plan into a single commit.
 
@@ -3668,6 +3798,7 @@ def _course_block_mutations(
             [],
             [],
             [],
+            None,
         )
 
     if change_set.course_id != document.course_id:
@@ -3686,6 +3817,7 @@ def _course_block_mutations(
     retire_block_ids: list[str] = []
     reorderings: list[dict[str, str]] = []
     section_moves: list[dict[str, str]] = []
+    outline_rebuild: dict[str, Any] | None = None
     for operation in change_set.operations:
         if operation.operation_type in SCAFFOLD_OPERATION_TYPES:
             continue
@@ -3738,6 +3870,14 @@ def _course_block_mutations(
                 "after_section_id": after_section_id,
             })
             continue
+        if operation.operation_type == "REBUILD_COURSE_OUTLINE":
+            candidate = operation.payload.get("outline_rebuild")
+            if not isinstance(candidate, dict):
+                raise ValueError("Course outline rebuild candidate is incomplete")
+            if outline_rebuild is not None:
+                raise ValueError("Course evolution plan contains multiple outline rebuilds")
+            outline_rebuild = deepcopy(candidate)
+            continue
         proposed_raw = operation.payload.get("proposed_block")
         if not isinstance(proposed_raw, dict):
             raise ValueError("Course evolution candidate is incomplete")
@@ -3787,9 +3927,17 @@ def _course_block_mutations(
         and not retire_block_ids
         and not reorderings
         and not section_moves
+        and not outline_rebuild
     ):
         raise ValueError("Course evolution plan contains no content mutations")
-    return replacements, insertions, retire_block_ids, reorderings, section_moves
+    return (
+        replacements,
+        insertions,
+        retire_block_ids,
+        reorderings,
+        section_moves,
+        outline_rebuild,
+    )
 
 
 def _previous_section_id(document: CourseDocument, section_id: str) -> str:

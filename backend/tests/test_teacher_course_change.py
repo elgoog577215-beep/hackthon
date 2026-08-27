@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 
 import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
-from course_evolution import CourseEvolutionRepository
+from course_evolution import CourseEvolutionRepository, accept_change_set, undo_change_set
+from course_repository import CourseDocumentRepository
 from teacher_course_change import (
     build_teacher_course_change_context,
     context_view,
@@ -131,6 +133,20 @@ def context():
     )
 
 
+class MemoryCourseStorage:
+    def __init__(self, course: dict):
+        self.course = deepcopy(course)
+
+    def load_course(self, course_id: str):
+        if course_id != self.course["course_id"]:
+            return None
+        return deepcopy(self.course)
+
+    async def save_course(self, course_id: str, course: dict):
+        assert course_id == self.course["course_id"]
+        self.course = deepcopy(course)
+
+
 def test_context_indexes_every_existing_truth_without_copying_a_second_course():
     value = context()
     counts = {item.asset_type: item.count for item in value.assets}
@@ -227,6 +243,131 @@ def test_course_plan_uses_ai_judgement_and_is_idempotent(tmp_path):
     assert plan.impact_summary["analysis_mode"] == "ai_ranked"
     assert plan.impact_summary["formal_content_changed"] is False
     assert plan.impact_summary["coverage"]["affected_units"] == 2
+
+
+def test_exact_content_candidate_applies_as_one_teacher_command_and_undoes(tmp_path):
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+    value = context()
+    target = next(item for item in value.units if item.asset_type == "course_content")
+
+    async def analyzer(_overview, _candidates, _instruction):
+        return {
+            "interpreted_goal": "把斜面案例中的受力图统一改为自由体图",
+            "signal_kind": "semantic",
+            "signal_confidence": .97,
+            "affected_units": [{
+                "unit_id": target.unit_id,
+                "disposition": "rewrite_partial",
+                "reason": "术语统一",
+                "confidence": .98,
+                "content_patches": [{
+                    "field": "markdown",
+                    "before": "受力图",
+                    "after": "自由体图",
+                    "replace_all": True,
+                }],
+            }],
+            "structure": {"required": False},
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=value,
+        user_id="teacher-1",
+        request_id="exact-request-1",
+        instruction="把受力图永远替换成自由体图",
+        repository=evolution_repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    affected = plan.impact_summary["affected_units"][0]
+    assert plan.teacher_change_planning.status == "candidate_ready"
+    assert plan.impact_summary["application_capability"] == "course_document_operation_group"
+    assert affected["before_preview"] != affected["after_preview"]
+    assert affected["change_count"] == 1
+
+    current_document = document()
+    raw_course = {
+        "course_id": current_document.course_id,
+        "course_name": current_document.title,
+        "course_schema_version": "course_document_v1",
+        "course_document": current_document.model_dump(mode="json"),
+        "course_document_revision": current_document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    document_repository = CourseDocumentRepository(MemoryCourseStorage(raw_course))
+    applied = accept_change_set(
+        raw_course,
+        user_id="teacher-1",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        selected_operation_ids=[affected["operation_id"]],
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+
+    updated_document, _ = document_repository.load_document("course-1")
+    assert updated_document.blocks[0].payload["markdown"] == "先给出自由体图，再列方程。"
+    receipt = applied.change_sets[0].application_receipt
+    assert receipt["applied_count"] == 1
+    assert receipt["failed_count"] == 0
+    assert receipt["items"][0]["status"] == "applied"
+
+    undo_change_set(
+        user_id="teacher-1",
+        course_id="course-1",
+        change_set_id=plan.change_set_id,
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+    restored_document, _ = document_repository.load_document("course-1")
+    assert restored_document.blocks[0].payload["markdown"] == "先给出受力图，再列方程。"
+
+
+def test_explicit_term_replacement_compiles_without_model_availability(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+
+    async def unavailable_analyzer(*_args):
+        raise AssertionError("精确替换不应调用模型")
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="deterministic-replace-1",
+        instruction="把“受力图”统一替换为“自由体图”，不改变课程结构",
+        repository=repository,
+        analyzer=unavailable_analyzer,
+    ))
+
+    plan = state.change_sets[0]
+    affected = plan.impact_summary["affected_units"]
+    assert plan.impact_summary["analysis_mode"] == (
+        "deterministic_exact_replace"
+    )
+    assert plan.teacher_change_planning.status == "candidate_ready"
+    assert len(plan.operations) == 1
+    assert affected[0]["change_count"] == 1
+    assert "自由体图" in affected[0]["after_preview"]
+
+
+def test_explicit_term_replacement_reports_zero_formal_hits(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="deterministic-replace-missing",
+        instruction="把“不存在的术语”替换为“新术语”",
+        repository=repository,
+        analyzer=None,
+    ))
+
+    plan = state.change_sets[0]
+    assert plan.impact_summary["analysis_mode"] == (
+        "deterministic_exact_replace"
+    )
+    assert plan.teacher_change_planning.status == "needs_clarification"
+    assert plan.operations == []
+    assert "未找到" in plan.teacher_change_planning.intent.blocking_questions[0]
 
 
 def test_scope_review_persists_selected_and_excluded_units_without_applying(tmp_path):
@@ -330,3 +471,115 @@ def test_structure_review_confirms_proposed_tree_without_writing_course_content(
     assert updated.teacher_change_planning.structure_review_status == "confirmed"
     assert updated.impact_summary["structure_review"]["status"] == "confirmed"
     assert updated.impact_summary["structure_review"]["formal_content_changed"] is False
+
+
+def test_reviewed_merge_retire_and_reorder_use_one_outline_command_and_undo(tmp_path):
+    structural_document = refresh_document_revision(CourseDocument(
+        course_id="course-structure",
+        title="结构课",
+        sections=[
+            CourseSection(section_id=value, title=f"章节 {value.upper()}", position=index)
+            for index, value in enumerate(("a", "b", "c", "d"))
+        ],
+        blocks=[
+            CourseBlock(
+                block_id=f"block-{value}",
+                section_id=value,
+                position=0,
+                payload={"markdown": f"内容 {value.upper()}"},
+            )
+            for value in ("a", "b", "c", "d")
+        ],
+    ))
+    value = build_teacher_course_change_context(
+        course_id="course-structure",
+        document=structural_document,
+        preview=None,
+        authoring={},
+        question_bank={},
+        representation_registries=[],
+    )
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    async def analyzer(_overview, _candidates, _instruction):
+        return {
+            "interpreted_goal": "合并 A/B，删除 C，并把 D 放到最前",
+            "signal_kind": "structural",
+            "signal_confidence": .96,
+            "affected_units": [{
+                "unit_id": "course_content:block-c",
+                "disposition": "retire",
+                "reason": "章节 C 被明确删除",
+                "confidence": .99,
+            }],
+            "structure": {
+                "required": True,
+                "reason": "按老师确认的合并、删除与换序执行",
+                "affected_node_ids": ["a", "b", "c", "d"],
+                "retire_node_ids": ["c"],
+                "proposed_outline": [
+                    {"provisional_id": "new-d", "title": "章节 D", "parent_ref": "root", "source_node_ids": ["d"]},
+                    {"provisional_id": "merge-ab", "title": "章节 A/B", "parent_ref": "root", "source_node_ids": ["a", "b"]},
+                ],
+            },
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=value,
+        user_id="teacher-1",
+        request_id="structure-merge-1",
+        instruction="合并 A/B，删除 C，并把 D 放到最前",
+        repository=evolution_repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    assert [item.operation_type for item in plan.operations] == ["REBUILD_COURSE_OUTLINE"]
+    migration_ids = [item.migration_id for item in plan.teacher_change_planning.unit_migrations]
+    reviewed = review_teacher_course_change_scope(
+        repository=evolution_repository,
+        user_id="teacher-1",
+        course_id="course-structure",
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=migration_ids,
+        confirm_structure=True,
+    )
+    selected_operation_ids = reviewed.change_sets[0].selected_operation_ids
+
+    raw_course = {
+        "course_id": structural_document.course_id,
+        "course_name": structural_document.title,
+        "course_schema_version": "course_document_v1",
+        "course_document": structural_document.model_dump(mode="json"),
+        "course_document_revision": structural_document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    document_repository = CourseDocumentRepository(MemoryCourseStorage(raw_course))
+    accept_change_set(
+        raw_course,
+        user_id="teacher-1",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        selected_operation_ids=selected_operation_ids,
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+    updated, _ = document_repository.load_document("course-structure")
+    assert [(item.section_id, item.title) for item in updated.sections] == [
+        ("d", "章节 D"),
+        ("a", "章节 A/B"),
+    ]
+    assert next(item for item in updated.blocks if item.block_id == "block-b").section_id == "a"
+    assert next(item for item in updated.blocks if item.block_id == "block-c").status == "retired"
+
+    undo_change_set(
+        user_id="teacher-1",
+        course_id="course-structure",
+        change_set_id=plan.change_set_id,
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+    restored, _ = document_repository.load_document("course-structure")
+    assert [item.section_id for item in restored.sections] == ["a", "b", "c", "d"]
+    assert next(item for item in restored.blocks if item.block_id == "block-b").section_id == "b"
+    assert next(item for item in restored.blocks if item.block_id == "block-c").status == "final"

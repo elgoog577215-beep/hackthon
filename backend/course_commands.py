@@ -162,6 +162,7 @@ class CourseCommandService:
         restore_block_ids: list[str] | None = None,
         reorderings: list[dict[str, str]] | None = None,
         section_moves: list[dict[str, str]] | None = None,
+        outline_rebuild: dict[str, Any] | None = None,
         reason: str = "",
         actor: str = "system",
     ) -> dict[str, Any]:
@@ -170,6 +171,8 @@ class CourseCommandService:
         ``section_moves`` lets a reviewed plan reorder the catalog in the same
         commit as its block edits, so a cross-chapter adjustment cannot land
         half-applied with the body moved but the outline unchanged.
+        ``outline_rebuild`` extends the same command group to reviewed
+        insert/retire/split/merge plans; it is not another outline writer.
         """
         operation = {
             "command_id": command_id,
@@ -180,6 +183,9 @@ class CourseCommandService:
         }
 
         def mutation(document) -> None:
+            outline_affected_ids: set[str] = set()
+            if outline_rebuild:
+                outline_affected_ids = _apply_outline_rebuild(document, outline_rebuild)
             for move in section_moves or []:
                 _apply_section_move(document, move)
             blocks_by_id = {block.block_id: block for block in document.blocks}
@@ -297,6 +303,15 @@ class CourseCommandService:
                         reordered.append(refresh_block_revision(insertion))
                         next_position += 1
 
+            reordered_ids_set = {item.block_id for item in reordered}
+            orphaned = [
+                item
+                for item in document.blocks
+                if item.block_id not in reordered_ids_set
+            ]
+            if outline_rebuild and all(item.status == "retired" for item in orphaned):
+                reordered.extend(refresh_block_revision(item) for item in orphaned)
+
             if len(reordered) != len(document.blocks) + len(normalized_insertions):
                 raise CourseDocumentConflict("Grouped course change contains an unresolved insertion")
             document.blocks = reordered
@@ -311,6 +326,7 @@ class CourseCommandService:
                 | restored_ids
                 | replaced_ids
                 | reordered_ids
+                | outline_affected_ids
             )
 
         return await self.repository.apply_command(
@@ -482,6 +498,77 @@ def _objective_revision(section: CourseSection) -> str:
 def _section_structure_revision(section: CourseSection) -> str:
     """Mirror the ``section_structure:`` key of the course revision vector."""
     return stable_hash(section.model_dump(mode="json"), prefix="cssr_")
+
+
+def _apply_outline_rebuild(document, rebuild: dict[str, Any]) -> set[str]:
+    """Replace the catalog and migrate block ownership inside one commit."""
+    raw_sections = rebuild.get("sections")
+    if not isinstance(raw_sections, list) or not raw_sections:
+        raise CourseDocumentConflict("Course outline rebuild has no sections")
+    sections = [
+        item if isinstance(item, CourseSection) else CourseSection.model_validate(item)
+        for item in raw_sections
+    ]
+    section_ids = [item.section_id for item in sections]
+    if len(section_ids) != len(set(section_ids)):
+        raise CourseDocumentConflict("Course outline rebuild contains duplicate section IDs")
+    known_ids = set(section_ids)
+    for section in sections:
+        parent_id = str(section.parent_section_id or "")
+        if parent_id and parent_id not in known_ids:
+            raise CourseDocumentConflict("Course outline rebuild contains an unknown parent")
+        if parent_id == section.section_id:
+            raise CourseDocumentConflict("Course outline section cannot parent itself")
+    for position, section in enumerate(sections):
+        section.position = position
+
+    block_states = rebuild.get("block_states")
+    affected_ids: set[str] = set()
+    if isinstance(block_states, list):
+        states_by_id = {
+            str(item.get("block_id") or ""): item
+            for item in block_states
+            if isinstance(item, dict) and item.get("block_id")
+        }
+        if set(states_by_id) != {block.block_id for block in document.blocks}:
+            raise CourseDocumentConflict("Course outline restore journal is incomplete")
+        for block in document.blocks:
+            state = states_by_id[block.block_id]
+            target_section_id = str(state.get("section_id") or "")
+            if target_section_id not in known_ids:
+                raise CourseDocumentConflict("Course outline restore target is unavailable")
+            if block.section_id != target_section_id or block.status != str(state.get("status") or "final"):
+                affected_ids.add(block.block_id)
+            block.section_id = target_section_id
+            block.position = max(0, int(state.get("position") or 0))
+            block.status = str(state.get("status") or "final")  # type: ignore[assignment]
+    else:
+        raw_mapping = rebuild.get("section_id_map") or {}
+        if not isinstance(raw_mapping, dict):
+            raise CourseDocumentConflict("Course outline identity mapping is invalid")
+        mapping = {str(source): str(target) for source, target in raw_mapping.items()}
+        if any(target not in known_ids for target in mapping.values()):
+            raise CourseDocumentConflict("Course outline identity mapping targets an unknown section")
+        for block in document.blocks:
+            target_section_id = mapping.get(block.section_id)
+            if target_section_id:
+                if block.section_id != target_section_id:
+                    affected_ids.add(block.block_id)
+                block.section_id = target_section_id
+            elif block.section_id not in known_ids and block.status != "retired":
+                block.status = "retired"
+                affected_ids.add(block.block_id)
+
+    # Re-number blocks after merge/split ownership changes. Retired orphan
+    # blocks remain in the document only as undo evidence and are not projected.
+    next_positions: dict[str, int] = {}
+    for block in sorted(document.blocks, key=lambda item: (item.section_id, item.position, item.block_id)):
+        if block.section_id not in known_ids:
+            continue
+        block.position = next_positions.get(block.section_id, 0)
+        next_positions[block.section_id] = block.position + 1
+    document.sections = sections
+    return affected_ids
 
 
 def _apply_section_move(document, move: dict[str, str]) -> None:

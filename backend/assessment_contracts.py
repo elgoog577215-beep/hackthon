@@ -634,7 +634,18 @@ def _answer_modalities(
         return ["claim_evidence_reasoning"]
     if family == "business_career":
         return ["decision_with_tradeoffs"]
-    if "实验" in text or "变量" in text:
+    if (
+        family != "math_formal"
+        and any(
+            marker in text
+            for marker in (
+                "实验设计",
+                "实验计划",
+                "控制变量",
+                "实验变量",
+            )
+        )
+    ):
         return ["experiment_plan"]
     if family == "math_formal":
         if any(marker in text for marker in ("推导", "证明", "形式化")):

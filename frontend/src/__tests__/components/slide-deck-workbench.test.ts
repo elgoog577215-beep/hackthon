@@ -182,7 +182,10 @@ describe('SlideDeckWorkbench', () => {
     expect(wrapper.emitted('confirm-manuscript')).toHaveLength(1)
 
     await wrapper.setProps({ manuscriptStatus: 'confirmed' })
-    expect(confirm.text()).toContain('PPT 文书已确认')
+    expect(confirm.text()).toContain('查看 PPT 文书')
+    expect(confirm.attributes('disabled')).toBeUndefined()
+    await confirm.trigger('click')
+    expect(wrapper.emitted('review-manuscript')).toHaveLength(1)
     expect(wrapper.get('.slide-workbench__export').attributes('disabled')).toBeUndefined()
   })
 

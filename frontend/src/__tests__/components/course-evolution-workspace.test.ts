@@ -169,6 +169,30 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
+  it('精确候选直接展示前后差异并以一个操作组应用勾选项', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      operations: [{ operation_id: 'op-exact', operation_type: 'REPLACE_COURSE_BLOCK', target_block_id: 'block-1', target_section_id: 's1', scope: 'current', reason: '术语统一', payload: {} }],
+      allowed_scopes: ['current'],
+      teacher_change_planning: planning({ status: 'candidate_ready' }),
+      impact_summary: {
+        analysis_mode: 'ai_ranked',
+        candidate_bundle: { operation_count: 1 },
+        affected_units: [{ migration_id: 'm1', unit_id: 'course_content:block-1', asset_type: 'course_content', unit_type: 'course_block', title: '应用场景', before_preview: '先画受力图。', after_preview: '先画自由体图。', section_ids: ['s1'], source_state: 'current', disposition: 'rewrite_partial', reason: '术语统一', confidence: .98, candidate_status: 'ready', operation_id: 'op-exact', change_count: 1 }],
+      },
+    })]
+    const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.candidate-diff').text()).toContain('先画受力图')
+    expect(wrapper.get('.candidate-diff').text()).toContain('先画自由体图')
+    expect(wrapper.get('.review-actionbar .button-primary').text()).toContain('应用 1 项修改')
+    await wrapper.get('.review-actionbar .button-primary').trigger('click')
+    expect(accept).toHaveBeenCalledWith('change-1', 'current', ['op-exact'])
+    wrapper.unmount()
+  })
+
   it('结构变化独立展示新旧课程树和迁移决策', () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)

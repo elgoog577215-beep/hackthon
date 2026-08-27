@@ -24,8 +24,10 @@ DEFAULT_MAX_BATCH_FILES = 30
 # 单批次总字节数上限：默认单文件上限的 6 倍（300MB），避免解析耗时不可控，同时给多文件小课程留出空间。
 DEFAULT_MAX_BATCH_BYTES = 300 * 1024 * 1024
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+LEGACY_OFFICE_EXTENSIONS = {".doc", ".ppt", ".xls"}
 ALLOWED_EXTENSIONS = {
     ".pdf",
+    *LEGACY_OFFICE_EXTENSIONS,
     ".docx",
     ".pptx",
     ".xlsx",
@@ -348,6 +350,17 @@ class MaterialRepository:
                 ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
                 ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             }[extension]
+        if extension in LEGACY_OFFICE_EXTENSIONS:
+            # Legacy binary Office files use the Compound File Binary Format.
+            # Keep the original bytes immutable; parsing converts a temporary
+            # copy to OOXML and never replaces this source asset.
+            if not prefix.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"):
+                raise MaterialStorageError("旧版 Office 文件结构无效")
+            return {
+                ".doc": "application/msword",
+                ".ppt": "application/vnd.ms-powerpoint",
+                ".xls": "application/vnd.ms-excel",
+            }[extension]
         if extension in TEXT_EXTENSIONS:
             try:
                 path.read_text(encoding="utf-8")
@@ -388,6 +401,7 @@ __all__ = [
     "DEFAULT_MAX_FILE_BYTES",
     "MATERIALS_DIR",
     "IMAGE_EXTENSIONS",
+    "LEGACY_OFFICE_EXTENSIONS",
     "MaterialRepository",
     "MaterialStorageError",
     "TEXT_EXTENSIONS",

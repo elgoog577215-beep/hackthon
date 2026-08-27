@@ -6,11 +6,14 @@ from assessment_generation_policy import resolve_assessment_generation_policy
 from assessment_orchestrator import (
     AssessmentGenerationOrchestrator,
     SemanticPreflightFailure,
+    _objective_for_design_brief,
+    _slot_for_design_brief,
 )
 from assessment_semantics import (
     compile_question_design_brief,
     evaluate_question_semantic_preflight,
 )
+from solution_contracts import worked_solution_is_complete
 
 
 def _brief(question_type: str) -> dict:
@@ -44,6 +47,145 @@ def _brief(question_type: str) -> dict:
         },
         practice_level="concept_check",
         variant_index=0,
+    )
+
+
+def test_design_brief_scopes_each_practice_level_to_one_primary_target():
+    objective = {
+        "objective_id": "obj-scope",
+        "node_id": "node-scope",
+        "objective": "掌握极限、导数与积分的完整章节目标",
+        "knowledge": ["极限", "导数", "定积分"],
+        "skills": ["辨析极限", "计算导数", "迁移定积分"],
+        "misconceptions": ["极限等于点值", "导数等于函数值", "积分恒为面积"],
+        "observable_evidence": ["证据一", "证据二", "证据三"],
+        "risk_level": "low",
+    }
+    slot = {
+        "slot_id": "slot-scope",
+        "question_type": "numeric_response",
+        "input_mode": "numeric_unit",
+        "validation_mode": "numeric_unit_validator",
+        "risk_level": "low",
+        "input_contract": {},
+    }
+
+    briefs = [
+        compile_question_design_brief(
+            objective=objective,
+            slot=slot,
+            practice_level=level,
+            variant_index=index,
+        )
+        for index, level in enumerate((
+            "concept_check",
+            "objective_practice",
+            "mastery_check",
+        ))
+    ]
+
+    assert [item["primary_knowledge"] for item in briefs] == [
+        "极限", "导数", "定积分",
+    ]
+    assert all(
+        len(item["required_observable_evidence"]) == 1
+        and item["assessment_scope_contract"]["one_primary_target"] is True
+        for item in briefs
+    )
+    assert [
+        item["assessment_scope_contract"]["learner_action_limit"]
+        for item in briefs
+    ] == [1, 2, 3]
+
+
+def test_design_brief_scope_is_the_public_and_review_objective():
+    objective = {
+        "objective_id": "obj-calculus",
+        "objective": "完成整讲推导、应用、比较与检查",
+        "knowledge": ["差商极限", "基础求导"],
+        "skills": ["完整推导", "比较瞬时速度与平均速度"],
+        "misconceptions": ["函数值等于导数"],
+        "observable_evidence": ["整讲综合报告"],
+        "answer_modalities": ["experiment_plan"],
+        "difficulty_contract": {"target_level": "intermediate"},
+    }
+    slot = {
+        "question_type": "selected_response",
+        "difficulty_contract": {
+            "target_level": "foundational",
+            "expected_reasoning_steps": [1, 2],
+        },
+    }
+    brief = {
+        "primary_knowledge": "差商极限",
+        "primary_skill": "辨析差商极限的成立条件",
+        "primary_misconception": "只检查单侧极限",
+        "required_observable_evidence": ["排除一个典型误解"],
+        "question_type": "selected_response",
+    }
+
+    scoped = _objective_for_design_brief(
+        objective,
+        design_brief=brief,
+        slot=slot,
+    )
+
+    assert scoped["objective"] == "辨析差商极限的成立条件"
+    assert scoped["skills"] == ["辨析差商极限的成立条件"]
+    assert scoped["observable_evidence"] == ["排除一个典型误解"]
+    assert scoped["answer_modalities"] == ["selected_response"]
+    assert scoped["difficulty_contract"]["target_level"] == "foundational"
+
+
+def test_design_brief_scope_is_also_the_semantic_review_slot():
+    slot = {
+        "slot_id": "slot-calculus-concept",
+        "input_mode": "choice",
+        "response_format": "classification_with_reasons",
+        "knowledge": ["导数应用"],
+        "skills": ["提交完整导数应用分析、符号表与迁移说明"],
+        "misconceptions": ["课程级旧误区"],
+        "difficulty_contract": {
+            "target_level": "foundational",
+            "expected_reasoning_steps": [1, 2],
+        },
+    }
+    brief = {
+        "primary_knowledge": "导数符号与函数趋势",
+        "primary_skill": "辨析导数变号与局部极值",
+        "primary_misconception": "只凭导数为零判断极值",
+        "required_observable_evidence": ["排除一个典型误解"],
+    }
+
+    scoped = _slot_for_design_brief(slot, design_brief=brief)
+
+    assert scoped["slot_id"] == "slot-calculus-concept"
+    assert scoped["response_format"] == "choice"
+    assert scoped["skills"] == ["辨析导数变号与局部极值"]
+    assert scoped["observable_evidence"] == ["排除一个典型误解"]
+    assert slot["response_format"] == "classification_with_reasons"
+
+
+def test_choice_worked_solution_accepts_model_analysis_alias():
+    assert worked_solution_is_complete(
+        {
+            "canonical_answer": "C",
+            "worked_solution": {
+                "summary": "分别检查左右差商极限并比较二者。",
+                "steps": [{
+                    "title": "比较左右极限",
+                    "explanation": "左极限为负一，右极限为一。",
+                    "result": "双侧极限不存在。",
+                }],
+                "final_answer": "C",
+                "checks": ["左右极限不相等"],
+                "option_analysis": [
+                    {"id": option_id, "analysis": f"选项 {option_id} 的依据"}
+                    for option_id in ("A", "B", "C", "D")
+                ],
+            },
+        },
+        option_ids=("A", "B", "C", "D"),
     )
 
 

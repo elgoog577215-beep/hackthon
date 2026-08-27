@@ -42,6 +42,12 @@ export interface QuestionBankRebuildJob {
     current_chapter_item?: number
     chapter_item_total?: number
     chapter_status?: string
+    failed_chapters?: Array<{
+      node_id?: string
+      node_name?: string
+      error_code?: string
+      error_message?: string
+    }>
     [key: string]: unknown
   }
 }

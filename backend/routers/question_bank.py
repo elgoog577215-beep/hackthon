@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import atexit
+import contextlib
 from concurrent.futures import Future
 from copy import deepcopy
 import inspect
 import logging
 import os
+import time
 from threading import Event, Thread
 from typing import Any, Literal
 from uuid import uuid4
@@ -1478,10 +1480,8 @@ async def _execute_question_bank_rebuild(
     checkpoint = deepcopy(
         course.get("question_bank_chapter_rebuild") or {}
     )
-    resumable_checkpoint = bool(
-        payload.scope == "course"
-        and payload.resume_existing
-        and checkpoint.get("status") in {"running", "failed"}
+    checkpoint_contract_matches = bool(
+        checkpoint
         and checkpoint.get("blueprint_revision_id")
         == assessment_blueprint.get("blueprint_revision_id")
         and normalize_assessment_generation_profile(
@@ -1497,6 +1497,30 @@ async def _execute_question_bank_rebuild(
         ) == selected_material_asset_ids
         and str(checkpoint.get("teacher_instruction") or "")
         == payload.teacher_instruction
+    )
+    resumable_checkpoint = bool(
+        payload.scope == "course"
+        and payload.resume_existing
+        and checkpoint.get("status") in {"running", "failed"}
+        and checkpoint_contract_matches
+    )
+    raw_checkpoint_node_ids = {
+        str(node_id)
+        for node_id in checkpoint.get("published_node_ids") or []
+        if str(node_id) in set(course_node_ids)
+    }
+    checkpoint_repair_node_ids = (
+        set(course_node_ids) - raw_checkpoint_node_ids
+    )
+    repairs_course_checkpoint = bool(
+        payload.scope == "nodes"
+        and payload.resume_existing
+        and checkpoint.get("status") in {"running", "failed"}
+        and checkpoint_contract_matches
+        and campaign_node_ids
+        and set(campaign_node_ids).issubset(
+            checkpoint_repair_node_ids
+        )
     )
     checkpoint_node_ids = {
         str(node_id)
@@ -1784,6 +1808,49 @@ async def _execute_question_bank_rebuild(
                 ),
                 "total_chapters": total_chapters,
             }
+        elif repairs_course_checkpoint:
+            repaired_checkpoint = deepcopy(
+                publication_base.get(
+                    "question_bank_chapter_rebuild"
+                )
+                or checkpoint
+            )
+            repaired_node_ids = {
+                str(value)
+                for value in repaired_checkpoint.get(
+                    "published_node_ids"
+                ) or []
+                if str(value) in set(course_node_ids)
+            }
+            repaired_node_ids.add(node_id)
+            remaining_failures = [
+                deepcopy(item)
+                for item in repaired_checkpoint.get(
+                    "failed_chapters"
+                ) or []
+                if str(item.get("node_id") or "") != node_id
+            ]
+            course_checkpoint_complete = bool(
+                len(repaired_node_ids) == len(course_node_ids)
+                and not remaining_failures
+            )
+            publication_base[
+                "question_bank_chapter_rebuild"
+            ] = {
+                **repaired_checkpoint,
+                "schema_version": (
+                    "question_bank_chapter_rebuild_v1"
+                ),
+                "job_id": job_id,
+                "status": (
+                    "completed"
+                    if course_checkpoint_complete
+                    else "running"
+                ),
+                "published_node_ids": sorted(repaired_node_ids),
+                "failed_chapters": remaining_failures,
+                "total_chapters": len(course_node_ids),
+            }
         published_course = await _publish_rebuilt_course(
             course_id,
             publication_base,
@@ -1848,24 +1915,64 @@ async def _execute_question_bank_rebuild(
             },
         )
 
-    course_for_bank = await _prepare_course_compat(
-        assessment_generation_orchestrator,
-        course_for_bank,
-        node_ids=target_node_ids,
-        on_progress=report_generation_progress,
-        on_chapter_complete=(
-            publish_completed_chapter
-            if chapter_publication_enabled
-            else None
-        ),
-        reference_package=reference_package,
-        generation_profile=payload.assessment_generation_profile,
-        generation_scope=(
-            "full_generation"
-            if payload.scope == "course"
-            else "scoped_repair"
-        ),
-    )
+    heartbeat_started_at = time.monotonic()
+
+    async def persist_generation_heartbeat() -> None:
+        while True:
+            await asyncio.sleep(15)
+            current = question_bank_rebuild_job_repository.load(
+                course_id,
+                job_id,
+            )
+            if not current or str(current.get("status") or "") not in {
+                "queued", "running"
+            }:
+                return
+            if str(current.get("current_stage") or "") != "question_generation":
+                return
+            elapsed = int(time.monotonic() - heartbeat_started_at)
+            current_message = str(
+                current.get("message") or "正在生成三层候选题"
+            )
+            current_message = current_message.split("（任务仍在运行")[0]
+            question_bank_rebuild_job_repository.heartbeat(
+                job_id,
+                stage_id="question_generation",
+                progress=int(current.get("progress") or 50),
+                message=(
+                    f"{current_message}（任务仍在运行，已等待约 {elapsed} 秒）"
+                ),
+                details={
+                    **deepcopy(current.get("stage_details") or {}),
+                    "heartbeat": True,
+                    "elapsed_seconds": elapsed,
+                },
+            )
+
+    heartbeat_task = asyncio.create_task(persist_generation_heartbeat())
+    try:
+        course_for_bank = await _prepare_course_compat(
+            assessment_generation_orchestrator,
+            course_for_bank,
+            node_ids=target_node_ids,
+            on_progress=report_generation_progress,
+            on_chapter_complete=(
+                publish_completed_chapter
+                if chapter_publication_enabled
+                else None
+            ),
+            reference_package=reference_package,
+            generation_profile=payload.assessment_generation_profile,
+            generation_scope=(
+                "full_generation"
+                if payload.scope == "course"
+                else "scoped_repair"
+            ),
+        )
+    finally:
+        heartbeat_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat_task
     if chapter_publication_enabled:
         if failed_chapters:
             raise HTTPException(

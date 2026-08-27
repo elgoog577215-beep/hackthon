@@ -4792,7 +4792,6 @@ class CourseService(AIBase):
                     break
                 if activity_task in done:
                     activity_event.clear()
-                    continue
                 activity_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await activity_task
@@ -8106,12 +8105,19 @@ class CourseService(AIBase):
             "blocking_questions、affected_units、structure。"
             "signal_kind 只能是 semantic、structural、mixed、uncertain。"
             "affected_units 每项只能包含候选中真实存在的 unit_id，以及 disposition、"
-            "reason、confidence；disposition 只能是 reuse_exact、reuse_rebind、"
+            "reason、confidence、content_patches；disposition 只能是 reuse_exact、reuse_rebind、"
             "rewrite_partial、regenerate、retire、blocked。"
-            "structure 包含 required、reason、affected_node_ids、proposed_outline。"
+            "如果 course_content 候选的 editable_fields 已足够支撑精确修改，"
+            "content_patches 返回逐条 {field,before,after,replace_all}；field 只能是"
+            "markdown、text、content、title、summary，before 必须逐字存在于该候选"
+            "editable_fields 中。术语全局替换要为每个真实命中的单元分别返回 patch；"
+            "不能可靠形成逐字候选时 content_patches=[]，不得猜测原文。"
+            "structure 包含 required、reason、affected_node_ids、retire_node_ids、proposed_outline。"
             "若结构不变，required=false 且 proposed_outline=[]；若章节要合并、删除、"
-            "拆分、移动或重建，先给可审阅的新结构，proposed_outline 每项包含 title、"
-            "parent_ref、source_node_ids、learning_focus。"
+            "拆分、移动或重建，先给可审阅的完整新课程树（不是只返回变化节点），"
+            "proposed_outline 每项包含 provisional_id、title、parent_ref、"
+            "source_node_ids、learning_focus。删除的旧节点 ID 必须逐个放入 retire_node_ids；"
+            "合并时新节点引用全部来源 ID，拆分时多个新节点可引用同一来源 ID。"
             "不要因为老师措辞不专业就机械缩小范围；要从目标推断可能受影响的资产，"
             "但不要把仅仅同词出现的单元判为必改。无法安全推断且会改变结构时，"
             "把问题放入 blocking_questions。正式内容不会在本步骤被修改。"
