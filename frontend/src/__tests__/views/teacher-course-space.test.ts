@@ -88,9 +88,9 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-table__head').text()).toContain('修改时间')
     expect(wrapper.get('.file-table__head').text()).toContain('大小')
     expect(wrapper.findAll('.sort-button')).toHaveLength(5)
-    expect(wrapper.findAll('[role="columnheader"]')[0]!.attributes('aria-sort')).toBe('ascending')
+    expect(wrapper.findAll('[role="columnheader"]')[1]!.attributes('aria-sort')).toBe('ascending')
     await wrapper.findAll('.sort-button')[0]!.trigger('click')
-    expect(wrapper.findAll('[role="columnheader"]')[0]!.attributes('aria-sort')).toBe('descending')
+    expect(wrapper.findAll('[role="columnheader"]')[1]!.attributes('aria-sort')).toBe('descending')
     expect(wrapper.findAll('.file-name small')).toHaveLength(3)
     expect(wrapper.get('.file-list-pane').text()).toContain('面向学校提交与归档')
     expect(wrapper.get('.file-inspector').text()).toContain('全课文件')
@@ -217,7 +217,7 @@ describe('TeacherCourseSpaceView', () => {
     const actions = wrapper.get('.inspector-actions').text()
     expect(actions).toContain('预览')
     expect(actions).toContain('下载')
-    expect(actions).toContain('删除')
+    expect(actions).not.toContain('移入回收站')
     expect(wrapper.get('.inspector-overview').text()).toContain('用于')
     expect(wrapper.get('.inspector-overview').text()).toContain('课程大纲')
     expect(wrapper.get('.inspector-overview').text()).not.toContain('文件大小')
@@ -236,7 +236,97 @@ describe('TeacherCourseSpaceView', () => {
     const contextMenu = document.body.querySelector<HTMLElement>('.file-context-menu')
     expect(contextMenu?.textContent).toContain('预览')
     expect(contextMenu?.textContent).toContain('下载')
-    expect(contextMenu?.textContent).toContain('删除')
+    expect(contextMenu?.textContent).toContain('重命名')
+    expect(contextMenu?.textContent).toContain('移动')
+    expect(contextMenu?.textContent).toContain('移入回收站')
+  })
+
+  it('选中文件后才显示批量操作，并通过统一接口移动', async () => {
+    const pinia = createPinia()
+    const managedPackage = {
+      ...coursePackage,
+      asset_count: 2,
+      assets: [
+        { asset_id: 'asset-1', filename: '课堂案例.pdf', relative_path: '辅助资料/其他资料/课堂案例.pdf', extension: '.pdf', size_bytes: 2048, category: 'reference', document_type: 'other' },
+        { asset_id: 'asset-2', filename: '课外阅读.pdf', relative_path: '辅助资料/其他资料/课外阅读.pdf', extension: '.pdf', size_bytes: 4096, category: 'reference', document_type: 'other' },
+      ],
+      entries: [{ kind: 'folder', path: '辅助资料/其他资料/课堂资料', name: '课堂资料', created_at: '2026-08-22T08:00:00Z' }],
+      trash: [],
+      trash_count: 0,
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [managedPackage] })
+      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: managedPackage })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: '', lessons: [], jobs: [] } })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: {} })
+    })
+    httpMock.post.mockResolvedValue({ data: managedPackage })
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true, Teleport: true } },
+    })
+    mountedWrappers.push(wrapper)
+    await flushPromises()
+
+    await wrapper.findAll('.file-row').find(row => row.text().includes('辅助资料'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('其他资料'))!.trigger('click')
+    expect(wrapper.find('.selection-toolbar').exists()).toBe(false)
+    const checkboxes = wrapper.findAll('.file-row input[type="checkbox"]')
+    await checkboxes[0]!.setValue(true)
+    await checkboxes[1]!.setValue(true)
+    expect(wrapper.get('.selection-toolbar').text()).toContain('已选 2 项')
+    expect(wrapper.get('.selection-toolbar').text()).toContain('移动')
+    expect(wrapper.get('.selection-toolbar').text()).toContain('移入回收站')
+
+    await wrapper.findAll('.selection-toolbar button').find(button => button.text().includes('移动'))!.trigger('click')
+    await wrapper.get('.file-operation-dialog select').setValue('辅助资料/其他资料/课堂资料')
+    await wrapper.get('.file-operation-dialog button.primary').trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith('/api/teacher-course-spaces/package-1/batch', {
+      action: 'move',
+      ids: ['asset-1', 'asset-2'],
+      destination_path: '辅助资料/其他资料/课堂资料',
+    }, {})
+  })
+
+  it('回收站按需出现，并支持批量还原', async () => {
+    const pinia = createPinia()
+    const packageWithTrash = {
+      ...coursePackage,
+      trash_count: 1,
+      trash: [{
+        trash_id: 'trash-1', kind: 'asset', original_path: '辅助资料/其他资料/旧讲义.pdf', name: '旧讲义.pdf',
+        extension: '.pdf', size_bytes: 2048, item_count: 1, deleted_at: '2026-08-22T08:00:00Z',
+      }],
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [packageWithTrash] })
+      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: packageWithTrash })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: '', lessons: [], jobs: [] } })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: {} })
+    })
+    httpMock.post.mockResolvedValue({ data: { ...coursePackage, trash: [], trash_count: 0 } })
+    const wrapper = mount(TeacherCourseSpaceView, {
+      props: { courseId: 'course-1', courseTitle: '数据结构' },
+      global: { plugins: [pinia, router], stubs: { ElDialog: true } },
+    })
+    mountedWrappers.push(wrapper)
+    await flushPromises()
+
+    expect(wrapper.get('.recycle-bin-button').text()).toContain('回收站')
+    await wrapper.get('.recycle-bin-button').trigger('click')
+    expect(wrapper.get('.folder-title h2').text()).toBe('回收站')
+    expect(wrapper.get('.file-row').text()).toContain('旧讲义.pdf')
+    await wrapper.get('.file-row').trigger('click')
+    expect(wrapper.get('.file-inspector').text()).toContain('原位置')
+    await wrapper.get('.file-row input[type="checkbox"]').setValue(true)
+    await wrapper.findAll('.selection-toolbar button').find(button => button.text().includes('还原'))!.trigger('click')
+    await flushPromises()
+    expect(httpMock.post).toHaveBeenCalledWith('/api/teacher-course-spaces/package-1/batch', { action: 'restore', ids: ['trash-1'] }, {})
   })
 
   it('在文件系统中继续批量导入，并把整批资料交给同一识别接口', async () => {
@@ -444,16 +534,16 @@ describe('TeacherCourseSpaceView', () => {
     expect(source).toContain(':data-role="assetRole(node)"')
     expect(source).toContain('function toggleSort(key: SortKey)')
     expect(source).not.toContain('<small>{{ displaySubtitle')
-    expect(source).toContain('function handleNodeClick(node: WorkspaceNode)')
+    expect(source).toContain('function handleNodeClick(node: WorkspaceNode, event?: MouseEvent)')
     expect(source).toContain('function selectNode(node: WorkspaceNode)')
-    expect(source).toContain("@dblclick=\"node.kind !== 'folder' && primaryAction(node)\"")
+    expect(source).toContain("@dblclick=\"node.kind !== 'folder' && !node.trashItem && primaryAction(node)\"")
     expect(source).toContain("node.status === 'missing' ? t('courseFiles.createContent')")
     expect(source).toContain("? emit('openTasks')")
     expect(source).toContain("id: `ppt:${lesson.lesson_unit_id}`")
     expect(source).toContain("id: 'managed:teaching-calendar'")
     expect(source).not.toContain('ppt || !uploadedPpts.length')
     expect(source).toContain("if (type === 'folder' && targetFolder?.kind !== 'folder') return")
-    expect(source).toContain('@click="handleNodeClick(node)"')
+    expect(source).toContain('@click="handleNodeClick(node, $event)"')
     expect(source).toContain("t('courseFiles.noSearchResults')")
     expect(source).toContain("emit('createOutline')")
     expect(source).toContain("pptImportAction: 'derive_plan'")

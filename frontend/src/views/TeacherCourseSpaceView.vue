@@ -48,6 +48,7 @@
         </nav>
         <footer>
           <span>{{ selected.academic_year }} · {{ termLabel(selected.term) }}</span>
+          <button v-if="selected.trash_count" type="button" class="recycle-bin-button" :class="{ active: viewingTrash }" @click="openTrash"><Trash2 :size="14" />{{ t('courseFiles.management.recycleBin') }}<b>{{ selected.trash_count }}</b></button>
           <button type="button" @click="downloadPackage"><Download :size="14" />{{ t('courseFiles.exportCourse') }}</button>
         </footer>
       </aside>
@@ -60,9 +61,10 @@
         @dragleave.prevent="handleFileDragLeave"
         @drop.prevent="handleFileDrop"
       >
-        <header v-if="breadcrumbs.length" class="list-toolbar">
+        <header v-if="breadcrumbs.length || viewingTrash" class="list-toolbar">
           <nav :aria-label="t('courseFiles.filePath')">
             <button type="button" @click="openFolder('root')"><Home :size="14" />{{ t('courseFiles.rootName') }}</button>
+            <template v-if="viewingTrash"><ChevronRight :size="13" /><button type="button" aria-current="page">{{ t('courseFiles.management.recycleBin') }}</button></template>
             <template v-for="crumb in breadcrumbs" :key="crumb.id">
               <ChevronRight :size="13" /><button type="button" @click="openFolder(crumb.id)">{{ crumb.label }}</button>
             </template>
@@ -71,8 +73,17 @@
 
         <div class="folder-title">
           <h2>{{ currentListTitle }}</h2>
-          <div class="folder-title__actions">
-            <span>{{ t('courseFiles.itemCount').replace('{count}', String(filteredChildren.length)) }}</span>
+          <div v-if="selectedRows.length" class="selection-toolbar" role="status">
+            <strong>{{ t('courseFiles.management.selectedCount').replace('{count}', String(selectedRows.length)) }}</strong>
+            <button v-if="!viewingTrash" type="button" @click="openMoveDialog(selectedRows)"><FolderOutput :size="14" />{{ t('courseFiles.management.move') }}</button>
+            <button v-if="!viewingTrash" class="danger" type="button" @click="moveToTrash(selectedRows)"><Trash2 :size="14" />{{ t('courseFiles.management.moveToTrash') }}</button>
+            <button v-if="viewingTrash" type="button" @click="restoreTrashItems(selectedRows)"><RotateCcw :size="14" />{{ t('courseFiles.management.restore') }}</button>
+            <button v-if="viewingTrash" class="danger" type="button" @click="purgeTrashItems(selectedRows)"><Trash2 :size="14" />{{ t('courseFiles.management.deletePermanently') }}</button>
+            <button class="selection-clear" type="button" :aria-label="t('common.close')" @click="clearRowSelection"><X :size="14" /></button>
+          </div>
+          <div v-else class="folder-title__actions">
+            <span>{{ t('courseFiles.itemCount').replace('{count}', String(visibleRows.length)) }}</span>
+            <button v-if="viewingTrash && visibleRows.length" class="empty-trash-button" type="button" @click="emptyRecycleBin"><Trash2 :size="14" />{{ t('courseFiles.management.emptyRecycleBin') }}</button>
             <button v-if="canBatchImport && !query.trim()" class="batch-import-button" type="button" :disabled="busy" @click="batchFileInput?.click()"><Upload :size="14" />{{ t('courseFiles.importMaterials') }}</button>
             <button v-if="canBatchImport && !query.trim()" class="import-folder-button" type="button" :disabled="busy" :title="t('courseFiles.importFolder')" :aria-label="t('courseFiles.importFolder')" @click="batchFolderInput?.click()"><FolderInput :size="15" /></button>
             <button v-if="canAddTeacherFiles && !query.trim()" class="add-material-button" type="button" @click="openCreateDialog('material', '', currentFolder?.id)"><Plus :size="14" />{{ t('courseFiles.addMaterial') }}</button>
@@ -87,6 +98,15 @@
 
         <div class="file-table" role="table" :aria-label="t('courseFiles.fileList')">
           <div class="file-table__head" role="row">
+            <span class="selection-cell" role="columnheader">
+              <input
+                v-if="visibleRows.some(isSelectableNode)"
+                type="checkbox"
+                :checked="visibleRows.filter(isSelectableNode).length > 0 && visibleRows.filter(isSelectableNode).every(node => selectedRowIds.includes(node.id))"
+                :aria-label="t('courseFiles.management.selectAll')"
+                @change="handleToggleAllVisible"
+              />
+            </span>
             <span v-for="column in sortColumns" :key="column.key" role="columnheader" :aria-sort="sortAria(column.key)">
               <button type="button" class="sort-button" :class="{ active: sortKey === column.key }" :aria-label="t('courseFiles.sortBy').replace('{name}', column.label)" @click="toggleSort(column.key)">
                 {{ column.label }}
@@ -94,19 +114,22 @@
               </button>
             </span>
           </div>
-          <button
-            v-for="node in filteredChildren"
+          <div
+            v-for="node in visibleRows"
             :key="node.id"
-            type="button"
             class="file-row"
-            :class="{ selected: selectedNode?.id === node.id }"
+            :class="{ selected: selectedNode?.id === node.id, checked: selectedRowIds.includes(node.id) }"
             :data-role="assetRole(node)"
             role="row"
-            @click="handleNodeClick(node)"
-            @dblclick="node.kind !== 'folder' && primaryAction(node)"
+            tabindex="0"
+            @click="handleNodeClick(node, $event)"
+            @dblclick="node.kind !== 'folder' && !node.trashItem && primaryAction(node)"
             @contextmenu.prevent="openFileContextMenu($event, node)"
             @keydown="handleFileRowKeydown($event, node)"
           >
+            <span class="selection-cell" role="cell" @click.stop>
+              <input v-if="isSelectableNode(node)" type="checkbox" :checked="selectedRowIds.includes(node.id)" :aria-label="t('courseFiles.management.selectItem').replace('{name}', node.label)" @change="handleSelectionChange($event, node)" />
+            </span>
             <span class="file-name" role="cell">
               <span class="file-icon" :data-type="node.type"><component :is="node.kind === 'folder' ? Folder : nodeIcon(node)" :size="18" /></span>
               <span class="file-name__copy">
@@ -118,14 +141,14 @@
             <span role="cell">{{ typeLabel(node) }}</span>
             <span role="cell">{{ displaySize(node) }}</span>
             <span role="cell"><i class="status-dot" :data-state="node.status" />{{ statusLabel(node) }}</span>
-          </button>
-          <div v-if="!filteredChildren.length" class="file-empty">
+          </div>
+          <div v-if="!visibleRows.length" class="file-empty">
             <template v-if="query.trim()">
               <SearchX :size="27" /><strong>{{ t('courseFiles.noSearchResults') }}</strong>
               <button type="button" @click="query = ''"><X :size="14" />{{ t('courseFiles.clearSearch') }}</button>
             </template>
             <template v-else>
-              <FolderOpen :size="27" /><strong>{{ emptyFolderTitle }}</strong>
+              <Trash2 v-if="viewingTrash" :size="27" /><FolderOpen v-else :size="27" /><strong>{{ emptyFolderTitle }}</strong>
             </template>
           </div>
         </div>
@@ -135,7 +158,7 @@
       <aside class="file-inspector">
         <template v-if="inspectedNode">
           <header>
-            <span class="inspector-icon" :data-type="inspectedNode.type"><component :is="inspectedNode.kind === 'folder' ? FolderOpen : nodeIcon(inspectedNode)" :size="22" /></span>
+            <span class="inspector-icon" :data-type="inspectedNode.type"><component :is="inspectedNode.trashItem || inspectedNode.type === 'trash' ? Trash2 : inspectedNode.kind === 'folder' ? FolderOpen : nodeIcon(inspectedNode)" :size="22" /></span>
             <div><small v-if="typeLabel(inspectedNode) !== inspectedNode.label">{{ typeLabel(inspectedNode) }}</small><strong>{{ inspectedNode.label }}</strong></div>
             <button v-if="selectedNode" type="button" :aria-label="t('common.close')" @click="selectedNode = null"><X :size="15" /></button>
           </header>
@@ -144,21 +167,28 @@
           </section>
           <section class="inspector-overview">
             <dl>
-              <div><dt>{{ t('courseFiles.meta.role') }}</dt><dd>{{ fileRoleLabel(inspectedNode) }}</dd></div>
-              <div><dt>{{ t('courseFiles.meta.source') }}</dt><dd>{{ fileSourceLabel(inspectedNode) }}</dd></div>
-              <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.items') }}</dt><dd>{{ folderSummary(inspectedNode) }}</dd></div>
-              <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ folderUpdatedLabel(inspectedNode) }}</dd></div>
-              <div v-if="inspectedNode.lessonId"><dt>{{ t('courseFiles.meta.lesson') }}</dt><dd>{{ lessonLabel(inspectedNode.lessonId) }}</dd></div>
-              <div v-if="inspectedNode.revision"><dt>{{ t('courseFiles.meta.version') }}</dt><dd :title="inspectedNode.revision">{{ shortRevision(inspectedNode.revision) }}</dd></div>
-              <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.recognizedType') }}</dt><dd>
-                <select class="asset-type-select" :value="inspectedNode.asset.document_type || 'other'" :disabled="classifyingAssetId === inspectedNode.asset.asset_id" @change="updateAssetDocumentType(inspectedNode.asset, $event)">
-                  <option v-for="option in documentTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </dd></div>
-              <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.recognitionSource') }}</dt><dd class="understanding-value" :data-source="inspectedNode.asset.classification_source || 'rule'" :title="inspectedNode.asset.document_type_reason || ''">{{ classificationSourceLabel(inspectedNode.asset) }} · {{ classificationConfidenceLabel(inspectedNode.asset) }}</dd></div>
-              <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.courseLocation') }}</dt><dd :title="courseLocationReason(inspectedNode.asset)">{{ courseLocationLabel(inspectedNode.asset) }}</dd></div>
-              <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.versionRole') }}</dt><dd :title="inspectedNode.asset.version_reason || ''">{{ versionRoleLabel(inspectedNode.asset.version_role) }}</dd></div>
-              <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ displayPath(inspectedNode.path) }}</dd></div>
+              <template v-if="inspectedNode.trashItem">
+                <div><dt>{{ t('courseFiles.management.originalLocation') }}</dt><dd>{{ displayPath(inspectedNode.trashItem.original_path) }}</dd></div>
+                <div><dt>{{ t('courseFiles.management.deletedAt') }}</dt><dd>{{ dateLabel(inspectedNode.trashItem.deleted_at) }}</dd></div>
+                <div><dt>{{ t('courseFiles.meta.items') }}</dt><dd>{{ inspectedNode.trashItem.kind === 'folder' ? t('courseFiles.itemCount').replace('{count}', String(inspectedNode.trashItem.item_count)) : size(inspectedNode.trashItem.size_bytes) }}</dd></div>
+              </template>
+              <template v-else>
+                <div><dt>{{ t('courseFiles.meta.role') }}</dt><dd>{{ fileRoleLabel(inspectedNode) }}</dd></div>
+                <div><dt>{{ t('courseFiles.meta.source') }}</dt><dd>{{ fileSourceLabel(inspectedNode) }}</dd></div>
+                <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.items') }}</dt><dd>{{ folderSummary(inspectedNode) }}</dd></div>
+                <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.updated') }}</dt><dd>{{ folderUpdatedLabel(inspectedNode) }}</dd></div>
+                <div v-if="inspectedNode.lessonId"><dt>{{ t('courseFiles.meta.lesson') }}</dt><dd>{{ lessonLabel(inspectedNode.lessonId) }}</dd></div>
+                <div v-if="inspectedNode.revision"><dt>{{ t('courseFiles.meta.version') }}</dt><dd :title="inspectedNode.revision">{{ shortRevision(inspectedNode.revision) }}</dd></div>
+                <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.recognizedType') }}</dt><dd>
+                  <select class="asset-type-select" :value="inspectedNode.asset.document_type || 'other'" :disabled="classifyingAssetId === inspectedNode.asset.asset_id" @change="updateAssetDocumentType(inspectedNode.asset, $event)">
+                    <option v-for="option in documentTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
+                </dd></div>
+                <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.recognitionSource') }}</dt><dd class="understanding-value" :data-source="inspectedNode.asset.classification_source || 'rule'" :title="inspectedNode.asset.document_type_reason || ''">{{ classificationSourceLabel(inspectedNode.asset) }} · {{ classificationConfidenceLabel(inspectedNode.asset) }}</dd></div>
+                <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.courseLocation') }}</dt><dd :title="courseLocationReason(inspectedNode.asset)">{{ courseLocationLabel(inspectedNode.asset) }}</dd></div>
+                <div v-if="inspectedNode.asset"><dt>{{ t('courseFiles.meta.versionRole') }}</dt><dd :title="inspectedNode.asset.version_reason || ''">{{ versionRoleLabel(inspectedNode.asset.version_role) }}</dd></div>
+                <div v-if="inspectedNode.kind === 'folder'"><dt>{{ t('courseFiles.meta.location') }}</dt><dd>{{ displayPath(inspectedNode.path) }}</dd></div>
+              </template>
             </dl>
             <section v-if="inspectedNode.asset && relatedAssetNodes(inspectedNode.asset).length" class="relationship-list">
               <h3>{{ t('courseFiles.inspector.relatedOriginals') }}</h3>
@@ -207,7 +237,7 @@
               <button v-else-if="selectedNode && canExportManaged(selectedNode)" type="button" :disabled="exportingNodeId === selectedNode.id" @click="exportManagedNode(selectedNode)"><LoaderCircle v-if="exportingNodeId === selectedNode.id" :size="14" class="spin" /><Download v-else :size="14" />{{ t('courseFiles.exportFile') }}</button>
               <button v-if="!selectedNode && inspectorMaterialFolder(inspectedNode)" type="button" @click="openInspectorCreate(inspectedNode, 'folder')"><FolderPlus :size="14" />{{ t('courseFiles.newFolder') }}</button>
             </div>
-            <button v-if="selectedNode?.asset" class="danger" type="button" @click="deleteAsset(selectedNode.asset)"><Trash2 :size="14" />{{ t('courseFiles.delete') }}</button>
+            <button v-if="selectedNode?.trashItem" class="danger" type="button" @click="purgeTrashItems([selectedNode])"><Trash2 :size="14" />{{ t('courseFiles.management.deletePermanently') }}</button>
           </footer>
         </template>
       </aside>
@@ -417,11 +447,29 @@
         tabindex="-1"
         @keydown.esc="closeFileContextMenu"
       >
-        <button type="button" role="menuitem" @click="runFileContextAction('primary')"><component :is="primaryIcon(fileContextMenu.node)" :size="15" />{{ primaryLabel(fileContextMenu.node) }}</button>
-        <button v-if="fileContextMenu.node.asset" type="button" role="menuitem" @click="runFileContextAction('download')"><Download :size="15" />{{ t('courseFiles.download') }}</button>
-        <button v-else-if="canExportManaged(fileContextMenu.node)" type="button" role="menuitem" @click="runFileContextAction('export')"><Download :size="15" />{{ t('courseFiles.exportFile') }}</button>
-        <span v-if="fileContextMenu.node.asset" />
-        <button v-if="fileContextMenu.node.asset" class="danger" type="button" role="menuitem" @click="runFileContextAction('delete')"><Trash2 :size="15" />{{ t('courseFiles.delete') }}</button>
+        <template v-if="fileContextMenu.node.trashItem">
+          <button type="button" role="menuitem" @click="runFileContextAction('restore')"><RotateCcw :size="15" />{{ t('courseFiles.management.restore') }}</button>
+          <button class="danger" type="button" role="menuitem" @click="runFileContextAction('purge')"><Trash2 :size="15" />{{ t('courseFiles.management.deletePermanently') }}</button>
+        </template>
+        <template v-else>
+          <button type="button" role="menuitem" @click="runFileContextAction('primary')"><component :is="primaryIcon(fileContextMenu.node)" :size="15" />{{ primaryLabel(fileContextMenu.node) }}</button>
+          <button v-if="fileContextMenu.node.asset" type="button" role="menuitem" @click="runFileContextAction('download')"><Download :size="15" />{{ t('courseFiles.download') }}</button>
+          <button v-else-if="canExportManaged(fileContextMenu.node)" type="button" role="menuitem" @click="runFileContextAction('export')"><Download :size="15" />{{ t('courseFiles.exportFile') }}</button>
+          <button v-if="fileContextMenu.node.asset || isCustomFolder(fileContextMenu.node)" type="button" role="menuitem" @click="runFileContextAction('rename')"><Pencil :size="15" />{{ t('courseFiles.management.rename') }}</button>
+          <button v-if="fileContextMenu.node.asset || isCustomFolder(fileContextMenu.node)" type="button" role="menuitem" @click="runFileContextAction('move')"><FolderOutput :size="15" />{{ t('courseFiles.management.move') }}</button>
+          <span v-if="fileContextMenu.node.asset || isCustomFolder(fileContextMenu.node)" />
+          <button v-if="fileContextMenu.node.asset || isCustomFolder(fileContextMenu.node)" class="danger" type="button" role="menuitem" @click="runFileContextAction('trash')"><Trash2 :size="15" />{{ t('courseFiles.management.moveToTrash') }}</button>
+        </template>
+      </div>
+    </Teleport>
+
+    <Teleport to="body">
+      <div v-if="moveDialogOpen" class="file-operation-overlay" role="presentation" @click.self="moveDialogOpen = false" @keydown.esc="moveDialogOpen = false">
+        <section class="file-operation-dialog" role="dialog" aria-modal="true" :aria-labelledby="'file-move-title'">
+          <header><strong id="file-move-title">{{ t('courseFiles.management.moveTitle').replace('{count}', String(moveNodeIds.length)) }}</strong><button type="button" :aria-label="t('common.close')" @click="moveDialogOpen = false"><X :size="16" /></button></header>
+          <label><span>{{ t('courseFiles.management.destination') }}</span><select v-model="moveDestination"><option v-for="folder in availableMoveFolders" :key="folder.id" :value="folder.path">{{ displayPath(folder.path) }}</option></select></label>
+          <footer><button type="button" @click="moveDialogOpen = false">{{ t('common.cancel') }}</button><button class="primary" type="button" :disabled="busy || !moveDestination" @click="submitMove"><FolderOutput :size="14" />{{ t('courseFiles.management.moveHere') }}</button></footer>
+        </section>
       </div>
     </Teleport>
 
@@ -441,8 +489,8 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, BookOpen, BookOpenText, CalendarDays, ChevronRight, ClipboardList, Download, Eye,
-  FileCheck2, FileText, Folder, FolderInput, FolderOpen, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
-  LayoutGrid, Link2, Pencil, Plus, Presentation, RefreshCw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UploadCloud, X,
+  FileCheck2, FileText, Folder, FolderInput, FolderOpen, FolderOutput, FolderPlus, FolderTree, Home, ListChecks, LoaderCircle,
+  LayoutGrid, Link2, Pencil, Plus, Presentation, RefreshCw, RotateCcw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UploadCloud, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import type { CourseGenerationOptions } from '../shared/prompt-config'
@@ -455,15 +503,16 @@ import WorkspaceFolderTreeNode from '../components/WorkspaceFolderTreeNode.vue'
 
 type DocumentType = 'outline' | 'lesson_plan' | 'script' | 'ppt' | 'question_bank' | 'school_material' | 'other'
 type Asset = { asset_id: string; filename: string; relative_path: string; extension: string; size_bytes: number; category: string; document_type?: DocumentType; document_type_reason?: string; classification_confidence?: number; classification_source?: 'ai' | 'hybrid' | 'rule' | 'teacher'; course_alignment?: { match?: 'matched' | 'uncertain' | 'mismatched'; confidence?: number; reason?: string }; structure_matches?: Array<{ node_id: string; title: string; confidence?: number; reason?: string }>; version_role?: 'current' | 'older' | 'reference' | 'unknown'; version_reason?: string; related_asset_ids?: string[]; material_asset_id?: string; uploaded_at?: string; updated_at?: string }
+type TrashItem = { trash_id: string; kind: 'asset' | 'folder'; name: string; original_path: string; deleted_at?: string; item_count: number; size_bytes: number }
 type FileRelationship = { link_id: string; source_asset_id: string; source_label: string; target_id: string; target_type: string; target_label: string; role: 'primary' | 'reference' | 'question_source' }
-type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; relationships?: FileRelationship[]; asset_relationships?: Array<{ source_asset_id: string; target_asset_id: string; relation: string; confidence?: number; reason?: string }>; material_understanding?: { status?: 'ai_completed' | 'hybrid_completed' | 'rule_fallback'; missing_document_types?: DocumentType[]; low_confidence_asset_ids?: string[] }; entries: Array<{ name: string; path?: string; kind: 'folder' }>; preparation_status?: 'pending' | 'review' | 'completed' | 'skipped'; updated_at?: string }
+type Package = { package_id: string; course_id?: string; course_name: string; academic_year: string; term: string; asset_count: number; assets: Asset[]; trash?: TrashItem[]; trash_count?: number; relationships?: FileRelationship[]; asset_relationships?: Array<{ source_asset_id: string; target_asset_id: string; relation: string; confidence?: number; reason?: string }>; material_understanding?: { status?: 'ai_completed' | 'hybrid_completed' | 'rule_fallback'; missing_document_types?: DocumentType[]; low_confidence_asset_ids?: string[] }; entries: Array<{ name: string; path?: string; kind: 'folder'; custom?: boolean }>; preparation_status?: 'pending' | 'review' | 'completed' | 'skipped'; updated_at?: string }
 type CompanionDocument = { document_id: string; template_id: string; document_type: string; title: string; status: string; revision_id: string; revision_number: number; rendered_markdown: string; updated_at?: string }
 type NodeKind = 'folder' | 'managed' | 'asset'
-type NodeType = 'root' | 'deliverables' | 'course_logic' | 'supporting_materials' | 'outline_export' | 'lesson_plans' | 'script_ppt' | 'question_bank_files' | 'question_practices' | 'aux_question_bank' | 'aux_exam_papers' | 'aux_student_work' | 'aux_other' | 'exam_papers' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
-type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'empty'
+type NodeType = 'root' | 'trash' | 'trash_file' | 'trash_folder' | 'deliverables' | 'course_logic' | 'supporting_materials' | 'outline_export' | 'lesson_plans' | 'script_ppt' | 'question_bank_files' | 'question_practices' | 'aux_question_bank' | 'aux_exam_papers' | 'aux_student_work' | 'aux_other' | 'exam_papers' | 'outline' | 'teaching_calendar' | 'lesson' | 'lesson_plan' | 'content' | 'material' | 'ppt' | 'practice' | 'question_bank' | 'exam_paper' | 'companion_documents' | 'companion_document' | 'folder' | 'file'
+type NodeStatus = 'ready' | 'draft' | 'missing' | 'working' | 'stale' | 'uploaded' | 'trashed' | 'empty'
 type WorkspaceNode = {
   id: string; label: string; kind: NodeKind; type: NodeType; path: string; status: NodeStatus;
-  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number; description?: string
+  lessonId?: string; revision?: string; updatedAt?: string; sizeBytes?: number; asset?: Asset; trashItem?: TrashItem; companionDocument?: CompanionDocument; children?: WorkspaceNode[]; parentId?: string; origin?: 'generated' | 'uploaded'; order?: number; description?: string
 }
 type WorkspaceFolderTreeItem = { id: string; label: string; attention?: boolean; children?: WorkspaceFolderTreeItem[] }
 type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 'folder'
@@ -483,7 +532,7 @@ type CategoryGroup = {
   attention: number
 }
 type BatchImportFile = { file: File; relativePath: string }
-type FileContextAction = 'primary' | 'download' | 'export' | 'delete'
+type FileContextAction = 'primary' | 'download' | 'export' | 'rename' | 'move' | 'trash' | 'restore' | 'purge'
 
 const props = withDefaults(defineProps<{
   embedded?: boolean
@@ -527,6 +576,12 @@ const status = ref('')
 const currentFolderId = ref('root')
 const expandedFolderIds = ref<string[]>(['root'])
 const selectedNode = ref<WorkspaceNode | null>(null)
+const selectedRowIds = ref<string[]>([])
+const selectionAnchorId = ref('')
+const viewingTrash = ref(false)
+const moveDialogOpen = ref(false)
+const moveNodeIds = ref<string[]>([])
+const moveDestination = ref('')
 const localQuery = ref('')
 const query = computed({
   get: () => props.query ?? localQuery.value,
@@ -875,6 +930,21 @@ const flatNodes = computed(() => {
   treeData.value.forEach(visit)
   return map
 })
+const trashNodes = computed<WorkspaceNode[]>(() => (selected.value?.trash || []).map(item => ({
+  id: `trash:${item.trash_id}`,
+  label: item.name,
+  kind: item.kind === 'folder' ? 'folder' : 'asset',
+  type: item.kind === 'folder' ? 'trash_folder' : 'trash_file',
+  path: item.original_path,
+  status: 'trashed',
+  updatedAt: item.deleted_at,
+  sizeBytes: item.size_bytes,
+  trashItem: item,
+})))
+const trashRoot = computed<WorkspaceNode>(() => ({
+  id: 'trash', label: t('courseFiles.management.recycleBin'), kind: 'folder', type: 'trash', path: '',
+  status: trashNodes.value.length ? 'trashed' : 'empty', children: trashNodes.value,
+}))
 const categoryGroups = computed<CategoryGroup[]>(() => ([
   { type: 'outline' as const, step: 1, label: t('courseFiles.names.outline'), description: t('courseFiles.workbench.stages.outline'), icon: markRaw(FileText) },
   { type: 'lesson_plan' as const, step: 2, label: t('courseFiles.names.lessonPlan'), description: t('courseFiles.workbench.stages.lessonPlan'), icon: markRaw(ClipboardList) },
@@ -979,7 +1049,7 @@ const categoryConsoleActionLabel = computed(() => {
     : t('courseFiles.workbench.returnToOutline')
 })
 const currentFolder = computed(() => flatNodes.value.get(currentFolderId.value) || treeData.value[0])
-const inspectedNode = computed(() => selectedNode.value || currentFolder.value || null)
+const inspectedNode = computed(() => selectedNode.value || (viewingTrash.value ? trashRoot.value : currentFolder.value) || null)
 function formalTargetId(node: WorkspaceNode) {
   if (node.type === 'outline') return 'managed:outline'
   if (node.type === 'teaching_calendar') return 'managed:teaching-calendar'
@@ -1036,27 +1106,40 @@ const filteredChildren = computed(() => {
     .slice()
     .sort(compareNodes)
 })
-const currentListTitle = computed(() => query.value.trim()
-  ? t('courseFiles.searchResults')
-  : currentFolder.value?.label || t('courseFiles.rootName'))
+const visibleRows = computed(() => viewingTrash.value ? trashNodes.value.slice().sort(compareNodes) : filteredChildren.value)
+const selectedRows = computed(() => visibleRows.value.filter(node => selectedRowIds.value.includes(node.id)))
+const currentListTitle = computed(() => viewingTrash.value
+  ? t('courseFiles.management.recycleBin')
+  : query.value.trim()
+    ? t('courseFiles.searchResults')
+    : currentFolder.value?.label || t('courseFiles.rootName'))
 const readinessSummary = computed(() => {
   const required = [...flatNodes.value.values()].filter(node => node.kind === 'managed' && ['outline', 'lesson_plan', 'content', 'practice'].includes(node.type))
   const ready = required.filter(node => node.status === 'ready').length
   return { required: required.length, ready, pending: required.length - ready }
 })
 const breadcrumbs = computed(() => {
+  if (viewingTrash.value) return []
   const values: WorkspaceNode[] = []
   let node = currentFolder.value
   while (node?.parentId) { values.unshift(node); node = flatNodes.value.get(node.parentId) }
   return values
 })
 const createTargetFolder = computed(() => flatNodes.value.get(createTargetFolderId.value) || currentFolder.value)
-const canAddTeacherFiles = computed(() => Boolean(currentFolder.value && ['supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other', 'folder'].includes(currentFolder.value.type)))
-const canBatchImport = computed(() => Boolean(currentFolder.value && ['root', 'supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other', 'folder'].includes(currentFolder.value.type)))
+const canAddTeacherFiles = computed(() => !viewingTrash.value && Boolean(currentFolder.value && ['supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other', 'folder'].includes(currentFolder.value.type)))
+const canBatchImport = computed(() => !viewingTrash.value && Boolean(currentFolder.value && ['root', 'supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other', 'folder'].includes(currentFolder.value.type)))
 const batchImportLocation = computed(() => currentFolder.value?.type === 'root'
   ? t('courseFiles.rootName')
   : displayPath(targetPath('material', '')))
-const emptyFolderTitle = computed(() => ['supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other'].includes(currentFolder.value?.type || '') ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
+const emptyFolderTitle = computed(() => viewingTrash.value
+  ? t('courseFiles.management.recycleBinEmpty')
+  : ['supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other'].includes(currentFolder.value?.type || '') ? t('courseFiles.emptyMaterials') : t('courseFiles.emptyFolder'))
+const availableMoveFolders = computed(() => [...flatNodes.value.values()]
+  .filter(node => node.kind === 'folder' && node.path.startsWith('辅助资料') && ['supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other', 'folder'].includes(node.type))
+  .filter(node => !moveNodeIds.value.some(id => {
+    const source = flatNodes.value.get(id)
+    return source?.kind === 'folder' && (node.path === source.path || node.path.startsWith(`${source.path}/`))
+  })))
 const documentTypeOptions = computed<Array<{ value: DocumentType; label: string }>>(() => [
   { value: 'outline', label: t('courseFiles.preparation.documentTypes.outline') },
   { value: 'lesson_plan', label: t('courseFiles.preparation.documentTypes.lessonPlan') },
@@ -1139,10 +1222,13 @@ function relatedAssetNodes(asset: Asset) {
 const missingMaterialTypeLabels = computed(() => (selected.value?.material_understanding?.missing_document_types || [])
   .map(type => documentTypeOptions.value.find(option => option.value === type)?.label)
   .filter((value): value is string => Boolean(value)))
-const typeLabel = (node: WorkspaceNode) => node.asset
+const typeLabel = (node: WorkspaceNode) => node.trashItem
+  ? node.trashItem.kind === 'folder' ? t('courseFiles.folder') : t('courseFiles.management.originalFile')
+  : node.asset
   ? documentTypeLabel(node.asset.document_type)
   : t(`courseFiles.types.${node.type === 'lesson_plan' ? 'lessonPlan' : node.type === 'teaching_calendar' ? 'teachingCalendar' : node.type === 'companion_document' ? 'companionDocument' : node.type === 'companion_documents' ? 'companionDocuments' : node.type}`)
 function assetRole(node: WorkspaceNode) {
+  if (node.trashItem || node.type === 'trash') return 'trash'
   if (node.kind === 'asset' || ['supporting_materials', 'aux_question_bank', 'aux_exam_papers', 'aux_student_work', 'aux_other'].includes(node.type)) return 'auxiliary'
   if (['deliverables', 'outline_export', 'teaching_calendar', 'companion_documents', 'companion_document'].includes(node.type)) return 'deliverable'
   if (node.kind === 'managed' || ['course_logic', 'lesson_plans', 'script_ppt', 'question_bank_files', 'question_practices', 'exam_papers', 'lesson'].includes(node.type)) return 'logic'
@@ -1150,6 +1236,8 @@ function assetRole(node: WorkspaceNode) {
 }
 const fileRoleLabel = (node: WorkspaceNode) => t(`courseFiles.assetRole.${assetRole(node)}`)
 function fileSourceLabel(node: WorkspaceNode) {
+  if (node.trashItem) return t('courseFiles.management.originalLocation')
+  if (node.type === 'trash') return t('courseFiles.management.recycleBin')
   if (node.kind === 'asset') return t('courseFiles.sources.teacherUpload')
   if (node.type === 'outline_export') return t('courseFiles.sources.logicProjection')
   if (node.kind === 'managed') return t('courseFiles.sources.formalTruth')
@@ -1164,8 +1252,10 @@ const lessonNumber = (id?: string) => {
 }
 const dateLabel = (value?: string) => value ? new Intl.DateTimeFormat(activeLocale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value)) : t('courseFiles.notUpdated')
 const size = (value: number) => value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(value / 1024))} KB`
-const displayUpdated = (node: WorkspaceNode) => node.kind === 'folder' ? folderUpdatedLabel(node) : dateLabel(node.updatedAt)
-const displaySize = (node: WorkspaceNode) => node.kind === 'folder'
+const displayUpdated = (node: WorkspaceNode) => node.trashItem ? dateLabel(node.trashItem.deleted_at) : node.kind === 'folder' ? folderUpdatedLabel(node) : dateLabel(node.updatedAt)
+const displaySize = (node: WorkspaceNode) => node.trashItem
+  ? node.trashItem.kind === 'folder' ? t('courseFiles.itemCount').replace('{count}', String(node.trashItem.item_count)) : size(node.trashItem.size_bytes)
+  : node.kind === 'folder'
   ? t('courseFiles.itemCount').replace('{count}', String(node.children?.length || 0))
   : node.asset ? size(node.asset.size_bytes) : node.sizeBytes ? size(node.sizeBytes) : t('courseFiles.unknownSize')
 
@@ -1258,6 +1348,46 @@ function folderPath(id: string) {
   while (node) { if (node.kind === 'folder') values.unshift(node.id); node = node.parentId ? flatNodes.value.get(node.parentId) : undefined }
   return values
 }
+function isCustomFolder(node: WorkspaceNode) {
+  return node.kind === 'folder' && node.type === 'folder' && Boolean((selected.value?.entries || []).some(entry => entry.custom && (entry.path || entry.name) === node.path))
+}
+function isSelectableNode(node: WorkspaceNode) {
+  return Boolean(node.asset || node.trashItem)
+}
+function clearRowSelection() {
+  selectedRowIds.value = []
+  selectionAnchorId.value = ''
+}
+function toggleRowSelection(node: WorkspaceNode, checked?: boolean, range = false) {
+  if (!isSelectableNode(node)) return
+  const selectable = visibleRows.value.filter(isSelectableNode)
+  const current = new Set(selectedRowIds.value)
+  if (range && selectionAnchorId.value) {
+    const anchor = selectable.findIndex(item => item.id === selectionAnchorId.value)
+    const target = selectable.findIndex(item => item.id === node.id)
+    if (anchor >= 0 && target >= 0) {
+      selectable.slice(Math.min(anchor, target), Math.max(anchor, target) + 1).forEach(item => current.add(item.id))
+    }
+  } else {
+    const nextChecked = checked ?? !current.has(node.id)
+    if (nextChecked) current.add(node.id)
+    else current.delete(node.id)
+    selectionAnchorId.value = node.id
+  }
+  selectedRowIds.value = [...current]
+}
+function toggleAllVisible(checked: boolean) {
+  const selectable = visibleRows.value.filter(isSelectableNode)
+  selectedRowIds.value = checked ? selectable.map(node => node.id) : []
+  selectionAnchorId.value = checked ? selectable[0]?.id || '' : ''
+}
+
+function handleToggleAllVisible(event: Event) {
+  toggleAllVisible((event.target as HTMLInputElement).checked)
+}
+function handleSelectionChange(event: Event, node: WorkspaceNode) {
+  toggleRowSelection(node, (event.target as HTMLInputElement).checked, (event as MouseEvent).shiftKey)
+}
 function toggleFolder(id: string) {
   expandedFolderIds.value = expandedFolderIds.value.includes(id)
     ? expandedFolderIds.value.filter(value => value !== id)
@@ -1266,8 +1396,10 @@ function toggleFolder(id: string) {
 function openFolder(id: string) {
   const node = flatNodes.value.get(id)
   if (node?.kind !== 'folder') return
+  viewingTrash.value = false
   currentFolderId.value = id
   selectedNode.value = null
+  clearRowSelection()
   query.value = ''
   expandedFolderIds.value = [...new Set([...expandedFolderIds.value, ...folderPath(id)])]
   const lessonId = node.lessonId || ''
@@ -1276,6 +1408,12 @@ function openFolder(id: string) {
   else delete nextQuery.lesson
   void router.replace({ query: nextQuery })
   emit('contextChange', { lessonId, nodeId: node.id, label: node.label, type: node.type, path: node.path })
+}
+function openTrash() {
+  viewingTrash.value = true
+  selectedNode.value = null
+  query.value = ''
+  clearRowSelection()
 }
 function selectNode(node: WorkspaceNode) {
   selectedNode.value = node
@@ -1299,9 +1437,14 @@ function revealRelationshipTarget(link: FileRelationship) {
   const node = relationshipTargetNode(link)
   if (node) revealNode(node)
 }
-function handleNodeClick(node: WorkspaceNode) {
+function handleNodeClick(node: WorkspaceNode, event?: MouseEvent) {
   closeFileContextMenu()
-  if (node.kind === 'folder') { openFolder(node.id); return }
+  if (event?.metaKey || event?.ctrlKey || event?.shiftKey) {
+    toggleRowSelection(node, undefined, event.shiftKey)
+    selectNode(node)
+    return
+  }
+  if (node.kind === 'folder' && !node.trashItem) { openFolder(node.id); return }
   selectNode(node)
 }
 
@@ -1312,7 +1455,7 @@ function closeFileContextMenu() {
 function openFileContextMenu(event: MouseEvent, node: WorkspaceNode) {
   selectNode(node)
   const width = 188
-  const height = node.asset ? 154 : 102
+  const height = node.trashItem ? 108 : node.asset ? 232 : isCustomFolder(node) ? 188 : 102
   const x = Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8))
   const y = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8))
   fileContextMenu.value = { node, x, y }
@@ -1326,6 +1469,124 @@ function handleFileRowKeydown(event: KeyboardEvent, node: WorkspaceNode) {
   openFileContextMenu(new MouseEvent('contextmenu', { clientX: rect.left + 32, clientY: rect.top + Math.min(rect.height, 40) }), node)
 }
 
+function applyManagedPackage(value: any) {
+  const coursePackage = value?.package || value
+  if (coursePackage?.package_id) selected.value = coursePackage
+  selectedNode.value = null
+  clearRowSelection()
+}
+
+async function renameNode(node: WorkspaceNode) {
+  if (!selected.value || !(node.asset || isCustomFolder(node))) return
+  try {
+    const result = await ElMessageBox.prompt(
+      t('courseFiles.management.renamePrompt'),
+      t('courseFiles.management.rename'),
+      { inputValue: node.label, confirmButtonText: t('courseFiles.management.saveName'), cancelButtonText: t('common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('courseFiles.management.nameRequired') },
+    )
+    const response = node.asset
+      ? await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${node.asset.asset_id}/location`, { filename: result.value }, teacherRequestConfig())
+      : await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/folders/location`, { path: node.path, name: result.value }, teacherRequestConfig())
+    applyManagedPackage(response.data)
+    ElMessage.success(t('courseFiles.management.renamed'))
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(localizedError(error, t('courseFiles.management.renameFailed')))
+  }
+}
+
+function openMoveDialog(nodes: WorkspaceNode[]) {
+  const manageable = nodes.filter(node => node.asset || isCustomFolder(node))
+  if (!manageable.length) return
+  moveNodeIds.value = manageable.map(node => node.id)
+  const firstParent = parentPathOf(manageable[0]?.path || '')
+  moveDestination.value = availableMoveFolders.value.some(node => node.path === firstParent)
+    ? firstParent
+    : availableMoveFolders.value[0]?.path || '辅助资料/其他资料'
+  moveDialogOpen.value = true
+}
+
+function parentPathOf(value: string) {
+  const parts = value.split('/').filter(Boolean)
+  return parts.slice(0, -1).join('/')
+}
+
+async function submitMove() {
+  if (!selected.value || !moveNodeIds.value.length || !moveDestination.value) return
+  const nodes = moveNodeIds.value.map(id => flatNodes.value.get(id)).filter((node): node is WorkspaceNode => Boolean(node))
+  busy.value = true
+  try {
+    const folder = nodes.length === 1 && isCustomFolder(nodes[0]!) ? nodes[0] : null
+    const response = folder
+      ? await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/folders/location`, { path: folder.path, parent_path: moveDestination.value }, teacherRequestConfig())
+      : await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/batch`, { action: 'move', ids: nodes.flatMap(node => node.asset ? [node.asset.asset_id] : []), destination_path: moveDestination.value }, teacherRequestConfig())
+    applyManagedPackage(response.data)
+    moveDialogOpen.value = false
+    ElMessage.success(t('courseFiles.management.moved'))
+  } catch (error: any) {
+    ElMessage.error(localizedError(error, t('courseFiles.management.moveFailed')))
+  } finally { busy.value = false }
+}
+
+async function moveToTrash(nodes: WorkspaceNode[]) {
+  if (!selected.value) return
+  const manageable = nodes.filter(node => node.asset || isCustomFolder(node))
+  if (!manageable.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('courseFiles.management.trashConfirm').replace('{count}', String(manageable.length)),
+      t('courseFiles.management.moveToTrash'),
+      { type: 'warning', confirmButtonText: t('courseFiles.management.moveToTrash'), cancelButtonText: t('common.cancel') },
+    )
+    busy.value = true
+    const folder = manageable.length === 1 && isCustomFolder(manageable[0]!) ? manageable[0] : null
+    const response = folder
+      ? await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/folders/trash`, { path: folder.path }, teacherRequestConfig())
+      : await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/batch`, { action: 'trash', ids: manageable.flatMap(node => node.asset ? [node.asset.asset_id] : []) }, teacherRequestConfig())
+    applyManagedPackage(response.data)
+    ElMessage.success(t('courseFiles.management.trashed'))
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(localizedError(error, t('courseFiles.management.trashFailed')))
+  } finally { busy.value = false }
+}
+
+async function restoreTrashItems(nodes: WorkspaceNode[]) {
+  if (!selected.value) return
+  const ids = nodes.flatMap(node => node.trashItem ? [node.trashItem.trash_id] : [])
+  if (!ids.length) return
+  busy.value = true
+  try {
+    const response = await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/batch`, { action: 'restore', ids }, teacherRequestConfig())
+    applyManagedPackage(response.data)
+    ElMessage.success(t('courseFiles.management.restored'))
+  } catch (error: any) {
+    ElMessage.error(localizedError(error, t('courseFiles.management.restoreFailed')))
+  } finally { busy.value = false }
+}
+
+async function purgeTrashItems(nodes: WorkspaceNode[]) {
+  if (!selected.value) return
+  const ids = nodes.flatMap(node => node.trashItem ? [node.trashItem.trash_id] : [])
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(
+      t('courseFiles.management.purgeConfirm').replace('{count}', String(ids.length)),
+      t('courseFiles.management.deletePermanently'),
+      { type: 'warning', confirmButtonText: t('courseFiles.management.deletePermanently'), cancelButtonText: t('common.cancel') },
+    )
+    busy.value = true
+    const response = await http.post(`/api/teacher-course-spaces/${selected.value.package_id}/batch`, { action: 'purge', ids }, teacherRequestConfig())
+    applyManagedPackage(response.data)
+    ElMessage.success(t('courseFiles.management.purged'))
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(localizedError(error, t('courseFiles.management.purgeFailed')))
+  } finally { busy.value = false }
+}
+
+async function emptyRecycleBin() {
+  if (!selected.value || !trashNodes.value.length) return
+  await purgeTrashItems(trashNodes.value)
+}
+
 async function runFileContextAction(action: FileContextAction) {
   const node = fileContextMenu.value.node
   closeFileContextMenu()
@@ -1333,7 +1594,11 @@ async function runFileContextAction(action: FileContextAction) {
   if (action === 'primary') await primaryAction(node)
   else if (action === 'download' && node.asset) await downloadAsset(node.asset)
   else if (action === 'export') await exportManagedNode(node)
-  else if (action === 'delete' && node.asset) await deleteAsset(node.asset)
+  else if (action === 'rename') await renameNode(node)
+  else if (action === 'move') openMoveDialog(selectedRowIds.value.includes(node.id) ? selectedRows.value : [node])
+  else if (action === 'trash') await moveToTrash(selectedRowIds.value.includes(node.id) ? selectedRows.value : [node])
+  else if (action === 'restore') await restoreTrashItems(selectedRowIds.value.includes(node.id) ? selectedRows.value : [node])
+  else if (action === 'purge') await purgeTrashItems(selectedRowIds.value.includes(node.id) ? selectedRows.value : [node])
 }
 
 function handleOutsidePointer(event: PointerEvent) {
@@ -1342,6 +1607,7 @@ function handleOutsidePointer(event: PointerEvent) {
 }
 
 function primaryLabel(node: WorkspaceNode) {
+  if (node.trashItem) return t('courseFiles.management.restore')
   if (node.kind === 'folder') return t('courseFiles.openFolder')
   if (node.asset) return t('courseFiles.preview')
   if (node.type === 'outline_export') return node.status === 'missing' ? t('courseFiles.workbench.createOutline') : t('courseFiles.exportFile')
@@ -1355,12 +1621,13 @@ function primaryLabel(node: WorkspaceNode) {
   if (node.type === 'companion_document') return t('courseFiles.openEdit')
   return t('courseFiles.open')
 }
-function primaryIcon(node: WorkspaceNode) { return markRaw(node.kind === 'folder' ? FolderOpen : node.asset ? Eye : node.type === 'outline_export' && node.status !== 'missing' ? Download : node.status === 'missing' ? Sparkles : Pencil) }
+function primaryIcon(node: WorkspaceNode) { return markRaw(node.trashItem ? RotateCcw : node.kind === 'folder' ? FolderOpen : node.asset ? Eye : node.type === 'outline_export' && node.status !== 'missing' ? Download : node.status === 'missing' ? Sparkles : Pencil) }
 function primaryDisabled(_node: WorkspaceNode) { return false }
 function lessonPlanRevision(lessonId: string) { return lessons.value.find(item => item.lesson_unit_id === lessonId)?.plan.working_revision_id || '' }
 
 async function primaryAction(node: WorkspaceNode) {
   selectNode(node)
+  if (node.trashItem) { await restoreTrashItems([node]); return }
   if (node.kind === 'folder') { openFolder(node.id); return }
   if (node.asset) { await previewFile(node.asset); return }
   if (node.type === 'outline_export') {
@@ -1924,15 +2191,6 @@ function closePreview() { if (previewUrl.value) URL.revokeObjectURL(previewUrl.v
 async function downloadAsset(asset: Asset) { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}/download`, teacherRequestConfig({ responseType: 'blob' })); downloadBlob(response.data, asset.filename) }
 async function downloadPackage() { if (!selected.value) return; const response = await http.get(`/api/teacher-course-spaces/${selected.value.package_id}/export`, teacherRequestConfig({ responseType: 'blob' })); downloadBlob(response.data, `${selected.value.course_name}-${t('courseFiles.archiveName')}.zip`) }
 function downloadBlob(blob: Blob, name: string) { const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 100) }
-async function deleteAsset(asset: Asset) {
-  if (!selected.value) return
-  try {
-    await ElMessageBox.confirm(t('courseFiles.deleteConfirm').replace('{name}', asset.filename), t('courseFiles.delete'), { type: 'warning', confirmButtonText: t('courseFiles.delete'), cancelButtonText: t('common.cancel') })
-    await http.delete(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${asset.asset_id}`, teacherRequestConfig())
-    selectedNode.value = null; await reloadPackage(); ElMessage.success(t('courseFiles.deleted'))
-  } catch (error: any) { if (error !== 'cancel' && error !== 'close') ElMessage.error(localizedError(error, t('courseFiles.errors.deleteFailed'))) }
-}
-
 watch(readinessSummary, summary => emit('readinessChange', summary), { immediate: true })
 watch(
   () => [calendarStore.calendar?.course_id, calendarStore.calendar?.revision, calendarStore.calendar?.updated_at],
@@ -1960,7 +2218,8 @@ onBeforeUnmount(() => {
 .category-layout{height:100%;min-height:0;display:grid;grid-template-columns:272px minmax(0,1fr);overflow:hidden;background:#fff}.category-navigation{min-height:0;overflow:auto;padding:18px 12px;border-right:1px solid var(--lz-border);background:#f8fafc}.category-navigation>header{display:grid;gap:5px;padding:0 8px 15px}.category-navigation>header strong{font-size:14px}.category-navigation>header small{color:var(--lz-text-muted);font-size:12px;line-height:1.45}.category-navigation nav{display:grid;gap:5px}.category-group{min-width:0}.category-group__button{width:100%;min-width:0;min-height:58px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:10px;padding:9px 10px;border:1px solid transparent;border-radius:10px;color:var(--lz-text-muted);background:transparent;text-align:left;cursor:pointer}.category-group__button:hover{background:#fff}.category-group__button.active{border-color:rgba(99,102,241,.2);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-group__button>span:nth-child(2){min-width:0;display:grid;gap:3px}.category-group__button strong,.category-group__button small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.category-group__button strong{color:var(--lz-text-secondary);font-size:13px}.category-group__button small{color:var(--lz-text-muted);font-size:12px}.category-group__button.active strong{color:var(--lz-brand-strong)}.category-group__trailing{display:flex;align-items:center;gap:4px}.category-group__trailing b{min-width:30px;color:var(--lz-text-muted);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}.category-group__trailing b[data-state="ready"]{color:var(--lz-success)}.category-group__trailing b[data-state="working"]{color:var(--lz-brand-strong)}.category-group__trailing b[data-state="attention"]{color:var(--lz-warning)}.category-group__chevron{transition:transform .16s ease}.category-group.active .category-group__chevron{transform:rotate(90deg)}.category-children{display:grid;gap:2px;margin:3px 5px 9px 26px;padding-left:11px;border-left:1px solid #dbe2ec}.category-child{width:100%;min-width:0;min-height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 8px;align-items:center;gap:7px;padding:5px 8px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:transparent;text-align:left;cursor:pointer}.category-child:hover{background:#fff}.category-child.active{color:var(--lz-brand-strong);background:#fff;box-shadow:0 1px 3px rgba(15,23,42,.08)}.category-child__index{color:var(--lz-text-muted);font-size:11px;font-variant-numeric:tabular-nums}.category-child__name{overflow:hidden;font-size:12px;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.category-child .status-dot{margin:0}.category-group__button:focus-visible,.category-child:focus-visible,.category-detail-actions button:focus-visible,.category-detail-empty button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.category-detail-pane{min-width:0;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;background:#f8fafc}.category-detail-header{min-height:84px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 24px;border-bottom:1px solid var(--lz-border);background:#fff}.category-detail-header>div:first-child{min-width:0;display:grid;grid-template-columns:auto 1fr;align-items:center;gap:4px 12px}.category-detail-header small{grid-column:1/-1;color:var(--lz-text-muted);font-size:12px}.category-detail-header h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.category-detail-status{display:inline-flex;align-items:center;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}.category-detail-status .status-dot{margin-right:6px}.category-detail-actions{flex:none;display:flex;align-items:center;gap:8px}.category-detail-actions button,.category-detail-empty button{min-height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:700;cursor:pointer}.category-detail-actions button.primary,.category-detail-empty button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.category-detail-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.category-detail-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.category-detail-actions button:disabled,.category-detail-empty button:disabled{opacity:.45;cursor:not-allowed}.category-document-scroll{min-height:0;overflow:auto;padding:28px 32px 48px}.category-document{width:min(940px,100%);min-height:calc(100% - 4px);margin:0 auto;padding:32px 42px 52px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.05)}.category-document :deep(.markdown-renderer){color:var(--lz-text-secondary);font-size:14px;line-height:1.75}.category-document :deep(.markdown-renderer> :first-child){margin-top:0}.category-document :deep(h2){margin:28px 0 12px;color:var(--lz-text-strong);font-size:20px}.category-document :deep(h3){margin:22px 0 10px;color:var(--lz-text-strong);font-size:16px}.category-document :deep(p),.category-document :deep(ul),.category-document :deep(ol){margin:10px 0}.category-document :deep(blockquote){margin:14px 0;padding:10px 14px;border:1px solid var(--lz-brand-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-brand-soft)}.category-detail-empty{min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:28px;color:var(--lz-text-muted);text-align:center}.category-detail-empty>svg{color:#94a3b8}.category-detail-empty strong{color:var(--lz-text-secondary);font-size:16px}.category-detail-empty>span{max-width:380px;font-size:13px;line-height:1.6}.category-detail-empty button{margin-top:5px}
 .file-list-pane{position:relative;display:flex;flex-direction:column;background:#fff}.file-list-pane.is-dragging-files{background:#fafaff}.list-toolbar{min-height:58px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 18px;border-bottom:1px solid var(--lz-border)}.list-toolbar nav{min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}.list-toolbar nav button{display:flex;align-items:center;gap:6px;min-width:0;padding:5px;border:0;background:transparent;color:var(--lz-text-secondary);font-size:13px;white-space:nowrap;cursor:pointer}.list-toolbar nav svg{flex:none;color:#94a3b8}.toolbar-actions{display:flex;align-items:center;gap:8px}.list-search{width:248px;height:40px;display:flex;align-items:center;gap:8px;padding:0 10px 0 12px;border:1px solid transparent;border-radius:10px;color:#94a3b8;background:#f1f5f9;transition:border-color .15s ease,background .15s ease,box-shadow .15s ease}.list-search:focus-within{border-color:var(--lz-brand-border);background:#fff;box-shadow:0 0 0 3px var(--lz-brand-soft)}.list-search input{min-width:0;width:100%;border:0;outline:0;color:var(--lz-text-strong);background:transparent;font-size:13px}.list-search input::-webkit-search-cancel-button{display:none}.list-search button{width:26px;height:26px;flex:none;display:grid;place-items:center;padding:0;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.list-search button:hover{color:var(--lz-text-strong);background:#e2e8f0}.list-search button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
 .folder-title{min-height:66px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 18px}.folder-title h2{min-width:0;margin:0;overflow:hidden;font-size:20px;text-overflow:ellipsis;white-space:nowrap}.folder-title__actions{flex:none;display:flex;align-items:center;gap:7px}.folder-title__actions>span{margin-right:3px;color:var(--lz-text-muted);font-size:13px}.folder-title__actions button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;font-size:13px;font-weight:700;cursor:pointer}.folder-title__actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.folder-title__actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.folder-title__actions button:disabled{opacity:.5;cursor:not-allowed}.batch-import-button{padding:0 12px!important;border-color:var(--lz-brand)!important;color:#fff!important;background:var(--lz-brand)!important}.batch-import-button:hover:not(:disabled){border-color:var(--lz-brand-strong)!important;color:#fff!important;background:var(--lz-brand-strong)!important}.import-folder-button,.add-folder-button{width:36px;padding:0}.add-material-button{padding:0 12px}.file-drop-overlay{position:absolute;inset:66px 12px 14px;z-index:8;display:grid;place-content:center;justify-items:center;gap:10px;border:1px dashed #8f8aef;border-radius:12px;color:var(--lz-brand-strong);background:rgba(247,247,255,.96);pointer-events:none}.file-drop-overlay>span{width:50px;height:50px;display:grid;place-items:center;border-radius:14px;color:var(--lz-brand-strong);background:#fff;box-shadow:0 10px 26px rgba(79,70,229,.12)}.file-drop-overlay strong{font-size:14px}
-.file-table{min-height:0;flex:1;overflow:auto;padding:0 12px 20px}.file-table__head,.file-row{display:grid;grid-template-columns:minmax(230px,1.65fr) 126px 88px 76px 98px;align-items:center;gap:10px}.file-table__head{min-height:42px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px;font-weight:700}.sort-button{height:40px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.sort-button svg{opacity:.55}.sort-button:hover,.sort-button.active{color:var(--lz-text-secondary)}.sort-button.active svg{opacity:1}.sort-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){text-align:right}.file-table__head span:nth-child(4) .sort-button{width:100%;justify-content:flex-end}.file-row{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid #edf1f6;border-radius:8px;background:transparent;color:var(--lz-text-secondary);text-align:left;font-size:13px;cursor:pointer}.file-row:hover{background:#f7f9fc}.file-row:focus-visible{outline:0;background:#f7f8fc;box-shadow:inset 0 0 0 1px var(--lz-brand-border)}.file-row.selected,.file-row.selected:focus-visible{background:#f4f5f9}.file-name{min-width:0;display:flex;align-items:center;gap:10px}.file-name strong{overflow:hidden;color:var(--lz-text-strong);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.file-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f1f5f9;color:#64748b}.file-icon[data-type="outline"],.file-icon[data-type="teaching_calendar"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"]{background:#eef2ff;color:#4f46e5}.status-dot{width:7px;height:7px;display:inline-block;margin-right:6px;border-radius:50%;background:#94a3b8}.status-dot[data-state="ready"],.status-dot[data-state="uploaded"]{background:#10b981}.status-dot[data-state="working"]{background:#6366f1}.status-dot[data-state="stale"]{background:#f97316}.status-dot[data-state="missing"],.status-dot[data-state="empty"]{background:#cbd5e1}
+.file-table{min-height:0;flex:1;overflow:auto;padding:0 12px 20px}.file-table__head,.file-row{display:grid;grid-template-columns:28px minmax(230px,1.65fr) 126px 88px 76px 98px;align-items:center;gap:10px}.file-table__head{min-height:42px;padding:0 10px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);font-size:12px;font-weight:700}.sort-button{height:40px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.sort-button svg{opacity:.55}.sort-button:hover,.sort-button.active{color:var(--lz-text-secondary)}.sort-button.active svg{opacity:1}.sort-button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-table__head>span:nth-child(4),.file-row>span:nth-child(4){text-align:left}.file-table__head>span:nth-child(4) .sort-button{width:auto;justify-content:flex-start}.file-table__head>span:nth-child(5),.file-row>span:nth-child(5){text-align:right}.file-table__head>span:nth-child(5) .sort-button{width:100%;justify-content:flex-end}.file-row{width:100%;min-height:58px;padding:7px 10px;border:0;border-bottom:1px solid #edf1f6;border-radius:8px;background:transparent;color:var(--lz-text-secondary);text-align:left;font-size:13px;cursor:pointer}.file-row:hover{background:#f7f9fc}.file-row:focus-visible{outline:0;background:#f7f8fc;box-shadow:inset 0 0 0 1px var(--lz-brand-border)}.file-row.selected,.file-row.selected:focus-visible{background:#f4f5f9}.selection-cell{display:grid;place-items:center}.selection-cell input{width:15px;height:15px;margin:0;border-radius:4px;accent-color:var(--lz-brand);cursor:pointer}.file-row .selection-cell input{opacity:0;transition:opacity .12s ease}.file-row:hover .selection-cell input,.file-row:focus-within .selection-cell input,.file-row.checked .selection-cell input{opacity:1}.file-row.checked,.file-row.checked:focus-visible{background:color-mix(in srgb,var(--lz-brand-soft) 72%,#fff);box-shadow:inset 3px 0 0 var(--lz-brand)}.file-name{min-width:0;display:flex;align-items:center;gap:10px}.file-name strong{overflow:hidden;color:var(--lz-text-strong);font-size:14px;text-overflow:ellipsis;white-space:nowrap}.file-icon{width:34px;height:34px;flex:none;display:grid;place-items:center;border-radius:8px;background:#f1f5f9;color:#64748b}.file-icon[data-type="outline"],.file-icon[data-type="teaching_calendar"],.file-icon[data-type="lesson_plan"],.file-icon[data-type="ppt"]{background:#eef2ff;color:#4f46e5}.status-dot{width:7px;height:7px;display:inline-block;margin-right:6px;border-radius:50%;background:#94a3b8}.status-dot[data-state="ready"],.status-dot[data-state="uploaded"]{background:#10b981}.status-dot[data-state="working"]{background:#6366f1}.status-dot[data-state="stale"]{background:#f97316}.status-dot[data-state="missing"],.status-dot[data-state="empty"],.status-dot[data-state="trashed"]{background:#cbd5e1}
+.selection-toolbar{min-height:38px;display:flex;align-items:center;gap:5px;padding:3px;border:1px solid var(--lz-brand-border);border-radius:10px;background:var(--lz-brand-soft)}.selection-toolbar strong{padding:0 8px;color:var(--lz-brand-strong);font-size:12px;white-space:nowrap}.selection-toolbar button{height:30px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:0;border-radius:7px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:700;cursor:pointer}.selection-toolbar button:hover{color:var(--lz-brand-strong);background:#fff}.selection-toolbar button.danger{color:#b91c1c}.selection-toolbar button.danger:hover{background:#fff1f2}.selection-toolbar button.selection-clear{width:30px;padding:0;color:var(--lz-text-muted);background:transparent}.selection-toolbar button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:1px}.recycle-bin-button{min-height:32px;padding:0 8px!important;border-radius:8px!important}.recycle-bin-button:hover,.recycle-bin-button.active{color:var(--lz-brand-strong)!important;background:var(--lz-brand-soft)!important}.recycle-bin-button b{min-width:20px;height:20px;display:grid;place-items:center;margin-left:auto;border-radius:999px;color:var(--lz-brand-strong);background:#fff;font-size:11px;font-variant-numeric:tabular-nums}.empty-trash-button{padding:0 10px!important;border-color:transparent!important;color:#b91c1c!important;background:transparent!important}.empty-trash-button:hover{border-color:#fecaca!important;color:#991b1b!important;background:#fff1f2!important}
 .file-row.selected,.file-row.selected:focus-visible{background:color-mix(in srgb,var(--lz-brand-soft) 62%,#fff)}
 .file-empty{min-height:260px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--lz-text-muted);text-align:center}.file-empty strong{color:var(--lz-text-secondary);font-size:15px}.file-empty span{max-width:320px;font-size:13px;line-height:1.55}.file-empty button{display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:#4f46e5;font-size:13px;cursor:pointer}.file-empty button:hover{border-color:var(--lz-brand-border);background:var(--lz-brand-soft)}.runtime-note{margin:0;padding:9px 18px;border-top:1px solid var(--lz-border);color:#9a3412;background:#fff7ed;font-size:13px}
 .file-inspector{display:flex;flex-direction:column;border-left:1px solid var(--lz-border);background:#fff}.file-inspector>header{display:grid;grid-template-columns:38px minmax(0,1fr) auto;align-items:center;gap:10px;padding:15px 14px;border-bottom:1px solid var(--lz-border)}.inspector-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:9px;background:#eef2ff;color:#4f46e5}.file-inspector header div{min-width:0;display:grid;gap:2px}.file-inspector header small{color:var(--lz-text-muted);font-size:11px}.file-inspector header strong{overflow:hidden;font-size:15px;text-overflow:ellipsis;white-space:nowrap}.inspector-status{padding:10px 14px;border-bottom:1px solid #edf1f5}.inspector-status>span{display:flex;align-items:center;gap:7px;color:var(--lz-text-secondary);font-size:12px;font-weight:700}.inspector-status i{width:7px;height:7px;border-radius:50%;background:#94a3b8}.inspector-status[data-state="ready"] i,.inspector-status[data-state="uploaded"] i{background:#10b981}.inspector-status[data-state="working"] i{background:#6366f1}.inspector-status[data-state="stale"] i{background:#f97316}.inspector-status[data-state="empty"] i{background:#cbd5e1}.inspector-overview{min-height:0;overflow:auto;padding:4px 14px 18px}.inspector-overview h3{margin:0;color:var(--lz-text-secondary);font-size:12px;font-weight:750}.inspector-overview dl{margin:0}.inspector-overview dl>div{display:grid;grid-template-columns:64px minmax(0,1fr);gap:9px;padding:10px 0;border-bottom:1px solid #edf1f5}.inspector-overview dt{color:var(--lz-text-muted);font-size:12px}.inspector-overview dd{margin:0;overflow-wrap:anywhere;color:var(--lz-text-secondary);font-size:12px;line-height:1.45}.understanding-value[data-source="ai"],.understanding-value[data-source="hybrid"]{color:#514bdc}.understanding-value[data-source="teacher"]{color:#16825d}.asset-type-select{width:100%;min-height:30px;padding:0 25px 0 8px;border:1px solid #d8deea;border-radius:7px;outline:0;color:#334155;background:#fff;font:inherit;font-size:12px}.asset-type-select:focus{border-color:var(--lz-brand);box-shadow:0 0 0 3px var(--lz-brand-soft)}.asset-type-select:disabled{opacity:.6;cursor:wait}.inspector-actions{display:grid;gap:8px;margin-top:auto;padding:13px 14px;border-top:1px solid var(--lz-border);background:#fff}.inspector-actions__secondary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.inspector-actions__secondary>button:only-child{grid-column:1/-1}.inspector-actions button{min-height:38px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:var(--lz-text-secondary);font-size:12px;font-weight:700;cursor:pointer}.inspector-actions button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.inspector-actions button.primary{min-height:40px;border-color:#4f46e5;background:#4f46e5;color:#fff}.inspector-actions button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.inspector-actions button.danger{border-color:transparent;color:#b91c1c;background:transparent}.inspector-actions button.danger:hover:not(:disabled){border-color:#fecaca;color:#991b1b;background:#fff1f2}.inspector-actions button:disabled{opacity:.45;cursor:not-allowed}.inspector-actions button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}
@@ -1968,8 +2227,8 @@ onBeforeUnmount(() => {
 .space-state{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center;font-size:13px}.space-state strong{color:var(--lz-text-secondary);font-size:15px}.space-state span{max-width:240px;font-size:13px;line-height:1.5}.space-state button{padding:8px 13px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;font-size:13px}
 .asset-create-overlay{position:fixed;inset:0;z-index:2600;display:grid;place-items:center;padding:14px;background:rgba(15,23,42,.38);backdrop-filter:blur(2px)}.asset-create-dialog{width:min(580px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;padding:0 20px 20px;border:1px solid rgba(255,255,255,.65);border-radius:14px;background:#fff;box-shadow:0 24px 70px rgba(15,23,42,.22)}.asset-create-header{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;min-height:54px;margin:0 -20px 15px;padding:0 20px;border-bottom:1px solid #eef2f7;background:rgba(255,255,255,.96)}.asset-create-header strong{font-size:16px}.asset-create-header button{width:32px;height:32px;display:grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.asset-create-header button:hover{background:#f1f5f9;color:var(--lz-text-strong)}.asset-create-help{margin:0 0 15px;color:var(--lz-text-secondary);font-size:13px;line-height:1.55}.create-location{min-height:40px;display:grid;grid-template-columns:18px auto minmax(0,1fr);align-items:center;gap:7px;padding:0 11px;border:1px solid #e2e8f0;border-radius:8px;color:#64748b;background:#f8fafc;font-size:12px}.create-location strong{overflow:hidden;color:#334155;font-weight:650;text-overflow:ellipsis;white-space:nowrap}.asset-form{display:grid;gap:14px;padding-top:16px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form-field{display:grid;gap:7px}.form-field>span,.source-picker>div>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.form-field>small{color:var(--lz-text-muted);font-size:12px;line-height:1.5}.form-field input,.form-field select,.form-field textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid var(--lz-border);border-radius:8px;outline:0;color:var(--lz-text-strong);background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical}.form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.1)}.source-picker{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px dashed #cbd5e1;border-radius:9px}.source-picker>div{display:grid;gap:4px}.source-picker small{color:var(--lz-text-muted);font-size:12px}.source-picker button{max-width:220px;display:flex;align-items:center;gap:6px;overflow:hidden;padding:8px 10px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;color:#4f46e5;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-origin-picker{display:grid;gap:8px}.ppt-origin-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker>div{display:grid;grid-template-columns:1fr 1fr;gap:9px}.ppt-origin-picker button{min-width:0;display:grid;grid-template-columns:20px minmax(0,1fr);gap:2px 8px;padding:11px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-secondary);background:#fff;text-align:left;cursor:pointer}.ppt-origin-picker button svg{grid-row:1/3;align-self:center;color:#64748b}.ppt-origin-picker button strong{font-size:13px}.ppt-origin-picker button small{overflow:hidden;color:var(--lz-text-muted);font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-origin-picker button.active{border-color:var(--lz-brand);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.ppt-origin-picker button.active svg{color:var(--lz-brand)}.ppt-origin-note{display:flex;align-items:flex-start;gap:7px;margin:0;padding:10px 11px;border:1px solid #e0e7ff;border-radius:8px;color:#4f46e5;background:#f8faff;font-size:12px;line-height:1.5}.ppt-origin-note[data-mode="import"]{border-color:#e2e8f0;color:#475569;background:#f8fafc}.dialog-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:5px}.dialog-actions button{min-height:38px;padding:0 14px;border:1px solid var(--lz-border);border-radius:8px;background:#fff;color:var(--lz-text-secondary);font-size:13px;font-weight:700;cursor:pointer}.dialog-actions button.primary{border-color:#4f46e5;background:#4f46e5;color:#fff}.dialog-actions button:disabled{opacity:.45;cursor:not-allowed}.practice-create-note,.create-prerequisite{display:grid;grid-template-columns:20px minmax(0,1fr);align-items:start;gap:9px;padding:12px;border:1px solid #e2e8f0;border-radius:9px;color:#475569;background:#f8fafc}.practice-create-note>div,.create-prerequisite>div{display:grid;gap:4px}.practice-create-note strong,.create-prerequisite strong{font-size:13px}.practice-create-note small,.create-prerequisite small{color:var(--lz-text-muted);font-size:12px;line-height:1.5}.create-prerequisite{grid-template-columns:20px minmax(0,1fr) auto;border-color:#fed7aa;color:#9a3412;background:#fff7ed}.create-prerequisite button{align-self:center;padding:7px 9px;border:1px solid #fdba74;border-radius:7px;color:#9a3412;background:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .source-picker>span{color:var(--lz-text-secondary);font-size:13px;font-weight:700}.ppt-origin-picker button{align-items:center;gap:8px}.ppt-origin-picker button svg{grid-row:auto}.practice-create-note,.create-prerequisite{align-items:center}
-.file-context-menu{position:fixed;z-index:3200;width:188px;display:grid;padding:6px;border:1px solid #dfe4ec;border-radius:10px;background:#fff;box-shadow:0 18px 46px rgba(15,23,42,.2);outline:0}.file-context-menu button{min-height:36px;display:flex;align-items:center;gap:9px;padding:0 9px;border:0;border-radius:7px;color:#334155;background:transparent;font:inherit;font-size:12px;font-weight:650;text-align:left;cursor:pointer}.file-context-menu button:hover,.file-context-menu button:focus-visible{outline:0;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.file-context-menu>span{height:1px;margin:5px 4px;background:#edf1f5}.file-context-menu button.danger{color:#b91c1c}.file-context-menu button.danger:hover,.file-context-menu button.danger:focus-visible{color:#991b1b;background:#fff1f2}.preview-surface{min-height:420px;display:grid;place-items:center}.preview-surface img{max-width:100%;max-height:75vh}.preview-surface iframe{width:100%;min-height:72vh;border:0}.office-note{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--lz-text-muted);text-align:center;font-size:13px}.office-note strong{color:var(--lz-text-strong);font-size:15px}.office-note button{padding:8px 11px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;font-size:13px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media (max-width:1080px){.file-layout{grid-template-columns:220px minmax(440px,1fr) 270px}.list-search{display:none}.file-table__head,.file-row{grid-template-columns:minmax(190px,1.5fr) 104px 78px 90px}.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}}
+.file-context-menu{position:fixed;z-index:3200;width:188px;display:grid;padding:6px;border:1px solid #dfe4ec;border-radius:10px;background:#fff;box-shadow:0 18px 46px rgba(15,23,42,.2);outline:0}.file-context-menu button{min-height:36px;display:flex;align-items:center;gap:9px;padding:0 9px;border:0;border-radius:7px;color:#334155;background:transparent;font:inherit;font-size:12px;font-weight:650;text-align:left;cursor:pointer}.file-context-menu button:hover,.file-context-menu button:focus-visible{outline:0;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.file-context-menu>span{height:1px;margin:5px 4px;background:#edf1f5}.file-context-menu button.danger{color:#b91c1c}.file-context-menu button.danger:hover,.file-context-menu button.danger:focus-visible{color:#991b1b;background:#fff1f2}.file-operation-overlay{position:fixed;inset:0;z-index:3300;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.34);backdrop-filter:blur(2px)}.file-operation-dialog{width:min(420px,calc(100vw - 40px));overflow:hidden;border:1px solid #e3e7ef;border-radius:14px;background:#fff;box-shadow:0 24px 72px rgba(15,23,42,.2)}.file-operation-dialog>header{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 18px;border-bottom:1px solid #edf1f5}.file-operation-dialog>header strong{font-size:15px}.file-operation-dialog>header button{width:32px;height:32px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.file-operation-dialog>header button:hover{color:var(--lz-text-strong);background:#f1f5f9}.file-operation-dialog>label{display:grid;gap:7px;padding:20px 18px}.file-operation-dialog>label span{color:var(--lz-text-secondary);font-size:12px;font-weight:700}.file-operation-dialog select{width:100%;height:40px;padding:0 10px;border:1px solid var(--lz-border);border-radius:8px;outline:0;color:var(--lz-text-strong);background:#fff;font:inherit;font-size:13px}.file-operation-dialog select:focus{border-color:var(--lz-brand);box-shadow:0 0 0 3px var(--lz-brand-soft)}.file-operation-dialog>footer{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid #edf1f5;background:#fafbfc}.file-operation-dialog>footer button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 13px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:#fff;font-size:12px;font-weight:700;cursor:pointer}.file-operation-dialog>footer button.primary{border-color:var(--lz-brand);color:#fff;background:var(--lz-brand)}.file-operation-dialog>footer button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.file-operation-dialog>footer button.primary:hover:not(:disabled){border-color:var(--lz-brand-strong);color:#fff;background:var(--lz-brand-strong)}.file-operation-dialog button:focus-visible{outline:2px solid var(--lz-brand);outline-offset:2px}.file-operation-dialog button:disabled{opacity:.45;cursor:not-allowed}.preview-surface{min-height:420px;display:grid;place-items:center}.preview-surface img{max-width:100%;max-height:75vh}.preview-surface iframe{width:100%;min-height:72vh;border:0}.office-note{display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--lz-text-muted);text-align:center;font-size:13px}.office-note strong{color:var(--lz-text-strong);font-size:15px}.office-note button{padding:8px 11px;border:1px solid var(--lz-border);border-radius:7px;background:#fff;font-size:13px}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:1080px){.file-layout{grid-template-columns:220px minmax(440px,1fr) 270px}.list-search{display:none}.file-table__head,.file-row{grid-template-columns:28px minmax(190px,1.5fr) 104px 78px 90px}.file-table__head>span:nth-child(4),.file-row>span:nth-child(4){display:block}.file-table__head>span:nth-child(5),.file-row>span:nth-child(5){display:none}}
 @media (max-width:760px){.workspace-view-switch button{padding:0 8px}.file-layout{grid-template-columns:1fr;grid-template-rows:170px minmax(0,1fr) auto}.file-tree-pane{display:grid;grid-template-rows:46px minmax(0,1fr);overflow:hidden;border-right:0;border-bottom:1px solid var(--lz-border)}.pane-heading{min-height:46px;padding:0 11px}.folder-navigation{overflow:auto;padding:6px 8px 11px}.file-tree-pane footer{display:none}.file-inspector{max-height:56vh;border-left:0;border-top:1px solid var(--lz-border)}.inspector-actions{padding:13px 14px}.list-toolbar{min-height:50px;padding:0 11px}.list-toolbar nav button{max-width:110px}.folder-title{min-height:58px;padding:8px 12px}.folder-title h2{font-size:17px}.folder-title__actions>span{display:none}.add-material-button{padding:0 10px}.file-table{padding:0 7px 12px}.file-table__head,.file-row{grid-template-columns:minmax(180px,1fr) 94px}.file-table__head span:nth-child(2),.file-row>span:nth-child(2),.file-table__head span:nth-child(3),.file-row>span:nth-child(3),.file-table__head span:nth-child(4),.file-row>span:nth-child(4){display:none}.category-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(160px,32vh) minmax(0,1fr)}.category-navigation{padding:11px 10px;border-right:0;border-bottom:1px solid var(--lz-border)}.category-navigation>header{display:none}.category-group__button{min-height:50px}.category-detail-header{min-height:72px;align-items:flex-start;gap:10px;padding:10px 12px}.category-detail-header>div:first-child{gap:3px 8px}.category-detail-header h2{font-size:17px}.category-detail-actions{gap:5px}.category-detail-actions button{min-height:34px;padding:0 9px}.category-document-scroll{padding:12px 10px 28px}.category-document{min-height:100%;padding:20px 18px 34px;border-radius:9px}.form-grid{grid-template-columns:1fr}}
 .category-layout{grid-template-columns:312px minmax(0,1fr);background:#f3f5f9}
 .category-navigation{margin:14px 0 14px 14px;padding:20px 14px;border:1px solid #e6eaf1;border-radius:22px;background:#fff;box-shadow:0 12px 34px rgba(15,23,42,.045)}

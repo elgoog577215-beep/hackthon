@@ -37,6 +37,29 @@ The system SHALL present a course work package as a nested directory workspace: 
 - **WHEN** the teacher changes an imported asset from “未分类” to “学校材料”
 - **THEN** the asset remains at its original relative path and the updated category is returned in the asset tree
 
+### Requirement: Workspace provides contextual file management and recoverable deletion
+The system SHALL let the owning teacher select one or more uploaded originals, rename or move uploaded originals and custom folders, and move eligible originals to a recycle bin. Low-frequency operations MUST appear from the selected-object or context menu rather than permanently occupying the primary toolbar. A file referenced by a formal target MUST be blocked from entering the recycle bin.
+
+#### Scenario: Teacher selects multiple originals
+- **WHEN** the teacher selects two uploaded originals in the current folder
+- **THEN** the interface shows a contextual batch bar for moving or recycling those two files without adding persistent primary-toolbar buttons
+
+#### Scenario: Teacher restores a recycled original
+- **WHEN** the teacher restores an item from the recycle bin and its original path is available
+- **THEN** the system restores its metadata and materialized file to that original path
+
+#### Scenario: Restore destination conflicts
+- **WHEN** the original path already contains another file with the same name
+- **THEN** restoration fails explicitly and does not overwrite either file
+
+#### Scenario: Referenced original cannot be recycled
+- **WHEN** a formal course target still references an uploaded original
+- **THEN** the system rejects moving that original to the recycle bin and preserves the relationship
+
+#### Scenario: Teacher permanently deletes a recycled item
+- **WHEN** the teacher confirms permanent deletion from inside the recycle bin
+- **THEN** the system removes the recycle record and retained file data and the item can no longer be restored
+
 ### Requirement: New course chooses its preparation starting point inside the workbench
 The system SHALL open a newly created course in its preparation workbench and SHALL overlay a first-use choice between starting from scratch and preparing from existing materials.
 

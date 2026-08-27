@@ -32,3 +32,6 @@
 - [x] 4.10 Persist confidence, reasons, missing-material gaps and explicit rule fallback while preserving teacher-confirmed types.
 - [x] 4.11 Surface the four-dimensional result in both the preparation review and course-file inspector without changing formal-file relationship boundaries.
 - [x] 4.12 Verify focused backend/frontend tests, a real provider request with an ambiguously named document, and the real desktop page.
+- [x] 4.13 Add owner-isolated rename, move, batch action and recycle-bin contracts for uploaded originals and custom folders.
+- [x] 4.14 Keep the primary toolbar concise by exposing batch actions after selection, single-object actions in the context menu, and the recycle bin only when needed.
+- [x] 4.15 Cover move, rename, reference blocking, recycle, restore and permanent deletion with focused repository/API and component tests.

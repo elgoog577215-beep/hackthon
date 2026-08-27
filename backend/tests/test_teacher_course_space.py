@@ -229,6 +229,89 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([item["asset_id"] for item in remaining], [second["asset_id"]])
         self.assertNotEqual(first["asset_id"], second["asset_id"])
 
+    async def test_assets_can_be_renamed_moved_and_batched_without_changing_source_bytes(self):
+        root = Path(tempfile.mkdtemp())
+        repository = TeacherCourseSpaceRepository(root)
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        first = await repository.import_file(package, FakeUpload(), "辅助资料/其他资料/旧教案.pdf", "batch-1")
+        second = await repository.import_file(package, FakeUpload(), "辅助资料/其他资料/课堂案例.pdf", "batch-1")
+        repository.save(package)
+
+        renamed = repository.relocate_asset(package, first["asset_id"], filename="第一讲教案.pdf")
+        moved = repository.relocate_assets(package, [first["asset_id"], second["asset_id"]], "辅助资料/老师题库")
+
+        self.assertEqual(renamed["filename"], "第一讲教案.pdf")
+        self.assertEqual(
+            {item["relative_path"] for item in moved},
+            {"辅助资料/老师题库/第一讲教案.pdf", "辅助资料/老师题库/课堂案例.pdf"},
+        )
+        self.assertTrue((root / created["package_id"] / "content" / "辅助资料" / "老师题库" / "第一讲教案.pdf").is_file())
+        self.assertTrue((root / created["package_id"] / "files" / first["stored_name"]).is_file())
+        with self.assertRaisesRegex(MaterialStorageError, "不能改变文件类型"):
+            repository.relocate_asset(package, first["asset_id"], filename="第一讲教案.docx")
+
+    async def test_custom_folder_can_be_renamed_and_moved_with_nested_contents(self):
+        root = Path(tempfile.mkdtemp())
+        repository = TeacherCourseSpaceRepository(root)
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        repository.import_folders(package, ["辅助资料/其他资料/第一讲/空目录"])
+        asset = await repository.import_file(package, FakeUpload(), "辅助资料/其他资料/第一讲/教学日历.pdf", "batch-1")
+        repository.save(package)
+
+        repository.relocate_folder(package, "辅助资料/其他资料/第一讲", name="第一讲资料")
+
+        moved_asset = next(item for item in package["assets"] if item["asset_id"] == asset["asset_id"])
+        self.assertEqual(moved_asset["relative_path"], "辅助资料/其他资料/第一讲资料/教学日历.pdf")
+        self.assertIn("辅助资料/其他资料/第一讲资料/空目录", package_folder_paths(package))
+        self.assertTrue((root / created["package_id"] / "content" / "辅助资料" / "其他资料" / "第一讲资料" / "教学日历.pdf").is_file())
+        with self.assertRaisesRegex(MaterialStorageError, "系统目录"):
+            repository.relocate_folder(package, "辅助资料/其他资料", name="全部资料")
+
+    async def test_recycle_bin_restores_assets_and_only_purge_removes_source(self):
+        root = Path(tempfile.mkdtemp())
+        repository = TeacherCourseSpaceRepository(root)
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        asset = await repository.import_file(package, FakeUpload(), "辅助资料/其他资料/第一讲教案.pdf", "batch-1")
+        repository.save(package)
+        source = root / created["package_id"] / "files" / asset["stored_name"]
+        materialized = root / created["package_id"] / "content" / "辅助资料" / "其他资料" / "第一讲教案.pdf"
+
+        trashed = repository.trash_assets(package, [asset["asset_id"]])[0]
+
+        self.assertTrue(source.is_file())
+        self.assertFalse(materialized.exists())
+        self.assertEqual(repository.public(package)["trash_count"], 1)
+        self.assertEqual(repository.public(package)["assets"], [])
+
+        repository.restore_trash(package, [trashed["trash_id"]])
+        self.assertTrue(materialized.is_file())
+        self.assertEqual([item["asset_id"] for item in package["assets"]], [asset["asset_id"]])
+
+        trashed_again = repository.trash_assets(package, [asset["asset_id"]])[0]
+        repository.purge_trash(package, [trashed_again["trash_id"]])
+        self.assertFalse(source.exists())
+        self.assertEqual(repository.public(package)["trash_count"], 0)
+
+    async def test_recycle_bin_restores_custom_folder_as_one_item(self):
+        root = Path(tempfile.mkdtemp())
+        repository = TeacherCourseSpaceRepository(root)
+        created = repository.create_package("teacher-a", "数据结构", "2025-2026", "春季")
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        repository.import_folders(package, ["辅助资料/其他资料/第一讲/空目录"])
+        asset = await repository.import_file(package, FakeUpload(), "辅助资料/其他资料/第一讲/教学日历.pdf", "batch-1")
+        repository.save(package)
+
+        trashed = repository.trash_folder(package, "辅助资料/其他资料/第一讲")
+        self.assertEqual(repository.public(package)["trash"][0]["kind"], "folder")
+        self.assertNotIn(asset["asset_id"], [item["asset_id"] for item in package["assets"]])
+
+        repository.restore_trash(package, [trashed["trash_id"]])
+        self.assertIn("辅助资料/其他资料/第一讲/空目录", package_folder_paths(package))
+        self.assertTrue((root / created["package_id"] / "content" / "辅助资料" / "其他资料" / "第一讲" / "教学日历.pdf").is_file())
+
     async def test_formal_file_relationships_are_bidirectional_and_replaceable(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
         created = repository.create_package(

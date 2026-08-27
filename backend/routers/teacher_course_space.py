@@ -23,6 +23,18 @@ class CategoryUpdate(BaseModel):
     category: str | None = None
     document_type: str | None = None
 class FolderCreate(BaseModel): name: str
+class AssetLocationUpdate(BaseModel):
+    filename: str | None = None
+    parent_path: str | None = None
+class FolderLocationUpdate(BaseModel):
+    path: str
+    name: str | None = None
+    parent_path: str | None = None
+class FolderTrashRequest(BaseModel): path: str
+class FileBatchAction(BaseModel):
+    action: Literal["move", "trash", "restore", "purge"]
+    ids: list[str] = Field(default_factory=list)
+    destination_path: str = ""
 class RelationshipSource(BaseModel):
     source_asset_id: str
     role: Literal["primary", "reference", "question_source"] = "reference"
@@ -161,9 +173,72 @@ def update_asset(package_id: str, asset_id: str, body: CategoryUpdate, request: 
             document_type=body.document_type,
         )
     except Exception as exc: http_error(exc)
+@router.patch("/{package_id}/assets/{asset_id}/location")
+def update_asset_location(package_id: str, asset_id: str, body: AssetLocationUpdate, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        repository.relocate_asset(package, asset_id, filename=body.filename, parent_path=body.parent_path)
+        return repository.public(package)
+    except Exception as exc: http_error(exc)
 @router.post("/{package_id}/folders", status_code=201)
 def create_folder(package_id: str, body: FolderCreate, request: Request):
     try: return repository.add_folder(repository.load_owned(package_id, owner(request)), body.name)
+    except Exception as exc: http_error(exc)
+@router.patch("/{package_id}/folders/location")
+def update_folder_location(package_id: str, body: FolderLocationUpdate, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        repository.relocate_folder(package, body.path, name=body.name, parent_path=body.parent_path)
+        return repository.public(package)
+    except Exception as exc: http_error(exc)
+@router.post("/{package_id}/assets/{asset_id}/trash")
+def trash_asset(package_id: str, asset_id: str, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        repository.trash_assets(package, [asset_id])
+        return repository.public(package)
+    except Exception as exc: http_error(exc)
+@router.post("/{package_id}/folders/trash")
+def trash_folder(package_id: str, body: FolderTrashRequest, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        repository.trash_folder(package, body.path)
+        return repository.public(package)
+    except Exception as exc: http_error(exc)
+@router.post("/{package_id}/batch")
+def batch_file_action(package_id: str, body: FileBatchAction, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        if body.action == "move":
+            repository.relocate_assets(package, body.ids, body.destination_path)
+        elif body.action == "trash":
+            repository.trash_assets(package, body.ids)
+        elif body.action == "restore":
+            repository.restore_trash(package, body.ids)
+        else:
+            repository.purge_trash(package, body.ids)
+        return repository.public(package)
+    except Exception as exc: http_error(exc)
+@router.post("/{package_id}/trash/{trash_id}/restore")
+def restore_trash_item(package_id: str, trash_id: str, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        repository.restore_trash(package, [trash_id])
+        return repository.public(package)
+    except Exception as exc: http_error(exc)
+@router.delete("/{package_id}/trash/{trash_id}")
+def delete_trash_item(package_id: str, trash_id: str, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        result = repository.purge_trash(package, [trash_id])
+        return {**result, "package": repository.public(package)}
+    except Exception as exc: http_error(exc)
+@router.delete("/{package_id}/trash")
+def empty_trash(package_id: str, request: Request):
+    try:
+        package = repository.load_owned(package_id, owner(request))
+        result = repository.purge_trash(package)
+        return {**result, "package": repository.public(package)}
     except Exception as exc: http_error(exc)
 @router.delete("/{package_id}/assets/{asset_id}")
 def delete_asset(package_id: str, asset_id: str, request: Request):

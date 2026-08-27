@@ -49,6 +49,13 @@ DOCUMENT_TYPES = {
     "school_material": "教务材料",
     "other": "其他资料",
 }
+MANAGED_UPLOAD_FOLDERS = {
+    "辅助资料",
+    "辅助资料/老师题库",
+    "辅助资料/试卷",
+    "辅助资料/学生作业",
+    "辅助资料/其他资料",
+}
 SCHOOL_TEMPLATE = [
     {"name": "0、教学大纲", "kind": "folder"}, {"name": "1、教案", "kind": "folder"},
     {"name": "2、PPT", "kind": "folder"},
@@ -172,7 +179,7 @@ class TeacherCourseSpaceRepository:
         if template not in {"blank", "school_course_materials"}: raise MaterialStorageError("课程模板不合法")
         entries = [{**entry, "path": entry["name"]} for entry in SCHOOL_TEMPLATE] if template == "school_course_materials" else []
         package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
-                   "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "imports": [],
+                   "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "trash": [], "imports": [],
                    "entries": entries, "relationships": [], "asset_relationships": [], "material_understanding": {}, "preparation_status": "pending"}
         package_path = self._path(package_id)
         package_path.mkdir(parents=True, exist_ok=False)
@@ -286,6 +293,19 @@ class TeacherCourseSpaceRepository:
         )
         result["configured_source_target_ids"] = sorted(configured)
         result["asset_count"] = len(result.get("assets") or [])
+        result["trash"] = [
+            {
+                "trash_id": str(item.get("trash_id") or ""),
+                "kind": str(item.get("kind") or "asset"),
+                "name": str(item.get("name") or ""),
+                "original_path": str(item.get("original_path") or ""),
+                "deleted_at": str(item.get("deleted_at") or ""),
+                "item_count": int(item.get("item_count") or 1),
+                "size_bytes": int(item.get("size_bytes") or 0),
+            }
+            for item in package.get("trash") or []
+        ]
+        result["trash_count"] = sum(int(item.get("item_count") or 1) for item in result["trash"])
         return result
 
     def update_preparation_status(self, package: dict[str, Any], status: str) -> dict[str, Any]:
@@ -433,6 +453,291 @@ class TeacherCourseSpaceRepository:
                 entry = {"name": PurePosixPath(relative_path).name, "path": relative_path, "kind": "folder", "custom": True, "imported": True}
                 entries.append(entry); existing.add(relative_path); created.append(entry)
         return created
+
+    def _asset(self, package: dict[str, Any], asset_id: str) -> dict[str, Any]:
+        asset = next((item for item in package.get("assets", []) if item.get("asset_id") == asset_id), None)
+        if not asset:
+            raise FileNotFoundError(asset_id)
+        return asset
+
+    def _assert_assets_unreferenced(self, package: dict[str, Any], asset_ids: set[str], *, folder: bool = False) -> None:
+        referenced_targets = [
+            str(item.get("target_label") or item.get("target_id") or "")
+            for item in package.get("relationships", [])
+            if item.get("source_asset_id") in asset_ids
+        ]
+        if not referenced_targets:
+            return
+        target_summary = "、".join(dict.fromkeys(filter(None, referenced_targets)))
+        prefix = "文件夹中有原件" if folder else "该原件"
+        raise MaterialStorageError(f"{prefix}仍被正式文件引用（{target_summary}），请先解除引用后再操作")
+
+    def _validate_destination_folder(self, package: dict[str, Any], value: str) -> str:
+        raw = str(value or "").replace("\\", "/").strip().strip("/")
+        if not raw:
+            return ""
+        normalized = normalize_relative_path(raw)
+        folders = set(package_folder_paths(package)) | MANAGED_UPLOAD_FOLDERS
+        if normalized not in folders:
+            raise MaterialStorageError("目标文件夹不存在")
+        return normalized
+
+    def _validate_filename(self, asset: dict[str, Any], value: str) -> str:
+        filename = str(value or "").strip()
+        if not filename or len(PurePosixPath(filename).parts) != 1 or filename in {".", ".."}:
+            raise MaterialStorageError("文件名不合法")
+        extension = Path(filename).suffix.lower()
+        if extension != str(asset.get("extension") or "").lower():
+            raise MaterialStorageError("重命名不能改变文件类型")
+        return filename
+
+    def _assert_paths_available(
+        self,
+        package: dict[str, Any],
+        paths: dict[str, str],
+        *,
+        ignored_asset_ids: set[str] | None = None,
+    ) -> None:
+        ignored = ignored_asset_ids or set()
+        existing = {
+            str(item.get("relative_path") or "")
+            for item in package.get("assets", [])
+            if item.get("asset_id") not in ignored
+        }
+        folder_paths = set(package_folder_paths(package))
+        values = list(paths.values())
+        if len(set(values)) != len(values):
+            raise MaterialStorageError("目标文件夹中存在同名文件")
+        conflict = next((value for value in values if value in existing or value in folder_paths), None)
+        if conflict:
+            raise MaterialStorageError(f"目标位置已存在：{PurePosixPath(conflict).name}")
+
+    def _move_materialized_file(self, package: dict[str, Any], asset: dict[str, Any], destination_path: str) -> None:
+        source = self._content_path(package["package_id"], str(asset.get("relative_path") or ""))
+        destination = self._content_path(package["package_id"], destination_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_file():
+            source.replace(destination)
+
+    def relocate_asset(
+        self,
+        package: dict[str, Any],
+        asset_id: str,
+        *,
+        filename: str | None = None,
+        parent_path: str | None = None,
+    ) -> dict[str, Any]:
+        asset = self._asset(package, asset_id)
+        current = PurePosixPath(str(asset.get("relative_path") or asset.get("filename") or ""))
+        target_name = self._validate_filename(asset, filename if filename is not None else str(asset.get("filename") or current.name))
+        target_parent = self._validate_destination_folder(package, str(current.parent) if parent_path is None and str(current.parent) != "." else str(parent_path or ""))
+        target_path = str(PurePosixPath(target_parent, target_name)) if target_parent else target_name
+        if target_path == str(asset.get("relative_path") or ""):
+            return asset
+        self._assert_paths_available(package, {asset_id: target_path}, ignored_asset_ids={asset_id})
+        self._move_materialized_file(package, asset, target_path)
+        asset.update({"filename": target_name, "relative_path": target_path, "materialized_path": target_path, "updated_at": _now()})
+        self.save(package)
+        return asset
+
+    def relocate_assets(self, package: dict[str, Any], asset_ids: list[str], parent_path: str) -> list[dict[str, Any]]:
+        ids = list(dict.fromkeys(str(value or "") for value in asset_ids if value))
+        if not ids:
+            raise MaterialStorageError("请选择要移动的文件")
+        assets = [self._asset(package, asset_id) for asset_id in ids]
+        target_parent = self._validate_destination_folder(package, parent_path)
+        paths = {
+            str(asset["asset_id"]): str(PurePosixPath(target_parent, str(asset["filename"]))) if target_parent else str(asset["filename"])
+            for asset in assets
+        }
+        self._assert_paths_available(package, paths, ignored_asset_ids=set(ids))
+        for asset in assets:
+            target_path = paths[str(asset["asset_id"])]
+            if target_path != str(asset.get("relative_path") or ""):
+                self._move_materialized_file(package, asset, target_path)
+                asset.update({"relative_path": target_path, "materialized_path": target_path, "updated_at": _now()})
+        self.save(package)
+        return assets
+
+    def relocate_folder(
+        self,
+        package: dict[str, Any],
+        folder_path: str,
+        *,
+        name: str | None = None,
+        parent_path: str | None = None,
+    ) -> dict[str, Any]:
+        source_path = normalize_relative_path(folder_path)
+        if source_path in MANAGED_UPLOAD_FOLDERS:
+            raise MaterialStorageError("系统目录不能重命名或移动")
+        entries = package.get("entries", [])
+        source_entry = next(
+            (item for item in entries if item.get("kind") == "folder" and item.get("custom") and str(item.get("path") or item.get("name") or "") == source_path),
+            None,
+        )
+        if not source_entry:
+            raise MaterialStorageError("系统目录不能重命名或移动")
+        source = PurePosixPath(source_path)
+        target_name = str(name if name is not None else source.name).strip()
+        if not target_name or len(PurePosixPath(target_name).parts) != 1 or Path(target_name).suffix:
+            raise MaterialStorageError("文件夹名称不合法")
+        current_parent = "" if str(source.parent) == "." else str(source.parent)
+        target_parent = self._validate_destination_folder(package, current_parent if parent_path is None else parent_path)
+        if target_parent == source_path or target_parent.startswith(f"{source_path}/"):
+            raise MaterialStorageError("不能把文件夹移动到自身内部")
+        destination_path = str(PurePosixPath(target_parent, target_name)) if target_parent else target_name
+        if destination_path == source_path:
+            return source_entry
+        existing_folders = set(package_folder_paths(package))
+        if destination_path in existing_folders:
+            raise MaterialStorageError("目标位置已有同名文件夹")
+        affected_assets = [item for item in package.get("assets", []) if str(item.get("relative_path") or "").startswith(f"{source_path}/")]
+        asset_paths = {
+            str(item["asset_id"]): f"{destination_path}{str(item['relative_path'])[len(source_path):]}"
+            for item in affected_assets
+        }
+        self._assert_paths_available(package, asset_paths, ignored_asset_ids=set(asset_paths))
+        source_directory = self._content_path(package["package_id"], source_path)
+        destination_directory = self._content_path(package["package_id"], destination_path)
+        destination_directory.parent.mkdir(parents=True, exist_ok=True)
+        if source_directory.exists():
+            source_directory.replace(destination_directory)
+        else:
+            destination_directory.mkdir(parents=True, exist_ok=True)
+        for entry in entries:
+            entry_path = str(entry.get("path") or entry.get("name") or "")
+            if entry_path == source_path or entry_path.startswith(f"{source_path}/"):
+                entry["path"] = f"{destination_path}{entry_path[len(source_path):]}"
+                if entry_path == source_path:
+                    entry["name"] = target_name
+        for asset in affected_assets:
+            target_path = asset_paths[str(asset["asset_id"])]
+            asset.update({"relative_path": target_path, "materialized_path": target_path, "updated_at": _now()})
+        self.save(package)
+        return source_entry
+
+    def trash_assets(self, package: dict[str, Any], asset_ids: list[str]) -> list[dict[str, Any]]:
+        ids = list(dict.fromkeys(str(value or "") for value in asset_ids if value))
+        if not ids:
+            raise MaterialStorageError("请选择要移入回收站的文件")
+        assets = [self._asset(package, asset_id) for asset_id in ids]
+        self._assert_assets_unreferenced(package, set(ids))
+        records = []
+        for asset in assets:
+            record = {
+                "trash_id": f"trash-{uuid.uuid4().hex}",
+                "kind": "asset",
+                "name": str(asset.get("filename") or ""),
+                "original_path": str(asset.get("relative_path") or ""),
+                "deleted_at": _now(),
+                "item_count": 1,
+                "size_bytes": int(asset.get("size_bytes") or 0),
+                "asset": dict(asset),
+            }
+            records.append(record)
+            materialized = self._content_path(package["package_id"], str(asset.get("relative_path") or ""))
+            if materialized.is_file():
+                materialized.unlink()
+        package["assets"] = [item for item in package.get("assets", []) if item.get("asset_id") not in set(ids)]
+        package.setdefault("trash", []).extend(records)
+        self.save(package)
+        return records
+
+    def trash_folder(self, package: dict[str, Any], folder_path: str) -> dict[str, Any]:
+        normalized = normalize_relative_path(folder_path)
+        if normalized in MANAGED_UPLOAD_FOLDERS:
+            raise MaterialStorageError("系统目录不能移入回收站")
+        entries = package.get("entries", [])
+        source_entry = next(
+            (item for item in entries if item.get("kind") == "folder" and item.get("custom") and str(item.get("path") or item.get("name") or "") == normalized),
+            None,
+        )
+        if not source_entry:
+            raise MaterialStorageError("系统目录不能移入回收站")
+        prefix = f"{normalized}/"
+        affected_assets = [item for item in package.get("assets", []) if str(item.get("relative_path") or "").startswith(prefix)]
+        affected_entries = [item for item in entries if str(item.get("path") or item.get("name") or "") == normalized or str(item.get("path") or item.get("name") or "").startswith(prefix)]
+        asset_ids = {str(item.get("asset_id") or "") for item in affected_assets}
+        self._assert_assets_unreferenced(package, asset_ids, folder=True)
+        record = {
+            "trash_id": f"trash-{uuid.uuid4().hex}",
+            "kind": "folder",
+            "name": PurePosixPath(normalized).name,
+            "original_path": normalized,
+            "deleted_at": _now(),
+            "item_count": len(affected_assets) + len(affected_entries),
+            "size_bytes": sum(int(item.get("size_bytes") or 0) for item in affected_assets),
+            "assets": [dict(item) for item in affected_assets],
+            "entries": [dict(item) for item in affected_entries],
+        }
+        destination = self._content_path(package["package_id"], normalized)
+        if destination.is_dir():
+            shutil.rmtree(destination)
+        package["assets"] = [item for item in package.get("assets", []) if str(item.get("asset_id") or "") not in asset_ids]
+        package["entries"] = [item for item in entries if item not in affected_entries]
+        package.setdefault("trash", []).append(record)
+        self.save(package)
+        return record
+
+    def restore_trash(self, package: dict[str, Any], trash_ids: list[str]) -> list[dict[str, Any]]:
+        ids = list(dict.fromkeys(str(value or "") for value in trash_ids if value))
+        records = [item for item in package.get("trash", []) if item.get("trash_id") in ids]
+        if len(records) != len(ids):
+            raise FileNotFoundError(next((value for value in ids if not any(item.get("trash_id") == value for item in records)), "trash"))
+        active_paths = {str(item.get("relative_path") or "") for item in package.get("assets", [])}
+        active_folders = set(package_folder_paths(package))
+        restored_assets: list[dict[str, Any]] = []
+        restored_entries: list[dict[str, Any]] = []
+        for record in records:
+            assets = [record.get("asset")] if record.get("kind") == "asset" else list(record.get("assets") or [])
+            entries = [] if record.get("kind") == "asset" else list(record.get("entries") or [])
+            for asset in assets:
+                path = str(asset.get("relative_path") or "")
+                if path in active_paths:
+                    raise MaterialStorageError(f"原位置已存在同名文件：{PurePosixPath(path).name}")
+                active_paths.add(path)
+                restored_assets.append(dict(asset))
+            for entry in entries:
+                path = str(entry.get("path") or entry.get("name") or "")
+                if path in active_folders:
+                    raise MaterialStorageError(f"原位置已存在同名文件夹：{PurePosixPath(path).name}")
+                active_folders.add(path)
+                restored_entries.append(dict(entry))
+        package.setdefault("assets", []).extend(restored_assets)
+        package.setdefault("entries", []).extend(restored_entries)
+        for entry in restored_entries:
+            self._content_path(package["package_id"], str(entry.get("path") or entry.get("name") or "")).mkdir(parents=True, exist_ok=True)
+        for asset in restored_assets:
+            if asset.get("source_kind") == MATERIAL_REFERENCE_KIND:
+                continue
+            source = self._path(package["package_id"]) / "files" / str(asset.get("stored_name") or "")
+            destination = self._content_path(package["package_id"], str(asset.get("relative_path") or ""))
+            if source.is_file():
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+        package["trash"] = [item for item in package.get("trash", []) if item.get("trash_id") not in set(ids)]
+        self.save(package)
+        return records
+
+    def purge_trash(self, package: dict[str, Any], trash_ids: list[str] | None = None) -> dict[str, int]:
+        selected_ids = set(str(value or "") for value in (trash_ids or []) if value)
+        records = [item for item in package.get("trash", []) if not selected_ids or item.get("trash_id") in selected_ids]
+        if selected_ids and len(records) != len(selected_ids):
+            raise FileNotFoundError("trash")
+        deleted_assets = 0
+        for record in records:
+            assets = [record.get("asset")] if record.get("kind") == "asset" else list(record.get("assets") or [])
+            for asset in filter(None, assets):
+                deleted_assets += 1
+                if asset.get("source_kind") == MATERIAL_REFERENCE_KIND:
+                    continue
+                source = self._path(package["package_id"]) / "files" / str(asset.get("stored_name") or "")
+                if source.is_file():
+                    source.unlink()
+        removed_ids = {str(item.get("trash_id") or "") for item in records}
+        package["trash"] = [item for item in package.get("trash", []) if str(item.get("trash_id") or "") not in removed_ids]
+        self.save(package)
+        return {"deleted_items": len(records), "deleted_assets": deleted_assets}
 
     def delete_asset(self, package: dict[str, Any], asset_id: str) -> dict[str, Any]:
         asset = next((item for item in package.get("assets", []) if item.get("asset_id") == asset_id), None)
