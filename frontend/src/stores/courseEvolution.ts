@@ -97,6 +97,21 @@ export interface TeacherCourseChangeContext {
   }
 }
 
+export type TeacherMigrationDisposition =
+  | 'reuse_exact'
+  | 'reuse_rebind'
+  | 'rewrite_partial'
+  | 'regenerate'
+  | 'retire'
+
+export interface TeacherCourseOutlineReviewNode {
+  provisional_id: string
+  title: string
+  parent_ref: string
+  source_node_ids: string[]
+  learning_focus?: string
+}
+
 export interface AdaptationHypothesis {
   hypothesis_id: string
   claim: string
@@ -318,7 +333,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string }) {
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string; supersedesPlanId?: string }) {
       const targetCourseId = input.courseId || this.courseId
       if (!targetCourseId) throw new Error('course_change_course_required')
       if (this.courseId !== targetCourseId) {
@@ -335,6 +350,9 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
             request_id: input.requestId
               || createUuid(),
             instruction: input.instruction,
+            ...(input.supersedesPlanId
+              ? { supersedes_plan_id: input.supersedesPlanId }
+              : {}),
           },
         )
         this.applyPayload(targetCourseId, response.data)
@@ -354,7 +372,11 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     async reviewCoursePlan(
       planId: string,
       selectedMigrationIds: string[],
-      options: { confirmStructure?: boolean } = {},
+      options: {
+        confirmStructure?: boolean
+        migrationDispositions?: Record<string, TeacherMigrationDisposition>
+        proposedOutline?: TeacherCourseOutlineReviewNode[]
+      } = {},
     ) {
       this.actingId = planId
       try {
@@ -363,6 +385,12 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           {
             selected_migration_ids: selectedMigrationIds,
             confirm_structure: Boolean(options.confirmStructure),
+            ...(options.migrationDispositions !== undefined
+              ? { migration_dispositions: options.migrationDispositions }
+              : {}),
+            ...(options.proposedOutline !== undefined
+              ? { proposed_outline: options.proposedOutline }
+              : {}),
           },
         )
         this.applyPayload(this.courseId, response.data)
@@ -451,6 +479,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
       planId: string,
       selectedScope: 'current' | 'current_and_next',
       selectedOperationIds?: string[],
+      options: { retryFailed?: boolean } = {},
     ) {
       this.actingId = planId
       try {
@@ -458,6 +487,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         if (selectedOperationIds !== undefined) {
           payload.selected_operation_ids = selectedOperationIds
         }
+        if (options.retryFailed) payload.retry_failed = true
         const response = await http.post(
           `/api/courses/${this.courseId}/evolution/change-sets/${planId}/accept`,
           payload,

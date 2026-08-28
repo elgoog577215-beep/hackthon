@@ -43,6 +43,7 @@ class AcceptCourseEvolutionRequest(BaseModel):
 
     selected_scope: Literal["current", "current_and_next"]
     selected_operation_ids: list[str] | None = Field(default=None, max_length=500)
+    retry_failed: bool = False
 
 
 class RejectCourseEvolutionRequest(BaseModel):
@@ -81,6 +82,17 @@ class GenerateTeacherCourseChangeRequest(BaseModel):
 
     request_id: str = Field(min_length=1, max_length=200)
     instruction: str = Field(min_length=1, max_length=5000)
+    supersedes_plan_id: str = Field(default="", max_length=240)
+
+
+class TeacherCourseOutlineReviewNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provisional_id: str = Field(min_length=1, max_length=240)
+    title: str = Field(min_length=1, max_length=200)
+    parent_ref: str = Field(default="root", max_length=240)
+    source_node_ids: list[str] = Field(default_factory=list, max_length=200)
+    learning_focus: str = Field(default="", max_length=500)
 
 
 class ReviewTeacherCourseChangeRequest(BaseModel):
@@ -88,6 +100,14 @@ class ReviewTeacherCourseChangeRequest(BaseModel):
 
     selected_migration_ids: list[str] = Field(max_length=2000)
     confirm_structure: bool = False
+    migration_dispositions: dict[
+        str,
+        Literal["reuse_exact", "reuse_rebind", "rewrite_partial", "regenerate", "retire"],
+    ] = Field(default_factory=dict)
+    proposed_outline: list[TeacherCourseOutlineReviewNode] | None = Field(
+        default=None,
+        max_length=200,
+    )
 
 
 def _course_evolution_service(tm: TaskManager | None = None) -> CourseEvolutionApplicationService:
@@ -199,6 +219,7 @@ async def create_teacher_course_plan(
             user_id=user_id,
             request_id=body.request_id,
             instruction=body.instruction,
+            supersedes_plan_id=body.supersedes_plan_id,
         )
     except TeacherCourseChangeSourceUnavailable as exc:
         raise HTTPException(status_code=409, detail={
@@ -219,18 +240,25 @@ async def review_teacher_course_plan(
     change_set_id: str,
     body: ReviewTeacherCourseChangeRequest,
     request: Request,
+    tm: TaskManager = Depends(require_task_manager),
 ) -> dict:
     """Save the reviewed impact scope; this endpoint never writes course content."""
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
         state = await run_in_threadpool(
-            _course_evolution_service().review_teacher_plan,
+            _course_evolution_service(tm).review_teacher_plan,
             user_id=user_id,
             course_id=course_id,
             change_set_id=change_set_id,
             selected_migration_ids=body.selected_migration_ids,
             confirm_structure=body.confirm_structure,
+            migration_dispositions=body.migration_dispositions,
+            proposed_outline=(
+                [item.model_dump(mode="json") for item in body.proposed_outline]
+                if body.proposed_outline is not None
+                else None
+            ),
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={
@@ -302,6 +330,7 @@ async def accept_course_evolution_change_set(
             change_set_id=change_set_id,
             selected_scope=body.selected_scope,
             selected_operation_ids=body.selected_operation_ids,
+            retry_failed=body.retry_failed,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc

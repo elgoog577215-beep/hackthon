@@ -142,6 +142,59 @@ describe('course evolution store', () => {
     )
   })
 
+  it('keeps correction lineage on the existing whole-course plan endpoint', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.createCoursePlan({
+      instruction: '保留原案例，只调整结构',
+      requestId: 'request-revised',
+      supersedesPlanId: 'plan-old',
+    })
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/course-plans',
+      {
+        request_id: 'request-revised',
+        instruction: '保留原案例，只调整结构',
+        supersedes_plan_id: 'plan-old',
+      },
+    )
+  })
+
+  it('sends direct review edits through the existing review endpoint', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.reviewCoursePlan('plan-1', ['migration-1'], {
+      migrationDispositions: { 'migration-1': 'reuse_rebind' },
+      proposedOutline: [{
+        provisional_id: 'chapter-1',
+        title: '第一章',
+        parent_ref: 'root',
+        source_node_ids: ['chapter-old'],
+      }],
+      confirmStructure: true,
+    })
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/course-plans/plan-1/review',
+      {
+        selected_migration_ids: ['migration-1'],
+        confirm_structure: true,
+        migration_dispositions: { 'migration-1': 'reuse_rebind' },
+        proposed_outline: [{
+          provisional_id: 'chapter-1',
+          title: '第一章',
+          parent_ref: 'root',
+          source_node_ids: ['chapter-old'],
+        }],
+      },
+    )
+  })
+
   it('accepts a reviewed plan through the canonical course-evolution endpoint', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     httpMock.post.mockResolvedValue({ data: payload('applied') })
@@ -171,6 +224,23 @@ describe('course evolution store', () => {
       {
         selected_scope: 'current',
         selected_operation_ids: ['operation-1', 'operation-3'],
+      },
+    )
+  })
+
+  it('retries application failures through the same accept endpoint', async () => {
+    httpMock.post.mockResolvedValue({ data: payload('applied') })
+    const store = useCourseEvolutionStore()
+    store.courseId = 'course-1'
+
+    await store.accept('plan-1', 'current', ['operation-failed'], { retryFailed: true })
+
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/change-sets/plan-1/accept',
+      {
+        selected_scope: 'current',
+        selected_operation_ids: ['operation-failed'],
+        retry_failed: true,
       },
     )
   })

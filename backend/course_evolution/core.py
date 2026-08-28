@@ -716,6 +716,22 @@ def accept_change_set(
                 "Selected course evolution operations are unavailable: "
                 + ", ".join(unknown_operation_ids)
             )
+        teacher_scope_review = change_set.impact_summary.get("scope_review") or {}
+        if change_set.teacher_change_planning is not None and teacher_scope_review.get("reviewed_at"):
+            reviewed_operation_ids = set(
+                teacher_scope_review.get(
+                    "selected_operation_ids",
+                    [],
+                )
+            )
+            unreviewed_operation_ids = sorted(
+                set(requested_operation_ids).difference(reviewed_operation_ids)
+            )
+            if unreviewed_operation_ids:
+                raise ValueError(
+                    "Selected course evolution operations were not included in the teacher review: "
+                    + ", ".join(unreviewed_operation_ids)
+                )
         accepted_operation_ids = [
             operation_id
             for operation_id in eligible_operation_ids
@@ -903,6 +919,109 @@ def accept_change_set(
         replaced=replaced,
         replaced_retire_block_ids=replaced_retire_block_ids,
     )
+    return repository.save(state)
+
+
+def retry_failed_domain_candidates(
+    course_data: dict[str, Any],
+    *,
+    user_id: str,
+    change_set_id: str,
+    domain_candidate_applier: Any,
+    repository: CourseEvolutionRepository | None = None,
+) -> CourseEvolutionState:
+    """Retry only failed downstream writes of an already-applied teacher plan.
+
+    The course-document command group is deliberately not replayed. Successful
+    domain receipts are retained and only failed operation IDs are handed back
+    to the existing asset applier.
+    """
+    repository = repository or course_evolution_repository
+    course_id = str(course_data.get("course_id") or "")
+    if not course_id:
+        raise ValueError("Course identifier is required")
+    state = repository.load(user_id, course_id)
+    change_set = _change_set(state, change_set_id)
+    if change_set.status != "applied":
+        raise ValueError("只能重试已应用方案中失败的资产")
+    domain_receipt = deepcopy(change_set.application_receipt.get("domain_candidates") or {})
+    previous_items = [
+        deepcopy(item)
+        for item in domain_receipt.get("items") or []
+        if isinstance(item, dict)
+    ]
+    failed_operation_ids = list(dict.fromkeys(
+        str(item.get("operation_id") or "")
+        for item in previous_items
+        if item.get("status") == "failed" and item.get("operation_id")
+    ))
+    if not failed_operation_ids:
+        raise ValueError("当前回执中没有可重试的失败项")
+    try:
+        retry_receipt = domain_candidate_applier(change_set, failed_operation_ids) or {}
+    except Exception as exc:  # noqa: BLE001 - keep prior successes and a retryable receipt
+        retry_receipt = {
+            "items": [
+                {
+                    "operation_id": operation_id,
+                    "status": "failed",
+                    "detail": str(exc),
+                }
+                for operation_id in failed_operation_ids
+            ],
+        }
+    retry_items = {
+        str(item.get("operation_id") or ""): deepcopy(item)
+        for item in retry_receipt.get("items") or []
+        if isinstance(item, dict) and item.get("operation_id")
+    }
+    merged_items = [
+        retry_items.get(str(item.get("operation_id") or ""), item)
+        for item in previous_items
+    ]
+    domain_receipt.update({
+        "status": (
+            "applied"
+            if merged_items and all(item.get("status") == "applied" for item in merged_items)
+            else "partial"
+        ),
+        "applied_count": sum(item.get("status") == "applied" for item in merged_items),
+        "failed_count": sum(item.get("status") == "failed" for item in merged_items),
+        "items": merged_items,
+        "updated_at": _now(),
+        "retry_count": int(domain_receipt.get("retry_count") or 0) + 1,
+        "last_retried_operation_ids": failed_operation_ids,
+    })
+    change_set.application_receipt["domain_candidates"] = domain_receipt
+
+    receipt_items = [
+        deepcopy(item)
+        for item in change_set.application_receipt.get("items") or []
+        if isinstance(item, dict)
+    ]
+    retry_by_operation = {
+        str(item.get("operation_id") or ""): item
+        for item in merged_items
+    }
+    for item in receipt_items:
+        retried = retry_by_operation.get(str(item.get("operation_id") or ""))
+        if retried is None:
+            continue
+        item["status"] = str(retried.get("status") or "failed")
+        item["detail"] = str(retried.get("detail") or (
+            "已写入该资产的正式工作版"
+            if item["status"] == "applied"
+            else "应用失败，已保留原版本"
+        ))
+    change_set.application_receipt.update({
+        "items": receipt_items,
+        "applied_count": sum(item.get("status") == "applied" for item in receipt_items),
+        "failed_count": sum(item.get("status") == "failed" for item in receipt_items),
+        "unchanged_count": sum(item.get("status") == "unchanged" for item in receipt_items),
+        "last_retry_at": _now(),
+    })
+    change_set.updated_at = _now()
+    state.updated_at = change_set.updated_at
     return repository.save(state)
 
 

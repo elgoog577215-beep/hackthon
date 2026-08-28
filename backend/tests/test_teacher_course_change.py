@@ -7,6 +7,7 @@ import pytest
 
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_evolution import CourseEvolutionRepository, accept_change_set, undo_change_set
+from course_evolution.core import retry_failed_domain_candidates
 from course_repository import CourseDocumentRepository
 from question_bank import QuestionBankRepository
 from course_evolution.teacher_execution import generate_teacher_course_change_candidates
@@ -498,6 +499,222 @@ def test_scope_review_rejects_foreign_migrations(tmp_path):
             change_set_id="missing",
             selected_migration_ids=["foreign"],
         )
+
+
+def test_scope_review_updates_unit_dispositions_without_reanalysis(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+
+    async def analyzer(_overview, candidates, _instruction):
+        return {
+            "interpreted_goal": "调整课程",
+            "signal_kind": "semantic",
+            "affected_units": [
+                {
+                    "unit_id": item["unit_id"],
+                    "disposition": "regenerate",
+                    "reason": "需要更新",
+                    "confidence": .8,
+                }
+                for item in candidates
+                if item["asset_type"] in {"lesson_plan", "script"}
+            ],
+            "structure": {"required": False},
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="disposition-review",
+        instruction="调整教案和讲稿",
+        repository=repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    migrations = plan.teacher_change_planning.unit_migrations
+    reviewed = review_teacher_course_change_scope(
+        repository=repository,
+        user_id="teacher-1",
+        course_id="course-1",
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=[item.migration_id for item in migrations],
+        migration_dispositions={migrations[0].migration_id: "reuse_rebind"},
+    )
+
+    updated = reviewed.change_sets[0]
+    assert updated.teacher_change_planning.unit_migrations[0].disposition == "reuse_rebind"
+    assert updated.teacher_change_planning.unit_migrations[0].candidate_status == "not_required"
+    assert updated.impact_summary["affected_units"][0]["disposition"] == "reuse_rebind"
+    assert updated.impact_summary["scope_review"]["migration_dispositions"][migrations[0].migration_id] == "reuse_rebind"
+
+
+def test_structure_review_recompiles_teacher_edited_tree_in_same_plan(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+
+    async def analyzer(_overview, candidates, _instruction):
+        return {
+            "interpreted_goal": "调整章节结构",
+            "signal_kind": "structural",
+            "affected_units": [{
+                "unit_id": candidates[0]["unit_id"],
+                "disposition": "reuse_rebind",
+                "reason": "跟随结构调整",
+                "confidence": .9,
+            }],
+            "structure": {
+                "required": True,
+                "proposed_outline": [
+                    {"provisional_id": "chapter", "title": "第一章", "parent_ref": "root", "source_node_ids": ["chapter-1"]},
+                    {"provisional_id": "section", "title": "牛顿定律", "parent_ref": "chapter", "source_node_ids": ["section-1"]},
+                ],
+            },
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="direct-tree-review",
+        instruction="调整章节结构",
+        repository=repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    reviewed = review_teacher_course_change_scope(
+        repository=repository,
+        user_id="teacher-1",
+        course_id="course-1",
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=[
+            item.migration_id for item in plan.teacher_change_planning.unit_migrations
+        ],
+        confirm_structure=True,
+        proposed_outline=[
+            {"provisional_id": "section", "title": "力与运动入门", "parent_ref": "root", "source_node_ids": ["section-1"], "learning_focus": ""},
+            {"provisional_id": "chapter", "title": "第一章 核心原理", "parent_ref": "root", "source_node_ids": ["chapter-1"], "learning_focus": ""},
+        ],
+        context=context(),
+    )
+
+    updated = reviewed.change_sets[0]
+    outline_operation = next(
+        item for item in updated.operations
+        if item.operation_type == "REBUILD_COURSE_OUTLINE"
+    )
+    sections = outline_operation.payload["outline_rebuild"]["sections"]
+    assert [item["title"] for item in sections] == ["力与运动入门", "第一章 核心原理"]
+    assert updated.teacher_change_planning.structure_review_status == "confirmed"
+    assert updated.impact_summary["structure_review_history"][-1]["revision"] == 1
+
+
+def test_corrected_teacher_plan_records_lineage_and_supersedes_old_plan(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+
+    async def analyzer(_overview, candidates, instruction):
+        return {
+            "interpreted_goal": instruction,
+            "signal_kind": "semantic",
+            "affected_units": [{
+                "unit_id": candidates[0]["unit_id"],
+                "disposition": "rewrite_partial",
+                "reason": "相关",
+                "confidence": .8,
+            }],
+            "structure": {"required": False},
+        }
+
+    first = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="lineage-1",
+        instruction="调整课程",
+        repository=repository,
+        analyzer=analyzer,
+    )).change_sets[0]
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="lineage-2",
+        instruction="调整课程，但保留原案例",
+        repository=repository,
+        analyzer=analyzer,
+        supersedes_plan_id=first.change_set_id,
+    ))
+
+    old, revised = state.change_sets
+    assert old.status == "rejected"
+    assert old.impact_summary["superseded_by_plan_id"] == revised.change_set_id
+    assert revised.teacher_change_planning.supersedes_plan_id == old.change_set_id
+    assert revised.impact_summary["revision_lineage"]["supersedes_plan_id"] == old.change_set_id
+
+
+def test_retry_failed_domain_candidates_keeps_successful_receipts(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path)
+
+    async def analyzer(_overview, candidates, _instruction):
+        return {
+            "interpreted_goal": "调整教案",
+            "signal_kind": "semantic",
+            "affected_units": [{
+                "unit_id": candidates[0]["unit_id"],
+                "disposition": "rewrite_partial",
+                "reason": "相关",
+                "confidence": .8,
+            }],
+            "structure": {"required": False},
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=context(),
+        user_id="teacher-1",
+        request_id="retry-applied-domain",
+        instruction="调整教案",
+        repository=repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    plan.status = "applied"
+    plan.selected_scope = "current"
+    plan.selected_operation_ids = ["domain-ok", "domain-failed"]
+    plan.application_receipt = {
+        "domain_candidates": {
+            "status": "partial",
+            "items": [
+                {"operation_id": "domain-ok", "status": "applied", "detail": "已完成"},
+                {"operation_id": "domain-failed", "status": "failed", "detail": "暂时失败"},
+            ],
+        },
+        "items": [
+            {"operation_id": "domain-ok", "status": "applied", "detail": "已完成"},
+            {"operation_id": "domain-failed", "status": "failed", "detail": "暂时失败"},
+        ],
+        "applied_count": 1,
+        "failed_count": 1,
+        "unchanged_count": 0,
+    }
+    repository.save(state)
+    called = []
+
+    def applier(_plan, operation_ids):
+        called.extend(operation_ids)
+        return {
+            "items": [{
+                "operation_id": "domain-failed",
+                "status": "applied",
+                "detail": "重试成功",
+            }],
+        }
+
+    updated = retry_failed_domain_candidates(
+        {"course_id": "course-1"},
+        user_id="teacher-1",
+        change_set_id=plan.change_set_id,
+        domain_candidate_applier=applier,
+        repository=repository,
+    ).change_sets[0]
+
+    assert called == ["domain-failed"]
+    assert updated.application_receipt["failed_count"] == 0
+    assert updated.application_receipt["applied_count"] == 2
+    assert updated.application_receipt["domain_candidates"]["retry_count"] == 1
 
 
 def test_structure_review_confirms_proposed_tree_without_writing_course_content(tmp_path):

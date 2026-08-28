@@ -1328,6 +1328,7 @@ async def create_teacher_course_change_plan(
     instruction: str,
     repository: CourseEvolutionRepository,
     analyzer: AnalysisCallable | None = None,
+    supersedes_plan_id: str = "",
 ) -> CourseEvolutionState:
     if not context.ready:
         raise TeacherCourseChangeSourceUnavailable("当前课程尚未形成可分析的大纲或教学资产")
@@ -1344,6 +1345,22 @@ async def create_teacher_course_change_plan(
     )
     if existing is not None:
         return current
+    superseded = None
+    if supersedes_plan_id:
+        superseded = next(
+            (
+                item for item in current.change_sets
+                if item.change_set_id == supersedes_plan_id
+            ),
+            None,
+        )
+        if (
+            superseded is None
+            or superseded.status != "pending"
+            or superseded.source_kind != "manual_request"
+            or superseded.teacher_change_planning is None
+        ):
+            raise ValueError("只能修订当前未应用的教师课程方案")
 
     ranked = rank_change_units(context, normalized_instruction)
     overview = {
@@ -1414,6 +1431,8 @@ async def create_teacher_course_change_plan(
         base_revision_vector=context.base_revision_vector,
         structural_operations=structure_operations,
         unit_migrations=migrations,
+        supersedes_plan_id=supersedes_plan_id,
+        replan_reasons=(["教师修正了 AI 对原要求的理解"] if supersedes_plan_id else []),
         status=(
             "needs_clarification"
             if questions
@@ -1509,6 +1528,10 @@ async def create_teacher_course_change_plan(
                 else "impact_review"
             ),
             "formal_content_changed": False,
+            "revision_lineage": {
+                "supersedes_plan_id": supersedes_plan_id,
+                "revision_reason": "教师修正 AI 理解" if supersedes_plan_id else "",
+            },
         },
         expected_effect=str(analysis.get("interpreted_goal") or normalized_instruction),
         status="pending",
@@ -1521,6 +1544,25 @@ async def create_teacher_course_change_plan(
             for item in latest.change_sets
         ):
             return latest
+        if supersedes_plan_id:
+            source = next(
+                (
+                    item for item in latest.change_sets
+                    if item.change_set_id == supersedes_plan_id
+                ),
+                None,
+            )
+            if source is None or source.status != "pending":
+                raise ValueError("原方案状态已变化，请重新打开后再修正")
+            source.status = "rejected"
+            source.resolved_at = timestamp
+            source.updated_at = timestamp
+            source.effect_evaluation = {
+                "status": "superseded",
+                "superseded_by_plan_id": change_set_id,
+                "reason": "教师修正 AI 理解后已形成新方案",
+            }
+            source.impact_summary["superseded_by_plan_id"] = change_set_id
         latest.change_sets.append(plan)
         latest.updated_at = timestamp
         return latest
@@ -1536,9 +1578,25 @@ def review_teacher_course_change_scope(
     change_set_id: str,
     selected_migration_ids: list[str],
     confirm_structure: bool = False,
+    migration_dispositions: dict[str, str] | None = None,
+    proposed_outline: list[dict[str, Any]] | None = None,
+    context: TeacherCourseChangeContext | None = None,
 ) -> CourseEvolutionState:
     """Persist teacher scope review without pretending content was applied."""
     selected = list(dict.fromkeys(str(value) for value in selected_migration_ids if str(value)))
+    disposition_overrides = {
+        str(key): str(value)
+        for key, value in (migration_dispositions or {}).items()
+        if str(key)
+    }
+    allowed_dispositions = {
+        "reuse_exact",
+        "reuse_rebind",
+        "rewrite_partial",
+        "regenerate",
+        "retire",
+    }
+    edited_outline = deepcopy(proposed_outline) if proposed_outline is not None else None
 
     def update(state: CourseEvolutionState) -> CourseEvolutionState:
         plan = next(
@@ -1547,24 +1605,177 @@ def review_teacher_course_change_scope(
         )
         if plan is None or plan.teacher_change_planning is None:
             raise KeyError(change_set_id)
+        if plan.status != "pending":
+            raise ValueError("只能审阅尚未应用的课程方案")
+        planning = plan.teacher_change_planning
+        migrations_by_id = {
+            item.migration_id: item
+            for item in planning.unit_migrations
+        }
         known = {
             item.migration_id
-            for item in plan.teacher_change_planning.unit_migrations
+            for item in planning.unit_migrations
         }
         unknown = set(selected).difference(known)
         if unknown:
             raise ValueError("影响范围包含不属于本方案的课程单元")
+        unknown_overrides = set(disposition_overrides).difference(known)
+        if unknown_overrides:
+            raise ValueError("处理方式包含不属于本方案的课程单元")
+        invalid_dispositions = set(disposition_overrides.values()).difference(allowed_dispositions)
+        if invalid_dispositions:
+            raise ValueError("包含不支持的单元处理方式")
+
+        disposition_changed = False
+        for migration_id, disposition in disposition_overrides.items():
+            migration = migrations_by_id[migration_id]
+            if disposition == "retire" and migration.asset_type not in {"question_bank", "outline"} and edited_outline is None:
+                raise ValueError("该资产不能脱离课程结构单独停用")
+            if migration.disposition != disposition:
+                migration.metadata.setdefault("ai_disposition", migration.disposition)
+                migration.disposition = disposition
+                migration.reason = "教师在方案审阅中直接调整了处理方式"
+                disposition_changed = True
+
+        outline_changed = edited_outline is not None
+        if outline_changed:
+            if context is None:
+                raise ValueError("修改课程结构时缺少当前课程上下文")
+            if not edited_outline:
+                raise ValueError("课程结构不能为空")
+            provisional_ids = [str(item.get("provisional_id") or "") for item in edited_outline]
+            if any(not value for value in provisional_ids) or len(set(provisional_ids)) != len(provisional_ids):
+                raise ValueError("课程结构中存在空节点或重复节点")
+            valid_parents = {"root", *provisional_ids}
+            if any(str(item.get("parent_ref") or "root") not in valid_parents for item in edited_outline):
+                raise ValueError("课程结构中存在无效上级节点")
+            if any(str(item.get("parent_ref") or "root") == provisional_ids[index] for index, item in enumerate(edited_outline)):
+                raise ValueError("课程节点不能把自己设为上级")
+            parent_by_id = {
+                provisional_ids[index]: str(item.get("parent_ref") or "root")
+                for index, item in enumerate(edited_outline)
+            }
+            for provisional_id in provisional_ids:
+                seen = {provisional_id}
+                parent_ref = parent_by_id[provisional_id]
+                while parent_ref != "root":
+                    if parent_ref in seen:
+                        raise ValueError("课程结构中存在循环上级关系")
+                    seen.add(parent_ref)
+                    parent_ref = parent_by_id[parent_ref]
+            current_node_ids = {
+                str(item.get("node_id") or "")
+                for item in context.outline
+                if item.get("node_id")
+            }
+            referenced_node_ids = {
+                str(source_id)
+                for item in edited_outline
+                for source_id in item.get("source_node_ids") or []
+                if str(source_id)
+            }
+            if not referenced_node_ids.issubset(current_node_ids):
+                raise ValueError("课程结构引用了已不存在的节点")
+            structure_analysis = {
+                "signal_kind": "structural",
+                "signal_confidence": 1.0,
+                "assumptions": [],
+                "structure": {
+                    "required": True,
+                    "proposed_outline": edited_outline,
+                    "retire_node_ids": sorted(current_node_ids.difference(referenced_node_ids)),
+                    "reason": "按教师直接编辑后的课程树重建结构",
+                },
+            }
+            rebuilt_operations = _outline_rebuild_operation(context, structure_analysis, plan.change_set_id)
+            if not rebuilt_operations:
+                raise ValueError("调整后的课程树无法安全编译，请检查删除、合并和上级关系")
+            planning.structural_operations = _structure_operations(
+                context,
+                structure_analysis,
+                plan.change_set_id,
+            )
+            plan.operations = [
+                item for item in plan.operations
+                if item.operation_type not in {
+                    "RESEQUENCE_COURSE_PATH",
+                    "REBUILD_COURSE_OUTLINE",
+                    "APPLY_DOMAIN_CANDIDATE",
+                }
+            ] + rebuilt_operations
+            history = list(plan.impact_summary.get("structure_review_history") or [])
+            history.append({
+                "revision": len(history) + 1,
+                "proposed_outline": deepcopy(edited_outline),
+                "edited_at": _now(),
+            })
+            plan.impact_summary["structure_review_history"] = history[-20:]
+            plan.impact_summary["proposed_outline"] = deepcopy(edited_outline)
+            planning.structure_review_status = "pending"
+
+        if disposition_changed or outline_changed:
+            # Domain operations may group several migrations. Once one review
+            # decision changes, remove the grouped candidates and regenerate
+            # them from the reviewed plan instead of applying stale assets.
+            domain_operation_ids = {
+                item.operation_id
+                for item in plan.operations
+                if item.operation_type == "APPLY_DOMAIN_CANDIDATE"
+            }
+            plan.operations = [
+                item for item in plan.operations
+                if item.operation_type != "APPLY_DOMAIN_CANDIDATE"
+            ]
+            for migration in planning.unit_migrations:
+                if (
+                    migration.asset_type in DOWNSTREAM_CANDIDATE_ASSET_TYPES
+                    or str(migration.metadata.get("operation_id") or "") in domain_operation_ids
+                ):
+                    migration.metadata.pop("operation_id", None)
+                    migration.metadata.pop("after_preview", None)
+                    migration.metadata.pop("candidate_error", None)
+                    migration.metadata.pop("change_count", None)
+                migration.candidate_status = (
+                    "not_required"
+                    if migration.disposition in {"reuse_exact", "reuse_rebind"}
+                    else "ready"
+                    if migration.metadata.get("operation_id")
+                    else "not_started"
+                )
+            plan.impact_summary["candidate_bundle"] = {}
+            planning.status = "impact_ready"
+            plan.generation_status = "suggested"
+
+        affected_by_migration = {
+            str(item.get("migration_id") or ""): item
+            for item in plan.impact_summary.get("affected_units") or []
+        }
+        for migration in planning.unit_migrations:
+            affected = affected_by_migration.get(migration.migration_id)
+            if affected is None:
+                continue
+            affected.update({
+                "disposition": migration.disposition,
+                "reason": migration.reason,
+                "candidate_status": migration.candidate_status,
+                "operation_id": str(migration.metadata.get("operation_id") or ""),
+                "after_preview": str(migration.metadata.get("after_preview") or ""),
+                "candidate_error": str(migration.metadata.get("candidate_error") or ""),
+                "change_count": int(migration.metadata.get("change_count") or 0),
+            })
         if confirm_structure:
             proposed_outline = plan.impact_summary.get("proposed_outline") or []
-            if not plan.teacher_change_planning.structural_operations:
+            if not planning.structural_operations:
                 raise ValueError("当前方案不包含需要确认的课程结构变化")
             if not proposed_outline:
                 raise ValueError("新的课程结构尚未形成，不能确认迁移")
         timestamp = _now()
         selected_operation_ids = [
             str(item.metadata.get("operation_id") or "")
-            for item in plan.teacher_change_planning.unit_migrations
-            if item.migration_id in selected and item.metadata.get("operation_id")
+            for item in planning.unit_migrations
+            if item.migration_id in selected
+            and item.disposition not in {"reuse_exact", "reuse_rebind"}
+            and item.metadata.get("operation_id")
         ]
         structure_operation_ids = [
             item.operation_id
@@ -1578,6 +1789,10 @@ def review_teacher_course_change_scope(
             "selected_migration_ids": selected,
             "excluded_migration_ids": sorted(known.difference(selected)),
             "selected_operation_ids": selected_operation_ids,
+            "migration_dispositions": {
+                item.migration_id: item.disposition
+                for item in planning.unit_migrations
+            },
             "reviewed_at": timestamp,
             "formal_content_changed": False,
         }
@@ -1588,13 +1803,14 @@ def review_teacher_course_change_scope(
             if item.operation_id not in selected_operation_ids
         ]
         if confirm_structure:
-            plan.teacher_change_planning.structure_review_status = "confirmed"
+            planning.structure_review_status = "confirmed"
             plan.impact_summary["structure_review"] = {
                 "status": "confirmed",
                 "confirmed_at": timestamp,
                 "formal_content_changed": False,
             }
-        plan.teacher_change_planning.updated_at = timestamp
+        plan.impact_summary["planning_summary"] = summarize_course_change_plan(planning).model_dump(mode="json")
+        planning.updated_at = timestamp
         plan.updated_at = timestamp
         state.updated_at = timestamp
         return state

@@ -12,6 +12,7 @@ from .core import (
     accept_change_set,
     create_adjustment_plan,
     reject_change_set,
+    retry_failed_domain_candidates,
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
@@ -90,6 +91,7 @@ class CourseEvolutionApplicationService:
         user_id: str,
         request_id: str,
         instruction: str,
+        supersedes_plan_id: str = "",
     ) -> Any:
         context = await asyncio.to_thread(self.teacher_context, course_id)
         return await create_teacher_course_change_plan(
@@ -99,6 +101,7 @@ class CourseEvolutionApplicationService:
             instruction=instruction,
             repository=self.evolution_repository,
             analyzer=self.course_service.analyze_teacher_course_change,
+            supersedes_plan_id=supersedes_plan_id,
         )
 
     async def create_course_adjustment(
@@ -172,7 +175,10 @@ class CourseEvolutionApplicationService:
         change_set_id: str,
         selected_migration_ids: list[str],
         confirm_structure: bool,
+        migration_dispositions: dict[str, str] | None = None,
+        proposed_outline: list[dict[str, Any]] | None = None,
     ) -> Any:
+        context = self.teacher_context(course_id) if proposed_outline is not None else None
         return review_teacher_course_change_scope(
             repository=self.evolution_repository,
             user_id=user_id,
@@ -180,6 +186,9 @@ class CourseEvolutionApplicationService:
             change_set_id=change_set_id,
             selected_migration_ids=selected_migration_ids,
             confirm_structure=confirm_structure,
+            migration_dispositions=migration_dispositions,
+            proposed_outline=proposed_outline,
+            context=context,
         )
 
     async def generate_suggested(
@@ -228,6 +237,7 @@ class CourseEvolutionApplicationService:
         change_set_id: str,
         selected_scope: str,
         selected_operation_ids: list[str] | None,
+        retry_failed: bool = False,
     ) -> Any:
         applier = build_domain_candidate_applier(
             course_data=course_data,
@@ -237,14 +247,24 @@ class CourseEvolutionApplicationService:
             question_bank_repository=self.question_bank_repository,
             document_repository=self.document_repository,
         )
-        state = accept_change_set(
-            course_data,
-            user_id=user_id,
-            change_set_id=change_set_id,
-            selected_scope=selected_scope,
-            selected_operation_ids=selected_operation_ids,
-            document_repository=self.document_repository,
-            domain_candidate_applier=applier,
+        state = (
+            retry_failed_domain_candidates(
+                course_data,
+                user_id=user_id,
+                change_set_id=change_set_id,
+                domain_candidate_applier=applier,
+                repository=self.evolution_repository,
+            )
+            if retry_failed
+            else accept_change_set(
+                course_data,
+                user_id=user_id,
+                change_set_id=change_set_id,
+                selected_scope=selected_scope,
+                selected_operation_ids=selected_operation_ids,
+                document_repository=self.document_repository,
+                domain_candidate_applier=applier,
+            )
         )
         return self._record_representation_sync(state, change_set_id, receipt_key="application_receipt")
 

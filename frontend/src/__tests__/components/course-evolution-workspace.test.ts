@@ -166,8 +166,64 @@ describe('CourseEvolutionWorkspace', () => {
     await wrapper.get('.impact-check input').setValue(false)
     expect(wrapper.get('.scope-counts').text()).toContain('排除1')
     await wrapper.get('.review-actionbar .button-primary').trigger('click')
-    expect(review).toHaveBeenCalledWith('change-1', ['m2'])
+    expect(review).toHaveBeenCalledWith('change-1', ['m2'], {
+      migrationDispositions: { m1: 'rewrite_partial', m2: 'regenerate' },
+    })
     expect(generate).toHaveBeenCalledWith('change-1')
+    wrapper.unmount()
+  })
+
+  it('支持搜索、批量选择和直接改变处理方式', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      impact_summary: {
+        analysis_mode: 'ai_ranked',
+        affected_units: [
+          { migration_id: 'm1', unit_id: 'script:b1', asset_type: 'script', unit_type: 'script_block', title: '案例引入', before_preview: '保留现有案例。', section_ids: ['s1'], source_state: 'current', disposition: 'regenerate', reason: '需同步讲稿', confidence: .9, candidate_status: 'not_started' },
+          { migration_id: 'm2', unit_id: 'script:b2', asset_type: 'script', unit_type: 'script_block', title: '公式推导', before_preview: '展开公式。', section_ids: ['s1'], source_state: 'current', disposition: 'regenerate', reason: '需同步讲稿', confidence: .9, candidate_status: 'not_started' },
+        ],
+      },
+    })]
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    await wrapper.get('.impact-tools input').setValue('案例')
+    expect(wrapper.findAll('.impact-list article')).toHaveLength(1)
+    await wrapper.get('.impact-tools button:last-child').trigger('click')
+    expect(wrapper.get('.scope-counts').text()).toContain('排除1')
+    await wrapper.get('.disposition-control select').setValue('reuse_rebind')
+    expect(wrapper.get('.review-actionbar').text()).toContain('候选需要更新')
+    await wrapper.get('.review-actionbar .button-primary').trigger('click')
+    expect(review).toHaveBeenCalledWith('change-1', ['m2'], {
+      migrationDispositions: { m1: 'reuse_rebind', m2: 'regenerate' },
+    })
+    wrapper.unmount()
+  })
+
+  it('修正理解会指向旧方案，放弃方案需二次确认', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      impact_summary: {
+        affected_units: [{ migration_id: 'm1', unit_id: 'script:b1', asset_type: 'script', unit_type: 'script_block', title: '案例', before_preview: '原内容', section_ids: ['s1'], source_state: 'current', disposition: 'regenerate', reason: '需调整', confidence: .8, candidate_status: 'not_started' }],
+      },
+    })]
+    const create = vi.spyOn(store, 'createCoursePlan').mockResolvedValue({} as any)
+    const reject = vi.spyOn(store, 'reject').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    await wrapper.get('.request-context button').trigger('click')
+    await wrapper.get('.correction-bar textarea').setValue('保留原案例')
+    await wrapper.get('.correction-bar').trigger('submit')
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ supersedesPlanId: 'change-1' }))
+
+    await wrapper.get('.review-actionbar .button-danger').trigger('click')
+    expect(reject).not.toHaveBeenCalled()
+    expect(wrapper.get('.review-actionbar .button-danger').text()).toContain('再次点击')
+    await wrapper.get('.review-actionbar .button-danger').trigger('click')
+    expect(reject).toHaveBeenCalledWith('change-1', expect.any(String))
     wrapper.unmount()
   })
 
@@ -218,9 +274,18 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.tree-comparison').text()).toContain('第四章 项目实践')
     expect(wrapper.get('.migration-panel').text()).toContain('重新生成')
     expect(wrapper.get('.migration-panel').text()).toContain('需要按新结构重组')
+    await wrapper.findAll('.structure-edit-row>input')[0]!.setValue('第三章 基础原理')
+    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('保存结构')
     expect(wrapper.get('.migration-panel .button-primary').attributes('disabled')).toBeUndefined()
     await wrapper.get('.migration-panel .button-primary').trigger('click')
-    expect(review).toHaveBeenCalledWith('change-1', ['m1'], { confirmStructure: true })
+    expect(review).toHaveBeenCalledWith('change-1', ['m1'], {
+      confirmStructure: true,
+      migrationDispositions: { m1: 'regenerate' },
+      proposedOutline: [
+        { provisional_id: 'n1', title: '第三章 基础原理', parent_ref: 'root', source_node_ids: [], learning_focus: '' },
+        { provisional_id: 'n2', title: '第四章 项目实践', parent_ref: 'root', source_node_ids: [], learning_focus: '' },
+      ],
+    })
     expect(generate).toHaveBeenCalledWith('change-1')
     wrapper.unmount()
   })
@@ -249,6 +314,37 @@ describe('CourseEvolutionWorkspace', () => {
     await wrapper.get('.migration-panel .button-primary').trigger('click')
     expect(generate).toHaveBeenCalledWith('change-1')
     expect(accept).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('应用部分失败时只重试失败资产', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      status: 'applied',
+      selected_scope: 'current',
+      selected_operation_ids: ['script-ok', 'ppt-failed'],
+      application_receipt: {
+        applied_count: 1,
+        failed_count: 1,
+        unchanged_count: 0,
+        items: [
+          { operation_id: 'script-ok', title: '讲稿', status: 'applied', detail: '已更新' },
+          { operation_id: 'ppt-failed', title: 'PPT', status: 'failed', detail: '应用失败' },
+        ],
+      },
+    })]
+    const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.receipt-actions').text()).toContain('只重试失败项')
+    await wrapper.findAll('.receipt-actions button')[0]!.trigger('click')
+    expect(accept).toHaveBeenCalledWith(
+      'change-1',
+      'current',
+      ['script-ok', 'ppt-failed'],
+      { retryFailed: true },
+    )
     wrapper.unmount()
   })
 

@@ -727,6 +727,29 @@ async def generate_teacher_course_change_candidates(
     ]
     plan.operations = [*preserved, *operations]
     plan.allowed_scopes = ["current"] if plan.operations else []
+    reviewed_operation_ids = list(dict.fromkeys([
+        str(item.metadata.get("operation_id") or "")
+        for item in migrations
+        if item.disposition not in {"reuse_exact", "reuse_rebind"}
+        and item.metadata.get("operation_id")
+    ]))
+    if (
+        plan.teacher_change_planning is not None
+        and plan.teacher_change_planning.structure_review_status == "confirmed"
+    ):
+        reviewed_operation_ids.extend(
+            item.operation_id
+            for item in plan.operations
+            if item.operation_type in {"RESEQUENCE_COURSE_PATH", "REBUILD_COURSE_OUTLINE"}
+        )
+    reviewed_operation_ids = list(dict.fromkeys(reviewed_operation_ids))
+    plan.selected_operation_ids = reviewed_operation_ids
+    plan.excluded_operation_ids = [
+        item.operation_id
+        for item in plan.operations
+        if item.operation_id not in reviewed_operation_ids
+    ]
+    plan.impact_summary.setdefault("scope_review", {})["selected_operation_ids"] = reviewed_operation_ids
     ready = sum(item.candidate_status in {"ready", "not_required"} for item in migrations)
     failed = sum(item.candidate_status == "failed" for item in migrations)
     planning = plan.teacher_change_planning
