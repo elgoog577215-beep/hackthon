@@ -302,7 +302,7 @@
               </nav>
               </div>
             </div>
-            <div v-if="lessonPageHeaderVisible" class="lesson-toolbar-status" role="status">
+            <div v-if="lessonPageHeaderVisible && !(activeStage === 'lesson' && lessonToolbarVisible)" class="lesson-toolbar-status" role="status">
               <LoaderCircle v-if="lessonHeaderBusy" :size="14" class="spin" />
               <Sparkles v-else-if="aiCandidatePending" :size="14" />
               <Pencil v-else-if="lessonHeaderEditing" :size="14" />
@@ -317,28 +317,9 @@
             <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
           </div>
         </nav>
-        <nav
-          v-if="activeStage === 'lesson' && Number(selectedLesson?.sections?.length || 0) > 1 && !lessonStageBlocked"
-          class="lesson-section-tabs"
-          :aria-label="t('courseWorkbench.lessonDocument.sectionNavigation', '教案小节')"
-        >
-          <button
-            v-for="section in (selectedLesson?.sections || [])"
-            :key="section.section_node_id"
-            type="button"
-            :class="{ active: selectedLessonSectionId === section.section_node_id }"
-            :disabled="aiCandidatePending && selectedLessonSectionId !== section.section_node_id"
-            :title="aiCandidatePending && selectedLessonSectionId !== section.section_node_id
-              ? t('courseWorkbench.aiCollaboration.scopeLocked', '请先采用或放弃当前候选')
-              : ''"
-            :aria-current="selectedLessonSectionId === section.section_node_id ? 'page' : undefined"
-            @click="selectLessonSection(selectedLesson?.lesson_unit_id || '', section.section_node_id)"
-          >
-            <strong>{{ section.title }}</strong>
-          </button>
-        </nav>
         <TeacherDocumentCommandBar
           v-if="activeStage === 'lesson' && lessonToolbarVisible"
+          class="lesson-command-bar"
           :label="t('courseWorkbench.lessonDocument.actions', '教案操作')"
           :editing="lessonDocumentEditing"
           :can-undo="lessonCanUndo"
@@ -388,6 +369,26 @@
               </button>
             </template>
         </TeacherDocumentCommandBar>
+        <nav
+          v-if="activeStage === 'lesson' && Number(selectedLesson?.sections?.length || 0) > 1 && !lessonStageBlocked"
+          class="lesson-section-tabs"
+          :aria-label="t('courseWorkbench.lessonDocument.sectionNavigation', '教案小节')"
+        >
+          <button
+            v-for="section in (selectedLesson?.sections || [])"
+            :key="section.section_node_id"
+            type="button"
+            :class="{ active: selectedLessonSectionId === section.section_node_id }"
+            :disabled="aiCandidatePending && selectedLessonSectionId !== section.section_node_id"
+            :title="aiCandidatePending && selectedLessonSectionId !== section.section_node_id
+              ? t('courseWorkbench.aiCollaboration.scopeLocked', '请先采用或放弃当前候选')
+              : ''"
+            :aria-current="selectedLessonSectionId === section.section_node_id ? 'page' : undefined"
+            @click="selectLessonSection(selectedLesson?.lesson_unit_id || '', section.section_node_id)"
+          >
+            <strong>{{ section.title }}</strong>
+          </button>
+        </nav>
         <TeacherDocumentHistoryPanel
           v-if="activeStage === 'lesson' && historyOpen && historyDomain === 'lesson'"
           title="教案历史版本"
@@ -2399,6 +2400,7 @@ onBeforeUnmount(() => {
 .lesson-switch-actions button:hover:not(:disabled){border-color:#c9cfe0;color:#3730a3;background:#f7f7fb}
 .lesson-switch-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-switch-actions button:disabled{border-color:transparent;color:#a3acba;background:transparent;opacity:.55;cursor:not-allowed}
+.workbench-center.is-lesson-workspace .lesson-command-bar{width:calc(100% - 8px);margin:0 4px 10px}
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff}
