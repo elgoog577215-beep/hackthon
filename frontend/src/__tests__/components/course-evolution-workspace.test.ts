@@ -156,6 +156,7 @@ describe('CourseEvolutionWorkspace', () => {
       },
     })]
     const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
     expect(wrapper.get('.journey li.active').text()).toContain('分析影响')
@@ -166,6 +167,7 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.scope-counts').text()).toContain('排除1')
     await wrapper.get('.review-actionbar .button-primary').trigger('click')
     expect(review).toHaveBeenCalledWith('change-1', ['m2'])
+    expect(generate).toHaveBeenCalledWith('change-1')
     wrapper.unmount()
   })
 
@@ -193,7 +195,7 @@ describe('CourseEvolutionWorkspace', () => {
     wrapper.unmount()
   })
 
-  it('结构变化独立展示新旧课程树和迁移决策', () => {
+  it('结构变化独立展示新旧课程树并在确认后生成联动候选', async () => {
     const pinia = createPinia()
     const store = useCourseEvolutionStore(pinia)
     store.plans = [plan({
@@ -207,6 +209,8 @@ describe('CourseEvolutionWorkspace', () => {
         affected_units: [{ migration_id: 'm1', unit_id: 'lesson:l1', asset_type: 'lesson_plan', unit_type: 'lesson', title: '第三章教案', before_preview: '', section_ids: ['c1'], source_state: 'current', disposition: 'regenerate', reason: '需要按新结构重组', confidence: .8, candidate_status: 'not_started' }],
       },
     })]
+    const review = vi.spyOn(store, 'reviewCoursePlan').mockResolvedValue({} as any)
+    const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
     expect(wrapper.get('.journey li.active').text()).toContain('审阅修改')
@@ -215,6 +219,68 @@ describe('CourseEvolutionWorkspace', () => {
     expect(wrapper.get('.migration-panel').text()).toContain('重新生成')
     expect(wrapper.get('.migration-panel').text()).toContain('需要按新结构重组')
     expect(wrapper.get('.migration-panel .button-primary').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.migration-panel .button-primary').trigger('click')
+    expect(review).toHaveBeenCalledWith('change-1', ['m1'], { confirmStructure: true })
+    expect(generate).toHaveBeenCalledWith('change-1')
+    wrapper.unmount()
+  })
+
+  it('结构已确认但候选未就绪时只能重试生成，不能提前应用', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      operations: [{ operation_id: 'outline-op', operation_type: 'REBUILD_COURSE_OUTLINE', target_block_id: '', target_section_id: '', scope: 'current', reason: '章节重构', payload: {} }],
+      teacher_change_planning: planning({
+        structural_operations: [{ operation_id: 'op1', operation_type: 'REBUILD_OUTLINE', base_blueprint_revision_id: 'outline-1', idempotency_key: 'k1', source_node_ids: ['c1'], target_parent_id: '', target_position: null, proposed_nodes: [], reason: '章节重构', assumptions: [], confidence: .9, requires_teacher_checkpoint: true }],
+        structure_review_status: 'confirmed',
+        status: 'impact_ready',
+      }),
+      impact_summary: {
+        candidate_bundle: { operation_count: 1, domain_generation_pending: true },
+        proposed_outline: [{ provisional_id: 'n1', title: '第三章 新结构', parent_ref: 'root' }],
+        affected_units: [{ migration_id: 'm1', unit_id: 'script:l1', asset_type: 'script', unit_type: 'script', title: '第三章讲稿', before_preview: '旧讲稿', section_ids: ['c1'], source_state: 'current', disposition: 'regenerate', reason: '结构变化', confidence: .8, candidate_status: 'not_started' }],
+      },
+    })]
+    const accept = vi.spyOn(store, 'accept').mockResolvedValue({} as any)
+    const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.migration-panel .button-primary').text()).toContain('生成联动候选')
+    await wrapper.get('.migration-panel .button-primary').trigger('click')
+    expect(generate).toHaveBeenCalledWith('change-1')
+    expect(accept).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('下游撤销只要有一项失败就显示未完成并仅允许重试', async () => {
+    const pinia = createPinia()
+    const store = useCourseEvolutionStore(pinia)
+    store.plans = [plan({
+      status: 'undo_partial',
+      application_receipt: { applied_count: 4, failed_count: 0, unchanged_count: 0 },
+      undo_receipt: {
+        domain_candidates: {
+          status: 'partial',
+          undone_count: 3,
+          failed_count: 1,
+          items: [
+            { operation_id: 'ppt-1', domain: 'ppt', status: 'failed', detail: 'PPT 工作稿已变化' },
+            { operation_id: 'script-1', domain: 'script', status: 'undone', detail: '已恢复到原版本' },
+          ],
+        },
+      },
+    })]
+    const undo = vi.spyOn(store, 'undo').mockResolvedValue({} as any)
+    const wrapper = mountWorkspace(pinia)
+
+    expect(wrapper.get('.receipt-state').classes()).toContain('is-partial-undo')
+    expect(wrapper.get('.receipt-state h3').text()).toContain('撤销尚未全部完成')
+    expect(wrapper.get('.receipt-state dl').text()).toContain('已恢复3')
+    expect(wrapper.get('.receipt-state dl').text()).toContain('失败1')
+    expect(wrapper.get('.receipt-actions').text()).toContain('重试未完成的撤销')
+    expect(wrapper.get('.receipt-actions').text()).not.toContain('继续修改课程')
+    await wrapper.get('.receipt-actions button').trigger('click')
+    expect(undo).toHaveBeenCalledWith('change-1')
     wrapper.unmount()
   })
 })

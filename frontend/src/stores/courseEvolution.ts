@@ -183,7 +183,7 @@ export interface CourseEvolutionPlan {
   expected_effect: string
   // 'accepted' 表示用户已确认、课程提交尚未回执确认的中间态：
   // 它既不该出现在待处理队列，也还不能当作已应用展示。
-  status: 'pending' | 'accepted' | 'applied' | 'rejected' | 'stale' | 'undone'
+  status: 'pending' | 'accepted' | 'applied' | 'rejected' | 'stale' | 'undo_partial' | 'undone'
   applied_block_ids?: string[]
   application_receipt?: Record<string, any>
   undo_receipt?: Record<string, any>

@@ -8,6 +8,10 @@ import pytest
 from course_document import CourseBlock, CourseDocument, CourseSection, refresh_document_revision
 from course_evolution import CourseEvolutionRepository, accept_change_set, undo_change_set
 from course_repository import CourseDocumentRepository
+from question_bank import QuestionBankRepository
+from teacher_course_change_execution import generate_teacher_course_change_candidates
+from teacher_lesson_authoring import TeacherLessonAuthoringRepository
+from teaching_representations import TeachingRepresentationRepository
 from teacher_course_change import (
     build_teacher_course_change_context,
     context_view,
@@ -274,7 +278,7 @@ def test_exact_content_candidate_applies_as_one_teacher_command_and_undoes(tmp_p
         context=value,
         user_id="teacher-1",
         request_id="exact-request-1",
-        instruction="把受力图永远替换成自由体图",
+        instruction="把斜面案例中的术语改得更专业",
         repository=evolution_repository,
         analyzer=analyzer,
     ))
@@ -324,6 +328,70 @@ def test_exact_content_candidate_applies_as_one_teacher_command_and_undoes(tmp_p
     assert restored_document.blocks[0].payload["markdown"] == "先给出受力图，再列方程。"
 
 
+def test_reviewed_exact_content_candidate_survives_shared_downstream_generation(tmp_path):
+    repository = CourseEvolutionRepository(tmp_path / "evolution")
+    value = context()
+    target = next(item for item in value.units if item.asset_type == "course_content")
+
+    async def analyzer(_overview, _candidates, _instruction):
+        return {
+            "interpreted_goal": "统一术语",
+            "signal_kind": "semantic",
+            "signal_confidence": .99,
+            "affected_units": [{
+                "unit_id": target.unit_id,
+                "disposition": "rewrite_partial",
+                "reason": "术语统一",
+                "confidence": .99,
+                "content_patches": [{
+                    "field": "markdown",
+                    "before": "受力图",
+                    "after": "自由体图",
+                    "replace_all": True,
+                }],
+            }],
+            "structure": {"required": False},
+        }
+
+    created = asyncio.run(create_teacher_course_change_plan(
+        context=value,
+        user_id="teacher-1",
+        request_id="exact-shared-generation",
+        instruction="把受力图统一改成自由体图",
+        repository=repository,
+        analyzer=analyzer,
+    ))
+    plan = created.change_sets[0]
+    migration = plan.teacher_change_planning.unit_migrations[0]
+    operation_id = str(migration.metadata["operation_id"])
+    review_teacher_course_change_scope(
+        repository=repository,
+        user_id="teacher-1",
+        course_id="course-1",
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=[migration.migration_id],
+    )
+    raw_course = {
+        "course_id": "course-1",
+        "course_name": "大学物理",
+        "course_document": document().model_dump(mode="json"),
+    }
+    generated = asyncio.run(generate_teacher_course_change_candidates(
+        course_data=raw_course,
+        user_id="teacher-1",
+        change_set_id=plan.change_set_id,
+        repository=repository,
+        authoring_repository=TeacherLessonAuthoringRepository(tmp_path / "authoring"),
+        representation_repository=TeachingRepresentationRepository(tmp_path / "representations"),
+        question_bank_repository=QuestionBankRepository(tmp_path / "question-bank"),
+        course_service=object(),
+    ))
+    updated = generated.change_sets[0]
+    assert [item.operation_id for item in updated.operations] == [operation_id]
+    assert updated.teacher_change_planning.unit_migrations[0].candidate_status == "ready"
+    assert updated.impact_summary["affected_units"][0]["operation_id"] == operation_id
+
+
 def test_explicit_term_replacement_compiles_without_model_availability(tmp_path):
     repository = CourseEvolutionRepository(tmp_path)
 
@@ -344,10 +412,20 @@ def test_explicit_term_replacement_compiles_without_model_availability(tmp_path)
     assert plan.impact_summary["analysis_mode"] == (
         "deterministic_exact_replace"
     )
-    assert plan.teacher_change_planning.status == "candidate_ready"
+    assert plan.teacher_change_planning.status == "impact_ready"
+    assert plan.generation_status == "suggested"
+    assert plan.impact_summary["candidate_bundle"]["domain_generation_pending"] is True
     assert len(plan.operations) == 1
-    assert affected[0]["change_count"] == 1
-    assert "自由体图" in affected[0]["after_preview"]
+    assert all(
+        migration.metadata["literal_replacement"]
+        == {"before": "受力图", "after": "自由体图"}
+        for migration in plan.teacher_change_planning.unit_migrations
+    )
+    course_content = next(
+        item for item in affected if item["asset_type"] == "course_content"
+    )
+    assert course_content["change_count"] == 1
+    assert "自由体图" in course_content["after_preview"]
 
 
 def test_explicit_term_replacement_reports_zero_formal_hits(tmp_path):

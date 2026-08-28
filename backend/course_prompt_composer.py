@@ -171,6 +171,8 @@ class CoursePromptComposer:
                 "universal_teaching_principles",
                 "learning_purpose_contract",
                 "subject_type_contract",
+                "subject_standard_pack",
+                "subject_standard_pack_version",
                 "course_teaching_type_contract",
                 "course_lesson_type_distribution",
                 "classroom_constraint_contract",
@@ -215,6 +217,7 @@ class CoursePromptComposer:
 - 教学定义：{(brief.get('teaching_definition') or {}).get('definition') or ''}
 - 学科类型：{brief.get('subject_type_label') or '自动判断'}
 - 学科成立方式：{json.dumps(brief.get('subject_type_contract') or {}, ensure_ascii=False)}
+- 版本化学科标准：{json.dumps(brief.get('subject_standard_pack') or {}, ensure_ascii=False)}
 - 共同教学底线：{json.dumps(brief.get('universal_teaching_principles') or [], ensure_ascii=False)}
 
 ## 难度与适配

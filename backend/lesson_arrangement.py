@@ -174,6 +174,12 @@ def _course_semantic_inputs(course_data: dict[str, Any]) -> dict[str, str]:
             or course_data.get("subject_type")
             or "auto"
         ),
+        "discipline_hint": _text(
+            brief.get("subject")
+            or request.get("subject")
+            or request.get("topic")
+            or course_data.get("course_name")
+        ),
     }
 
 
@@ -347,9 +353,16 @@ def recommend_lesson_arrangement(
         lesson_goal=lesson_goal,
         classroom_constraints=_classroom_constraints(course_data, duration),
         legacy_candidate=legacy_lesson_type,
+        discipline_hint=semantic_inputs["discipline_hint"],
     )
     raw_blocks = [
-        compile_teaching_block_contract(block, lesson_type=lesson_type)
+        compile_teaching_block_contract(
+            block,
+            lesson_type=lesson_type,
+            subject_standard_pack=(lesson_semantics.get("course_semantics") or {}).get(
+                "subject_standard_pack"
+            ),
+        )
         for block in raw_blocks
     ]
     return {
@@ -365,6 +378,7 @@ def recommend_lesson_arrangement(
         "required_learning_cycle": lesson_semantics["required_learning_cycle"],
         "classroom_constraints": lesson_semantics["classroom_constraints"],
         "quality_rules": lesson_semantics["quality_rules"],
+        "subject_standard_pack": lesson_semantics["course_semantics"]["subject_standard_pack"],
         "course_teaching_type": course_teaching_type,
         "lesson_phase": phase,
         "blocks": raw_blocks,

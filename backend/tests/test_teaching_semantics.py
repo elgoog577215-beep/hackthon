@@ -20,7 +20,7 @@ def test_course_semantics_keep_purpose_subject_and_teaching_type_separate():
     assert semantics["subject_type_label"] == "自然科学"
     assert semantics["course_teaching_type_label"] == "实验课"
     assert semantics["course_lesson_type_distribution"]["experiment_inquiry"] == 65
-    assert semantics["teaching_semantics_version"] == "teaching_semantics_v2"
+    assert semantics["teaching_semantics_version"] == "teaching_semantics_v3"
     assert semantics["teaching_definition"]["teacher_role"].startswith("教师是课程共同设计者")
     assert semantics["subject_type_contract"]["professional_moves"] == [
         "观察现象", "提出假设", "建立模型", "实验或数据检验", "解释边界",
@@ -104,7 +104,41 @@ def test_teaching_block_contract_closes_action_evidence_feedback_and_adaptation(
     assert block["student_activity"] == "操作、讨论、制作或协作解决"
     assert block["expected_output"] == "过程记录、作品或协作结论"
     assert len(block["adaptation_options"]) == 3
-    assert block["block_contract_version"] == "teaching_semantics_v2"
+    assert block["block_contract_version"] == "teaching_semantics_v3"
+
+
+def test_subject_standard_pack_resolves_discipline_and_drives_block_language():
+    semantics = compile_lesson_semantics(
+        learning_purpose="systematic",
+        subject_type="math_formal",
+        discipline_hint="大学微积分",
+        course_teaching_type="theory",
+        lesson_type="theory_practice",
+    )
+    pack = semantics["course_semantics"]["subject_standard_pack"]
+
+    assert pack["discipline_profile_id"] == "higher_mathematics"
+    assert pack["schema_version"] == "subject_standard_pack_v1"
+    assert "直观解释不能代替形式论证" in pack["quality_rules"]
+
+    block = compile_teaching_block_contract(
+        {"block_id": "proof", "role": "reasoning"},
+        lesson_type="theory_practice",
+        subject_standard_pack=pack,
+    )
+    assert "每一步依据" in block["teacher_activity"]
+    assert block["discipline_profile_id"] == "higher_mathematics"
+
+
+def test_auto_subject_resolution_uses_topic_without_a_parallel_prompt_chain():
+    semantics = compile_course_semantics(
+        subject_type="auto",
+        discipline_hint="临床护理评估",
+        course_teaching_type="practice",
+    )
+
+    assert semantics["subject_type"] == "life_medical"
+    assert semantics["subject_standard_pack"]["discipline_profile_id"] == "nursing"
 
     discussion = compile_teaching_block_contract(
         {"block_id": "b2", "role": "activity", "purpose": "共同修订判断"},

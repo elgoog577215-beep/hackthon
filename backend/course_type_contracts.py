@@ -338,6 +338,7 @@ def compile_course_type_brief(
         subject_type=subject_type,
         course_teaching_type=course_teaching_type,
         composition_style=composition_style,
+        discipline_hint=topic,
     )
     return {
         "course_type": resolved_type,

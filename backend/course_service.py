@@ -6609,6 +6609,8 @@ class CourseService(AIBase):
 
     def _pedagogy_contract(self, course_id: str, node: dict[str, Any]) -> str:
         metadata = self._course_generation_artifacts.get(course_id) or {}
+        brief = metadata.get("course_generation_brief") or {}
+        standard_pack = brief.get("subject_standard_pack") or {}
         profile = coerce_persisted_profile(metadata)
         module_plan = node.get("module_plan") or []
         if not module_plan:
@@ -6624,9 +6626,33 @@ class CourseService(AIBase):
         )
         return "\n".join([
             f"- 学科类型：{profile.primary_mode.value}{secondary}",
+            (
+                f"- 专业画像：{standard_pack.get('discipline_profile_label')}"
+                if standard_pack.get("discipline_profile_label") else ""
+            ),
+            (
+                "- 专业行动：" + "、".join(standard_pack.get("professional_actions") or [])
+                if standard_pack.get("professional_actions") else ""
+            ),
+            (
+                "- 典型产物：" + "、".join(standard_pack.get("canonical_artifacts") or [])
+                if standard_pack.get("canonical_artifacts") else ""
+            ),
+            (
+                "- 常见误区：" + "、".join(standard_pack.get("common_misconceptions") or [])
+                if standard_pack.get("common_misconceptions") else ""
+            ),
+            (
+                "- 讲稿语言：" + str((standard_pack.get("artifact_language") or {}).get("script") or "")
+                if (standard_pack.get("artifact_language") or {}).get("script") else ""
+            ),
+            *[
+                f"- 学科质量规则：{item}"
+                for item in standard_pack.get("quality_rules") or []
+            ],
             "- 当前节点必须履行的教学模块：",
             *(module_lines or ["  - 沿用原文结构和当前小节契约"]),
-        ])
+        ]).replace("\n\n", "\n")
 
     # ------------------------------------------------------------------
     # 局部内容操作

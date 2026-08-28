@@ -2423,6 +2423,27 @@ def test_v6_ppt_binds_exact_plan_and_script_revisions_and_becomes_stale(tmp_path
     assert asset["v6_revisions"][0]["source_lesson_plan_revision_id"] == source_revision
     assert asset["v6_revisions"][0]["source_script_revision_id"] == script_revision
 
+    first_binding_id = asset["working_v6_revision_id"]
+    updated_asset = repository.bind_v6_ppt_revision(
+        "course-1",
+        "L1-1",
+        source_lesson_plan_revision_id=source_revision,
+        source_script_revision_id=script_revision,
+        synthetic_course_id="teacher-lesson-1",
+        representation_id="rep-1",
+        spec_id="spec-2",
+        candidate_status="ready",
+    )
+    restored_asset = repository.restore_v6_ppt_revision(
+        "course-1",
+        "L1-1",
+        first_binding_id,
+        expected_working_revision_id=updated_asset["working_v6_revision_id"],
+    )
+    assert restored_asset["working_v6_revision_id"] == first_binding_id
+    assert restored_asset["source_lesson_plan_revision_id"] == source_revision
+    assert len(restored_asset["v6_revisions"]) == 2
+
     repository.save_plan_revision(
         "course-1",
         "L1-1",

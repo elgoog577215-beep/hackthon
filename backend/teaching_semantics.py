@@ -10,8 +10,12 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from subject_standard_packs import (
+    SUBJECT_STANDARD_PACK_VERSION,
+    resolve_subject_standard_pack,
+)
 
-SCHEMA_VERSION = "teaching_semantics_v2"
+SCHEMA_VERSION = "teaching_semantics_v3"
 
 TEACHING_DEFINITION: dict[str, Any] = {
     "definition": (
@@ -339,6 +343,8 @@ def compile_course_semantics(
     subject_type: Any = None,
     course_teaching_type: Any = None,
     composition_style: Any = None,
+    discipline_hint: str = "",
+    discipline_profile: str = "",
 ) -> dict[str, Any]:
     purpose = resolve_learning_purpose(learning_purpose, legacy_course_type=legacy_course_type)
     teaching_type, resolved_from = resolve_course_teaching_type(
@@ -352,6 +358,14 @@ def compile_course_semantics(
         subject = "auto"
     purpose_contract = deepcopy(LEARNING_PURPOSES[purpose])
     subject_contract = deepcopy(SUBJECT_TYPE_CONTRACTS[subject])
+    subject_standard_pack = resolve_subject_standard_pack(
+        subject,
+        discipline_hint=discipline_hint,
+        discipline_profile=discipline_profile,
+    )
+    if subject == "auto":
+        subject = str(subject_standard_pack.get("subject_type") or "general")
+        subject_contract = deepcopy(SUBJECT_TYPE_CONTRACTS[subject])
     teaching_contract = deepcopy(COURSE_TEACHING_TYPES[teaching_type])
     strategies = ["problem_inquiry"] if _value(legacy_course_type) == "inquiry" else []
     return {
@@ -365,6 +379,8 @@ def compile_course_semantics(
         "subject_type": subject,
         "subject_type_label": SUBJECT_TYPES[subject],
         "subject_type_contract": subject_contract,
+        "subject_standard_pack_version": SUBJECT_STANDARD_PACK_VERSION,
+        "subject_standard_pack": subject_standard_pack,
         "course_teaching_type": teaching_type,
         "course_teaching_type_label": teaching_contract["label"],
         "course_teaching_type_resolved_from": resolved_from,
@@ -417,11 +433,15 @@ def compile_lesson_semantics(
     lesson_goal: str = "",
     classroom_constraints: dict[str, Any] | None = None,
     legacy_candidate: str = "theory",
+    discipline_hint: str = "",
+    discipline_profile: str = "",
 ) -> dict[str, Any]:
     course_semantics = compile_course_semantics(
         learning_purpose=learning_purpose,
         subject_type=subject_type,
         course_teaching_type=course_teaching_type,
+        discipline_hint=discipline_hint,
+        discipline_profile=discipline_profile,
     )
     explicit_lesson_type = _value(lesson_type)
     resolved_lesson_type = (
@@ -471,16 +491,25 @@ def compile_lesson_semantics(
             "每次检查都明确达到、部分达到和未达到时怎样处理",
             "支架服务当前障碍并可逐步撤除，不降低核心成果标准",
             "课堂时长、班额、环境、设备和安全要求与活动相容",
+            *course_semantics["subject_standard_pack"].get("quality_rules", []),
         ],
         "course_semantics": course_semantics,
     }
 
 
-def compile_teaching_block_contract(block: dict[str, Any], *, lesson_type: str) -> dict[str, Any]:
+def compile_teaching_block_contract(
+    block: dict[str, Any],
+    *,
+    lesson_type: str,
+    subject_standard_pack: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """把旧模块投影为可实施、可检查、可调整的教学块合同。"""
     result = deepcopy(block)
     role = _value(result.get("role")) or "concept"
     role_contract = deepcopy(BLOCK_ROLE_CONTRACTS.get(role, BLOCK_ROLE_CONTRACTS["concept"]))
+    discipline_recipe = deepcopy(
+        ((subject_standard_pack or {}).get("block_recipes") or {}).get(role) or {}
+    )
     lesson_contract = LESSON_TYPE_CONTRACTS.get(lesson_type, LESSON_TYPE_CONTRACTS["theory"])
     engagement = _value(result.get("engagement_mode")) or role_contract["engagement"]
     if role == "activity" and not _value(result.get("engagement_mode")):
@@ -489,9 +518,21 @@ def compile_teaching_block_contract(block: dict[str, Any], *, lesson_type: str) 
         elif lesson_type == "experiment_inquiry":
             engagement = "constructive"
     result["engagement_mode"] = engagement
-    result["teacher_activity"] = str(result.get("teacher_activity") or role_contract["teacher_move"]).strip()
-    result["student_activity"] = str(result.get("student_activity") or role_contract["learner_move"]).strip()
-    result["expected_output"] = str(result.get("expected_output") or role_contract["evidence"]).strip()
+    result["teacher_activity"] = str(
+        result.get("teacher_activity")
+        or discipline_recipe.get("teacher_activity")
+        or role_contract["teacher_move"]
+    ).strip()
+    result["student_activity"] = str(
+        result.get("student_activity")
+        or discipline_recipe.get("student_activity")
+        or role_contract["learner_move"]
+    ).strip()
+    result["expected_output"] = str(
+        result.get("expected_output")
+        or discipline_recipe.get("expected_output")
+        or role_contract["evidence"]
+    ).strip()
     result["check_method"] = str(
         result.get("check_method") or f"依据“{result['expected_output']}”检查是否服务本讲目标"
     ).strip()
@@ -511,6 +552,14 @@ def compile_teaching_block_contract(block: dict[str, Any], *, lesson_type: str) 
         result.get("transition") or f"用本块证据衔接{lesson_contract['learning_cycle'][-1]}或下一教学责任"
     ).strip()
     result["block_contract_version"] = SCHEMA_VERSION
+    if subject_standard_pack:
+        result["subject_standard_pack_version"] = str(
+            subject_standard_pack.get("schema_version")
+            or SUBJECT_STANDARD_PACK_VERSION
+        )
+        result["discipline_profile_id"] = str(
+            subject_standard_pack.get("discipline_profile_id") or ""
+        )
     return result
 
 

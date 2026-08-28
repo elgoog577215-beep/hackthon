@@ -122,6 +122,115 @@ def _legacy_overlay_state(course: dict) -> tuple[CourseEvolutionState, object]:
     return state, document
 
 
+def test_domain_only_teacher_change_uses_existing_accept_and_undo_contract(tmp_path):
+    course = _course()
+    document_repository = _document_repository(course)
+    document, _canonical = document_repository.load_document(course["course_id"])
+    repository = CourseEvolutionRepository(tmp_path / "evolution")
+    operation = CourseEvolutionOperation(
+        operation_id="domain-operation-1",
+        operation_type="APPLY_DOMAIN_CANDIDATE",
+        target_block_id="lesson-plan-candidate-1",
+        target_section_id=document.sections[0].section_id,
+        reason="更新教案候选",
+        payload={"domain": "lesson_plan"},
+    )
+    plan = CourseEvolutionPlan(
+        change_set_id="domain-plan-1",
+        user_id="teacher-a",
+        course_id=course["course_id"],
+        hypothesis_id="",
+        source_kind="manual_request",
+        request_text="把教案表达改得更自然",
+        generation_status="ready",
+        base_revision_vector=revision_vector_for_document(document).revisions,
+        allowed_scopes=["current"],
+        operations=[operation],
+        impact_summary={
+            "affected_units": [{
+                "migration_id": "migration-1",
+                "unit_id": "lesson_plan:lesson-1:section-1",
+                "asset_type": "lesson_plan",
+                "title": "教案段落",
+                "operation_id": operation.operation_id,
+                "candidate_status": "ready",
+            }],
+        },
+        expected_effect="教案表达更自然",
+        status="pending",
+        created_at="2026-08-28T00:00:00+00:00",
+        updated_at="2026-08-28T00:00:00+00:00",
+    )
+    repository.save(CourseEvolutionState(
+        user_id="teacher-a",
+        course_id=course["course_id"],
+        change_sets=[plan],
+        updated_at="2026-08-28T00:00:00+00:00",
+    ))
+    applied_calls: list[list[str]] = []
+
+    def apply_domain(_plan, operation_ids):
+        applied_calls.append(operation_ids)
+        return {
+            "status": "applied",
+            "items": [{
+                "operation_id": operation.operation_id,
+                "domain": "lesson_plan",
+                "status": "applied",
+                "detail": "已写入教案工作版",
+                "previous_revision_id": "plan-r1",
+                "result_revision_id": "plan-r2",
+            }],
+        }
+
+    before_revision = document.document_revision
+    applied = accept_change_set(
+        course,
+        user_id="teacher-a",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        repository=repository,
+        document_repository=document_repository,
+        domain_candidate_applier=apply_domain,
+    )
+    result = applied.change_sets[0]
+    after_document, _canonical = document_repository.load_document(course["course_id"])
+    assert applied_calls == [[operation.operation_id]]
+    assert after_document.document_revision == before_revision
+    assert result.application_receipt["status"] == "no_course_document_change"
+    assert result.application_receipt["items"][0]["status"] == "applied"
+
+    undone_calls: list[str] = []
+
+    def undo_domain(current):
+        undone_calls.append(current.change_set_id)
+        if len(undone_calls) == 1:
+            return {"status": "partial", "failed_count": 1, "items": []}
+        return {"status": "undone", "failed_count": 0, "items": []}
+
+    partial = undo_change_set(
+        user_id="teacher-a",
+        course_id=course["course_id"],
+        change_set_id=plan.change_set_id,
+        repository=repository,
+        document_repository=document_repository,
+        domain_candidate_undoer=undo_domain,
+    )
+    assert partial.change_sets[0].status == "undo_partial"
+    assert partial.change_sets[0].resolved_at is None
+
+    undone = undo_change_set(
+        user_id="teacher-a",
+        course_id=course["course_id"],
+        change_set_id=plan.change_set_id,
+        repository=repository,
+        document_repository=document_repository,
+        domain_candidate_undoer=undo_domain,
+    )
+    assert undone_calls == [plan.change_set_id, plan.change_set_id]
+    assert undone.change_sets[0].status == "undone"
+
+
 def test_legacy_personal_overlay_rebases_when_block_anchor_is_unchanged():
     state, document = _legacy_overlay_state(_course())
     target = document.blocks[0]

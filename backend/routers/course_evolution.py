@@ -45,6 +45,11 @@ from teacher_course_change import (
     review_teacher_course_change_scope,
     TeacherCourseChangeSourceUnavailable,
 )
+from teacher_course_change_execution import (
+    build_domain_candidate_applier,
+    build_domain_candidate_undoer,
+    generate_teacher_course_change_candidates,
+)
 
 router = APIRouter(prefix="/courses/{course_id}/evolution", tags=["course_evolution"])
 personal_router = APIRouter(
@@ -380,17 +385,29 @@ async def generate_suggested_course_evolution_plan(
     if plan is None:
         raise HTTPException(status_code=404, detail="Course evolution change set not found")
     try:
-        state = await generate_section_evolution_plan(
-            course,
-            user_id=user_id,
-            section_id=plan.target_section_id,
-            instruction=plan.request_text,
-            scope_selection=plan.scope_selection,
-            request_id=plan.change_set_id,
-            repository=course_evolution_repository,
-            document_repository=get_course_document_repository(),
-            existing_change_set_id=plan.change_set_id,
-        )
+        if plan.teacher_change_planning is not None:
+            state = await generate_teacher_course_change_candidates(
+                course_data=course,
+                user_id=user_id,
+                change_set_id=change_set_id,
+                repository=course_evolution_repository,
+                authoring_repository=get_teacher_lesson_authoring_repository(),
+                representation_repository=teaching_representation_repository,
+                question_bank_repository=question_bank_repository,
+                course_service=get_course_service(),
+            )
+        else:
+            state = await generate_section_evolution_plan(
+                course,
+                user_id=user_id,
+                section_id=plan.target_section_id,
+                instruction=plan.request_text,
+                scope_selection=plan.scope_selection,
+                request_id=plan.change_set_id,
+                repository=course_evolution_repository,
+                document_repository=get_course_document_repository(),
+                existing_change_set_id=plan.change_set_id,
+            )
     except (KeyError, ValueError) as exc:
         raise HTTPException(status_code=409, detail={
             "code": "section_evolution_generation_failed",
@@ -414,6 +431,14 @@ async def accept_course_evolution_change_set(
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     document_repository = get_course_document_repository()
+    domain_candidate_applier = build_domain_candidate_applier(
+        course_data=course,
+        user_id=user_id,
+        authoring_repository=get_teacher_lesson_authoring_repository(),
+        representation_repository=teaching_representation_repository,
+        question_bank_repository=question_bank_repository,
+        document_repository=document_repository,
+    )
     try:
         state = await run_in_threadpool(
             accept_change_set,
@@ -423,6 +448,7 @@ async def accept_course_evolution_change_set(
             selected_scope=body.selected_scope,
             selected_operation_ids=body.selected_operation_ids,
             document_repository=document_repository,
+            domain_candidate_applier=domain_candidate_applier,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
@@ -513,6 +539,14 @@ async def undo_course_evolution_change_set(
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
     document_repository = get_course_document_repository()
+    domain_candidate_undoer = build_domain_candidate_undoer(
+        user_id=user_id,
+        course_id=course_id,
+        authoring_repository=get_teacher_lesson_authoring_repository(),
+        representation_repository=teaching_representation_repository,
+        question_bank_repository=question_bank_repository,
+        document_repository=document_repository,
+    )
     try:
         state = await run_in_threadpool(
             undo_change_set,
@@ -520,6 +554,7 @@ async def undo_course_evolution_change_set(
             course_id=course_id,
             change_set_id=change_set_id,
             document_repository=document_repository,
+            domain_candidate_undoer=domain_candidate_undoer,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc

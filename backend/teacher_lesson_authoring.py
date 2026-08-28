@@ -1827,6 +1827,74 @@ class TeacherLessonAuthoringRepository:
             saved = self._save(value)
             return deepcopy(next(item for item in saved["lessons"][lesson_unit_id]["ppt_assets"] if item["asset_id"] == asset["asset_id"]))
 
+    def restore_v6_ppt_revision(
+        self,
+        course_id: str,
+        lesson_unit_id: str,
+        revision_id: str,
+        *,
+        expected_working_revision_id: str,
+    ) -> dict[str, Any]:
+        """Move the V6 working pointer back to an existing binding.
+
+        A restore must not create a new binding: the historical binding keeps
+        the exact plan/script/spec relationship that was active before the
+        course-wide change.  The expected pointer prevents an undo from
+        overwriting a later teacher edit.
+        """
+
+        with self._lock:
+            value = self.load(course_id)
+            lesson = (value.get("lessons") or {}).get(lesson_unit_id)
+            if not isinstance(lesson, dict):
+                raise TeacherLessonAuthoringError("lesson_plan_not_found", "请先生成本讲教案。")
+            asset = next(
+                (
+                    item for item in lesson.get("ppt_assets") or []
+                    if isinstance(item, dict)
+                    and item.get("role") == "primary"
+                    and item.get("engine") == "slide_deck_v6"
+                ),
+                None,
+            )
+            if not isinstance(asset, dict):
+                raise TeacherLessonAuthoringError("ppt_revision_not_found", "PPT 历史版本不存在。")
+            if str(asset.get("working_v6_revision_id") or "") != expected_working_revision_id:
+                raise TeacherLessonAuthoringError(
+                    "ppt_revision_conflict",
+                    "PPT 已在其他页面修改，请重新载入后再恢复。",
+                )
+            binding = next(
+                (
+                    item for item in asset.get("v6_revisions") or []
+                    if isinstance(item, dict) and str(item.get("revision_id") or "") == revision_id
+                ),
+                None,
+            )
+            if not isinstance(binding, dict):
+                raise TeacherLessonAuthoringError("ppt_revision_not_found", "PPT 历史版本不存在。")
+            asset["working_v6_revision_id"] = revision_id
+            asset["working_representation_id"] = str(binding.get("representation_id") or "")
+            asset["synthetic_course_id"] = str(binding.get("synthetic_course_id") or "")
+            asset["source_lesson_plan_revision_id"] = str(
+                binding.get("source_lesson_plan_revision_id") or ""
+            )
+            asset["source_script_revision_id"] = str(binding.get("source_script_revision_id") or "")
+            asset["ppt_manuscript_revision"] = str(binding.get("ppt_manuscript_revision") or "")
+            asset["ppt_manuscript_status"] = str(binding.get("ppt_manuscript_status") or "draft")
+            asset["source_state"] = (
+                "current"
+                if str(lesson.get("confirmed_revision_id") or "")
+                == str(binding.get("source_lesson_plan_revision_id") or "")
+                else "stale"
+            )
+            saved = self._save(value)
+            return deepcopy(next(
+                item
+                for item in saved["lessons"][lesson_unit_id]["ppt_assets"]
+                if item["asset_id"] == asset["asset_id"]
+            ))
+
     def save_v6_ppt_manuscript(
         self,
         course_id: str,
@@ -2233,6 +2301,7 @@ class TeacherLessonAuthoringRepository:
         instruction: str,
         candidate_page: dict[str, Any],
         changed_fields: list[str],
+        page_changes: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -2276,6 +2345,7 @@ class TeacherLessonAuthoringRepository:
                 "instruction": instruction,
                 "candidate_page": deepcopy(candidate_page),
                 "changed_fields": list(changed_fields),
+                "page_changes": deepcopy(page_changes or []),
                 "status": "pending",
                 "created_at": _now(),
             }
@@ -2698,6 +2768,7 @@ class TeacherLessonAuthoringRepository:
         replacement_text: str,
         source_lesson_plan_revision_id: str,
         material_asset_ids: list[str] | None = None,
+        section_replacements: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
@@ -2724,6 +2795,11 @@ class TeacherLessonAuthoringRepository:
                 "section_node_id": section_node_id,
                 "instruction": instruction,
                 "replacement_text": replacement_text,
+                "section_replacements": {
+                    str(key): str(value).strip()
+                    for key, value in (section_replacements or {}).items()
+                    if str(key).strip() and str(value).strip()
+                },
                 "material_asset_ids": list(dict.fromkeys(
                     str(item).strip()
                     for item in material_asset_ids or []

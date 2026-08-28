@@ -49,7 +49,15 @@ HypothesisStatus = Literal[
     "observing", "actionable", "candidate_created", "accepted", "rejected",
     "evaluating", "effective", "ineffective", "harmful", "expired",
 ]
-ChangeSetStatus = Literal["pending", "accepted", "rejected", "applied", "stale", "undone"]
+ChangeSetStatus = Literal[
+    "pending",
+    "accepted",
+    "rejected",
+    "applied",
+    "stale",
+    "undo_partial",
+    "undone",
+]
 
 # One course adjustment may carry operations from both families. They compile
 # differently — scaffolds append a new support block, canonical operations edit
@@ -71,6 +79,7 @@ CANONICAL_OPERATION_TYPES = frozenset({
     "REBUILD_COURSE_OUTLINE",
     "ADJUST_COURSE_DIFFICULTY",
 })
+DOMAIN_CANDIDATE_OPERATION_TYPES = frozenset({"APPLY_DOMAIN_CANDIDATE"})
 # How long an operation the learner explicitly declined stays out of follow-up
 # proposals. Long enough that "I said no" is respected across a study session,
 # short enough that a later, genuinely different course state can offer it again.
@@ -145,6 +154,7 @@ class CourseEvolutionOperation(BaseModel):
         "RESEQUENCE_COURSE_PATH",
         "REBUILD_COURSE_OUTLINE",
         "ADJUST_COURSE_DIFFICULTY",
+        "APPLY_DOMAIN_CANDIDATE",
     ]
     target_block_id: str
     target_section_id: str = ""
@@ -523,6 +533,7 @@ def accept_change_set(
     selected_operation_ids: list[str] | None = None,
     repository: CourseEvolutionRepository | None = None,
     document_repository: CourseDocumentRepository | None = None,
+    domain_candidate_applier: Any = None,
 ) -> CourseEvolutionState:
     repository = repository or course_evolution_repository
     course_id = str(course_data.get("course_id") or "")
@@ -591,6 +602,14 @@ def accept_change_set(
     if not accepted_operation_ids:
         raise ValueError("Select at least one course evolution operation")
     accepted_operation_id_set = set(accepted_operation_ids)
+    accepted_domain_operation_ids = [
+        operation.operation_id
+        for operation in eligible_operations
+        if operation.operation_id in accepted_operation_id_set
+        and operation.operation_type in DOMAIN_CANDIDATE_OPERATION_TYPES
+    ]
+    if accepted_domain_operation_ids and domain_candidate_applier is None:
+        raise ValueError("课程修改方案包含下游候选，但当前未连接对应的资产执行器")
     excluded_operation_ids = [
         operation_id
         for operation_id in eligible_operation_ids
@@ -676,31 +695,71 @@ def accept_change_set(
     change_set.status = "accepted"
     change_set.updated_at = _now()
     repository.save(state)
+    has_course_mutation = bool(
+        replacements
+        or insertions
+        or replaced_retire_block_ids
+        or folded_retire_block_ids
+        or reorderings
+        or section_moves
+        or outline_rebuild
+    )
     try:
-        receipt = asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
-            course_id,
-            command_id=command_id,
-            expected_document_revision=document.document_revision,
-            insertions=insertions,
-            replacements=replacements,
-            retire_block_ids=[
-                *replaced_retire_block_ids,
-                *folded_retire_block_ids,
-            ],
-            reorderings=reorderings,
-            section_moves=section_moves,
-            outline_rebuild=outline_rebuild,
-            reason=(
-                f"教师确认课程修改：{change_set.request_text}"
-                if change_set.source_kind == "manual_request"
-                else f"学习证据驱动课程生长：{change_set.hypothesis_id}"
-            ),
-            actor=(
-                f"teacher:{user_id}"
-                if change_set.source_kind == "manual_request"
-                else f"learner:{user_id}"
-            ),
-        ))
+        receipt = (
+            asyncio.run(CourseCommandService(document_repository).apply_block_operation_group(
+                course_id,
+                command_id=command_id,
+                expected_document_revision=document.document_revision,
+                insertions=insertions,
+                replacements=replacements,
+                retire_block_ids=[
+                    *replaced_retire_block_ids,
+                    *folded_retire_block_ids,
+                ],
+                reorderings=reorderings,
+                section_moves=section_moves,
+                outline_rebuild=outline_rebuild,
+                reason=(
+                    f"教师确认课程修改：{change_set.request_text}"
+                    if change_set.source_kind == "manual_request"
+                    else f"学习证据驱动课程生长：{change_set.hypothesis_id}"
+                ),
+                actor=(
+                    f"teacher:{user_id}"
+                    if change_set.source_kind == "manual_request"
+                    else f"learner:{user_id}"
+                ),
+            ))
+            if has_course_mutation
+            else {
+                "operation": "course_evolution_domain_candidates_only",
+                "command_id": command_id,
+                "document_revision": document.document_revision,
+                "status": "no_course_document_change",
+            }
+        )
+        if accepted_domain_operation_ids:
+            try:
+                domain_receipt = domain_candidate_applier(
+                    change_set,
+                    accepted_domain_operation_ids,
+                ) or {}
+            except Exception as exc:  # noqa: BLE001 - course commit may already be durable
+                domain_receipt = {
+                    "schema_version": "teacher_course_domain_receipt_v1",
+                    "status": "failed",
+                    "applied_count": 0,
+                    "failed_count": len(accepted_domain_operation_ids),
+                    "items": [
+                        {
+                            "operation_id": operation_id,
+                            "status": "failed",
+                            "detail": str(exc),
+                        }
+                        for operation_id in accepted_domain_operation_ids
+                    ],
+                }
+            receipt["domain_candidates"] = deepcopy(domain_receipt)
     except CourseDocumentConflict as exc:
         change_set.status = "stale"
         change_set.impact_summary["command_group"] = {
@@ -954,10 +1013,23 @@ def _finalize_applied_change_set(
     if change_set.source_kind == "manual_request":
         affected_units = list(change_set.impact_summary.get("affected_units") or [])
         accepted = set(outcome["accepted_operation_ids"])
+        domain_receipts = {
+            str(item.get("operation_id") or ""): item
+            for item in (receipt.get("domain_candidates") or {}).get("items") or []
+            if isinstance(item, dict) and item.get("operation_id")
+        }
         receipt_items: list[dict[str, Any]] = []
         for item in affected_units:
             operation_id = str(item.get("operation_id") or "")
-            if operation_id and operation_id in accepted:
+            domain_receipt = domain_receipts.get(operation_id)
+            if domain_receipt is not None and operation_id in accepted:
+                status = str(domain_receipt.get("status") or "failed")
+                detail = str(domain_receipt.get("detail") or (
+                    "已写入该资产的正式工作版"
+                    if status == "applied"
+                    else "应用失败，已保留原版本"
+                ))
+            elif operation_id and operation_id in accepted:
                 status = "applied"
                 detail = "已写入正式课程文档"
             elif str(item.get("candidate_status") or "") == "failed":
@@ -1206,21 +1278,37 @@ def undo_change_set(
     change_set_id: str,
     repository: CourseEvolutionRepository | None = None,
     document_repository: CourseDocumentRepository | None = None,
+    domain_candidate_undoer: Any = None,
 ) -> CourseEvolutionState:
     repository = repository or course_evolution_repository
     state = repository.load(user_id, course_id)
     change_set = _change_set(state, change_set_id)
-    if change_set.status != "applied":
+    previous_domain_undo = change_set.undo_receipt.get("domain_candidates") or {}
+    retrying_partial_undo = (
+        change_set.status in {"undo_partial", "undone"}
+        and previous_domain_undo.get("status") == "partial"
+    )
+    if change_set.status != "applied" and not retrying_partial_undo:
         raise ValueError(f"Course change set cannot be undone from {change_set.status}")
-    if change_set.write_target == "course_document":
+    domain_application = change_set.application_receipt.get("domain_candidates") or {}
+    has_domain_application = any(
+        isinstance(item, dict) and item.get("status") == "applied"
+        for item in domain_application.get("items") or []
+    )
+    has_course_undo = bool(
+        change_set.applied_block_ids
+        or change_set.application_receipt.get("section_move_journal")
+        or change_set.application_receipt.get("outline_rebuild_journal")
+    )
+    if change_set.write_target == "course_document" and not has_course_undo and not has_domain_application:
+        raise ValueError("Applied course evolution plan has no recorded changes")
+    if (
+        change_set.write_target == "course_document"
+        and has_course_undo
+        and not retrying_partial_undo
+    ):
         # A pure catalog resequence changes no blocks, so an empty block list is
         # only an error when the plan also recorded no section move.
-        if (
-            not change_set.applied_block_ids
-            and not change_set.application_receipt.get("section_move_journal")
-            and not change_set.application_receipt.get("outline_rebuild_journal")
-        ):
-            raise ValueError("Applied course evolution plan has no recorded course blocks")
         document_repository = document_repository or _default_document_repository()
         document, canonical = document_repository.load_document(course_id)
         if not canonical:
@@ -1322,10 +1410,20 @@ def undo_change_set(
         except CourseDocumentConflict as exc:
             raise ValueError(str(exc)) from exc
         change_set.undo_receipt = deepcopy(receipt)
-    change_set.status = "undone"
-    change_set.resolved_at = _now()
-    change_set.updated_at = change_set.resolved_at
-    if change_set.source_kind != "manual_request":
+    if has_domain_application:
+        if domain_candidate_undoer is None:
+            raise ValueError("课程修改包含下游资产，但当前未连接对应的撤销执行器")
+        domain_receipt = domain_candidate_undoer(change_set) or {}
+        change_set.undo_receipt["domain_candidates"] = deepcopy(domain_receipt)
+    domain_undo_complete = (
+        not has_domain_application
+        or (change_set.undo_receipt.get("domain_candidates") or {}).get("status") == "undone"
+    )
+    change_set.status = "undone" if domain_undo_complete else "undo_partial"
+    timestamp = _now()
+    change_set.resolved_at = timestamp if domain_undo_complete else None
+    change_set.updated_at = timestamp
+    if change_set.source_kind != "manual_request" and domain_undo_complete:
         hypothesis = _hypothesis(state, change_set.hypothesis_id)
         hypothesis.status = "observing"
         hypothesis.updated_at = change_set.resolved_at
@@ -3786,6 +3884,14 @@ def _course_block_mutations(
         operation.operation_type in CANONICAL_OPERATION_TYPES
         for operation in change_set.operations
     )
+    has_domain_operations = any(
+        operation.operation_type in DOMAIN_CANDIDATE_OPERATION_TYPES
+        and (
+            selected_operation_ids is None
+            or operation.operation_id in selected_operation_ids
+        )
+        for operation in change_set.operations
+    )
     if not has_canonical_operations:
         return (
             replacements,
@@ -3794,6 +3900,7 @@ def _course_block_mutations(
                 document,
                 selected_scope=selected_scope,
                 selected_operation_ids=selected_operation_ids,
+                allow_empty=has_domain_operations,
             ),
             [],
             [],
@@ -3820,6 +3927,8 @@ def _course_block_mutations(
     outline_rebuild: dict[str, Any] | None = None
     for operation in change_set.operations:
         if operation.operation_type in SCAFFOLD_OPERATION_TYPES:
+            continue
+        if operation.operation_type in DOMAIN_CANDIDATE_OPERATION_TYPES:
             continue
         if selected_scope == "current" and operation.scope == "next":
             continue
