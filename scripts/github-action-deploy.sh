@@ -499,6 +499,48 @@ preflight_release_runtime() {
     )
 }
 
+bootstrap_runtime() {
+    local service_unit="$release_path/deploy/systemd/lingzhi.service"
+
+    if [ ! -x "$VENV/bin/python" ]; then
+        if [ "$(id -u)" -ne 0 ]; then
+            log "首次部署需要 root 权限创建 Python 环境"
+            return 1
+        fi
+        log "首次部署：创建 Python 环境并安装后端依赖"
+        python3 -m venv "$VENV"
+        PIP_NO_CACHE_DIR=1 "$VENV/bin/pip" install \
+            --disable-pip-version-check \
+            -r "$release_path/backend/requirements.txt"
+    fi
+
+    if ! getent passwd lingzhi >/dev/null; then
+        if [ "$(id -u)" -ne 0 ]; then
+            log "首次部署需要 root 权限创建 lingzhi 系统用户"
+            return 1
+        fi
+        log "首次部署：创建隔离的 lingzhi 系统用户"
+        useradd --system --home-dir "$BASE_DIR" --shell /usr/sbin/nologin lingzhi
+    fi
+
+    if [ ! -f "$service_unit" ]; then
+        log "发布包缺少 systemd 服务定义：$service_unit"
+        return 1
+    fi
+    if [ ! -f "/etc/systemd/system/$SERVICE_NAME.service" ] \
+        || ! cmp -s "$service_unit" "/etc/systemd/system/$SERVICE_NAME.service"; then
+        if [ "$(id -u)" -ne 0 ]; then
+            log "安装 systemd 服务定义需要 root 权限"
+            return 1
+        fi
+        log "安装 systemd 服务定义：$SERVICE_NAME"
+        install -m 644 "$service_unit" "/etc/systemd/system/$SERVICE_NAME.service"
+        systemctl daemon-reload
+    fi
+    systemctl enable "$SERVICE_NAME" >/dev/null
+    chown -R lingzhi:lingzhi "$STATE_DIR"
+}
+
 log_service_diagnostics() {
     log "输出服务失败诊断：$SERVICE_NAME"
     systemctl show "$SERVICE_NAME" \
@@ -606,6 +648,8 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
     fi
     touch "$release_path/.deploy-ready"
 fi
+
+bootstrap_runtime
 
 preflight_release_runtime
 

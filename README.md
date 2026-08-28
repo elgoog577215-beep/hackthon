@@ -232,12 +232,12 @@ openspec/        正式规格和变更任务
 - Docker 入口：[Dockerfile](./Dockerfile)。
 - Runner 独立部署：[docker-compose.runner.yml](./docker-compose.runner.yml)。
 - 发布包构建：`scripts/build-deploy-artifact.sh`。
-- 本仓库 CI：`.github/workflows/deploy-lingzhi.yml` 只构建、校验并短期保存发布包，不使用 SSH，也不直接部署服务器。
-- 学校开发环境：由启智开发发布链统一部署和联调，不在同一台机器上另建 `/opt/lingzhi` 独立实例。
-- 学校生产环境：由启智正式发布链统一部署；每次连接和发布前必须先通过浙江大学 aTrust 进入学校内网，不从 GitHub 托管 Runner 直连。
-- `scripts/deploy-production.sh`、`scripts/github-action-deploy.sh` 和 `.github/workflows/provision-searxng.yml` 是旧独立部署链保留的恢复工具，不是当前生产入口。
+- 生产入口：<https://tuotuzju.com/lingzhi/>。
+- 自动发布：推送 `main` 后由 `.github/workflows/deploy-lingzhi.yml` 构建发布包，并通过 SSH 发布到拓途服务器的 `/opt/lingzhi`。
+- 运行隔离：应用使用 `lingzhi.service` 和回环端口 `127.0.0.1:7862`，Caddy 只把 `/lingzhi/*` 转发给它；持久数据位于 `/opt/lingzhi/state`，不与拓途主站共用数据或 API。
+- SearXNG 手动部署：`.github/workflows/provision-searxng.yml`；固定配置位于 `deploy/searxng/`。
 
-服务器地址和凭据只保存在本机私有配置，不进入 Git。生产发布必须完成构建、健康检查、活动任务恢复和回滚验证；不要用一次本地启动或开发服务器结果代替生产验收。
+服务器地址和凭据只保存在本机私有配置或 GitHub Actions secrets，不进入 Git。生产发布必须完成构建、健康检查、活动任务恢复、公开 `/lingzhi/` 路由和回滚验证；不要用一次本地启动代替生产验收。
 
 ## 许可证
 

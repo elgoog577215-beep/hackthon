@@ -155,19 +155,36 @@ def test_server_activation_script_has_valid_bash_syntax() -> None:
     )
 
 
-def test_workflow_builds_artifact_without_server_access() -> None:
+def test_workflow_builds_artifact_before_tuotu_activation() -> None:
     workflow = (ROOT / ".github" / "workflows" / "deploy-lingzhi.yml").read_text()
 
     build_step = workflow.index("Build release artifact on runner")
     upload_step = workflow.index("Upload verified release artifact")
+    configure_step = workflow.index("Configure deployment SSH")
+    activate_step = workflow.index("Activate release on Tuotu server")
 
-    assert build_step < upload_step
+    assert build_step < upload_step < configure_step < activate_step
     assert "scripts/build-deploy-artifact.sh" in workflow
     assert "actions/upload-artifact@v4" in workflow
-    assert "LINGZHI_SSH" not in workflow
-    assert "ssh " not in workflow
-    assert "scp " not in workflow
-    assert "Activate release on server" not in workflow
+    assert "secrets.LINGZHI_SSH_HOST" in workflow
+    assert "secrets.LINGZHI_SSH_USER" in workflow
+    assert "secrets.LINGZHI_SSH_KEY" in workflow
+    assert "scripts/github-action-deploy.sh" in workflow
+
+
+def test_server_activation_bootstraps_an_isolated_systemd_runtime() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+    unit = (ROOT / "deploy" / "systemd" / "lingzhi.service").read_text()
+
+    bootstrap = script.index("bootstrap_runtime")
+    preflight = script.index("preflight_release_runtime", bootstrap)
+
+    assert bootstrap < preflight
+    assert 'useradd --system --home-dir "$BASE_DIR"' in script
+    assert 'PIP_NO_CACHE_DIR=1 "$VENV/bin/pip" install' in script
+    assert "User=lingzhi" in unit
+    assert "WorkingDirectory=/opt/lingzhi/hackthon/backend" in unit
+    assert "127.0.0.1 --port 7862" in unit
 
 
 def test_release_artifact_excludes_non_runtime_visual_evidence() -> None:

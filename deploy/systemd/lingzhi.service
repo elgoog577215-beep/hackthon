@@ -1,0 +1,21 @@
+[Unit]
+Description=Lingzhi teaching platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=lingzhi
+Group=lingzhi
+WorkingDirectory=/opt/lingzhi/hackthon/backend
+EnvironmentFile=-/opt/lingzhi/state/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/lingzhi/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 7862
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=120
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

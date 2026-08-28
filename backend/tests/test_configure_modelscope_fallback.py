@@ -170,15 +170,15 @@ def test_configure_modelscope_fallback_rejects_untrusted_ppt_endpoint(
     assert env_file.read_text(encoding="utf-8") == original
 
 
-def test_release_workflow_does_not_provision_server_provider_routes():
+def test_release_workflow_provisions_server_provider_routes_from_secrets():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
     assert "scripts/build-deploy-artifact.sh" in workflow
     assert "actions/upload-artifact@v4" in workflow
-    assert "LINGZHI_SSH" not in workflow
-    assert "MODELSCOPE_API_KEY" not in workflow
-    assert "DEEPSEEK_API_KEY" not in workflow
-    assert "configure_modelscope_fallback.py" not in workflow
+    assert "secrets.LINGZHI_SSH_KEY" in workflow
+    assert "secrets.MODELSCOPE_API_KEY" in workflow
+    assert "secrets.DEEPSEEK_API_KEY" in workflow
+    assert "scripts/configure_modelscope_fallback.py" in workflow
 
 
 def test_production_diagnostics_can_probe_ppt_story_route_without_content_output():
