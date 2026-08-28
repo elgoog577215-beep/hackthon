@@ -307,9 +307,6 @@ describe('QuestionBankReviewPanel', () => {
       '[data-testid="toggle-question-details"]',
     )
     expect(detailToggles).toHaveLength(10)
-    expect(detailToggles[0]!.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.find('.question-review-item__details').exists()).toBe(false)
-    await detailToggles[0]!.trigger('click')
     expect(detailToggles[0]!.attributes('aria-expanded')).toBe('true')
     expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
     await detailToggles[1]!.trigger('click')
@@ -318,7 +315,8 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
 
     await wrapper.get('[data-testid="question-page-select"]').setValue('2')
-    expect(wrapper.find('.question-review-item__details').exists()).toBe(false)
+    expect(wrapper.findAll('.question-review-item__details')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="toggle-question-details"]')[0]!.attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('分页题目 11')
     expect(wrapper.text()).not.toContain('分页题目 01')
 

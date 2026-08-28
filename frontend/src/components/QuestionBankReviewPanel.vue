@@ -439,337 +439,272 @@
         </div>
       </section>
 
-      <section class="question-browser">
-        <header>
-          <div class="question-browser__identity">
-            <strong>{{ t('questionBank.browseTitle', '浏览全部题目') }}</strong>
-            <small v-if="browseItems.length === activeItems.length">{{ activeItems.length }} 道</small>
-            <small v-else>{{ browseItems.length }} / {{ activeItems.length }}</small>
-          </div>
-          <div class="question-browser__controls">
-            <label>
-              <Search :size="14" />
-              <input
-                v-model="browserQuery"
-                data-testid="question-search-input"
-                type="search"
-                :placeholder="t('questionBank.searchQuestion', '搜索题目内容')"
-              />
-            </label>
-            <select v-model="browserStatus" data-testid="question-status-filter">
-              <option value="all">{{ t('questionBank.filter.all', '全部状态') }}</option>
-              <option value="published">{{ t('questionBank.filter.published', '已发布') }}</option>
-              <option value="mandatory">{{ t('questionBank.filter.mandatory', '发布前审核') }}</option>
-              <option value="rework">{{ t('questionBank.filter.rework', '重做中') }}</option>
-            </select>
-          </div>
-        </header>
-      </section>
+      <section v-if="browseItems.length" class="question-browser question-review-workspace">
+        <aside class="question-index" :aria-label="t('questionBank.questionIndex', '题目目录')">
+          <header class="question-index__toolbar">
+            <div class="question-browser__identity">
+              <strong>{{ t('questionBank.browseTitle', '浏览全部题目') }}</strong>
+              <small v-if="browseItems.length === activeItems.length">{{ activeItems.length }} 道</small>
+              <small v-else>{{ browseItems.length }} / {{ activeItems.length }}</small>
+            </div>
+            <div class="question-browser__controls">
+              <label>
+                <Search :size="14" />
+                <input
+                  v-model="browserQuery"
+                  data-testid="question-search-input"
+                  type="search"
+                  :placeholder="t('questionBank.searchQuestion', '搜索题目内容')"
+                />
+              </label>
+              <select v-model="browserStatus" data-testid="question-status-filter" :aria-label="t('questionBank.filter.label', '筛选题目状态')">
+                <option value="all">{{ t('questionBank.filter.all', '全部状态') }}</option>
+                <option value="published">{{ t('questionBank.filter.published', '已发布') }}</option>
+                <option value="mandatory">{{ t('questionBank.filter.mandatory', '发布前审核') }}</option>
+                <option value="rework">{{ t('questionBank.filter.rework', '重做中') }}</option>
+              </select>
+            </div>
+          </header>
 
-      <section
-        v-if="selectedQuestions.length"
-        class="exam-paper-bar"
-        aria-labelledby="exam-paper-bar-title"
-      >
-        <div>
-          <FilePlus2 :size="16" />
-          <span>
-            <strong id="exam-paper-bar-title">
-              {{ t('questionBank.examPaper.selectedCount').replace('{count}', String(selectedQuestions.length)) }}
-            </strong>
-          </span>
-        </div>
-        <div class="exam-paper-bar__actions">
-          <button
-            type="button"
-            :disabled="!selectedQuestions.length || !bundleRevisionId"
-            @click="paperComposerOpen = true"
-          >
-            <FilePlus2 :size="15" />
-            {{ t('questionBank.examPaper.compose') }}
-          </button>
-        </div>
-      </section>
+          <div class="question-review-list">
+            <article
+              v-for="item in paginatedBrowseItems"
+              :key="item.revision_id"
+              data-testid="question-review-item"
+              class="question-review-item"
+              :class="{ 'is-expanded': isQuestionExpanded(item) }"
+            >
+              <button
+                type="button"
+                class="question-review-item__summary"
+                data-testid="toggle-question-details"
+                :aria-expanded="isQuestionExpanded(item)"
+                :aria-controls="`question-details-${item.revision_id}`"
+                :aria-current="isQuestionExpanded(item) ? 'true' : undefined"
+                @click="toggleQuestionDetails(item)"
+              >
+                <span class="question-review-item__number">{{ questionNumber(item) }}</span>
+                <span class="question-review-item__question">
+                  <strong class="question-review-item__preview">{{ questionPreview(item) }}</strong>
+                  <small>{{ questionTypeLabel(item) }} · {{ validationModeLabel(item.validation_mode) }}</small>
+                </span>
+                <span class="question-review-item__status" :data-status="item.lifecycle_status">
+                  <i aria-hidden="true"></i>
+                  {{ shortItemStatusLabel(item) }}
+                </span>
+              </button>
+            </article>
+          </div>
 
-      <div v-if="browseItems.length" class="question-review-list">
-        <div class="question-review-list__head" role="row">
-          <span aria-hidden="true"></span>
-          <span>{{ t('questionBank.table.question', '题目') }}</span>
-          <span>{{ t('questionBank.table.source', '来源') }}</span>
-          <span>{{ t('questionBank.table.validation', '校验方式') }}</span>
-          <span>{{ t('questionBank.table.status', '状态') }}</span>
-          <span aria-hidden="true"></span>
-        </div>
+          <CompactPagination
+            v-if="questionPageCount > 1"
+            class="question-browser__pagination"
+            :label="t('questionBank.questionPagination', '题目列表分页')"
+            :page="questionPage"
+            :page-count="questionPageCount"
+            :range-text="questionPageRangeText"
+            :previous-label="t('common.previousPage', '上一页')"
+            :next-label="t('common.nextPage', '下一页')"
+            :page-select-label="t('questionBank.jumpToQuestionPage', '选择题目页码')"
+            test-id-prefix="question"
+            @update:page="setQuestionPage"
+          />
+        </aside>
+
         <article
-          v-for="item in paginatedBrowseItems"
-          :key="item.revision_id"
-          data-testid="question-review-item"
-          class="question-review-item"
-          :class="{ 'is-expanded': isQuestionExpanded(item) }"
+          v-if="selectedQuestion"
+          :id="`question-details-${selectedQuestion.revision_id}`"
+          class="question-review-item__details question-reader"
+          :aria-label="t('questionBank.questionReader', '题目查看与审阅')"
         >
-          <div class="question-review-item__top">
+          <header class="question-reader__header">
+            <div>
+              <span class="question-review-item__status" :data-status="selectedQuestion.lifecycle_status">
+                <i aria-hidden="true"></i>{{ itemStatusLabel(selectedQuestion) }}
+              </span>
+              <strong>{{ t('questionBank.questionPosition', '第 {current} / {total} 题')
+                .replace('{current}', String(selectedQuestionNumber))
+                .replace('{total}', String(browseItems.length)) }}</strong>
+            </div>
+            <nav :aria-label="t('questionBank.questionNavigation', '切换题目')">
+              <button type="button" :disabled="!hasPreviousQuestion" :aria-label="t('questionBank.previousQuestion', '上一题')" @click="selectAdjacentQuestion(-1)"><ChevronLeft :size="16" /></button>
+              <button type="button" :disabled="!hasNextQuestion" :aria-label="t('questionBank.nextQuestion', '下一题')" @click="selectAdjacentQuestion(1)"><ChevronRight :size="16" /></button>
+            </nav>
+          </header>
+
+          <div class="question-reader__scroll">
+            <section class="question-sheet">
+              <div class="question-sheet__meta">
+                <span>{{ questionTypeLabel(selectedQuestion) }}</span>
+                <span>{{ sourceLabel(selectedQuestion.source_records) }}</span>
+                <span>{{ validationModeLabel(selectedQuestion.validation_mode) }}</span>
+                <span :data-status="selectedQuestion.quality_report?.passed ? 'passed' : 'failed'">
+                  {{ selectedQuestion.quality_report?.passed
+                    ? t('questionBank.qualityPassed', '质量检查通过')
+                    : t('questionBank.qualityFailed', '需要修正') }}
+                </span>
+              </div>
+
+              <div v-if="questionStimulus(selectedQuestion)" class="question-sheet__section question-sheet__stimulus">
+                <small>{{ t('questionBank.questionStimulus', '题目材料') }}</small>
+                <MarkdownRenderer :content="questionStimulus(selectedQuestion)" :enable-code-run="false" />
+              </div>
+              <div class="question-sheet__section question-sheet__task">
+                <small>{{ t('questionBank.questionContent', '题目') }}</small>
+                <MarkdownRenderer :content="questionTask(selectedQuestion)" :enable-code-run="false" />
+              </div>
+
+              <ol v-if="questionOptions(selectedQuestion).length" class="question-sheet__options">
+                <li v-for="option in questionOptions(selectedQuestion)" :key="`${selectedQuestion.revision_id}-${option.id}`">
+                  <b>{{ option.id }}</b>
+                  <MarkdownRenderer :content="option.text" :enable-code-run="false" />
+                </li>
+              </ol>
+
+              <div v-if="questionDeliverable(selectedQuestion) || questionConstraints(selectedQuestion).length" class="question-sheet__requirements">
+                <strong>{{ t('questionBank.answerRequirements', '作答要求') }}</strong>
+                <p v-if="questionDeliverable(selectedQuestion)">{{ questionDeliverable(selectedQuestion) }}</p>
+                <ul v-if="questionConstraints(selectedQuestion).length">
+                  <li v-for="constraint in questionConstraints(selectedQuestion)" :key="constraint">{{ constraint }}</li>
+                </ul>
+              </div>
+            </section>
+
+            <section class="question-answer-panel">
+              <header>
+                <div>
+                  <strong>{{ t('questionBank.answerReview', '答案与解析') }}</strong>
+                  <span>{{ t('questionBank.teacherOnlyAnswer', '仅教师可见') }}</span>
+                </div>
+                <button
+                  v-if="!solutions[selectedQuestion.revision_id]"
+                  type="button"
+                  class="question-review-item__solution"
+                  data-testid="load-question-solution"
+                  :disabled="solutionLoadingRevision === selectedQuestion.revision_id"
+                  @click="loadSolution(selectedQuestion)"
+                >
+                  <LoaderCircle v-if="solutionLoadingRevision === selectedQuestion.revision_id" :size="14" class="spin" />
+                  <Eye v-else :size="14" />
+                  {{ t('questionBank.solutionDiff', '查看答案与解析') }}
+                </button>
+              </header>
+
+              <div v-if="!solutions[selectedQuestion.revision_id]" class="question-answer-panel__locked">
+                <Eye :size="18" />
+                <span>{{ t('questionBank.answerHiddenHint', '答案默认收起，查看后可对照完整解析与独立验证结果。') }}</span>
+              </div>
+              <section v-else class="question-solution-diff">
+                <div class="question-solution-diff__worked">
+                  <strong>{{ t('questionBank.workedSolution', '完整解析') }}</strong>
+                  <p v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).summary">
+                    {{ solutionSpec(solutions[selectedQuestion.revision_id] || {}).summary }}
+                  </p>
+                  <ol v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).steps?.length">
+                    <li v-for="(step, stepIndex) in solutionSpec(solutions[selectedQuestion.revision_id] || {}).steps" :key="`${selectedQuestion.revision_id}-solution-step-${stepIndex}`">
+                      {{ formatSolutionStep(step) }}
+                    </li>
+                  </ol>
+                  <strong>{{ t('questionBank.canonicalAnswer', '标准答案') }}</strong>
+                  <pre>{{ formatValue(solutionSpec(solutions[selectedQuestion.revision_id] || {}).final_answer ?? '-') }}</pre>
+                  <section v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).option_analysis?.length" class="question-solution-diff__analysis">
+                    <strong>{{ t('questionBank.optionAnalysis', '选项解析') }}</strong>
+                    <ul>
+                      <li v-for="analysis in solutionSpec(solutions[selectedQuestion.revision_id] || {}).option_analysis" :key="`${selectedQuestion.revision_id}-option-${analysis.option_id}`">
+                        <b>{{ analysis.option_id }}</b>：{{ analysis.explanation }}
+                      </li>
+                    </ul>
+                  </section>
+                  <section v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).checks?.length" class="question-solution-diff__analysis">
+                    <strong>{{ t('questionBank.solutionChecks', '结果检查') }}</strong>
+                    <ul><li v-for="check in solutionSpec(solutions[selectedQuestion.revision_id] || {}).checks" :key="`${selectedQuestion.revision_id}-check-${check}`">{{ check }}</li></ul>
+                  </section>
+                  <section v-if="solutionSpec(solutions[selectedQuestion.revision_id] || {}).common_errors?.length" class="question-solution-diff__analysis">
+                    <strong>{{ t('questionBank.commonErrors', '常见错误') }}</strong>
+                    <ul><li v-for="error in solutionSpec(solutions[selectedQuestion.revision_id] || {}).common_errors" :key="`${selectedQuestion.revision_id}-error-${error}`">{{ error }}</li></ul>
+                  </section>
+                </div>
+                <details class="question-solution-diff__validation">
+                  <summary>{{ t('questionBank.independentValidation', '独立验证详情') }}</summary>
+                  <strong>{{ t('questionBank.canonicalAnswer', '标准答案或量规') }}</strong>
+                  <pre>{{ solutionAnswer(solutions[selectedQuestion.revision_id] || {}) }}</pre>
+                  <strong>{{ t('questionBank.independentValidation', '独立求解与验证') }}</strong>
+                  <pre>{{ solutionValidation(solutions[selectedQuestion.revision_id] || {}) }}</pre>
+                </details>
+              </section>
+            </section>
+
+            <details v-if="selectedQuestion.design_brief_summary?.schema_version" class="question-generation-audit" data-testid="question-generation-audit">
+              <summary>
+                <span>{{ t('questionBank.qualityDetails', '生成与质量检查详情') }}</span>
+                <small>{{ selectedQuestion.design_brief_summary.semantics_registry_id || selectedQuestion.question_type }}</small>
+              </summary>
+              <div class="question-generation-audit__grid">
+                <span>内容 RAG<b :data-status="selectedQuestion.design_brief_summary.content_coverage ? 'passed' : 'warning'">{{ selectedQuestion.design_brief_summary.content_coverage ? '已覆盖' : '缺口回退' }}</b></span>
+                <span>题型方法 RAG<b :data-status="selectedQuestion.design_brief_summary.method_coverage ? 'passed' : 'warning'">{{ selectedQuestion.design_brief_summary.method_coverage ? '已覆盖' : '内置模板' }}</b></span>
+                <span>语义预检<b :data-status="selectedQuestion.semantic_preflight?.passed ? 'passed' : 'failed'">{{ selectedQuestion.semantic_preflight?.passed ? '通过' : '未通过' }}</b></span>
+                <span>首轮生成<b :data-status="selectedQuestion.generation_audit_summary?.first_pass_passed ? 'passed' : 'warning'">{{ selectedQuestion.generation_audit_summary?.first_pass_passed ? '一次通过' : `修复 ${selectedQuestion.generation_audit_summary?.repair_count || 0} 次` }}</b></span>
+                <span>LLM 语义评审<b>{{ selectedQuestion.generation_audit_summary?.semantic_reviewer_trigger ? '已调用' : '规则通过，未调用' }}</b></span>
+                <span>题组多样性<b :data-status="selectedQuestion.diversity_report?.passed === false ? 'failed' : 'passed'">{{ selectedQuestion.diversity_report?.passed === false ? `重复 ${Math.round(Number(selectedQuestion.diversity_report?.max_similarity || 0) * 100)}%` : `通过 ${Math.round(Number(selectedQuestion.diversity_report?.max_similarity || 0) * 100)}%` }}</b></span>
+              </div>
+              <p v-if="selectedQuestion.generation_audit_summary?.issue_codes?.length">问题代码：{{ selectedQuestion.generation_audit_summary.issue_codes.join('、') }}</p>
+              <p v-if="selectedQuestion.diversity_report?.passed === false">最接近题目：{{ selectedQuestion.diversity_report.closest_question_id || '-' }} · 原因：{{ selectedQuestion.diversity_report.reasons?.join('、') || '语义重复' }}</p>
+            </details>
+
+            <section class="question-review-decision">
+              <label>
+                <span>{{ t('questionBank.reviewNote', '审阅意见') }}</span>
+                <textarea v-model="reviewNotes[selectedQuestion.revision_id]" :placeholder="t('questionBank.reworkNote', '可选：说明哪里有问题，帮助下一版改进')" />
+              </label>
+            </section>
+          </div>
+
+          <footer class="question-reader__footer">
             <label
-              class="question-review-item__select"
-              :class="{ disabled: !canAddToExamPaper(item) }"
-              :title="canAddToExamPaper(item) ? t('questionBank.examPaper.selectQuestion') : t('questionBank.examPaper.approvedOnly')"
+              class="question-reader__paper-select"
+              :class="{ disabled: !canAddToExamPaper(selectedQuestion) }"
+              :title="canAddToExamPaper(selectedQuestion) ? t('questionBank.examPaper.selectQuestion') : t('questionBank.examPaper.approvedOnly')"
             >
               <input
                 type="checkbox"
-                :checked="isQuestionSelected(item)"
-                :disabled="!canAddToExamPaper(item)"
-                :aria-label="t('questionBank.examPaper.selectQuestion')"
-                @change="toggleQuestionSelection(item)"
+                :checked="isQuestionSelected(selectedQuestion)"
+                :disabled="!canAddToExamPaper(selectedQuestion)"
+                @change="toggleQuestionSelection(selectedQuestion)"
               />
+              <span>{{ isQuestionSelected(selectedQuestion)
+                ? t('questionBank.examPaper.selectedQuestion', '已选入试卷')
+                : t('questionBank.examPaper.selectQuestion', '选入试卷') }}</span>
             </label>
-            <button
-              type="button"
-              class="question-review-item__summary"
-              data-testid="toggle-question-details"
-              :aria-expanded="isQuestionExpanded(item)"
-              :aria-controls="`question-details-${item.revision_id}`"
-              @click="toggleQuestionDetails(item)"
-            >
-            <span class="question-review-item__question">
-              <span
-                v-if="showQuestionRole(item)"
-                class="question-review-item__role"
-              >
-                {{ roleLabel(item.assessment_role) }}
-              </span>
-              <strong class="question-review-item__preview">
-                {{ item.prompt }}
-              </strong>
-            </span>
-            <span class="question-review-item__source">
-              {{ sourceLabel(item.source_records) }}
-            </span>
-            <span class="question-review-item__validator">
-              {{ validationModeLabel(item.validation_mode) }}
-            </span>
-            <span
-              class="question-review-item__status"
-              :data-status="item.lifecycle_status"
-            >
-              <i aria-hidden="true"></i>
-              {{ itemStatusLabel(item) }}
-            </span>
-            <span
-              class="question-review-item__toggle-label"
-              :title="isQuestionExpanded(item)
-                ? t('questionBank.collapseReview', '收起审核')
-                : t('questionBank.expandReview', '展开审核')"
-            >
-              <ChevronUp v-if="isQuestionExpanded(item)" :size="15" />
-              <ChevronDown v-else :size="15" />
-            </span>
-            </button>
-          </div>
-          <div
-            v-if="isQuestionExpanded(item)"
-            :id="`question-details-${item.revision_id}`"
-            class="question-review-item__details"
-          >
-            <dl>
-              <div>
-                <dt>{{ t('questionBank.quality', '质量') }}</dt>
-                <dd>{{ item.quality_report?.passed ? t('questionBank.qualityPassed', '自动检查通过') : t('questionBank.qualityFailed', '需要修正') }}</dd>
-              </div>
-            </dl>
-            <section
-              v-if="item.design_brief_summary?.schema_version"
-              class="question-generation-audit"
-              data-testid="question-generation-audit"
-            >
-              <header>
-                <strong>生成与质量检查</strong>
-                <small>{{ item.design_brief_summary.semantics_registry_id || item.question_type }}</small>
-              </header>
-              <div class="question-generation-audit__grid">
-                <span>
-                  内容 RAG
-                  <b :data-status="item.design_brief_summary.content_coverage ? 'passed' : 'warning'">
-                    {{ item.design_brief_summary.content_coverage ? '已覆盖' : '缺口回退' }}
-                  </b>
-                </span>
-                <span>
-                  题型方法 RAG
-                  <b :data-status="item.design_brief_summary.method_coverage ? 'passed' : 'warning'">
-                    {{ item.design_brief_summary.method_coverage ? '已覆盖' : '内置模板' }}
-                  </b>
-                </span>
-                <span>
-                  语义预检
-                  <b :data-status="item.semantic_preflight?.passed ? 'passed' : 'failed'">
-                    {{ item.semantic_preflight?.passed ? '通过' : '未通过' }}
-                  </b>
-                </span>
-                <span>
-                  首轮生成
-                  <b :data-status="item.generation_audit_summary?.first_pass_passed ? 'passed' : 'warning'">
-                    {{ item.generation_audit_summary?.first_pass_passed
-                      ? '一次通过'
-                      : `修复 ${item.generation_audit_summary?.repair_count || 0} 次` }}
-                  </b>
-                </span>
-                <span>
-                  LLM 语义评审
-                  <b>
-                    {{ item.generation_audit_summary?.semantic_reviewer_trigger
-                      ? '已调用'
-                      : '规则通过，未调用' }}
-                  </b>
-                </span>
-                <span>
-                  题组多样性
-                  <b :data-status="item.diversity_report?.passed === false ? 'failed' : 'passed'">
-                    {{ item.diversity_report?.passed === false
-                      ? `重复 ${Math.round(Number(item.diversity_report?.max_similarity || 0) * 100)}%`
-                      : `通过 ${Math.round(Number(item.diversity_report?.max_similarity || 0) * 100)}%` }}
-                  </b>
-                </span>
-              </div>
-              <p v-if="item.generation_audit_summary?.issue_codes?.length">
-                问题代码：{{ item.generation_audit_summary.issue_codes.join('、') }}
-              </p>
-              <p v-if="item.diversity_report?.passed === false">
-                最接近题目：{{ item.diversity_report.closest_question_id || '-' }}
-                · 原因：{{ item.diversity_report.reasons?.join('、') || '语义重复' }}
-              </p>
-            </section>
-            <button
-              type="button"
-              class="question-review-item__solution"
-              data-testid="load-question-solution"
-              :disabled="solutionLoadingRevision === item.revision_id"
-              @click="loadSolution(item)"
-            >
-              <LoaderCircle
-                v-if="solutionLoadingRevision === item.revision_id"
-                :size="14"
-                class="spin"
-              />
-              <Eye v-else :size="14" />
-              {{ t('questionBank.solutionDiff', '查看答案与独立验证') }}
-            </button>
-            <section
-              v-if="solutions[item.revision_id]"
-              class="question-solution-diff"
-            >
-              <div class="question-solution-diff__worked">
-                <strong>{{ t('questionBank.workedSolution', '完整解析') }}</strong>
-                <p v-if="solutionSpec(solutions[item.revision_id] || {}).summary">
-                  {{ solutionSpec(solutions[item.revision_id] || {}).summary }}
-                </p>
-                <ol v-if="solutionSpec(solutions[item.revision_id] || {}).steps?.length">
-                  <li
-                    v-for="(step, stepIndex) in solutionSpec(solutions[item.revision_id] || {}).steps"
-                    :key="`${item.revision_id}-solution-step-${stepIndex}`"
-                  >
-                    {{ formatSolutionStep(step) }}
-                  </li>
-                </ol>
-                <strong>{{ t('questionBank.canonicalAnswer', '标准答案') }}</strong>
-                <pre>{{ formatValue(solutionSpec(solutions[item.revision_id] || {}).final_answer ?? '-') }}</pre>
-                <section
-                  v-if="solutionSpec(solutions[item.revision_id] || {}).option_analysis?.length"
-                  class="question-solution-diff__analysis"
-                >
-                  <strong>{{ t('questionBank.optionAnalysis', '选项解析') }}</strong>
-                  <ul>
-                    <li
-                      v-for="analysis in solutionSpec(solutions[item.revision_id] || {}).option_analysis"
-                      :key="`${item.revision_id}-option-${analysis.option_id}`"
-                    >
-                      <b>{{ analysis.option_id }}</b>：{{ analysis.explanation }}
-                    </li>
-                  </ul>
-                </section>
-                <section
-                  v-if="solutionSpec(solutions[item.revision_id] || {}).checks?.length"
-                  class="question-solution-diff__analysis"
-                >
-                  <strong>{{ t('questionBank.solutionChecks', '结果检查') }}</strong>
-                  <ul>
-                    <li
-                      v-for="check in solutionSpec(solutions[item.revision_id] || {}).checks"
-                      :key="`${item.revision_id}-check-${check}`"
-                    >
-                      {{ check }}
-                    </li>
-                  </ul>
-                </section>
-                <section
-                  v-if="solutionSpec(solutions[item.revision_id] || {}).common_errors?.length"
-                  class="question-solution-diff__analysis"
-                >
-                  <strong>{{ t('questionBank.commonErrors', '常见错误') }}</strong>
-                  <ul>
-                    <li
-                      v-for="error in solutionSpec(solutions[item.revision_id] || {}).common_errors"
-                      :key="`${item.revision_id}-error-${error}`"
-                    >
-                      {{ error }}
-                    </li>
-                  </ul>
-                </section>
-              </div>
-              <div class="question-solution-diff__validation">
-                <strong>{{ t('questionBank.canonicalAnswer', '标准答案或量规') }}</strong>
-                <pre>{{ solutionAnswer(solutions[item.revision_id] || {}) }}</pre>
-                <strong>{{ t('questionBank.independentValidation', '独立求解与验证') }}</strong>
-                <pre>{{ solutionValidation(solutions[item.revision_id] || {}) }}</pre>
-              </div>
-            </section>
-            <textarea
-              v-model="reviewNotes[item.revision_id]"
-              :placeholder="t('questionBank.reworkNote', '可选：说明哪里有问题，帮助下一版改进')"
-            />
-            <footer>
+            <div class="question-reader__actions">
+              <button v-if="selectedQuestions.length" type="button" class="question-reader__compose" :disabled="!bundleRevisionId" @click="paperComposerOpen = true">
+                <FilePlus2 :size="15" />{{ t('questionBank.examPaper.selectedCount').replace('{count}', String(selectedQuestions.length)) }} · {{ t('questionBank.examPaper.compose') }}
+              </button>
               <button
                 type="button"
                 class="question-review-item__reject"
                 data-testid="rework-question"
-                :disabled="actingRevision === item.revision_id"
-                @click="rework(item)"
+                :disabled="actingRevision === selectedQuestion.revision_id"
+                @click="rework(selectedQuestion)"
               >
-                <RefreshCw
-                  v-if="actingRevision === item.revision_id"
-                  :size="14"
-                  class="spin"
-                />
+                <RefreshCw v-if="actingRevision === selectedQuestion.revision_id" :size="14" class="spin" />
                 <X v-else :size="14" />
-                {{ item.lifecycle_status === 'rejected'
-                  ? t('questionBank.retryRework', '重新尝试')
-                  : t('questionBank.rework', '打回重做') }}
+                {{ selectedQuestion.lifecycle_status === 'rejected' ? t('questionBank.retryRework', '重新尝试') : t('questionBank.rework', '打回重做') }}
               </button>
               <button
-                v-if="item.lifecycle_status === 'needs_review'"
+                v-if="selectedQuestion.lifecycle_status === 'needs_review'"
                 type="button"
                 class="question-review-item__approve"
                 data-testid="approve-question"
-                :disabled="actingRevision === item.revision_id"
-                @click="approve(item)"
+                :disabled="actingRevision === selectedQuestion.revision_id"
+                @click="approve(selectedQuestion)"
               >
-                <Check :size="14" />{{ t('questionBank.approve', '批准') }}
+                <Check :size="14" />{{ t('questionBank.approve', '批准发布') }}
               </button>
-            </footer>
-          </div>
+            </div>
+          </footer>
         </article>
-      </div>
-      <CompactPagination
-        v-if="questionPageCount > 1"
-        class="question-browser__pagination"
-        :label="t('questionBank.questionPagination', '题目列表分页')"
-        :page="questionPage"
-        :page-count="questionPageCount"
-        :range-text="questionPageRangeText"
-        :previous-label="t('common.previousPage', '上一页')"
-        :next-label="t('common.nextPage', '下一页')"
-        :page-select-label="t('questionBank.jumpToQuestionPage', '选择题目页码')"
-        test-id-prefix="question"
-        @update:page="setQuestionPage"
-      />
-      <div v-if="!browseItems.length" class="question-bank-panel__empty">
+      </section>
+      <div v-else class="question-bank-panel__empty">
         <CircleCheck :size="21" />
         <strong>{{ t('questionBank.noMatchingQuestions', '没有符合条件的题目') }}</strong>
       </div>
@@ -813,6 +748,8 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   CircleCheck,
   Ellipsis,
@@ -833,6 +770,7 @@ import {
 import ExamPaperComposer from './ExamPaperComposer.vue'
 import CompactPagination from './CompactPagination.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
+import MarkdownRenderer from './MarkdownRenderer.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
@@ -865,6 +803,17 @@ interface QuestionBankItem {
   review_status?: string
   review_tier?: 'auto_publish' | 'sample_review' | 'mandatory_review'
   question_type?: string
+  question_form?: string
+  deliverable?: string
+  input_materials?: string[]
+  constraints?: string[]
+  question_spec?: {
+    stimulus?: { rendered_text?: string }
+    task?: { rendered_text?: string; deliverable?: string }
+    options?: Array<{ id: string; text: string }>
+    constraints?: string[]
+    response_contract?: { format?: string }
+  }
   design_brief_summary?: {
     schema_version?: string
     semantics_registry_id?: string
@@ -1074,6 +1023,24 @@ const paginatedBrowseItems = computed(() => {
   const start = (questionPage.value - 1) * QUESTION_PAGE_SIZE
   return browseItems.value.slice(start, start + QUESTION_PAGE_SIZE)
 })
+const selectedQuestion = computed<QuestionBankItem | null>(() => (
+  browseItems.value.find(
+    item => item.revision_id === expandedQuestionRevision.value,
+  )
+  || paginatedBrowseItems.value[0]
+  || null
+))
+const selectedQuestionNumber = computed(() => {
+  if (!selectedQuestion.value) return 0
+  return browseItems.value.findIndex(
+    item => item.revision_id === selectedQuestion.value?.revision_id,
+  ) + 1
+})
+const hasPreviousQuestion = computed(() => selectedQuestionNumber.value > 1)
+const hasNextQuestion = computed(() => (
+  selectedQuestionNumber.value > 0
+  && selectedQuestionNumber.value < browseItems.value.length
+))
 const questionPageStart = computed(() => (
   (questionPage.value - 1) * QUESTION_PAGE_SIZE + 1
 ))
@@ -1317,13 +1284,84 @@ function setQuestionPage(page: number) {
 }
 
 function isQuestionExpanded(item: QuestionBankItem) {
-  return expandedQuestionRevision.value === item.revision_id
+  return selectedQuestion.value?.revision_id === item.revision_id
 }
 
 function toggleQuestionDetails(item: QuestionBankItem) {
-  expandedQuestionRevision.value = isQuestionExpanded(item)
-    ? ''
-    : item.revision_id
+  expandedQuestionRevision.value = item.revision_id
+}
+
+function selectAdjacentQuestion(offset: -1 | 1) {
+  const currentIndex = selectedQuestionNumber.value - 1
+  const targetIndex = currentIndex + offset
+  const target = browseItems.value[targetIndex]
+  if (!target) return
+  questionPage.value = Math.floor(targetIndex / QUESTION_PAGE_SIZE) + 1
+  expandedQuestionRevision.value = target.revision_id
+}
+
+function questionNumber(item: QuestionBankItem) {
+  const index = browseItems.value.findIndex(
+    candidate => candidate.revision_id === item.revision_id,
+  )
+  return String(Math.max(0, index) + 1).padStart(2, '0')
+}
+
+function questionStimulus(item: QuestionBankItem) {
+  return String(item.question_spec?.stimulus?.rendered_text || '').trim()
+}
+
+function questionTask(item: QuestionBankItem) {
+  return String(
+    item.question_spec?.task?.rendered_text
+    || item.prompt
+    || '',
+  ).trim()
+}
+
+function questionPreview(item: QuestionBankItem) {
+  return questionTask(item) || item.prompt
+}
+
+function questionOptions(item: QuestionBankItem) {
+  return (item.question_spec?.options || []).filter(
+    option => option?.id && option?.text,
+  )
+}
+
+function questionDeliverable(item: QuestionBankItem) {
+  return String(
+    item.question_spec?.task?.deliverable
+    || item.deliverable
+    || '',
+  ).trim()
+}
+
+function questionConstraints(item: QuestionBankItem) {
+  const values = item.question_spec?.constraints || item.constraints || []
+  return values.map(value => String(value || '').trim()).filter(Boolean)
+}
+
+function questionTypeLabel(item: QuestionBankItem) {
+  const type = String(
+    item.question_spec?.response_contract?.format
+    || item.question_form
+    || item.question_type
+    || '',
+  )
+  const labels: Record<string, string> = {
+    single_choice: t('questionBank.types.singleChoice', '单选题'),
+    multiple_choice: t('questionBank.types.multipleChoice', '多选题'),
+    true_false: t('questionBank.types.trueFalse', '判断题'),
+    fill_blank: t('questionBank.types.fillBlank', '填空题'),
+    numeric: t('questionBank.types.numeric', '计算题'),
+    numeric_with_work: t('questionBank.types.numericWithWork', '计算题'),
+    structured: t('questionBank.types.structured', '结构化作答'),
+    symbolic_reasoning: t('questionBank.types.symbolicReasoning', '推导题'),
+    case_analysis: t('questionBank.types.caseAnalysis', '综合分析题'),
+    essay: t('questionBank.types.essay', '论述题'),
+  }
+  return labels[type] || t('questionBank.types.question', '题目')
 }
 
 async function handleFileImport(bundleRevision: string) {
@@ -1785,18 +1823,17 @@ function itemStatusLabel(item: QuestionBankItem) {
   return item.lifecycle_status
 }
 
-function roleLabel(role: string) {
-  const labels: Record<string, string> = {
-    cross_chapter_transfer: t('questionBank.role.crossChapter', '跨章节综合题'),
-    coverage_task: t('questionBank.role.coverage', '目标覆盖题'),
-    reference: t('questionBank.role.reference', '参考题'),
+function shortItemStatusLabel(item: QuestionBankItem) {
+  if (item.lifecycle_status === 'approved') {
+    return t('questionBank.status.published', '已发布')
   }
-  return labels[role] || t('questionBank.role.candidate', '候选题')
-}
-
-function showQuestionRole(item: QuestionBankItem) {
-  return ['cross_chapter_transfer', 'coverage_task', 'reference']
-    .includes(item.assessment_role)
+  if (item.lifecycle_status === 'rejected') {
+    return t('questionBank.status.reworkShort', '重做中')
+  }
+  if (item.lifecycle_status === 'needs_review') {
+    return t('questionBank.status.reviewShort', '待审核')
+  }
+  return item.lifecycle_status
 }
 
 function validationModeLabel(mode = '') {
@@ -1903,7 +1940,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-workspace-actions .question-bank-ai-action { border-color:transparent; color:#5552c8; background:transparent; }
 .question-bank-workspace-actions .question-bank-back { border-color:transparent; padding-left:4px; }
 .question-bank-workspace-body { min-width:0; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 260px; }
-.question-bank-workspace-main { min-width:0; min-height:0; display:grid; grid-auto-rows:max-content; align-content:start; gap:0; overflow:auto; padding:0 24px 18px; background:#fff; }
+.question-bank-workspace-main { min-width:0; min-height:0; display:grid; grid-template-rows:max-content minmax(0,1fr); overflow:hidden; background:#fff; }
 .question-bank-workspace-side { min-width:0; min-height:0; overflow:hidden; border-left:1px solid #e4e9f1; background:#fbfcfe; }
 .question-bank-empty-state { min-height:340px; display:grid; place-content:center; justify-items:center; gap:9px; padding:28px; text-align:center; }
 .question-bank-empty-state>span { width:48px; height:48px; display:grid; place-items:center; border-radius:12px; color:#5b57d9; background:#f0f1ff; }
@@ -1914,6 +1951,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-empty-state .question-bank-empty-import { border-color:#514bdc; color:#fff; background:#514bdc; }
 .question-bank-empty-state button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
 .question-bank-panel.is-import .question-bank-workspace-body { display:block; }
+.question-bank-panel.is-generate .question-bank-workspace-main { grid-template-rows:repeat(3,max-content) minmax(620px,1fr); align-content:start; gap:14px; overflow:auto; padding:18px 20px 20px; }
+.question-bank-panel.is-generate .question-review-workspace { min-height:620px; border:1px solid #dfe5ee; }
 .question-bank-panel.is-generate .question-bank-workspace-side :deep(.reference-tray) { min-height:100%; border:0; border-radius:0; box-shadow:none; }
 .question-generation-studio { overflow:hidden; border:1px solid #dfe4ec; border-radius:14px; background:#fff; }
 .question-generation-studio__header { min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 20px; }
@@ -1953,7 +1992,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-bank-panel__header-buttons button:disabled { opacity:.5; cursor:not-allowed; }
 .question-bank-panel__header-buttons .question-generation-primary { border-color:#4f46e5; color:#fff; background:#4f46e5; }
 .question-bank-panel__header-buttons .question-generation-primary:hover:not(:disabled) { border-color:#4338ca; background:#4338ca; }
-.question-quality-details { overflow:hidden; margin:0 -28px; border-bottom:1px solid #e5eaf1; background:#fafbfe; }
+.question-quality-details { overflow:hidden; margin:0; border-bottom:1px solid #e5eaf1; background:#fafbfe; }
 .question-quality-details__header { min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 28px; }
 .question-quality-details__header>span { display:flex; align-items:center; gap:8px; color:#5552c8; }
 .question-quality-details__header strong { color:#2c374b; font-size:13px; }
@@ -2007,69 +2046,121 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .assessment-matrix__menu>div button { width:100%; justify-content:flex-start; border:0; }
 .assessment-matrix__pagination { padding:6px 2px 0; border-top:1px solid var(--lz-border); }
 .assessment-matrix__empty { min-height:54px; display:grid; place-items:center; color:var(--lz-text-muted); font-size:10px; }
-.question-browser { position:sticky; top:0; z-index:3; min-height:64px; display:flex; align-items:center; border-bottom:1px solid #e5eaf1; background:rgba(255,255,255,.98); backdrop-filter:blur(10px); }
-.question-browser>header { width:100%; display:flex; align-items:center; justify-content:space-between; gap:24px; }
-.question-browser__identity { min-width:0; display:flex; align-items:baseline; gap:9px; }
-.question-browser__identity strong { color:#253047; font-size:14px; font-weight:760; }
-.question-browser__identity small { color:#8a94a5; font-size:11.5px; }
-.question-browser__controls { min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:8px; }
-.question-browser__controls label { width:min(28vw,360px); min-width:240px; display:flex; align-items:center; gap:8px; padding:0 11px; border:1px solid #dce2eb; border-radius:8px; color:#8a94a5; background:#fff; }
-.question-browser__controls label:focus-within { border-color:#9c9af0; box-shadow:0 0 0 3px rgba(99,102,241,.08); }
-.question-browser__controls input { min-width:0; width:100%; height:35px; border:0; outline:0; color:var(--lz-text); background:transparent; font-size:12px; }
-.question-browser__controls select { height:37px; padding:0 30px 0 11px; border:1px solid #dce2eb; border-radius:8px; color:#4b576b; background:#fff; font-size:12px; }
-.question-browser__pagination { border-top:1px solid #e5eaf1; }
-.exam-paper-bar { position:sticky; top:56px; z-index:2; min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:6px 10px; border-bottom:1px solid #dfe2f5; color:#4338ca; background:#f7f7ff; }
-.exam-paper-bar>div:first-child { min-width:0; display:flex; align-items:center; gap:9px; color:#4f46e5; }
-.exam-paper-bar>div:first-child>span { min-width:0; display:grid; gap:2px; }
-.exam-paper-bar strong { color:var(--lz-text-strong); font-size:12px; }
-.exam-paper-bar small { color:var(--lz-text-muted); font-size:11px; }
-.exam-paper-bar__actions { min-width:0; display:flex; align-items:center; gap:10px; }
-.exam-paper-bar__actions>span { max-width:230px; overflow:hidden; color:var(--lz-text-muted); font-size:11px; text-overflow:ellipsis; white-space:nowrap; }
-.exam-paper-bar button { min-height:34px; display:inline-flex; align-items:center; gap:6px; padding:0 10px; border:1px solid #c7d2fe; border-radius:8px; color:#4338ca; background:#eef2ff; font-size:12px; font-weight:750; cursor:pointer; }
-.exam-paper-bar button:disabled { opacity:.45; cursor:not-allowed; }
-.question-review-list { display:grid; gap:0; }
-.question-review-list__head { min-height:38px; display:grid; grid-template-columns:42px minmax(280px,1fr) 112px 132px 82px 30px; align-items:center; gap:14px; border-bottom:1px solid #e7ebf1; color:#8a94a5; font-size:10.5px; font-weight:680; }
-.question-review-item { overflow:hidden; border-bottom:1px solid #e7ebf1; border-radius:0; background:#fff; transition:background-color .15s ease; }
-.question-review-item:hover { background:#fafbff; }
-.question-review-item.is-expanded { background:#f9faff; }
-.question-review-item__top { display:grid; grid-template-columns:42px minmax(0,1fr); align-items:stretch; }
-.question-review-item__select { display:grid; place-items:center; border:0; background:transparent; cursor:pointer; }
-.question-review-item__select input { width:16px; height:16px; accent-color:#4f46e5; }
-.question-review-item__select.disabled { cursor:not-allowed; opacity:.45; }
-.question-review-item__summary { width:100%; min-height:58px; display:grid; grid-template-columns:minmax(280px,1fr) 112px 132px 82px 30px; align-items:center; gap:14px; padding:8px 0; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
-.question-review-item__summary:hover { background:transparent; }
-.question-review-item__summary:focus-visible { position:relative; z-index:1; outline:2px solid var(--lz-brand); outline-offset:-2px; }
-.question-review-item__question { min-width:0; display:flex; align-items:center; gap:8px; }
-.question-review-item__role { flex:0 0 auto; padding:2px 6px; border-radius:5px; color:#5552c8; background:#f0f1ff; font-size:9.5px; font-weight:720; white-space:nowrap; }
-.question-review-item__preview { min-width:0; overflow:hidden; color:#253047; font-size:13px; font-weight:650; line-height:1.45; text-overflow:ellipsis; white-space:nowrap; }
-.question-review-item__source,.question-review-item__validator { min-width:0; overflow:hidden; color:#748095; font-size:10.5px; text-overflow:ellipsis; white-space:nowrap; }
-.question-review-item__status { display:inline-flex; align-items:center; gap:6px; color:#596579; font-size:10.5px; font-weight:680; white-space:nowrap; }
+.question-browser { min-width:0; min-height:0; display:grid; grid-template-columns:310px minmax(0,1fr); overflow:hidden; background:#fff; }
+.question-index { min-width:0; min-height:0; display:grid; grid-template-rows:auto minmax(0,1fr) auto; overflow:hidden; border-right:1px solid #e3e8f0; background:#fbfcfe; }
+.question-index__toolbar { display:grid; gap:12px; padding:15px 14px 13px; border-bottom:1px solid #e5eaf1; background:#fff; }
+.question-browser__identity { min-width:0; display:flex; align-items:baseline; gap:8px; }
+.question-browser__identity strong { color:#253047; font-size:13.5px; font-weight:760; }
+.question-browser__identity small { color:#8a94a5; font-size:11px; }
+.question-browser__controls { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) 92px; gap:7px; }
+.question-browser__controls label { min-width:0; display:flex; align-items:center; gap:7px; padding:0 9px; border:1px solid #dce2eb; border-radius:8px; color:#7b8798; background:#fff; }
+.question-browser__controls label:focus-within { border-color:#8f8ce9; box-shadow:0 0 0 3px rgba(91,87,232,.09); }
+.question-browser__controls input { min-width:0; width:100%; height:34px; border:0; outline:0; color:#253047; background:transparent; font-size:11.5px; }
+.question-browser__controls select { min-width:0; height:36px; padding:0 25px 0 9px; border:1px solid #dce2eb; border-radius:8px; color:#4b576b; background:#fff; font-size:11px; }
+.question-browser__controls select:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-review-list { min-height:0; overflow:auto; scrollbar-width:thin; scrollbar-color:#cbd3df transparent; }
+.question-review-item { border-bottom:1px solid #e7ebf1; background:transparent; }
+.question-review-item__summary { width:100%; min-height:76px; display:grid; grid-template-columns:27px minmax(0,1fr) auto; align-items:start; gap:9px; padding:11px 11px 10px 12px; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer; transition:background-color .15s ease,color .15s ease; }
+.question-review-item__summary:hover { background:#f4f5fb; }
+.question-review-item__summary:focus-visible { position:relative; z-index:1; outline:2px solid #6366f1; outline-offset:-2px; }
+.question-review-item.is-expanded .question-review-item__summary { background:#eef0ff; }
+.question-review-item__number { width:24px; height:24px; display:grid; place-items:center; border-radius:6px; color:#7b8798; background:#f0f2f6; font-size:9.5px; font-weight:780; font-variant-numeric:tabular-nums; }
+.question-review-item.is-expanded .question-review-item__number { color:#4338ca; background:#fff; box-shadow:0 1px 4px rgba(67,56,202,.1); }
+.question-review-item__question { min-width:0; display:grid; gap:5px; }
+.question-review-item__preview { display:-webkit-box; overflow:hidden; color:#2d374c; font-size:11.5px; font-weight:650; line-height:1.48; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.question-review-item__question small { overflow:hidden; color:#7a8699; font-size:9.5px; font-weight:580; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.question-review-item__status { display:inline-flex; align-items:center; gap:5px; color:#596579; font-size:9.5px; font-weight:700; white-space:nowrap; }
 .question-review-item__status i { width:6px; height:6px; flex:0 0 auto; border-radius:999px; background:#22a06b; }
 .question-review-item__status[data-status="needs_review"] { color:#9a6700; }
 .question-review-item__status[data-status="needs_review"] i { background:#f0a202; }
 .question-review-item__status[data-status="rejected"] { color:#c9372c; }
 .question-review-item__status[data-status="rejected"] i { background:#e2483d; }
-.question-review-item__toggle-label { width:28px; height:28px; display:grid; place-items:center; border-radius:6px; color:#7b8798; }
-.question-review-item__summary:hover .question-review-item__toggle-label { color:#4338ca; background:#eeefff; }
-.question-review-item__details { display:grid; gap:14px; padding:18px 20px 20px 42px; border-top:1px solid #edf0f5; background:#f9faff; }
-.question-review-item p { max-width:76ch; margin:0; color:var(--lz-text); font-size:13px; line-height:1.7; white-space:pre-line; }
-.question-review-item dl { display:flex; flex-wrap:wrap; gap:18px; margin:0; }
-.question-review-item dl div { display:flex; gap:6px; font-size:11px; }
-.question-review-item dt { color: var(--lz-text-muted); }
-.question-review-item dd { margin: 0; color: var(--lz-text-secondary); }
-.question-review-item textarea { min-height: 54px; padding: 8px 9px; border: 1px solid var(--lz-border); border-radius: 8px; resize: vertical; color: var(--lz-text); font: inherit; font-size: 11px; }
-.question-review-item__solution { justify-self:start; display:inline-flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid var(--lz-border); border-radius:7px; color:var(--lz-text-secondary); background:#fff; font-size:10px; }.question-solution-diff { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:8px; }.question-solution-diff>div { min-width:0; display:grid; align-content:start; gap:7px; padding:10px; border-radius:8px; background:#f8fafc; }.question-solution-diff strong { color:var(--lz-text-secondary); font-size:10px; }.question-solution-diff p,.question-solution-diff li { margin:0; color:#334155; font-size:10px; line-height:1.65; }.question-solution-diff ol,.question-solution-diff ul { display:grid; gap:5px; margin:0; padding-left:20px; }.question-solution-diff pre { max-height:220px; overflow:auto; margin:0; padding:9px; border-radius:8px; color:#334155; background:#fff; font:10px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }.question-solution-diff__analysis { display:grid; gap:5px; }
-.question-review-item footer { display:flex; align-items:center; justify-content:flex-end; gap:10px; }
-.question-review-item footer button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 11px; border-radius: 8px; cursor: pointer; }
-.question-review-item__reject { border: 1px solid #fecaca; color: #b91c1c; background: #fff; }
-.question-review-item__approve { border: 1px solid var(--lz-brand-strong); color: #fff; background: var(--lz-brand-strong); }
+.question-browser__pagination { padding:9px 10px; border-top:1px solid #e5eaf1; background:#fff; }
+.question-browser__pagination :deep(.compact-pagination__range) { font-size:9.5px; }
+.question-reader { min-width:0; min-height:0; display:grid; grid-template-rows:58px minmax(0,1fr) 62px; overflow:hidden; padding:0; border:0; background:#f5f7fa; }
+.question-reader__header { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:18px; padding:0 18px 0 22px; border-bottom:1px solid #e3e8f0; background:#fff; }
+.question-reader__header>div { min-width:0; display:flex; align-items:center; gap:11px; }
+.question-reader__header>div>strong { color:#344054; font-size:11px; font-weight:700; }
+.question-reader__header nav { display:flex; align-items:center; gap:4px; }
+.question-reader__header nav button { width:32px; height:32px; display:grid; place-items:center; border:1px solid transparent; border-radius:7px; color:#667085; background:transparent; cursor:pointer; }
+.question-reader__header nav button:hover:not(:disabled) { color:#4338ca; background:#eef0ff; }
+.question-reader__header nav button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-reader__header nav button:disabled { opacity:.3; cursor:not-allowed; }
+.question-reader__scroll { min-height:0; overflow:auto; padding:24px 28px 40px; scrollbar-width:thin; scrollbar-color:#cbd3df transparent; }
+.question-sheet,.question-answer-panel,.question-generation-audit,.question-review-decision { width:min(760px,100%); margin:0 auto; }
+.question-sheet { overflow:hidden; border:1px solid #dfe5ed; border-radius:13px; background:#fff; box-shadow:0 10px 28px rgba(30,41,59,.07); }
+.question-sheet__meta { min-height:43px; display:flex; align-items:center; flex-wrap:wrap; gap:7px 14px; padding:0 22px; border-bottom:1px solid #edf0f4; color:#748095; font-size:10px; }
+.question-sheet__meta span:last-child { margin-left:auto; color:#b45309; font-weight:700; }
+.question-sheet__meta span[data-status="passed"] { color:#047857; }
+.question-sheet__section { padding:20px 24px 4px; }
+.question-sheet__section+.question-sheet__section { padding-top:16px; }
+.question-sheet__section>small { display:block; margin-bottom:9px; color:#6b6fc2; font-size:10px; font-weight:780; }
+.question-sheet__section :deep(.markdown-renderer) { color:#243047; font-size:14px; line-height:1.82; }
+.question-sheet__section :deep(.markdown-renderer > :first-child) { margin-top:0; }
+.question-sheet__section :deep(.markdown-renderer > :last-child) { margin-bottom:0; }
+.question-sheet__stimulus { margin:18px 24px 0; padding:14px 16px; border-radius:9px; background:#f7f8fb; }
+.question-sheet__task { padding-bottom:20px; }
+.question-sheet__options { display:grid; gap:9px; margin:0; padding:2px 24px 22px; list-style:none; }
+.question-sheet__options li { min-width:0; display:grid; grid-template-columns:28px minmax(0,1fr); align-items:start; gap:10px; padding:10px 12px; border:1px solid #e1e6ed; border-radius:9px; color:#344054; background:#fbfcfe; }
+.question-sheet__options li>b { width:25px; height:25px; display:grid; place-items:center; border-radius:6px; color:#5552c8; background:#ececff; font-size:11px; }
+.question-sheet__options :deep(.markdown-renderer) { font-size:12.5px; line-height:1.65; }
+.question-sheet__options :deep(.markdown-renderer > :first-child) { margin-top:0; }
+.question-sheet__options :deep(.markdown-renderer > :last-child) { margin-bottom:0; }
+.question-sheet__requirements { display:grid; gap:7px; padding:14px 24px 18px; border-top:1px solid #edf0f4; color:#667085; background:#fbfcfe; font-size:10.5px; line-height:1.65; }
+.question-sheet__requirements strong { color:#344054; font-size:11px; }
+.question-sheet__requirements p,.question-sheet__requirements ul { max-width:72ch; margin:0; }
+.question-sheet__requirements ul { display:grid; gap:3px; padding-left:18px; }
+.question-answer-panel { display:grid; gap:13px; margin-top:16px; padding:18px 20px; border:1px solid #dfe5ed; border-radius:12px; background:#fff; }
+.question-answer-panel>header { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.question-answer-panel>header>div { display:flex; align-items:baseline; gap:8px; }
+.question-answer-panel>header strong { color:#29354b; font-size:12.5px; }
+.question-answer-panel>header span { color:#8993a4; font-size:9.5px; }
+.question-review-item__solution { min-height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 9px; border:1px solid #d8deea; border-radius:7px; color:#4f46e5; background:#fff; font-size:10.5px; font-weight:720; cursor:pointer; }
+.question-review-item__solution:hover:not(:disabled) { border-color:#a5b4fc; background:#f7f7ff; }
+.question-review-item__solution:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-answer-panel__locked { min-height:56px; display:flex; align-items:center; gap:9px; padding:0 2px; color:#7a8699; font-size:10.5px; line-height:1.55; }
+.question-answer-panel__locked svg { color:#6b6fc2; }
+.question-solution-diff { display:grid; gap:11px; }
+.question-solution-diff__worked { min-width:0; display:grid; gap:8px; padding:14px 15px; border-radius:9px; background:#f7f9fc; }
+.question-solution-diff strong { color:#475467; font-size:10.5px; }
+.question-solution-diff p,.question-solution-diff li { margin:0; color:#344054; font-size:11px; line-height:1.68; }
+.question-solution-diff ol,.question-solution-diff ul { display:grid; gap:5px; margin:0; padding-left:20px; }
+.question-solution-diff pre { max-height:220px; overflow:auto; margin:0; padding:10px 11px; border:1px solid #e4e8ef; border-radius:8px; color:#344054; background:#fff; font:10px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; }
+.question-solution-diff__analysis { display:grid; gap:6px; }
+.question-solution-diff__validation { display:grid; gap:8px; padding:1px 2px; }
+.question-solution-diff__validation summary { color:#5552c8; font-size:10.5px; font-weight:720; cursor:pointer; }
+.question-solution-diff__validation[open] summary { margin-bottom:6px; }
+.question-generation-audit { margin-top:16px; padding:0; border:1px solid #dfe5ed; border-radius:10px; background:#fff; }
+.question-generation-audit>summary { min-height:43px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:0 13px; color:#475467; font-size:10.5px; font-weight:720; cursor:pointer; }
+.question-generation-audit>summary small { color:#8a94a5; font:9px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.question-generation-audit[open] { padding-bottom:12px; }
+.question-generation-audit[open]>summary { border-bottom:1px solid #edf0f4; }
+.question-generation-audit__grid,.question-generation-audit>p { margin-inline:12px; }
+.question-review-decision { margin-top:16px; }
+.question-review-decision label { display:grid; gap:7px; }
+.question-review-decision label>span { color:#475467; font-size:10.5px; font-weight:720; }
+.question-review-decision textarea { min-height:70px; padding:10px 11px; border:1px solid #d8dee8; border-radius:9px; outline:0; resize:vertical; color:#344054; background:#fff; font:inherit; font-size:11px; line-height:1.6; }
+.question-review-decision textarea:focus { border-color:#8f8ce9; box-shadow:0 0 0 3px rgba(91,87,232,.09); }
+.question-reader__footer { min-width:0; display:flex; align-items:center; justify-content:space-between; gap:14px; padding:9px 18px 9px 22px; border-top:1px solid #dfe5ed; background:#fff; }
+.question-reader__paper-select { display:flex; align-items:center; gap:7px; color:#475467; font-size:10.5px; font-weight:700; cursor:pointer; }
+.question-reader__paper-select input { width:15px; height:15px; accent-color:#4f46e5; }
+.question-reader__paper-select.disabled { opacity:.45; cursor:not-allowed; }
+.question-reader__actions { min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:7px; }
+.question-reader__actions button { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 10px; border-radius:8px; font-size:10.5px; font-weight:730; cursor:pointer; }
+.question-reader__actions button:focus-visible { outline:2px solid #6366f1; outline-offset:2px; }
+.question-reader__actions button:disabled { opacity:.5; cursor:not-allowed; }
+.question-reader__compose { border:1px solid #c7d2fe; color:#4338ca; background:#eef2ff; }
+.question-review-item__reject { border:1px solid #fecaca; color:#b42318; background:#fff; }
+.question-review-item__reject:hover:not(:disabled) { border-color:#fca5a5; background:#fff7f7; }
+.question-review-item__approve { border:1px solid #514bdc; color:#fff; background:#514bdc; box-shadow:0 5px 14px rgba(81,75,220,.16); }
+.question-review-item__approve:hover:not(:disabled) { background:#4338ca; }
 .question-bank-panel__state, .question-bank-panel__empty { min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--lz-text-muted); font-size: 12px; }
 .question-bank-panel__state--error { min-height:auto; justify-content:flex-start; padding:10px 12px; border:1px solid #fed7aa; border-radius:10px; color:#9a3412; background:#fff7ed; }
 .question-bank-panel__empty { flex-direction: column; text-align: center; }
 .question-bank-panel__empty strong { color: var(--lz-text-strong); }
 .question-bank-panel__empty span { max-width: 420px; font-size: 11px; }
 .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
-.question-generation-audit { display:grid; gap:8px; padding:10px; border:1px solid #dbeafe; border-radius:9px; background:#f8fbff; }
+.question-generation-audit { display:grid; gap:8px; }
 .question-generation-audit>header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .question-generation-audit>header strong { color:#1e3a5f; font-size:11px; }
 .question-generation-audit>header small { color:#64748b; font:9px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; }
@@ -2079,7 +2170,7 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-generation-audit__grid b[data-status="passed"] { color:#047857; }
 .question-generation-audit__grid b[data-status="warning"] { color:#b45309; }
 .question-generation-audit__grid b[data-status="failed"] { color:#b91c1c; }
-.question-generation-audit>p { margin:0; color:#b45309; font:9px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+.question-generation-audit>p { margin:0 12px; color:#b45309; font:9px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
 .spin { animation: question-bank-spin .9s linear infinite; }
 @keyframes question-bank-spin { to { transform: rotate(360deg); } }
 @media (max-width: 900px) { .question-review-item__summary-main { grid-template-columns:auto minmax(0,1fr); }.question-review-item__meta { grid-column:1/-1; max-width:none; } }
