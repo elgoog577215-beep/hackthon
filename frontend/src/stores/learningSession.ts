@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { learnerIdentityHeaders, withApiBase } from '@/utils/http'
 import type { ViewportContentAnchor } from '@/utils/learning-position'
+import { createUuid } from '@/utils/client-id'
 import type { LearningTaskRef } from './learningProgress'
 
 export type LearningSyncStatus = 'idle' | 'loading' | 'pending' | 'syncing' | 'synced' | 'offline' | 'conflict'
@@ -59,7 +60,7 @@ let saveTimer: number | null = null
 let connectivityBound = false
 
 const now = () => new Date().toISOString()
-const randomId = (prefix: string) => `${prefix}_${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}_${Math.random().toString(16).slice(2)}`}`
+const randomId = (prefix: string) => `${prefix}_${createUuid()}`
 const cacheKey = (courseId: string) => `learning_snapshot_v1:${courseId}`
 
 const deviceId = () => {

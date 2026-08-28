@@ -1,5 +1,6 @@
 import type { AxiosError } from 'axios'
 import { t } from '../shared/i18n'
+import { createUuid } from './client-id'
 
 export interface AppErrorPresentation {
   title: string
@@ -263,8 +264,7 @@ export function toAppError(error: unknown, options: AppErrorOptions = {}): AppEr
 }
 
 function eventId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return `app-error-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  return createUuid()
 }
 
 export function publishAppError(error: unknown, options: AppErrorOptions = {}): AppErrorPresentation {

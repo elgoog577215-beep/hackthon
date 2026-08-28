@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity, teacherIdentityHeaders, withApiBase } from '../utils/http'
+import { createUuid } from '../utils/client-id'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
@@ -499,7 +500,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const response = await http.post<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/generate`,
           {
-            request_id: crypto.randomUUID(),
+            request_id: createUuid(),
             resume_job_id: resumeJobId,
             source_package_id: source?.packageId || '',
             source_asset_id: source?.assetId || '',
@@ -691,7 +692,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const response = await http.post<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/generate`,
           {
-            request_id: crypto.randomUUID(),
+            request_id: createUuid(),
             resume_job_id: resumeJobId,
             requirements,
             material_asset_ids: materialAssetIds,

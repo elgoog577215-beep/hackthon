@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity } from '../utils/http'
+import { createUuid } from '../utils/client-id'
 import type { CourseTeachingPlanProjection } from './types'
 
 export interface TeachingPlanOperation {
@@ -122,9 +123,7 @@ export interface TeachingPlanReview {
 }
 
 const requestId = (prefix: string) => (
-  `${prefix}_${typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now()}_${Math.random().toString(16).slice(2)}`}`
+  `${prefix}_${createUuid()}`
 )
 
 function apiErrorCode(error: any): string {

@@ -124,6 +124,7 @@ import { ArrowDownUp, Download, LoaderCircle, LocateFixed, Notebook, NotebookPen
 import { useNoteStore } from '../stores/notes'
 import { useCourseStore } from '../stores/course'
 import { t } from '../shared/i18n'
+import { createUuid } from '../utils/client-id'
 
 type RecordTab = 'all' | 'note' | 'issue' | 'review_task' | 'bookmark'
 const emit = defineEmits<{
@@ -193,7 +194,7 @@ async function saveQuickNote() {
   quickNoteSaving.value = true
   try {
     const saved = await noteStore.createNote({
-      id: `quick-note-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`}`,
+      id: `quick-note-${createUuid()}`,
       nodeId: node.node_id,
       highlightId: '',
       quote: '',
