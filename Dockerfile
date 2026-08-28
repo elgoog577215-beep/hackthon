@@ -47,6 +47,11 @@ RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" --upgrade pip && \
 # Copy backend files with correct ownership
 COPY --chown=user backend/ /app/backend/
 COPY --chown=user shared/ /app/shared/
+# The backend reads the same theme pack and bundled presentation assets as the
+# frontend when exporting PPTX files. Keep their repository-relative paths so
+# slide_theme.py can resolve them inside the production image.
+COPY --chown=user frontend/src/data/slide-themes.json /app/frontend/src/data/slide-themes.json
+COPY --chown=user frontend/public/presentation-assets/ /app/frontend/public/presentation-assets/
 
 # Setup startup script and data seeding
 COPY --chown=user backend/start.sh /app/backend/start.sh
