@@ -11,7 +11,7 @@ import pytest
 from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 CONTENT = "这是一节已经完成并持久化的课程正文。" * 20
@@ -89,7 +89,7 @@ def _interrupted_course() -> dict:
 
 
 async def _manager(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()

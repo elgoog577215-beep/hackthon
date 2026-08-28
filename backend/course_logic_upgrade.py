@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from course_coherence import compile_course_coherence_contract
-from course_generation_workflow import normalize_course_teaching_plan
+from course_generation.workflow import normalize_course_teaching_plan
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,

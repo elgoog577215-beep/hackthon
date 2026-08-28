@@ -7,8 +7,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypatch):
-    import task_manager
-
+    import jobs.slide_build as task_manager
     ai_story = SimpleNamespace(planner="ai")
     deterministic_story = SimpleNamespace(planner="deterministic_fallback")
     ai_allocation = SimpleNamespace(pages=[{"page_id": "ai-page"}])
@@ -117,8 +116,7 @@ async def test_ai_v5_quality_failure_rebuilds_with_deterministic_plans(monkeypat
 async def test_deterministic_v5_quality_failure_retries_stricter_quality_profile(
     monkeypatch,
 ):
-    import task_manager
-
+    import jobs.slide_build as task_manager
     calls: list[dict] = []
     failed = {
         "status": "failed_using_last_available",

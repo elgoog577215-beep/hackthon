@@ -8,7 +8,7 @@ from course_pedagogy import (
     coerce_persisted_profile,
     resolve_pedagogy_profile,
 )
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 from course_teaching_plan_projection import project_course_teaching_plan
 
 

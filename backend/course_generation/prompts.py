@@ -13,7 +13,7 @@ from course_difficulty import (
     format_difficulty_profile,
     format_node_difficulty_contract,
 )
-from course_generation_adaptive import (
+from course_generation.adaptive import (
     clip_text,
     compact_batch_inputs,
     compact_planning_context,
@@ -24,7 +24,7 @@ from course_knowledge_base import (
     course_knowledge_base_prompt_context,
 )
 from course_pedagogy import SubjectPedagogyProfile, module_block_role
-from course_teaching_guidance import (
+from teaching_design import (
     format_generation_teaching_guidance,
 )
 

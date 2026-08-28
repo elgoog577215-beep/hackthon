@@ -38,9 +38,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-from course_generation_adaptive import compile_fallback_teaching_skeleton
-from course_generation_workflow import build_course_knowledge_scope_contract
-from course_service import _changed_scope_section_ids
+from course_generation.adaptive import compile_fallback_teaching_skeleton
+from course_generation.workflow import build_course_knowledge_scope_contract
+from course_generation.service import _changed_scope_section_ids
 from course_teaching_plan_v3 import (
     normalize_teaching_plan_batch_v3,
     validate_teaching_plan_batch_v3,

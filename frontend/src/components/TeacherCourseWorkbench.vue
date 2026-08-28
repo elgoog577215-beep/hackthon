@@ -753,11 +753,12 @@ import {
   type TeacherProductionAiPhase,
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
-import type {
-  CourseGenerationOptions,
-  CourseTeachingType,
-  LearningPurpose,
-  PedagogyModeSelection,
+import {
+  canonicalizeCourseGenerationOptions,
+  type CourseGenerationOptions,
+  type CourseTeachingType,
+  type LearningPurpose,
+  type PedagogyModeSelection,
 } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
@@ -1853,11 +1854,7 @@ function selectLearningPurpose(value: LearningPurpose) {
 }
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
 function currentGenerationOptions() {
-  const options = { ...props.generationOptions }
-  delete options.course_type
-  delete options.composition_style
-  delete options.course_purpose
-  return options
+  return canonicalizeCourseGenerationOptions(props.generationOptions)
 }
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
 async function submitFoundation() {
@@ -2163,35 +2160,25 @@ async function requestStageChange(stage: StageId) {
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0; questionBankRevisionId.value = String(response.data?.bundle_revision_id || '') } catch { questionBankReady.value = false; questionBankRevisionId.value = '' } }
 
 watch(() => props.generationOptions, options => {
-  const intent = options.course_intent as any
-  const brief = options.teacher_course_brief
-  const legacyType = String(options.course_type || intent?.type || 'systematic')
-  foundation.learningPurpose = (
-    options.learning_purpose
-    || (legacyType === 'project' ? 'project' : legacyType === 'exam' ? 'exam' : 'systematic')
-  ) as LearningPurpose
+  const canonical = canonicalizeCourseGenerationOptions(options)
+  const intent = canonical.course_intent as any
+  const brief = canonical.teacher_course_brief
+  foundation.learningPurpose = (canonical.learning_purpose || 'systematic') as LearningPurpose
   foundation.goal = String(
     intent?.learning_goal
     || intent?.project_goal
     || intent?.exam_name
     || intent?.core_question
-    || options.requirements
+    || canonical.requirements
     || props.courseTitle,
   )
   foundation.projectDeliverable = String(intent?.expected_deliverable || '')
   foundation.examDate = String(intent?.exam_date || '')
   foundation.examScope = String(intent?.exam_scope || '')
-  foundation.subjectType = (options.pedagogy_mode || 'auto') as PedagogyModeSelection
-  foundation.courseTeachingType = (
-    options.course_teaching_type
-    || (legacyType === 'inquiry' ? 'seminar'
-      : legacyType === 'project' ? 'project'
-        : options.composition_style === 'theory_driven' ? 'theory'
-          : options.composition_style === 'inquiry_driven' ? 'seminar'
-            : 'comprehensive')
-  ) as CourseTeachingType
+  foundation.subjectType = (canonical.pedagogy_mode || 'auto') as PedagogyModeSelection
+  foundation.courseTeachingType = (canonical.course_teaching_type || 'comprehensive') as CourseTeachingType
   foundation.totalHours = Number(brief?.total_class_hours || 32)
-  foundation.requirements = String(options.requirements || '')
+  foundation.requirements = String(canonical.requirements || '')
 }, { immediate: true, deep: true })
 watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = null }, { immediate: true })
 watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (value && typeof value === 'object') retainedOutlineGrowth.value = JSON.parse(JSON.stringify(value)) as Record<string, any> }, { immediate: true, deep: true })

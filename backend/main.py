@@ -26,24 +26,24 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 try:
     from storage import storage
-    from task_manager import TaskManager
+    from jobs.manager import TaskManager
     from course_repository import CourseDocumentRepository, register_course_revision_listener
     from representation_reconciliation import RepresentationReconciliationService
     from teaching_representations import teaching_representation_repository
     from dependencies import init_task_manager
     from websocket_service import WebSocketService
-    from course_service import get_course_service
+    from course_generation.service import get_course_service
     from learning_event_evolution import configure_learning_event_evolution
 except ImportError:
     try:
         from backend.storage import storage
-        from backend.task_manager import TaskManager
+        from backend.jobs.manager import TaskManager
         from backend.course_repository import CourseDocumentRepository, register_course_revision_listener
         from backend.representation_reconciliation import RepresentationReconciliationService
         from backend.teaching_representations import teaching_representation_repository
         from backend.dependencies import init_task_manager
         from backend.websocket_service import WebSocketService
-        from backend.course_service import get_course_service
+        from backend.course_generation.service import get_course_service
         from backend.learning_event_evolution import configure_learning_event_evolution
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from course_evolution_intake import (
+from course_evolution.intake import (
     COURSE_EVOLUTION_REQUEST_SCHEMA,
     CourseEvolutionRequest,
     record_course_evolution_request,

@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import course_service as course_service_module
-from course_service import CourseService, NodeGenerationConfig
+import course_generation.service as course_service_module
+from course_generation.service import CourseService, NodeGenerationConfig
 
 
 def _make_service() -> CourseService:

@@ -9,7 +9,7 @@ from course_versioning import build_blueprint_draft
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
 from guided_generation import step_state as guided_step_state
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 class MemoryStorage:
@@ -227,7 +227,7 @@ class SkeletonGateService(BlueprintService):
 
 @pytest.mark.asyncio
 async def test_process_task_persists_precise_release_quality_handoff(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -280,7 +280,7 @@ async def test_content_generation_never_starts_a_separate_graph_model_call(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(
         task_manager_module,
@@ -391,7 +391,7 @@ async def test_content_generation_never_starts_a_separate_graph_model_call(
 
 @pytest.mark.asyncio
 async def test_review_mode_waits_and_confirms_same_job(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
     workspaces = GenerationWorkspaceRepository(tmp_path / "workspaces")
@@ -539,7 +539,7 @@ async def test_teacher_confirms_section_counts_after_named_chapter_skeleton(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(
         task_manager_module,
@@ -601,7 +601,7 @@ async def test_teacher_confirms_section_counts_after_named_chapter_skeleton(
 
 @pytest.mark.asyncio
 async def test_teacher_outline_task_stops_after_outline_confirmation(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "teacher-tasks.json")
     storage = MemoryStorage()
     workspaces = GenerationWorkspaceRepository(tmp_path / "teacher-workspaces")
@@ -667,7 +667,7 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -859,7 +859,7 @@ async def test_guided_job_requires_teaching_confirmation_before_content(
 
 @pytest.mark.asyncio
 async def test_generation_workspace_survives_manager_restart(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -902,7 +902,7 @@ async def test_failed_teacher_outline_resume_hydrates_request_from_workspace(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -960,7 +960,7 @@ async def test_failed_teacher_outline_resume_hydrates_request_from_workspace(
 
 @pytest.mark.asyncio
 async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -1000,7 +1000,7 @@ async def test_waiting_confirmation_survives_restart_without_skipping_gate(tmp_p
 @pytest.mark.parametrize("review_step", ["outline", "release"])
 @pytest.mark.asyncio
 async def test_legacy_compact_review_rebuilds_on_restart(tmp_path, monkeypatch, review_step):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -1105,7 +1105,7 @@ async def test_candidate_workspace_write_does_not_mutate_current_course(tmp_path
 
 @pytest.mark.asyncio
 async def test_metadata_only_blueprint_change_promotes_without_generation_job(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     current = {
         "course_id": "c1",

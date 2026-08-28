@@ -19,7 +19,7 @@ from dependencies import (
     require_task_manager,
 )
 from learner_context import resolve_user_id
-from lesson_arrangement import (
+from teaching_design import (
     LESSON_TYPES,
     normalize_lesson_arrangement,
     recommend_lesson_arrangement,
@@ -27,7 +27,7 @@ from lesson_arrangement import (
 )
 from material_storage import MaterialStorageError, material_repository
 from material_parser import parse_document_path, parse_material_asset
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 from teacher_lesson_authoring import (
     LESSON_PLAN_PIPELINE_VERSION,
     TeacherLessonAuthoringError,

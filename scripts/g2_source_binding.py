@@ -13,9 +13,9 @@ Writes /tmp/kb-gen/g2_binding.json
 import asyncio, json, os, sys, uuid, time, collections
 sys.path.insert(0, '.')
 
-from course_service import CourseService
+from course_generation.service import CourseService
 import course_knowledge_base as ckb
-import course_service as cs
+import course_generation.service as cs
 import course_teaching_plan_v3 as tp
 import evidence_package as evp
 

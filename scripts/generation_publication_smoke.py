@@ -19,16 +19,16 @@ for module_root in (ROOT, BACKEND):
     if str(module_root) not in sys.path:
         sys.path.insert(0, str(module_root))
 
-import task_manager as task_manager_module  # noqa: E402
+import jobs.manager as task_manager_module  # noqa: E402
 from course_repository import CourseDocumentRepository  # noqa: E402
-from course_service import CourseService  # noqa: E402
+from course_generation.service import CourseService  # noqa: E402
 from course_versions import CourseVersionRepository  # noqa: E402
 from generation_workspace import GenerationWorkspaceRepository  # noqa: E402
 from learning_asset_storage import LearningAssetRepository  # noqa: E402
 from material_storage import MaterialRepository  # noqa: E402
 from question_bank import QuestionBankRepository  # noqa: E402
 from storage import Storage  # noqa: E402
-from task_manager import TaskManager  # noqa: E402
+from jobs.manager import TaskManager  # noqa: E402
 
 
 TERMINAL_STATUSES = {"completed", "completed_with_warnings", "failed", "conflict"}

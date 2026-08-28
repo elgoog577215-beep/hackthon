@@ -2,11 +2,11 @@ import json
 
 import pytest
 
-import task_manager as task_manager_module
+import jobs.manager as task_manager_module
 from assessment_generation_policy import (
     ASSESSMENT_GENERATION_POLICY_VERSION,
 )
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 def test_legacy_release_history_moves_to_persistent_data(tmp_path, monkeypatch):

@@ -1,4 +1,4 @@
-from subject_standard_packs import (
+from teaching_design.standards import (
     SUBJECT_ARTIFACT_LANGUAGE,
     SUBJECT_STANDARD_PACKS,
     resolve_subject_standard_pack,

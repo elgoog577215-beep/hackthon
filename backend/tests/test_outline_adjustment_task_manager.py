@@ -6,11 +6,11 @@ import json
 import pytest
 
 from course_outline_adjustments import apply_outline_operations
-from course_service import CourseService
+from course_generation.service import CourseService
 from course_versioning import blueprint_draft_revision_id, build_blueprint_draft
 from course_versions import CourseVersionRepository
 from guided_generation import confirm_waiting_step, create_guided_workflow, mark_waiting
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 class MemoryStorage:
@@ -130,7 +130,7 @@ def _completed_teacher_task() -> dict:
 
 
 def _manager(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage(_course())

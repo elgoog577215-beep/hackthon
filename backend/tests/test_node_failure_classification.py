@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import task_manager as task_manager_module
+import jobs.manager as task_manager_module
 from ai_base import (
     AIProviderRequestError,
     AIProviderUnavailable,
     AIRequestBudgetExceeded,
 )
-from task_manager import NodeStatus, TaskManager
+from jobs.manager import NodeStatus, TaskManager
 
 
 class _FailingCourseService:

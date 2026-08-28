@@ -1,6 +1,6 @@
 """目录调整后的下游失效必须按受影响范围收敛，而不是整段丢弃。"""
 
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 def _node(node_id: str, name: str, prerequisites=None) -> dict:

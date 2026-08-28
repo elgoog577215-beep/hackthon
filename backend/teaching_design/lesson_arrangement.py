@@ -18,7 +18,7 @@ from course_pedagogy import (
     coerce_persisted_profile,
     module_block_role,
 )
-from teaching_semantics import (
+from .compiler import (
     LESSON_TYPE_CONTRACTS,
     compile_lesson_semantics,
     compile_teaching_block_contract,

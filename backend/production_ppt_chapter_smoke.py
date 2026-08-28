@@ -827,7 +827,7 @@ async def run_production_smoke(
     from slide_story_plan import plan_slide_story_v2
     from slide_visuals import plan_slide_visuals
     from storage import storage
-    from task_manager import (
+    from jobs.manager import (
         _source_first_slide_visual_ai_worker,
         _source_first_story_ai_worker,
     )

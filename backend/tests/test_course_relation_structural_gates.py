@@ -26,7 +26,7 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
     validate_course_knowledge_base,
 )
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 
 
 def _course() -> dict:

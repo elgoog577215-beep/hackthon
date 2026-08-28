@@ -21,7 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from course_change_planning import CourseChangePlan
+from .change_planning import CourseChangePlan
 from course_commands import CourseCommandService
 from course_document import CourseBlock, CourseDocument, stable_hash
 from course_knowledge_base import compile_course_knowledge_base, knowledge_binding_for_section
@@ -4329,10 +4329,12 @@ __all__ = [
     "CourseEvolutionChangeSet",
     "CourseEvolutionRepository",
     "CourseEvolutionState",
+    "EvidenceAnchor",
     "EvidenceItem",
     "accept_change_set",
     "course_evolution_repository",
     "course_evolution_view",
+    "create_adjustment_plan",
     "knowledge_binding_for_anchor",
     "knowledge_compilation_source",
     "knowledge_revision_pins",

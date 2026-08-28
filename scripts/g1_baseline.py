@@ -16,8 +16,8 @@ import asyncio, json, os, sys, uuid, time, collections
 sys.path.insert(0, '.')
 
 import course_teaching_plan_v3 as tp
-import course_service as cs
-from course_service import CourseService
+import course_generation.service as cs
+from course_generation.service import CourseService
 
 OUT = os.environ.get('G1_OUT', '/tmp/kb-gen/g1_baseline.json')
 REQ = os.environ.get('G1_REQ', '/tmp/kb-gen/req.json')

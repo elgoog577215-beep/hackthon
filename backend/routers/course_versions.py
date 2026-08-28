@@ -16,7 +16,7 @@ from course_outline_adjustments import (
     apply_outline_operations,
     compile_outline_draft,
 )
-from course_outline_planning import review_course_outline_document
+from course_generation.outline import review_course_outline_document
 
 from course_versioning import (
     analyze_blueprint_impact,
@@ -30,7 +30,7 @@ from dependencies import get_course_document_repository, get_course_or_404, get_
 from learner_context import resolve_user_id
 from storage import storage
 from storage_utils import save_course_compat
-from task_manager import TaskManager, TaskStateConflict
+from jobs.manager import TaskManager, TaskStateConflict
 
 
 router = APIRouter(prefix="/courses/{course_id}", tags=["course_versions"])

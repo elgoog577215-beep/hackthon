@@ -19,7 +19,7 @@ from ai_teacher_retrieval import (
     should_retrieve_for_message,
 )
 from ai_teacher_state import ai_teacher_repository
-from course_evolution_intake import (
+from course_evolution.intake import (
     CourseEvolutionRequest,
     record_course_evolution_request,
 )

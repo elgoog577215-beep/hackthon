@@ -40,9 +40,9 @@ from teacher_script import (
     validate_teacher_script_revision,
 )
 from course_presentation_graph import compile_course_presentation_graph
-from course_service import CourseService
+from course_generation.service import CourseService
 from dependencies import get_teacher_lesson_authoring_repository, require_task_manager
-from lesson_arrangement import (
+from teaching_design.lesson_arrangement import (
     _lesson_type,
     apply_lesson_arrangement_to_plan,
     recommend_lesson_arrangement,

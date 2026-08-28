@@ -1,5 +1,5 @@
 from course_quality import evaluate_node_content
-from task_manager import fix_latex_content
+from jobs.manager import fix_latex_content
 
 
 def _node() -> dict:

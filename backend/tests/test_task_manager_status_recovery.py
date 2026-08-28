@@ -20,8 +20,8 @@ async def test_successful_retry_clears_stale_failure_metadata(
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "jobs.json")
     manager = TaskManager(

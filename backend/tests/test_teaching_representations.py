@@ -1408,8 +1408,8 @@ async def test_compile_registry_reconciles_before_reusing_units(tmp_path, monkey
 
 @pytest.mark.asyncio
 async def test_durable_representation_task_builds_and_recovers_after_restart(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = legacy_course()
     document = document_from_legacy_course(course)
@@ -1474,8 +1474,8 @@ async def test_durable_representation_task_builds_and_recovers_after_restart(tmp
 
 @pytest.mark.asyncio
 async def test_representation_restart_discards_legacy_ppt_plan_and_savepoint(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = legacy_course()
     document = document_from_legacy_course(course)
@@ -1553,8 +1553,8 @@ async def test_cancelled_build_is_not_overwritten_as_failed_by_the_late_worker(
     ``failed`` unconditionally, so a user's deliberate cancel was reported back
     to them as a build error.
     """
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = legacy_course()
     document = document_from_legacy_course(course)

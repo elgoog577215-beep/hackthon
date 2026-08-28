@@ -17,7 +17,7 @@ from typing import Any, Awaitable, Callable, Iterable, Literal
 
 from pydantic import BaseModel, Field
 
-from course_change_planning import (
+from .change_planning import (
     CourseChangeIntent,
     CourseChangePlan,
     CourseChangeSignal,
@@ -27,7 +27,7 @@ from course_change_planning import (
     summarize_course_change_plan,
 )
 from course_document import CourseBlock, CourseDocument, CourseSection, stable_hash
-from course_evolution import (
+from .core import (
     CourseEvolutionOperation,
     CourseEvolutionPlan,
     CourseEvolutionRepository,

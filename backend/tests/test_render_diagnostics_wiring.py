@@ -7,8 +7,8 @@ Before this the capability existed on both sides but nothing connected them:
 
 import pytest
 
-import task_manager as task_manager_module
-from task_manager import TaskManager
+import jobs.manager as task_manager_module
+from jobs.manager import TaskManager
 
 
 class _Storage:

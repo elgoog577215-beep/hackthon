@@ -13,7 +13,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from dependencies import get_course_document_repository, require_task_manager
 from models import ImportMarkdownResponse
 from markdown_parser import parse_markdown_to_nodes
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 from learner_context import require_actor_id
 
 router = APIRouter(prefix="/api", tags=["import"])

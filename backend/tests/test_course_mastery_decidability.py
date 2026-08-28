@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 
 INDEPENDENCE_VALUES = ("scaffolded", "guided", "independent")
 TRANSFER_VALUES = ("recall", "procedure", "variation", "novel")
@@ -138,7 +138,7 @@ def _sub_node_prompt_source() -> str:
     """
     import inspect
 
-    from course_service import CourseService
+    from course_generation.service import CourseService
 
     return inspect.getsource(CourseService.generate_sub_nodes)
 

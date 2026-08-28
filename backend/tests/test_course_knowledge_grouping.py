@@ -180,7 +180,7 @@ def test_the_batch_prompt_asks_for_grouped_points() -> None:
     知识库是教案的确定性投影，`concept_group` 完全由模型这一次输出决定，所以
     这条断言和上面的软门槛是同一件事的两端：不写进 prompt，门槛就只会一直响。
     """
-    from course_prompt_composer import CoursePromptComposer
+    from course_generation.prompts import CoursePromptComposer
 
     prompt = CoursePromptComposer().build_teaching_plan_batch_v3_prompt(
         course_title="数据结构",

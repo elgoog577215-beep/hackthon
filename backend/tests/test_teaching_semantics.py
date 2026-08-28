@@ -2,9 +2,9 @@ import json
 from pathlib import Path
 
 from course_pedagogy import resolve_pedagogy_profile
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 from models import CourseGenerationRequest
-from teaching_semantics import (
+from teaching_design import (
     COURSE_TEACHING_TYPES,
     LEARNING_PURPOSES,
     SUBJECT_TYPES,

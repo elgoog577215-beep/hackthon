@@ -15,7 +15,7 @@ import inspect
 import pytest
 
 import ai_teacher_actions
-import course_evolution
+from course_evolution import core as course_evolution
 
 
 # ---------------------------------------------------------------- 白名单本身

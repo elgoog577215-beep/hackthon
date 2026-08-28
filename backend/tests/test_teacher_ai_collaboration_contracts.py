@@ -4,7 +4,7 @@ import asyncio
 import json
 
 from assessment_orchestrator import _authoring_quality_directive, _generation_context
-from course_service import CourseService
+from course_generation.service import CourseService
 from question_bank_jobs import QuestionBankRebuildJobRepository
 from routers.teacher_lesson_authoring import (
     _apply_v6_page_expression,

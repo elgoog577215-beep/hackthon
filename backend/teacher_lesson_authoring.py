@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable
 
 from course_document import document_from_generation_draft
 from course_pedagogy import module_block_role
-from lesson_arrangement import normalize_lesson_arrangement
+from teaching_design import normalize_lesson_arrangement
 from teacher_script import (
     SCRIPT_PIPELINE_VERSION,
     SCRIPT_QUALITY_VERSION,

@@ -15,7 +15,6 @@ import contextlib
 import inspect
 import json
 import logging
-import os
 import re
 import time
 import uuid
@@ -57,7 +56,7 @@ from course_difficulty import (
     format_node_difficulty_contract,
     parse_difficulty_level,
 )
-from course_generation_adaptive import (
+from course_generation.adaptive import (
     PromptCandidate,
     clip_text,
     compile_fallback_node_content,
@@ -77,7 +76,7 @@ from course_generation_strategy import (
     build_course_generation_strategy_prompt,
     classify_generation_use_case,
 )
-from course_generation_workflow import (
+from course_generation.workflow import (
     PIPELINE_VERSION,
     _resolve_course_shape_constraints,
     apply_course_learning_path_contract,
@@ -108,7 +107,7 @@ from course_knowledge_base import (
 from course_knowledge_map import compile_course_knowledge_map
 from knowledge_structure import normalize_knowledge_structure
 from course_outline_adjustments import canonical_outline_node_name
-from course_outline_planning import (
+from course_generation.outline import (
     CourseOutlinePlanningBudget,
     assemble_course_outline,
     build_outline_batch_specs,
@@ -129,21 +128,36 @@ from course_pedagogy import (
     coerce_persisted_profile,
     resolve_pedagogy_profile,
 )
-from course_planning_budget import (
+from course_generation.budget import (
     CoursePlanningBudget,
     build_compact_planning_context,
     build_teaching_plan_batches,
     estimate_json_tokens,
     select_batch_knowledge_registry,
 )
-from course_prompt_composer import (
+from course_generation.prompts import (
     PROMPT_CONTRACT_VERSION,
     CoursePromptComposer,
     get_course_prompt_composer,
 )
+from course_generation.planning_state import (
+    _changed_scope_section_ids,
+    _compact_evidence_index,
+    _rekey_retained_batches_to_skeleton,
+    _resolve_course_planning_concurrency,
+    _retain_unaffected_teaching_plan_state,
+    _semantic_retry_budget,
+    _stamp_evidence_revision,
+)
+from course_generation.relation_validation import (
+    _coherence_repair_suggestion,
+    _record_relation_cycle_diagnosis,
+    diagnose_cross_batch_relation_cycles,
+    enforce_batch_prerequisite_direction,
+)
 from course_quality import evaluate_node_content, validate_blueprint
 from course_retrieval import build_course_source_context
-from course_teaching_guidance import (
+from teaching_design import (
     compile_overall_teaching_guidance,
     format_generation_teaching_guidance,
 )
@@ -161,9 +175,9 @@ from course_teaching_plan_v3 import (
     validate_teaching_plan_batch_v3,
     validate_teaching_plan_skeleton_v3,
 )
-from course_type_contracts import apply_course_type_brief, resolve_course_type
+from teaching_design import apply_course_type_brief, resolve_course_type
 from learner_context import DEFAULT_USER_ID
-from lesson_arrangement import apply_lesson_arrangement_to_plan
+from teaching_design import apply_lesson_arrangement_to_plan
 from evidence_package import freeze_evidence_package
 from material_evidence import attach_evidence_to_plan, extract_grounding_annotations
 from material_pipeline import prepare_course_materials
@@ -176,660 +190,8 @@ from teacher_script import (
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_COURSE_PLANNING_CONCURRENCY = 4
-MAX_COURSE_PLANNING_CONCURRENCY = 8
 
 
-def _resolve_course_planning_concurrency(value: int | None = None) -> int:
-    raw_value: Any = (
-        value
-        if value is not None
-        else os.getenv(
-            "COURSE_GENERATION_PLANNING_CONCURRENCY",
-            str(DEFAULT_COURSE_PLANNING_CONCURRENCY),
-        )
-    )
-    try:
-        parsed = int(raw_value)
-    except (TypeError, ValueError):
-        parsed = DEFAULT_COURSE_PLANNING_CONCURRENCY
-    return max(1, min(MAX_COURSE_PLANNING_CONCURRENCY, parsed))
-
-
-EVIDENCE_INDEX_FIELDS = (
-    "evidence_id",
-    "asset_id",
-    "document_id",
-    "kind",
-    "locator",
-    "purpose",
-    "priority",
-    "authority",
-    "usage_policy",
-    "factual_allowed",
-    "confidence",
-)
-
-
-def _compact_evidence_index(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {key: item[key] for key in EVIDENCE_INDEX_FIELDS if key in item}
-        for item in catalog
-    ]
-
-
-def _stamp_evidence_revision(
-    target: dict[str, Any] | None,
-    source: dict[str, Any] | None,
-) -> dict[str, Any] | None:
-    """把证据修订 ID 从 plan 盖到另一个阶段产物上（E1 验收用）。
-
-    教案是独立的 V3 对象而非 plan 的副本，且它的 `revision_id` 由自身内容
-    哈希得出——所以不能在组装时塞字段（会改变教案修订），只能在这里补盖。
-    """
-    if not isinstance(target, dict) or not isinstance(source, dict):
-        return target
-    revision = str(source.get("evidence_package_revision_id") or "")
-    if revision:
-        target["evidence_package_revision_id"] = revision
-    return target
-
-
-def _semantic_retry_budget() -> int:
-    """How many times the teaching plan may retry its failed units.
-
-    A retry only re-runs the batches that fell back to local compilation, so
-    each extra pass is cheap.  One retry was too few: a course fails as a
-    whole when any single batch is still non-AI after that pass, and the odds
-    of one clean pass drop as the batch count grows, which is why larger
-    courses failed far more often than the per-batch success rate suggests.
-    """
-    try:
-        value = int(os.getenv("COURSE_TEACHING_PLAN_SEMANTIC_RETRIES", "3"))
-    except (TypeError, ValueError):
-        value = 3
-    return max(1, min(6, value))
-
-
-def _changed_scope_section_ids(
-    previous_contract: dict[str, Any],
-    current_contract: dict[str, Any],
-) -> set[str] | None:
-    """Return the sections whose own responsibility text changed.
-
-    ``None`` means "cannot tell" -- a different section set, a missing previous
-    contract, or a schema change. Callers must treat that as a full rebuild.
-
-    Neighbour fields (``order``, ``previous_section_id``,
-    ``next_reserved_section``) are compared separately by the caller: they shift
-    for a section whose own responsibility is untouched, so folding them in here
-    would spread one edit across the course again.
-    """
-    if not previous_contract or not current_contract:
-        return None
-    if previous_contract.get("schema_version") != current_contract.get(
-        "schema_version"
-    ):
-        return None
-    for key in ("course_title", "positioning", "learning_objectives", "prerequisites"):
-        if previous_contract.get(key) != current_contract.get(key):
-            # Course-level intent changed; every section's framing moves with it.
-            return None
-
-    def _own_responsibility(item: dict[str, Any]) -> dict[str, Any]:
-        return {
-            key: value
-            for key, value in item.items()
-            if key not in {"order", "previous_section_id", "next_reserved_section"}
-        }
-
-    previous_by_id = {
-        str(item.get("node_id") or ""): item
-        for item in previous_contract.get("section_responsibilities") or []
-        if isinstance(item, dict)
-    }
-    current_by_id = {
-        str(item.get("node_id") or ""): item
-        for item in current_contract.get("section_responsibilities") or []
-        if isinstance(item, dict)
-    }
-    if set(previous_by_id) != set(current_by_id):
-        # Added, removed, or renumbered sections change the knowledge skeleton's
-        # ownership map, which no per-section comparison can rescue.
-        return None
-    previous_order = [
-        str(item.get("node_id") or "")
-        for item in previous_contract.get("section_responsibilities") or []
-        if isinstance(item, dict)
-    ]
-    current_order = [
-        str(item.get("node_id") or "")
-        for item in current_contract.get("section_responsibilities") or []
-        if isinstance(item, dict)
-    ]
-    if previous_order != current_order:
-        return None
-    return {
-        node_id
-        for node_id, item in current_by_id.items()
-        if _own_responsibility(previous_by_id[node_id]) != _own_responsibility(item)
-    }
-
-
-def _retain_unaffected_teaching_plan_state(
-    teaching_stage: dict[str, Any],
-    *,
-    previous_contract: dict[str, Any],
-    current_contract: dict[str, Any],
-    outline_revision_id: str,
-    skeleton_chunk_size: int,
-) -> None:
-    """Drop only the teaching-plan work an outline edit actually invalidated.
-
-    The stage is cleared outright when the edit cannot be localized. Otherwise
-    the knowledge skeleton is truncated to the sections ahead of the first edit
-    and every batch inside that stable range survives.
-
-    Two granularities meet here and must not be conflated:
-
-    * the retained skeleton must end on a **chunk** boundary, because the
-      chunk-resume path in ``generate_chunked_skeleton`` only accepts a prefix
-      equal to ``chunks[:n]``;
-    * a batch may span more sections than a chunk, so batch retention is judged
-      against the full stable-section range.
-
-    Conflating them either replans the entire skeleton or discards a batch that a
-    chunk boundary merely happens to split.
-
-    The batch reuse gate is deliberately untouched -- it is what makes this
-    saving observable, and it keys on ``skeleton_revision_id``, so the retained
-    skeleton and batches are re-stamped together.
-    """
-    changed = _changed_scope_section_ids(previous_contract, current_contract)
-    skeleton = teaching_stage.get("skeleton")
-    stored_batches = teaching_stage.get("batches")
-    if (
-        changed is None
-        or not isinstance(skeleton, dict)
-        or not isinstance(stored_batches, dict)
-    ):
-        teaching_stage.clear()
-        return
-
-    # A changed section keeps its frozen knowledge keys, and the batch validator
-    # forces a regenerated batch to expand exactly those keys
-    # (course_teaching_plan_v3.py:503). Those keys were named after the old
-    # title, so a changed section must surrender its knowledge identity instead
-    # of keeping a name derived from a title it no longer has. Everything from
-    # the first edit onward is therefore replanned.
-    ordered_section_ids = [
-        str(item.get("node_id") or "")
-        for item in current_contract.get("section_responsibilities") or []
-        if isinstance(item, dict)
-    ]
-    skeleton_section_ids = {
-        str(item.get("node_id") or "")
-        for item in skeleton.get("sections") or []
-        if isinstance(item, dict)
-    }
-    if changed:
-        first_changed_index = min(
-            index
-            for index, node_id in enumerate(ordered_section_ids)
-            if node_id in changed
-        )
-        stable_section_ids = ordered_section_ids[:first_changed_index]
-    else:
-        stable_section_ids = list(ordered_section_ids)
-    stable_section_ids = [
-        node_id for node_id in stable_section_ids if node_id in skeleton_section_ids
-    ]
-
-    chunk_size = max(1, int(skeleton_chunk_size))
-    preserved_chunk_count = len(stable_section_ids) // chunk_size
-    if not preserved_chunk_count:
-        # Nothing survives at chunk granularity, so the skeleton would be
-        # replanned from the start regardless. Do not pretend otherwise.
-        teaching_stage.clear()
-        return
-    skeleton_prefix_ids = set(
-        stable_section_ids[: preserved_chunk_count * chunk_size]
-    )
-    stable_id_set = set(stable_section_ids)
-
-    retained: dict[str, Any] = {}
-    dropped: list[str] = []
-    for batch_id, item in stored_batches.items():
-        if not isinstance(item, dict):
-            continue
-        section_ids = {str(value) for value in item.get("section_ids") or []}
-        # A batch straddling the edit boundary is regenerated whole: batches are
-        # the smallest addressable generation unit.
-        if section_ids and section_ids <= stable_id_set:
-            retained[str(batch_id)] = deepcopy(item)
-        else:
-            dropped.append(str(batch_id))
-    if not retained:
-        teaching_stage.clear()
-        return
-
-    # Knowledge keys in the retained prefix keep their numbering, because chunks
-    # mint keys from the running registry size in directory order. The retained
-    # batches therefore still expand exactly the keys they were generated
-    # against. Re-stamp through the normalizer so the revision id is minted by
-    # the same rule production uses everywhere else.
-    truncated_skeleton = deepcopy(skeleton)
-    truncated_skeleton["sections"] = [
-        item
-        for item in truncated_skeleton.get("sections") or []
-        if isinstance(item, dict)
-        and str(item.get("node_id") or "") in skeleton_prefix_ids
-    ]
-    truncated_skeleton["knowledge_registry"] = [
-        item
-        for item in truncated_skeleton.get("knowledge_registry") or []
-        if isinstance(item, dict)
-        and str(item.get("owner_node_id") or "") in skeleton_prefix_ids
-    ]
-    refreshed_skeleton = normalize_teaching_plan_skeleton_v3(
-        truncated_skeleton,
-        outline_revision_id=outline_revision_id,
-    )
-    refreshed_revision_id = str(refreshed_skeleton.get("revision_id") or "")
-    # The retained batches are NOT re-stamped here on purpose: the skeleton's
-    # final revision only exists after the remaining chunks are replanned.
-    # `_rekey_retained_batches_to_skeleton` does it at that point.
-
-    preserved_chunk_total = int(teaching_stage.get("skeleton_chunk_count") or 0)
-    teaching_stage.clear()
-    teaching_stage.update({
-        "status": "in_progress",
-        "schema_version": "course_teaching_plan_v3",
-        "source_outline_revision_id": outline_revision_id,
-        "skeleton": refreshed_skeleton,
-        "skeleton_revision_id": refreshed_revision_id,
-        "skeleton_chunk_count": preserved_chunk_total,
-        "completed_skeleton_chunk_count": preserved_chunk_count,
-        "batches": retained,
-        "outline_edit_scope": {
-            "changed_section_ids": sorted(changed),
-            "retained_batch_ids": sorted(retained),
-            "invalidated_batch_ids": sorted(dropped),
-            "awaiting_skeleton_rekey": True,
-        },
-    })
-
-
-def _rekey_retained_batches_to_skeleton(
-    teaching_stage: dict[str, Any],
-    skeleton: dict[str, Any],
-) -> None:
-    """Point batches retained across an outline edit at the rebuilt skeleton.
-
-    Only runs once per edit, and only for batches whose sections still own the
-    same knowledge keys in the rebuilt skeleton. A batch that fails that check is
-    left stamped with its old revision so the reuse gate regenerates it -- the
-    conservative outcome, and the one that keeps a stale plan out of the course.
-    """
-    scope = teaching_stage.get("outline_edit_scope")
-    if not isinstance(scope, dict) or not scope.get("awaiting_skeleton_rekey"):
-        return
-    stored_batches = teaching_stage.get("batches")
-    if not isinstance(stored_batches, dict):
-        return
-    revision_id = str(skeleton.get("revision_id") or "")
-    owned_by_section = {
-        str(item.get("node_id") or ""): list(item.get("owned_knowledge_keys") or [])
-        for item in skeleton.get("sections") or []
-        if isinstance(item, dict)
-    }
-    rekeyed: list[str] = []
-    for batch_id in list(scope.get("retained_batch_ids") or []):
-        item = stored_batches.get(str(batch_id))
-        if not isinstance(item, dict):
-            continue
-        payload = item.get("payload")
-        payload_sections = (
-            payload.get("sections") if isinstance(payload, dict) else None
-        )
-        if not isinstance(payload_sections, list):
-            continue
-        still_matches = True
-        for section in payload_sections:
-            if not isinstance(section, dict):
-                continue
-            node_id = str(section.get("node_id") or "")
-            planned_keys = [
-                str(detail.get("knowledge_key") or "")
-                for detail in section.get("knowledge_details") or []
-                if isinstance(detail, dict)
-            ]
-            if planned_keys != owned_by_section.get(node_id, []):
-                still_matches = False
-                break
-        if not still_matches:
-            continue
-        item["skeleton_revision_id"] = revision_id
-        if isinstance(payload, dict):
-            payload["skeleton_revision_id"] = revision_id
-        rekeyed.append(str(batch_id))
-    scope["awaiting_skeleton_rekey"] = False
-    scope["rekeyed_batch_ids"] = sorted(rekeyed)
-
-
-def enforce_batch_prerequisite_direction(
-    report: dict[str, Any],
-    *,
-    batch: dict[str, Any],
-    skeleton: dict[str, Any],
-    sections: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Reject a batch declaring a later section's knowledge as an earlier one's prerequisite.
-
-    This mirrors the skeleton's own rule (``teaching_skeleton:future_prerequisite``
-    in course_teaching_plan_v3.py): a prerequisite must be taught before whatever
-    depends on it. The batch validator only constrains *which* keys a relation may
-    reference, never the direction, and that asymmetry is what let a cycle form --
-    the skeleton arc pointed forward, a batch arc pointed back, and neither layer
-    alone contained a cycle.
-
-    Blocking the edge here, while the batch can still be corrected, is strictly
-    better than detecting the cycle after assembly: by then the only remedy is
-    dropping an edge, which is lossy and changes the knowledge structure.
-
-    Returns a new report; the input is not mutated.
-    """
-    registry = {
-        str(item.get("knowledge_key") or ""): item
-        for item in skeleton.get("knowledge_registry") or []
-        if isinstance(item, dict)
-    }
-    if not registry:
-        return report
-    section_order = {
-        str(item.get("node_id") or ""): index
-        for index, item in enumerate(sections)
-    }
-    registry_order = {key: index for index, key in enumerate(registry)}
-
-    def position(key: str) -> tuple[int, int] | None:
-        owner = str((registry.get(key) or {}).get("owner_node_id") or "")
-        if owner not in section_order:
-            return None
-        return (section_order[owner], registry_order.get(key, 0))
-
-    violations: list[dict[str, str]] = []
-    for section in batch.get("sections") or []:
-        if not isinstance(section, dict):
-            continue
-        node_id = str(section.get("node_id") or "")
-        for relation in section.get("knowledge_relations") or []:
-            if not isinstance(relation, dict):
-                continue
-            if str(relation.get("relation_type") or "") != "prerequisite":
-                continue
-            source = str(relation.get("source_key") or "")
-            target = str(relation.get("target_key") or "")
-            source_position = position(source)
-            target_position = position(target)
-            if source_position is None or target_position is None:
-                # Unknown endpoints are already reported by the batch validator.
-                continue
-            if source_position < target_position:
-                continue
-            source_owner = str((registry.get(source) or {}).get("owner_node_id") or "?")
-            target_owner = str((registry.get(target) or {}).get("owner_node_id") or "?")
-            source_name = str((registry.get(source) or {}).get("name") or source)
-            target_name = str((registry.get(target) or {}).get("name") or target)
-            # Same-section and cross-section violations read very differently;
-            # one message covering both would misdescribe at least one of them.
-            if source_owner == target_owner:
-                detail = (
-                    f"「{source_name}」在本节的知识顺序中不早于「{target_name}」，"
-                    "不能作为它的前置"
-                )
-            else:
-                detail = (
-                    f"「{source_name}」属于更晚的 {source_owner}，"
-                    f"不能作为 {target_owner} 的「{target_name}」的前置"
-                )
-            violations.append(_issue_dict(
-                "teaching_batch:reversed_prerequisite",
-                f"小节 {node_id} 声明的前置方向与课程顺序相反：{detail}；"
-                "前置必须先于依赖它的知识出现",
-            ))
-    if not violations:
-        return report
-
-    augmented = deepcopy(report)
-    augmented["blocking_issues"] = list(
-        augmented.get("blocking_issues") or []
-    ) + violations
-    augmented["issues"] = list(augmented.get("issues") or []) + violations
-    augmented["passed"] = False
-    return augmented
-
-
-def _issue_dict(code: str, message: str) -> dict[str, str]:
-    return {"code": code, "severity": "critical", "message": message}
-
-
-def diagnose_cross_batch_relation_cycles(
-    *,
-    skeleton: dict[str, Any],
-    batches: list[dict[str, Any]],
-    sections: list[dict[str, Any]],
-    relation_type: str = "prerequisite",
-) -> list[dict[str, Any]]:
-    """Report relation cycles that only exist once skeleton and batches merge.
-
-    Detection only -- this never removes an edge. Which edge to drop changes the
-    course's knowledge structure, so it is a product decision, not a mechanical
-    repair. The report carries what that decision needs: every edge on the cycle,
-    the layer that declared it, the sections owning each endpoint, the batch a
-    batch-declared edge came from, and whether the edge agrees with section order.
-
-    This has to run after assembly because neither input contains a cycle on its
-    own: the skeleton's ``prerequisite_keys`` form one arc and a batch's
-    ``knowledge_relations`` form the other. No single-layer validator can see it.
-    """
-    registry = {
-        str(item.get("knowledge_key") or ""): item
-        for item in skeleton.get("knowledge_registry") or []
-        if isinstance(item, dict)
-    }
-    if not registry:
-        return []
-    section_order = {
-        str(item.get("node_id") or ""): index
-        for index, item in enumerate(sections)
-    }
-    owner_of = {
-        key: str(item.get("owner_node_id") or "")
-        for key, item in registry.items()
-    }
-
-    # edge -> list of provenance records, so an edge declared by both layers is
-    # reported as such rather than silently attributed to one of them.
-    edges: dict[tuple[str, str], list[dict[str, Any]]] = {}
-
-    def add_edge(source: str, target: str, origin: dict[str, Any]) -> None:
-        if not source or not target or source not in registry or target not in registry:
-            return
-        edges.setdefault((source, target), []).append(origin)
-
-    for key, item in registry.items():
-        for prerequisite_key in item.get("prerequisite_keys") or []:
-            add_edge(str(prerequisite_key), key, {"layer": "skeleton"})
-    for batch in batches:
-        if not isinstance(batch, dict):
-            continue
-        batch_id = str(batch.get("batch_id") or "")
-        for section in batch.get("sections") or []:
-            if not isinstance(section, dict):
-                continue
-            node_id = str(section.get("node_id") or "")
-            for relation in section.get("knowledge_relations") or []:
-                if not isinstance(relation, dict):
-                    continue
-                if str(relation.get("relation_type") or "") != relation_type:
-                    continue
-                add_edge(
-                    str(relation.get("source_key") or ""),
-                    str(relation.get("target_key") or ""),
-                    {"layer": "batch", "batch_id": batch_id, "declared_in": node_id},
-                )
-
-    graph: dict[str, list[str]] = {}
-    for source, target in edges:
-        graph.setdefault(source, []).append(target)
-
-    cycles = _find_all_relation_cycles(graph)
-    if not cycles:
-        return []
-
-    reports: list[dict[str, Any]] = []
-    for cycle in cycles:
-        cycle_edges: list[dict[str, Any]] = []
-        for index in range(len(cycle) - 1):
-            source, target = cycle[index], cycle[index + 1]
-            source_owner = owner_of.get(source, "")
-            target_owner = owner_of.get(target, "")
-            source_position = section_order.get(source_owner)
-            target_position = section_order.get(target_owner)
-            # A prerequisite must be taught before what depends on it. An edge
-            # pointing backwards contradicts the frozen section order and is the
-            # shape seen in the first real occurrence (a batch declaring an
-            # earlier section's knowledge as depending on a later one).
-            agrees_with_order = (
-                source_position is not None
-                and target_position is not None
-                and source_position <= target_position
-            )
-            cycle_edges.append({
-                "source_key": source,
-                "source_name": str((registry.get(source) or {}).get("name") or source),
-                "source_section": source_owner,
-                "target_key": target,
-                "target_name": str((registry.get(target) or {}).get("name") or target),
-                "target_section": target_owner,
-                "declared_by": deepcopy(edges.get((source, target)) or []),
-                "agrees_with_section_order": agrees_with_order,
-            })
-        contradicting = [
-            item for item in cycle_edges
-            if not item["agrees_with_section_order"]
-        ]
-        reports.append({
-            "schema_version": "cross_batch_relation_cycle_v1",
-            "relation_type": relation_type,
-            "cycle_keys": list(cycle),
-            "cycle_names": [
-                str((registry.get(key) or {}).get("name") or key) for key in cycle
-            ],
-            "edges": cycle_edges,
-            "batch_ids": sorted({
-                str(origin.get("batch_id") or "")
-                for item in cycle_edges
-                for origin in item["declared_by"]
-                if origin.get("layer") == "batch" and origin.get("batch_id")
-            }),
-            "layers": sorted({
-                str(origin.get("layer") or "")
-                for item in cycle_edges
-                for origin in item["declared_by"]
-            }),
-            "order_contradicting_edge_count": len(contradicting),
-            # Recorded, not acted on: an edge contradicting section order is the
-            # mechanically-identifiable culprit, while a cycle whose edges all
-            # agree with order needs a human to decide what the course means.
-            "verdict": (
-                "order_contradiction"
-                if contradicting
-                else "all_edges_plausible"
-            ),
-        })
-    return reports
-
-
-def _find_all_relation_cycles(graph: dict[str, list[str]]) -> list[list[str]]:
-    """Return each distinct cycle once, as a closed node path."""
-    colors: dict[str, int] = {}
-    path: list[str] = []
-    seen: set[frozenset[str]] = set()
-    found: list[list[str]] = []
-
-    def visit(node: str) -> None:
-        colors[node] = 1
-        path.append(node)
-        for neighbour in graph.get(node, []):
-            if colors.get(neighbour) == 1:
-                cycle = path[path.index(neighbour):] + [neighbour]
-                signature = frozenset(cycle)
-                if signature not in seen:
-                    seen.add(signature)
-                    found.append(cycle)
-            elif colors.get(neighbour) is None:
-                visit(neighbour)
-        colors[node] = 2
-        path.pop()
-
-    for node in list(graph):
-        if colors.get(node) is None:
-            visit(node)
-    return found
-
-
-def _record_relation_cycle_diagnosis(
-    teaching_stage: dict[str, Any],
-    *,
-    skeleton: dict[str, Any],
-    batches: list[dict[str, Any]],
-    sections: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Attach the cross-batch cycle report to the stage without blocking on it.
-
-    Deliberately non-blocking: the knowledge-base compiler already fails a course
-    whose prerequisites form a cycle, so a second hard gate here would add no
-    protection. What is missing is the *diagnosis* -- by compile time the batches
-    that declared the offending edges are long frozen, so the report has to be
-    produced here, where the declaring batch is still identifiable.
-    """
-    try:
-        reports = diagnose_cross_batch_relation_cycles(
-            skeleton=skeleton,
-            batches=batches,
-            sections=sections,
-        )
-    except Exception:  # noqa: BLE001 - diagnosis must never break generation
-        logger.exception("Cross-batch relation cycle diagnosis failed")
-        return []
-    if reports:
-        teaching_stage["relation_cycle_diagnosis"] = deepcopy(reports)
-        for report in reports:
-            logger.warning(
-                "Cross-batch %s cycle detected: %s (layers=%s batches=%s verdict=%s)",
-                report.get("relation_type"),
-                " -> ".join(report.get("cycle_names") or []),
-                report.get("layers"),
-                report.get("batch_ids"),
-                report.get("verdict"),
-            )
-    else:
-        teaching_stage.pop("relation_cycle_diagnosis", None)
-    return reports
-
-
-def _coherence_repair_suggestion(issue: dict[str, Any]) -> str:
-    if issue.get("code") == "coherence:incorrect_next_section_handoff":
-        return (
-            "删除或改正错误的下一节预告，使它与全课总编契约中的实际后续小节一致；"
-            "本节已经完成的知识不得再声称属于下一节"
-        )
-    return (
-        "保留与前置章节的一两句承接，删除或重写重复讲解，"
-        "把篇幅用于当前小节独有的知识、例子、任务与验收"
-    )
 
 
 # ---------------------------------------------------------------------------

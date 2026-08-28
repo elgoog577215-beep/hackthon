@@ -10,7 +10,7 @@ import os
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from task_manager import TaskManager, TaskRecoveryConflict, TaskStateConflict
+from jobs.manager import TaskManager, TaskRecoveryConflict, TaskStateConflict
 from dependencies import (
     get_course_document_repository,
     get_teacher_lesson_authoring_repository,

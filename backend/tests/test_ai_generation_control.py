@@ -12,7 +12,7 @@ from generation_workspace import GenerationWorkspaceNotFound, GenerationWorkspac
 from learning_asset_storage import LearningAssetRepository
 from material_storage import MaterialRepository
 from course_generation_budget import CourseGenerationDeadlineExceeded
-from task_manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
+from jobs.manager import DEFAULT_MAX_CONCURRENCY, TaskManager, TaskStateConflict
 from websocket_service import WebSocketService
 
 
@@ -45,7 +45,7 @@ class DurableCourseStorage:
 
 
 def _lifecycle_manager(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = DurableCourseStorage()
@@ -63,7 +63,7 @@ def _lifecycle_manager(tmp_path, monkeypatch):
 
 
 async def _durable_generation_manager(tmp_path, monkeypatch, *, status):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = DurableCourseStorage()
@@ -361,7 +361,7 @@ async def test_failed_job_can_resume_same_course_after_provider_recovery(tmp_pat
 
 @pytest.mark.asyncio
 async def test_generation_job_migrates_inline_material_without_persisting_content(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     tasks_file = tmp_path / "tasks.json"
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tasks_file)

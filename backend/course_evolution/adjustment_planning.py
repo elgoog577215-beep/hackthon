@@ -15,7 +15,7 @@ from block_regeneration import (
     evaluate_block_candidate,
 )
 from course_document import CourseBlock, CourseDocument, stable_hash
-from course_evolution import (
+from .core import (
     AdaptationHypothesis,
     CourseEvolutionOperation,
     CourseEvolutionPlan,
@@ -128,7 +128,7 @@ def _chapter_section_ids(document: Any, section_id: str) -> set[str]:
     return members
 
 
-def analyze_section_request(instruction: str) -> dict[str, Any]:
+def analyze_course_adjustment_request(instruction: str) -> dict[str, Any]:
     """Deterministic fallback when semantic scene analysis is unavailable."""
     text = str(instruction or "").strip()
     roles = _explicit_roles(text)
@@ -279,6 +279,7 @@ async def generate_course_adjustment_plan(
     scope_selection: Literal[
         "current_block",
         "current_section",
+        "current_chapter",
         "whole_course",
     ] = "current_section",
     block_id: str = "",
@@ -311,7 +312,7 @@ async def generate_course_adjustment_plan(
             candidate_repository=candidate_repository,
             generator=generator,
         )
-    return await generate_section_evolution_plan(
+    return await _generate_scoped_adjustment_plan(
         course_data,
         user_id=user_id,
         section_id=section_id,
@@ -773,7 +774,7 @@ def _redact_exact_text(value: Any, text: str) -> Any:
     return deepcopy(value)
 
 
-async def generate_section_evolution_plan(
+async def _generate_scoped_adjustment_plan(
     course_data: dict[str, Any],
     *,
     user_id: str,
@@ -819,7 +820,7 @@ async def generate_section_evolution_plan(
     now = _now()
 
     if generator is None:
-        from course_service import get_course_service
+        from course_generation.service import get_course_service
 
         generator = get_course_service()
 
@@ -840,7 +841,7 @@ async def generate_section_evolution_plan(
         if anchor_role is None and stored_anchor_role in ROLE_TITLES:
             anchor_role = stored_anchor_role
 
-    fallback = analyze_section_request(effective_instruction)
+    fallback = analyze_course_adjustment_request(effective_instruction)
     if (
         scope_selection == "whole_course"
         and anchor_role is not None
@@ -1932,8 +1933,7 @@ def _now() -> str:
 
 
 __all__ = [
-    "analyze_section_request",
+    "analyze_course_adjustment_request",
     "generate_block_evolution_plan",
     "generate_course_adjustment_plan",
-    "generate_section_evolution_plan",
 ]

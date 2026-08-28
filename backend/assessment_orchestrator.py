@@ -56,7 +56,7 @@ from code_runner_client import (
 )
 from course_versioning import stable_hash
 from solution_contracts import worked_solution_is_complete
-from subject_standard_packs import resolve_subject_standard_pack
+from teaching_design import resolve_subject_standard_pack
 
 PRACTICE_LEVELS = (
     "concept_check",

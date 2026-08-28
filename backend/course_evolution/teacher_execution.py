@@ -15,7 +15,7 @@ from typing import Any
 import uuid
 
 from course_document import stable_hash
-from course_evolution import (
+from .core import (
     CourseEvolutionOperation,
     CourseEvolutionPlan,
     CourseEvolutionRepository,

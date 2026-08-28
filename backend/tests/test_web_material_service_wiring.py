@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from course_service import CourseService
-from course_generation_workflow import build_course_generation_artifacts
+from course_generation.service import CourseService
+from course_generation.workflow import build_course_generation_artifacts
 from models import CourseGenerationRequest, WebMaterialIngestInput
 
 
@@ -157,8 +157,7 @@ def test_persisted_course_carries_web_summary_for_teacher_panel():
     """
     import inspect
 
-    import course_service
-
+    import course_generation.service as course_service
     source = inspect.getsource(course_service.CourseService.build_course_draft)
     # 两处 course_data 构造块都必须带上这一键。
     assert source.count('"web_material_search": artifacts.get(') == 2

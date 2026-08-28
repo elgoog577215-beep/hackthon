@@ -5,7 +5,6 @@ from copy import deepcopy
 
 import pytest
 
-import course_evolution
 from block_regeneration import BlockRegenerationCandidateRepository
 from course_document import document_from_legacy_course, refresh_document_revision
 from course_evolution import (
@@ -14,11 +13,10 @@ from course_evolution import (
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
+from course_evolution import core as course_evolution
+from course_evolution.core import _course_document
 from course_repository import CourseDocumentRepository
-from section_evolution import (
-    generate_course_adjustment_plan,
-    generate_section_evolution_plan,
-)
+from course_evolution.adjustment_planning import generate_course_adjustment_plan
 
 
 class _MemoryCourseStorage:
@@ -157,7 +155,7 @@ class _FailingSemanticAnalysisGenerator(_SectionGenerator):
 
 def _section_growth_course() -> dict:
     course = _course_with_knowledge()
-    document = course_evolution._course_document(course)
+    document = _course_document(course)
     target = next(block for block in document.blocks if block.section_id == "section-1")
     target.role = "reasoning"
     target.payload["title"] = "理论推导"
@@ -234,7 +232,7 @@ async def test_section_request_upgrades_existing_role_and_inserts_missing_role_a
         if block.section_id == "section-1" and block.role == "reasoning"
     )
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-growth",
         section_id="section-1",
@@ -323,7 +321,7 @@ async def test_manual_section_plan_is_also_guarded_by_knowledge_semantics(tmp_pa
     document_repository = CourseDocumentRepository(storage)
     evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-growth",
         section_id="section-1",
@@ -517,7 +515,7 @@ async def test_whole_course_request_matches_semantic_roles_and_partially_applies
         for block in before.blocks
     }
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-whole-growth",
         section_id="section-1",
@@ -598,7 +596,7 @@ async def test_whole_course_block_entry_keeps_current_role_when_feedback_contain
     document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
     evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-block-anchor",
         section_id="section-1",
@@ -640,7 +638,7 @@ async def test_current_section_scope_is_a_hard_boundary_even_when_language_says_
     document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
     evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-local-growth",
         section_id="section-1",
@@ -669,7 +667,7 @@ async def test_semantic_scene_analysis_guides_roles_but_system_decides_block_act
     document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
     evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-semantic",
         section_id="section-1",
@@ -713,7 +711,7 @@ async def test_invalid_semantic_analysis_falls_back_without_blocking_workflow(
     document_repository = CourseDocumentRepository(_MemoryCourseStorage(course))
     evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-fallback",
         section_id="section-1",
@@ -741,7 +739,7 @@ async def test_failed_section_candidate_keeps_formal_course_unchanged_and_checkp
     before, _canonical = document_repository.load_document(course["course_id"])
 
     with pytest.raises(ValueError, match="候选未通过质量检查"):
-        await generate_section_evolution_plan(
+        await generate_course_adjustment_plan(
             course,
             user_id="student-growth",
             section_id="section-1",
@@ -825,7 +823,7 @@ async def test_challenge_growth_uses_harder_task_results_without_erasing_base_ma
     storage = _MemoryCourseStorage(course)
     document_repository = CourseDocumentRepository(storage)
     evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-challenge-effect",
         section_id="section-1",

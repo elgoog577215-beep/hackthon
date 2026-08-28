@@ -2,14 +2,14 @@ import json
 import math
 
 from ai_base import AIBase
-from course_generation_adaptive import merge_teaching_skeleton_part
-from course_planning_budget import (
+from course_generation.adaptive import merge_teaching_skeleton_part
+from course_generation.budget import (
     CoursePlanningBudget,
     build_compact_planning_context,
     build_teaching_plan_batches,
     select_batch_knowledge_registry,
 )
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 from course_teaching_plan_v3 import (
     normalize_teaching_plan_batch_v3,
     normalize_teaching_plan_skeleton_v3,

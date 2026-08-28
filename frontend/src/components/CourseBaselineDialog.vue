@@ -93,20 +93,16 @@
               <section class="form-section">
                 <header><FileText :size="17" /><h3>{{ t('courseFiles.workbench.courseDesignSettings', '教学设计') }}</h3></header>
                 <fieldset class="course-type-field">
-                  <legend>{{ t('courseGeneration.courseTypes.label', '教学类型') }}</legend>
+                  <legend>{{ t('courseWorkbench.form.learningPurpose', '学习目的') }}</legend>
                   <div class="course-type-options">
-                    <button v-for="item in courseTypeOptions" :key="item.value" type="button" :class="{ active: courseType === item.value }" :aria-pressed="courseType === item.value" @click="selectCourseType(item.value)"><component :is="item.icon" :size="16" /><span>{{ item.label }}</span></button>
+                    <button v-for="item in learningPurposeOptions" :key="item.value" type="button" :class="{ active: learningPurpose === item.value }" :aria-pressed="learningPurpose === item.value" @click="selectLearningPurpose(item.value)"><component :is="item.icon" :size="16" /><span>{{ item.label }}</span></button>
                   </div>
                 </fieldset>
                 <div class="intent-fields">
-                  <label v-if="courseType === 'systematic'"><span>{{ t('courseFiles.workbench.learningGoal', '课程目标') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.learning_goal" required maxlength="5000" rows="3" /></label>
-                  <template v-else-if="courseType === 'project'">
+                  <label v-if="learningPurpose === 'systematic'"><span>{{ t('courseFiles.workbench.learningGoal', '课程目标') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.learning_goal" required maxlength="5000" rows="3" /></label>
+                  <template v-else-if="learningPurpose === 'project'">
                     <label><span>{{ t('courseGeneration.project.goalLabel', '项目目标') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.project_goal" required maxlength="3000" rows="2" /></label>
                     <label><span>{{ t('courseGeneration.project.deliverableLabel', '预期交付物') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.expected_deliverable" required maxlength="3000" rows="2" /></label>
-                  </template>
-                  <template v-else-if="courseType === 'inquiry'">
-                    <label><span>{{ t('courseGeneration.inquiry.questionLabel', '核心问题') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.core_question" required maxlength="3000" rows="2" /></label>
-                    <label><span>{{ t('courseGeneration.inquiry.outputLabel', '期望结果') }} <b>*</b></span><textarea v-model.trim="draft.generation_request.course_intent.desired_output" required maxlength="3000" rows="2" /></label>
                   </template>
                   <template v-else>
                     <div class="field-grid field-grid--two">
@@ -125,6 +121,7 @@
                 <header><SlidersHorizontal :size="17" /><h3>{{ t('courseFiles.workbench.additionalCourseInformation', '生成设置') }}</h3></header>
                 <div class="field-grid field-grid--three">
                   <label><span>{{ t('courseGeneration.pedagogy.label', '学科类型') }}</span><select v-model="draft.generation_request.pedagogy_mode"><option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+                  <label><span>{{ t('courseWorkbench.form.courseTeachingType', '课程教学类型') }}</span><select v-model="draft.generation_request.course_teaching_type"><option v-for="item in courseTeachingTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
                   <label><span>{{ t('courseFiles.workbench.difficulty', '难度') }}</span><select v-model="draft.generation_request.difficulty"><option v-for="item in difficultyOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
                   <label><span>{{ t('courseFiles.workbench.generationFlow', '生成流程') }}</span><select v-model="draft.generation_request.production_mode"><option v-for="item in productionModeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
                 </div>
@@ -187,13 +184,15 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import {
   ArrowRight, BookOpen, Check, CheckCircle2, Clock3, Database, FileDiff,
-  FileText, Hammer, History, LoaderCircle, MessageCircleQuestion, Pencil,
+  FileText, Hammer, History, LoaderCircle, Pencil,
   RotateCcw, SlidersHorizontal, Timer, TriangleAlert, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
 import {
+  canonicalizeCourseGenerationOptions,
   PEDAGOGY_MODE_OPTIONS,
-  type CourseType,
+  type CourseTeachingType,
+  type LearningPurpose,
 } from '../shared/prompt-config'
 import http, { teacherRequestConfig } from '../utils/http'
 
@@ -261,11 +260,18 @@ const conflict = ref(false)
 const restoreRevision = ref<number | null>(null)
 let previousFocus: HTMLElement | null = null
 
-const courseTypeOptions = computed(() => ([
+const learningPurposeOptions = computed(() => ([
   { value: 'systematic' as const, icon: BookOpen, label: t('courseGeneration.courseTypes.systematic.label', '系统学习') },
   { value: 'project' as const, icon: Hammer, label: t('courseGeneration.courseTypes.project.label', '项目实战') },
-  { value: 'inquiry' as const, icon: MessageCircleQuestion, label: t('courseGeneration.courseTypes.inquiry.label', '问题探究') },
   { value: 'exam' as const, icon: Timer, label: t('courseGeneration.courseTypes.exam.label', '考试冲刺') },
+]))
+const courseTeachingTypeOptions = computed(() => ([
+  { value: 'theory' as const, label: t('courseWorkbench.form.courseTeachingTypes.theory', '理论课') },
+  { value: 'laboratory' as const, label: t('courseWorkbench.form.courseTeachingTypes.laboratory', '实验课') },
+  { value: 'practice' as const, label: t('courseWorkbench.form.courseTeachingTypes.practice', '实践课') },
+  { value: 'seminar' as const, label: t('courseWorkbench.form.courseTeachingTypes.seminar', '研讨课') },
+  { value: 'project' as const, label: t('courseWorkbench.form.courseTeachingTypes.project', '项目课') },
+  { value: 'comprehensive' as const, label: t('courseWorkbench.form.courseTeachingTypes.comprehensive', '综合课') },
 ]))
 const difficultyOptions = computed(() => ['beginner', 'intermediate', 'advanced'].map(value => ({ value, label: t(`courseGeneration.difficulty.${value}.label`, value) })))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
@@ -273,7 +279,7 @@ const productionModeOptions = computed(() => ([
   { value: 'manual', label: t('teacherCourseCreate.productionModeManual', '分步确认') },
   { value: 'automatic', label: t('teacherCourseCreate.productionModeAutomatic', '自动衔接') },
 ]))
-const courseType = computed(() => String(draft.value.generation_request.course_type || 'systematic') as CourseType)
+const learningPurpose = computed(() => String(draft.value.generation_request.learning_purpose || 'systematic') as LearningPurpose)
 
 const viewGroups = computed(() => {
   if (!original.value) return []
@@ -305,7 +311,7 @@ const viewGroups = computed(() => {
     },
     {
       title: t('courseFiles.workbench.courseDesignSettings', '教学设计'), icon: FileText, items: [
-        item(t('courseGeneration.courseTypes.label', '教学类型'), optionLabel(courseTypeOptions.value, request.course_type)),
+        item(t('courseWorkbench.form.learningPurpose', '学习目的'), optionLabel(learningPurposeOptions.value, request.learning_purpose)),
         item(t('courseFiles.workbench.learningGoal', '课程目标'), intentSummary(request), undefined, true),
         item(t('teacherCourseCreate.courseIntro', '课程简介'), profile.course_intro, undefined, true),
         item(t('teacherCourseCreate.assessmentMethod', '考核方式'), profile.assessment_method, undefined, true),
@@ -315,6 +321,7 @@ const viewGroups = computed(() => {
     {
       title: t('courseFiles.workbench.additionalCourseInformation', '生成设置'), icon: SlidersHorizontal, items: [
         item(t('courseGeneration.pedagogy.label', '学科类型'), optionLabel(pedagogyOptions.value, request.pedagogy_mode)),
+        item(t('courseWorkbench.form.courseTeachingType', '课程教学类型'), optionLabel(courseTeachingTypeOptions.value, request.course_teaching_type)),
         item(t('courseFiles.workbench.difficulty', '难度'), optionLabel(difficultyOptions.value, request.difficulty)),
         item(t('courseFiles.workbench.generationFlow', '生成流程'), optionLabel(productionModeOptions.value, request.production_mode)),
       ],
@@ -340,9 +347,8 @@ const changes = computed<ChangeItem[]>(() => {
 
 const intentComplete = computed(() => {
   const intent = draft.value.generation_request.course_intent || {}
-  if (courseType.value === 'project') return Boolean(String(intent.project_goal || '').trim() && String(intent.expected_deliverable || '').trim())
-  if (courseType.value === 'inquiry') return Boolean(String(intent.core_question || '').trim() && String(intent.desired_output || '').trim())
-  if (courseType.value === 'exam') return Boolean(String(intent.exam_name || '').trim() && String(intent.exam_date || '').trim() && String(intent.exam_scope || '').trim())
+  if (learningPurpose.value === 'project') return Boolean(String(intent.project_goal || '').trim() && String(intent.expected_deliverable || '').trim())
+  if (learningPurpose.value === 'exam') return Boolean(String(intent.exam_name || '').trim() && String(intent.exam_date || '').trim() && String(intent.exam_scope || '').trim())
   return Boolean(String(intent.learning_goal || '').trim())
 })
 const canReview = computed(() => {
@@ -362,8 +368,8 @@ function emptyInformation(): CourseInformation {
       target_major: '', credits: null, total_hours: null, assessment_method: '', course_intro: '', teaching_goals: '',
     },
     generation_request: {
-      subject: '', target_audience: '大学生', difficulty: 'intermediate', course_type: 'systematic',
-      composition_style: 'balanced', pedagogy_mode: 'auto', secondary_mode: '', production_mode: 'manual',
+      subject: '', target_audience: '大学生', difficulty: 'intermediate', learning_purpose: 'systematic',
+      course_teaching_type: 'comprehensive', pedagogy_mode: 'auto', secondary_mode: '', production_mode: 'manual',
       course_intent: { schema_version: 'course_intent_v1', type: 'systematic', learning_goal: '' },
       teacher_course_brief: {
         schema_version: 'teacher_course_brief_v1', target_audience: '大学生', total_class_hours: 32,
@@ -379,30 +385,35 @@ function normalizeInformation(value: CourseInformation): CourseInformation {
   const fallback = emptyInformation()
   const info = clone(value || fallback)
   info.course_profile = { ...fallback.course_profile, ...(info.course_profile || {}) }
-  info.generation_request = { ...fallback.generation_request, ...(info.generation_request || {}) } as CourseInformation['generation_request']
+  info.generation_request = {
+    ...fallback.generation_request,
+    ...canonicalizeCourseGenerationOptions(info.generation_request || {}),
+  } as CourseInformation['generation_request']
   info.generation_request.subject = String(info.generation_request.subject || info.course_name || '').trim()
-  info.generation_request.course_type = ['systematic', 'project', 'inquiry', 'exam'].includes(String(info.generation_request.course_type)) ? info.generation_request.course_type : 'systematic'
   info.generation_request.teacher_course_brief = { ...fallback.generation_request.teacher_course_brief, ...(info.generation_request.teacher_course_brief || {}) }
-  info.generation_request.course_intent = info.generation_request.course_intent || intentForType(info.generation_request.course_type as CourseType, info)
+  info.generation_request.course_intent = info.generation_request.course_intent || intentForPurpose(info.generation_request.learning_purpose as LearningPurpose, info)
   info.course_profile.target_grade = String(info.course_profile.target_grade || info.generation_request.teacher_course_brief.target_audience || info.generation_request.target_audience || '大学生')
   info.generation_request.teacher_course_brief.target_audience = info.course_profile.target_grade
   return info
 }
 
-function intentForType(type: CourseType, info: CourseInformation) {
+function intentForPurpose(type: LearningPurpose, info: CourseInformation) {
   const existingGoal = intentSummary(info.generation_request) || info.course_name
   if (type === 'project') return { schema_version: 'course_intent_v1', type, project_goal: existingGoal, expected_deliverable: '' }
-  if (type === 'inquiry') return { schema_version: 'course_intent_v1', type, core_question: existingGoal, desired_output: '' }
   if (type === 'exam') return { schema_version: 'course_intent_v1', type, exam_name: info.course_name, exam_date: '', exam_scope: existingGoal }
   return { schema_version: 'course_intent_v1', type, learning_goal: existingGoal }
 }
 
-function selectCourseType(type: CourseType) {
-  if (type === courseType.value) return
-  draft.value.generation_request.course_type = type
-  draft.value.generation_request.course_purpose = type === 'exam' ? 'exam_sprint' : 'systematic'
-  draft.value.generation_request.composition_style = ({ systematic: 'balanced', project: 'project_driven', inquiry: 'inquiry_driven', exam: 'example_driven' } as const)[type]
-  draft.value.generation_request.course_intent = intentForType(type, draft.value)
+function selectLearningPurpose(type: LearningPurpose) {
+  if (type === learningPurpose.value) return
+  const previous = learningPurpose.value
+  draft.value.generation_request.learning_purpose = type
+  if (type === 'project' && (previous === 'systematic' || draft.value.generation_request.course_teaching_type === 'comprehensive')) {
+    draft.value.generation_request.course_teaching_type = 'project' satisfies CourseTeachingType
+  } else if (type !== 'project' && draft.value.generation_request.course_teaching_type === 'project') {
+    draft.value.generation_request.course_teaching_type = 'comprehensive' satisfies CourseTeachingType
+  }
+  draft.value.generation_request.course_intent = intentForPurpose(type, draft.value)
 }
 
 function item(label: string, rawValue: unknown, template?: string, wide = false) {
@@ -419,7 +430,6 @@ function optionLabel(options: Array<{ value: string; label: string }>, value: un
 function intentSummary(request: Record<string, any>) {
   const intent = request.course_intent || {}
   if (intent.type === 'project') return [intent.project_goal, intent.expected_deliverable].filter(Boolean).join(' · ')
-  if (intent.type === 'inquiry') return [intent.core_question, intent.desired_output].filter(Boolean).join(' · ')
   if (intent.type === 'exam') return [intent.exam_name, intent.exam_date, intent.exam_scope].filter(Boolean).join(' · ')
   return String(intent.learning_goal || intent.desired_outcome || '')
 }
@@ -443,8 +453,9 @@ function comparisonDescriptors(before: CourseInformation, after: CourseInformati
     descriptor('chapter_count', t('courseGeneration.teacherBrief.chapterCount', '预计章节数'), bb.chapter_count, ab.chapter_count),
     descriptor('section_count', t('courseFiles.workbench.plannedLessonCount', '计划讲数'), bb.section_count, ab.section_count),
     descriptor('class_profile', t('courseGeneration.teacherBrief.classProfile', '班级与学情特点'), bb.class_profile, ab.class_profile),
-    descriptor('course_type', t('courseGeneration.courseTypes.label', '教学类型'), optionLabel(courseTypeOptions.value, br.course_type), optionLabel(courseTypeOptions.value, ar.course_type)),
+    descriptor('learning_purpose', t('courseWorkbench.form.learningPurpose', '学习目的'), optionLabel(learningPurposeOptions.value, br.learning_purpose), optionLabel(learningPurposeOptions.value, ar.learning_purpose)),
     descriptor('pedagogy_mode', t('courseGeneration.pedagogy.label', '学科类型'), optionLabel(pedagogyOptions.value, br.pedagogy_mode), optionLabel(pedagogyOptions.value, ar.pedagogy_mode)),
+    descriptor('course_teaching_type', t('courseWorkbench.form.courseTeachingType', '课程教学类型'), optionLabel(courseTeachingTypeOptions.value, br.course_teaching_type), optionLabel(courseTeachingTypeOptions.value, ar.course_teaching_type)),
     descriptor('secondary_mode', t('courseGeneration.pedagogy.secondaryLabel', '辅助学科类型'), optionLabel(pedagogyOptions.value, br.secondary_mode), optionLabel(pedagogyOptions.value, ar.secondary_mode)),
     descriptor('difficulty', t('courseFiles.workbench.difficulty', '难度'), optionLabel(difficultyOptions.value, br.difficulty), optionLabel(difficultyOptions.value, ar.difficulty)),
     descriptor('production_mode', t('courseFiles.workbench.generationFlow', '生成流程'), optionLabel(productionModeOptions.value, br.production_mode), optionLabel(productionModeOptions.value, ar.production_mode)),
@@ -541,7 +552,7 @@ watch(() => props.courseId, () => { if (props.modelValue) void loadInformation()
 </script>
 
 <style scoped>
-.course-information-layer{position:fixed;inset:0;z-index:530;display:grid;place-items:center;padding:24px}.course-information-backdrop{position:absolute;inset:0;border:0;background:rgba(30,41,59,.42)}.course-information-dialog{position:relative;width:min(980px,100%);max-height:calc(100dvh - 48px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;border:1px solid #dfe5ee;border-radius:16px;color:var(--lz-text);background:#fff;box-shadow:0 28px 76px rgba(15,23,42,.25);outline:none}.dialog-heading{min-height:76px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #e8edf4}.dialog-heading__mark{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.dialog-heading>div{min-width:0}.dialog-heading h2{margin:0;color:#202b40;font-size:20px;letter-spacing:-.015em}.dialog-heading p{margin:4px 0 0;color:#64748b;font-size:12px;line-height:1.45}.icon-button{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;color:#64748b;background:transparent;cursor:pointer}.icon-button:hover{background:#f1f5f9}.icon-button:focus-visible,.secondary-button:focus-visible,.primary-button:focus-visible,.history-panel button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.dialog-body{min-height:0;overflow:auto;padding:0 30px 30px}.dialog-state{min-height:360px;display:grid;place-items:center;align-content:center;gap:10px;color:#64748b;text-align:center}.dialog-state strong{color:#334155;font-size:14px}.dialog-state p{max-width:580px;margin:0;font-size:12px;line-height:1.6}.dialog-state button{min-height:38px;padding:0 13px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-weight:700;cursor:pointer}.dialog-state.is-error>svg{color:#dc2626}.save-status,.save-error{display:flex;align-items:flex-start;gap:8px;margin:16px 0 0;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}.save-status{color:#166534;background:#ecfdf5}.save-error{color:#991b1b;background:#fff1f2}.save-error>span{flex:1}.save-error button{padding:0;border:0;color:inherit;background:transparent;font-weight:800;text-decoration:underline;cursor:pointer}.course-identity{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding:26px 0 22px;border-bottom:1px solid #e8edf4}.course-identity>div{min-width:0;display:grid;gap:5px}.course-identity small{color:#64748b;font-size:12px}.course-identity strong{overflow-wrap:anywhere;color:#172033;font-size:22px;letter-spacing:-.02em}.course-identity span{color:#7b8798;font-size:11px}.course-identity>b{flex:none;padding:5px 8px;border-radius:7px;color:#4f46e5;background:#eef2ff;font-size:11px}.information-group,.form-section{padding:24px 0;border-bottom:1px solid #e8edf4}.information-group:last-child,.form-section:last-child{border-bottom:0}.information-group>header,.form-section>header,.review-panel>header,.history-panel>header{display:flex;align-items:flex-start;gap:9px;margin-bottom:16px}.information-group>header svg,.form-section>header svg,.review-panel>header svg,.history-panel>header svg{flex:none;margin-top:1px;color:#5b57e8}.information-group h3,.form-section h3,.review-panel h3,.history-panel h3{margin:0;color:#263147;font-size:14px}.form-section header p,.review-panel header p,.history-panel header p{margin:3px 0 0;color:#64748b;font-size:11px;line-height:1.5}.information-group dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 28px;margin:0}.information-group dl>div{min-width:0;display:grid;align-content:start;gap:5px}.information-group dl>div.wide{grid-column:1/-1}.information-group dt{color:#7b8798;font-size:11px}.information-group dd{margin:0;overflow-wrap:anywhere;color:#334155;font-size:13px;font-weight:700;line-height:1.55}.information-group dd[data-empty=true]{color:#a0a8b5;font-weight:500}.field-grid{display:grid;gap:14px}.field-grid--three{grid-template-columns:repeat(3,minmax(0,1fr))}.field-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid label,.intent-fields label{min-width:0;display:grid;align-content:start;gap:7px}.field-grid label.wide{grid-column:1/-1}.field-grid label>span,.intent-fields label>span,.course-type-field legend{color:#475569;font-size:12px;font-weight:750}.field-grid b,.intent-fields b{color:#dc2626}.information-form input,.information-form select,.information-form textarea{width:100%;border:1px solid #cfd7e3;border-radius:8px;color:#172033;background:#fff;outline:none;font:inherit;font-size:13px}.information-form input,.information-form select{min-height:42px;padding:0 10px}.information-form textarea{padding:10px 11px;resize:vertical;line-height:1.6}.information-form input:focus,.information-form select:focus,.information-form textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.course-type-field{min-width:0;margin:0 0 16px;padding:0;border:0}.course-type-field legend{margin-bottom:8px}.course-type-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.course-type-options button{min-width:0;min-height:44px;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 9px;border:1px solid #d9dfe8;border-radius:9px;color:#64748b;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.course-type-options button:hover{border-color:#aaa7f2;background:#f8f7ff}.course-type-options button.active{border-color:#7c78ec;color:#4338ca;background:#eef0ff}.course-type-options button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.intent-fields{display:grid;gap:13px;margin-top:16px}.review-panel,.history-panel{padding:28px 0}.change-list{display:grid;border-top:1px solid #e8edf4}.change-list article{display:grid;grid-template-columns:minmax(130px,190px) minmax(0,1fr);gap:18px;padding:15px 0;border-bottom:1px solid #e8edf4}.change-list article>strong{color:#475569;font-size:12px}.change-list article>div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);align-items:start;gap:10px}.change-list span,.change-list b{overflow-wrap:anywhere;font-size:12px;line-height:1.55}.change-list span{color:#7b8798;text-decoration:line-through}.change-list b{color:#263147}.change-list svg{margin-top:2px;color:#94a3b8}.history-panel ol{margin:0;padding:0;border-top:1px solid #e8edf4;list-style:none}.history-panel li{min-height:68px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;border-bottom:1px solid #e8edf4}.history-panel li>span{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;color:#5b57e8;background:#eef2ff}.history-panel li>div{min-width:0;display:grid;gap:3px}.history-panel li strong{color:#334155;font-size:13px}.history-panel li small{color:#7b8798;font-size:11px}.history-panel li>b{padding:4px 7px;border-radius:6px;color:#166534;background:#ecfdf5;font-size:10px}.history-panel li>button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.dialog-footer{min-height:68px;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;padding:10px 20px;border-top:1px solid #e8edf4;background:#fbfcfe}.primary-button,.secondary-button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:8px;font-size:12px;font-weight:750;cursor:pointer}.primary-button{border:1px solid #514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.16)}.secondary-button{border:1px solid #d7dde7;color:#475569;background:#fff}.primary-button:disabled,.secondary-button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.course-information-layer{position:fixed;inset:0;z-index:530;display:grid;place-items:center;padding:24px}.course-information-backdrop{position:absolute;inset:0;border:0;background:rgba(30,41,59,.42)}.course-information-dialog{position:relative;width:min(980px,100%);max-height:calc(100dvh - 48px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;border:1px solid #dfe5ee;border-radius:16px;color:var(--lz-text);background:#fff;box-shadow:0 28px 76px rgba(15,23,42,.25);outline:none}.dialog-heading{min-height:76px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #e8edf4}.dialog-heading__mark{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.dialog-heading>div{min-width:0}.dialog-heading h2{margin:0;color:#202b40;font-size:20px;letter-spacing:-.015em}.dialog-heading p{margin:4px 0 0;color:#64748b;font-size:12px;line-height:1.45}.icon-button{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;color:#64748b;background:transparent;cursor:pointer}.icon-button:hover{background:#f1f5f9}.icon-button:focus-visible,.secondary-button:focus-visible,.primary-button:focus-visible,.history-panel button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.dialog-body{min-height:0;overflow:auto;padding:0 30px 30px}.dialog-state{min-height:360px;display:grid;place-items:center;align-content:center;gap:10px;color:#64748b;text-align:center}.dialog-state strong{color:#334155;font-size:14px}.dialog-state p{max-width:580px;margin:0;font-size:12px;line-height:1.6}.dialog-state button{min-height:38px;padding:0 13px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-weight:700;cursor:pointer}.dialog-state.is-error>svg{color:#dc2626}.save-status,.save-error{display:flex;align-items:flex-start;gap:8px;margin:16px 0 0;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}.save-status{color:#166534;background:#ecfdf5}.save-error{color:#991b1b;background:#fff1f2}.save-error>span{flex:1}.save-error button{padding:0;border:0;color:inherit;background:transparent;font-weight:800;text-decoration:underline;cursor:pointer}.course-identity{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding:26px 0 22px;border-bottom:1px solid #e8edf4}.course-identity>div{min-width:0;display:grid;gap:5px}.course-identity small{color:#64748b;font-size:12px}.course-identity strong{overflow-wrap:anywhere;color:#172033;font-size:22px;letter-spacing:-.02em}.course-identity span{color:#7b8798;font-size:11px}.course-identity>b{flex:none;padding:5px 8px;border-radius:7px;color:#4f46e5;background:#eef2ff;font-size:11px}.information-group,.form-section{padding:24px 0;border-bottom:1px solid #e8edf4}.information-group:last-child,.form-section:last-child{border-bottom:0}.information-group>header,.form-section>header,.review-panel>header,.history-panel>header{display:flex;align-items:flex-start;gap:9px;margin-bottom:16px}.information-group>header svg,.form-section>header svg,.review-panel>header svg,.history-panel>header svg{flex:none;margin-top:1px;color:#5b57e8}.information-group h3,.form-section h3,.review-panel h3,.history-panel h3{margin:0;color:#263147;font-size:14px}.form-section header p,.review-panel header p,.history-panel header p{margin:3px 0 0;color:#64748b;font-size:11px;line-height:1.5}.information-group dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 28px;margin:0}.information-group dl>div{min-width:0;display:grid;align-content:start;gap:5px}.information-group dl>div.wide{grid-column:1/-1}.information-group dt{color:#7b8798;font-size:11px}.information-group dd{margin:0;overflow-wrap:anywhere;color:#334155;font-size:13px;font-weight:700;line-height:1.55}.information-group dd[data-empty=true]{color:#a0a8b5;font-weight:500}.field-grid{display:grid;gap:14px}.field-grid--three{grid-template-columns:repeat(3,minmax(0,1fr))}.field-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid label,.intent-fields label{min-width:0;display:grid;align-content:start;gap:7px}.field-grid label.wide{grid-column:1/-1}.field-grid label>span,.intent-fields label>span,.course-type-field legend{color:#475569;font-size:12px;font-weight:750}.field-grid b,.intent-fields b{color:#dc2626}.information-form input,.information-form select,.information-form textarea{width:100%;border:1px solid #cfd7e3;border-radius:8px;color:#172033;background:#fff;outline:none;font:inherit;font-size:13px}.information-form input,.information-form select{min-height:42px;padding:0 10px}.information-form textarea{padding:10px 11px;resize:vertical;line-height:1.6}.information-form input:focus,.information-form select:focus,.information-form textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.course-type-field{min-width:0;margin:0 0 16px;padding:0;border:0}.course-type-field legend{margin-bottom:8px}.course-type-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.course-type-options button{min-width:0;min-height:44px;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 9px;border:1px solid #d9dfe8;border-radius:9px;color:#64748b;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.course-type-options button:hover{border-color:#aaa7f2;background:#f8f7ff}.course-type-options button.active{border-color:#7c78ec;color:#4338ca;background:#eef0ff}.course-type-options button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.intent-fields{display:grid;gap:13px;margin-top:16px}.review-panel,.history-panel{padding:28px 0}.change-list{display:grid;border-top:1px solid #e8edf4}.change-list article{display:grid;grid-template-columns:minmax(130px,190px) minmax(0,1fr);gap:18px;padding:15px 0;border-bottom:1px solid #e8edf4}.change-list article>strong{color:#475569;font-size:12px}.change-list article>div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);align-items:start;gap:10px}.change-list span,.change-list b{overflow-wrap:anywhere;font-size:12px;line-height:1.55}.change-list span{color:#7b8798;text-decoration:line-through}.change-list b{color:#263147}.change-list svg{margin-top:2px;color:#94a3b8}.history-panel ol{margin:0;padding:0;border-top:1px solid #e8edf4;list-style:none}.history-panel li{min-height:68px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;border-bottom:1px solid #e8edf4}.history-panel li>span{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;color:#5b57e8;background:#eef2ff}.history-panel li>div{min-width:0;display:grid;gap:3px}.history-panel li strong{color:#334155;font-size:13px}.history-panel li small{color:#7b8798;font-size:11px}.history-panel li>b{padding:4px 7px;border-radius:6px;color:#166534;background:#ecfdf5;font-size:10px}.history-panel li>button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.dialog-footer{min-height:68px;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;padding:10px 20px;border-top:1px solid #e8edf4;background:#fbfcfe}.primary-button,.secondary-button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:8px;font-size:12px;font-weight:750;cursor:pointer}.primary-button{border:1px solid #514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.16)}.secondary-button{border:1px solid #d7dde7;color:#475569;background:#fff}.primary-button:disabled,.secondary-button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:760px){.course-information-layer{align-items:end;padding:0}.course-information-dialog{max-height:calc(100dvh - 16px);border-radius:16px 16px 0 0}.dialog-body{padding-inline:18px}.field-grid--three,.field-grid--two,.information-group dl{grid-template-columns:1fr 1fr}.course-type-options{grid-template-columns:repeat(2,minmax(0,1fr))}.change-list article{grid-template-columns:1fr;gap:7px}.dialog-footer{grid-template-columns:1fr 1fr}.dialog-footer>span{display:none}.dialog-footer button{width:100%}.dialog-footer .secondary-button:first-child{grid-column:1/-1}.information-group dl>div.wide,.field-grid label.wide{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 </style>

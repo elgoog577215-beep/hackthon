@@ -28,8 +28,8 @@ sys.path.insert(0, '.')
 # ModelScope 端点已决定弃用，env 文件也已处理，故删除该逻辑。
 
 import course_teaching_plan_v3 as tp
-import course_service as cs
-from course_service import CourseService
+import course_generation.service as cs
+from course_generation.service import CourseService
 
 raw_seq = defaultdict(list)   # node_id -> [每次归一化时模型给的关系数]
 assembled = {}                # node_id -> 最终装配后的关系数

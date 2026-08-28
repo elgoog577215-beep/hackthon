@@ -21,7 +21,7 @@ from guided_generation import (
     step_state,
 )
 from slide_deck_v6_orchestrator import SLIDE_DECK_V6_BUILD_CONTRACT_VERSION
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 class MemoryStorage:
@@ -62,7 +62,7 @@ def _course(*, interrupted_status: str = "generating") -> dict:
 
 
 async def _workspace_manager(tmp_path, monkeypatch, *, task_status: str = "running"):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()
@@ -123,7 +123,7 @@ def _release_workflow(course: dict, request: dict | None = None) -> dict:
 
 @pytest.mark.asyncio
 async def test_v6_ppt_recovery_requires_a_retryable_failure(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
@@ -172,7 +172,7 @@ async def test_new_v6_task_records_the_current_checkpoint_contract(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
@@ -194,7 +194,7 @@ async def test_v6_recovery_hides_a_stale_checkpoint_contract(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     manager = TaskManager(MemoryStorage(), course_service=None, ws_service=None)
@@ -743,7 +743,7 @@ async def test_restart_replaces_stale_source_chain_publication_decision_before_c
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
         tmp_path, monkeypatch
@@ -912,7 +912,7 @@ async def test_restart_rechecks_dead_release_and_restores_confirmable_gate(
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     manager, _storage, workspaces, _versions, _documents = await _workspace_manager(
         tmp_path,
@@ -1041,7 +1041,7 @@ async def test_restart_does_not_mutate_workspace_when_course_shell_is_missing(tm
 
 @pytest.mark.asyncio
 async def test_candidate_generation_job_recovers_without_new_workspace(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     storage = MemoryStorage()

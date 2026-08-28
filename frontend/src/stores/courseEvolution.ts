@@ -423,7 +423,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           error?.response?.data?.detail?.message
           || error?.response?.data?.detail
           || error?.message
-          || 'section_evolution_generation_failed',
+          || 'course_adjustment_generation_failed',
         )
         throw error
       } finally {

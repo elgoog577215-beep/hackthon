@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from course_change_planning import (
+from course_evolution.change_planning import (
     CourseChangeIntent,
     CourseChangePlan,
     CourseChangeSignal,

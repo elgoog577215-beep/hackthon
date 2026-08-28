@@ -69,8 +69,9 @@ describe('CourseBaselineDialog', () => {
     expect(wrapper.text()).not.toContain('已确认教案')
 
     await wrapper.get('.primary-button').trigger('click')
-    expect(wrapper.get('.information-form').text()).toContain('教学类型')
+    expect(wrapper.get('.information-form').text()).toContain('学习目的')
     expect(wrapper.get('.information-form').text()).toContain('学科类型')
+    expect(wrapper.get('.information-form').text()).toContain('课程教学类型')
     expect(wrapper.get('.information-form').text()).not.toContain('辅助学科类型')
     expect(wrapper.get('.information-form').text()).not.toContain('预计章节数')
     expect(wrapper.get('.information-form').text()).not.toContain('预计课次')
@@ -103,6 +104,14 @@ describe('CourseBaselineDialog', () => {
       }),
       expect.any(Object),
     )
+    const savedInformation = vi.mocked(http.put).mock.calls[0]?.[1] as any
+    expect(savedInformation.information.generation_request).toMatchObject({
+      learning_purpose: 'systematic',
+      course_teaching_type: 'comprehensive',
+    })
+    expect(savedInformation.information.generation_request).not.toHaveProperty('course_type')
+    expect(savedInformation.information.generation_request).not.toHaveProperty('course_purpose')
+    expect(savedInformation.information.generation_request).not.toHaveProperty('composition_style')
     expect(wrapper.get('.save-status').text()).toContain('课程基础信息已保存')
   })
 

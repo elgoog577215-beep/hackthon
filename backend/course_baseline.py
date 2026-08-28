@@ -9,7 +9,7 @@ from typing import Any
 
 from course_document import stable_hash
 from models import CourseGenerationRequest
-from teaching_semantics import (
+from teaching_design import (
     COURSE_TEACHING_TYPES,
     LEARNING_PURPOSES,
     resolve_course_teaching_type,

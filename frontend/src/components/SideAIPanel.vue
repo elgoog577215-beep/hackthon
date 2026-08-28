@@ -1152,7 +1152,7 @@ function resetPersonalization() {
 
 function personalizationErrorText(error: any, fallback: string) {
   const detail = error?.response?.data?.detail
-  if (['section_evolution_generation_failed', 'course_adjustment_generation_failed'].includes(detail?.code)) {
+  if (detail?.code === 'course_adjustment_generation_failed') {
     return detail.message || fallback
   }
   if (detail?.code === 'personalization_generation_in_progress') {

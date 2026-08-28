@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-import course_evolution
 import pytest
 from rate_limiter import _match_rate_limit
 from course_document import (
@@ -26,6 +25,7 @@ from course_evolution import (
     synchronize_and_evaluate_course_evolution,
     undo_change_set,
 )
+from course_evolution import core as course_evolution
 from course_revisions import revision_vector_for_document
 
 

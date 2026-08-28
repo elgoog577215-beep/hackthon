@@ -354,12 +354,10 @@ class CourseGenerationRequest(BaseModel):
     def normalize_course_type_compatibility(cls, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
-        from course_type_contracts import (
+        from teaching_design import (
             course_purpose_for_type,
             default_composition_style,
             resolve_course_type,
-        )
-        from teaching_semantics import (
             resolve_course_teaching_type,
             resolve_learning_purpose,
         )

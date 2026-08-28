@@ -1,4 +1,4 @@
-from course_generation_workflow import compile_course_teaching_plan_modules
+from course_generation.workflow import compile_course_teaching_plan_modules
 from course_teaching_plan_projection import project_course_teaching_plan
 
 

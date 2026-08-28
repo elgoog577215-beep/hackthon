@@ -22,7 +22,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
-from course_type_contracts import (
+from teaching_design import (
     COVERAGE_STATUS_COMPLETE,
     judge_course_coverage,
 )

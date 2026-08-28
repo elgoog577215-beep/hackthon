@@ -9,9 +9,9 @@ from course_coherence import (
     validate_course_coherence_contract,
 )
 from course_document import document_from_generation_draft
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 from course_quality import build_final_course_quality_report
-from course_service import CourseService
+from course_generation.service import CourseService
 
 
 def _knowledge(name: str, capability: str) -> list[dict]:

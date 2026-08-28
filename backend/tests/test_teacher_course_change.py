@@ -9,10 +9,10 @@ from course_document import CourseBlock, CourseDocument, CourseSection, refresh_
 from course_evolution import CourseEvolutionRepository, accept_change_set, undo_change_set
 from course_repository import CourseDocumentRepository
 from question_bank import QuestionBankRepository
-from teacher_course_change_execution import generate_teacher_course_change_candidates
+from course_evolution.teacher_execution import generate_teacher_course_change_candidates
 from teacher_lesson_authoring import TeacherLessonAuthoringRepository
 from teaching_representations import TeachingRepresentationRepository
-from teacher_course_change import (
+from course_evolution.teacher_planning import (
     build_teacher_course_change_context,
     context_view,
     create_teacher_course_change_plan,

@@ -7,7 +7,7 @@ from course_document import document_from_generation_draft
 from course_repository import CourseDocumentConflict
 from dependencies import get_course_document_repository, require_task_manager
 from learner_context import resolve_user_id
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 from teaching_plan_workbench import TeachingPlanWorkbenchError, TeachingPlanWorkbenchService
 
 

@@ -31,7 +31,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ai_base import AIBase, AIProviderRequestError, AIProviderUnavailable
+from ai_base import AIProviderRequestError, AIProviderUnavailable
 from ai_provider_route import provider_route_snapshot
 from assessment_blueprint import compile_course_assessment_blueprint
 from assessment_contracts import (
@@ -60,7 +60,7 @@ from course_generation_budget import (
     CourseGenerationDeadlineExceeded,
 )
 from course_generation_errors import classify_generation_failure
-from course_generation_workflow import PIPELINE_VERSION
+from course_generation.workflow import PIPELINE_VERSION
 from course_knowledge_base import (
     bind_course_knowledge_base_to_map,
     compile_course_knowledge_base,
@@ -72,7 +72,7 @@ from course_outline_adjustments import (
     compile_outline_draft,
     describe_outline_diff,
 )
-from course_outline_planning import (
+from course_generation.outline import (
     normalize_outline_skeleton,
     validate_outline_skeleton,
 )
@@ -92,14 +92,12 @@ from course_retrieval import (
     build_outline_research_proposal,
 )
 from course_teaching_plan_projection import project_course_teaching_plan
-from course_type_contracts import (
+from teaching_design import (
     compatible_course_purpose,
     course_purpose_for_type,
     default_composition_style,
     ensure_course_type_enabled,
     resolve_course_type,
-)
-from teaching_semantics import (
     resolve_course_teaching_type,
     resolve_learning_purpose,
 )
@@ -171,6 +169,17 @@ from models import (
     NodeStatus,
     TaskLogEntry,
 )
+from jobs.content_processing import (
+    _remap_assessment_revision_references,
+    fix_latex_content,
+)
+from jobs.node_progress import build_node_locations
+from jobs.slide_build import (
+    _rebuild_slide_variant_with_quality_fallback,
+    _source_first_slide_ai_workers,
+    _source_first_slide_visual_ai_worker,
+    _source_first_story_ai_worker,
+)
 from ppt_template_packs import ppt_template_pack_repository
 from question_bank import (
     QuestionBankRepository,
@@ -181,14 +190,12 @@ from question_bank import (
 from representation_compiler import (
     compile_core_representations,
     rebuild_core_representations_safely,
-    rebuild_slide_deck_variant_safely,
     validate_compiled_representations,
 )
 from slide_ai_planning_v6 import (
     build_ai_base_story_planner_v6,
     build_ai_base_visual_planner_v2,
 )
-from slide_ai_runtime import ai_slide_planning_enabled
 from slide_deck_v3 import (
     SLIDE_DECK_V3_COMPILER_VERSION,
     SlideAllocationPlanV2,
@@ -228,7 +235,6 @@ from slide_visuals import (
     build_signature,
     plan_slide_visuals,
 )
-from slide_web_images import VISUAL_RETRIEVAL_PLANNER_PROMPT
 from storage import DATA_DIR
 from teaching_representations import teaching_representation_repository
 from template_layout_contract import (
@@ -267,218 +273,8 @@ DRAFT_CHECKPOINT_INTERVAL_SECONDS = 8.0
 ACTIVE_NODE_PROGRESS_CREDIT = 0.35
 
 
-def build_node_locations(nodes: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """把有序节点表压成 {node_id: 位置}，供进度显示用。
-
-    教师问的是"现在生成到哪了"，答案应该是"第 2 章第 3 节 · 不确定性原理"，
-    而不是一个 node_id 或一个孤零零的小节名——课程里重名的小节并不少见，
-    只报小节名说不清进度走到了整门课的什么位置。
-
-    章节序号按节点表顺序推导：level 1 递增章号并把节号归零，level 2 在当前章
-    下递增节号。位置只依赖顺序与层级，不依赖 node_id 的命名约定。
-
-    正文可能在没有章的课程里生成（早期课程或导入课程只有平铺小节），
-    这时 ``chapter_number`` 为 None，标签退化成"第 Y 节 · 名字"，
-    调用方不需要为这种课程写分支。
-    """
-    locations: dict[str, dict[str, Any]] = {}
-    chapter_number = 0
-    section_number = 0
-    chapter_name = ""
-    for node in nodes:
-        node_id = str(node.get("node_id") or "")
-        if not node_id:
-            continue
-        level = int(node.get("node_level") or 1)
-        name = str(node.get("node_name") or "")
-        if level <= 1:
-            chapter_number += 1
-            section_number = 0
-            chapter_name = name
-            locations[node_id] = {
-                "chapter_number": chapter_number,
-                "chapter_name": name,
-                "section_number": None,
-                "node_name": name,
-                "label": f"第{chapter_number}章 · {name}" if name else f"第{chapter_number}章",
-            }
-            continue
-        section_number += 1
-        if chapter_number:
-            prefix = f"第{chapter_number}章第{section_number}节"
-        else:
-            prefix = f"第{section_number}节"
-        locations[node_id] = {
-            "chapter_number": chapter_number or None,
-            "chapter_name": chapter_name,
-            "section_number": section_number,
-            "node_name": name,
-            "label": f"{prefix} · {name}" if name else prefix,
-        }
-    return locations
 
 
-def _source_first_slide_ai_workers() -> tuple[
-    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
-    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None,
-]:
-    """Create source-bound planner and reviewer functions when AI is available."""
-    provider = AIBase()
-    if not ai_slide_planning_enabled(
-        provider_available=provider.client is not None,
-    ):
-        return None, None
-
-    async def planner(request: dict[str, Any]) -> dict[str, Any]:
-        response = await provider._call_llm(
-            json.dumps(request, ensure_ascii=False),
-            system_prompt=(
-                "Return only a slide_allocation_plan_v2 JSON object. You are a page "
-                "director, not a course author. Never write, summarize, translate, or "
-                "replace teaching body text. Allocate only the supplied fragment_id "
-                "values, preserve their order, use only allowed layouts, and explicitly "
-                "exclude every omitted fragment in concise mode."
-            ),
-            use_fast_model=True,
-            retry_count=1,
-            enable_thinking=False,
-            raise_on_failure=True,
-        )
-        return provider._extract_json(response or "") or {}
-
-    async def reviewer(request: dict[str, Any]) -> dict[str, Any]:
-        response = await provider._call_llm(
-            json.dumps(request, ensure_ascii=False),
-            system_prompt=(
-                "Return only JSON with action keep or replan and an issues array. "
-                "Issues may contain only code, page_id, and suggested_action. Never "
-                "write replacement slide text or teaching content."
-            ),
-            use_fast_model=True,
-            retry_count=1,
-            enable_thinking=False,
-            raise_on_failure=True,
-        )
-        return provider._extract_json(response or "") or {}
-
-    return planner, reviewer
-
-
-def _source_first_story_ai_worker() -> (
-    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
-):
-    """Return the source-bound story planner when AI is available."""
-    provider = AIBase()
-    if not ai_slide_planning_enabled(
-        provider_available=provider.client is not None,
-    ):
-        return None
-
-    async def planner(request: dict[str, Any]) -> dict[str, Any]:
-        response = await provider._call_llm(
-            json.dumps(request, ensure_ascii=False),
-            system_prompt=(
-                "Return only one valid slide_story_chapter_directives_v2 JSON "
-                "object for the requested chapter. Do not echo the deterministic "
-                "baseline. For each useful beat, select one "
-                "headline_fragment_id from that beat's headline_candidates and "
-                "one layout_id from that beat's allowed_layouts. Prefer a concise "
-                "source heading for the headline; otherwise choose the shortest "
-                "source sentence that states the beat's teaching point. You may "
-                "also provide audience_facing_title and audience_facing_summary "
-                "as a concise source-faithful rewrite, or as an instructional "
-                "scaffold that frames a question or transition without adding a "
-                "new fact. Every rewrite must declare copy_mode and exact "
-                "supporting_fragment_ids owned by the beat. Never invent or alter "
-                "facts, numbers, formulas, units, named entities, or conclusions. "
-                "When a beat has needs_generated_answers=true, return exactly one "
-                "generated_practice_answers entry for every supplied prompt question, "
-                "in question_index order and bind it to the exact supplied question_id. "
-                "Keep each answer within 140 Chinese characters. "
-                "Start with a direct conclusion, then give one concise teaching reason. "
-                "Bind every answer to exact chapter "
-                "fragment IDs that support the conclusion. Omit generated answers for "
-                "all other beats. Put fragment IDs only in supporting_fragment_ids; "
-                "never expose them inside answer_text. "
-                "Use only supplied beat_id, fragment_id, and layout_id values. "
-                "Omit a rewrite instead of making an uncertain claim. Preserve "
-                "proof, example, "
-                "prompt, answer, and chapter order. The root object must contain "
-                "exactly schema_version, chapter_id, and beat_directives. Use this "
-                "shape: {\"schema_version\":\"slide_story_chapter_directives_v2\","
-                "\"chapter_id\":\"<exact supplied chapter_id>\","
-                "\"beat_directives\":[{\"beat_id\":\"<exact beat_id>\","
-                "\"headline_fragment_id\":\"<exact fragment_id or empty>\","
-                "\"layout_id\":\"<exact layout_id or empty>\","
-                "\"copy_mode\":\"source_exact|source_faithful_rewrite|instructional_scaffold\","
-                "\"audience_facing_title\":\"<optional>\","
-                "\"audience_facing_summary\":\"<optional>\","
-                "\"supporting_fragment_ids\":[\"<exact fragment_id>\"],"
-                "\"generated_practice_answers\":[{\"question_index\":0,"
-                "\"question_id\":\"<exact supplied question_id>\","
-                "\"answer_text\":\"<direct answer and concise reason>\","
-                "\"supporting_fragment_ids\":[\"<exact chapter fragment_id>\"]}]}]}. "
-                "Never wrap this "
-                "object and never return episodes or the baseline."
-            ),
-            use_fast_model=True,
-            retry_count=1,
-            enable_thinking=False,
-            max_tokens=6144,
-            reject_truncated=True,
-            raise_on_failure=True,
-            json_mode=True,
-        )
-        return provider._extract_json(response or "") or {}
-
-    return planner
-
-
-def _source_first_slide_visual_ai_worker() -> (
-    Callable[[dict[str, Any]], Awaitable[dict[str, Any]] | dict[str, Any]] | None
-):
-    provider = AIBase()
-    if not ai_slide_planning_enabled(
-        provider_available=provider.client is not None,
-    ):
-        return None
-
-    async def planner(request: dict[str, Any]) -> dict[str, Any]:
-        response = await provider._call_llm(
-            json.dumps(request, ensure_ascii=False),
-            system_prompt=(
-                "Return only one slide_visual_plan_v1 JSON object. "
-                "Follow response_contract exactly and return every requested "
-                "page_id once. Never return the compact fragment_id/visual_kind "
-                "shape. The compiler owns page copy; only choose composition, "
-                "role_layout_variant, and visual_anchor. "
-                "Use only the provided page_id and fragment_id values. "
-                "Takeaways and diagram labels must be short excerpts of their bound source text. "
-                "Do not emit slide body copy or add facts, numbers, claims, or chart data. "
-                "Prefer kind=none whenever a useful visual cannot be guaranteed. "
-                "For kind=rule_diagram, use only an allowed_rule_diagram_templates value "
-                "and source-bound nodes, edges, and relation_evidence. Never emit Mermaid, "
-                "SVG, HTML, coordinates, executable drawing code, or invented labels. "
-                "Do not request generated_illustration when it is absent from "
-                "allowed_visual_kinds. When a real image materially improves a page, "
-                "put its strict search request under "
-                "deck_brief.visual_search_requests keyed by the exact page_id. "
-                "Otherwise omit that key.\n\n"
-                + VISUAL_RETRIEVAL_PLANNER_PROMPT
-                + "\nThe root JSON object must still be slide_visual_plan_v1; "
-                "never return a standalone search request."
-            ),
-            use_fast_model=True,
-            retry_count=1,
-            enable_thinking=False,
-            max_tokens=6144,
-            reject_truncated=True,
-            raise_on_failure=True,
-            json_mode=True,
-        )
-        return provider._extract_json(response or "") or {}
-
-    return planner
 
 # 指数退避参数
 BACKOFF_BASE = 2
@@ -613,175 +409,6 @@ def _public_representation_quality(
     }
 
 
-async def _rebuild_slide_variant_with_quality_fallback(
-    *,
-    document: Any,
-    course_view: dict[str, Any],
-    repository: Any,
-    mode: str,
-    theme: str,
-    slide_schema: str,
-    allocation_plan: SlideAllocationPlanV2,
-    visual_plan: SlideVisualPlanV1,
-    story_plan: SlideStoryPlanV2 | Any | None,
-    progress_callback: Callable[[dict[str, Any]], None],
-    checkpoint_callback: (
-        Callable[
-            [SlideAllocationPlanV2, SlideVisualPlanV1, SlideStoryPlanV2],
-            Awaitable[None],
-        ]
-        | None
-    ),
-    resume_slides: list[dict[str, Any]],
-    source_revision_provider: Callable[[], str] | None = None,
-    variant_key_override: str | None = None,
-) -> dict[str, Any]:
-    """Retry a rejected V5 draft with the strict source-only plan.
-
-    The first candidate still runs through the normal shadow repository. Its
-    terminal ``build_blocked`` event is converted into a non-terminal fallback
-    event so clients do not settle the build before the deterministic candidate
-    has been evaluated. This also covers deterministic semantic plans: a new
-    course must still reach the stricter ``quality_fallback`` profile when the
-    ordinary deterministic plan cannot satisfy the final page contract.
-    """
-
-    fallback_enabled = os.getenv(
-        "SLIDE_DECK_V5_QUALITY_FALLBACK_ENABLED",
-        "true",
-    ).strip().lower() in {"1", "true", "yes", "on"}
-    story_diagnostics = (
-        story_plan.get("planning_diagnostics")
-        if isinstance(story_plan, dict)
-        else getattr(story_plan, "planning_diagnostics", None)
-    )
-    compaction_profile = str(
-        (story_diagnostics or {}).get("compaction_profile") or ""
-    ) if isinstance(story_diagnostics, dict) else ""
-    fallback_allowed = bool(
-        fallback_enabled
-        and slide_schema == "slide_deck_v5"
-        and story_plan is not None
-        and compaction_profile != "quality_fallback"
-    )
-    fallback_event_emitted = False
-
-    def primary_progress(payload: dict[str, Any]) -> None:
-        nonlocal fallback_event_emitted
-        if (
-            fallback_allowed
-            and payload.get("event") in {"build_blocked", "build_failed"}
-        ):
-            quality = payload.get("quality") or {}
-            blockers = list(quality.get("blockers") or [])
-            progress_callback({
-                "event": "quality_fallback",
-                "stage": "quality_fallback",
-                "progress": 85,
-                "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
-                "initial_score": int(quality.get("score") or 0),
-                "initial_blocker_count": int(
-                    quality.get("blocker_count") or len(blockers)
-                ),
-            })
-            fallback_event_emitted = True
-            return
-        progress_callback(payload)
-
-    build = await asyncio.to_thread(
-        rebuild_slide_deck_variant_safely,
-        document,
-        course_view,
-        repository,
-        mode=mode,
-        theme=theme,
-        allocation_plan=allocation_plan,
-        visual_plan=visual_plan,
-        story_plan=story_plan,
-        progress_callback=primary_progress,
-        resume_slides=resume_slides,
-        requested_schema=slide_schema,
-        source_revision_provider=source_revision_provider,
-        variant_key_override=variant_key_override,
-    )
-    initial_quality = build.get("quality") or {}
-    if initial_quality.get("passed") or not fallback_allowed:
-        return {
-            "build": build,
-            "allocation_plan": allocation_plan,
-            "visual_plan": visual_plan,
-            "story_plan": story_plan,
-            "used_deterministic_fallback": False,
-            "initial_quality": None,
-        }
-
-    if not fallback_event_emitted:
-        blockers = list(initial_quality.get("blockers") or [])
-        progress_callback({
-            "event": "quality_fallback",
-            "stage": "quality_fallback",
-            "progress": 85,
-            "message": "首轮候选稿未通过质量检查，正在切换严格生成方案",
-            "initial_score": int(initial_quality.get("score") or 0),
-            "initial_blocker_count": int(
-                initial_quality.get("blocker_count") or len(blockers)
-            ),
-        })
-
-    source_fragments = fragment_course_document(document)
-    deterministic_story = compact_story_plan_v5(
-        document,
-        compile_slide_story_plan_v2(
-            document,
-            course_view,
-            source_fragments,
-            mode=mode,
-            theme=theme,
-        ),
-        source_fragments,
-        profile="quality_fallback",
-    )
-    deterministic_allocation, _ = allocation_from_story_plan_v5(
-        document,
-        source_fragments,
-        deterministic_story,
-    )
-    deterministic_visual = await plan_slide_visuals(
-        document,
-        deterministic_allocation,
-        source_fragments,
-        ai_planner=None,
-    )
-    if checkpoint_callback is not None:
-        await checkpoint_callback(
-            deterministic_allocation,
-            deterministic_visual,
-            deterministic_story,
-        )
-    fallback_build = await asyncio.to_thread(
-        rebuild_slide_deck_variant_safely,
-        document,
-        course_view,
-        repository,
-        mode=mode,
-        theme=theme,
-        allocation_plan=deterministic_allocation,
-        visual_plan=deterministic_visual,
-        story_plan=deterministic_story,
-        progress_callback=progress_callback,
-        resume_slides=[],
-        requested_schema=slide_schema,
-        source_revision_provider=source_revision_provider,
-        variant_key_override=variant_key_override,
-    )
-    return {
-        "build": fallback_build,
-        "allocation_plan": deterministic_allocation,
-        "visual_plan": deterministic_visual,
-        "story_plan": deterministic_story,
-        "used_deterministic_fallback": True,
-        "initial_quality": initial_quality,
-    }
 
 
 class TaskRecoveryConflict(RuntimeError):
@@ -796,91 +423,6 @@ class TaskStateConflict(RuntimeError):
         self.status = status
 
 
-def _remap_assessment_revision_references(
-    assets: dict[str, Any],
-    revision_remap: dict[str, str],
-) -> None:
-    """Keep mastery and final-assessment links aligned after a prompt repair."""
-    for asset_type in ("mastery_criteria", "misconceptions"):
-        for item in assets.get(asset_type) or []:
-            if not isinstance(item, dict):
-                continue
-            item["assessment_bindings"] = [
-                revision_remap.get(str(value), str(value))
-                for value in item.get("assessment_bindings") or []
-            ]
-    for item in assets.get("final_assessment") or []:
-        if not isinstance(item, dict):
-            continue
-        item["question_revision_ids"] = [
-            revision_remap.get(str(value), str(value))
-            for value in item.get("question_revision_ids") or []
-        ]
-
-
-def fix_latex_content(content: str) -> str:
-    """修复 LaTeX 公式格式问题"""
-    if not content:
-        return content
-    
-    def fix_aligned_env(match: re.Match[str]) -> str:
-        env_name = match.group(1)
-        inner = match.group(2) if match.lastindex and match.lastindex >= 2 else ''
-        
-        inner = re.sub(r'\$\s*$', '', inner)
-        inner = re.sub(r'^\s*\$', '', inner)
-        inner = re.sub(r'\$\$', '', inner)
-        inner = re.sub(r'\\\$', r'\\', inner)
-        inner = re.sub(r'\\\s*$', r'\\', inner, flags=re.MULTILINE)
-        inner = re.sub(r'\\\s*\n', r'\\\n', inner)
-        
-        return f'$$\n\\begin{{{env_name}}}\n{inner}\n\\end{{{env_name}}}\n$$'
-    
-    content = re.sub(
-        r'\\begin\{(aligned|matrix|pmatrix|bmatrix|vmatrix|cases|eqnarray|gather|split)\}(.*?)(?:\\end\{\1\}|$)',
-        fix_aligned_env,
-        content,
-        flags=re.DOTALL
-    )
-    
-    content = re.sub(r'\\\[(.+?)\\\]', r'\n$$\n\1\n$$\n', content, flags=re.DOTALL)
-    content = re.sub(r'\\\((.+?)\\\)', r'$\1$', content, flags=re.DOTALL)
-    
-    content = re.sub(
-        r'(?<!\$)\$([^\n$]+?)\$(?!\$)',
-        lambda match: f'${match.group(1).strip()}$',
-        content,
-    )
-
-    # A streamed model can stop after opening a display formula. Repair the
-    # smallest deterministic boundary here, before the node is marked complete,
-    # while leaving literal dollars inside fenced code untouched.
-    lines = content.splitlines()
-    in_code_fence = False
-    display_fence_count = 0
-    for index, line in enumerate(lines):
-        if re.match(r"^\s*```", line):
-            in_code_fence = not in_code_fence
-            continue
-        if in_code_fence:
-            continue
-        # Some providers still emit the legacy Markdown display form with a
-        # single dollar on its own line. The quality gate correctly rejects
-        # that form, so normalize it before a generated node is finalized.
-        # Literal dollars inside fenced code were excluded above.
-        if re.match(r"^\s*(?<!\\)\$\s*$", line):
-            normalized = re.sub(r"\$", "$$", line, count=1)
-        else:
-            normalized = re.sub(r"(?<!\\)\${3,}", "$$", line)
-        lines[index] = normalized
-        display_fence_count += len(
-            re.findall(r"(?<!\\)\$\$", normalized)
-        )
-    content = "\n".join(lines)
-    if display_fence_count % 2:
-        content = f"{content.rstrip()}\n$$\n"
-    
-    return content
 
 
 class TaskManager:

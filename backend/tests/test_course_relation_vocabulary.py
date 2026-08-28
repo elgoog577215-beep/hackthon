@@ -229,7 +229,7 @@ def _rebuild_prompt_text() -> str:
 
 
 def _batch_prompt_text() -> str:
-    from course_prompt_composer import CoursePromptComposer
+    from course_generation.prompts import CoursePromptComposer
 
     return CoursePromptComposer().build_teaching_plan_batch_v3_prompt(
         course_title="一次函数",

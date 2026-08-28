@@ -8,8 +8,8 @@ import pytest
 
 from ai_base import AIBase, AIRequestBudgetExceeded
 from course_generation_budget import CourseGenerationBudget
-from course_prompt_composer import CoursePromptComposer
-from course_service import CourseService
+from course_generation.prompts import CoursePromptComposer
+from course_generation.service import CourseService
 from models import NodeGenerationConfig
 
 
@@ -460,12 +460,12 @@ def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
     把教学画像、难度契约、总编契约、细知识结构等全部丢掉——
     表现为"生成成功"，实际却是用最贫瘠的上下文生成的。
     """
-    from course_generation_adaptive import (
+    from course_generation.adaptive import (
         PromptCandidate,
         prompt_detail_levels_for_source,
         select_budgeted_prompt,
     )
-    from course_prompt_composer import CoursePromptComposer
+    from course_generation.prompts import CoursePromptComposer
 
     budget = CourseGenerationBudget()
     composer = CoursePromptComposer()

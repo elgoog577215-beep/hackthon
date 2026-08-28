@@ -46,12 +46,12 @@ describe('CourseGenerationDialog', () => {
       options: expect.objectContaining({
         request_id: expect.any(String),
         difficulty: 'advanced',
-        composition_style: 'balanced',
+        learning_purpose: 'systematic',
+        course_teaching_type: 'comprehensive',
         pedagogy_mode: 'math_formal',
         secondary_mode: 'natural_science',
         secondary_intensity: 'collaborative',
         generation_mode: 'review_blueprint',
-        course_type: 'systematic',
         course_intent: {
           schema_version: 'course_intent_v1',
           type: 'systematic',
@@ -77,6 +77,9 @@ describe('CourseGenerationDialog', () => {
     const generatedOptions = (wrapper.emitted('generate')?.[0]?.[0] as any).options
     expect(generatedOptions.grounding_strategy).toBeUndefined()
     expect(generatedOptions.teacher_course_brief.teaching_context).toBeUndefined()
+    expect(generatedOptions).not.toHaveProperty('course_type')
+    expect(generatedOptions).not.toHaveProperty('course_purpose')
+    expect(generatedOptions).not.toHaveProperty('composition_style')
   })
 
   it('课程默认不生成题目，但允许教师显式开启', async () => {
@@ -299,7 +302,7 @@ describe('CourseGenerationDialog', () => {
     expect(reopenedId).not.toBe(changedId)
   })
 
-  it('将重复策略收敛为四种可用教学类型', () => {
+  it('将建课分类收敛为三种学习目的和六种课程教学类型', () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: {
@@ -311,15 +314,16 @@ describe('CourseGenerationDialog', () => {
     })
 
     expect(wrapper.findAll('.difficulty-options .difficulty-option')).toHaveLength(3)
-    expect(wrapper.findAll('.course-type-option')).toHaveLength(4)
+    expect(wrapper.findAll('.course-type-option')).toHaveLength(3)
     expect(wrapper.findAll('.course-type-option:disabled')).toHaveLength(0)
-    expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(2)
+    expect(wrapper.findAll('.strategy-settings .select-input')).toHaveLength(3)
     expect(wrapper.find('[data-testid="web-retrieval"]').exists()).toBe(true)
     expect(wrapper.find('.difficulty-option.active').text()).toContain('进阶')
     expect(wrapper.find('.course-type-option.active').text()).toContain('系统学习')
     expect(wrapper.find('.course-type-summary').exists()).toBe(false)
     expect(wrapper.find('.difficulty-summary').exists()).toBe(false)
-    expect(wrapper.get('[data-course-type="systematic"]').attributes('aria-label')).toContain('由基础逐步进阶')
+    expect(wrapper.get('[data-learning-purpose="systematic"]').attributes('aria-label')).toContain('由基础逐步进阶')
+    expect(wrapper.text()).toContain('课程教学类型')
     expect(wrapper.text()).not.toContain('教学类型决定学习过程如何组织')
     expect(wrapper.text()).not.toContain('即将开放')
   })
@@ -330,9 +334,9 @@ describe('CourseGenerationDialog', () => {
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
     })
 
-    const selects = wrapper.findAll('.compact-grid select')
-    await selects[1]!.setValue('natural_science')
-    await selects[0]!.setValue('natural_science')
+    const primary = wrapper.findAll('.compact-grid select')[0]!
+    await wrapper.get('[data-testid="secondary-pedagogy-mode"]').setValue('natural_science')
+    await primary.setValue('natural_science')
 
     expect((wrapper.get('[data-testid="secondary-pedagogy-mode"]').element as HTMLSelectElement).value).toBe('')
     expect(wrapper.get('[data-testid="secondary-pedagogy-mode"]').findAll('option').map(option => option.attributes('value'))).not.toContain('natural_science')
@@ -349,7 +353,7 @@ describe('CourseGenerationDialog', () => {
       },
     })
 
-    await wrapper.get('[data-course-type="project"]').trigger('click')
+    await wrapper.get('[data-learning-purpose="project"]').trigger('click')
     expect(wrapper.find('[data-testid="project-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('系统会标记起点信息不足')
     expect(wrapper.text()).not.toContain('个人学习路径')
@@ -369,8 +373,8 @@ describe('CourseGenerationDialog', () => {
       subject: '设计一款适合大学生使用的环保保温玻璃杯',
       options: expect.objectContaining({
         request_id: expect.any(String),
-        course_type: 'project',
-        composition_style: 'project_driven',
+        learning_purpose: 'project',
+        course_teaching_type: 'project',
         course_intent: {
           schema_version: 'course_intent_v1',
           type: 'project',
@@ -384,38 +388,42 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
-  it('问题探究提交核心问题、证据边界与预期结论', async () => {
+  it('历史问题探究转成系统学习与研讨课后再提交', async () => {
     const wrapper = mount(CourseGenerationDialog, {
-      props: { modelValue: true },
+      props: {
+        modelValue: true,
+        initialOptions: {
+          course_type: 'inquiry',
+          composition_style: 'inquiry_driven',
+          course_intent: {
+            schema_version: 'course_intent_v1',
+            type: 'inquiry',
+            core_question: '生成式 AI 会如何改变大学教学评价？',
+            existing_understanding: '传统作业的区分度可能下降',
+            evidence_scope: '近三年高校实践与研究论文',
+            desired_output: '形成一份带证据边界的判断报告',
+          },
+        },
+      },
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
     })
 
-    await wrapper.get('[data-course-type="inquiry"]').trigger('click')
-    expect(wrapper.find('[data-testid="inquiry-intent-form"]').exists()).toBe(true)
-    expect(wrapper.text()).not.toContain('已有认识会作为待检验假设')
-    expect(wrapper.text()).not.toContain('提交需求后，四步完成课程')
-    expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
-
-    await wrapper.get('#inquiry-core-question').setValue('生成式 AI 会如何改变大学教学评价？')
-    await wrapper.get('#inquiry-desired-output').setValue('形成一份带证据边界的判断报告')
-    await wrapper.get('#inquiry-understanding').setValue('传统作业的区分度可能下降')
-    await wrapper.get('#inquiry-evidence-scope').setValue('近三年高校实践与研究论文')
+    expect((wrapper.get('#course-subject').element as HTMLInputElement).value).toContain('生成式 AI 会如何改变大学教学评价？')
+    expect((wrapper.findAll('.compact-grid select')[1]!.element as HTMLSelectElement).value).toBe('seminar')
+    expect(wrapper.find('[data-testid="inquiry-intent-form"]').exists()).toBe(false)
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
     await flushPromises()
 
     expect(wrapper.emitted('generate')?.[0]?.[0]).toEqual({
-      subject: '生成式 AI 会如何改变大学教学评价？',
+      subject: '生成式 AI 会如何改变大学教学评价？；形成一份带证据边界的判断报告',
       options: expect.objectContaining({
-        course_type: 'inquiry',
-        composition_style: 'inquiry_driven',
-        course_purpose: 'systematic',
+        learning_purpose: 'systematic',
+        course_teaching_type: 'seminar',
         course_intent: {
           schema_version: 'course_intent_v1',
-          type: 'inquiry',
-          core_question: '生成式 AI 会如何改变大学教学评价？',
-          existing_understanding: '传统作业的区分度可能下降',
-          evidence_scope: '近三年高校实践与研究论文',
-          desired_output: '形成一份带证据边界的判断报告',
+          type: 'systematic',
+          learning_goal: '生成式 AI 会如何改变大学教学评价？；形成一份带证据边界的判断报告',
+          desired_outcome: '',
         },
       }),
     })
@@ -427,7 +435,7 @@ describe('CourseGenerationDialog', () => {
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
     })
 
-    await wrapper.get('[data-course-type="exam"]').trigger('click')
+    await wrapper.get('[data-learning-purpose="exam"]').trigger('click')
     expect(wrapper.find('[data-testid="exam-intent-form"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('先定优先级，再用练习校准')
     expect(wrapper.text()).not.toContain('提交需求后，四步完成课程')
@@ -442,9 +450,8 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.emitted('generate')?.[0]?.[0]).toEqual({
       subject: '大学英语六级考试',
       options: expect.objectContaining({
-        course_type: 'exam',
-        composition_style: 'example_driven',
-        course_purpose: 'exam_sprint',
+        learning_purpose: 'exam',
+        course_teaching_type: 'comprehensive',
         course_intent: {
           schema_version: 'course_intent_v1',
           type: 'exam',
@@ -457,7 +464,7 @@ describe('CourseGenerationDialog', () => {
     })
   })
 
-  it('英文模式完整解释四种教学类型，不泄漏中文或翻译键', async () => {
+  it('英文模式完整显示三种学习目的，不泄漏中文或翻译键', async () => {
     await setLocale('en')
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
@@ -469,10 +476,9 @@ describe('CourseGenerationDialog', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('Teaching type')
+    expect(wrapper.text()).toContain('Learning purpose')
     expect(wrapper.text()).toContain('Systematic learning')
     expect(wrapper.text()).toContain('Project practice')
-    expect(wrapper.text()).toContain('Inquiry learning')
     expect(wrapper.text()).toContain('Exam sprint')
     expect(wrapper.text()).not.toContain('Coming soon')
     expect(wrapper.text()).toContain('More classroom settings')
@@ -490,7 +496,7 @@ describe('CourseGenerationDialog', () => {
         initialAudience: '不应使用的旧对象',
         fixedAudience: '大学生',
         courseSpaceMode: true,
-        showCourseType: true,
+        showLearningPurpose: true,
       },
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
     })

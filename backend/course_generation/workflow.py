@@ -21,7 +21,7 @@ from course_difficulty import (
 )
 from knowledge_structure import normalize_knowledge_structure
 from course_pedagogy import SubjectPedagogyProfile
-from course_type_contracts import apply_course_type_brief
+from teaching_design import apply_course_type_brief
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 

@@ -9,18 +9,11 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field
 
 from course_evolution import (
-    accept_change_set,
     course_evolution_repository,
     course_evolution_view,
-    create_adjustment_plan,
-    reject_change_set,
     synchronize_and_evaluate_course_evolution,
-    undo_change_set,
 )
-from course_evolution_intake import (
-    CourseEvolutionRequest,
-    record_course_evolution_request,
-)
+from course_evolution.application import CourseEvolutionApplicationService
 from dependencies import (
     get_course_document_repository,
     get_course_or_404,
@@ -28,27 +21,13 @@ from dependencies import (
     require_task_manager,
 )
 from learner_context import require_user_id
-from learning_contracts import LearnerCourseScope
-from learning_events import record_learning_event
-from section_evolution import (
-    generate_course_adjustment_plan,
-    generate_section_evolution_plan,
-)
-from course_service import get_course_service
+from course_generation.service import get_course_service
 from question_bank import question_bank_repository
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 from teaching_representations import teaching_representation_repository
-from teacher_course_change import (
-    build_teacher_course_change_context,
+from course_evolution.teacher_planning import (
     context_view,
-    create_teacher_course_change_plan,
-    review_teacher_course_change_scope,
     TeacherCourseChangeSourceUnavailable,
-)
-from teacher_course_change_execution import (
-    build_domain_candidate_applier,
-    build_domain_candidate_undoer,
-    generate_teacher_course_change_candidates,
 )
 
 router = APIRouter(prefix="/courses/{course_id}/evolution", tags=["course_evolution"])
@@ -69,25 +48,6 @@ class RejectCourseEvolutionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str = Field(default="", max_length=2000)
-
-
-class GenerateSectionEvolutionRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    request_id: str = Field(min_length=1, max_length=200)
-    instruction: str = Field(min_length=1, max_length=5000)
-    scope_selection: Literal[
-        "current_section",
-        "current_chapter",
-        "whole_course",
-    ] = "current_section"
-    anchor_role: Literal[
-        "reasoning",
-        "application",
-        "example",
-        "checkpoint",
-        "concept",
-    ] | None = None
 
 
 class GenerateCourseAdjustmentRequest(BaseModel):
@@ -129,32 +89,15 @@ class ReviewTeacherCourseChangeRequest(BaseModel):
     confirm_structure: bool = False
 
 
-def _teacher_course_change_context(course_id: str, tm: TaskManager):
-    document, _canonical = get_course_document_repository().load_document(course_id)
-    preview = tm.get_generation_preview(
-        course_id,
-        task_types={"teacher_outline_generation"},
-    )
-    authoring = get_teacher_lesson_authoring_repository().load(course_id)
-    question_bank = question_bank_repository.load_bundle(course_id)
-    synthetic_course_ids = {
-        str(asset.get("synthetic_course_id") or "")
-        for lesson in (authoring.get("lessons") or {}).values()
-        if isinstance(lesson, dict)
-        for asset in lesson.get("ppt_assets") or []
-        if isinstance(asset, dict) and asset.get("synthetic_course_id")
-    }
-    representation_registries = [
-        teaching_representation_repository.load_payload(value)
-        for value in sorted(synthetic_course_ids)
-    ]
-    return build_teacher_course_change_context(
-        course_id=course_id,
-        document=document,
-        preview=preview,
-        authoring=authoring,
-        question_bank=question_bank,
-        representation_registries=representation_registries,
+def _course_evolution_service(tm: TaskManager | None = None) -> CourseEvolutionApplicationService:
+    return CourseEvolutionApplicationService(
+        evolution_repository=course_evolution_repository,
+        document_repository=get_course_document_repository(),
+        authoring_repository=get_teacher_lesson_authoring_repository(),
+        representation_repository=teaching_representation_repository,
+        question_bank_repository=question_bank_repository,
+        course_service=get_course_service(),
+        task_manager=tm,
     )
 
 
@@ -202,52 +145,19 @@ async def create_course_adjustment_plan(
     """Canonical entry for current-content, current-section and whole-course adjustments."""
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    learning_scope = LearnerCourseScope.from_course(
-        course,
-        user_id=user_id,
-        expected_course_id=course_id,
-    )
-    evolution_request = CourseEvolutionRequest(
-        scope=learning_scope,
-        request_id=body.request_id,
-        instruction=body.instruction,
-        entrypoint="course_adjustment",
-        requested_scope=body.scope_selection,
-        section_id=body.section_id,
-        block_id=body.block_id,
-        surface_entrypoint="course_adjustment",
-        direction=body.direction,
-        anchor_role=body.anchor_role or "",
-        expected_document_revision=body.expected_document_revision,
-        expected_block_revision=body.expected_block_revision,
-    )
-    if evolution_request.can_use_evidence_flow():
-        await run_in_threadpool(
-            record_course_evolution_request,
-            evolution_request,
-            recorder=record_learning_event,
-        )
-        state = await run_in_threadpool(
-            synchronize_and_evaluate_course_evolution,
-            course,
-            user_id=user_id,
-        )
-        return course_evolution_view(state)
     try:
-        state = await generate_course_adjustment_plan(
-            course,
+        state = await _course_evolution_service().create_course_adjustment(
+            course_data=course,
             user_id=user_id,
-            section_id=body.section_id,
-            block_id=body.block_id,
+            request_id=body.request_id,
             instruction=body.instruction,
+            section_id=body.section_id,
             scope_selection=body.scope_selection,
+            block_id=body.block_id,
             expected_document_revision=body.expected_document_revision,
             expected_block_revision=body.expected_block_revision,
             direction=body.direction,
-            anchor_role=body.anchor_role,
-            request_id=body.request_id,
-            repository=course_evolution_repository,
-            document_repository=get_course_document_repository(),
+            anchor_role=body.anchor_role or "",
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
@@ -268,7 +178,7 @@ async def get_teacher_course_change_context(
     """Read-only cross-asset projection for the teacher change workbench."""
     await get_course_or_404(course_id)
     require_user_id(request.headers.get("X-User-Id"))
-    context = await run_in_threadpool(_teacher_course_change_context, course_id, tm)
+    context = await run_in_threadpool(_course_evolution_service(tm).teacher_context, course_id)
     return context_view(context)
 
 
@@ -282,15 +192,12 @@ async def create_teacher_course_plan(
     """Analyze a teacher request against the whole course, never a fake section."""
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    context = await run_in_threadpool(_teacher_course_change_context, course_id, tm)
     try:
-        state = await create_teacher_course_change_plan(
-            context=context,
+        state = await _course_evolution_service(tm).create_teacher_plan(
+            course_id=course_id,
             user_id=user_id,
             request_id=body.request_id,
             instruction=body.instruction,
-            repository=course_evolution_repository,
-            analyzer=get_course_service().analyze_teacher_course_change,
         )
     except TeacherCourseChangeSourceUnavailable as exc:
         raise HTTPException(status_code=409, detail={
@@ -317,8 +224,7 @@ async def review_teacher_course_plan(
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
         state = await run_in_threadpool(
-            review_teacher_course_change_scope,
-            repository=course_evolution_repository,
+            _course_evolution_service().review_teacher_plan,
             user_id=user_id,
             course_id=course_id,
             change_set_id=change_set_id,
@@ -338,37 +244,6 @@ async def review_teacher_course_plan(
     return course_evolution_view(state)
 
 
-@router.post("/sections/{section_id}/plans")
-async def create_section_evolution_plan(
-    course_id: str,
-    section_id: str,
-    body: GenerateSectionEvolutionRequest,
-    request: Request,
-) -> dict:
-    course = await get_course_or_404(course_id)
-    user_id = require_user_id(request.headers.get("X-User-Id"))
-    try:
-        state = await generate_section_evolution_plan(
-            course,
-            user_id=user_id,
-            section_id=section_id,
-            instruction=body.instruction,
-            scope_selection=body.scope_selection,
-            anchor_role=body.anchor_role,
-            request_id=body.request_id,
-            repository=course_evolution_repository,
-            document_repository=get_course_document_repository(),
-        )
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail={
-            "code": "section_evolution_generation_failed",
-            "message": str(exc),
-        }) from exc
-    return course_evolution_view(state)
-
-
 @router.post("/change-sets/{change_set_id}/generate")
 async def generate_suggested_course_evolution_plan(
     course_id: str,
@@ -377,40 +252,17 @@ async def generate_suggested_course_evolution_plan(
 ) -> dict:
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    state = course_evolution_repository.load(user_id, course_id)
-    plan = next(
-        (item for item in state.change_sets if item.change_set_id == change_set_id),
-        None,
-    )
-    if plan is None:
-        raise HTTPException(status_code=404, detail="Course evolution change set not found")
     try:
-        if plan.teacher_change_planning is not None:
-            state = await generate_teacher_course_change_candidates(
-                course_data=course,
-                user_id=user_id,
-                change_set_id=change_set_id,
-                repository=course_evolution_repository,
-                authoring_repository=get_teacher_lesson_authoring_repository(),
-                representation_repository=teaching_representation_repository,
-                question_bank_repository=question_bank_repository,
-                course_service=get_course_service(),
-            )
-        else:
-            state = await generate_section_evolution_plan(
-                course,
-                user_id=user_id,
-                section_id=plan.target_section_id,
-                instruction=plan.request_text,
-                scope_selection=plan.scope_selection,
-                request_id=plan.change_set_id,
-                repository=course_evolution_repository,
-                document_repository=get_course_document_repository(),
-                existing_change_set_id=plan.change_set_id,
-            )
-    except (KeyError, ValueError) as exc:
+        state = await _course_evolution_service().generate_suggested(
+            course_data=course,
+            user_id=user_id,
+            change_set_id=change_set_id,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
+    except ValueError as exc:
         raise HTTPException(status_code=409, detail={
-            "code": "section_evolution_generation_failed",
+            "code": "course_adjustment_generation_failed",
             "message": str(exc),
         }) from exc
     return course_evolution_view(state)
@@ -430,25 +282,14 @@ async def accept_course_evolution_change_set(
 ) -> dict:
     course = await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    document_repository = get_course_document_repository()
-    domain_candidate_applier = build_domain_candidate_applier(
-        course_data=course,
-        user_id=user_id,
-        authoring_repository=get_teacher_lesson_authoring_repository(),
-        representation_repository=teaching_representation_repository,
-        question_bank_repository=question_bank_repository,
-        document_repository=document_repository,
-    )
     try:
         state = await run_in_threadpool(
-            accept_change_set,
-            course,
+            _course_evolution_service().accept,
+            course_data=course,
             user_id=user_id,
             change_set_id=change_set_id,
             selected_scope=body.selected_scope,
             selected_operation_ids=body.selected_operation_ids,
-            document_repository=document_repository,
-            domain_candidate_applier=domain_candidate_applier,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
@@ -457,18 +298,6 @@ async def accept_course_evolution_change_set(
             "code": "course_evolution_conflict",
             "message": str(exc),
         }) from exc
-    from routers.change_proposals import synchronize_teaching_representations
-
-    representation_sync = await run_in_threadpool(
-        synchronize_teaching_representations,
-        course_id,
-    )
-    plan = next(
-        item for item in state.change_sets
-        if item.change_set_id == change_set_id
-    )
-    plan.application_receipt["representation_sync"] = representation_sync
-    state = course_evolution_repository.save(state)
     return course_evolution_view(state)
 
 
@@ -498,7 +327,7 @@ async def reject_course_evolution_change_set(
     user_id = require_user_id(request.headers.get("X-User-Id"))
     try:
         state = await run_in_threadpool(
-            reject_change_set,
+            _course_evolution_service().reject,
             user_id=user_id,
             course_id=course_id,
             change_set_id=change_set_id,
@@ -538,23 +367,12 @@ async def undo_course_evolution_change_set(
 ) -> dict:
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    document_repository = get_course_document_repository()
-    domain_candidate_undoer = build_domain_candidate_undoer(
-        user_id=user_id,
-        course_id=course_id,
-        authoring_repository=get_teacher_lesson_authoring_repository(),
-        representation_repository=teaching_representation_repository,
-        question_bank_repository=question_bank_repository,
-        document_repository=document_repository,
-    )
     try:
         state = await run_in_threadpool(
-            undo_change_set,
+            _course_evolution_service().undo,
             user_id=user_id,
             course_id=course_id,
             change_set_id=change_set_id,
-            document_repository=document_repository,
-            domain_candidate_undoer=domain_candidate_undoer,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
@@ -563,18 +381,6 @@ async def undo_course_evolution_change_set(
             "code": "course_evolution_conflict",
             "message": str(exc),
         }) from exc
-    from routers.change_proposals import synchronize_teaching_representations
-
-    representation_sync = await run_in_threadpool(
-        synchronize_teaching_representations,
-        course_id,
-    )
-    plan = next(
-        item for item in state.change_sets
-        if item.change_set_id == change_set_id
-    )
-    plan.undo_receipt["representation_sync"] = representation_sync
-    state = course_evolution_repository.save(state)
     return course_evolution_view(state)
 
 
@@ -595,14 +401,12 @@ async def adjust_course_evolution_change_set(
 ) -> dict:
     await get_course_or_404(course_id)
     user_id = require_user_id(request.headers.get("X-User-Id"))
-    document_repository = get_course_document_repository()
     try:
         state = await run_in_threadpool(
-            create_adjustment_plan,
+            _course_evolution_service().adjust,
             user_id=user_id,
             course_id=course_id,
             change_set_id=change_set_id,
-            document_repository=document_repository,
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc

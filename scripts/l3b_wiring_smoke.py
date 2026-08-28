@@ -136,16 +136,16 @@ const items = {json.dumps([{"id": n["node_id"], "content": n["content"]} for n i
 
 
 async def run(subject: str, timeout_seconds: int, port: int) -> dict:
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
     from course_repository import CourseDocumentRepository
-    from course_service import CourseService
+    from course_generation.service import CourseService
     from course_versions import CourseVersionRepository
     from generation_workspace import GenerationWorkspaceRepository
     from learning_asset_storage import LearningAssetRepository
     from material_storage import MaterialRepository
     from question_bank import QuestionBankRepository
     from storage import Storage
-    from task_manager import TaskManager
+    from jobs.manager import TaskManager
 
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="lingzhi-l3b-") as temporary:

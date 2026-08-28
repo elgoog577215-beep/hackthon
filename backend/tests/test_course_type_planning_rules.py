@@ -10,8 +10,8 @@ systematic 走兜底。其中 project 与 systematic 的 `required_planning_stag
 「把探究任务伪装成项目里程碑」的课才被人看出来。
 """
 
-from course_prompt_composer import _course_planning_rules, _course_type_planning_rules
-from course_type_contracts import (
+from course_generation.prompts import _course_planning_rules, _course_type_planning_rules
+from teaching_design import (
     COURSE_TYPE_CONTRACTS,
     ENABLED_COURSE_TYPES,
     course_purpose_for_type,

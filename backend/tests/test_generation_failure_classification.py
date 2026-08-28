@@ -9,10 +9,10 @@ import asyncio
 
 import pytest
 
-import task_manager as task_manager_module
+import jobs.manager as task_manager_module
 from ai_base import AIProviderRequestError, AIProviderUnavailable
 from generation_workspace import GenerationWorkspaceNotFound
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 def _manager(tmp_path, monkeypatch) -> TaskManager:

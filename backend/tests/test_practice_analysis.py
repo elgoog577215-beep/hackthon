@@ -6,7 +6,7 @@ from practice_analysis import (
     build_assessment_intent,
     normalize_question_analysis,
 )
-from task_manager import _remap_assessment_revision_references
+from jobs.manager import _remap_assessment_revision_references
 
 
 def _knowledge_base():

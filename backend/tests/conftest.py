@@ -148,7 +148,7 @@ def task_manager(
     mock_ws_service: MagicMock,
 ) -> "TaskManager":  # noqa: F821 — forward ref to avoid import at module level
     """TaskManager instance wired with mock_storage, mock_course_service, mock_ws_service."""
-    from task_manager import TaskManager
+    from jobs.manager import TaskManager
 
     tm = TaskManager(
         storage=mock_storage,

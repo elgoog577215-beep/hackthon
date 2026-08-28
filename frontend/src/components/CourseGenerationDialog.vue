@@ -30,25 +30,25 @@
         </header>
 
         <form class="generation-dialog__body" @submit.prevent="submit">
-          <section v-if="!props.initialSubject || props.showCourseType" class="form-section form-section--lead course-type-section">
+          <section v-if="!props.initialSubject || props.showLearningPurpose" class="form-section form-section--lead course-type-section">
             <fieldset class="choice-group">
               <legend class="choice-group__title">
                 <span class="field-icon field-icon--rose"><Route :size="14" /></span>
-                <span>{{ t('courseGeneration.courseTypes.label', '教学类型') }}</span>
+                <span>{{ t('courseWorkbench.form.learningPurpose', '学习目的') }}</span>
               </legend>
               <div class="course-type-options">
                 <button
-                  v-for="item in courseTypeOptions"
+                  v-for="item in learningPurposeOptions"
                   :key="item.value"
                   type="button"
                   class="course-type-option"
-                  :class="{ active: form.courseType === item.value }"
-                  :data-course-type="item.value"
-                  :aria-pressed="form.courseType === item.value"
+                  :class="{ active: form.learningPurpose === item.value }"
+                  :data-learning-purpose="item.value"
+                  :aria-pressed="form.learningPurpose === item.value"
                   :aria-label="`${item.label}：${item.detail}`"
                   :title="item.detail"
                   :disabled="busy || !item.available"
-                  @click="selectCourseType(item.value)"
+                  @click="selectLearningPurpose(item.value)"
                 >
                   <span class="course-type-option__icon"><component :is="item.icon" :size="18" /></span>
                   <span class="course-type-option__copy">
@@ -61,7 +61,7 @@
             </fieldset>
           </section>
 
-          <section v-if="form.courseType === 'systematic'" class="form-section intent-section">
+          <section v-if="form.learningPurpose === 'systematic'" class="form-section intent-section">
             <label class="field-label" for="course-subject">
               {{ t('courseGeneration.form.topic', '课程主题') }}
             </label>
@@ -78,7 +78,7 @@
             />
           </section>
 
-          <section v-else-if="form.courseType === 'project'" class="form-section intent-section project-intent" data-testid="project-intent-form">
+          <section v-else-if="form.learningPurpose === 'project'" class="form-section intent-section project-intent" data-testid="project-intent-form">
             <div class="project-intent__heading">
               <div>
                 <strong>{{ t('courseGeneration.project.title', '定义你的实战项目') }}</strong>
@@ -133,67 +133,6 @@
                   class="textarea-input textarea-input--compact"
                   maxlength="3000"
                   :placeholder="t('courseGeneration.project.uncertaintyPlaceholder', '例如：不了解玻璃材料、隔热原理和制造工艺')"
-                  :disabled="busy"
-                />
-              </label>
-            </div>
-          </section>
-
-          <section v-else-if="form.courseType === 'inquiry'" class="form-section intent-section project-intent" data-testid="inquiry-intent-form">
-            <div class="project-intent__heading">
-              <div>
-                <strong>{{ t('courseGeneration.inquiry.title', '定义要探究的问题') }}</strong>
-              </div>
-              <MessageCircleQuestion :size="18" />
-            </div>
-            <div class="project-fields">
-              <label class="project-field project-field--wide" for="inquiry-core-question">
-                <span class="field-label">{{ t('courseGeneration.inquiry.questionLabel', '你真正想回答什么问题？') }}</span>
-                <input
-                  id="inquiry-core-question"
-                  v-model="form.coreQuestion"
-                  class="text-input text-input--large"
-                  type="text"
-                  autocomplete="off"
-                  required
-                  maxlength="200"
-                  :placeholder="t('courseGeneration.inquiry.questionPlaceholder', '例如：生成式 AI 会如何改变大学的教学与评价？')"
-                  :disabled="busy"
-                />
-              </label>
-              <label class="project-field project-field--wide" for="inquiry-desired-output">
-                <span class="field-label">{{ t('courseGeneration.inquiry.outputLabel', '最终希望形成什么结论？') }}</span>
-                <input
-                  id="inquiry-desired-output"
-                  v-model="form.desiredOutput"
-                  class="text-input"
-                  type="text"
-                  autocomplete="off"
-                  required
-                  maxlength="3000"
-                  :placeholder="t('courseGeneration.inquiry.outputPlaceholder', '例如：一份区分适用条件、风险与证据强度的判断报告')"
-                  :disabled="busy"
-                />
-              </label>
-              <label v-if="!props.courseSpaceMode" class="project-field" for="inquiry-understanding">
-                <span class="field-label">{{ t('courseGeneration.inquiry.understandingLabel', '你目前怎么看？') }}</span>
-                <textarea
-                  id="inquiry-understanding"
-                  v-model="form.existingUnderstanding"
-                  class="textarea-input textarea-input--compact"
-                  maxlength="3000"
-                  :placeholder="t('courseGeneration.inquiry.understandingPlaceholder', '写下当前判断或尚未验证的假设')"
-                  :disabled="busy"
-                />
-              </label>
-              <label v-if="!props.courseSpaceMode" class="project-field" for="inquiry-evidence-scope">
-                <span class="field-label">{{ t('courseGeneration.inquiry.evidenceLabel', '证据范围与边界') }}</span>
-                <textarea
-                  id="inquiry-evidence-scope"
-                  v-model="form.evidenceScope"
-                  class="textarea-input textarea-input--compact"
-                  maxlength="3000"
-                  :placeholder="t('courseGeneration.inquiry.evidencePlaceholder', '例如：优先使用近三年的高校实践、研究论文与公开政策')"
                   :disabled="busy"
                 />
               </label>
@@ -362,13 +301,19 @@
 
               <div class="strategy-settings">
               <div class="strategy-settings__heading">
-                <strong>{{ t('courseFiles.workbench.subjectType', '学科类型') }}</strong>
+                <strong>{{ t('courseFiles.workbench.courseDesignSettings', '教学设计') }}</strong>
               </div>
               <div class="compact-grid" :class="{ 'compact-grid--course-space': props.courseSpaceMode }">
               <label>
                 <span class="field-label"><Route :size="13" />{{ t('courseGeneration.pedagogy.label', '学科类型') }}</span>
                 <select v-model="form.pedagogyMode" class="select-input" :disabled="busy">
                   <option v-for="item in pedagogyOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                </select>
+              </label>
+              <label>
+                <span class="field-label"><BookOpen :size="13" />{{ t('courseWorkbench.form.courseTeachingType', '课程教学类型') }}</span>
+                <select v-model="form.courseTeachingType" class="select-input" :disabled="busy">
+                  <option v-for="item in courseTeachingTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
                 </select>
               </label>
               <label v-if="!props.courseSpaceMode">
@@ -489,7 +434,6 @@ import {
   BookOpen,
   Hammer,
   LoaderCircle,
-  MessageCircleQuestion,
   Network,
   Route,
   Sparkles,
@@ -502,11 +446,13 @@ import MaterialInputPanel from './MaterialInputPanel.vue'
 import { activeLocale, t } from '@/shared/i18n'
 import { createUuid } from '@/utils/client-id'
 import {
+  canonicalizeCourseGenerationOptions,
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
   type CourseMaterialDraft,
-  type CourseType,
+  type CourseTeachingType,
   type DifficultyLevel,
+  type LearningPurpose,
   type PedagogyMode,
   type PedagogyModeSelection,
 } from '@/shared/prompt-config'
@@ -524,7 +470,7 @@ const props = withDefaults(defineProps<{
   initialOptions?: CourseGenerationOptions
   initialContextKey?: string
   workbenchMode?: boolean
-  showCourseType?: boolean
+  showLearningPurpose?: boolean
   title?: string
   helpText?: string
   submitLabel?: string
@@ -539,7 +485,7 @@ const props = withDefaults(defineProps<{
   initialLessonDurationMinutes: undefined,
   initialChapterCount: undefined,
   workbenchMode: false,
-  showCourseType: false,
+  showLearningPurpose: false,
   title: '',
   helpText: '',
   submitLabel: '',
@@ -567,22 +513,19 @@ const defaultAudience = () => t(
 let lastDefaultAudience = defaultAudience()
 let lastOpenContextKey = ''
 const form = reactive({
-  courseType: 'systematic' as CourseType,
+  learningPurpose: 'systematic' as LearningPurpose,
   systematicTopic: '',
   projectGoal: '',
   expectedDeliverable: '',
   priorExperience: '',
   currentUncertainty: '',
-  coreQuestion: '',
-  existingUnderstanding: '',
-  evidenceScope: '',
-  desiredOutput: '',
   examName: '',
   examDate: '',
   examScope: '',
   currentPreparation: '',
   difficulty: 'intermediate' as DifficultyLevel,
   pedagogyMode: 'auto' as PedagogyModeSelection,
+  courseTeachingType: 'comprehensive' as CourseTeachingType,
   secondaryMode: '' as '' | PedagogyMode,
   retrievalEnabled: false,
   generateQuestions: false,
@@ -604,7 +547,7 @@ const difficultyOptions = computed(() => ([
   { value: 'intermediate' as const, tone: 'blue', label: t('courseGeneration.difficulty.intermediate.label', '进阶'), detail: t('courseGeneration.difficulty.intermediate.detail', '独立分析 · 典型问题') },
   { value: 'advanced' as const, tone: 'violet', label: t('courseGeneration.difficulty.advanced.label', '高阶'), detail: t('courseGeneration.difficulty.advanced.detail', '开放约束 · 权衡迁移') },
 ]))
-const courseTypeOptions = computed(() => ([
+const learningPurposeOptions = computed(() => ([
   {
     value: 'systematic' as const,
     icon: BookOpen,
@@ -620,19 +563,20 @@ const courseTypeOptions = computed(() => ([
     available: true,
   },
   {
-    value: 'inquiry' as const,
-    icon: MessageCircleQuestion,
-    label: t('courseGeneration.courseTypes.inquiry.label', '问题探究'),
-    detail: t('courseGeneration.courseTypes.inquiry.detail', '沿子问题、证据与推理形成有依据的判断'),
-    available: true,
-  },
-  {
     value: 'exam' as const,
     icon: Timer,
     label: t('courseGeneration.courseTypes.exam.label', '考试冲刺'),
     detail: t('courseGeneration.courseTypes.exam.detail', '根据考纲、薄弱点和剩余时间安排复习'),
     available: true,
   },
+]))
+const courseTeachingTypeOptions = computed(() => ([
+  { value: 'theory' as const, label: t('courseWorkbench.form.courseTeachingTypes.theory', '理论课') },
+  { value: 'laboratory' as const, label: t('courseWorkbench.form.courseTeachingTypes.laboratory', '实验课') },
+  { value: 'practice' as const, label: t('courseWorkbench.form.courseTeachingTypes.practice', '实践课') },
+  { value: 'seminar' as const, label: t('courseWorkbench.form.courseTeachingTypes.seminar', '研讨课') },
+  { value: 'project' as const, label: t('courseWorkbench.form.courseTeachingTypes.project', '项目课') },
+  { value: 'comprehensive' as const, label: t('courseWorkbench.form.courseTeachingTypes.comprehensive', '综合课') },
 ]))
 const pedagogyOptions = computed(() => PEDAGOGY_MODE_OPTIONS.map(item => ({ value: item.value, label: t(item.labelKey, item.value) })))
 const secondaryPedagogyOptions = computed(() => [
@@ -645,35 +589,30 @@ const todayIso = new Date().toLocaleDateString('en-CA')
 const activeSubject = computed(() => ({
   systematic: form.systematicTopic,
   project: form.projectGoal,
-  inquiry: form.coreQuestion,
   exam: form.examName,
-}[form.courseType].trim()))
+}[form.learningPurpose].trim()))
 const typeIntentComplete = computed(() => ({
   systematic: Boolean(form.systematicTopic.trim()),
   project: Boolean(form.projectGoal.trim() && form.expectedDeliverable.trim()),
-  inquiry: Boolean(form.coreQuestion.trim() && form.desiredOutput.trim()),
   exam: Boolean(form.examName.trim() && form.examDate.trim() && form.examScope.trim()),
-}[form.courseType]))
+}[form.learningPurpose]))
 
 function resetFormForOpen() {
   lastDefaultAudience = defaultAudience()
   Object.assign(form, {
-    courseType: 'systematic' as CourseType,
+    learningPurpose: 'systematic' as LearningPurpose,
     systematicTopic: '',
     projectGoal: '',
     expectedDeliverable: '',
     priorExperience: '',
     currentUncertainty: '',
-    coreQuestion: '',
-    existingUnderstanding: '',
-    evidenceScope: '',
-    desiredOutput: '',
     examName: '',
     examDate: '',
     examScope: '',
     currentPreparation: '',
     difficulty: 'intermediate' as DifficultyLevel,
     pedagogyMode: 'auto' as PedagogyModeSelection,
+    courseTeachingType: 'comprehensive' as CourseTeachingType,
     secondaryMode: '' as '' | PedagogyMode,
     retrievalEnabled: false,
     generateQuestions: false,
@@ -693,18 +632,23 @@ function resetFormForOpen() {
 
 function hydrateInitialOptions(options?: CourseGenerationOptions) {
   if (!options) return
-  const brief = options.teacher_course_brief
-  const intent = options.course_intent as Record<string, any> | undefined
-  if (['systematic', 'project', 'inquiry', 'exam'].includes(String(options.course_type || ''))) form.courseType = options.course_type as CourseType
-  if (['beginner', 'intermediate', 'advanced'].includes(String(options.difficulty || ''))) form.difficulty = options.difficulty as DifficultyLevel
-  if (options.pedagogy_mode) form.pedagogyMode = options.pedagogy_mode
-  if (options.secondary_mode) form.secondaryMode = options.secondary_mode
-  form.retrievalEnabled = Boolean(options.retrieval?.enabled)
-  form.webMaterialIngest = !options.web_material_ingest?.skip_ingest
-  form.generateQuestions = Boolean(options.asset_preferences?.questions || options.asset_preferences?.final_assessment)
-  if (options.production_mode) form.productionMode = options.production_mode
-  if (typeof options.requirements === 'string') form.requirements = options.requirements
-  if (options.target_audience) form.targetAudience = options.target_audience
+  const current = canonicalizeCourseGenerationOptions({
+    ...options,
+    subject: (options as Record<string, unknown>).subject || props.initialSubject,
+  })
+  const brief = current.teacher_course_brief
+  const intent = current.course_intent as Record<string, any> | undefined
+  form.learningPurpose = (current.learning_purpose || 'systematic') as LearningPurpose
+  form.courseTeachingType = (current.course_teaching_type || 'comprehensive') as CourseTeachingType
+  if (['beginner', 'intermediate', 'advanced'].includes(String(current.difficulty || ''))) form.difficulty = current.difficulty as DifficultyLevel
+  if (current.pedagogy_mode) form.pedagogyMode = current.pedagogy_mode
+  if (current.secondary_mode) form.secondaryMode = current.secondary_mode
+  form.retrievalEnabled = Boolean(current.retrieval?.enabled)
+  form.webMaterialIngest = !current.web_material_ingest?.skip_ingest
+  form.generateQuestions = Boolean(current.asset_preferences?.questions || current.asset_preferences?.final_assessment)
+  if (current.production_mode) form.productionMode = current.production_mode
+  if (typeof current.requirements === 'string') form.requirements = current.requirements
+  if (current.target_audience) form.targetAudience = current.target_audience
   if (brief) {
     if (brief.target_audience) form.targetAudience = brief.target_audience
     if (brief.academic_term) form.academicTerm = brief.academic_term
@@ -722,11 +666,6 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
     form.expectedDeliverable = String(intent.expected_deliverable || '')
     form.priorExperience = String(intent.prior_experience || '')
     form.currentUncertainty = String(intent.current_uncertainty || '')
-  } else if (intent.type === 'inquiry') {
-    form.coreQuestion = String(intent.core_question || '')
-    form.existingUnderstanding = String(intent.existing_understanding || '')
-    form.evidenceScope = String(intent.evidence_scope || '')
-    form.desiredOutput = String(intent.desired_output || '')
   } else if (intent.type === 'exam') {
     form.examName = String(intent.exam_name || '')
     form.examDate = String(intent.exam_date || '')
@@ -775,9 +714,16 @@ function close() {
   if (!busy.value) emit('update:modelValue', false)
 }
 
-function selectCourseType(courseType: CourseType) {
-  const option = courseTypeOptions.value.find(item => item.value === courseType)
-  if (!busy.value && option?.available) form.courseType = courseType
+function selectLearningPurpose(learningPurpose: LearningPurpose) {
+  const option = learningPurposeOptions.value.find(item => item.value === learningPurpose)
+  if (busy.value || !option?.available) return
+  const previous = form.learningPurpose
+  form.learningPurpose = learningPurpose
+  if (learningPurpose === 'project' && (previous === 'systematic' || form.courseTeachingType === 'comprehensive')) {
+    form.courseTeachingType = 'project'
+  } else if (learningPurpose !== 'project' && form.courseTeachingType === 'project') {
+    form.courseTeachingType = 'comprehensive'
+  }
 }
 
 async function submit() {
@@ -790,21 +736,15 @@ async function submit() {
       : (props.initialOptions?.material_bindings || [])
     const options: CourseGenerationOptions = {
       difficulty: form.difficulty,
-      composition_style: ({
-        systematic: 'balanced',
-        project: 'project_driven',
-        inquiry: 'inquiry_driven',
-        exam: 'example_driven',
-      } as const)[form.courseType],
+      learning_purpose: form.learningPurpose,
+      course_teaching_type: form.courseTeachingType,
       pedagogy_mode: form.pedagogyMode,
       ...(form.secondaryMode
         ? { secondary_mode: form.secondaryMode, secondary_intensity: 'collaborative' as const }
         : {}),
       generation_mode: 'review_blueprint',
       production_mode: form.productionMode,
-      course_purpose: form.courseType === 'exam' ? 'exam_sprint' : 'systematic',
-      course_type: form.courseType,
-      course_intent: form.courseType === 'project'
+      course_intent: form.learningPurpose === 'project'
         ? {
             schema_version: 'course_intent_v1',
             type: 'project',
@@ -814,16 +754,7 @@ async function submit() {
             current_uncertainty: form.currentUncertainty.trim(),
             project_constraints: form.requirements.trim(),
           }
-        : form.courseType === 'inquiry'
-          ? {
-              schema_version: 'course_intent_v1',
-              type: 'inquiry',
-              core_question: form.coreQuestion.trim(),
-              existing_understanding: form.existingUnderstanding.trim(),
-              evidence_scope: form.evidenceScope.trim(),
-              desired_output: form.desiredOutput.trim(),
-            }
-          : form.courseType === 'exam'
+        : form.learningPurpose === 'exam'
             ? {
                 schema_version: 'course_intent_v1',
                 type: 'exam',
@@ -904,7 +835,7 @@ async function submit() {
 .generation-advanced[open]>summary,.supplemental-settings[open]>summary { margin-bottom:18px; color:var(--lz-brand-strong); }
 .supplemental-settings__body { display:grid; gap:18px; padding-top:2px; }
 .course-type-section { padding-bottom: 18px; }
-.course-type-options { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:11px; background:var(--lz-surface-muted); }
+.course-type-options { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; padding:4px; border:1px solid rgba(226,232,240,.92); border-radius:11px; background:var(--lz-surface-muted); }
 .course-type-option { min-width:0; min-height:48px; display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid transparent; border-radius:7px; color:var(--lz-text-secondary); background:transparent; text-align:left; cursor:pointer; transition:border-color .16s ease,color .16s ease,background .16s ease,box-shadow .16s ease; }
 .course-type-option:hover:not(:disabled) { border-color:rgba(165,180,252,.62); color:var(--lz-brand-strong); background:rgba(255,255,255,.72); }
 .course-type-option.active { border-color:rgba(165,180,252,.72); color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(79,70,229,.07); }

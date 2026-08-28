@@ -1,6 +1,6 @@
 """生成进度的位置推导：教师看到的必须是"第几章第几节"。"""
 
-from task_manager import build_node_locations
+from jobs.manager import build_node_locations
 
 
 def _nodes(*specs):

@@ -10,7 +10,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from subject_standard_packs import (
+from .standards import (
     SUBJECT_STANDARD_PACK_VERSION,
     resolve_subject_standard_pack,
 )
@@ -586,4 +586,5 @@ __all__ = [
     "UNIVERSAL_TEACHING_PRINCIPLES", "compile_course_semantics", "compile_lesson_semantics",
     "compile_teaching_block_contract", "lesson_phase", "order_teaching_blocks",
     "recommend_lesson_type", "resolve_course_teaching_type", "resolve_learning_purpose",
+    "resolve_subject_standard_pack",
 ]

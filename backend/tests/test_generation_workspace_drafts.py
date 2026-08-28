@@ -5,7 +5,7 @@ import json
 import pytest
 
 from generation_workspace import GenerationWorkspaceRepository
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 def _course() -> dict:
@@ -134,7 +134,7 @@ def test_workspace_atomic_write_retries_transient_windows_file_lock(
 
 @pytest.mark.asyncio
 async def test_task_manager_clears_sidecar_after_final_commit(tmp_path, monkeypatch):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(
         task_manager_module,

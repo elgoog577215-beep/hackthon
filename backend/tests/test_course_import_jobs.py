@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from course_repository import CourseDocumentRepository
 from dependencies import require_task_manager
 from routers import markdown_import
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 class ImportStorage:
@@ -25,7 +25,7 @@ class ImportStorage:
 
 
 def import_manager(tmp_path, monkeypatch) -> tuple[TaskManager, ImportStorage]:
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, 'TASKS_FILE', tmp_path / 'tasks.json')
     storage = ImportStorage(tmp_path / 'data')

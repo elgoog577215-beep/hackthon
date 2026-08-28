@@ -12,7 +12,7 @@ from types import SimpleNamespace
 import pytest
 
 import ai_provider_route
-import task_manager as task_manager_module
+import jobs.manager as task_manager_module
 from ai_provider_route import (
     ROUTE_FALLBACK,
     ROUTE_PRIMARY,
@@ -21,7 +21,7 @@ from ai_provider_route import (
     record_primary_recovered,
     reset_provider_route,
 )
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 @pytest.fixture(autouse=True)

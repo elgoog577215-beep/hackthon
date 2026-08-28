@@ -117,7 +117,7 @@ async def run_phase(limit: int, telemetry_dir: Path, words: int = 0) -> dict:
     os.environ["LINGZHI_GENERATION_TELEMETRY_DIR"] = str(run_dir)
 
     import generation_telemetry
-    from course_service import CourseService
+    from course_generation.service import CourseService
 
     service = CourseService()
     course_id = f"bench-{limit}"

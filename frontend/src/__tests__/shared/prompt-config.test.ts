@@ -12,6 +12,7 @@ import {
   validateCourseTeachingType,
   validateNodeType,
   validateGenerateCourseParams,
+  canonicalizeCourseGenerationOptions,
   detectContentTypes,
   generateContextSuggestions,
   VALID_DIFFICULTY_LEVELS,
@@ -164,7 +165,13 @@ describe('validateGenerateCourseParams', () => {
   const validParams = {
     subject: '机器学习',
     difficulty: 'intermediate' as const,
-    composition_style: 'example_driven' as const,
+    learning_purpose: 'systematic' as const,
+    course_teaching_type: 'comprehensive' as const,
+    course_intent: {
+      schema_version: 'course_intent_v1' as const,
+      type: 'systematic' as const,
+      learning_goal: '理解机器学习的核心概念',
+    },
   }
 
   it('有效参数返回 valid: true', () => {
@@ -184,22 +191,28 @@ describe('validateGenerateCourseParams', () => {
     expect(result.valid).toBe(false)
   })
 
-  it('无效 composition_style 返回错误', () => {
-    const result = validateGenerateCourseParams({ ...validParams, composition_style: 'casual' as any })
+  it('无效学习目的和课程教学类型返回错误', () => {
+    const result = validateGenerateCourseParams({
+      ...validParams,
+      learning_purpose: 'inquiry' as any,
+      course_teaching_type: 'exam' as any,
+    })
     expect(result.valid).toBe(false)
+    expect(result.errors.join(' ')).toContain('Invalid learning_purpose')
+    expect(result.errors.join(' ')).toContain('Invalid course_teaching_type')
   })
 
-  it('无效 course_type 返回错误', () => {
-    const result = validateGenerateCourseParams({ ...validParams, course_type: 'video' as any })
+  it('当前请求不允许继续写入旧分类字段', () => {
+    const result = validateGenerateCourseParams({ ...validParams, course_type: 'systematic' } as any)
     expect(result.valid).toBe(false)
-    expect(result.errors.join(' ')).toContain('Invalid course_type')
+    expect(result.errors.join(' ')).toContain('course_type is legacy-only')
   })
 
   it('项目实战只要求项目目标与交付成果，自述起点允许留空', () => {
     const result = validateGenerateCourseParams({
       ...validParams,
-      course_type: 'project',
-      composition_style: 'project_driven',
+      learning_purpose: 'project',
+      course_teaching_type: 'project',
       course_intent: {
         schema_version: 'course_intent_v1',
         type: 'project',
@@ -213,22 +226,11 @@ describe('validateGenerateCourseParams', () => {
     expect(result.errors).toHaveLength(0)
   })
 
-  it('问题探究与考试冲刺校验各自的专用规划输入', () => {
-    const inquiry = validateGenerateCourseParams({
-      ...validParams,
-      course_type: 'inquiry',
-      composition_style: 'inquiry_driven',
-      course_intent: {
-        schema_version: 'course_intent_v1',
-        type: 'inquiry',
-        core_question: '生成式 AI 会如何改变大学评价？',
-        desired_output: '带证据边界的判断报告',
-      },
-    })
+  it('考试冲刺校验专用规划输入', () => {
     const exam = validateGenerateCourseParams({
       ...validParams,
-      course_type: 'exam',
-      composition_style: 'example_driven',
+      learning_purpose: 'exam',
+      course_teaching_type: 'practice',
       course_intent: {
         schema_version: 'course_intent_v1',
         type: 'exam',
@@ -239,8 +241,8 @@ describe('validateGenerateCourseParams', () => {
     })
     const incompleteExam = validateGenerateCourseParams({
       ...validParams,
-      course_type: 'exam',
-      composition_style: 'example_driven',
+      learning_purpose: 'exam',
+      course_teaching_type: 'practice',
       course_intent: {
         schema_version: 'course_intent_v1',
         type: 'exam',
@@ -250,7 +252,6 @@ describe('validateGenerateCourseParams', () => {
       },
     })
 
-    expect(inquiry.valid).toBe(true)
     expect(exam.valid).toBe(true)
     expect(incompleteExam.errors).toEqual(expect.arrayContaining([
       'course_intent.exam_date is required',
@@ -258,13 +259,25 @@ describe('validateGenerateCourseParams', () => {
     ]))
   })
 
-  it('旧 style 仍可作为历史参数通过兼容校验', () => {
-    const result = validateGenerateCourseParams({
-      subject: '机器学习',
-      difficulty: 'intermediate',
-      style: 'academic',
+  it('历史问题探究会被转成系统学习与研讨课，且不延续旧字段', () => {
+    const result = canonicalizeCourseGenerationOptions({
+      course_type: 'inquiry',
+      composition_style: 'inquiry_driven',
+      course_intent: {
+        schema_version: 'course_intent_v1',
+        type: 'inquiry',
+        core_question: '生成式 AI 会如何改变大学评价？',
+        desired_output: '带证据边界的判断报告',
+      },
     })
-    expect(result.valid).toBe(true)
+    expect(result.learning_purpose).toBe('systematic')
+    expect(result.course_teaching_type).toBe('seminar')
+    expect(result.course_intent).toMatchObject({
+      type: 'systematic',
+      learning_goal: '生成式 AI 会如何改变大学评价？；带证据边界的判断报告',
+    })
+    expect(result).not.toHaveProperty('course_type')
+    expect(result).not.toHaveProperty('composition_style')
   })
 
   it('空对象返回多个错误', () => {

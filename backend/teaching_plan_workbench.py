@@ -16,7 +16,7 @@ from typing import Any
 from uuid import uuid4
 
 from course_document import CourseDocument, stable_hash
-from course_generation_workflow import (
+from course_generation.workflow import (
     apply_course_teaching_plan,
     build_course_knowledge_scope_contract,
     compile_course_teaching_plan_modules,
@@ -1663,7 +1663,7 @@ class TeachingPlanWorkbenchService:
                 "AI 候选服务返回了无效结果。",
             )
 
-        from course_service import get_course_service
+        from course_generation.service import get_course_service
 
         service = get_course_service()
         response = await service._call_llm(

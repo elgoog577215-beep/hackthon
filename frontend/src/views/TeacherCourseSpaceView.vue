@@ -504,7 +504,7 @@ import {
   LayoutGrid, Link2, Pencil, Presentation, RefreshCw, RotateCcw, Search, SearchX, SlidersHorizontal, Sparkles, Trash2, TriangleAlert, Upload, UploadCloud, X,
 } from 'lucide-vue-next'
 import { activeLocale, t } from '../shared/i18n'
-import type { CourseGenerationOptions } from '../shared/prompt-config'
+import { canonicalizeCourseGenerationOptions, type CourseGenerationOptions } from '../shared/prompt-config'
 import { useCourseStore, type Node } from '../stores/course'
 import { useTeacherLessonAuthoringStore, type TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
 import { useTeachingCalendarStore } from '../stores/teachingCalendar'
@@ -1008,21 +1008,23 @@ const categoryDetailMarkdown = computed(() => {
   return ''
 })
 const productionContextItems = computed(() => {
-  const options = props.generationOptions || {}
+  const options = canonicalizeCourseGenerationOptions(props.generationOptions)
   const brief = options.teacher_course_brief
   const intent = options.course_intent
-  const courseType = String(options.course_type || intent?.type || 'systematic')
-  const courseTypeLabel = t(`courseGeneration.courseTypes.${courseType}.label`, courseType)
+  const learningPurpose = String(options.learning_purpose || 'systematic')
+  const learningPurposeLabel = t(`courseGeneration.courseTypes.${learningPurpose}.label`, learningPurpose)
+  const courseTeachingType = String(options.course_teaching_type || 'comprehensive')
+  const courseTeachingTypeLabel = t(`courseWorkbench.form.courseTeachingTypes.${courseTeachingType}`, courseTeachingType)
   const difficulty = options.difficulty
     ? t(`courseGeneration.difficulty.${options.difficulty}.label`, String(options.difficulty))
     : t('courseFiles.workbench.notSet')
   const goal = intent?.type === 'project'
     ? intent.project_goal
-    : intent?.type === 'inquiry'
-      ? intent.desired_output || intent.core_question
-      : intent?.type === 'exam'
+    : intent?.type === 'exam'
         ? intent.exam_scope || intent.exam_name
-        : intent?.learning_goal
+        : intent?.type === 'systematic'
+          ? intent.learning_goal
+          : ''
   const structure = options.pedagogy_mode
     ? t(`courseGeneration.pedagogy.options.${options.pedagogy_mode}`, String(options.pedagogy_mode))
     : t('courseFiles.workbench.notSet')
@@ -1037,7 +1039,8 @@ const productionContextItems = computed(() => {
     ? t('courseFiles.workbench.productionAutomatic')
     : t('courseFiles.workbench.productionManual')
   return [
-    { label: t('courseFiles.workbench.courseType'), value: courseTypeLabel },
+    { label: t('courseWorkbench.form.learningPurpose', '学习目的'), value: learningPurposeLabel },
+    { label: t('courseWorkbench.form.courseTeachingType', '课程教学类型'), value: courseTeachingTypeLabel },
     { label: t('courseFiles.workbench.learningGoal'), value: String(goal || t('courseFiles.workbench.notSet')), title: String(goal || ''), empty: !goal },
     { label: t('courseFiles.workbench.difficulty'), value: difficulty, empty: !options.difficulty },
     { label: t('courseFiles.workbench.knowledgeStructure'), value: structure, empty: !options.pedagogy_mode },

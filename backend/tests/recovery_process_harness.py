@@ -16,11 +16,11 @@ for import_root in (PROJECT_ROOT, BACKEND_DIR):
     if str(import_root) not in sys.path:
         sys.path.insert(0, str(import_root))
 
-import task_manager as task_manager_module
+import jobs.manager as task_manager_module
 from course_repository import CourseDocumentRepository
 from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 class JsonStorage:

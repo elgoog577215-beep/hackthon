@@ -4,18 +4,18 @@ import pytest
 from pydantic import ValidationError
 from starlette.requests import Request
 
-from course_generation_workflow import (
+from course_generation.workflow import (
     apply_teacher_classroom_contract,
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
     normalize_course_outline_contract,
 )
-from course_prompt_composer import CoursePromptComposer
-from course_type_contracts import ENABLED_COURSE_TYPES, resolve_course_type
+from course_generation.prompts import CoursePromptComposer
+from teaching_design import ENABLED_COURSE_TYPES, resolve_course_type
 from course_versioning import build_blueprint_draft
 from models import CourseGenerationRequest
 from routers.courses import create_course_generation_job
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 def _project_request(**overrides):
@@ -334,7 +334,7 @@ async def test_task_summary_persists_course_type_without_exposing_request_snapsh
     tmp_path,
     monkeypatch,
 ):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
     manager = TaskManager(storage=None, course_service=None, ws_service=None)

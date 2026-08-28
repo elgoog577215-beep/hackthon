@@ -9,9 +9,9 @@ list and the resume button tell the teacher different things about the same job.
 
 import pytest
 
-import task_manager as task_manager_module
+import jobs.manager as task_manager_module
 from storage import Storage
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 def _manager(tmp_path, monkeypatch) -> TaskManager:

@@ -113,8 +113,8 @@ async def test_failed_v6_progress_event_atomically_terminates_the_outer_task(
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)
@@ -169,8 +169,8 @@ async def test_restart_recovers_only_the_newest_equivalent_v6_build(
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)
@@ -216,8 +216,8 @@ async def test_restart_stops_a_slide_build_recovery_loop(
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)
@@ -249,8 +249,8 @@ async def test_terminal_v6_build_preserves_its_recovery_contract_and_never_resum
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)
@@ -407,8 +407,8 @@ async def test_v6_task_routes_to_the_single_v6_orchestrator_without_v5_fragmenta
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)
@@ -461,8 +461,8 @@ async def test_v6_visual_repair_task_routes_target_pages_without_changing_build_
 ) -> None:
     """The durable task remains restart-compatible while selecting visual repair."""
 
-    import task_manager as task_manager_module
-    from task_manager import TaskManager, _slide_build_request_contract
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager, _slide_build_request_contract
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)
@@ -508,8 +508,8 @@ async def test_v6_visual_repair_task_routes_target_pages_without_changing_build_
 
 @pytest.mark.asyncio
 async def test_v6_shadow_task_can_read_a_legacy_projection_without_publishing(tmp_path, monkeypatch) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _legacy_course()
     storage = MemoryStorage(course, tmp_path)
@@ -555,8 +555,8 @@ async def test_v6_task_uses_shared_ai_planners_and_publishes_the_v6_contract(
     tmp_path,
     monkeypatch,
 ) -> None:
-    import task_manager as task_manager_module
-    from task_manager import TaskManager
+    import jobs.manager as task_manager_module
+    from jobs.manager import TaskManager
 
     course = _canonical_course()
     storage = MemoryStorage(course, tmp_path)

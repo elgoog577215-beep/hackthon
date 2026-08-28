@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable, Literal
 
-from course_evolution import strong_self_report_contract
+from .core import strong_self_report_contract
 from learning_contracts import LearnerCourseScope
 from learning_events import record_learning_event, summarize_text
 

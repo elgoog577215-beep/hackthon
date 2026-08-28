@@ -3,10 +3,10 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timezone
 
-import course_evolution
 import learner_model_service
 from course_document import document_from_legacy_course
 from course_evolution import CourseEvolutionRepository
+from course_evolution import core as course_evolution
 from learner_model import (
     AGGREGATE_TRIGGER_THRESHOLD,
     SINGLE_STRONG_EVIDENCE_THRESHOLD,

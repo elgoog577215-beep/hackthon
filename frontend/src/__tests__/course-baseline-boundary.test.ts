@@ -26,4 +26,18 @@ describe('course workbench authoring boundary', () => {
     expect(references).toContain("data.append('course_id', props.courseId)")
     expect(references).toContain("role: 'primary' | 'reference'")
   })
+
+  it('新建课和课程基线只写入正式教学分类', () => {
+    const currentWriters = [
+      source('components/CourseGenerationDialog.vue'),
+      source('components/CourseBaselineDialog.vue'),
+      source('components/TeacherCourseWorkbench.vue'),
+      source('views/TeacherCourseCreateView.vue'),
+    ].join('\n')
+
+    expect(currentWriters).toContain('learning_purpose')
+    expect(currentWriters).toContain('course_teaching_type')
+    expect(currentWriters).not.toMatch(/(?:course_type|course_purpose|composition_style)\s*:/)
+    expect(currentWriters).not.toMatch(/\.(?:course_type|course_purpose|composition_style)\s*=/)
+  })
 })

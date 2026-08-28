@@ -800,7 +800,7 @@ async def policy_checks(workdir: Path) -> list[dict[str, Any]]:
                 "evidence": {"shown": shown, "limit": A.SESSION_SUGGESTION_LIMIT}})
 
     # 3) Scope caps at the chapter.
-    from section_evolution import _chapter_section_ids
+    from course_evolution.adjustment_planning import _chapter_section_ids
     from course_document import document_from_legacy_course
     document = document_from_legacy_course(course_fixture())
     members = _chapter_section_ids(document, "node-5")

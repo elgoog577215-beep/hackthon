@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 
 from course_knowledge_base import RELATION_TYPES, _compile_relations, _normalize_name
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 
 
 def _batch_prompt() -> str:

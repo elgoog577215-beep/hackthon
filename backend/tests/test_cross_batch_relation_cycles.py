@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from course_service import (
+from course_generation.service import (
     _record_relation_cycle_diagnosis,
     diagnose_cross_batch_relation_cycles,
     enforce_batch_prerequisite_direction,

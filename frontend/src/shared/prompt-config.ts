@@ -82,6 +82,12 @@ export type CourseIntent =
   | InquiryCourseIntent
   | ExamCourseIntent;
 
+/** 当前建课仅写入的课程目标；Inquiry 只留在历史数据转换器中读取。 */
+export type CurrentCourseIntent =
+  | SystematicCourseIntent
+  | ProjectCourseIntent
+  | ExamCourseIntent;
+
 /** 学科类型：回答这门课主要通过什么学科行为来教学。 */
 export type PedagogyMode =
   | 'general'
@@ -335,8 +341,9 @@ export interface GenerateCourseParams {
   request_id?: string;
   target_course_id?: string;
   difficulty: DifficultyLevel;
-  composition_style: CourseCompositionStyle;
-  style?: TeachingStyle;
+  learning_purpose: LearningPurpose;
+  course_teaching_type: CourseTeachingType;
+  course_intent: CurrentCourseIntent;
   target_audience?: string;
   teacher_course_brief?: TeacherCourseBriefV1;
   requirements?: string;
@@ -352,11 +359,6 @@ export interface GenerateCourseParams {
   generation_mode?: 'fast' | 'review_blueprint';
   production_mode?: 'manual' | 'automatic';
   teacher_authoring_mode?: 'lesson_assets_v1';
-  course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
-  course_type?: CourseType;
-  learning_purpose?: LearningPurpose;
-  course_teaching_type?: CourseTeachingType;
-  course_intent?: CourseIntent;
   asset_preferences?: Record<string, boolean>;
   web_question_enrichment?: {
     mode?: 'auto_on_gap' | 'off' | 'always';
@@ -374,7 +376,90 @@ export interface GenerateCourseParams {
   };
 }
 
-export type CourseGenerationOptions = Partial<Omit<GenerateCourseParams, 'subject'>>;
+/**
+ * 页面之间传递的建课选项。旧字段只为读取已有课程和任务，
+ * 新页面提交前必须经过 canonicalizeCourseGenerationOptions。
+ */
+export type CourseGenerationOptions = Partial<Omit<GenerateCourseParams, 'subject' | 'course_intent'>> & {
+  course_intent?: CourseIntent;
+  course_type?: CourseType;
+  course_purpose?: 'systematic' | 'exam_sprint' | 'material_organization' | 'personalized_remedial';
+  composition_style?: CourseCompositionStyle;
+  style?: TeachingStyle;
+};
+
+/**
+ * Read an old generation request once and return the current three-part
+ * teaching contract. New UI code must send the returned object instead of
+ * copying legacy classification fields forward.
+ */
+export function canonicalizeCourseGenerationOptions(
+  value: CourseGenerationOptions | Record<string, unknown> | undefined,
+): CourseGenerationOptions {
+  const raw = { ...(value || {}) } as Record<string, any>
+  const intent = raw.course_intent && typeof raw.course_intent === 'object'
+    ? { ...raw.course_intent }
+    : {}
+  const legacyType = String(raw.course_type || intent.type || '')
+  const learningPurpose = VALID_LEARNING_PURPOSES.includes(raw.learning_purpose)
+    ? raw.learning_purpose as LearningPurpose
+    : legacyType === 'project'
+      ? 'project'
+      : legacyType === 'exam' || raw.course_purpose === 'exam_sprint'
+        ? 'exam'
+        : 'systematic'
+  const courseTeachingType = VALID_COURSE_TEACHING_TYPES.includes(raw.course_teaching_type)
+    ? raw.course_teaching_type as CourseTeachingType
+    : legacyType === 'project' || raw.composition_style === 'project_driven'
+      ? 'project'
+      : legacyType === 'inquiry' || raw.composition_style === 'inquiry_driven'
+        ? 'seminar'
+        : raw.composition_style === 'theory_driven'
+          ? 'theory'
+          : 'comprehensive'
+
+  let courseIntent: CourseIntent
+  if (learningPurpose === 'project') {
+    courseIntent = {
+      schema_version: 'course_intent_v1',
+      type: 'project',
+      project_goal: String(intent.project_goal || raw.subject || raw.requirements || ''),
+      expected_deliverable: String(intent.expected_deliverable || ''),
+      prior_experience: String(intent.prior_experience || ''),
+      current_uncertainty: String(intent.current_uncertainty || ''),
+      project_constraints: String(intent.project_constraints || raw.requirements || ''),
+    }
+  } else if (learningPurpose === 'exam') {
+    courseIntent = {
+      schema_version: 'course_intent_v1',
+      type: 'exam',
+      exam_name: String(intent.exam_name || raw.subject || ''),
+      exam_date: String(intent.exam_date || ''),
+      exam_scope: String(intent.exam_scope || raw.requirements || ''),
+      current_preparation: String(intent.current_preparation || ''),
+    }
+  } else {
+    const inquiryGoal = [intent.core_question, intent.desired_output]
+      .map(item => String(item || '').trim())
+      .filter(Boolean)
+      .join('；')
+    courseIntent = {
+      schema_version: 'course_intent_v1',
+      type: 'systematic',
+      learning_goal: String(intent.learning_goal || inquiryGoal || raw.subject || raw.requirements || ''),
+      desired_outcome: String(intent.desired_outcome || ''),
+      existing_foundation: String(intent.existing_foundation || intent.existing_understanding || ''),
+    }
+  }
+
+  raw.learning_purpose = learningPurpose
+  raw.course_teaching_type = courseTeachingType
+  raw.course_intent = courseIntent
+  delete raw.course_type
+  delete raw.course_purpose
+  delete raw.composition_style
+  return raw as CourseGenerationOptions
+}
 
 // =============================================================================
 // 验证函数
@@ -436,6 +521,7 @@ export function validateGenerateCourseParams(
   params: Partial<GenerateCourseParams>
 ): ValidationResult {
   const errors: string[] = [];
+  const raw = params as Partial<GenerateCourseParams> & Record<string, unknown>;
   
   if (!params.subject || params.subject.trim().length === 0) {
     errors.push('subject is required and cannot be empty');
@@ -447,34 +533,32 @@ export function validateGenerateCourseParams(
     errors.push(`Invalid difficulty: ${params.difficulty}. Must be one of: ${VALID_DIFFICULTY_LEVELS.join(', ')}`);
   }
   
-  if (params.composition_style) {
-    if (!validateCompositionStyle(params.composition_style)) {
-      errors.push(`Invalid composition_style: ${params.composition_style}. Must be one of: ${VALID_COURSE_COMPOSITION_STYLES.join(', ')}`);
-    }
-  } else if (params.style) {
-    if (!validateStyle(params.style)) {
-      errors.push(`Invalid legacy style: ${params.style}. Must be one of: ${VALID_TEACHING_STYLES.join(', ')}`);
-    }
-  } else {
-    errors.push('composition_style is required');
-  }
-
-  if (params.course_type && !validateCourseType(params.course_type)) {
-    errors.push(`Invalid course_type: ${params.course_type}. Must be one of: ${VALID_COURSE_TYPES.join(', ')}`);
-  }
-
-  if (params.learning_purpose && !validateLearningPurpose(params.learning_purpose)) {
+  if (!params.learning_purpose) {
+    errors.push('learning_purpose is required');
+  } else if (!validateLearningPurpose(params.learning_purpose)) {
     errors.push(`Invalid learning_purpose: ${params.learning_purpose}. Must be one of: ${VALID_LEARNING_PURPOSES.join(', ')}`);
   }
 
-  if (params.course_teaching_type && !validateCourseTeachingType(params.course_teaching_type)) {
+  if (!params.course_teaching_type) {
+    errors.push('course_teaching_type is required');
+  } else if (!validateCourseTeachingType(params.course_teaching_type)) {
     errors.push(`Invalid course_teaching_type: ${params.course_teaching_type}. Must be one of: ${VALID_COURSE_TEACHING_TYPES.join(', ')}`);
   }
 
-  if (params.course_type === 'project') {
+  for (const legacyField of ['course_type', 'course_purpose', 'composition_style'] as const) {
+    if (raw[legacyField] !== undefined) errors.push(`${legacyField} is legacy-only; convert it before validation`);
+  }
+
+  if (!params.course_intent) {
+    errors.push('course_intent is required');
+  } else if (params.learning_purpose && params.course_intent.type !== params.learning_purpose) {
+    errors.push('course_intent.type must match learning_purpose');
+  }
+
+  if (params.learning_purpose === 'project') {
     const project = params.course_intent?.type === 'project' ? params.course_intent : null;
     if (!project) {
-      errors.push('a project course_intent is required when course_type is project');
+      errors.push('a project course_intent is required when learning_purpose is project');
     } else {
       const requiredProjectFields: Array<keyof ProjectCourseIntent> = [
         'project_goal',
@@ -486,21 +570,10 @@ export function validateGenerateCourseParams(
     }
   }
 
-  if (params.course_type === 'inquiry') {
-    const inquiry = params.course_intent?.type === 'inquiry' ? params.course_intent : null;
-    if (!inquiry) {
-      errors.push('an inquiry course_intent is required when course_type is inquiry');
-    } else {
-      for (const field of ['core_question', 'desired_output'] as const) {
-        if (!inquiry[field]?.trim()) errors.push(`course_intent.${field} is required`);
-      }
-    }
-  }
-
-  if (params.course_type === 'exam') {
+  if (params.learning_purpose === 'exam') {
     const exam = params.course_intent?.type === 'exam' ? params.course_intent : null;
     if (!exam) {
-      errors.push('an exam course_intent is required when course_type is exam');
+      errors.push('an exam course_intent is required when learning_purpose is exam');
     } else {
       for (const field of ['exam_name', 'exam_date', 'exam_scope'] as const) {
         if (!exam[field]?.trim()) errors.push(`course_intent.${field} is required`);
@@ -511,8 +584,9 @@ export function validateGenerateCourseParams(
     }
   }
 
-  if (params.course_type && params.course_intent && params.course_intent.type !== params.course_type) {
-    errors.push('course_intent.type must match course_type');
+  if (params.learning_purpose === 'systematic') {
+    const systematic = params.course_intent?.type === 'systematic' ? params.course_intent : null;
+    if (!systematic?.learning_goal.trim()) errors.push('course_intent.learning_goal is required');
   }
 
   const teacherBrief = params.teacher_course_brief;

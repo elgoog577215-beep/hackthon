@@ -424,7 +424,7 @@ class BlockRegenerationService:
             quality_feedback: list[str] = []
             generator = self.generator
             if generator is None:
-                from course_service import get_course_service
+                from course_generation.service import get_course_service
 
                 generator = get_course_service()
 

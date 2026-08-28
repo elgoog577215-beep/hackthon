@@ -39,7 +39,7 @@ const uniqueMatches = (source: string, pattern: RegExp): string[] => {
 describe('web search i18n coverage', () => {
   const search = readBackend('web_material_search.py')
   const gateway = readBackend('web_retrieval.py')
-  const service = readBackend('course_service.py')
+  const service = readBackend('course_generation/service.py')
 
   it('translates every message_code the backend emits', () => {
     const emitted = uniqueMatches(

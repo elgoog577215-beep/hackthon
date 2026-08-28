@@ -17,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from models import CourseGenerationRequest, LocateNodeRequest, NodeGenerationConfig
 from course_baseline import confirmed_generation_request
 from storage import storage
-from course_service import get_course_service
+from course_generation.service import get_course_service
 from course_space_publication import (
     MISSING_TEACHER_IDENTITY,
     SKIP_MESSAGES,
@@ -32,7 +32,7 @@ from dependencies import (
 )
 from course_repository import CourseMigrationConflict
 from storage_utils import save_course_compat
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 from learner_context import DEFAULT_USER_ID, require_actor_id, resolve_user_id
 from learning_snapshots import learning_snapshot_repository
 from web_material_curation import (

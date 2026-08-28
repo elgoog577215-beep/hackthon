@@ -19,7 +19,7 @@ from models import (
 )
 from storage import storage
 from ai_service import ai_service
-from course_service import get_course_service
+from course_generation.service import get_course_service
 from content_blocks import blocks_to_markdown, normalize_blocks
 from canonical_content_repair import persist_generated_node_content
 from dependencies import get_course_document_repository, get_course_or_404, get_node_or_404

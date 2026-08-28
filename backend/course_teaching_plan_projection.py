@@ -9,7 +9,7 @@ from course_lesson_dossier import (
     build_lesson_dossier,
     build_lesson_dossier_consistency,
 )
-from course_teaching_guidance import compile_overall_teaching_guidance
+from teaching_design import compile_overall_teaching_guidance
 
 
 def _text(value: Any) -> str:

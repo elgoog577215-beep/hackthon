@@ -1,8 +1,8 @@
 from copy import deepcopy
 
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 from course_pedagogy import resolve_pedagogy_profile
-from course_teaching_guidance import (
+from teaching_design import (
     compile_overall_teaching_guidance,
     compile_section_teaching_guidance,
     format_generation_teaching_guidance,

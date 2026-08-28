@@ -11,7 +11,7 @@ from copy import deepcopy
 import re
 from typing import Any
 
-from teaching_semantics import compile_course_semantics
+from .compiler import compile_course_semantics
 
 
 COURSE_TYPE_SYSTEMATIC = "systematic"

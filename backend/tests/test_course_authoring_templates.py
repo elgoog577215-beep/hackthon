@@ -4,7 +4,7 @@ from course_authoring_templates import (
     attach_formal_course_profile,
     compile_formal_course_context,
 )
-from course_outline_planning import outline_request_fingerprint
+from course_generation.outline import outline_request_fingerprint
 
 
 def test_formal_profile_is_a_bounded_generation_snapshot():

@@ -8,12 +8,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
-from course_generation_adaptive import (
+from course_generation.adaptive import (
     compile_fallback_teaching_batch,
     compile_fallback_teaching_skeleton,
 )
 from course_generation_budget import CourseGenerationDeadlineExceeded
-from course_generation_workflow import (
+from course_generation.workflow import (
     attach_generation_artifacts_to_plan,
     build_course_blueprint_from_plan,
     build_course_generation_artifacts,
@@ -38,8 +38,8 @@ from course_pedagogy import (
     attach_module_plans_to_plan,
     resolve_pedagogy_profile,
 )
-from course_planning_budget import build_teaching_plan_batches
-from course_service import CourseService
+from course_generation.budget import build_teaching_plan_batches
+from course_generation.service import CourseService
 from course_teaching_plan_v3 import normalize_teaching_plan_skeleton_v3
 
 
@@ -1013,7 +1013,7 @@ def test_outline_validation_leaves_fillable_quality_fields_for_review():
     ],
 )
 def test_course_shape_constraints_distinguish_per_chapter_from_total(requirements, expected):
-    from course_generation_workflow import _extract_course_shape_constraints
+    from course_generation.workflow import _extract_course_shape_constraints
 
     assert _extract_course_shape_constraints(requirements) == expected
 

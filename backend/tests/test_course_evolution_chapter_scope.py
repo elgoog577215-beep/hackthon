@@ -21,7 +21,7 @@ import pytest
 from course_document import document_from_legacy_course
 from course_evolution import CourseEvolutionRepository
 from course_repository import CourseDocumentRepository
-from section_evolution import generate_section_evolution_plan
+from course_evolution.adjustment_planning import generate_course_adjustment_plan
 
 
 class _MemoryCourseStorage:
@@ -146,7 +146,7 @@ async def test_chapter_scope_stays_inside_the_requesting_chapter(tmp_path: Path)
     repository = CourseEvolutionRepository(tmp_path)
     course = _chaptered_course()
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-a",
         section_id="c1-section-1",
@@ -174,7 +174,7 @@ async def test_chapter_scope_can_reach_beyond_the_originating_section(tmp_path: 
     repository = CourseEvolutionRepository(tmp_path)
     course = _chaptered_course()
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-a",
         section_id="c1-section-1",
@@ -196,7 +196,7 @@ async def test_chapter_scope_reports_its_affected_sections(tmp_path: Path):
     repository = CourseEvolutionRepository(tmp_path)
     course = _chaptered_course()
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-a",
         section_id="c1-section-1",
@@ -220,7 +220,7 @@ async def test_section_scope_is_unchanged_by_the_new_chapter_scope(tmp_path: Pat
     repository = CourseEvolutionRepository(tmp_path)
     course = _chaptered_course()
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="student-a",
         section_id="c1-section-1",
@@ -242,7 +242,7 @@ async def test_whole_course_scope_remains_available_to_the_domain(tmp_path: Path
     repository = CourseEvolutionRepository(tmp_path)
     course = _chaptered_course()
 
-    state = await generate_section_evolution_plan(
+    state = await generate_course_adjustment_plan(
         course,
         user_id="teacher-a",
         section_id="c1-section-1",
@@ -264,7 +264,7 @@ async def test_unknown_scope_is_rejected(tmp_path: Path):
     course = _chaptered_course()
 
     with pytest.raises(ValueError):
-        await generate_section_evolution_plan(
+        await generate_course_adjustment_plan(
             course,
             user_id="student-a",
             section_id="c1-section-1",

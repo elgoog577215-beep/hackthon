@@ -5,7 +5,7 @@ from docx import Document
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from course_generation_workflow import (
+from course_generation.workflow import (
     build_course_blueprint_from_plan,
     build_node_generation_context,
     normalize_course_plan_contract,

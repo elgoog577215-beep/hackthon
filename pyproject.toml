@@ -38,4 +38,4 @@ ignore = [
 "backend/models.py" = ["E402"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["models", "storage", "course_service", "task_manager", "websocket_service", "course_pedagogy", "course_quality"]
+known-first-party = ["models", "storage", "course_generation", "jobs", "teaching_design", "course_evolution", "websocket_service", "course_pedagogy", "course_quality"]

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from course_generation_workflow import _knowledge_contract_issues
+from course_generation.workflow import _knowledge_contract_issues
 
 LEGACY_DECISIONS = [{
     "knowledge_id": "ckp_legacy_only_in_old_courses",

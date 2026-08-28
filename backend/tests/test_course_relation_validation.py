@@ -272,7 +272,7 @@ def test_blocked_relation_reaches_the_correction_prompt() -> None:
     course_service 用 `blocking_issues` 构造修正轮（course_service.py:2260-2265）。
     校验层报出来但没进修正 prompt，等于没回灌。
     """
-    from course_prompt_composer import CoursePromptComposer
+    from course_generation.prompts import CoursePromptComposer
 
     report = _report([{k: v for k, v in _DERIVES.items() if k != "derivation_steps"}])
 

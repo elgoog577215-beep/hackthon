@@ -14,8 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from course_generation_adaptive import compact_planning_context  # noqa: E402
-from course_prompt_composer import get_course_prompt_composer  # noqa: E402
+from course_generation.adaptive import compact_planning_context  # noqa: E402
+from course_generation.prompts import get_course_prompt_composer  # noqa: E402
 
 EVIDENCE_MARK = "可依据的资料证据"
 
@@ -132,7 +132,7 @@ def test_minimal_detail_keeps_evidence_ids_in_planning_context():
 
 def test_evidence_growth_stays_within_input_budget():
     """加证据不能把教案批次 prompt 推爆——这是上一轮实测过的真实痛点。"""
-    from course_planning_budget import (
+    from course_generation.budget import (
         CoursePlanningBudget,
         estimate_json_tokens,
     )

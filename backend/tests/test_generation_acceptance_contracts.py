@@ -10,7 +10,7 @@ from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
 from learning_asset_storage import LearningAssetRepository
 from question_bank import QuestionBankRepository
-from task_manager import TaskManager
+from jobs.manager import TaskManager
 
 
 class MemoryStorage:
@@ -131,7 +131,7 @@ def _generated_course():
 
 
 async def _manager(tmp_path, monkeypatch, course):
-    import task_manager as task_manager_module
+    import jobs.manager as task_manager_module
     from teaching_representations import TeachingRepresentationRepository
 
     monkeypatch.setattr(task_manager_module, "TASKS_FILE", tmp_path / "tasks.json")
@@ -191,7 +191,7 @@ async def test_generation_completion_publishes_one_strictly_ready_course(tmp_pat
         tmp_path, monkeypatch, course
     )
     monkeypatch.setattr(
-        "task_manager.build_final_course_quality_report",
+        "jobs.manager.build_final_course_quality_report",
         lambda _course, job_id: {"job_id": job_id, "final_status": "passed"},
     )
 
@@ -230,7 +230,7 @@ async def test_non_blocking_quality_warning_is_published_with_visible_status(
         tmp_path, monkeypatch, course
     )
     monkeypatch.setattr(
-        "task_manager.build_final_course_quality_report",
+        "jobs.manager.build_final_course_quality_report",
         lambda _course, job_id: {
             "job_id": job_id,
             "final_status": "completed_with_warnings",
@@ -266,7 +266,7 @@ async def test_restart_rechecks_old_quality_block_without_regenerating_content(
     })
     workspaces.set_status("job-1", "quality_failed")
     monkeypatch.setattr(
-        "task_manager.build_final_course_quality_report",
+        "jobs.manager.build_final_course_quality_report",
         lambda _course, job_id: {
             "job_id": job_id,
             "final_status": "completed_with_warnings",
@@ -296,7 +296,7 @@ async def test_failed_asset_quality_keeps_revision_inactive_and_unpublished(tmp_
         tmp_path, monkeypatch, course
     )
     monkeypatch.setattr(
-        "task_manager.build_final_course_quality_report",
+        "jobs.manager.build_final_course_quality_report",
         lambda _course, job_id: {"job_id": job_id, "final_status": "passed"},
     )
 

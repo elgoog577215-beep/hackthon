@@ -8,14 +8,14 @@ from copy import deepcopy
 import pytest
 
 from ai_base import AIBase
-from course_generation_workflow import (
+from course_generation.workflow import (
     _extract_course_shape_constraints,
     build_course_generation_artifacts,
     _resolve_course_shape_constraints,
     build_course_knowledge_scope_contract,
     build_section_knowledge_scope_slice,
 )
-from course_outline_planning import (
+from course_generation.outline import (
     CourseOutlinePlanningBudget,
     assemble_course_outline,
     course_coverage_verdict,
@@ -27,8 +27,8 @@ from course_outline_planning import (
     validate_outline_batch,
     validate_outline_skeleton,
 )
-from course_prompt_composer import CoursePromptComposer
-from course_service import CourseService
+from course_generation.prompts import CoursePromptComposer
+from course_generation.service import CourseService
 
 
 def _outline_skeleton_payload(
@@ -776,7 +776,7 @@ async def test_outline_resume_keeps_teacher_confirmed_shape_when_brief_drifts(
 
 
 def test_outline_fingerprint_ignores_ephemeral_brief_id():
-    from course_outline_planning import outline_request_fingerprint
+    from course_generation.outline import outline_request_fingerprint
 
     common = {
         "topic": "并行系统",

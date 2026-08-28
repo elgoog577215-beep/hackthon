@@ -15,7 +15,7 @@ from course_difficulty import (
 )
 from course_document import document_from_generation_draft
 from course_pedagogy import MODULES, attach_module_plans_to_plan, resolve_pedagogy_profile
-from course_prompt_composer import CoursePromptComposer
+from course_generation.prompts import CoursePromptComposer
 from models import CourseGenerationRequest
 
 

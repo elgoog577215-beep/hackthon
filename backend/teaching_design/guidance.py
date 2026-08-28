@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from course_authoring_templates import compile_formal_course_context
-from subject_standard_packs import resolve_subject_standard_pack
+from .compiler import resolve_subject_standard_pack
 
 
 def _text(value: Any) -> str:
