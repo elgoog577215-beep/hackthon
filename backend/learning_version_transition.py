@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 import threading
 from typing import Any
@@ -122,6 +123,8 @@ def confirm_version_transition(
     user_id: str,
     expected_projection_revision_id: str,
     request_id: str,
+    projection_builder: Callable[..., dict[str, Any]],
+    runtime_builder: Callable[..., dict[str, Any]],
     node_id: str | None = None,
     target_node_id: str | None = None,
 ) -> dict[str, Any]:
@@ -132,16 +135,28 @@ def confirm_version_transition(
     with _lock(user_id, course_id):
         existing = _confirmation_event(user_id, course_id, request_id)
         if existing:
-            return _result(course, user_id, node_id, existing, already_confirmed=True)
+            return _result(
+                course,
+                user_id,
+                node_id,
+                existing,
+                runtime_builder=runtime_builder,
+                already_confirmed=True,
+            )
 
-        from learning_continuation import build_learning_continuation
-
-        projection = build_learning_continuation(course, user_id=user_id, node_id=node_id)
+        projection = projection_builder(course, user_id=user_id, node_id=node_id)
         plan = projection.get("version_transition")
         if not plan:
             recovered = _recover_confirmation_event(course, user_id=user_id, request_id=request_id)
             if recovered:
-                return _result(course, user_id, node_id, recovered, already_confirmed=True)
+                return _result(
+                    course,
+                    user_id,
+                    node_id,
+                    recovered,
+                    runtime_builder=runtime_builder,
+                    already_confirmed=True,
+                )
             raise NoPendingVersionTransition("no pending version transition")
         if projection.get("projection_revision_id") != expected_projection_revision_id:
             raise VersionTransitionConflict(projection)
@@ -191,7 +206,14 @@ def confirm_version_transition(
             },
             metadata={"request_id": request_id, "transition_schema": "learning_version_transition_v1"},
         )
-        return _result(course, user_id, node_id, event, already_confirmed=False)
+        return _result(
+            course,
+            user_id,
+            node_id,
+            event,
+            runtime_builder=runtime_builder,
+            already_confirmed=False,
+        )
 
 
 def _snapshot_plan(course: dict[str, Any], snapshot: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -378,11 +400,10 @@ def _result(
     node_id: str | None,
     event: dict[str, Any],
     *,
+    runtime_builder: Callable[..., dict[str, Any]],
     already_confirmed: bool,
 ) -> dict[str, Any]:
-    from learning_runtime import build_learning_runtime
-
-    runtime = build_learning_runtime(course, user_id=user_id, node_id=node_id)
+    runtime = runtime_builder(course, user_id=user_id, node_id=node_id)
     return {
         "status": "already_confirmed" if already_confirmed else "confirmed",
         "event_id": event.get("event_id"),

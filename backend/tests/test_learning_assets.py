@@ -100,6 +100,21 @@ def test_plan_uses_course_purpose_and_subject_mode():
     assert "subject_knowledge" not in plan["enabled_asset_types"]
     assert "teaching_standards" not in plan["enabled_asset_types"]
     assert "course_knowledge_map" in plan["enabled_asset_types"]
+    assert "final_assessment" not in plan["enabled_asset_types"]
+
+
+def test_single_node_course_generates_final_assessment_only_when_teacher_requests_it():
+    default_course = _course()
+    default_bundle = compile_learning_assets(default_course)
+    assert default_bundle["assets"]["final_assessment"] == []
+    assert default_bundle["quality_report"]["passed"] is True
+
+    requested_course = _course()
+    requested_course["generation_request"] = {
+        "asset_preferences": {"final_assessment": True},
+    }
+    requested_bundle = compile_learning_assets(requested_course)
+    assert requested_bundle["assets"]["final_assessment"]
 
 
 def test_assets_have_stable_revisions_and_five_passing_gates():
@@ -253,6 +268,9 @@ def test_concept_check_rubric_does_not_require_literal_first_keyword_match():
 
 def test_unpublished_enhancement_candidates_do_not_block_core_course_release():
     course = _course()
+    course["generation_request"] = {
+        "asset_preferences": {"final_assessment": True},
+    }
     bundle = compile_learning_assets(course)
     diagnostic = bundle["assets"]["diagnostic_templates"][0]
     diagnostic["quality_status"] = "failed"
@@ -353,7 +371,11 @@ def test_explicit_question_preference_defers_question_bank_generation():
 
 
 def test_questions_compile_formal_practice_contracts():
-    assets = compile_learning_assets(_course())["assets"]
+    course = _course()
+    course["generation_request"] = {
+        "asset_preferences": {"final_assessment": True},
+    }
+    assets = compile_learning_assets(course)["assets"]
     questions = assets["questions"]
     finals = assets["final_assessment"]
     final = finals[0]

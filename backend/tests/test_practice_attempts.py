@@ -723,7 +723,7 @@ def test_active_question_bank_replaces_same_level_legacy_template(monkeypatch):
     assert all("用自己的话说明" not in item["prompt"] for item in questions)
 
 
-def test_practice_read_migrates_all_legacy_blanket_review_questions(
+def test_practice_read_migrates_blanket_review_without_releasing_risky_question(
     monkeypatch,
     tmp_path,
 ):
@@ -770,10 +770,17 @@ def test_practice_read_migrates_all_legacy_blanket_review_questions(
         if item["assessment_role"] == "practice"
     ]
 
-    assert len(questions) == 3
+    assert len(questions) == 2
     assert all(
         item["lifecycle_status"] == "approved"
         and item["generation_status"] == "published"
+        for item in practice_items
+        if not item.get("risk_flags")
+    )
+    assert any(
+        item["lifecycle_status"] == "needs_review"
+        and item["generation_status"] == "waiting_review"
+        and "independent_solution_required" in item.get("risk_flags", [])
         for item in practice_items
     )
     assert active["review_policy"]["schema_version"] == (

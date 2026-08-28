@@ -581,7 +581,7 @@
               data-testid="question-generation-audit"
             >
               <header>
-                <strong>生成与质量闭环</strong>
+                <strong>生成与质量检查</strong>
                 <small>{{ item.design_brief_summary.semantics_registry_id || item.question_type }}</small>
               </header>
               <div class="question-generation-audit__grid">

@@ -7,9 +7,9 @@ from copy import deepcopy
 from typing import Any
 
 from content_blocks import set_node_content_blocks
-from course_knowledge_map import normalize_knowledge_structure
 from course_versioning import stable_hash
 from evidence_package import evidence_for_keys, load_frozen_package
+from knowledge_structure import normalize_knowledge_structure
 
 COURSE_KNOWLEDGE_BASE_SCHEMA = "course_knowledge_base_v2"
 COURSE_KNOWLEDGE_VIEW_SCHEMA = "knowledge_library_view_v3"

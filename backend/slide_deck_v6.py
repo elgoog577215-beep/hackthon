@@ -8350,7 +8350,7 @@ def _slide_pages_from_ppt_manuscript_v1(
             raise V6BuildError(
                 stage="manuscript",
                 code="ppt_manuscript_page_spec_incomplete",
-                message="冻结的 PPT 文书页缺少 Web/PPTX 共用渲染合同。",
+                message="已确认的 PPT 文书页缺少 Web/PPTX 共用渲染合同。",
                 page_id=page.page_id,
             )
         pages.append(SlidePageV6(
@@ -8598,7 +8598,7 @@ def compile_slide_deck_v6_from_manuscript(
         raise V6BuildError(
             stage="manuscript",
             code="ppt_manuscript_revision_mismatch",
-            message="PPT 文书冻结后发生了未授权改动。",
+            message="PPT 文书确认后发生了未授权改动。",
         )
     pages = _slide_pages_from_ppt_manuscript_v1(manuscript)
     quality = _compile_slide_deck_quality_from_manuscript(

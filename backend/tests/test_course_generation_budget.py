@@ -415,7 +415,7 @@ def test_parallel_node_context_never_depends_on_generated_predecessor_body():
         course["nodes"][1],
     )
 
-    assert "已冻结前序教学责任" in context
+    assert "已确认的前序教学责任" in context
     assert "能完成前序任务" in context
     assert "不应进入提示词的正文标记" not in context
 
@@ -537,7 +537,7 @@ def test_realistic_section_reaches_full_detail_instead_of_silent_minimal():
         },
         "nodes": [node],
     }
-    context = "## 已冻结前序教学责任\n" + "\n".join(
+    context = "## 已确认的前序教学责任\n" + "\n".join(
         f"- 第{index}节：完成对应教学责任并交付可观察证据"
         for index in range(1, 6)
     )

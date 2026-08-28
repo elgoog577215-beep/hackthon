@@ -17,3 +17,6 @@ jobs:
 
       - name: Verify repository tracking hygiene
         run: scripts/check-tracked-ignored.sh
+
+      - name: Verify backend dependency direction
+        run: python3 scripts/audit_backend_dependencies.py

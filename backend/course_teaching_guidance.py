@@ -329,7 +329,7 @@ def format_generation_teaching_guidance(
         f"- 总体成果：{'；'.join(objectives) or '完成当前课程的可观察学习成果'}",
         f"- 教学对象：{overall['target_audience'] or '按课程需求确定'}",
         f"- 学习起点：{'；'.join(overall['prerequisites']) or '无额外前置要求'}",
-        f"- 教学主线：{overall['teaching_throughline'] or '从理解进入应用，并用可检查任务闭环'}",
+        f"- 教学主线：{overall['teaching_throughline'] or '从理解进入应用，再用可检查任务验证结果'}",
         f"- 当前章节责任：{section['chapter_learning_focus'] or section['chapter_title'] or '推进当前阶段目标'}",
         f"- 本节责任：{section['section_objective'] or '完成当前小节目标'}",
         f"- 评价证据：{'；'.join(assessments) or '使用与本节目标一致的可检查任务'}",

@@ -191,7 +191,7 @@ def test_detailed_lesson_plan_batch_must_translate_overall_guidance():
     assert "## 总体教案引领（与教师视图同源，只读）" in prompt
     assert "先用图像建立变化率直觉，再进入代数表达" in prompt
     assert "必须把总体教案的课程成果、教学主线和" in prompt
-    assert "不得改变冻结的目录、知识身份或模块集合" in prompt
+    assert "不得改变已确认的目录、知识身份或模块集合" in prompt
     assert "知识与能力" in prompt
     assert "过程与方法" in prompt
     assert "不为补齐「创新」标题编造空洞目标" in prompt

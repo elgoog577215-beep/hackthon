@@ -564,7 +564,7 @@ def evaluate_question_semantic_preflight(
             issues.append(_issue(
                 "MATERIAL_BINDING_INVALID",
                 "critical",
-                "调试题标准答案没有形成位置、原因、修复和复验的可检查闭环。",
+                "调试题标准答案没有完整说明位置、原因、修复和复验结果。",
             ))
     elif question_type == "trace_verification":
         checks["trace_claim_present"] = bool(

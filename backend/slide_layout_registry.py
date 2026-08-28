@@ -308,7 +308,7 @@ SLIDE_LAYOUT_REGISTRY_V2: tuple[LayoutDefinitionV2, ...] = (
     _layout(
         "chapter-closure",
         "summary",
-        "目标闭环与下一章承接",
+        "目标检查与下一章承接",
         "summary",
         ["chapter_recap"],
         slots=[("closure", ["text", "list"], True), ("next", ["text"], False)],

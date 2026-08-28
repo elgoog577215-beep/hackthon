@@ -506,7 +506,7 @@ const nextDetails = computed<Record<CourseProductionStageKey, string>>(() => {
     requirements: t('courseGeneration.production.inquiryRequirementsNext', '问题与结论形态确定后，系统会先形成问题树和证据路径。'),
     outline: t('courseGeneration.production.inquiryOutlineNext', '确认问题路径后，系统会为每个阶段生成证据方法、反例检验与判断标准。'),
     teaching: t('courseGeneration.production.inquiryTeachingNext', '确认证据与方法后，课程会沿问题依赖逐节生成。'),
-    content: t('courseGeneration.production.inquiryContentNext', '所有探究内容完成后，系统检查证据、反例与结论边界是否闭合。'),
+    content: t('courseGeneration.production.inquiryContentNext', '所有探究内容完成后，系统检查证据、反例和结论是否相互支持，并写清结论的适用范围。'),
     release: t('courseGeneration.production.inquiryReleaseNext', '确认后，当前页面会原地切换为问题探究学习现场。'),
   }
   if (courseType.value === 'exam') return {

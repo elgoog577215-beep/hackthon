@@ -13,6 +13,7 @@ from copy import deepcopy
 from typing import Any
 
 from course_pedagogy import MODULES, module_block_role
+from teacher_visible_language import has_unnatural_system_language
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
@@ -848,7 +849,10 @@ def validate_teacher_script_section(
                 "teacher_script:lesson_plan_voice",
                 f"“{_text(block.get('title'))}”仍在描述教师或学生应当做什么，没有写成教师可以直接说的话。",
             )
-        if _INTERNAL_PROCESS_PATTERN.search(content):
+        if (
+            _INTERNAL_PROCESS_PATTERN.search(content)
+            or has_unnatural_system_language(content)
+        ):
             add(
                 blocking,
                 "teacher_script:internal_process_leakage",
@@ -878,7 +882,7 @@ def validate_teacher_script_section(
             add(
                 blocking,
                 "teacher_script:unclosed_code_fence",
-                f"“{_text(block.get('title'))}”存在未闭合的代码围栏。",
+                f"“{_text(block.get('title'))}”的代码块缺少开头或结尾标记。",
             )
         delimiter_state = _markdown_math_delimiter_state(content)
         if (
@@ -891,7 +895,7 @@ def validate_teacher_script_section(
             add(
                 blocking,
                 "teacher_script:unclosed_math_delimiter",
-                f"“{_text(block.get('title'))}”存在未闭合的公式定界符。",
+                f"“{_text(block.get('title'))}”的公式定界符没有成对出现。",
             )
         if _has_unwrapped_display_math_environment(content):
             add(

@@ -10,7 +10,7 @@ systematic 走兜底。其中 project 与 systematic 的 `required_planning_stag
 「把探究任务伪装成项目里程碑」的课才被人看出来。
 """
 
-from course_prompt_composer import _course_type_planning_rules
+from course_prompt_composer import _course_planning_rules, _course_type_planning_rules
 from course_type_contracts import (
     COURSE_TYPE_CONTRACTS,
     ENABLED_COURSE_TYPES,
@@ -89,3 +89,27 @@ def test_exam_is_the_only_type_with_its_own_purpose():
     }
     assert purposes["exam"] == "exam_sprint"
     assert {purposes["systematic"], purposes["project"], purposes["inquiry"]} == {"systematic"}
+
+
+def test_current_product_classifications_override_legacy_course_type_rules():
+    rules = _course_planning_rules({
+        "learning_purpose": "systematic",
+        "course_teaching_type": "seminar",
+        "course_type": "inquiry",
+        "course_type_contract": COURSE_TYPE_CONTRACTS["inquiry"],
+    })
+
+    assert "define_question" not in rules
+    assert "整课怎样教由课程教学类型决定" in rules
+
+
+def test_current_exam_purpose_keeps_the_ordered_revision_tasks():
+    rules = _course_planning_rules({
+        "learning_purpose": "exam",
+        "course_teaching_type": "comprehensive",
+        "course_type": "systematic",
+    })
+
+    assert "scope_diagnosis" in rules
+    assert "final_consolidation" in rules
+    assert "不得倒序" in rules

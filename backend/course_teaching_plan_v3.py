@@ -908,7 +908,7 @@ def validate_teaching_plan_batch_v3(
         actual = actual_by_id.get(node_id) or {}
         detail_keys = [str(item.get("knowledge_key") or "") for item in actual.get("knowledge_details") or []]
         if detail_keys != expected_keys:
-            issues.append(_issue("teaching_batch:knowledge_key_mismatch", f"小节 {node_id} 必须逐个展开骨架冻结的知识键"))
+            issues.append(_issue("teaching_batch:knowledge_key_mismatch", f"小节 {node_id} 必须逐个展开骨架中已确认的知识键"))
         allowed_keys = set(expected_keys) | set(identity.get("reused_knowledge_keys") or [])
         available_relation_keys = {
             key
@@ -1005,7 +1005,7 @@ def validate_teaching_plan_batch_v3(
             if module.get("module_id") not in allowed_modules:
                 issues.append(_issue("teaching_batch:unknown_module", f"小节 {node_id} 返回了不允许的课程块"))
             if set(module.get("knowledge_keys") or []) - allowed_keys:
-                issues.append(_issue("teaching_batch:unknown_module_knowledge", f"小节 {node_id} 的课程块越过了冻结知识边界"))
+                issues.append(_issue("teaching_batch:unknown_module_knowledge", f"小节 {node_id} 的课程块超出了已确认的知识范围"))
     return {
         "schema_version": "course_teaching_plan_batch_validation_v3",
         # 软门槛不参与 passed：复核提示不能阻断发布。

@@ -962,8 +962,8 @@ function phaseLabel(phase: string | undefined, status: Task['status'], taskType?
     outline_rebuild_required: t('courseTasks.phases.outlineRebuildRequired', '按完整课程模式重建目录'),
     outline_confirmed: t('courseTasks.phases.outlineConfirmed', '目录已确认'),
     course_teaching_plan: t('courseTasks.phases.courseTeachingPlan', '规划并汇编全课小节教案'),
-    course_teaching_plan_skeleton: t('courseTasks.phases.courseTeachingPlanSkeleton', '冻结全课知识职责'),
-    course_teaching_plan_skeleton_validation: t('courseTasks.phases.courseTeachingPlanSkeletonValidation', '检查全课知识职责'),
+    course_teaching_plan_skeleton: t('courseTasks.phases.courseTeachingPlanSkeleton', '确定各节教学重点'),
+    course_teaching_plan_skeleton_validation: t('courseTasks.phases.courseTeachingPlanSkeletonValidation', '检查各节教学重点'),
     course_teaching_plan_batch: t('courseTasks.phases.courseTeachingPlanBatch', '并行生成详细教案批次'),
     course_teaching_plan_batch_validation: t('courseTasks.phases.courseTeachingPlanBatchValidation', '检查当前详细教案批次'),
     course_teaching_plan_assembly: t('courseTasks.phases.courseTeachingPlanAssembly', '汇编唯一的全课教案'),
@@ -1141,7 +1141,7 @@ function recoveryCheckpointLabel(task: TaskView) {
       .replace('{total}', String(knowledgeTotal))
   }
   if (checkpoint.outline_ready && !checkpoint.total_nodes) {
-    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可从全课知识职责阶段继续')
+    return t('courseTasks.recovery.outlineCheckpoint', '课程目录已保留，可继续确定各节教学重点')
   }
   if (!checkpoint.outline_ready && !checkpoint.total_nodes) {
     return checkpoint.requirements_ready

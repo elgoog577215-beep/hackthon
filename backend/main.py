@@ -33,6 +33,7 @@ try:
     from dependencies import init_task_manager
     from websocket_service import WebSocketService
     from course_service import get_course_service
+    from learning_event_evolution import configure_learning_event_evolution
 except ImportError:
     try:
         from backend.storage import storage
@@ -43,6 +44,7 @@ except ImportError:
         from backend.dependencies import init_task_manager
         from backend.websocket_service import WebSocketService
         from backend.course_service import get_course_service
+        from backend.learning_event_evolution import configure_learning_event_evolution
     except ImportError as e:
         logger.error(f"Failed to import required modules: {e}")
         raise
@@ -110,6 +112,7 @@ try:
     )
     ws_service.set_command_handler(task_manager.handle_command)
     init_task_manager(task_manager)
+    configure_learning_event_evolution()
 except NameError:
     task_manager = None
     representation_reconciliation_service = None

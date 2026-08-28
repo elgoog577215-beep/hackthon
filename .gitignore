@@ -43,6 +43,9 @@ env/
 
 # Data
 backend/tasks.json
+backend/data/annotations.json
+backend/data/learning_events.json
+backend/data/learning_records.json
 backend/data/generation_jobs.json
 backend/data/usage_events.json
 backend/data/courses/

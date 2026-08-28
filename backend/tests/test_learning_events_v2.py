@@ -4,7 +4,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from starlette.requests import Request
 
-import course_evolution
 import learning_events
 from course_versions import CourseVersionRepository
 from models import ReviewResult, SubmitReviewRequest
@@ -88,9 +87,11 @@ def test_ai_question_immediately_refreshes_course_evolution_projection(monkeypat
     monkeypatch.setattr(learning_events, "storage", memory)
     evaluated = []
     monkeypatch.setattr(
-        course_evolution,
-        "synchronize_and_evaluate_course_evolution",
-        lambda course, *, user_id: evaluated.append((course["course_id"], user_id)),
+        learning_events,
+        "_evidence_evaluator",
+        lambda event, event_storage: evaluated.append(
+            (event_storage.load_course(event["course_id"])["course_id"], event["user_id"])
+        ),
     )
 
     learning_events.record_learning_event(

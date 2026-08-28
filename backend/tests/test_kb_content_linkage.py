@@ -1,7 +1,6 @@
 from copy import deepcopy
 
-from change_proposals import ChangeProposalRepository
-from course_knowledge_map import propose_kb_linkage_from_block_change
+from change_proposals import ChangeProposalRepository, propose_kb_linkage_from_block_change
 from subject_knowledge import propose_content_linkage_from_kb_change
 
 

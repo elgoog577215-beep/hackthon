@@ -296,7 +296,7 @@ def evaluate_node_content(
     if any(marker in lowered_prefix for marker in ("好的，", "遵照您的", "我将", "以下是", "下面是")):
         issues.append(_issue("meta_preamble", "major", "正文包含模型寒暄或任务复述", "直接从课程正文开始", node_id))
     if text.count("```") % 2:
-        issues.append(_issue("unclosed_code_fence", "critical", "代码块没有闭合", "闭合 Markdown 代码块", node_id))
+        issues.append(_issue("unclosed_code_fence", "critical", "代码块缺少开头或结尾标记", "补齐 Markdown 代码块标记", node_id))
     issues.extend(_structural_markdown_issues(text, node_id))
     if re.search(r"(?m)^[ \t]*\$[ \t]*$", text):
         issues.append(_issue(
@@ -310,8 +310,8 @@ def evaluate_node_content(
         issues.append(_issue(
             "unclosed_math_fence",
             "critical",
-            "块级公式 $$ 分隔符没有闭合",
-            "闭合 Markdown 块级公式分隔符",
+            "块级公式 $$ 分隔符没有成对出现",
+            "补齐 Markdown 块级公式分隔符",
             node_id,
         ))
     # An even `$$` count is not proof the math is well-formed: a display

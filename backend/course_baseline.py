@@ -9,6 +9,12 @@ from typing import Any
 
 from course_document import stable_hash
 from models import CourseGenerationRequest
+from teaching_semantics import (
+    COURSE_TEACHING_TYPES,
+    LEARNING_PURPOSES,
+    resolve_course_teaching_type,
+    resolve_learning_purpose,
+)
 
 
 COURSE_TYPES = {"systematic", "project", "inquiry", "exam"}
@@ -39,6 +45,42 @@ COURSE_PROFILE_FIELDS = (
     "course_intro",
     "teaching_goals",
 )
+
+
+def _canonical_generation_request(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep new baseline writes on the three teacher-facing classifications."""
+    request = deepcopy(value)
+    legacy_course_type = str(request.get("course_type") or "").strip()
+    learning_purpose = resolve_learning_purpose(
+        request.get("learning_purpose"),
+        legacy_course_type=legacy_course_type,
+    )
+    course_teaching_type, _ = resolve_course_teaching_type(
+        request.get("course_teaching_type"),
+        learning_purpose=learning_purpose,
+        legacy_course_type=legacy_course_type,
+        composition_style=request.get("composition_style"),
+    )
+    request["learning_purpose"] = learning_purpose
+    request["course_teaching_type"] = course_teaching_type
+    intent = request.get("course_intent")
+    if isinstance(intent, dict) and str(intent.get("type") or "") == "inquiry":
+        goal = "；".join(
+            item
+            for item in (
+                str(intent.get("core_question") or "").strip(),
+                str(intent.get("desired_output") or "").strip(),
+            )
+            if item
+        )
+        request["course_intent"] = {
+            "schema_version": "course_intent_v1",
+            "type": "systematic",
+            "learning_goal": goal or str(request.get("subject") or "").strip(),
+        }
+    for legacy_field in ("course_type", "composition_style", "course_purpose"):
+        request.pop(legacy_field, None)
+    return request
 
 
 def baseline_revision(course: dict[str, Any]) -> int:
@@ -106,7 +148,7 @@ def normalize_course_information(
     request = normalized.get("generation_request")
     if not isinstance(request, dict):
         request = {}
-    request = deepcopy(request)
+    request = _canonical_generation_request(request)
     brief = request.get("teacher_course_brief")
     if not isinstance(brief, dict):
         brief = {}
@@ -229,17 +271,20 @@ def course_information_versions(course: dict[str, Any]) -> list[dict[str, Any]]:
 
 def confirmed_generation_request(value: CourseGenerationRequest) -> dict[str, Any]:
     """Return the persisted baseline without per-run command identity fields."""
-    return value.model_dump(
+    return _canonical_generation_request(value.model_dump(
         mode="json",
         exclude={"request_id", "target_course_id"},
-    )
+    ))
 
 
 def baseline_changed_fields(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    before = _canonical_generation_request(before)
+    after = _canonical_generation_request(after)
     before_brief = before.get("teacher_course_brief") or {}
     after_brief = after.get("teacher_course_brief") or {}
     fields = {
-        "course_type": before.get("course_type") != after.get("course_type"),
+        "learning_purpose": before.get("learning_purpose") != after.get("learning_purpose"),
+        "course_teaching_type": before.get("course_teaching_type") != after.get("course_teaching_type"),
         "learning_goal": _goal(before) != _goal(after),
         "difficulty": before.get("difficulty") != after.get("difficulty"),
         "pedagogy_mode": before.get("pedagogy_mode") != after.get("pedagogy_mode"),
@@ -370,7 +415,8 @@ def build_ai_baseline_prompt(
     transcript = messages[-12:]
     schema = {
         "updates": {
-            "course_type": "systematic | project | inquiry | exam | null",
+            "learning_purpose": "systematic | project | exam | null",
+            "course_teaching_type": "theory | laboratory | practice | seminar | project | comprehensive | null",
             "learning_goal": "string | null",
             "difficulty": "beginner | intermediate | advanced | null",
             "pedagogy_mode": "auto | general | math_formal | programming_engineering | natural_science | life_medical | humanities_social | language_learning | business_career | null",
@@ -387,7 +433,7 @@ def build_ai_baseline_prompt(
         "只输出 JSON，不要输出 Markdown。\n"
         f"输出结构：{json.dumps(schema, ensure_ascii=False)}\n"
         f"当前课程：{course.get('course_name') or ''}\n"
-        f"当前基线：{json.dumps(course.get('generation_request') or {}, ensure_ascii=False)}\n"
+        f"当前课程设置：{json.dumps(_canonical_generation_request(course.get('generation_request') or {}), ensure_ascii=False)}\n"
         f"本次对话：{json.dumps(transcript, ensure_ascii=False)}"
     )
 
@@ -405,27 +451,41 @@ def merge_ai_baseline_draft(
     current baseline, so an AI draft cannot erase settings the conversation did
     not cover.
     """
-    current = deepcopy(course.get("generation_request") or {})
+    current = _canonical_generation_request(course.get("generation_request") or {})
     candidate = deepcopy(current)
     updates = extracted.get("updates") if isinstance(extracted.get("updates"), dict) else {}
 
-    course_type = _enum(updates.get("course_type"), COURSE_TYPES)
-    if course_type:
-        candidate["course_type"] = course_type
-        candidate["course_purpose"] = "exam_sprint" if course_type == "exam" else "systematic"
-        candidate["composition_style"] = {
-            "systematic": "balanced",
-            "project": "project_driven",
-            "inquiry": "inquiry_driven",
-            "exam": "example_driven",
-        }[course_type]
+    learning_purpose = _enum(updates.get("learning_purpose"), set(LEARNING_PURPOSES))
+    course_teaching_type = _enum(
+        updates.get("course_teaching_type"),
+        set(COURSE_TEACHING_TYPES),
+    )
+
+    # A model response produced by an older prompt may still return course_type.
+    # Read it once for compatibility, then keep the draft on the current fields.
+    legacy_course_type = _enum(updates.get("course_type"), COURSE_TYPES)
+    if not learning_purpose and legacy_course_type:
+        learning_purpose = resolve_learning_purpose(
+            None,
+            legacy_course_type=legacy_course_type,
+        )
+    if not course_teaching_type and legacy_course_type:
+        course_teaching_type, _ = resolve_course_teaching_type(
+            None,
+            learning_purpose=learning_purpose,
+            legacy_course_type=legacy_course_type,
+        )
+    if learning_purpose:
+        candidate["learning_purpose"] = learning_purpose
     else:
-        course_type = str(candidate.get("course_type") or "systematic")
+        learning_purpose = str(candidate.get("learning_purpose") or "systematic")
+    if course_teaching_type:
+        candidate["course_teaching_type"] = course_teaching_type
 
     learning_goal = _text(updates.get("learning_goal"), limit=5000)
     if learning_goal:
         candidate["course_intent"] = _intent_with_goal(
-            course_type,
+            learning_purpose,
             learning_goal,
             candidate.get("course_intent") or {},
             str(candidate.get("subject") or course.get("course_name") or ""),
@@ -456,6 +516,7 @@ def merge_ai_baseline_draft(
             brief["section_count"] = sections
         candidate["teacher_course_brief"] = brief
 
+    candidate = _canonical_generation_request(candidate)
     changed_fields = baseline_changed_fields(current, candidate)
     payload = {
         "course_id": str(course.get("course_id") or ""),
@@ -487,12 +548,12 @@ def _goal(request: dict[str, Any]) -> str:
 
 
 def _intent_with_goal(
-    course_type: str,
+    learning_purpose: str,
     goal: str,
     existing: dict[str, Any],
     subject: str,
 ) -> dict[str, Any]:
-    if course_type == "project":
+    if learning_purpose == "project":
         return {
             "schema_version": "course_intent_v1",
             "type": "project",
@@ -502,16 +563,7 @@ def _intent_with_goal(
             "current_uncertainty": str(existing.get("current_uncertainty") or ""),
             "project_constraints": str(existing.get("project_constraints") or ""),
         }
-    if course_type == "inquiry":
-        return {
-            "schema_version": "course_intent_v1",
-            "type": "inquiry",
-            "core_question": str(existing.get("core_question") or subject),
-            "desired_output": goal,
-            "existing_understanding": str(existing.get("existing_understanding") or ""),
-            "evidence_scope": str(existing.get("evidence_scope") or ""),
-        }
-    if course_type == "exam":
+    if learning_purpose == "exam":
         return {
             "schema_version": "course_intent_v1",
             "type": "exam",

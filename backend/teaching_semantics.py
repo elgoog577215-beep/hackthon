@@ -175,7 +175,7 @@ COURSE_TEACHING_TYPES: dict[str, dict[str, Any]] = {
     "project": {
         "label": "项目课",
         "organizing_principle": "以真实成果、里程碑、制作、评审和迭代为主线。",
-        "teacher_role": "冻结成果标准，诊断当前瓶颈并组织评审与下一轮迭代。",
+        "teacher_role": "确认成果标准，诊断当前瓶颈并组织评审与下一轮迭代。",
         "learner_role": "分解任务、制作成果、说明决策、接受评审并迭代。",
         "evidence_pattern": ["里程碑产物", "决策依据", "测试结果", "迭代记录"],
         "lesson_type_mix": {"theory_practice": 20, "project_workshop": 65, "review_assessment": 15},
@@ -456,8 +456,8 @@ def compile_lesson_semantics(
         "opening": "当前位于课程开端，优先建立共同基础和任务入口",
         "development": "当前位于课程发展阶段，优先形成主导学习表现",
         "closing": "当前位于课程收束阶段，需要整合与复验，但仍服从本讲真实目标",
-        "single": "单讲课程需要在一讲内形成完整的小闭环",
-    }.get(phase, "依据当前讲目标形成最小充分学习闭环")
+        "single": "单讲课程需要在一讲内完成目标、练习和结果检查",
+    }.get(phase, "依据当前讲目标安排必要的学习活动和结果检查")
     reason = (
         f"{course_semantics['course_teaching_type_label']}以“"
         f"{course_semantics['course_teaching_type_contract']['organizing_principle']}”组织整课；"

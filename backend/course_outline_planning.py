@@ -27,6 +27,7 @@ from course_type_contracts import (
     judge_course_coverage,
 )
 from course_versioning import stable_hash
+from teacher_visible_language import has_unnatural_system_language
 
 
 def course_coverage_verdict(
@@ -867,7 +868,10 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             generic_objective_nodes.append(node_id)
         if len(objective) > 120 or len(re.findall(r"[；;]", objective)) >= 4:
             overlong_objective_nodes.append(node_id)
-        if _SYSTEM_REGISTER_PATTERN.search(" ".join((title, objective))):
+        if (
+            _SYSTEM_REGISTER_PATTERN.search(" ".join((title, objective)))
+            or has_unnatural_system_language(" ".join((title, objective)))
+        ):
             system_register_nodes.append(node_id)
         objective_signature = _editorial_signature(objective, title=title)
         if objective_signature:
@@ -917,7 +921,11 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             for chapter in chapters
         ],
     ])
-    if _SYSTEM_REGISTER_PATTERN.search(document_register_text) or system_register_nodes:
+    if (
+        _SYSTEM_REGISTER_PATTERN.search(document_register_text)
+        or has_unnatural_system_language(document_register_text)
+        or system_register_nodes
+    ):
         unique_nodes = list(dict.fromkeys(system_register_nodes))
         issues.append(_editorial_issue(
             "outline_editorial:system_register",
@@ -926,7 +934,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             node_ids=unique_nodes,
             repair_instruction=(
                 "改用课程大纲常用表达，直接说明学习内容与学生要达到的结果；不要出现"
-                "知识地图、先修链定位、路径角色、证据闭环或系统策略等内部规划语言。"
+                "知识地图、先修链定位、路径角色、内部证据流程或系统策略等规划语言。"
             ),
         ))
     if missing_assessment_nodes:

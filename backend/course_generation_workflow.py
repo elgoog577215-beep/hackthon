@@ -19,7 +19,7 @@ from course_difficulty import (
     DifficultyGapAssessment,
     DifficultyProfile,
 )
-from course_knowledge_map import normalize_knowledge_structure
+from knowledge_structure import normalize_knowledge_structure
 from course_pedagogy import SubjectPedagogyProfile
 from course_type_contracts import apply_course_type_brief
 from course_versioning import stable_hash
@@ -1867,7 +1867,7 @@ def validate_section_knowledge_package(
     if missing_required:
         issues.append(_plan_issue(
             "section_knowledge:missing_skeleton_identity",
-            "知识包缺少全课身份骨架已冻结的知识点："
+            "知识包缺少全课身份骨架中已确认的知识点："
             f"{'、'.join(missing_required)}",
         ))
     if unexpected_local:

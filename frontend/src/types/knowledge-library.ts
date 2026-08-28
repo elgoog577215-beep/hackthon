@@ -9,7 +9,7 @@ export type KnowledgeSourceStatus = 'material_grounded' | 'web_grounded' | 'cour
 
 /**
  * 一条知识点级来源绑定，由 `evidence_package.evidence_for_keys()` 按知识点
- * 名字与别名从冻结证据包里匹配出来。
+ * 名字与别名从已确认的证据包里匹配出来。
  *
  * `origin` 用后端 `EvidenceSourceRef` 的取值：`material` 是教师上传资料，
  * `web_search` 是联网检索结果。两者必须在界面上可区分——把 license_unknown

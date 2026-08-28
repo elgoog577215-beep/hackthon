@@ -1017,7 +1017,7 @@ def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
     assert "提问写出问题原话" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
     assert "改写为教师当场会说的话" in captured["system_prompt"]
-    assert "本阶段禁止输出 `$$`" in captured["system_prompt"]
+    assert "当前生成不得输出 `$$`" in captured["system_prompt"]
     assert "不得超过" in captured["system_prompt"]
     assert "自学课程的完整小节" not in captured["system_prompt"]
     assert captured["kwargs"]["use_fast_model"] is True

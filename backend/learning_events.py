@@ -11,7 +11,8 @@ import threading
 import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Any
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from learner_context import DEFAULT_USER_ID
 from storage import storage
@@ -19,6 +20,24 @@ from storage import storage
 LEARNING_EVENTS_FILE = "learning_events.json"
 SCHEMA_VERSION = 8
 _event_lock = threading.RLock()
+
+
+class LearningEventStorage(Protocol):
+    def load_course(self, course_id: str) -> dict[str, Any] | None: ...
+
+
+EvidenceEvaluator = Callable[[dict[str, Any], LearningEventStorage], None]
+_evidence_evaluator: EvidenceEvaluator | None = None
+
+
+def register_evidence_evaluator(evaluator: EvidenceEvaluator | None) -> None:
+    """Register the application callback that turns facts into course suggestions.
+
+    The ledger owns durable facts. Application wiring decides whether and how a
+    newly recorded fact should refresh a course-evolution projection.
+    """
+    global _evidence_evaluator
+    _evidence_evaluator = evaluator
 
 
 @dataclass
@@ -179,18 +198,11 @@ def _maybe_trigger_evidence_evaluation(event: dict[str, Any]) -> None:
     }:
         return
     course_id = event.get("course_id")
-    if not course_id:
+    evaluator = _evidence_evaluator
+    if not course_id or evaluator is None:
         return
     try:
-        from course_evolution import synchronize_and_evaluate_course_evolution
-
-        course = storage.load_course(str(course_id))
-        if not course:
-            return
-        synchronize_and_evaluate_course_evolution(
-            course,
-            user_id=str(event.get("user_id") or DEFAULT_USER_ID),
-        )
+        evaluator(event, storage)
     except Exception:
         pass
 

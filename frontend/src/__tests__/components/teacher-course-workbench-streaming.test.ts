@@ -272,7 +272,13 @@ describe('teacher course workbench outline streaming', () => {
   })
 
   it('生成前只展示业务输入和操作，不展示内部流程解释', async () => {
-    const wrapper = mountWorkbench()
+    const wrapper = mountWorkbench({
+      generationOptions: {
+        course_type: 'systematic',
+        composition_style: 'balanced',
+        course_purpose: 'systematic',
+      } as any,
+    })
 
     expect(wrapper.get('.foundation-semantics').text()).toContain('教学编排')
     expect(wrapper.get('.foundation-semantics').text()).toContain('学习目的')
@@ -296,11 +302,13 @@ describe('teacher course workbench outline streaming', () => {
       additional_requirements: expect.stringContaining('学习目的：系统学习'),
     }))
     expect(emitted.options).toEqual(expect.objectContaining({
-      course_type: 'systematic',
       learning_purpose: 'systematic',
       course_teaching_type: 'comprehensive',
       pedagogy_mode: 'auto',
     }))
+    expect(emitted.options).not.toHaveProperty('course_type')
+    expect(emitted.options).not.toHaveProperty('composition_style')
+    expect(emitted.options).not.toHaveProperty('course_purpose')
     expect(emitted.options.requirements).toContain('学科类型：自动判断')
     expect(emitted.options.requirements).toContain('课程教学类型：综合课')
     expect(emitted.options.teacher_course_brief).not.toHaveProperty('chapter_count')
@@ -317,7 +325,7 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
 
     const emitted = wrapper.emitted('generateOutline')?.[0]?.[0] as any
-    expect(emitted.options.course_type).toBe('project')
+    expect(emitted.options).not.toHaveProperty('course_type')
     expect(emitted.options.learning_purpose).toBe('project')
     expect(emitted.options.course_teaching_type).toBe('project')
     expect(emitted.options.course_intent).toEqual(expect.objectContaining({
@@ -415,7 +423,7 @@ describe('teacher course workbench outline streaming', () => {
     }] as any
     lessonStore.jobs = [{
       id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
-      status: 'running', progress: 36, phase: 'course_teaching_plan_skeleton', message: '正在冻结知识职责', warnings: [],
+      status: 'running', progress: 36, phase: 'course_teaching_plan_skeleton', message: '正在确定各节教学重点', warnings: [],
       stream_batches: {
         'TP-B01': '{"sections":[{"learning_objective":"学生能够解释爬虫的工作流程',
       },
@@ -423,7 +431,7 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.lesson-generation-float').text()).toContain('正在冻结知识职责')
+    expect(wrapper.get('.lesson-generation-float').text()).toContain('正在确定各节教学重点')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('AI 工作稿')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('学生能够解释爬虫的工作流程')
     expect(wrapper.find('.lesson-stream-document .stream-caret').exists()).toBe(true)
@@ -464,14 +472,14 @@ describe('teacher course workbench outline streaming', () => {
 
     await lessonWrapper.get('.lesson-title-trigger').trigger('click')
     expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待确认')
-    expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
+    expect(lessonWrapper.text()).not.toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.get('.lesson-toolbar-status').text()).toContain('待确认')
     expect(lessonWrapper.find('.lesson-toolbar-status button').exists()).toBe(false)
     expect(lessonWrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('确认本讲教案')
     await lessonWrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
     expect(confirm).toHaveBeenCalledWith('course-1', 'L1-1', 'plan-1')
-    expect(lessonWrapper.find('.lesson-section-tabs').exists()).toBe(true)
+    expect(lessonWrapper.find('.lesson-section-tabs').exists()).toBe(false)
 
     const pptWrapper = mountWorkbench({ initialStage: 'ppt' })
     await flushPromises()

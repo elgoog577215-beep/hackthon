@@ -46,7 +46,7 @@ function parseRows(input: string) {
     else if (char === '\n') { row.push(cell.replace(/\r$/, '')); rows.push(row); row = []; cell = '' }
     else cell += char
   }
-  if (quoted) throw new Error('CSV 中存在未闭合的引号')
+  if (quoted) throw new Error('CSV 中的引号没有成对出现')
   if (cell || row.length) { row.push(cell.replace(/\r$/, '')); rows.push(row) }
   return rows.filter(item => item.some(value => value.trim()))
 }

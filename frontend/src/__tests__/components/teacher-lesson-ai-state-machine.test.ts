@@ -100,7 +100,7 @@ describe('教师课程生产 AI 领域适配', () => {
     expect(scriptPrompt).toContain('这段定义重复了两次')
     expect(questionPrompt).toContain('重建任务候选')
     expect(questionPrompt).toContain('整门课程题库')
-    expect(questionPrompt).toContain('冻结课程范围')
+    expect(questionPrompt).toContain('保持已确认的课程范围')
     expect(questionPrompt).not.toContain('当前讲次')
     expect(questionPrompt).not.toContain('当前节点')
     expect(questionPrompt).toContain('答案事实、验证器和质量门')

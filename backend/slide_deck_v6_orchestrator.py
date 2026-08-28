@@ -142,7 +142,7 @@ class SlideDeckV6CandidateRepository:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def clone_checkpoint(self, source_task_id: str, target_task_id: str) -> dict[str, Any]:
-        """为确认后的 PPT 编译创建新任务，同时复用已冻结的文书规划证据。"""
+        """为确认后的 PPT 编译创建新任务，同时复用已确认的文书规划依据。"""
         payload = self.load_checkpoint(source_task_id)
         cloned = {
             **payload,
@@ -714,7 +714,7 @@ class SlideDeckV6Orchestrator:
             ]
 
         tracker.add_work([
-            SlideWorkItemV2(item_id="source-contract", kind="local", stage="source", label="冻结课程与模板真源"),
+            SlideWorkItemV2(item_id="source-contract", kind="local", stage="source", label="确认课程内容与模板版本"),
             SlideWorkItemV2(item_id="course-graph", kind="local", stage="course_graph", label="构建完整教学单元图"),
             SlideWorkItemV2(
                 item_id="materialize",
@@ -963,7 +963,7 @@ class SlideDeckV6Orchestrator:
                         else "publish" if publish_result else "shadow_finalize"
                     ),
                     label=(
-                        "冻结可审阅 PPT 文书"
+                        "保存可审阅 PPT 文书"
                         if manuscript_only
                         else "原子发布正式课件" if publish_result
                         else "完成只读影子候选"

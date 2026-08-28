@@ -661,3 +661,147 @@ def test_reviewed_merge_retire_and_reorder_use_one_outline_command_and_undo(tmp_
     assert [item.section_id for item in restored.sections] == ["a", "b", "c", "d"]
     assert next(item for item in restored.blocks if item.block_id == "block-b").section_id == "b"
     assert next(item for item in restored.blocks if item.block_id == "block-c").status == "final"
+
+
+def test_complex_ten_section_request_deletes_merges_swaps_and_undoes(tmp_path):
+    section_ids = [f"s{index}" for index in range(1, 11)]
+    structural_document = refresh_document_revision(CourseDocument(
+        course_id="course-complex-structure",
+        title="复杂结构修改课",
+        sections=[
+            CourseSection(
+                section_id=section_id,
+                title=f"第 {index} 节",
+                position=index - 1,
+            )
+            for index, section_id in enumerate(section_ids, start=1)
+        ],
+        blocks=[
+            CourseBlock(
+                block_id=f"block-{section_id}",
+                section_id=section_id,
+                position=0,
+                payload={"markdown": f"{section_id} 的正式内容"},
+            )
+            for section_id in section_ids
+        ],
+    ))
+    value = build_teacher_course_change_context(
+        course_id=structural_document.course_id,
+        document=structural_document,
+        preview=None,
+        authoring={},
+        question_bank={},
+        representation_registries=[],
+    )
+    evolution_repository = CourseEvolutionRepository(tmp_path / "evolution")
+
+    async def analyzer(_overview, _candidates, _instruction):
+        return {
+            "interpreted_goal": "删掉第 2、5、7 节，合并第 8、9 节，再与第 10 节交换位置",
+            "signal_kind": "structural",
+            "signal_confidence": .99,
+            "affected_units": [
+                {
+                    "unit_id": f"course_content:block-s{index}",
+                    "disposition": "retire",
+                    "reason": f"老师明确删除第 {index} 节",
+                    "confidence": .99,
+                }
+                for index in (2, 5, 7)
+            ],
+            "structure": {
+                "required": True,
+                "reason": "按老师指定的删除、合并和交换顺序执行",
+                "affected_node_ids": section_ids,
+                "retire_node_ids": ["s2", "s5", "s7"],
+                "proposed_outline": [
+                    {
+                        "provisional_id": section_id,
+                        "title": f"第 {index} 节",
+                        "parent_ref": "root",
+                        "source_node_ids": [section_id],
+                    }
+                    for index, section_id in ((1, "s1"), (3, "s3"), (4, "s4"), (6, "s6"), (10, "s10"))
+                ] + [{
+                    "provisional_id": "merge-s8-s9",
+                    "title": "第 8—9 节",
+                    "parent_ref": "root",
+                    "source_node_ids": ["s8", "s9"],
+                }],
+            },
+        }
+
+    state = asyncio.run(create_teacher_course_change_plan(
+        context=value,
+        user_id="teacher-1",
+        request_id="complex-structure-request",
+        instruction="第 2、5、7 节删掉，第 8 和第 9 节合并，然后和第 10 节换个位置",
+        repository=evolution_repository,
+        analyzer=analyzer,
+    ))
+    plan = state.change_sets[0]
+    assert [item.operation_type for item in plan.operations] == ["REBUILD_COURSE_OUTLINE"]
+
+    migration_ids = [
+        item.migration_id for item in plan.teacher_change_planning.unit_migrations
+    ]
+    reviewed = review_teacher_course_change_scope(
+        repository=evolution_repository,
+        user_id="teacher-1",
+        course_id=structural_document.course_id,
+        change_set_id=plan.change_set_id,
+        selected_migration_ids=migration_ids,
+        confirm_structure=True,
+    )
+    selected_operation_ids = reviewed.change_sets[0].selected_operation_ids
+    raw_course = {
+        "course_id": structural_document.course_id,
+        "course_name": structural_document.title,
+        "course_schema_version": "course_document_v1",
+        "course_document": structural_document.model_dump(mode="json"),
+        "course_document_revision": structural_document.document_revision,
+        "course_document_authoritative": True,
+        "course_operation_log": [],
+    }
+    document_repository = CourseDocumentRepository(MemoryCourseStorage(raw_course))
+    accept_course = accept_change_set(
+        raw_course,
+        user_id="teacher-1",
+        change_set_id=plan.change_set_id,
+        selected_scope="current",
+        selected_operation_ids=selected_operation_ids,
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+
+    updated, _ = document_repository.load_document(structural_document.course_id)
+    assert [item.section_id for item in updated.sections] == [
+        "s1", "s3", "s4", "s6", "s10", "s8",
+    ]
+    assert next(
+        item for item in updated.blocks if item.block_id == "block-s9"
+    ).section_id == "s8"
+    assert {
+        item.block_id for item in updated.blocks if item.status == "retired"
+    } == {"block-s2", "block-s5", "block-s7"}
+    receipt = accept_course.change_sets[0].application_receipt
+    assert receipt["applied_count"] == 3
+    assert receipt["failed_count"] == 0
+    assert {item["unit_id"] for item in receipt["items"]} == {
+        "course_content:block-s2",
+        "course_content:block-s5",
+        "course_content:block-s7",
+    }
+    assert all(item["status"] == "applied" for item in receipt["items"])
+
+    undo_change_set(
+        user_id="teacher-1",
+        course_id=structural_document.course_id,
+        change_set_id=plan.change_set_id,
+        repository=evolution_repository,
+        document_repository=document_repository,
+    )
+    restored, _ = document_repository.load_document(structural_document.course_id)
+    assert [item.section_id for item in restored.sections] == section_ids
+    assert all(item.status == "final" for item in restored.blocks)

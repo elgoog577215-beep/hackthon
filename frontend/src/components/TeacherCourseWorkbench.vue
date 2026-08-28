@@ -1851,6 +1851,13 @@ function selectLearningPurpose(value: LearningPurpose) {
   }
 }
 function generationBindings(references: CourseReferenceItem[]) { return references.map(item => { const web = item.origin === 'web_search'; const highTrust = item.source_metadata?.credibility === 'high'; return { asset_id: item.material_asset_id, purpose: item.role === 'primary' ? 'content_source' as const : web && !highTrust ? 'weak_context' as const : 'supplement' as const, priority: item.role === 'primary' ? 'core' as const : web && !highTrust ? 'weak' as const : 'supporting' as const, authority: item.role === 'primary' ? 'primary' as const : web && !highTrust ? 'context_only' as const : 'secondary' as const, usage_policy: item.role === 'primary' ? 'must_use' as const : web && !highTrust ? 'optional' as const : 'prefer' as const, reuse_policy: item.reuse_policy || 'reference_only' as const, rights_basis: item.rights_basis || (web ? 'license_unknown' as const : 'teacher_asserted' as const), source_metadata: item.source_metadata || {}, source_label: item.source_label || item.filename } }) }
+function currentGenerationOptions() {
+  const options = { ...props.generationOptions }
+  delete options.course_type
+  delete options.composition_style
+  delete options.course_purpose
+  return options
+}
 async function saveRelationships(targetId: string, targetType: string, label: string) { const refs = activeReferences.value; const packageId = refs[0]?.package_id || String((await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data?.[0]?.package_id || ''); if (!packageId) return; await http.put(`/api/teacher-course-spaces/${packageId}/relationships`, { target_id: targetId, target_type: targetType, target_label: label, sources: refs.map(item => ({ source_asset_id: item.asset_id, role: item.role })) }, teacherRequestConfig({ silentError: true })) }
 async function submitFoundation() {
   generationRequested.value = true
@@ -1896,26 +1903,15 @@ async function submitFoundation() {
             type: 'systematic' as const,
             learning_goal: foundation.goal,
           }
-    const compositionStyle = ({
-      theory: 'theory_driven',
-      laboratory: 'inquiry_driven',
-      practice: 'example_driven',
-      seminar: 'inquiry_driven',
-      project: 'project_driven',
-      comprehensive: 'balanced',
-    } as const)[foundation.courseTeachingType]
     await saveRelationships('managed:outline', 'outline', t('courseFiles.names.outline', '课程大纲'))
     emit('generateOutline', {
       subject: props.courseTitle,
       options: {
-        ...props.generationOptions,
+        ...currentGenerationOptions(),
         requirements,
-        course_type: foundation.learningPurpose,
         learning_purpose: foundation.learningPurpose,
         course_teaching_type: foundation.courseTeachingType,
         pedagogy_mode: foundation.subjectType,
-        composition_style: compositionStyle,
-        course_purpose: foundation.learningPurpose === 'exam' ? 'exam_sprint' : 'systematic',
         course_intent: courseIntent,
         teacher_course_brief: {
           ...baseTeacherBrief,

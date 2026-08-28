@@ -531,7 +531,7 @@ TEMPLATES: dict[PedagogyMode, PedagogyTemplate] = {
             "engineering_design", "engineering_refactoring",
             "engineering_review",
         ),
-        ("代码必须形成可运行闭环", "不能只贴代码或只讲概念"),
+        ("代码必须能运行、能测试并说明输出", "不能只贴代码或只讲概念"),
         "交付一个可运行、可测试、可解释的工程成果",
     ),
     PedagogyMode.NATURAL_SCIENCE: PedagogyTemplate(

@@ -69,7 +69,7 @@
 
           <section v-else-if="section === 'publish'" class="simple-page publish-page">
             <header><Send :size="22" /><div><strong>发布与学生</strong><small>教师草稿不会自动覆盖学生正在学习的版本。</small></div></header>
-            <div class="release-summary"><div><small>本次候选发布</small><strong>2026 秋 · 第 2 次发布</strong><span>冻结大纲、教案与课件的明确版本，不覆盖教师工作稿。</span></div><button type="button" class="primary" @click="publishCurrent"><Send :size="14" />{{ publishedVersion === draftVersion ? '已发布最新版本' : '发布第06讲更新' }}</button></div>
+            <div class="release-summary"><div><small>本次候选发布</small><strong>2026 秋 · 第 2 次发布</strong><span>确认大纲、教案与课件的明确版本，不覆盖教师工作稿。</span></div><button type="button" class="primary" @click="publishCurrent"><Send :size="14" />{{ publishedVersion === draftVersion ? '已发布最新版本' : '发布第06讲更新' }}</button></div>
             <div class="release-table"><div class="release-head"><span>讲次</span><span>教师草稿</span><span>学生版本</span><span>学习情况</span><span /></div><div v-for="lesson in lessons.slice(0,6)" :key="lesson.id" class="release-row"><strong>第{{ pad(lesson.order) }}讲　{{ lesson.title }}</strong><span>{{ lesson.order === 6 ? `教案 v${draftVersion}` : lesson.plan }}</span><span :class="`state-${lesson.order === 6 && publishedVersion === draftVersion ? 'published' : lesson.releaseState}`">{{ lesson.order === 6 ? `学生版 v${publishedVersion}` : lesson.release }}</span><span>{{ lesson.students }} 人已学习</span><button type="button" @click="lesson.order === 6 ? publishCurrent() : notify(`${lesson.title}发布快照已打开`)">{{ lesson.order === 6 && publishedVersion < draftVersion ? '发布更新' : '查看' }}</button></div></div>
           </section>
 

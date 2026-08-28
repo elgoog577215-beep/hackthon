@@ -17,8 +17,7 @@ from block_regeneration import (
     PersonalizationProposalService,
     block_regeneration_candidate_repository,
 )
-from change_proposals import change_proposal_repository
-from course_knowledge_map import propose_kb_linkage_from_block_change
+from change_proposals import change_proposal_repository, propose_kb_linkage_from_block_change
 from dependencies import get_course_document_repository
 from learner_context import require_user_id
 from course_repository import CourseDocumentNotFound

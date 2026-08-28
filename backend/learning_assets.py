@@ -117,9 +117,22 @@ def compile_learning_asset_plan(course_data: dict[str, Any]) -> dict[str, Any]:
     preferences = (
         (course_data.get("generation_request") or {}).get("asset_preferences") or {}
     )
+    learning_node_count = sum(
+        int(node.get("node_level") or 1) == 2
+        for node in course_data.get("nodes") or []
+    )
+    omit_unrequested_microcourse_final = (
+        purpose == "systematic"
+        and learning_node_count == 1
+        and preferences.get("final_assessment") is not True
+    )
     enabled = [
         asset_type for asset_type in requested
         if asset_type in KNOWLEDGE_INFRASTRUCTURE_ASSETS or preferences.get(asset_type, True)
+        if not (
+            asset_type == "final_assessment"
+            and omit_unrequested_microcourse_final
+        )
     ]
     contracts = []
     for asset_type in requested:
@@ -128,7 +141,11 @@ def compile_learning_asset_plan(course_data: dict[str, Any]) -> dict[str, Any]:
             or asset_type in KNOWLEDGE_INFRASTRUCTURE_ASSETS
             or (purpose != "material_organization" and asset_type == "questions")
             or (purpose != "material_organization" and asset_type == "misconceptions")
-            or (purpose in {"systematic", "exam_sprint"} and asset_type == "final_assessment")
+            or (
+                purpose in {"systematic", "exam_sprint"}
+                and asset_type == "final_assessment"
+                and not omit_unrequested_microcourse_final
+            )
         )
         contracts.append({
             "asset_type": asset_type,

@@ -105,10 +105,8 @@ from course_knowledge_base import (
     compile_course_knowledge_base,
     course_knowledge_base_prompt_context,
 )
-from course_knowledge_map import (
-    compile_course_knowledge_map,
-    normalize_knowledge_structure,
-)
+from course_knowledge_map import compile_course_knowledge_map
+from knowledge_structure import normalize_knowledge_structure
 from course_outline_adjustments import canonical_outline_node_name
 from course_outline_planning import (
     CourseOutlinePlanningBudget,
@@ -3062,7 +3060,7 @@ class CourseService(AIBase):
                         "course_teaching_plan_skeleton",
                         35 + int(3 * (chunk_index - 1) / max(1, len(chunks))),
                         (
-                            "正在冻结全课知识职责分片 "
+                            "正在确定各节教学重点 "
                             f"{chunk_index}/{len(chunks)}"
                         ),
                         phase_progress=int(
@@ -3084,7 +3082,7 @@ class CourseService(AIBase):
                             phase="course_teaching_plan_skeleton",
                             progress=35,
                             heartbeat_message=(
-                                "仍在等待 AI 冻结知识职责分片 "
+                                "仍在等待 AI 确定各节教学重点 "
                                 f"{chunk_index}/{len(chunks)}"
                             ),
                             phase_detail={
@@ -6583,7 +6581,7 @@ class CourseService(AIBase):
             responsibility = (
                 str(item.get("learning_objective") or "").strip()
                 or str(item.get("scope_boundary") or "").strip()
-                or "按已冻结教案完成本节独立教学责任"
+                or "按已确认教案完成本节独立教学责任"
             )
             suffix = (
                 f"；知识：{'、'.join(key_points[:4])}"
@@ -6595,11 +6593,11 @@ class CourseService(AIBase):
             )
         prior_context = (
             "\n".join(preceding[-4:])
-            or "- 当前节点之前没有已冻结的小节教学责任。"
+            or "- 当前节点之前没有已确认的小节教学责任。"
         )
         return "\n\n".join([
             material_context,
-            "## 已冻结前序教学责任\n" + prior_context,
+            "## 已确认的前序教学责任\n" + prior_context,
         ])
 
     def _course_profile(self, course_id: str) -> SubjectPedagogyProfile:
@@ -6785,14 +6783,14 @@ class CourseService(AIBase):
             "禁止输出“本块内容完整”“围绕已确认知识范围展开”“内容与方法”“展开过程”“任务与检验”等模板占位句；不能用复述块标题代替真实教学内容。",
             "相邻教学块必须承担不同的知识推进责任，不得只替换标题、术语或公式后重复同一套句式。",
             "允许自然面向学生讲话，但不要每块都机械重复“同学们好”。不得写“教师应当……”“学生需要……”这类教案说明；要改写为教师当场会说的话。",
-            "不要把“全课知识地图、先修链定位、学习路径角色、可观察成果证据、证据闭环、输入对象、输出对象、系统策略、课程主路径、本节负责”等内部规划词说给学生听；只有当某个词本身就是该学科必须教授的概念时才可保留。",
+            "不要把“全课知识地图、先修链定位、学习路径角色、可观察成果证据、证据检查、输入对象、输出对象、系统策略、课程主路径、本节负责”等内部规划词说给学生听；只有当某个词本身就是该学科必须教授的概念时才可保留。",
             "已确认教案中的教师活动、学生活动、证据和反馈用于决定讲稿实际怎样说，不能逐字段照抄，也不能从讲稿中删掉真实课堂所需的提问、活动和回应。",
             "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
             "除第一块外，每块开头要用一句自然语言承接上一块，说明为什么现在进入这个问题、例子、活动或反馈，避免拼接感。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
             "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；把课堂调度改写为自然教师语言，不复制内部流程。",
-            "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；行内数学只用成对闭合的 `\\(...\\)`，展示公式统一用独占行且成对闭合的 `\\[...\\]`，不得把公式拆断。",
-            "本阶段禁止输出 `$$` 公式分隔符。任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外；展示公式闭合后先换行，再继续课堂讲述。",
+            "工程内容中的代码、命令和配置必须使用成对出现的 Markdown 代码块标记；行内数学只用成对出现的 `\\(...\\)`，展示公式统一使用独占行且成对出现的 `\\[...\\]`，不得把公式拆断。",
+            "当前生成不得输出 `$$` 公式分隔符。任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外；展示公式的结尾定界符后先换行，再继续课堂讲述。",
             "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
             "资料只用于支持课堂内容。必须区分资料事实、学科通识和教学情境；不能编造资料未给出的来源、数据或结论。",
             "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",
@@ -6859,7 +6857,7 @@ class CourseService(AIBase):
                 }
                 formula_boundary_repair = (
                     "\n这次禁止使用 `$$`。所有展示公式只能写成独占行的 "
-                    "`\\[...\\]`，闭合 `\\]` 后空一行，再写题目、解法或解释正文。"
+                    "`\\[...\\]`，写完 `\\]` 后空一行，再写题目、解法或解释正文。"
                     if blocking_codes & {
                         "teacher_script:prose_inside_display_math",
                         "teacher_script:unclosed_math_delimiter",
@@ -6918,7 +6916,7 @@ class CourseService(AIBase):
                 ),
                 (
                     "你是教师讲稿编辑。只输出压缩后的 Markdown；保持教师可以直接开口讲的自然语气，"
-                    "标题、顺序、教学事实和课堂闭环不得改变，严格执行字数上限。\n"
+                    "标题、顺序、教学事实、课堂目标和检查方式不得改变，严格执行字数上限。\n"
                     + length_rules
                 ),
                 output_tokens=max(

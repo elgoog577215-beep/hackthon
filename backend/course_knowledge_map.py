@@ -7,91 +7,9 @@ from copy import deepcopy
 from typing import Any
 
 from course_versioning import stable_hash
+from knowledge_structure import normalize_knowledge_structure
 
 COURSE_MAP_SCHEMA = "course_knowledge_map_v2"
-
-
-def normalize_knowledge_structure(section: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize the course-owned knowledge blueprint without copying section titles.
-
-    Historical ``key_points`` remain readable as degraded candidates, but a missing
-    knowledge blueprint is never repaired by manufacturing a point from the section
-    title. New-course publication is blocked later by the v2 knowledge quality gate.
-    """
-    normalized: list[dict[str, Any]] = []
-    for topic_index, raw_topic in enumerate(section.get("knowledge_structure") or []):
-        if not isinstance(raw_topic, dict):
-            continue
-        topic_name = str(
-            raw_topic.get("concept_group")
-            or raw_topic.get("topic")
-            or raw_topic.get("name")
-            or ""
-        ).strip()
-        points = [
-            point
-            for point_index, raw_point in enumerate(raw_topic.get("knowledge_points") or [])
-            if (point := _normalize_point(raw_point, point_index))
-        ]
-        if not topic_name or not points:
-            continue
-        normalized.append({
-            "concept_group": topic_name,
-            "topic": topic_name,
-            "description": str(raw_topic.get("description") or "").strip(),
-            "knowledge_points": points,
-            "detail_status": "refined",
-            "order": topic_index,
-        })
-
-    if normalized:
-        section["knowledge_structure"] = normalized
-        section["knowledge_structure_status"] = "structured"
-        section["key_points"] = _unique([
-            point["name"]
-            for topic in normalized
-            for point in topic["knowledge_points"]
-        ])
-        return normalized
-
-    names = _unique([
-        str(item).strip()
-        for item in section.get("key_points") or []
-        if str(item).strip()
-    ])
-    if not names:
-        section["knowledge_structure"] = []
-        section["knowledge_structure_status"] = "needs_enrichment"
-        return []
-    normalized = [{
-        "concept_group": "待知识化内容",
-        "topic": "待知识化内容",
-        "description": "历史课程只保留了要点名称，尚未形成可发布的原子知识结构。",
-        "knowledge_points": [{
-            "name": name,
-            "statement": "",
-            "description": "",
-            "knowledge_type": "definition",
-            "conditions": [],
-            "boundaries": [],
-            "counterexamples": [],
-            "capability": "",
-            "capability_points": [],
-            "misconceptions": [],
-            "mastery_criteria": [],
-            "relations": [],
-            "aliases": [],
-            "entry_reason": "",
-            "prerequisite_names": [],
-            "order": index,
-        } for index, name in enumerate(names)],
-        "detail_status": "outline_only",
-        "order": 0,
-    }]
-    section["knowledge_structure"] = normalized
-    section["knowledge_structure_status"] = "needs_enrichment"
-    section["key_points"] = names
-    return normalized
 
 
 def compile_course_knowledge_map(
@@ -488,101 +406,6 @@ def project_learning_assets_to_knowledge(
     return projected_assets
 
 
-def propose_kb_linkage_from_block_change(
-    course_data: dict[str, Any],
-    block_id: str,
-    *,
-    repository: Any,
-    request_id: str,
-    library: dict[str, Any] | None = None,
-    course_map: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    """Propose review of current-course knowledge points linked to a changed block."""
-    from change_proposals import create_proposal
-    from course_knowledge_base import compile_course_knowledge_base
-
-    del library, course_map
-    knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
-        deepcopy(course_data)
-    )
-    points_by_id = {
-        str(item.get("knowledge_id") or ""): item
-        for item in knowledge_base.get("knowledge_points") or []
-    }
-
-    target_block = _find_course_block(course_data, block_id)
-    if target_block is None:
-        return None
-
-    metadata = target_block.get("metadata") if isinstance(target_block.get("metadata"), dict) else {}
-    knowledge_ids = _unique([
-        *(metadata.get("course_knowledge_refs") or []),
-        *[
-            knowledge_id
-            for binding in knowledge_base.get("bindings") or []
-            if binding.get("target_type") == "course_block"
-            and str(binding.get("target_id") or "") == block_id
-            for knowledge_id in binding.get("knowledge_ids") or []
-        ],
-    ])
-    if not knowledge_ids:
-        return None
-
-    block_text = f"{target_block.get('title') or ''} {target_block.get('content') or ''}".strip()
-    items: list[dict[str, Any]] = []
-    kg_target_ids: list[str] = []
-    for node_id in knowledge_ids:
-        node = points_by_id.get(node_id)
-        if not node or node_id in kg_target_ids:
-            continue
-        kg_target_ids.append(node_id)
-        items.append({
-            "block_id": node_id,
-            "target_kind": "kg_node",
-            "before": {
-                "knowledge_id": node_id,
-                "name": node.get("name"),
-                "description": node.get("description"),
-                "aliases": node.get("aliases"),
-            },
-            "after": {
-                "note": "课程正文已变更，建议核对该知识节点定义是否需要同步更新。",
-                "source_block_id": block_id,
-                "source_block_text_excerpt": block_text[:200],
-            },
-            "reason": (
-                f"课程正文块 {block_id} 的内容变更已被接受，其关联的知识节点"
-                f"「{node.get('name')}」（{node_id}）可能需要同步复核。"
-                "该节点只属于当前课程，不会影响其他课程。"
-            ),
-        })
-    if not items:
-        return None
-
-    return create_proposal(
-        repository,
-        str(course_data.get("course_id") or ""),
-        request_id=request_id,
-        scope="block",
-        target_block_ids=kg_target_ids,
-        items=items,
-        source="kb_link",
-        generation_meta={
-            "linkage_direction": "content_to_kb",
-            "trigger_block_id": block_id,
-            "knowledge_scope": "current_course_only",
-        },
-    )
-
-
-def _find_course_block(course_data: dict[str, Any], block_id: str) -> dict[str, Any] | None:
-    for node in course_data.get("nodes") or []:
-        for block in node.get("content_blocks") or []:
-            if str(block.get("block_id") or "") == block_id:
-                return block
-    return None
-
-
 def knowledge_ids_for_section(course_map: dict[str, Any], section_id: str) -> list[str]:
     return _unique(list((course_map.get("section_knowledge_ids") or {}).get(section_id) or []))
 
@@ -796,102 +619,6 @@ def _course_sequence_relations(course_id: str, sections: list[dict[str, Any]]) -
     return relations
 
 
-def _normalize_point(raw_point: Any, order: int) -> dict[str, Any] | None:
-    if isinstance(raw_point, str):
-        name = raw_point.strip()
-        raw: dict[str, Any] = {}
-    elif isinstance(raw_point, dict):
-        raw = raw_point
-        name = str(raw.get("name") or raw.get("knowledge_point") or "").strip()
-    else:
-        return None
-    if not name:
-        return None
-    return {
-        "knowledge_id": str(raw.get("knowledge_id") or "").strip(),
-        "name": name,
-        "statement": str(raw.get("statement") or raw.get("description") or "").strip(),
-        "description": str(raw.get("description") or raw.get("statement") or "").strip(),
-        "knowledge_type": str(raw.get("knowledge_type") or "definition").strip(),
-        "conditions": _unique(raw.get("conditions") or []),
-        "boundaries": _unique(raw.get("boundaries") or []),
-        "counterexamples": _unique(raw.get("counterexamples") or []),
-        "content_block_refs": _unique(
-            raw.get("content_block_refs") or raw.get("block_refs") or []
-        ),
-        "capability": str(raw.get("capability") or "").strip(),
-        "capability_points": _normalize_standard_points(
-            raw.get("capability_points") or raw.get("capabilities") or []
-        ),
-        "misconceptions": _normalize_standard_points(
-            raw.get("mistake_points") or raw.get("misconceptions") or []
-        ),
-        "mastery_criteria": _normalize_standard_points(
-            raw.get("mastery_criteria") or []
-        ),
-        "relations": _normalize_relations(raw.get("relations") or []),
-        "aliases": _unique([str(item).strip() for item in raw.get("aliases") or []]),
-        "entry_reason": str(raw.get("entry_reason") or "").strip(),
-        "relation_state": str(raw.get("relation_state") or "").strip(),
-        "relation_decision_reason": str(
-            raw.get("relation_decision_reason") or ""
-        ).strip(),
-        "prerequisite_names": _unique([str(item).strip() for item in raw.get("prerequisite_names") or []]),
-        "order": order,
-    }
-
-
-def _normalize_standard_points(values: Any) -> list[Any]:
-    if not isinstance(values, list):
-        values = [values] if values else []
-    normalized: list[Any] = []
-    for value in values:
-        if isinstance(value, dict):
-            item = {
-                key: current
-                for key, current in value.items()
-                if key in {
-                    "name", "label", "statement", "description", "learning_goal",
-                    "observable_behavior", "capability", "repair_strategy",
-                    "practice_strategy", "source_status", "observable_error_pattern",
-                    "confused_with", "discrimination", "observable_performance",
-                    "required_independence", "required_transfer", "verification_method",
-                    "required_evidence_types", "related_knowledge_names",
-                }
-            }
-            if any(str(item.get(key) or "").strip() for key in ("name", "label", "statement")):
-                normalized.append(item)
-        elif str(value).strip():
-            normalized.append(str(value).strip())
-    return normalized
-
-
-def _normalize_relations(values: Any) -> list[dict[str, Any]]:
-    if not isinstance(values, list):
-        values = [values] if values else []
-    result: list[dict[str, Any]] = []
-    for value in values:
-        if not isinstance(value, dict):
-            continue
-        target_name = str(value.get("target_name") or "").strip()
-        relation_type = str(value.get("relation_type") or "").strip()
-        if not target_name or not relation_type:
-            continue
-        result.append({
-            "target_name": target_name,
-            "relation_type": relation_type,
-            "reason": str(value.get("reason") or "").strip(),
-            "conditions": _unique(value.get("conditions") or []),
-            "distinction": str(value.get("distinction") or "").strip(),
-            "derivation_steps": _unique(value.get("derivation_steps") or []),
-            "necessity": str(value.get("necessity") or "").strip(),
-            "priority": str(value.get("priority") or "core").strip(),
-            "relation_group_id": str(value.get("relation_group_id") or "").strip() or None,
-            "group_operator": str(value.get("group_operator") or "").strip() or None,
-        })
-    return result
-
-
 def _section_evidence_ids(section: dict[str, Any]) -> list[str]:
     contract = section.get("grounding_contract") or {}
     return _unique([
@@ -941,7 +668,6 @@ __all__ = [
     "knowledge_names_for_section",
     "normalize_knowledge_structure",
     "project_course_knowledge_map",
-    "propose_kb_linkage_from_block_change",
     "project_learning_assets_to_knowledge",
     "validate_course_knowledge_map",
 ]

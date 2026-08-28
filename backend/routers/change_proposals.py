@@ -23,13 +23,13 @@ from change_proposals import (
     apply_objective_item,
     apply_selected_items,
     change_proposal_repository,
+    propose_kb_linkage_from_block_change,
     reject_item,
     regenerate_item,
     require_single_item_apply,
 )
 from course_commands import CourseCommandService
 from course_document import stable_hash
-from course_knowledge_map import propose_kb_linkage_from_block_change
 from course_repository import CourseDocumentConflict, CourseDocumentNotFound
 from dependencies import get_course_document_repository
 from learner_context import require_user_id

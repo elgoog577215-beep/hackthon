@@ -555,7 +555,7 @@ def _legacy_reasoning_support(
         or item.get("learning_objective")
         or item.get("deliverable")
         or item.get("title")
-        or "当前冻结任务"
+        or "当前已确认任务"
     )
     answer_spec = deepcopy(item.get("answer_spec") or {})
     payload = {

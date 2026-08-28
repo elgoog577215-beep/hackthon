@@ -270,7 +270,7 @@ SUBJECT_ADAPTERS: dict[str, SubjectDifficultyAdapterSpec] = {
         },
         ("运行", "输出", "调试", "测试"),
         ("约束", "架构", "取舍", "性能", "故障"),
-        "必须形成可运行、可验证、可解释的工程闭环",
+        "必须产出可运行、可测试、能说明取舍的工程结果",
     ),
     "natural_science": SubjectDifficultyAdapterSpec(
         "自然科学",

@@ -24,6 +24,7 @@ import uuid
 
 from course_commands import CourseCommandService
 from course_document import refresh_block_revision, stable_hash
+from course_knowledge_base import compile_course_knowledge_base
 from course_repository import CourseDocumentConflict, CourseDocumentRepository
 
 
@@ -343,6 +344,98 @@ def create_authoring_change(
         items=items,
         source=source,
         generation_meta=generation_meta,
+    )
+
+
+def propose_kb_linkage_from_block_change(
+    course_data: dict[str, Any],
+    block_id: str,
+    *,
+    repository: Any,
+    request_id: str,
+    library: dict[str, Any] | None = None,
+    course_map: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Create the knowledge review caused by a changed canonical course block."""
+    del library, course_map
+    knowledge_base = course_data.get("course_knowledge_base") or compile_course_knowledge_base(
+        deepcopy(course_data)
+    )
+    points_by_id = {
+        str(item.get("knowledge_id") or ""): item
+        for item in knowledge_base.get("knowledge_points") or []
+    }
+    target_block = next((
+        block
+        for node in course_data.get("nodes") or []
+        for block in node.get("content_blocks") or []
+        if str(block.get("block_id") or "") == block_id
+    ), None)
+    if target_block is None:
+        return None
+
+    metadata = target_block.get("metadata") if isinstance(target_block.get("metadata"), dict) else {}
+    knowledge_ids = list(dict.fromkeys(
+        str(item)
+        for item in [
+            *(metadata.get("course_knowledge_refs") or []),
+            *[
+                knowledge_id
+                for binding in knowledge_base.get("bindings") or []
+                if binding.get("target_type") == "course_block"
+                and str(binding.get("target_id") or "") == block_id
+                for knowledge_id in binding.get("knowledge_ids") or []
+            ],
+        ]
+        if item
+    ))
+    if not knowledge_ids:
+        return None
+
+    block_text = f"{target_block.get('title') or ''} {target_block.get('content') or ''}".strip()
+    items: list[dict[str, Any]] = []
+    kg_target_ids: list[str] = []
+    for node_id in knowledge_ids:
+        node = points_by_id.get(node_id)
+        if not node or node_id in kg_target_ids:
+            continue
+        kg_target_ids.append(node_id)
+        items.append({
+            "block_id": node_id,
+            "target_kind": "kg_node",
+            "before": {
+                "knowledge_id": node_id,
+                "name": node.get("name"),
+                "description": node.get("description"),
+                "aliases": node.get("aliases"),
+            },
+            "after": {
+                "note": "课程正文已修改，请核对这个知识点的定义是否也要更新。",
+                "source_block_id": block_id,
+                "source_block_text_excerpt": block_text[:200],
+            },
+            "reason": (
+                f"课程正文块 {block_id} 已修改，它关联的知识点"
+                f"「{node.get('name')}」（{node_id}）需要复核。"
+                "这个知识点只属于当前课程，不会改动其他课程。"
+            ),
+        })
+    if not items:
+        return None
+
+    return create_proposal(
+        repository,
+        str(course_data.get("course_id") or ""),
+        request_id=request_id,
+        scope="block",
+        target_block_ids=kg_target_ids,
+        items=items,
+        source="kb_link",
+        generation_meta={
+            "linkage_direction": "content_to_kb",
+            "trigger_block_id": block_id,
+            "knowledge_scope": "current_course_only",
+        },
     )
 
 
@@ -1045,75 +1138,6 @@ def _record_rejection_evidence(
         pass
 
 
-def _try_regenerate_evidence_after(
-    proposal: dict[str, Any],
-    target: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Best-effort re-run of the MVP template generator for an evidence-sourced,
-    course-block-targeted item, so "regenerate" produces a genuinely new (even
-    if still template-based) `after.payload` instead of always leaving the new
-    item stuck in the "awaiting generation" state.
-
-    Only attempted when the proposal's `source == "evidence"` (i.e. it was
-    created by `learner_model_service.evaluate_and_propose_change`) and the
-    item targets a real course block (`target_kind == "course_block"`, the
-    default). `kb_link`/manual items, or evidence items missing the
-    `user_id` needed to re-load the triggering evidence, fall back to
-    leaving `after=None` — the caller treats that as the honest "awaiting
-    generation" signal.
-
-    Never raises: any failure (missing course/block/events, import errors)
-    is swallowed and treated as "could not regenerate right now", which is
-    always a safe/legal outcome for this item.
-    """
-    if proposal.get("source") != "evidence":
-        return None
-    if (target.get("target_kind") or "course_block") != "course_block":
-        return None
-    block_id = target.get("block_id")
-    course_id = proposal.get("course_id")
-    user_id = str((proposal.get("generation_meta") or {}).get("user_id") or "")
-    if not block_id or not course_id or not user_id:
-        return None
-    try:
-        # Deferred import: learner_model_service imports this module at
-        # module scope (`create_proposal`, `change_proposal_repository`), so
-        # importing it back at module scope here would create a cycle.
-        from learner_model_service import _generate_supplement_payload
-        from learning_events import load_learning_events
-
-        course_repository = _load_course_document_repository()
-        document, _is_canonical = course_repository.load_document(course_id)
-        block = next((b for b in document.blocks if b.block_id == block_id), None)
-        if block is None:
-            return None
-        events = load_learning_events(
-            user_id=user_id,
-            course_id=course_id,
-            node_id=block_id,
-            event_type="learner_self_reported",
-        )
-        content_key = (
-            "markdown" if "markdown" in block.payload
-            else ("text" if "text" in block.payload else "content")
-        )
-        new_content, _generation_method = _generate_supplement_payload(block.payload, events)
-        new_payload = dict(block.payload)
-        new_payload[content_key] = new_content
-        return {"payload": new_payload}
-    except Exception:
-        return None
-
-
-def _load_course_document_repository() -> CourseDocumentRepository:
-    """`CourseDocumentRepository` needs a storage backend; reuse the same
-    module-level `storage` singleton the rest of this codebase uses, imported
-    lazily to avoid widening this module's module-scope import surface."""
-    from storage import storage
-
-    return CourseDocumentRepository(storage)
-
-
 def regenerate_item(
     repository: ChangeProposalRepository,
     proposal_id: str,
@@ -1146,18 +1170,9 @@ def _regenerate_item_locked(
     """Mark the original item rejected (recording the regeneration request as the
     reason) and append a fresh item for the same block.
 
-    When the proposal is evidence-sourced and targets a real course block, this
-    makes a best-effort attempt to immediately re-run the same MVP template
-    generator `evaluate_and_propose_change` uses (`_template_supplement_text`)
-    against the current block content and evidence, so the new item's `after`
-    is populated with a genuinely fresh (still template-based, not LLM-based)
-    payload. When that isn't possible (manual/kb_link proposals, missing
-    user_id, missing block/course, or any other failure), the new item's
-    `after` is left `None` — this is a deliberate, contractual "content not
-    yet generated / awaiting regeneration" signal, not a silent placeholder:
-    `apply_item` refuses to apply such an item with an explicit error, and the
-    frontend must render it as a pending-generation state rather than a blank
-    diff.
+    The caller supplies freshly generated content through ``generated_after``.
+    Without it, the new item remains in the explicit waiting state. The data
+    repository never starts a second AI generation path on its own.
     """
     if generated_after is not None and (
         not isinstance(generated_after, dict)
@@ -1189,7 +1204,7 @@ def _regenerate_item_locked(
         regenerated_after = (
             deepcopy(generated_after)
             if generated_after is not None
-            else _try_regenerate_evidence_after(current, target)
+            else None
         )
         new_item = {
             "item_id": new_item_id,
@@ -1242,6 +1257,7 @@ __all__ = [
     "change_proposal_repository",
     "create_authoring_change",
     "create_proposal",
+    "propose_kb_linkage_from_block_change",
     "reject_item",
     "regenerate_item",
 ]

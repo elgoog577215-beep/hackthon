@@ -439,7 +439,7 @@ def _task_for_archetype(
     }
     task, deliverable = tasks[archetype_id]
     return (
-        f"{task} 本题为第 {variant_index + 1} 个冻结变式。",
+        f"{task} 本题为第 {variant_index + 1} 个已确认变式。",
         deliverable,
     )
 

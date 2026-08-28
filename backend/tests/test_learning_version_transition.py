@@ -156,6 +156,8 @@ def test_confirmation_migrates_pointer_invalidates_task_and_is_idempotent(monkey
         user_id="u1",
         expected_projection_revision_id="projection-1",
         request_id="request-1",
+        projection_builder=learning_continuation.build_learning_continuation,
+        runtime_builder=learning_runtime.build_learning_runtime,
         node_id="n1",
     )
     second = transition.confirm_version_transition(
@@ -163,6 +165,8 @@ def test_confirmation_migrates_pointer_invalidates_task_and_is_idempotent(monkey
         user_id="u1",
         expected_projection_revision_id="stale-after-success",
         request_id="request-1",
+        projection_builder=learning_continuation.build_learning_continuation,
+        runtime_builder=learning_runtime.build_learning_runtime,
         node_id="n1",
     )
 
@@ -184,6 +188,8 @@ def test_confirmation_migrates_pointer_invalidates_task_and_is_idempotent(monkey
         user_id="u1",
         expected_projection_revision_id="stale-after-interruption",
         request_id="request-1",
+        projection_builder=learning_continuation.build_learning_continuation,
+        runtime_builder=learning_runtime.build_learning_runtime,
         node_id="n1",
     )
     assert recovered["status"] == "already_confirmed"

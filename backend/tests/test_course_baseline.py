@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from course_baseline import merge_ai_baseline_draft
+from course_baseline import (
+    build_ai_baseline_prompt,
+    confirmed_generation_request,
+    merge_ai_baseline_draft,
+)
+from models import CourseGenerationRequest
 from course_repository import CourseDocumentRepository
 from routers import course_baseline
 from storage import Storage
@@ -32,6 +37,27 @@ def _generation_request(goal: str = "理解人工智能的基本原理") -> dict
             "section_count": 8,
         },
     }
+
+
+def test_confirmed_baseline_converts_legacy_inquiry_to_current_classifications():
+    request = CourseGenerationRequest.model_validate({
+        "subject": "城市暴雨与内涝",
+        "course_type": "inquiry",
+        "course_intent": {
+            "type": "inquiry",
+            "core_question": "为什么短时强降雨会导致内涝？",
+            "desired_output": "形成有资料依据的解释",
+        },
+    })
+
+    persisted = confirmed_generation_request(request)
+
+    assert persisted["learning_purpose"] == "systematic"
+    assert persisted["course_teaching_type"] == "seminar"
+    assert persisted["course_intent"]["type"] == "systematic"
+    assert "为什么短时强降雨" in persisted["course_intent"]["learning_goal"]
+    assert "course_type" not in persisted
+    assert "composition_style" not in persisted
 
 
 @pytest.mark.asyncio
@@ -70,10 +96,14 @@ async def test_confirmed_baseline_update_changes_metadata_without_regenerating_c
     assert response["downstream_action"] == "none"
     assert set(response["changed_fields"]) == {"learning_goal", "difficulty"}
     assert after["generation_request"]["course_intent"]["learning_goal"].startswith("能解释")
+    assert after["generation_request"]["learning_purpose"] == "systematic"
+    assert after["generation_request"]["course_teaching_type"] == "comprehensive"
+    assert "course_type" not in after["generation_request"]
+    assert "composition_style" not in after["generation_request"]
     assert after["course_document_revision"] == before["course_document_revision"]
     assert after["course_document"] == before["course_document"]
     assert after["generation_job_id"] == ""
-    assert after["generation_request_history"][-1]["previous"] == before["generation_request"]
+    assert after["generation_request_history"][-1]["previous"]["course_type"] == "systematic"
     assert after["course_operation_log"][-1]["operation"] == "update_course_generation_request"
 
     repeated = await course_baseline.update_course_baseline(
@@ -209,7 +239,51 @@ def test_ai_draft_only_changes_supported_fields_and_preserves_unmentioned_baseli
     assert request["teacher_course_brief"]["total_class_hours"] == 24
     assert request["teacher_course_brief"]["section_count"] == 8
     assert request["pedagogy_mode"] == "general"
+    assert "course_type" not in request
+    assert "composition_style" not in request
     assert "unknown_field" not in request
+
+
+def test_ai_draft_uses_current_purpose_and_teaching_type_fields():
+    course = {
+        "course_id": "course-1",
+        "course_name": "人工智能通识课",
+        "generation_request_revision": 3,
+        "generation_request": _generation_request(),
+    }
+    prompt = build_ai_baseline_prompt(
+        course,
+        {"messages": [{"role": "user", "content": "改成项目实战，整课用项目课组织。"}]},
+    )
+
+    assert '"learning_purpose"' in prompt
+    assert '"course_teaching_type"' in prompt
+    assert '"course_type"' not in prompt
+
+    draft = merge_ai_baseline_draft(
+        course,
+        {
+            "updates": {
+                "learning_purpose": "project",
+                "course_teaching_type": "project",
+                "learning_goal": "完成一个可演示的 AI 应用",
+            },
+            "evidence": ["教师明确要求项目实战和项目课。"],
+        },
+        conversation_id="conversation-2",
+        source_message_ids=["message-3"],
+    )
+
+    request = draft["generation_request"]
+    assert request["learning_purpose"] == "project"
+    assert request["course_teaching_type"] == "project"
+    assert request["course_intent"]["type"] == "project"
+    assert set(draft["changed_fields"]) == {
+        "learning_purpose",
+        "course_teaching_type",
+        "learning_goal",
+    }
+    assert "course_type" not in request
 
 
 @pytest.mark.asyncio

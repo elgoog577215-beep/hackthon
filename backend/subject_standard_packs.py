@@ -106,8 +106,8 @@ SUBJECT_STANDARD_PACKS: dict[str, dict[str, Any]] = {
             ["示例可以运行或明确标注伪代码", "任务有输入、输出、约束和验收", "错误案例包含复现、定位、修复和回归"],
             {
                 "example": {"teacher_activity": "从最小可运行例子解释执行过程和关键取舍", "student_activity": "预测输出、运行验证并解释差异", "expected_output": "可运行示例与机制说明"},
-                "activity": {"teacher_activity": "冻结需求、接口、约束和验收用例", "student_activity": "实现、测试、记录失败并迭代", "expected_output": "可测试的工程增量"},
-                "feedback": {"teacher_activity": "依据日志、测试和交付标准定位缺口", "student_activity": "复现问题、修复并完成回归测试", "expected_output": "故障闭环与测试证据"},
+                "activity": {"teacher_activity": "确认需求、接口、约束和验收用例", "student_activity": "实现、测试、记录失败并迭代", "expected_output": "可测试的工程增量"},
+                "feedback": {"teacher_activity": "依据日志、测试和交付标准定位缺口", "student_activity": "复现问题、修复并完成回归测试", "expected_output": "故障原因、修复结果与测试证据"},
             },
         ),
         "profiles": {
@@ -221,7 +221,7 @@ SUBJECT_STANDARD_PACKS: dict[str, dict[str, Any]] = {
             ["先套框架再找问题", "把活动完成当成果合格", "忽略利益相关方和执行约束"],
             ["企业事实、案例设定和教学假设分开", "数据口径、时间和来源明确"],
             ["不把教学案例写成真实公司事实", "财务、法律与人事建议说明适用边界"],
-            ["问题、证据、方案和指标形成闭环", "取舍与风险显式", "成果满足真实角色和格式要求"],
+            ["问题、证据、方案和指标相互对应", "取舍与风险显式", "成果满足真实角色和格式要求"],
             {
                 "orientation": {"teacher_activity": "明确角色、目标、相关方、约束和待决问题", "student_activity": "形成问题定义并识别缺失信息", "expected_output": "可行动的问题表述"},
                 "application": {"teacher_activity": "提供数据、工具边界和决策标准", "student_activity": "分析选项、作出取舍并提交方案", "expected_output": "有依据的决策或工作成果"},

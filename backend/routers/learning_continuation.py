@@ -13,6 +13,7 @@ from dependencies import get_course_or_404
 from learner_context import require_user_id
 from learning_continuation import build_learning_continuation
 from learning_events import record_learning_event
+from learning_runtime import build_learning_runtime
 from learning_version_transition import (
     NoPendingVersionTransition,
     VersionTransitionConflict,
@@ -116,6 +117,8 @@ async def confirm_course_version_change(
             user_id=user_id,
             expected_projection_revision_id=payload.expected_projection_revision_id,
             request_id=payload.request_id,
+            projection_builder=build_learning_continuation,
+            runtime_builder=build_learning_runtime,
             node_id=payload.node_id,
             target_node_id=payload.target_node_id,
         )

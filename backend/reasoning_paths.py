@@ -246,7 +246,7 @@ def _generic_reasoning_path(
         anchors = [{
             "path": "rendered_text",
             "label": "题目说明",
-            "value_preview": rendered_text or "当前冻结任务",
+            "value_preview": rendered_text or "当前已确认任务",
             "value_type": "str",
         }]
     required_parts = [

@@ -1605,131 +1605,6 @@ def _challenge_path_operations(
     return operations
 
 
-def ensure_challenge_suggestions(
-    state: CourseEvolutionState,
-    document: CourseDocument,
-) -> None:
-    """Treat repeated success as readiness for growth without creating a deficit."""
-    by_section: dict[str, list[Any]] = {}
-    for evidence in state.evidence_items:
-        if evidence.evidence_kind != "formal_success" or not evidence.anchor.section_id:
-            continue
-        by_section.setdefault(evidence.anchor.section_id, []).append(evidence)
-    for section_id, evidence in by_section.items():
-        unique_attempts = {
-            item.source_id for item in evidence if item.source_id
-        }
-        if len(unique_attempts) < 2:
-            continue
-        evidence_ids = sorted(item.evidence_id for item in evidence)
-        signature = stable_hash(evidence_ids, prefix="esg_")
-        if any(
-            plan.source_kind == "learning_evidence"
-            and plan.growth_direction == "challenge"
-            and plan.target_section_id == section_id
-            and plan.evidence_ids == evidence_ids
-            # ``accepted`` means the course commit for that plan is still in
-            # flight; it already covers this evidence, so no duplicate here.
-            and plan.status in {"pending", "accepted", "applied"}
-            for plan in state.change_sets
-        ):
-            continue
-        section_blocks = sorted(
-            (
-                block for block in document.blocks
-                if block.section_id == section_id and block.status != "retired"
-            ),
-            key=lambda item: (item.position, item.block_id),
-        )
-        if not section_blocks:
-            continue
-        target = section_blocks[0]
-        hypothesis_id = stable_hash(
-            {
-                "user_id": state.user_id,
-                "course_id": state.course_id,
-                "section_id": section_id,
-                "problem_type": "challenge_readiness",
-            },
-            prefix="ahp_",
-        )
-        now = _now()
-        hypothesis = next(
-            (item for item in state.hypotheses if item.hypothesis_id == hypothesis_id),
-            None,
-        )
-        if hypothesis is None:
-            hypothesis = AdaptationHypothesis(
-                hypothesis_id=hypothesis_id,
-                user_id=state.user_id,
-                course_id=state.course_id,
-                problem_type="challenge_readiness",
-                claim="当前小节的正式任务已稳定通过，可以提升理论深度和迁移距离。",
-                target_block_id=target.block_id,
-                created_at=now,
-                updated_at=now,
-            )
-            state.hypotheses.append(hypothesis)
-        hypothesis.support_evidence_ids = evidence_ids
-        hypothesis.counterevidence_ids = []
-        hypothesis.confidence = min(0.98, 0.72 + 0.08 * len(unique_attempts))
-        hypothesis.confidence_reasons = ["同一小节出现多次独立正式通过"]
-        hypothesis.evidence_assessment = {
-            "evidence_count": len(evidence),
-            "independent_source_count": 1,
-            "formal_success_count": len(unique_attempts),
-            "has_formal_evidence": True,
-            "counterevidence_count": 0,
-            "actionable": True,
-            "maturity": "challenge_ready",
-            "gate_reason": "旧难度已稳定通过，建议进入更高挑战；这不是知识缺口判断",
-        }
-        hypothesis.recommended_scope = "current"
-        hypothesis.affected_block_ids = [block.block_id for block in section_blocks]
-        hypothesis.validation_plan = "用同知识点、更高认知要求的独立任务验证挑战升级。"
-        hypothesis.status = "candidate_created"
-        hypothesis.updated_at = now
-        state.change_sets.append(CourseEvolutionPlan(
-            change_set_id=stable_hash(
-                {
-                    "user_id": state.user_id,
-                    "course_id": state.course_id,
-                    "section_id": section_id,
-                    "evidence_signature": signature,
-                    "kind": "challenge_growth",
-                },
-                prefix="ces_",
-            ),
-            user_id=state.user_id,
-            course_id=state.course_id,
-            hypothesis_id=hypothesis_id,
-            source_kind="learning_evidence",
-            target_section_id=section_id,
-            request_text="当前正式任务持续通过，请强化理论推导与实战应用。",
-            growth_direction="challenge",
-            generation_status="suggested",
-            requested_roles=["reasoning", "application"],
-            base_revision_vector=_section_revision_vector(document, section_id),
-            evidence_ids=evidence_ids,
-            allowed_scopes=["current"],
-            impact_summary={
-                "diagnosis": hypothesis.claim,
-                "evidence_assessment": deepcopy(hypothesis.evidence_assessment),
-                "affected_section_ids": [section_id],
-                "direct_block_ids": [block.block_id for block in section_blocks],
-                "protected": ["旧难度掌握记录", "历史作答", "范围外课程内容", "课程知识定义"],
-                "mastery_transition": {
-                    "previous_status": "mastered_at_base_difficulty",
-                    "current_status": "ready_for_higher_challenge",
-                },
-                "validation_plan": hypothesis.validation_plan,
-            },
-            expected_effect="在保留原有掌握事实的前提下，提高理论解释和跨情境应用能力。",
-            created_at=now,
-            updated_at=now,
-        ))
-
-
 def _replacement_placeholder(
     plan: CourseEvolutionPlan,
     target: CourseBlock,
@@ -2058,7 +1933,6 @@ def _now() -> str:
 
 __all__ = [
     "analyze_section_request",
-    "ensure_challenge_suggestions",
     "generate_block_evolution_plan",
     "generate_course_adjustment_plan",
     "generate_section_evolution_plan",

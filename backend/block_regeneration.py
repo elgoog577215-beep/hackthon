@@ -1094,7 +1094,7 @@ def evaluate_block_candidate(
         _quality_gate(
             "code_fence_preserved",
             original_fences < 2 or (candidate_fences >= 2 and candidate_fences % 2 == 0),
-            "原块包含代码围栏，但候选没有保留有效闭合围栏",
+            "原块包含代码块标记，但候选没有保留完整的开头和结尾标记",
         ),
     ]
     issues = [gate["message"] for gate in gates if not gate["passed"]]

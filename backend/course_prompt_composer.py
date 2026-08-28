@@ -31,6 +31,38 @@ from course_teaching_guidance import (
 PROMPT_CONTRACT_VERSION = "course_prompt_v29"
 
 
+def _course_planning_rules(brief: dict[str, Any]) -> str:
+    """Compile directory rules from the current product classifications.
+
+    ``course_type`` remains readable for old briefs, but a new brief is planned
+    from learning purpose and course teaching type.  This keeps the old four-way
+    compatibility value from overriding the three classifications shown to the
+    teacher.
+    """
+    learning_purpose = str(brief.get("learning_purpose") or "").strip()
+    if not learning_purpose:
+        return _course_type_planning_rules(brief)
+    if learning_purpose == "project":
+        return """9. 项目实战按真实交付物组织：起点不足时不得使用 `compressed`；尚未证实的能力使用
+   `verify_in_project`，明确缺口使用 `focus`，阶段成果使用 `milestone`。
+10. `verify_in_project` 的理由必须指向可检查的任务；`milestone` 必须指向交付物验收。
+11. `planning_stages` 使用空数组；项目进度由里程碑和学习路径角色表达。"""
+    if learning_purpose == "exam":
+        stage_ids = [
+            "scope_diagnosis",
+            "priority_review",
+            "targeted_practice",
+            "mock_assessment",
+            "final_consolidation",
+        ]
+        return f"""9. 每章必须填写 `planning_stages` 数组，只允许使用 {json.dumps(stage_ids, ensure_ascii=False)}。
+10. 上述任务必须全部覆盖并按给定顺序推进；同一任务可以占多章，一章也可以连续承载多个任务，但不得倒序。
+11. 学习路径角色只使用 `focus|standard|compressed`，不得把复习任务写成项目里程碑。"""
+    return """9. `planning_stages` 使用空数组，目录按当前学科的学习先后关系推进。
+10. 学习路径角色只使用 `focus|standard|compressed`，不得出现项目专属角色。
+11. 整课怎样教由课程教学类型决定，不得再从旧 `course_type` 推断第二套课程结构。"""
+
+
 def _course_type_planning_rules(brief: dict[str, Any]) -> str:
     course_type = str(brief.get("course_type") or "systematic")
     contract = brief.get("course_type_contract") or {}
@@ -149,8 +181,8 @@ class CoursePromptComposer:
                 4200 if detail_level == "compact" else 1600,
             )
         shape = brief.get("course_shape_constraints") or {}
-        course_type_contract = brief.get("course_type_contract") or {}
-        planning_rules = _course_type_planning_rules(planning_brief)
+        learning_purpose_contract = brief.get("learning_purpose_contract") or {}
+        planning_rules = _course_planning_rules(planning_brief)
         coverage_rules = _course_coverage_rules(coverage_verdict)
         formal_outline_contract = compile_outline_prompt_contract(
             subject=subject,
@@ -166,6 +198,9 @@ class CoursePromptComposer:
                 "subject",
                 "audience",
                 "course_shape_constraints",
+                "course_type",
+                "course_type_label",
+                "course_type_resolved_from",
                 "course_type_contract",
                 "teaching_definition",
                 "universal_teaching_principles",
@@ -200,10 +235,10 @@ class CoursePromptComposer:
 
 ## 学习目的契约
 - 学习目的：{brief.get('learning_purpose_label') or brief.get('course_type_label') or '系统学习'}
-- 结果要求：{brief.get('learning_purpose_result') or (course_type_contract.get('completion_evidence') or '')}
+- 结果要求：{brief.get('learning_purpose_result') or ''}
 - 目的专属学习弧：{json.dumps((brief.get('learning_purpose_contract') or {}).get('learning_arc') or [], ensure_ascii=False)}
 - 目的专属证据：{(brief.get('learning_purpose_contract') or {}).get('evidence_strategy') or ''}
-- 整课目标规则：{json.dumps(course_type_contract, ensure_ascii=False)}
+- 整课目标规则：{json.dumps(learning_purpose_contract, ensure_ascii=False)}
 - 类型化意图：{json.dumps(brief.get('course_intent') or {}, ensure_ascii=False)}
 - 学习者暂定起点：{json.dumps(brief.get('learner_starting_profile') or {}, ensure_ascii=False)}
 - 个性化依据：{json.dumps(brief.get('personalization_rationale') or [], ensure_ascii=False)}
@@ -248,8 +283,8 @@ class CoursePromptComposer:
 9. `course_title`、`positioning`、`learning_objectives`、章节 `title` 与 `learning_focus`
    都会直接给教师阅读，必须使用真实课程标准和高校教学大纲的表达：直接说明教什么、
    学生学完能做什么，不把内部规划术语写进成品。
-10. 教师可见文本不得出现“全课知识地图、先修链定位、学习路径角色、可观察成果证据、
-    证据闭环、输入对象、输出对象、系统策略、课程主路径”等系统语言。内部字段
+10. 教师可见文本不得出现“全课知识地图、先修链定位、学习路径角色、内部证据流程、
+    输入对象、输出对象、系统策略、课程主路径”等系统语言。内部字段
     `learning_path_role` 与 `path_reason` 仍按契约填写，但不得把这些词复制到标题、定位或目标。
 11. 章节焦点用一条简洁自然的句子表达；优先使用“理解、掌握、会计算、能判断、能解释、
     能应用”等学科常用动词，不堆叠多个判断步骤、数据字段或实现说明。
@@ -358,7 +393,7 @@ class CoursePromptComposer:
         )
         return f"""## 章节小节目录批次 V2
 
-全课章节骨架已经冻结。你只展开当前章节的第 {start}-{end} 个小节；不得修改课程
+全课章节骨架已经确认。你只展开当前章节的第 {start}-{end} 个小节；不得修改课程
 定位、章节边界、其他章节或已经完成的当前章小节。只输出有效 JSON。
 
 ## 课程
@@ -394,8 +429,8 @@ class CoursePromptComposer:
 5. `title` 与 `learning_objective` 是教师和学生直接阅读的课程大纲正文。标题采用该学科
    常见课程目录写法；目标控制在一至两句，优先使用“理解、掌握、会计算、能判断、
    能解释、能应用”等自然教学语言，不把能力点、验收细则和所有前置条件塞进一句话。
-6. 教师可见文本不得出现“全课知识地图、先修链定位、学习路径角色、可观察成果证据、
-   证据闭环、输入对象、输出对象、系统策略、课程主路径”等内部规划语言。
+6. 教师可见文本不得出现“全课知识地图、先修链定位、学习路径角色、内部证据流程、
+   输入对象、输出对象、系统策略、课程主路径”等内部规划语言。
    `scope_boundary` 与 `path_reason` 可以承载系统约束，但也应写成简洁的人话。
 7. 不输出知识点、知识关系、教案、正文、题目答案或 Markdown 围栏。
 {single_section_rule}
@@ -463,7 +498,7 @@ class CoursePromptComposer:
         )
         new_key_example = f"K{new_key_start:03d}"
         shard_contract = (
-            "这是全课骨架的后续分片。`prior_knowledge_registry` 是已经冻结的只读前序"
+            "这是全课骨架的后续分片。`prior_knowledge_registry` 是已确认、不可改动的前序"
             "知识：可以在 `prerequisite_keys` 或 `reused_knowledge_keys` 中引用，但不得"
             "把它们重复放进本次 `knowledge_registry`。本次只返回输入中的当前小节和"
             f"新知识；新知识键从 `{new_key_example}` 开始顺序编号，不得复用已有键。"
@@ -487,10 +522,10 @@ class CoursePromptComposer:
             ]
         return f"""## 全课知识职责骨架 V3
 
-你只做当前有界分片的全局身份决策：冻结原子知识身份、唯一首次负责小节、合法复用、
-前置知识键和允许承担职责的课程块；前序分片已经冻结的身份保持只读。不要展开能力、
+你只做当前有界分片的全局身份决策：确定原子知识身份、唯一首次负责小节、合法复用、
+前置知识键和允许承担职责的课程块；前序分片已经确认的身份保持只读。不要展开能力、
 易错、掌握标准、正文或题目。
-目录已经冻结，不得增删、改名或调序。只输出有效 JSON。
+目录已经确认，不得增删、改名或调序。只输出有效 JSON。
 
 ## 课程
 - 名称：{course_title}
@@ -726,7 +761,7 @@ class CoursePromptComposer:
             )
         return f"""## 详细小节教案批次 V3
 
-全课知识身份已经冻结。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
+全课知识身份已经确认。你只展开当前批次，不得新增、删除、改名或迁移知识键；不得
 修改其他批次。只输出有效 JSON，不输出正文、题目、评分、解释或 Markdown 围栏。
 
 ## 课程
@@ -777,7 +812,7 @@ class CoursePromptComposer:
    （例如"容量与扩容"），不要写成某个知识点的改写；一节通常 1-2 个组，只有确实
    互不相关时才增加。不要为了让组数变多而硬拆，也不要给每个知识点各起一个组名。
 6. 关系端点只能使用全局注册表中的键。当前批次不得把未来知识当作已经掌握的复用，
-   也不得修改骨架冻结的前置关系。
+   也不得修改骨架中已确认的前置关系。
 7. `relation_type` 按语义从六类中选，不要一律写 `prerequisite`；缺必填字段的关系整条丢弃。
    `prerequisite` 学习顺序依赖；`applies_to` source 是方法或原理、target 是应用对象；
    `generalizes` source 是一般情形、target 是其特例；`equivalent_to` 同一实质不同表述（对称）；
@@ -802,10 +837,10 @@ class CoursePromptComposer:
    某一类自查后确实不成立就不写那一类，宁缺毋滥；本节只有两三个知识点时
    缺少上面这几类是正常的。但"某一类没有"不等于"整节没有关系"——覆盖要求仍然要满足。
 8. `teaching_modules` 只能使用当前小节允许的模块 ID；知识键只能来自本节负责或复用
-   集合。每个模块必须闭合“教师动作 → 学习者可观察行动 → 产出与检查 → 反馈后的下一步”；
+   集合。每个模块必须完整写清“教师动作 → 学习者可观察行动 → 产出与检查 → 反馈后的下一步”；
    不能只写教师讲什么，也不能用“参与讨论、认真听讲”冒充学习证据。
 9. `teaching_purpose` 与 `teaching_guidance` 必须把总体教案的课程成果、教学主线和
-   评价策略落实到本节，但不得复述总体教案，也不得改变冻结的目录、知识身份或模块集合。
+   评价策略落实到本节，但不得复述总体教案，也不得改变已确认的目录、知识身份或模块集合。
 10. 每节的 `lesson_archetype` 是当前学科课型合同。详细教案必须落实其教学目的、
    成果证据与质量底线；不能把同一学科的所有小节写成相同课堂流程，也不能越权创造课型外模块。
 11. 若总体教案给出课堂交付约束，每节应给出可执行的时长、重点难点、师生活动、资源、
@@ -817,12 +852,12 @@ class CoursePromptComposer:
 13. 证据中 `source_kind=uploaded_lesson_plan` 表示老师明确选中的原教案主来源。
    必须按照 `source_order_start/source_order_end` 和原分块顺序忠实吸收：已有字段、
    教学环节、师生活动和原文表述优先保留，只补齐缺失项；不得为了套系统模板而重排、
-   改写或删去原教案已有结构。原教案与课程大纲或冻结知识边界冲突时，不得静默覆盖，
+   改写或删去原教案已有结构。原教案与课程大纲或已确认知识范围冲突时，不得静默覆盖，
    应保留可兼容内容，并把冲突写入备注或审核提示。
 14. 「正式教案模板」只是展示和导出契约，不是第二份教案。知识与能力、过程与方法、
    迁移与创新应有机落在已有的能力点、掌握标准、教学活动和作业中；不增加平行字段，
    也不为补齐「创新」标题编造空洞目标。
-15. 教学流程必须完成「进入问题或任务 → 核心教学 → 学习者行动 → 就近证据 → 反馈调整 → 迁移或收束」的职责闭环；
+15. 教学流程必须完整包含「进入问题或任务 → 核心教学 → 学习者行动 → 就近证据 → 反馈调整 → 迁移或收束」这六项职责；
    具体环节仍由教学类型、学科画像、本讲课型和允许的教学块决定，不得把所有课都写成
    「案例导入—理论讲授—总结讨论」同一套流程。
 16. `resource_refs` 只能使用已给定的证据名称或标识；没有已确认来源时留空，不得自行生成书目、
@@ -834,14 +869,14 @@ class CoursePromptComposer:
 19. 教师可见教案必须像真实备课文本，而不是生成报告：`teacher_activities` 写“展示、提问、
     板演、巡视、追问、归纳”等可执行动作，`student_activities` 写学生实际进行的计算、
     作图、比较、解释、讨论或操作；`key_difficulties`、`in_class_checks`、`homework` 均用简洁
-    的课堂语言。不要把知识键、证据闭环、输入输出对象、系统策略或质量门写进这些字段。
+    的课堂语言。不要把知识键、内部证据流程、输入输出对象、系统策略或质量门写进这些字段。
 20. `teaching_notes` 只保留教师上课前真正需要看的实施提醒，例如易错点、时间取舍、板书安排、
     分层提示和现场补救。不得复述“资料不足、不得编造来源、不能越界、系统将如何处理”等生成
     规则；这些规则只在内部执行，不能变成教师备注。
 21. 教师可见语言要准确、顺畅、简洁。避免“调取经验并作出初始判断”“建立价值与任务边界”
     这类抽象套话，改成针对当前学科内容的真实动作，例如“观察两条割线，先判断哪一条斜率更大”。
     同一含义只说一次；先写对象与条件，再写动作与检查，不用“首先—其次—再次—最后”机械串联。
-22. 学科准确性优先于文风：定义、公式、条件、单位、符号与结论必须和冻结知识注册表一致；
+22. 学科准确性优先于文风：定义、公式、条件、单位、符号与结论必须和已确认的知识表一致；
     例题与课堂检查要给出可复核的依据。数学结果用代入、求导、量纲或图像至少完成一种核验；
     其他学科使用本学科相应的证据与核验方式。无法从证据或通识确认的事实不进入成品。
 

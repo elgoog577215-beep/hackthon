@@ -299,7 +299,7 @@ const normalizedProgress = computed(() => (
 ))
 
 const v6StageLabels: Record<string, string> = {
-  source: '正在冻结课程与模板真源',
+  source: '正在确认课程内容与模板版本',
   course_graph: '正在构建完整教学单元图',
   story: '正在执行 AI 故事规划',
   layout: '正在按最新模板分配页面',

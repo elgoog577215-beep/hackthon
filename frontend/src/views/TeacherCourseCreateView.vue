@@ -102,7 +102,6 @@ async function createCourse() {
       teaching_goals: form.teachingGoals,
       generation_request: {
         subject: form.courseName, target_audience: form.targetGrade || '大学生', difficulty: 'intermediate',
-        course_type: 'systematic',
         learning_purpose: 'systematic',
         course_teaching_type: 'comprehensive',
         pedagogy_mode: 'auto',

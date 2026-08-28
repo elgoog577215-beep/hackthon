@@ -1361,7 +1361,7 @@ function beatRoleLabel(value: string) {
     feedback: '反馈判断',
     repair: '错误修复',
     mapping: '情境映射',
-    closure: '目标闭环',
+    closure: '目标与检验',
   } as Record<string, string>)[value] || value
 }
 

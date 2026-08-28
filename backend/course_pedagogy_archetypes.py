@@ -163,7 +163,7 @@ LESSON_ARCHETYPES: dict[str, LessonArchetypeSpec] = {
 
     # 编程与工程：以可运行成果为载体，但区分入门、实现、调试、质量和系统设计。
     "engineering_runnable_intro": _archetype(
-        "engineering_runnable_intro", "programming_engineering", "最小运行闭环",
+        "engineering_runnable_intro", "programming_engineering", "先跑通最小程序",
         "先获得可运行反馈，再解释关键机制和环境前提。",
         ("engineering_minimal_run", "engineering_output", "engineering_mechanism"),
         ("入门", "第一个", "运行", "基础", "语法", "开始"),
@@ -182,7 +182,7 @@ LESSON_ARCHETYPES: dict[str, LessonArchetypeSpec] = {
     ),
     "engineering_debugging_lab": _archetype(
         "engineering_debugging_lab", "programming_engineering", "调试实验",
-        "从可观察故障出发，形成复现、假设、定位、修复和回归验证闭环。",
+        "从可观察故障出发，依次完成复现、假设、定位、修复和回归验证。",
         ("engineering_debugging", "engineering_mechanism", "engineering_output"),
         ("调试", "错误", "异常", "故障", "排查", "修复"),
         ("development", "integration"),

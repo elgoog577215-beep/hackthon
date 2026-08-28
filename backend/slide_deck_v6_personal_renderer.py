@@ -19,6 +19,7 @@ from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.util import Inches, Pt
 
+from markdown_table import parse_markdown_table
 from slide_deck_renderer import (
     _configure_font,
     _display_text,
@@ -464,9 +465,7 @@ def _render_table_page(slide: Any, page: SlidePageV6, palette: dict[str, str]) -
     if table_region is None:
         _render_body_page(slide, page, palette)
         return
-    from slide_deck_v6_renderer import _parse_markdown_table
-
-    headers, rows = _parse_markdown_table(table_region.content)
+    headers, rows = parse_markdown_table(table_region.content)
     table_height = 3.55 if support else 4.85
     _shape(slide, 0.84, 1.60, 11.60, table_height + 0.18, palette["white"], radius=True, line=palette["line"])
     before = len(slide.shapes)

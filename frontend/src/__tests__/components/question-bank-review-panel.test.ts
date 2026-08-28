@@ -251,7 +251,7 @@ describe('QuestionBankReviewPanel', () => {
     expect(wrapper.findAll('[data-testid="question-review-item"]')).toHaveLength(1)
     await wrapper.get('[data-testid="toggle-question-details"]').trigger('click')
     const audit = wrapper.get('[data-testid="question-generation-audit"]')
-    expect(audit.text()).toContain('生成与质量闭环')
+    expect(audit.text()).toContain('生成与质量检查')
     expect(audit.text()).toContain('life_science.case_analysis.v1')
     expect(audit.text()).toContain('修复 1 次')
     expect(audit.text()).toContain('MATERIAL_BINDING_INVALID')

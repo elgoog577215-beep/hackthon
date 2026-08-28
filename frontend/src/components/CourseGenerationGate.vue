@@ -75,7 +75,7 @@ const gateTitle = computed(() => reviewStep.value === 'release'
 const gateHelp = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.releaseHelp', '发布后练习、笔记和 AI 老师正式开放；当前生成页会原地切换为学习页。')
   : reviewStep.value === 'teaching'
-    ? t('courseGeneration.gate.teachingHelp', '确认后才会开始正文生成；教案和知识职责会成为每节正文的唯一依据。')
+    ? t('courseGeneration.gate.teachingHelp', '确认后才会开始生成正文；每节的教学重点和已确认教案会直接决定正文内容。')
   : t('courseGeneration.gate.legacyHelp', '这是旧任务留下的确认点；继续后不会重新生成正文。'))
 const primaryLabel = computed(() => reviewStep.value === 'release'
   ? t('courseGeneration.gate.publish', '确认并发布')

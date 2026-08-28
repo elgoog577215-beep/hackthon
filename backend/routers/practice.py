@@ -332,7 +332,7 @@ async def refresh_practice_question(
             status_code=409,
             detail={
                 "code": "no_alternative_question",
-                "message": "当前范围没有其他已冻结题目",
+                "message": "当前范围没有其他可替换题目",
             },
         )
     attempts = await run_in_threadpool(
@@ -395,7 +395,7 @@ async def refresh_practice_question(
             status_code=409,
             detail={
                 "code": "no_diverse_alternative_question",
-                "message": "当前范围暂无语义上真正不同的冻结题目",
+                "message": "当前范围暂无内容上真正不同的可替换题目",
             },
         )
     current_level = str(current.get("practice_level") or "")

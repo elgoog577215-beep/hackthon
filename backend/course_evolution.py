@@ -405,11 +405,133 @@ def synchronize_and_evaluate_course_evolution(
         knowledge_base=knowledge_base,
         learning_assets=learning_assets if isinstance(learning_assets, dict) else {},
     )
-    from section_evolution import ensure_challenge_suggestions
-
     ensure_challenge_suggestions(state, document)
     _evaluate_applied_effects(state, user_id=user_id)
     return repository.save(state)
+
+
+def ensure_challenge_suggestions(
+    state: CourseEvolutionState,
+    document: CourseDocument,
+) -> None:
+    """把多次正式通过转成提高难度的建议，不把它误判为知识缺口。"""
+    by_section: dict[str, list[Any]] = {}
+    for evidence in state.evidence_items:
+        if evidence.evidence_kind != "formal_success" or not evidence.anchor.section_id:
+            continue
+        by_section.setdefault(evidence.anchor.section_id, []).append(evidence)
+    for section_id, evidence in by_section.items():
+        unique_attempts = {
+            item.source_id for item in evidence if item.source_id
+        }
+        if len(unique_attempts) < 2:
+            continue
+        evidence_ids = sorted(item.evidence_id for item in evidence)
+        signature = stable_hash(evidence_ids, prefix="esg_")
+        if any(
+            plan.source_kind == "learning_evidence"
+            and plan.growth_direction == "challenge"
+            and plan.target_section_id == section_id
+            and plan.evidence_ids == evidence_ids
+            and plan.status in {"pending", "accepted", "applied"}
+            for plan in state.change_sets
+        ):
+            continue
+        section_blocks = sorted(
+            (
+                block for block in document.blocks
+                if block.section_id == section_id and block.status != "retired"
+            ),
+            key=lambda item: (item.position, item.block_id),
+        )
+        if not section_blocks:
+            continue
+        target = section_blocks[0]
+        hypothesis_id = stable_hash(
+            {
+                "user_id": state.user_id,
+                "course_id": state.course_id,
+                "section_id": section_id,
+                "problem_type": "challenge_readiness",
+            },
+            prefix="ahp_",
+        )
+        now = _now()
+        hypothesis = next(
+            (item for item in state.hypotheses if item.hypothesis_id == hypothesis_id),
+            None,
+        )
+        if hypothesis is None:
+            hypothesis = AdaptationHypothesis(
+                hypothesis_id=hypothesis_id,
+                user_id=state.user_id,
+                course_id=state.course_id,
+                problem_type="challenge_readiness",
+                claim="当前小节的正式任务已稳定通过，可以提升理论深度和迁移距离。",
+                target_block_id=target.block_id,
+                created_at=now,
+                updated_at=now,
+            )
+            state.hypotheses.append(hypothesis)
+        hypothesis.support_evidence_ids = evidence_ids
+        hypothesis.counterevidence_ids = []
+        hypothesis.confidence = min(0.98, 0.72 + 0.08 * len(unique_attempts))
+        hypothesis.confidence_reasons = ["同一小节出现多次独立正式通过"]
+        hypothesis.evidence_assessment = {
+            "evidence_count": len(evidence),
+            "independent_source_count": 1,
+            "formal_success_count": len(unique_attempts),
+            "has_formal_evidence": True,
+            "counterevidence_count": 0,
+            "actionable": True,
+            "maturity": "challenge_ready",
+            "gate_reason": "旧难度已稳定通过，建议进入更高挑战；这不是知识缺口判断",
+        }
+        hypothesis.recommended_scope = "current"
+        hypothesis.affected_block_ids = [block.block_id for block in section_blocks]
+        hypothesis.validation_plan = "用同知识点、更高认知要求的独立任务验证挑战升级。"
+        hypothesis.status = "candidate_created"
+        hypothesis.updated_at = now
+        section_block_ids = [block.block_id for block in section_blocks]
+        state.change_sets.append(CourseEvolutionPlan(
+            change_set_id=stable_hash(
+                {
+                    "user_id": state.user_id,
+                    "course_id": state.course_id,
+                    "section_id": section_id,
+                    "evidence_signature": signature,
+                    "kind": "challenge_growth",
+                },
+                prefix="ces_",
+            ),
+            user_id=state.user_id,
+            course_id=state.course_id,
+            hypothesis_id=hypothesis_id,
+            source_kind="learning_evidence",
+            target_section_id=section_id,
+            request_text="当前正式任务持续通过，请强化理论推导与实战应用。",
+            growth_direction="challenge",
+            generation_status="suggested",
+            requested_roles=["reasoning", "application"],
+            base_revision_vector=_bound_revision_vector(document, section_block_ids),
+            evidence_ids=evidence_ids,
+            allowed_scopes=["current"],
+            impact_summary={
+                "diagnosis": hypothesis.claim,
+                "evidence_assessment": deepcopy(hypothesis.evidence_assessment),
+                "affected_section_ids": [section_id],
+                "direct_block_ids": section_block_ids,
+                "protected": ["旧难度掌握记录", "历史作答", "范围外课程内容", "课程知识定义"],
+                "mastery_transition": {
+                    "previous_status": "mastered_at_base_difficulty",
+                    "current_status": "ready_for_higher_challenge",
+                },
+                "validation_plan": hypothesis.validation_plan,
+            },
+            expected_effect="在保留原有掌握事实的前提下，提高理论解释和跨情境应用能力。",
+            created_at=now,
+            updated_at=now,
+        ))
 
 
 def knowledge_compilation_source(course_data: dict[str, Any]) -> dict[str, Any]:
@@ -1013,6 +1135,15 @@ def _finalize_applied_change_set(
     if change_set.source_kind == "manual_request":
         affected_units = list(change_set.impact_summary.get("affected_units") or [])
         accepted = set(outcome["accepted_operation_ids"])
+        accepted_outline_operation = next(
+            (
+                operation
+                for operation in change_set.operations
+                if operation.operation_id in accepted
+                and operation.operation_type == "REBUILD_COURSE_OUTLINE"
+            ),
+            None,
+        )
         domain_receipts = {
             str(item.get("operation_id") or ""): item
             for item in (receipt.get("domain_candidates") or {}).get("items") or []
@@ -1032,6 +1163,13 @@ def _finalize_applied_change_set(
             elif operation_id and operation_id in accepted:
                 status = "applied"
                 detail = "已写入正式课程文档"
+            elif (
+                accepted_outline_operation is not None
+                and str(item.get("asset_type") or "") in {"outline", "course_content"}
+            ):
+                operation_id = accepted_outline_operation.operation_id
+                status = "applied"
+                detail = "已随本次课程结构修改写入正式课程"
             elif str(item.get("candidate_status") or "") == "failed":
                 status = "failed"
                 detail = str(item.get("candidate_error") or "候选生成失败")
@@ -1046,6 +1184,19 @@ def _finalize_applied_change_set(
                 "operation_id": operation_id,
                 "status": status,
                 "detail": detail,
+            })
+        if accepted_outline_operation is not None and not any(
+            item["operation_id"] == accepted_outline_operation.operation_id
+            for item in receipt_items
+        ):
+            receipt_items.append({
+                "migration_id": "",
+                "unit_id": "course_outline",
+                "asset_type": "outline",
+                "title": "课程结构",
+                "operation_id": accepted_outline_operation.operation_id,
+                "status": "applied",
+                "detail": "已按确认的新顺序保存章节、合并关系和删除项",
             })
         change_set.application_receipt.update({
             "receipt_schema_version": "teacher_course_change_receipt_v1",

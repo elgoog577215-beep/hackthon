@@ -2376,7 +2376,7 @@ class TaskManager:
             task["current_phase"] = task["phase"]
             task["phase_progress"] = 100
             task["message"] = {
-                "outline": "课程目录已确认，开始冻结全课知识职责并按预算生成详细教案与正文",
+                "outline": "课程目录已确认，开始确定各节教学重点，并按课时生成详细教案与正文",
                 "teaching": "全课教案已确认，开始按小节持续生成课程正文",
                 "content": "课程内容已确认，开始执行结构与发布预检",
                 "release": "确认发布已完成，正在发布课程",
@@ -3743,7 +3743,7 @@ class TaskManager:
                     reason = "整课知识关系图已保留，可以从未完成正文继续"
                 else:
                     reason = (
-                        "已冻结全部知识节点，并保留 "
+                        "已确认全部知识节点，并保留 "
                         f"{completed_relation_batches}/{len(nodes)} 个旧版关系检查点，"
                         "可以从下一个未完成检查点继续"
                     )
@@ -5656,7 +5656,7 @@ class TaskManager:
         """按固定正文并发预算调度所有小节。
 
         `prerequisite_node_ids` 是学习顺序，不是正文生成依赖。正文只读取已经
-        冻结的全课教案，因此一个小节失败不会阻断其他小节。
+        已确认的全课教案，因此一个小节失败不会阻断其他小节。
 
         **Validates: Requirements 3.3, 3.4**
 
@@ -5706,7 +5706,7 @@ class TaskManager:
             task_id,
             "course_knowledge_blueprint",
             46,
-            "正在编译已冻结的知识节点、能力包与稳定 ID",
+            "正在编译已确认的知识节点、能力包与稳定 ID",
             phase_progress=35,
         )
         course_map = compile_course_knowledge_map(working)

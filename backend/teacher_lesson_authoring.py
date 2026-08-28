@@ -33,6 +33,7 @@ from teacher_script import (
     validate_teacher_script_section,
     validate_teacher_script_revision,
 )
+from teacher_visible_language import has_unnatural_system_language
 
 
 SCHEMA_VERSION = "teacher_lesson_authoring_v1"
@@ -505,7 +506,10 @@ def validate_teacher_lesson_plan(
                 )
             )
         visible_text = "\n".join(item for item in public_copy if item)
-        if _PLAN_INTERNAL_REGISTER_PATTERN.search(visible_text):
+        if (
+            _PLAN_INTERNAL_REGISTER_PATTERN.search(visible_text)
+            or has_unnatural_system_language(visible_text)
+        ):
             issue(
                 blocking,
                 "lesson_plan:internal_register",
