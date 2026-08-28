@@ -10,6 +10,7 @@ ENV VITE_QIZHI_AUTH_REQUIRED=${VITE_QIZHI_AUTH_REQUIRED}
 COPY frontend/package*.json ./
 # Install dependencies using npm ci for reproducible builds
 RUN npm ci
+COPY shared/ /app/shared/
 COPY frontend/ .
 # Build the application
 RUN npm run build
