@@ -1,10 +1,25 @@
+import json
+from pathlib import Path
+
+from course_pedagogy import resolve_pedagogy_profile
+from course_prompt_composer import CoursePromptComposer
 from models import CourseGenerationRequest
 from teaching_semantics import (
+    COURSE_TEACHING_TYPES,
+    LEARNING_PURPOSES,
+    SUBJECT_TYPES,
     compile_course_semantics,
     compile_lesson_semantics,
     compile_teaching_block_contract,
     order_teaching_blocks,
     recommend_lesson_type,
+)
+
+
+ROOT = Path(__file__).resolve().parents[2]
+CROSS_SUBJECT_CASES = json.loads(
+    (ROOT / "scripts" / "fixtures" / "cross_subject_generation_cases.json")
+    .read_text(encoding="utf-8")
 )
 
 
@@ -163,3 +178,63 @@ def test_generation_request_persists_new_semantics_and_keeps_legacy_course_type(
     assert request.learning_purpose == "systematic"
     assert request.course_teaching_type == "laboratory"
     assert request.pedagogy_mode == "natural_science"
+
+
+def test_cross_subject_fixed_cases_share_one_semantic_and_prompt_chain():
+    assert {case["pedagogy_mode"] for case in CROSS_SUBJECT_CASES} == (
+        set(SUBJECT_TYPES) - {"auto"}
+    )
+    assert {case["learning_purpose"] for case in CROSS_SUBJECT_CASES} == set(
+        LEARNING_PURPOSES
+    )
+    assert {case["course_teaching_type"] for case in CROSS_SUBJECT_CASES} == set(
+        COURSE_TEACHING_TYPES
+    )
+
+    composer = CoursePromptComposer()
+    for case in CROSS_SUBJECT_CASES:
+        semantics = compile_course_semantics(
+            learning_purpose=case["learning_purpose"],
+            subject_type=case["pedagogy_mode"],
+            discipline_hint=case["subject"],
+            course_teaching_type=case["course_teaching_type"],
+        )
+        profile = resolve_pedagogy_profile(
+            subject=case["subject"],
+            requested_mode=case["pedagogy_mode"],
+        )
+        brief = {
+            **semantics,
+            "course_shape_constraints": {
+                "chapter_count": 1,
+                "section_count": 1,
+                "minimum_chapter_count": 1,
+                "minimum_section_count": 1,
+            },
+            "course_intent": {"type": case["learning_purpose"]},
+        }
+        prompt = composer.build_outline_skeleton_v2_prompt(
+            subject=case["subject"],
+            audience=case["target_audience"],
+            brief=brief,
+            profile=profile,
+            difficulty_profile={"level": "intermediate"},
+            gap_assessment={},
+            adaptation_decision={},
+            material_context="",
+        )
+
+        pack = semantics["subject_standard_pack"]
+        assert semantics["subject_type"] == case["pedagogy_mode"]
+        assert semantics["learning_purpose"] == case["learning_purpose"]
+        assert semantics["course_teaching_type"] == case["course_teaching_type"]
+        assert pack["professional_actions"]
+        assert pack["canonical_artifacts"]
+        assert pack["quality_rules"]
+        assert semantics["learning_purpose_label"] in prompt
+        assert semantics["course_teaching_type_label"] in prompt
+        assert semantics["subject_type_label"] in prompt
+        assert pack["professional_actions"][0] in prompt
+        assert "## 学习目的契约" in prompt
+        assert "## 课程教学类型契约" in prompt
+        assert "## 教学与学科契约" in prompt

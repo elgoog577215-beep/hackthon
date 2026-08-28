@@ -214,12 +214,30 @@ async def test_generation_shell_publishes_canonical_document_once():
         "course-1",
         title="线性代数",
         job_id="job-1",
-        metadata={"nodes": [{"node_id": "draft-only"}]},
+        metadata={
+            "nodes": [{"node_id": "draft-only"}],
+            "course_type": "systematic",
+            "course_purpose": "systematic",
+            "composition_style": "theory_driven",
+            "generation_request": {
+                "subject": "线性代数",
+                "learning_purpose": "systematic",
+                "course_teaching_type": "theory",
+                "course_type": "systematic",
+                "course_purpose": "systematic",
+                "composition_style": "theory_driven",
+            },
+        },
     )
 
     assert shell["document"]["sections"] == []
     assert storage.course["generation_status"] == "queued"
     assert "nodes" not in storage.course
+    assert storage.course["generation_request"]["learning_purpose"] == "systematic"
+    assert storage.course["generation_request"]["course_teaching_type"] == "theory"
+    for legacy_field in ("course_type", "course_purpose", "composition_style"):
+        assert legacy_field not in storage.course
+        assert legacy_field not in storage.course["generation_request"]
 
     document = document_from_generation_draft(legacy_course())
     receipt = await repository.publish_generated_course(

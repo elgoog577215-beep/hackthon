@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from course_authoring_templates import compile_formal_course_context
+from subject_standard_packs import resolve_subject_standard_pack
 
 
 def _text(value: Any) -> str:
@@ -179,6 +180,20 @@ def compile_overall_teaching_guidance(
         course_data,
         plan=plan,
     )
+    standard_pack = brief.get("subject_standard_pack")
+    if not isinstance(standard_pack, dict):
+        standard_pack = resolve_subject_standard_pack(
+            str(
+                brief.get("subject_type")
+                or request.get("pedagogy_mode")
+                or "auto"
+            ),
+            discipline_hint=_text(
+                request.get("subject")
+                or plan.get("course_title")
+                or course_data.get("course_name")
+            ),
+        )
     positioning = _text(
         plan.get("positioning")
         or brief.get("goal")
@@ -215,6 +230,25 @@ def compile_overall_teaching_guidance(
             "primary_mode": _text(pedagogy.get("primary_mode")),
             "secondary_mode": _text(pedagogy.get("secondary_mode")),
             "rationale": rationale,
+        },
+        "subject_guidance": {
+            "subject_type": _text(standard_pack.get("subject_type")),
+            "discipline_profile": _text(
+                standard_pack.get("discipline_profile_label")
+            ),
+            "professional_actions": _strings(
+                standard_pack.get("professional_actions"),
+                limit=8,
+            ),
+            "lesson_plan_language": _text(
+                (standard_pack.get("artifact_language") or {}).get(
+                    "lesson_plan"
+                )
+            ),
+            "quality_rules": _strings(
+                standard_pack.get("quality_rules"),
+                limit=8,
+            ),
         },
         "teaching_throughline": rationale or positioning,
         "assessment_methods": _assessment_methods(course_data, plan),

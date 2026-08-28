@@ -122,6 +122,21 @@ def test_teacher_view_and_generation_guidance_share_one_macro_contract():
     assert "评价证据：完成图像与解析式互译任务" in context
 
 
+def test_overall_guidance_carries_subject_language_into_existing_lesson_plan_chain():
+    course, _node = _course()
+    course["generation_request"].update({
+        "subject": "微积分",
+        "pedagogy_mode": "math_formal",
+    })
+
+    overall = compile_overall_teaching_guidance(course)
+
+    assert overall["subject_guidance"]["subject_type"] == "math_formal"
+    assert "表征转换" in overall["subject_guidance"]["lesson_plan_language"]
+    assert overall["subject_guidance"]["professional_actions"]
+    assert overall["subject_guidance"]["quality_rules"]
+
+
 def test_macro_teaching_design_changes_content_prompt_without_changing_modules():
     course, node = _course()
     composer = CoursePromptComposer()

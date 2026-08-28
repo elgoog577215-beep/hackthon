@@ -20,6 +20,65 @@ ARTIFACT_LANGUAGE = {
     "ppt": "一页承担一个清楚的教学任务和主要结论；标题可直接读懂，正文服务讲解而不是复制讲稿。",
 }
 
+SUBJECT_ARTIFACT_LANGUAGE: dict[str, dict[str, str]] = {
+    "general": {
+        "outline": "用清楚的目标、任务和成果组织章节，避免百科式铺陈。",
+        "lesson_plan": "写明教师怎样组织任务、学生怎样完成、用什么结果判断学会。",
+        "script": "像教师面对学生解释和追问，少下定义，多结合任务说明怎么做、为什么。",
+        "question_bank": "题目使用学生能理解的真实任务，条件完整，答案能够据此判断。",
+        "ppt": "标题直接说明本页任务或结论，正文只保留讲解和行动所需信息。",
+    },
+    "math_formal": {
+        "outline": "章节名称体现定义、方法、推理与应用的先后关系，不把相近概念并列堆放。",
+        "lesson_plan": "写清表征转换、定义建立、推导示范、变式练习和错误诊断怎样衔接。",
+        "script": "使用数学课堂常用表达，先说明条件和对象，再逐步推导；直观解释不能替代定义和证明。",
+        "question_bank": "符号、条件和问题目标完整；参考答案给出必要步骤并覆盖等价写法。",
+        "ppt": "公式与图像围绕同一个数学判断，标题不使用公式碎片，关键条件与结论就近呈现。",
+    },
+    "programming_engineering": {
+        "outline": "按能运行、能解释、能调试、能测试和能作工程取舍的能力推进。",
+        "lesson_plan": "写清环境、输入、操作、运行结果、调试过程和验收标准，避免只讲概念或只贴代码。",
+        "script": "像教师现场演示工程任务：先交代目标和环境，再边运行边解释关键选择和失败原因。",
+        "question_bank": "提供必要代码、版本和输入条件；答案包含可验证结果、测试或调试依据。",
+        "ppt": "代码、运行结果和工程取舍分区呈现，一页只解释一个关键机制或操作判断。",
+    },
+    "natural_science": {
+        "outline": "按现象、问题、模型、实验或数据、解释边界组织学习责任。",
+        "lesson_plan": "区分观察与解释，写明变量控制、记录方法、数据处理、误差分析和安全要求。",
+        "script": "使用科学课堂常用的证据语言，明确哪些是观察、哪些是推断、结论在什么条件下成立。",
+        "question_bank": "给出足以判断的实验或数据条件，要求学生解释证据而不只是套用公式。",
+        "ppt": "图表、实验条件与结论对应呈现，注明变量、单位、不确定性和适用范围。",
+    },
+    "life_medical": {
+        "outline": "按尺度、结构、功能、机制、调节和案例推理组织内容，避免把名词清单当成知识结构。",
+        "lesson_plan": "写清观察对象、机制链、证据强度、案例判断和安全边界，不提供个人诊疗建议。",
+        "script": "使用基础医学和生命科学课堂的谨慎表达，区分结构、功能、机制、相关和因果。",
+        "question_bank": "案例信息充分，问题只要求课程范围内可以判断的机制或证据，不暗示真实诊断。",
+        "ppt": "结构图、机制链和案例证据分层呈现，避免用一张复杂图代替逐步解释。",
+    },
+    "humanities_social": {
+        "outline": "按问题、材料、概念、解释、异议和判断推进，不把年代、人物或理论简单罗列。",
+        "lesson_plan": "写清共同材料、讨论问题、论证标准、异议回应和观点修订怎样发生。",
+        "script": "区分史实、材料、观点和解释；使用有依据但不装腔的课堂语言，争议处说明不同看法。",
+        "question_bank": "材料出处和情境充分，要求形成有证据的解释或论证，评分标准允许合理的不同答案。",
+        "ppt": "材料摘录、观点和证据关系清楚，一页推动一个论证步骤，不用口号替代分析。",
+    },
+    "language_learning": {
+        "outline": "围绕真实沟通对象、目的和情境安排输入、练习、输出与再次表现。",
+        "lesson_plan": "写清语言输入、注意形式、受控练习、真实表达和反馈后重做的任务。",
+        "script": "使用目标语课堂中自然、可理解的指令和示范；语法说明服务表达，不长期停留在术语讲解。",
+        "question_bank": "给出明确语境、对象和表达目的，同时检查准确、得体和可理解性。",
+        "ppt": "示例、语言形式和沟通任务就近呈现，避免大段双语对照挤满页面。",
+    },
+    "business_career": {
+        "outline": "按角色、目标、约束、分析、决策、交付和复盘组织课程，不先套框架再找问题。",
+        "lesson_plan": "写清场景信息、相关方、可用数据、决策标准、交付物和复盘指标。",
+        "script": "像教师带学生分析真实工作任务，直接说明约束、选择和代价，不堆砌商业术语。",
+        "question_bank": "场景与数据足够，要求作出可执行判断并说明取舍；评分依据对应交付质量。",
+        "ppt": "问题、数据、方案和取舍分层表达，图表必须服务当前决策而不是装饰。",
+    },
+}
+
 
 def _standard(
     epistemic_method: str,
@@ -292,6 +351,11 @@ def resolve_subject_standard_pack(
         profile_id = candidate if best_score > 0 else next(iter(family["profiles"]))
     profile = family["profiles"][profile_id]
     resolved = _merge(family["base"], profile)
+    resolved["artifact_language"] = {
+        **ARTIFACT_LANGUAGE,
+        **SUBJECT_ARTIFACT_LANGUAGE[family_id],
+        **deepcopy(profile.get("artifact_language") or {}),
+    }
     resolved.update({
         "schema_version": SUBJECT_STANDARD_PACK_VERSION,
         "subject_type": family_id,
@@ -325,6 +389,7 @@ def validate_subject_standard_registry() -> list[str]:
 
 
 __all__ = [
+    "SUBJECT_ARTIFACT_LANGUAGE",
     "SUBJECT_STANDARD_PACKS",
     "SUBJECT_STANDARD_PACK_VERSION",
     "resolve_subject_standard_pack",

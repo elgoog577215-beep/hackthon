@@ -83,6 +83,16 @@ def _canonical_generation_request(value: dict[str, Any]) -> dict[str, Any]:
     return request
 
 
+def canonical_generation_request(value: dict[str, Any]) -> dict[str, Any]:
+    """Return the current teacher-facing generation request for persistence.
+
+    Runtime workers may still read the legacy fields while old jobs are being
+    migrated, but every new formal write must pass through this boundary so a
+    course never stores two competing classification systems.
+    """
+    return _canonical_generation_request(value)
+
+
 def baseline_revision(course: dict[str, Any]) -> int:
     try:
         return max(0, int(course.get("generation_request_revision") or 0))
@@ -606,6 +616,7 @@ __all__ = [
     "build_ai_baseline_prompt",
     "build_baseline_mutation",
     "build_course_information_mutation",
+    "canonical_generation_request",
     "confirmed_generation_request",
     "course_information_changed_fields",
     "course_information_revision",

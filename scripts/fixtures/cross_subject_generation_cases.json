@@ -1,0 +1,66 @@
+[
+  {
+    "case_id": "math-theory",
+    "subject": "导数的几何意义与局部线性化",
+    "pedagogy_mode": "math_formal",
+    "learning_purpose": "systematic",
+    "course_teaching_type": "theory",
+    "target_audience": "理工科大一学生"
+  },
+  {
+    "case_id": "programming-project",
+    "subject": "用 Python 完成一份可复用的数据清洗脚本",
+    "pedagogy_mode": "programming_engineering",
+    "learning_purpose": "project",
+    "course_teaching_type": "project",
+    "target_audience": "有 Python 基础的本科生"
+  },
+  {
+    "case_id": "science-laboratory",
+    "subject": "用实验验证欧姆定律并分析测量误差",
+    "pedagogy_mode": "natural_science",
+    "learning_purpose": "systematic",
+    "course_teaching_type": "laboratory",
+    "target_audience": "大学物理实验初学者"
+  },
+  {
+    "case_id": "medical-exam",
+    "subject": "细胞呼吸过程与调控的期末复习",
+    "pedagogy_mode": "life_medical",
+    "learning_purpose": "exam",
+    "course_teaching_type": "comprehensive",
+    "target_audience": "生命科学大一学生"
+  },
+  {
+    "case_id": "humanities-seminar",
+    "subject": "史料如何支持并限制历史解释",
+    "pedagogy_mode": "humanities_social",
+    "learning_purpose": "systematic",
+    "course_teaching_type": "seminar",
+    "target_audience": "历史学本科生"
+  },
+  {
+    "case_id": "language-practice",
+    "subject": "大学英语学术摘要写作冲刺",
+    "pedagogy_mode": "language_learning",
+    "learning_purpose": "exam",
+    "course_teaching_type": "practice",
+    "target_audience": "需要完成英语摘要写作测评的本科生"
+  },
+  {
+    "case_id": "business-project",
+    "subject": "为校园咖啡店制定可执行的月度经营改进方案",
+    "pedagogy_mode": "business_career",
+    "learning_purpose": "project",
+    "course_teaching_type": "project",
+    "target_audience": "商科本科生"
+  },
+  {
+    "case_id": "general-practice",
+    "subject": "用可观察证据改进一次课堂提问设计",
+    "pedagogy_mode": "general",
+    "learning_purpose": "systematic",
+    "course_teaching_type": "practice",
+    "target_audience": "师范生"
+  }
+]

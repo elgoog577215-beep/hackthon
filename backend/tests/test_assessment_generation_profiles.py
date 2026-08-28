@@ -330,6 +330,25 @@ def test_generation_schema_carries_the_solver_kind_hint() -> None:
     del hint
 
 
+def test_question_context_uses_subject_language_without_a_second_prompt_chain() -> None:
+    from assessment_orchestrator import _generation_context
+
+    context = _generation_context(
+        profile={
+            "profile_revision_id": "profile-1",
+            "discipline": {"family": "humanities_social"},
+        },
+        objective={"objective_id": "objective-1"},
+        slot={"discipline_family": "humanities_social"},
+        references=[],
+        practice_level="concept_check",
+        variant_index=0,
+    )
+
+    assert "材料出处和情境充分" in context["profile"]["question_language"]
+    assert "评分标准允许合理的不同答案" in context["profile"]["question_language"]
+
+
 # --- G3：按题的模型求解预算 -------------------------------------------------
 
 

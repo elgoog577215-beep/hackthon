@@ -99,6 +99,10 @@ from course_type_contracts import (
     ensure_course_type_enabled,
     resolve_course_type,
 )
+from teaching_semantics import (
+    resolve_course_teaching_type,
+    resolve_learning_purpose,
+)
 from course_space_publication import (
     MISSING_TEACHER_IDENTITY,
     PUBLISH_SCHEMA_VERSION,
@@ -1299,7 +1303,8 @@ class TaskManager:
             raise ValueError("Course subject cannot be blank")
         request_snapshot["subject"] = subject
         course_type, course_type_source = resolve_course_type(
-            request_snapshot.get("course_type"),
+            request_snapshot.get("learning_purpose")
+            or request_snapshot.get("course_type"),
             course_purpose=request_snapshot.get("course_purpose"),
             composition_style=request_snapshot.get("composition_style"),
         )
@@ -1313,6 +1318,18 @@ class TaskManager:
                 request_snapshot.get("course_purpose"),
             )
         )
+        learning_purpose = resolve_learning_purpose(
+            request_snapshot.get("learning_purpose"),
+            legacy_course_type=course_type,
+        )
+        course_teaching_type, _ = resolve_course_teaching_type(
+            request_snapshot.get("course_teaching_type"),
+            learning_purpose=learning_purpose,
+            legacy_course_type=course_type,
+            composition_style=request_snapshot.get("composition_style"),
+        )
+        request_snapshot["learning_purpose"] = learning_purpose
+        request_snapshot["course_teaching_type"] = course_teaching_type
         if not request_snapshot.get("composition_style") and not request_snapshot.get("style"):
             request_snapshot["composition_style"] = default_composition_style(course_type)
         composition_profile = compile_composition_profile(

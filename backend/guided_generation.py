@@ -371,6 +371,8 @@ def artifact_revision(
                 "subject",
                 "target_audience",
                 "difficulty",
+                "learning_purpose",
+                "course_teaching_type",
                 "composition_style",
                 "style",
                 "requirements",

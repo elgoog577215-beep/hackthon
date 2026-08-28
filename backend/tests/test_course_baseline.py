@@ -103,7 +103,12 @@ async def test_confirmed_baseline_update_changes_metadata_without_regenerating_c
     assert after["course_document_revision"] == before["course_document_revision"]
     assert after["course_document"] == before["course_document"]
     assert after["generation_job_id"] == ""
-    assert after["generation_request_history"][-1]["previous"]["course_type"] == "systematic"
+    previous = after["generation_request_history"][-1]["previous"]
+    assert previous["learning_purpose"] == "systematic"
+    assert previous["course_teaching_type"] == "comprehensive"
+    assert "course_type" not in previous
+    assert "course_purpose" not in previous
+    assert "composition_style" not in previous
     assert after["course_operation_log"][-1]["operation"] == "update_course_generation_request"
 
     repeated = await course_baseline.update_course_baseline(

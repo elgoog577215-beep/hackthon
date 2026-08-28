@@ -26,6 +26,7 @@ from course_revisions import (
     revision_vector_for_document,
 )
 from course_teaching_plan_projection import project_course_teaching_plan
+from course_baseline import canonical_generation_request
 
 _GENERATED_METADATA_EXCLUDES = {
     "nodes",
@@ -825,8 +826,14 @@ class CourseDocumentRepository:
 
     @staticmethod
     def _generated_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
-        return {
+        generated = {
             key: deepcopy(value)
             for key, value in metadata.items()
             if key not in _GENERATED_METADATA_EXCLUDES
         }
+        request = generated.get("generation_request")
+        if isinstance(request, dict):
+            generated["generation_request"] = canonical_generation_request(request)
+        for legacy_field in ("course_type", "course_purpose", "composition_style"):
+            generated.pop(legacy_field, None)
+        return generated

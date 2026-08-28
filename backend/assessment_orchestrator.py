@@ -56,6 +56,7 @@ from code_runner_client import (
 )
 from course_versioning import stable_hash
 from solution_contracts import worked_solution_is_complete
+from subject_standard_packs import resolve_subject_standard_pack
 
 PRACTICE_LEVELS = (
     "concept_check",
@@ -4425,6 +4426,12 @@ def _generation_context(
     teacher_instruction: str = "",
 ) -> dict[str, Any]:
     brief = deepcopy(design_brief or {})
+    discipline_family = str(
+        slot.get("discipline_family")
+        or (profile.get("discipline") or {}).get("family")
+        or "general"
+    )
+    standard_pack = resolve_subject_standard_pack(discipline_family)
     scoped_evidence = list(
         brief.get("required_observable_evidence") or []
     )
@@ -4436,6 +4443,12 @@ def _generation_context(
                 profile.get("notation_and_language") or {}
             ),
             "course_purpose": profile.get("course_purpose"),
+            "question_language": str(
+                (standard_pack.get("artifact_language") or {}).get(
+                    "question_bank"
+                )
+                or ""
+            ),
         },
         "objective": {
             "objective_id": objective.get("objective_id"),

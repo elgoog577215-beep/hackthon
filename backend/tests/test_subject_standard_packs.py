@@ -1,4 +1,5 @@
 from subject_standard_packs import (
+    SUBJECT_ARTIFACT_LANGUAGE,
     SUBJECT_STANDARD_PACKS,
     resolve_subject_standard_pack,
     validate_subject_standard_registry,
@@ -11,6 +12,11 @@ def test_registry_is_complete_and_profile_ids_are_unique():
         "life_medical", "humanities_social", "language_learning", "business_career",
     }
     assert validate_subject_standard_registry() == []
+    assert set(SUBJECT_ARTIFACT_LANGUAGE) == set(SUBJECT_STANDARD_PACKS)
+    assert all(
+        set(language) == {"outline", "lesson_plan", "script", "question_bank", "ppt"}
+        for language in SUBJECT_ARTIFACT_LANGUAGE.values()
+    )
 
 
 def test_profiles_cover_representative_college_courses():
@@ -40,3 +46,16 @@ def test_explicit_family_limits_profile_resolution():
     )
     assert pack["subject_type"] == "humanities_social"
     assert pack["discipline_profile_id"] == "social_science"
+
+
+def test_each_subject_family_has_its_own_teacher_visible_language():
+    scripts = {
+        family_id: resolve_subject_standard_pack(family_id)["artifact_language"]["script"]
+        for family_id in SUBJECT_STANDARD_PACKS
+    }
+
+    assert len(set(scripts.values())) == len(SUBJECT_STANDARD_PACKS)
+    assert "逐步推导" in scripts["math_formal"]
+    assert "边运行边解释" in scripts["programming_engineering"]
+    assert "观察" in scripts["natural_science"] and "推断" in scripts["natural_science"]
+    assert "史实、材料、观点和解释" in scripts["humanities_social"]

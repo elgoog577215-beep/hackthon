@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from models import CourseGenerationRequest, LocateNodeRequest, NodeGenerationConfig
+from course_baseline import confirmed_generation_request
 from storage import storage
 from course_service import get_course_service
 from course_space_publication import (
@@ -324,10 +325,7 @@ async def create_teacher_course(
     owner_id = require_actor_id(request.headers.get("X-User-Id"))
     course_id = str(uuid.uuid4())
     generation_request = (
-        body.generation_request.model_dump(
-            mode="json",
-            exclude={"request_id", "target_course_id"},
-        )
+        confirmed_generation_request(body.generation_request)
         if body.generation_request
         else {}
     )

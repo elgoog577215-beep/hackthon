@@ -113,3 +113,40 @@ async def test_empty_teacher_course_stays_draft_in_teacher_list_and_hidden_from_
     assert teacher_course["generation_job_id"] is None
     assert teacher_course["updated_at"]
     assert courses._list_courses_with_resume("learner-a", set()) == []
+
+
+@pytest.mark.asyncio
+async def test_teacher_course_creation_persists_only_current_classifications(monkeypatch, tmp_path):
+    test_storage = Storage(str(tmp_path / "data"))
+    repository = CourseDocumentRepository(test_storage)
+    package_repository = SimpleNamespace(
+        create_package=MagicMock(return_value={"package_id": "tcs-course-3"}),
+        load_owned=MagicMock(),
+        register_material_reference=MagicMock(),
+    )
+    monkeypatch.setattr(courses, "get_course_document_repository", lambda: repository)
+    monkeypatch.setattr(courses, "teacher_course_space_repository", package_repository)
+    monkeypatch.setattr(courses, "storage", test_storage)
+    monkeypatch.setattr(courses.uuid, "uuid4", lambda: "course-3")
+
+    await courses.create_teacher_course(
+        courses.TeacherCourseCreateRequest.model_validate({
+            "course_name": "微积分",
+            "generation_request": {
+                "subject": "微积分",
+                "learning_purpose": "systematic",
+                "course_teaching_type": "theory",
+                "course_type": "systematic",
+                "course_purpose": "systematic",
+                "composition_style": "theory_driven",
+            },
+        }),
+        SimpleNamespace(headers={"X-User-Id": "teacher-a"}),
+    )
+
+    persisted = repository.load_course_view("course-3")["generation_request"]
+    assert persisted["learning_purpose"] == "systematic"
+    assert persisted["course_teaching_type"] == "theory"
+    assert "course_type" not in persisted
+    assert "course_purpose" not in persisted
+    assert "composition_style" not in persisted
