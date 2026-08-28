@@ -181,7 +181,7 @@ describe('CourseEvolutionWorkspace', () => {
         analysis_mode: 'ai_ranked',
         affected_units: [
           { migration_id: 'm1', unit_id: 'script:b1', asset_type: 'script', unit_type: 'script_block', title: '案例引入', before_preview: '保留现有案例。', section_ids: ['s1'], source_state: 'current', disposition: 'regenerate', reason: '需同步讲稿', confidence: .9, candidate_status: 'not_started' },
-          { migration_id: 'm2', unit_id: 'script:b2', asset_type: 'script', unit_type: 'script_block', title: '公式推导', before_preview: '展开公式。', section_ids: ['s1'], source_state: 'current', disposition: 'regenerate', reason: '需同步讲稿', confidence: .9, candidate_status: 'not_started' },
+          { migration_id: 'm2', unit_id: 'script:b2', asset_type: 'script', unit_type: 'script_block', title: '公式推导', before_preview: '展开公式。', section_ids: ['s2'], source_state: 'current', disposition: 'regenerate', reason: '需同步讲稿', confidence: .9, candidate_status: 'not_started' },
         ],
       },
     })]
@@ -189,6 +189,9 @@ describe('CourseEvolutionWorkspace', () => {
     vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
+    await wrapper.get('.impact-tools > select').setValue('s1')
+    expect(wrapper.findAll('.impact-list article')).toHaveLength(1)
+    await wrapper.get('.impact-tools > select').setValue('')
     await wrapper.get('.impact-tools input').setValue('案例')
     expect(wrapper.findAll('.impact-list article')).toHaveLength(1)
     await wrapper.get('.impact-tools button:last-child').trigger('click')

@@ -1944,6 +1944,8 @@
       "assetMissing": "Not generated",
       "sourceStale": "Source is behind its upstream revision",
       "searchAffected": "Search titles, content, or reasons",
+      "filterBySection": "Filter by section",
+      "allSections": "All sections",
       "visibleItems": "items",
       "includeVisible": "Include visible",
       "excludeVisible": "Exclude visible",

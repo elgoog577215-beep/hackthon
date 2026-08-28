@@ -1944,6 +1944,8 @@
       "assetMissing": "尚未生成",
       "sourceStale": "来源已落后于上游",
       "searchAffected": "搜索标题、内容或原因",
+      "filterBySection": "按章节筛选",
+      "allSections": "全部章节",
       "visibleItems": "项",
       "includeVisible": "纳入当前结果",
       "excludeVisible": "排除当前结果",

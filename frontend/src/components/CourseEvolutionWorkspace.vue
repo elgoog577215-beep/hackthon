@@ -85,6 +85,7 @@
                 <header class="review-header"><div><small>{{ t('courseEvolution.workspace.expectedImpact', '预计影响') }} · {{ selectedAssetLabel }}</small><h3>{{ reviewImpactTitle }}</h3></div><span><ShieldCheck :size="13" />{{ hasGeneratedCandidates ? t('courseEvolution.workspace.candidatesReady', '修改候选已就绪') : t('courseEvolution.workspace.noCandidatesYet', '尚未生成修改候选') }}</span></header>
                 <div class="impact-tools">
                   <label><Search :size="14" /><input v-model="impactQuery" type="search" :placeholder="t('courseEvolution.workspace.searchAffected', '搜索标题、内容或原因')" /></label>
+                  <select v-model="selectedSection" :aria-label="t('courseEvolution.workspace.filterBySection', '按章节筛选')"><option value="">{{ t('courseEvolution.workspace.allSections', '全部章节') }}</option><option v-for="section in affectedSections" :key="section.id" :value="section.id">{{ section.label }}</option></select>
                   <span>{{ visibleAffectedUnits.length }} {{ t('courseEvolution.workspace.visibleItems', '项') }}</span>
                   <button type="button" class="button-quiet compact-action" :disabled="!visibleAffectedUnits.length" @click="selectVisibleUnits(true)">{{ t('courseEvolution.workspace.includeVisible', '纳入当前结果') }}</button>
                   <button type="button" class="button-quiet compact-action" :disabled="!visibleAffectedUnits.length" @click="selectVisibleUnits(false)">{{ t('courseEvolution.workspace.excludeVisible', '排除当前结果') }}</button>
@@ -141,6 +142,7 @@ const selectedPlanId = ref('')
 const forceRequest = ref(false)
 const excludedUnitIds = ref<Set<string>>(new Set())
 const impactQuery = ref('')
+const selectedSection = ref('')
 const dispositionOverrides = ref<Record<string, TeacherMigrationDisposition>>({})
 const outlineDraft = ref<TeacherCourseOutlineReviewNode[]>([])
 const discardConfirm = ref(false)
@@ -185,9 +187,11 @@ const readyAssetCount = computed(() => availableContextAssets.value.length)
 const contextStatusTitle = computed(() => store.contextLoading ? t('courseEvolution.workspace.indexLoading', '正在连接课程资产') : context.value?.ready ? t('courseEvolution.workspace.indexReady', '已连接真实课程资产') : t('courseEvolution.workspace.indexUnavailable', '尚无可分析内容'))
 const affectedUnits = computed<AffectedUnit[]>(() => Array.isArray(focusedPlan.value?.impact_summary?.affected_units) ? focusedPlan.value?.impact_summary?.affected_units as AffectedUnit[] : [])
 const affectedAssets = computed(() => { const counts = new Map<string, number>(); affectedUnits.value.forEach(item => counts.set(item.asset_type, (counts.get(item.asset_type) || 0) + 1)); return [...counts].map(([key, count]) => ({ key, count, label: assetLabel(key) })) })
+const outlineLabelById = computed(() => new Map((context.value?.outline || []).map(item => [item.node_id, item.node_name])))
+const affectedSections = computed(() => Array.from(new Set(affectedUnits.value.filter(item => item.asset_type === selectedAsset.value).flatMap(item => item.section_ids || []))).map(id => ({ id, label: outlineLabelById.value.get(id) || id })))
 const visibleAffectedUnits = computed(() => {
   const query = impactQuery.value.trim().toLocaleLowerCase()
-  return affectedUnits.value.filter(item => item.asset_type === selectedAsset.value && (!query || [item.title, item.before_preview, item.reason].some(value => String(value || '').toLocaleLowerCase().includes(query))))
+  return affectedUnits.value.filter(item => item.asset_type === selectedAsset.value && (!selectedSection.value || item.section_ids?.includes(selectedSection.value)) && (!query || [item.title, item.before_preview, item.reason].some(value => String(value || '').toLocaleLowerCase().includes(query))))
 })
 const selectedAssetLabel = computed(() => affectedAssets.value.find(item => item.key === selectedAsset.value)?.label || '')
 const selectedImpactCount = computed(() => affectedUnits.value.length - excludedUnitIds.value.size)
@@ -251,12 +255,14 @@ const emptyAssets = (['outline', 'lesson_plan', 'script', 'ppt', 'question_bank'
 const listSeparator = computed(() => activeLocale.value === 'en' ? '; ' : '；')
 
 watch(affectedAssets, items => { if (!items.some(item => item.key === selectedAsset.value)) selectedAsset.value = items[0]?.key || '' }, { immediate: true })
+watch(selectedAsset, () => { selectedSection.value = '' })
 watch(() => focusedPlan.value?.change_set_id, () => {
   const saved = scopeReview.value?.excluded_migration_ids
   excludedUnitIds.value = new Set(Array.isArray(saved) ? saved.map(String) : [])
   dispositionOverrides.value = {}
   outlineDraft.value = normalizeOutline(focusedPlan.value?.impact_summary?.proposed_outline)
   impactQuery.value = ''
+  selectedSection.value = ''
   discardConfirm.value = false
 }, { immediate: true })
 watch(() => props.modelValue, async open => { if (!open) return; previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null; forceRequest.value = false; selectedPlanId.value = props.focusPlanId; await reloadWorkspace(); await nextTick(); workspaceRef.value?.focus(); if (workspaceState.value === 'request') requestInputRef.value?.focus() }, { immediate: true })
@@ -282,7 +288,7 @@ function setDisposition(item: AffectedUnit, value: string) {
 function confidenceLabel(value: number) { return value >= .8 ? t('courseEvolution.workspace.highConfidence', '高置信度') : value >= .6 ? t('courseEvolution.workspace.mediumConfidence', '中等置信度') : t('courseEvolution.workspace.lowConfidence', '需要重点复核') }
 function receiptStatusLabel(value: string) { return ({ applied: t('courseEvolution.workspace.receiptApplied', '已更新'), undone: t('courseEvolution.workspace.receiptUndone', '已恢复'), failed: t('courseEvolution.workspace.receiptFailed', '失败'), unchanged: t('courseEvolution.workspace.receiptUnchanged', '未变化') } as Record<string, string>)[value] || value }
 function treeLevel(node: Record<string, any>) {
-  const byId = new Map(proposedOutline.value.map(item => [String(item.provisional_id || item.node_id || ''), item]))
+  const byId = new Map(proposedOutline.value.map(item => [String(item.provisional_id), item]))
   const seen = new Set<string>()
   let parentId = String(node.parent_ref || node.parent_node_id || 'root')
   let level = 0
@@ -290,7 +296,7 @@ function treeLevel(node: Record<string, any>) {
     seen.add(parentId)
     level += 1
     const parent = byId.get(parentId)
-    parentId = String(parent?.parent_ref || parent?.parent_node_id || 'root')
+    parentId = String(parent?.parent_ref || 'root')
   }
   return level
 }
@@ -363,5 +369,6 @@ defineExpose({ reloadWorkspace })
 @media(max-width:920px){.course-change-layer.is-standalone{height:100%}.is-standalone .course-change-workspace{width:100%;height:100%}.request-state{width:min(720px,calc(100% - 32px))}.readiness-strip ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.request-context{grid-template-columns:minmax(0,1fr) auto}.request-context>span{display:none}}
 .receipt-state.is-partial-undo>section>svg{color:#b54708}
 .button-danger{min-height:38px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border:1px solid #f0b9b3;border-radius:9px;color:#b42318;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.button-danger:hover:not(:disabled){border-color:#d92d20;background:#fff4f2}.button-danger:disabled{opacity:.45;cursor:not-allowed}.compact-action{min-height:30px;padding:0 8px;font-size:10px}.impact-review{grid-template-rows:auto auto minmax(0,1fr) auto}.impact-tools{display:grid;grid-template-columns:minmax(180px,1fr) auto auto auto;align-items:center;gap:8px;padding:0 0 12px}.impact-tools>label{min-width:0;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid #d4dae4;border-radius:8px;background:#fff}.impact-tools input{min-width:0;width:100%;height:32px;border:0;outline:0;color:#253047;background:transparent;font:inherit}.impact-tools>span{color:#667085;font-size:9px}.disposition-control{flex:none;display:grid;gap:3px}.disposition-control>span{color:#667085;font-size:8px;font-weight:700}.disposition-control select{height:30px;padding:0 25px 0 8px;border:1px solid #cfd5df;border-radius:7px;color:#4e46ce;background:#fff;font:700 9px inherit}.candidate-error{flex-wrap:wrap}.candidate-error button{padding:2px 5px;border:0;border-radius:5px;color:#b42318;background:#fee4e2;font:700 9px inherit;cursor:pointer}.review-actionbar{grid-template-columns:minmax(0,1fr) repeat(3,auto)}.tree-comparison{grid-template-columns:minmax(170px,.58fr) 20px minmax(430px,1.42fr)}.structure-editor>header{justify-content:flex-start}.structure-editor>header .compact-action{margin-left:auto}.tree-comparison .structure-edit-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(90px,.55fr);gap:7px;margin-left:calc(var(--tree-level) * 9px);padding:8px}.structure-edit-row>input,.structure-edit-row>select{min-width:0;height:31px;padding:0 8px;border:1px solid #cbd2de;border-radius:7px;color:#253047;background:#fff;font:600 10px inherit}.structure-edit-row>div{grid-column:1/-1;display:flex;align-items:center;gap:5px}.structure-edit-row>div>button{width:28px;height:28px;display:grid;place-items:center;padding:0;border:1px solid #d6dbe4;border-radius:7px;color:#596579;background:#fff;cursor:pointer}.structure-edit-row>div>button:hover:not(:disabled){color:#4e46ce;background:#f2f1ff}.structure-edit-row>div>button:disabled{opacity:.35}.structure-edit-row .merge-control{min-width:110px;max-width:190px;height:28px;padding:0 6px;border:1px solid #d6dbe4;border-radius:7px;color:#596579;background:#fff;font:600 9px inherit}.structure-editor .add-node{width:100%;margin-top:9px}.migration-actions .button-danger{width:100%}.receipt-actions{grid-template-columns:repeat(3,minmax(0,auto))}.receipt-items li[data-status=applied] span{color:#087354}
-@media(max-width:1100px){.impact-tools{grid-template-columns:minmax(160px,1fr) auto auto}.impact-tools>span{display:none}.review-actionbar{grid-template-columns:minmax(0,1fr) repeat(2,auto)}.review-actionbar .button-secondary{display:none}.tree-comparison{grid-template-columns:minmax(140px,.5fr) 16px minmax(360px,1.5fr)}}
+.impact-tools{grid-template-columns:minmax(180px,1fr) minmax(120px,.55fr) auto auto auto}.impact-tools>select{min-width:0;height:34px;padding:0 28px 0 9px;border:1px solid #d4dae4;border-radius:8px;color:#4f5d70;background:#fff;font:600 10px inherit}
+@media(max-width:1100px){.impact-tools{grid-template-columns:minmax(160px,1fr) minmax(110px,.55fr) auto auto}.impact-tools>span{display:none}.review-actionbar{grid-template-columns:minmax(0,1fr) repeat(2,auto)}.review-actionbar .button-secondary{display:none}.tree-comparison{grid-template-columns:minmax(140px,.5fr) 16px minmax(360px,1.5fr)}}
 </style>
