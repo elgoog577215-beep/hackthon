@@ -142,7 +142,7 @@ AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
 AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
 ```
 
-题目生成固定使用唯一的完整质量策略，不再暴露速度或思考档位。链路保留完整候选内容、逐题独立求解、选择性模型思考和最多三轮质量修复；确定性本地解题器只处理能严格证明的合同，其余继续交给模型独立求解。历史客户端传入的 `fast` 或 `deliberate` 只作为兼容值接收，服务端会在创建或恢复任务前统一归一为 `complete`。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。生产部署从 GitHub Actions secret `MODELSCOPE_API_KEY` 写入服务器持久化 `.env`，发布包和浏览器端都不包含真实密钥。
+题目生成固定使用唯一的完整质量策略，不再暴露速度或思考档位。链路保留完整候选内容、逐题独立求解、选择性模型思考和最多三轮质量修复；确定性本地解题器只处理能严格证明的合同，其余继续交给模型独立求解。历史客户端传入的 `fast` 或 `deliberate` 只作为兼容值接收，服务端会在创建或恢复任务前统一归一为 `complete`。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。服务器中的模型密钥和端点只保存在目标环境私有配置，发布包和浏览器端都不包含真实密钥。
 
 ## 联网检索配置
 
@@ -232,11 +232,12 @@ openspec/        正式规格和变更任务
 - Docker 入口：[Dockerfile](./Dockerfile)。
 - Runner 独立部署：[docker-compose.runner.yml](./docker-compose.runner.yml)。
 - 发布包构建：`scripts/build-deploy-artifact.sh`。
-- 生产部署：`scripts/deploy-production.sh`。
-- GitHub Actions 部署：`.github/workflows/deploy-lingzhi.yml`。
-- SearXNG 手动部署：`.github/workflows/provision-searxng.yml`；固定配置位于 `deploy/searxng/`。
+- 本仓库 CI：`.github/workflows/deploy-lingzhi.yml` 只构建、校验并短期保存发布包，不使用 SSH，也不直接部署服务器。
+- 学校开发环境：由启智开发发布链统一部署和联调，不在同一台机器上另建 `/opt/lingzhi` 独立实例。
+- 学校生产环境：由启智正式发布链统一部署；每次连接和发布前必须先通过浙江大学 aTrust 进入学校内网，不从 GitHub 托管 Runner 直连。
+- `scripts/deploy-production.sh`、`scripts/github-action-deploy.sh` 和 `.github/workflows/provision-searxng.yml` 是旧独立部署链保留的恢复工具，不是当前生产入口。
 
-生产发布必须完成构建、健康检查、活动任务恢复和回滚验证；不要用一次本地启动代替生产验收。
+服务器地址和凭据只保存在本机私有配置，不进入 Git。生产发布必须完成构建、健康检查、活动任务恢复和回滚验证；不要用一次本地启动或开发服务器结果代替生产验收。
 
 ## 许可证
 

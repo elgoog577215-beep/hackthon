@@ -155,15 +155,19 @@ def test_server_activation_script_has_valid_bash_syntax() -> None:
     )
 
 
-def test_workflow_builds_before_uploading_release() -> None:
+def test_workflow_builds_artifact_without_server_access() -> None:
     workflow = (ROOT / ".github" / "workflows" / "deploy-lingzhi.yml").read_text()
 
     build_step = workflow.index("Build release artifact on runner")
-    upload_step = workflow.index("Upload release artifact")
-    activate_step = workflow.index("Activate release on server")
+    upload_step = workflow.index("Upload verified release artifact")
 
-    assert build_step < upload_step < activate_step
+    assert build_step < upload_step
     assert "scripts/build-deploy-artifact.sh" in workflow
+    assert "actions/upload-artifact@v4" in workflow
+    assert "LINGZHI_SSH" not in workflow
+    assert "ssh " not in workflow
+    assert "scp " not in workflow
+    assert "Activate release on server" not in workflow
 
 
 def test_release_artifact_excludes_non_runtime_visual_evidence() -> None:

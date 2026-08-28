@@ -1,4 +1,4 @@
-name: Deploy Lingzhi
+name: Verify Lingzhi Release Artifact
 
 on:
   push:
@@ -10,11 +10,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: lingzhi-production
-  cancel-in-progress: false
+  group: lingzhi-release-artifact-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -38,128 +38,10 @@ jobs:
           set -euo pipefail
           scripts/build-deploy-artifact.sh "/tmp/lingzhi-release-${GITHUB_SHA}.tgz"
 
-      - name: Configure deployment SSH
-        env:
-          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
-          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-          LINGZHI_SSH_KEY: ${{ secrets.LINGZHI_SSH_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$LINGZHI_SSH_HOST"
-          test -n "$LINGZHI_SSH_USER"
-          test -n "$LINGZHI_SSH_KEY"
-
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$LINGZHI_SSH_KEY" > ~/.ssh/lingzhi_deploy
-          chmod 600 ~/.ssh/lingzhi_deploy
-          ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
-
-      - name: Verify DeepSeek PPT primary models
-        env:
-          AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          set -euo pipefail
-          test -n "$AI_PPT_API_KEY"
-          curl -fsS --max-time 20 \
-            -H "Authorization: Bearer $AI_PPT_API_KEY" \
-            https://api.deepseek.com/models \
-            | python3 -c 'import json,sys; payload=json.load(sys.stdin); ids={str(item.get("id") or "") for item in payload.get("data") or []}; required={"deepseek-v4-pro", "deepseek-v4-flash"}; missing=required-ids; missing and sys.exit("required DeepSeek PPT models unavailable"); print("DeepSeek PPT models verified")'
-
-      - name: Configure PPT DeepSeek and ModelScope last-resort provider
-        env:
-          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
-          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-          AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          AI_PPT_API_BASE: https://api.deepseek.com
-          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
-          MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
-          MODELSCOPE_MODEL: Qwen/Qwen3.5-27B
-          AI_PPT_STORY_MODELS: deepseek-v4-pro,deepseek-v4-flash
-          AI_PPT_VISUAL_MODELS: deepseek-v4-flash,deepseek-v4-pro
-          SLIDE_DECK_V6_ENABLED: true
-          SLIDE_DECK_V6_DEFAULT_ENABLED: true
-        run: |
-          set -euo pipefail
-          test -n "$AI_PPT_API_KEY"
-          test "$AI_PPT_API_BASE" = "https://api.deepseek.com"
-          test -n "$MODELSCOPE_API_KEY"
-          test -n "$AI_PPT_STORY_MODELS"
-          test -n "$AI_PPT_VISUAL_MODELS"
-          test "$SLIDE_DECK_V6_ENABLED" = "true"
-          test "$SLIDE_DECK_V6_DEFAULT_ENABLED" = "true"
-
-          remote_script="$(ssh \
-            -i ~/.ssh/lingzhi_deploy \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "mktemp /tmp/lingzhi-configure-modelscope.XXXXXX.py")"
-          cleanup_remote_script() {
-            ssh \
-              -i ~/.ssh/lingzhi_deploy \
-              -o BatchMode=yes \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-              "rm -f -- '$remote_script'" || true
-          }
-          trap cleanup_remote_script EXIT
-
-          scp \
-            -i ~/.ssh/lingzhi_deploy \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            scripts/configure_modelscope_fallback.py \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "ppt_api_key": os.environ["AI_PPT_API_KEY"], "ppt_api_base": os.environ["AI_PPT_API_BASE"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' | ssh \
-            -i ~/.ssh/lingzhi_deploy \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "python3 '$remote_script'"
-
-          cleanup_remote_script
-          trap - EXIT
-
-      - name: Upload release artifact
-        env:
-          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
-          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-        run: |
-          set -euo pipefail
-          remote_artifact="/opt/lingzhi/incoming/lingzhi-release-${GITHUB_SHA}.tgz"
-          ssh \
-            -i ~/.ssh/lingzhi_deploy \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "install -d -m 700 /opt/lingzhi/incoming"
-          scp \
-            -i ~/.ssh/lingzhi_deploy \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "/tmp/lingzhi-release-${GITHUB_SHA}.tgz" \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_artifact"
-
-      - name: Activate release on server
-        env:
-          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
-          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-        run: |
-          set -euo pipefail
-          local_artifact="/tmp/lingzhi-release-${GITHUB_SHA}.tgz"
-          remote_artifact="/opt/lingzhi/incoming/lingzhi-release-${GITHUB_SHA}.tgz"
-          artifact_sha256="$(sha256sum "$local_artifact" | awk '{print $1}')"
-          ssh \
-            -i ~/.ssh/lingzhi_deploy \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
-            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "LINGZHI_TARGET_COMMIT='$GITHUB_SHA' LINGZHI_ARTIFACT_PATH='$remote_artifact' LINGZHI_ARTIFACT_SHA256='$artifact_sha256' bash -s" \
-            < scripts/github-action-deploy.sh
+      - name: Upload verified release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lingzhi-release-${{ github.sha }}
+          path: /tmp/lingzhi-release-${{ github.sha }}.tgz
+          if-no-files-found: error
+          retention-days: 7

@@ -170,32 +170,15 @@ def test_configure_modelscope_fallback_rejects_untrusted_ppt_endpoint(
     assert env_file.read_text(encoding="utf-8") == original
 
 
-def test_deploy_workflow_provisions_verified_ppt_role_routes():
+def test_release_workflow_does_not_provision_server_provider_routes():
     workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
 
-    assert "MODELSCOPE_MODEL: Qwen/Qwen3.5-27B" in workflow
-    assert "AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}" in workflow
-    assert "AI_PPT_API_BASE: https://api.deepseek.com" in workflow
-    assert (
-        "AI_PPT_STORY_MODELS: deepseek-v4-pro,deepseek-v4-flash"
-    ) in workflow
-    assert (
-        "AI_PPT_VISUAL_MODELS: deepseek-v4-flash,deepseek-v4-pro"
-    ) in workflow
-    assert '"ppt_api_key": os.environ["AI_PPT_API_KEY"]' in workflow
-    assert '"ppt_api_base": os.environ["AI_PPT_API_BASE"]' in workflow
-    assert "https://api.deepseek.com/models" in workflow
-    assert '"ppt_story_models": os.environ["AI_PPT_STORY_MODELS"]' in workflow
-    assert '"ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"]' in workflow
-    assert "SLIDE_DECK_V6_ENABLED: true" in workflow
-    assert "SLIDE_DECK_V6_DEFAULT_ENABLED: true" in workflow
-    assert '"slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"]' in workflow
-    assert (
-        '"slide_deck_v6_default_enabled": '
-        'os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]'
-    ) in workflow
-    assert "MODELSCOPE_MODEL_CANDIDATES" not in workflow
-    assert "MODELSCOPE_MODEL_FAST_CANDIDATES" not in workflow
+    assert "scripts/build-deploy-artifact.sh" in workflow
+    assert "actions/upload-artifact@v4" in workflow
+    assert "LINGZHI_SSH" not in workflow
+    assert "MODELSCOPE_API_KEY" not in workflow
+    assert "DEEPSEEK_API_KEY" not in workflow
+    assert "configure_modelscope_fallback.py" not in workflow
 
 
 def test_production_diagnostics_can_probe_ppt_story_route_without_content_output():
