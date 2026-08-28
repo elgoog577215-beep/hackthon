@@ -99,12 +99,13 @@ class WebSocketService:
         self,
         websocket: WebSocket,
         course_id: str | None = None,
+        subprotocol: str | None = None,
     ) -> str:
         """Accept a WebSocket connection and return a unique ``connection_id``.
 
         If *course_id* is provided the connection is automatically subscribed.
         """
-        await websocket.accept()
+        await websocket.accept(subprotocol=subprotocol)
         connection_id = str(uuid.uuid4())
 
         async with self._lock:

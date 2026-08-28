@@ -120,6 +120,14 @@ except NameError:
 
 from rate_limiter import RateLimitMiddleware
 from course_access import CourseOwnershipMiddleware
+from qizhi_auth import (
+    QizhiAuthError,
+    QizhiIdentityMiddleware,
+    configured_verifier,
+    websocket_authorization,
+)
+
+qizhi_identity_verifier = configured_verifier()
 
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(CourseOwnershipMiddleware, course_storage=storage)
@@ -144,6 +152,7 @@ app.add_middleware(
     ],
     expose_headers=["X-Request-Id"],
 )
+app.add_middleware(QizhiIdentityMiddleware, verifier=qizhi_identity_verifier)
 
 
 # ============================================================================
@@ -230,7 +239,17 @@ async def websocket_endpoint(websocket: WebSocket):
     Uses WebSocketService so that TaskManager progress updates are delivered
     to subscribed clients.
     """
-    connection_id = await ws_service.connect(websocket)
+    actor_id = ""
+    accepted_subprotocol = None
+    if qizhi_identity_verifier.enabled:
+        try:
+            identity = await qizhi_identity_verifier.resolve(websocket_authorization(websocket))
+            actor_id = identity.actor_id
+            accepted_subprotocol = "lingzhi-auth-v1"
+        except QizhiAuthError as exc:
+            await websocket.close(code=4403 if exc.status_code == 403 else 4401)
+            return
+    connection_id = await ws_service.connect(websocket, subprotocol=accepted_subprotocol)
     try:
         while True:
             data = await websocket.receive_text()
@@ -241,6 +260,20 @@ async def websocket_endpoint(websocket: WebSocket):
                 if msg_type == "ping":
                     await websocket.send_json({"type": "pong"})
                 else:
+                    course_id = str(message.get("course_id") or "").strip()
+                    if actor_id and course_id:
+                        from course_access import teacher_course_access_denial
+
+                        course = storage.load_course(course_id)
+                        denial = teacher_course_access_denial(
+                            course,
+                            actor_id,
+                            method="GET" if msg_type in {"subscribe", "unsubscribe"} else "POST",
+                            path=f"/api/courses/{course_id}",
+                        )
+                        if denial:
+                            await websocket.send_json({"type": "error", "payload": denial})
+                            continue
                     await ws_service.handle_client_command(connection_id, message)
 
             except json.JSONDecodeError:

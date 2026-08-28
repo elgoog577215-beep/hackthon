@@ -12,7 +12,10 @@ import router from './router'
 import logger from './utils/logger'
 import { initializeI18n } from './shared/i18n'
 import {
+  getQizhiAccessToken,
   getActiveRequestIdentity,
+  isQizhiAuthRequired,
+  redirectToQizhiLogin,
   withApiBase,
 } from './utils/http'
 import {
@@ -39,6 +42,10 @@ const currentUsageContext = () => {
 }
 
 const bootstrap = async () => {
+  if (isQizhiAuthRequired() && !getQizhiAccessToken()) {
+    redirectToQizhiLogin()
+    return
+  }
   await initializeI18n()
   installElementErrorBridge(ElMessage, ElNotification)
 
@@ -49,6 +56,7 @@ const bootstrap = async () => {
     initializeUsageTracking({
       endpoint: withApiBase('/api/usage-events/batch'),
       identityProvider: getActiveRequestIdentity,
+      authorizationProvider: getQizhiAccessToken,
       contextProvider: currentUsageContext,
     })
     let initialNavigation = true

@@ -3,8 +3,10 @@ FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 ARG VITE_BASE_PATH=/
 ARG VITE_API_BASE_URL=
+ARG VITE_QIZHI_AUTH_REQUIRED=false
 ENV VITE_BASE_PATH=${VITE_BASE_PATH}
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_QIZHI_AUTH_REQUIRED=${VITE_QIZHI_AUTH_REQUIRED}
 COPY frontend/package*.json ./
 # Install dependencies using npm ci for reproducible builds
 RUN npm ci

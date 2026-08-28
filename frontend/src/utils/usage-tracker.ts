@@ -32,6 +32,7 @@ interface QueuedUsageEvent extends UsageEventInput {
 interface UsageTrackerOptions {
   endpoint: string
   identityProvider: () => string
+  authorizationProvider?: () => string
   contextProvider: () => Omit<UsageContext, 'userId'>
 }
 
@@ -302,11 +303,13 @@ const flushQueuedEvents = async (): Promise<boolean> => {
     const ids = new Set(batch.map(item => item.client_event_id))
     let response: Response
     try {
+      const token = options.authorizationProvider?.() || ''
       response = await fetch(options.endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-User-Id': ownerId,
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           events: batch.map(({ owner_id: _ownerId, ...event }) => event),

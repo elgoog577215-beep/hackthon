@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http, { getTeacherIdentity, withApiBase } from '../utils/http'
+import http, { getTeacherIdentity, teacherIdentityHeaders, withApiBase } from '../utils/http'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
@@ -575,10 +575,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const response = await fetch(
           withApiBase(`/api/teacher/courses/${courseId}/lesson-jobs/${jobId}/stream`),
           {
-            headers: {
+            headers: teacherIdentityHeaders({
               Accept: 'text/event-stream',
               'X-User-Id': getTeacherIdentity(),
-            },
+            }),
           },
         )
         await consumeLessonPlanStream(response, event => {

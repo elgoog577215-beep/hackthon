@@ -6,11 +6,46 @@ import { publishAppError, toAppError } from './app-error';
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
 const CONFIGURED_TEACHER_USER_ID = String(import.meta.env.VITE_TEACHER_USER_ID || '').trim();
+const QIZHI_AUTH_REQUIRED = String(import.meta.env.VITE_QIZHI_AUTH_REQUIRED || '').trim() === 'true';
+const QIZHI_AUTH_TOKEN_KEY = 'auth_token';
 export const LEARNER_ID_STORAGE_KEY = 'lingzhi_learner_id_v1';
 export const LOCAL_TEACHER_USER_ID = 'teacher-local-workbench-v1';
 export type RequestIdentityScope = 'learner' | 'teacher';
 let inMemoryLearnerId = '';
 let activeIdentityScope: RequestIdentityScope = 'learner';
+
+export const getQizhiAccessToken = (): string => {
+  if (!QIZHI_AUTH_REQUIRED) return '';
+  try {
+    return String(
+      localStorage.getItem(QIZHI_AUTH_TOKEN_KEY)
+      || sessionStorage.getItem(QIZHI_AUTH_TOKEN_KEY)
+      || '',
+    ).trim().replace(/^Bearer\s+/i, '');
+  } catch {
+    return '';
+  }
+};
+
+export const isQizhiAuthRequired = (): boolean => QIZHI_AUTH_REQUIRED;
+
+export const redirectToQizhiLogin = (): void => {
+  if (typeof window === 'undefined') return;
+  const redirect = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  window.location.replace(`/auth?redirect=${encodeURIComponent(redirect)}`);
+};
+
+export const applyQizhiAuthorization = (headers: Headers): Headers => {
+  const token = getQizhiAccessToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  return headers;
+};
+
+export const qizhiWebSocketProtocols = (): string[] | undefined => {
+  if (!QIZHI_AUTH_REQUIRED) return undefined;
+  const token = getQizhiAccessToken();
+  return token ? ['lingzhi-auth-v1', `qizhi-bearer.${token}`] : ['lingzhi-auth-v1'];
+};
 
 const createLearnerId = () => {
   const randomId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -117,7 +152,7 @@ export const teacherIdentityHeaders = (
   const headers = new Headers(initial);
   const normalized = userId.trim();
   if (normalized) headers.set('X-User-Id', normalized);
-  return headers;
+  return applyQizhiAuthorization(headers);
 };
 
 export const learnerIdentityHeaders = (
@@ -127,7 +162,7 @@ export const learnerIdentityHeaders = (
   const headers = new Headers(initial);
   const normalized = userId.trim();
   if (normalized) headers.set('X-User-Id', normalized);
-  return headers;
+  return applyQizhiAuthorization(headers);
 };
 
 /**
@@ -279,6 +314,8 @@ http.interceptors.request.use(
       config.headers.delete('Content-Type');
     }
     config.usageStartedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+    const token = getQizhiAccessToken();
+    if (token) config.headers.set('Authorization', `Bearer ${token}`);
     return applyLearnerIdentity(
       config,
       getIdentityForScope(config.identityScope || activeIdentityScope),
@@ -314,6 +351,9 @@ http.interceptors.response.use(
       durationMs: startedAt === undefined ? 0 : now - startedAt,
       userId: String(error.config?.headers?.get?.('X-User-Id') || ''),
     });
+    if (QIZHI_AUTH_REQUIRED && error.response?.status === 401) {
+      redirectToQizhiLogin();
+    }
     handleHttpError(error, { showMessage: error.config?.silentError !== true });
     return Promise.reject(error);
   }

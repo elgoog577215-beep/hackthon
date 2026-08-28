@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import type { Ref } from 'vue'
 import type { WSMessage, WSCommand } from '../stores/types'
-import { API_BASE, withApiBase } from '../utils/http'
+import { API_BASE, qizhiWebSocketProtocols, withApiBase } from '../utils/http'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,7 +130,8 @@ function connect() {
   const wsUrl = getWsUrl()
 
   try {
-    wsInstance = new WebSocket(wsUrl)
+    const protocols = qizhiWebSocketProtocols()
+    wsInstance = protocols ? new WebSocket(wsUrl, protocols) : new WebSocket(wsUrl)
 
     wsInstance.onopen = () => {
       setConnectionState('connected')
