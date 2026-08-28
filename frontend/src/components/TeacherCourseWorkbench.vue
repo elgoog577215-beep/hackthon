@@ -22,32 +22,6 @@
           <FileCheck2 :size="18" /><strong>{{ t('courseWorkbench.supporting.title', '配套文档') }}</strong><ChevronRight :size="16" />
         </button>
       </section>
-      <section class="course-publication" :data-state="publicationState">
-        <small>{{ t('courseWorkbench.publication.group', '学生网站') }}</small>
-        <div class="course-publication__status">
-          <Globe2 :size="16" />
-          <strong>{{ publicationStatusLabel }}</strong>
-        </div>
-        <p v-if="publicationError">{{ publicationError }}</p>
-        <template v-if="publicationConfirmationOpen">
-          <p>{{ publicationConfirmationHelp }}</p>
-          <div class="course-publication__confirm-actions">
-            <button type="button" :disabled="publicationPublishing" @click="publicationConfirmationOpen = false">{{ t('common.cancel', '取消') }}</button>
-            <button class="is-primary" type="button" :disabled="publicationPublishing" @click="publishCourse">
-              <LoaderCircle v-if="publicationPublishing" class="spin" :size="14" />
-              {{ publicationPublishing ? t('courseWorkbench.publication.publishing', '正在发布…') : t('courseWorkbench.publication.confirm', '确认发布') }}
-            </button>
-          </div>
-        </template>
-        <button v-else-if="publicationReadiness?.published && publicationReadiness?.up_to_date" type="button" @click="openLearnerCourse">
-          {{ t('courseWorkbench.publication.view', '查看学生页面') }}<ChevronRight :size="14" />
-        </button>
-        <button v-else type="button" :disabled="publicationLoading || publicationPublishing || !publicationReadiness?.ready" @click="publicationConfirmationOpen = true">
-          <LoaderCircle v-if="publicationLoading" class="spin" :size="14" />
-          {{ publicationReadiness?.published ? t('courseWorkbench.publication.republish', '发布最新修改') : t('courseWorkbench.publication.publish', '发布到学生网站') }}
-        </button>
-        <p v-if="!publicationConfirmationOpen && publicationBlockerLabel">{{ publicationBlockerLabel }}</p>
-      </section>
       <footer><span>{{ readyStageCount }}/5</span><div><i :style="{ width: `${readyStageCount / 5 * 100}%` }" /></div></footer>
     </aside>
 
@@ -752,7 +726,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, Globe2, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -793,20 +767,6 @@ import http, { teacherRequestConfig } from '../utils/http'
 
 type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 type StageId = CoreStageId | 'companion'
-type TeacherCoursePublicationReadiness = {
-  ready: boolean
-  published: boolean
-  up_to_date: boolean
-  document_revision: string
-  lesson_count: number
-  confirmed_lesson_count: number
-  blockers: Array<{ code: string; message: string; lesson_unit_id?: string }>
-  question_bank_status: {
-    total_count: number
-    approved_count: number
-    excluded_count: number
-  }
-}
 type LessonPlanDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
@@ -1001,11 +961,6 @@ const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
 const questionBankImportMode = ref(false)
 const questionBankRevisionId = ref('')
-const publicationReadiness = ref<TeacherCoursePublicationReadiness | null>(null)
-const publicationLoading = ref(false)
-const publicationPublishing = ref(false)
-const publicationConfirmationOpen = ref(false)
-const publicationError = ref('')
 const stages = computed(() => [
   { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '大纲'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
@@ -1476,34 +1431,6 @@ const effectiveScriptGenerationError = computed(() => String(
     : scriptGenerationError.value,
 ))
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
-const publicationState = computed(() => {
-  if (publicationLoading.value) return 'loading'
-  if (publicationReadiness.value?.published && publicationReadiness.value?.up_to_date) return 'published'
-  if (publicationReadiness.value?.published) return 'stale'
-  if (publicationReadiness.value?.ready) return 'ready'
-  return 'blocked'
-})
-const publicationStatusLabel = computed(() => ({
-  loading: t('courseWorkbench.publication.loading', '正在检查发布条件'),
-  published: t('courseWorkbench.publication.published', '已发布'),
-  stale: t('courseWorkbench.publication.stale', '有修改待发布'),
-  ready: t('courseWorkbench.publication.ready', '可以发布'),
-  blocked: t('courseWorkbench.publication.blocked', '暂不可发布'),
-}[publicationState.value]))
-const publicationBlockerLabel = computed(() => {
-  if (publicationLoading.value || publicationError.value) return ''
-  const first = publicationReadiness.value?.blockers?.[0]
-  if (!first) return ''
-  const remaining = Math.max(0, Number(publicationReadiness.value?.blockers?.length || 0) - 1)
-  return remaining
-    ? `${first.message} ${t('courseWorkbench.publication.moreBlockers', '另有')} ${remaining} ${t('courseWorkbench.publication.blockerUnit', '项')}`
-    : first.message
-})
-const publicationConfirmationHelp = computed(() => {
-  const excluded = Number(publicationReadiness.value?.question_bank_status?.excluded_count || 0)
-  if (excluded) return `${t('courseWorkbench.publication.confirmHelp', '将发布所有已确认讲稿。待审核题目不会公开：')} ${excluded} ${t('courseWorkbench.publication.questionUnit', '题')}`
-  return t('courseWorkbench.publication.confirmHelpNoQuestions', '将发布所有已确认讲稿，学生随后可以打开这门课程。')
-})
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
   || outlineGatePending.value
@@ -2237,55 +2164,6 @@ async function requestStageChange(stage: StageId) {
   }
 }
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0; questionBankRevisionId.value = String(response.data?.bundle_revision_id || '') } catch { questionBankReady.value = false; questionBankRevisionId.value = '' } }
-async function loadPublicationReadiness() {
-  if (!props.courseId) return
-  publicationLoading.value = true
-  publicationError.value = ''
-  try {
-    const response = await http.get<TeacherCoursePublicationReadiness>(
-      `/api/teacher/courses/${props.courseId}/lesson-authoring/publication-readiness`,
-      teacherRequestConfig({ silentError: true }),
-    )
-    publicationReadiness.value = response.data
-  } catch (error: any) {
-    publicationReadiness.value = null
-    publicationError.value = String(
-      error?.response?.data?.detail?.message
-      || error?.message
-      || t('courseWorkbench.publication.loadFailed', '发布状态读取失败，请重试。'),
-    )
-  } finally {
-    publicationLoading.value = false
-  }
-}
-async function publishCourse() {
-  if (!publicationReadiness.value?.ready || publicationPublishing.value) return
-  publicationPublishing.value = true
-  publicationError.value = ''
-  try {
-    await http.post(
-      `/api/teacher/courses/${props.courseId}/lesson-authoring/publish`,
-      {
-        confirm: true,
-        expected_document_revision: publicationReadiness.value.document_revision,
-      },
-      teacherRequestConfig(),
-    )
-    publicationConfirmationOpen.value = false
-    await loadPublicationReadiness()
-  } catch (error: any) {
-    publicationError.value = String(
-      error?.response?.data?.detail?.message
-      || error?.message
-      || t('courseWorkbench.publication.publishFailed', '课程发布失败，请重试。'),
-    )
-  } finally {
-    publicationPublishing.value = false
-  }
-}
-function openLearnerCourse() {
-  window.location.assign(`/course/${props.courseId}/learn`)
-}
 
 watch(() => props.generationOptions, options => {
   const intent = options.course_intent as any
@@ -2369,16 +2247,6 @@ watch(selectedLessonId, (lessonId, previousLessonId) => {
   }
 }, { immediate: true })
 watch(() => props.courseId, () => { void loadQuestionBankStatus() }, { immediate: true })
-watch(() => props.courseId, () => {
-  publicationConfirmationOpen.value = false
-  void loadPublicationReadiness()
-}, { immediate: true })
-watch(() => lessonStore.lessons.map(lesson => [
-  lesson.lesson_unit_id,
-  lesson.plan.confirmed_revision_id,
-  lesson.script.current_revision_id,
-  lesson.script.confirmed,
-].join(':')).join('|'), () => { void loadPublicationReadiness() })
 watch(taskStatus, status => { if (!['pending', 'running'].includes(status)) generationRequested.value = false })
 onMounted(() => {
   try {
@@ -2411,7 +2279,6 @@ onBeforeUnmount(() => {
 .teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(560px,1fr) 10px var(--ai-pane-width);background:#eef1f6}.is-ai-collaboration>.workbench-center{padding:0;overflow:auto;background:#f3f5f9;scrollbar-width:thin;scrollbar-color:transparent transparent}.is-ai-collaboration>.workbench-center:hover{scrollbar-color:#cbd3df transparent}.is-ai-collaboration>.workbench-center::-webkit-scrollbar{width:6px}.is-ai-collaboration>.workbench-center::-webkit-scrollbar-thumb{border-radius:6px;background:transparent}.is-ai-collaboration>.workbench-center:hover::-webkit-scrollbar-thumb{background:#cbd3df}.is-ai-collaboration>.workbench-center>.center-heading{display:none}.is-ai-collaboration .lesson-stage{max-width:none;min-height:100%;margin:0;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration .lesson-outline,.is-ai-collaboration .lesson-outline-toggle{display:none}.is-ai-collaboration .has-lesson-outline .lesson-workspace{display:block}.is-ai-collaboration .has-lesson-outline .lesson-stage-content{overflow:visible;border:0;border-radius:0;box-shadow:none}.is-ai-collaboration :deep(.lesson-document){min-height:100vh}.ai-workspace-resizer{position:relative;z-index:4;min-height:0;cursor:col-resize;background:#eef1f6;touch-action:none}.ai-workspace-resizer::before{position:absolute;inset:0;content:""}.ai-workspace-resizer::after{position:absolute;inset-block:0;left:50%;width:1px;background:#d9dee8;content:"";transform:translateX(-50%)}.ai-workspace-resizer i{position:absolute;z-index:1;top:50%;left:50%;width:3px;height:52px;border-radius:3px;background:#9aa3b5;opacity:.5;transform:translate(-50%,-50%) scaleY(.8);transition:transform .14s ease,opacity .14s ease,background-color .14s ease}.ai-workspace-resizer:hover,.ai-workspace-resizer:focus-visible,.ai-workspace-resizer.is-resizing{background:#f5f4ff}.ai-workspace-resizer:hover i,.ai-workspace-resizer:focus-visible i,.ai-workspace-resizer.is-resizing i{background:#625dd7;opacity:1;transform:translate(-50%,-50%) scaleY(1)}.ai-workspace-resizer:focus-visible{outline:2px solid #818cf8;outline-offset:-2px}
 .stage-rail>header{display:block;padding:22px 18px 18px}.stage-rail>header .stage-rail-title{color:#1f2a40;font-size:18px;line-height:1.25}
 .companion-entry{display:grid;gap:7px;margin:10px 9px 0;padding-top:14px;border-top:1px solid #e7ebf2}.companion-entry>small{padding:0 10px;color:#64748b;font-size:11px;font-weight:700}.companion-entry>button{min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.companion-entry>button:hover{background:#f6f7fb}.companion-entry>button.active{color:#4338ca;background:#eef0ff}.companion-entry strong{min-width:0;color:#334155;font-size:13px}.companion-entry>button.active strong{color:#3730a3}
-.course-publication{display:grid;gap:8px;margin:14px 9px 0;padding:14px 10px;border-top:1px solid #e7ebf2}.course-publication>small{color:#64748b;font-size:11px;font-weight:700}.course-publication__status{display:flex;align-items:center;gap:7px;color:#64748b}.course-publication__status strong{color:#334155;font-size:12px}.course-publication[data-state="published"] .course-publication__status,.course-publication[data-state="published"] .course-publication__status strong{color:#15803d}.course-publication[data-state="stale"] .course-publication__status,.course-publication[data-state="stale"] .course-publication__status strong{color:#a16207}.course-publication>p{margin:0;color:#7b8495;font-size:10px;line-height:1.5}.course-publication>button,.course-publication__confirm-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid #d7ddea;border-radius:7px;color:#3730a3;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.course-publication>button:hover:not(:disabled),.course-publication__confirm-actions button:hover:not(:disabled){border-color:#c6cbe0;background:#f7f7ff}.course-publication>button:focus-visible,.course-publication__confirm-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.course-publication>button:disabled,.course-publication__confirm-actions button:disabled{opacity:.48;cursor:not-allowed}.course-publication__confirm-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px}.course-publication__confirm-actions .is-primary{border-color:#514bdc;color:#fff;background:#514bdc}.course-publication__confirm-actions .is-primary:hover:not(:disabled){border-color:#4540c4;background:#4540c4}
 .question-workbench-surface{max-width:860px;margin:0 auto;padding:0}
 @media(max-width:1050px){.teacher-workbench{grid-template-columns:180px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr)}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
 @media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.foundation-preset-row{grid-template-columns:1fr;gap:9px}.foundation-preset-options{grid-template-columns:1fr}.foundation-preset-options>button{min-height:52px}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}

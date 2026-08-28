@@ -21,11 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
-from course_document import (
-    CourseDocument,
-    document_from_generation_draft,
-    refresh_document_revision,
-)
+from course_document import document_from_generation_draft
 from course_pedagogy import module_block_role
 from lesson_arrangement import normalize_lesson_arrangement
 from teacher_script import (
@@ -1117,91 +1113,6 @@ def teacher_lesson_v6_source(
     }
     document = document_from_generation_draft(synthetic)
     return document, synthetic, synthetic_course_id
-
-
-def teacher_course_document_from_confirmed_scripts(
-    course_data: dict[str, Any],
-    *,
-    lesson_sources: list[dict[str, Any]],
-) -> CourseDocument:
-    """Compile confirmed teacher lesson sources into the canonical course truth.
-
-    Each lesson continues to use the same adapter that feeds the V6 deck chain,
-    so publishing cannot silently reinterpret or regenerate the teacher's
-    confirmed script. This function only compiles a candidate document; the
-    canonical repository remains the sole persistence and publication boundary.
-    """
-    course_id = str(course_data.get("course_id") or "")
-    if not course_id:
-        raise TeacherLessonAuthoringError(
-            "teacher_course_publication_scope_missing",
-            "课程标识缺失，不能发布。",
-        )
-    if not lesson_sources:
-        raise TeacherLessonAuthoringError(
-            "teacher_course_publication_empty",
-            "课程没有可发布的已确认讲稿。",
-        )
-
-    sections = []
-    blocks = []
-    section_ids: set[str] = set()
-    block_ids: set[str] = set()
-    for lesson_source in lesson_sources:
-        lesson_unit_id = str(lesson_source.get("lesson_unit_id") or "")
-        plan_revision = lesson_source.get("plan_revision")
-        script_revision = lesson_source.get("script_revision")
-        if (
-            not lesson_unit_id
-            or not isinstance(plan_revision, dict)
-            or not isinstance(script_revision, dict)
-        ):
-            raise TeacherLessonAuthoringError(
-                "teacher_course_publication_source_invalid",
-                "课程发布来源不完整，请重新读取课程状态。",
-            )
-        lesson_document, _course_view, _synthetic_id = teacher_lesson_v6_source(
-            course_data,
-            lesson_unit_id=lesson_unit_id,
-            plan_revision=plan_revision,
-            script_revision=script_revision,
-        )
-        source_revisions = {
-            "source_kind": "confirmed_teacher_lesson",
-            "lesson_unit_id": lesson_unit_id,
-            "source_lesson_plan_revision_id": str(plan_revision.get("revision_id") or ""),
-            "source_script_revision_id": str(script_revision.get("revision_id") or ""),
-        }
-        for section in lesson_document.sections:
-            if section.section_id in section_ids:
-                raise TeacherLessonAuthoringError(
-                    "teacher_course_publication_identity_conflict",
-                    "课程小节标识重复，发布已停止。",
-                    details={"section_id": section.section_id},
-                )
-            section_ids.add(section.section_id)
-            section.position = len(sections)
-            section.attributes = {**section.attributes, **source_revisions}
-            sections.append(section)
-        for block in lesson_document.blocks:
-            if block.block_id in block_ids:
-                raise TeacherLessonAuthoringError(
-                    "teacher_course_publication_identity_conflict",
-                    "课程内容块标识重复，发布已停止。",
-                    details={"block_id": block.block_id},
-                )
-            block_ids.add(block.block_id)
-            block.payload = {**block.payload, **source_revisions}
-            blocks.append(block)
-
-    return refresh_document_revision(
-        CourseDocument(
-            course_id=course_id,
-            title=str(course_data.get("course_name") or "未命名课程"),
-            sections=sections,
-            blocks=blocks,
-        )
-    )
 
 
 class TeacherLessonAuthoringRepository:

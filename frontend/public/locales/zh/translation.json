@@ -724,26 +724,6 @@
       "kicker": "配套文档",
       "description": "从学校模板快速生成正式文件"
     },
-    "publication": {
-      "group": "学生网站",
-      "loading": "正在检查发布条件",
-      "published": "已发布",
-      "stale": "有修改待发布",
-      "ready": "可以发布",
-      "blocked": "暂不可发布",
-      "publish": "发布到学生网站",
-      "republish": "发布最新修改",
-      "view": "查看学生页面",
-      "confirm": "确认发布",
-      "publishing": "正在发布…",
-      "confirmHelp": "将发布所有已确认讲稿。待审核题目不会公开：",
-      "confirmHelpNoQuestions": "将发布所有已确认讲稿，学生随后可以打开这门课程。",
-      "moreBlockers": "另有",
-      "blockerUnit": "项",
-      "questionUnit": "题",
-      "loadFailed": "发布状态读取失败，请重试。",
-      "publishFailed": "课程发布失败，请重试。"
-    },
     "form": {
       "learningGoal": "教学目标", "learningGoalPlaceholder": "学生完成课程后能够……",
       "totalHours": "总学时", "sessionCount": "预计课次", "requirements": "补充要求",

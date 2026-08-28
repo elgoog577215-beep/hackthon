@@ -299,11 +299,17 @@ watch(() => route.params.courseId, async value => {
   workspaceStore.mistakeBookAttempts = []
   workspaceStore.practiceNeedsReviewCount = 0
   await Promise.all([
-    courseStore.fetchCourseList(),
-    courseStore.loadCourse(courseId),
+    courseStore.fetchCourseList({ surface: isTeacherPreview.value ? 'teacher' : 'student' }),
+    courseStore.loadCourse(courseId, isTeacherPreview.value ? {
+      includeLearningRecords: false,
+      taskType: 'teacher_outline_generation',
+      monitorTask: false,
+      previewSurface: 'teacher',
+      silentError: true,
+    } : {}),
   ])
   generationStore.observeCourse(courseId)
-  if (isGenerationPreview.value) {
+  if (isGenerationPreview.value || isTeacherPreview.value) {
     selectInitialNode()
     return
   }
@@ -339,7 +345,7 @@ async function loadPublishedLearningContext(courseId: string) {
 }
 
 watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
-  if (projection !== 'published' || previous !== 'generation_preview' || !courseStore.currentCourseId) return
+  if (isTeacherPreview.value || projection !== 'published' || previous !== 'generation_preview' || !courseStore.currentCourseId) return
   autoFollowGeneration.value = false
   await loadPublishedLearningContext(courseStore.currentCourseId)
   selectInitialNode()

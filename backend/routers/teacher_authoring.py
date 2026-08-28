@@ -77,7 +77,6 @@ async def confirm_generation_preview_for_teacher_authoring(
             detail={"code": "teacher_authoring_requires_canonical_shell", "message": "课程结构需要先迁移后才能建立教师工作稿。"},
         )
 
-    raw = repository.load_raw(course_id)
     command_id = f"confirm-teacher-authoring-source-v2:{course_id}:{task_id}"
     try:
         receipt = await repository.confirm_generated_teacher_source(
@@ -110,7 +109,6 @@ async def confirm_generation_preview_for_teacher_authoring(
         ) from exc
 
     receipt["source_task_id"] = task_id
-    receipt["student_published"] = bool(raw.get("course_document_publication"))
     return {
         "status": "confirmed",
         "receipt": receipt,
