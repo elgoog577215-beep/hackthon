@@ -52,7 +52,6 @@
           @redo="outlineEditor?.redoEdit()"
           @history="toggleDocumentHistory('outline')"
         >
-          <button type="button" :disabled="stageSwitching || outlineConfirming" @click="openAiCollaboration('outline')"><Sparkles :size="15" />AI 修改</button>
           <button
             class="outline-manual-action"
             :class="{ 'primary-action': !outlineAwaitingReview }"

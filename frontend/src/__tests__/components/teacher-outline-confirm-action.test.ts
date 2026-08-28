@@ -26,6 +26,16 @@ describe('teacher outline confirmation placement', () => {
     expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('@click="confirmInlineOutline"')
   })
 
+  it('uses the stable right-side assistant instead of a duplicate outline toolbar entry', () => {
+    const actionsStart = workbenchSource.indexOf('<TeacherDocumentCommandBar')
+    const actionsEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', actionsStart)
+    const outlineActions = workbenchSource.slice(actionsStart, actionsEnd)
+
+    expect(outlineActions).not.toContain("openAiCollaboration('outline')")
+    expect(workbenchSource).toContain('@click="openContextAiTab"')
+    expect(workbenchSource).toContain("t('courseWorkbench.contextPane.ai', 'AI 助手')")
+  })
+
   it('keeps the document scroll layout unchanged and delegates confirmation outward', () => {
     const bodyStart = outlineSource.indexOf('<div class="outline-review__body">')
     const footerStart = outlineSource.indexOf('<footer class="outline-review__footer"')
