@@ -1485,9 +1485,11 @@ async function renameNode(node: WorkspaceNode) {
       t('courseFiles.management.rename'),
       { inputValue: node.label, confirmButtonText: t('courseFiles.management.saveName'), cancelButtonText: t('common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('courseFiles.management.nameRequired') },
     )
+    if (typeof result === 'string') return
+    const nextName = result.value.trim()
     const response = node.asset
-      ? await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${node.asset.asset_id}/location`, { filename: result.value }, teacherRequestConfig())
-      : await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/folders/location`, { path: node.path, name: result.value }, teacherRequestConfig())
+      ? await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${node.asset.asset_id}/location`, { filename: nextName }, teacherRequestConfig())
+      : await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/folders/location`, { path: node.path, name: nextName }, teacherRequestConfig())
     applyManagedPackage(response.data)
     ElMessage.success(t('courseFiles.management.renamed'))
   } catch (error: any) {
