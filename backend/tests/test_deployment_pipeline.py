@@ -17,6 +17,15 @@ def test_server_activation_script_never_builds_application() -> None:
     assert 'LOCALE_INTERVAL_SECONDS="${LINGZHI_LOCALE_INTERVAL_SECONDS:-3}"' in script
 
 
+def test_server_activation_compares_effective_dependencies_for_current_python() -> None:
+    script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
+
+    assert "verify_backend_requirements_compatibility" in script
+    assert "scripts/effective_requirements.py" in script
+    assert "后端有实际生效的依赖变化" in script
+    assert "pip install" not in script
+
+
 def test_server_activation_bounds_backup_and_failed_artifact_retention() -> None:
     script = (ROOT / "scripts" / "github-action-deploy.sh").read_text()
 

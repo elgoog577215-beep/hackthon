@@ -35,6 +35,41 @@ log() {
     printf '[%s] %s\n' "$(date -Is)" "$*"
 }
 
+verify_backend_requirements_compatibility() {
+    local previous_requirements="$1"
+    local release_requirements="$2"
+    local requirements_helper="$release_path/scripts/effective_requirements.py"
+    local previous_effective
+    local release_effective
+
+    if [ ! -f "$previous_requirements" ] \
+        || cmp -s "$previous_requirements" "$release_requirements"; then
+        return 0
+    fi
+    if [ ! -f "$requirements_helper" ]; then
+        log "发布包缺少依赖比较工具，无法确认服务器是否需要安装新依赖"
+        return 1
+    fi
+
+    previous_effective="$(mktemp /tmp/lingzhi-previous-requirements.XXXXXX)"
+    release_effective="$(mktemp /tmp/lingzhi-release-requirements.XXXXXX)"
+    if ! "$VENV/bin/python" "$requirements_helper" \
+        "$previous_requirements" > "$previous_effective" \
+        || ! "$VENV/bin/python" "$requirements_helper" \
+        "$release_requirements" > "$release_effective"; then
+        rm -f -- "$previous_effective" "$release_effective"
+        log "无法按服务器 Python 版本解析后端依赖，停止发布"
+        return 1
+    fi
+    if ! cmp -s "$previous_effective" "$release_effective"; then
+        rm -f -- "$previous_effective" "$release_effective"
+        log "后端有实际生效的依赖变化；标准发布禁止在低性能服务器安装依赖"
+        return 1
+    fi
+    rm -f -- "$previous_effective" "$release_effective"
+    log "requirements.txt 的写法已变更，但当前 Python 实际使用的后端依赖未变"
+}
+
 validate_settings() {
     if ! [[ "$KEEP_RELEASES" =~ ^[0-9]+$ ]] || [ "$KEEP_RELEASES" -lt 2 ]; then
         log "LINGZHI_KEEP_RELEASES 必须是不小于 2 的整数"
@@ -556,9 +591,9 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
         exit 1
     fi
     if [ -n "$previous_path" ] \
-        && [ -f "$previous_path/backend/requirements.txt" ] \
-        && ! cmp -s "$previous_path/backend/requirements.txt" "$release_path/backend/requirements.txt"; then
-        log "后端依赖发生变化；标准发布禁止在低性能服务器安装依赖"
+        && ! verify_backend_requirements_compatibility \
+            "$previous_path/backend/requirements.txt" \
+            "$release_path/backend/requirements.txt"; then
         exit 1
     fi
 
