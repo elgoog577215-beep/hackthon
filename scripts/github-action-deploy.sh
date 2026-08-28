@@ -623,6 +623,7 @@ if [ ! -f "$release_path/.deploy-ready" ]; then
     log "解压构建机发布包：$TARGET_COMMIT"
     mkdir -p "$release_path"
     tar -xzf "$ARTIFACT_PATH" -C "$release_path" --no-same-owner
+    chmod 755 "$release_path"
 
     if [ "$(cat "$release_path/.release-commit" 2>/dev/null || true)" != "$TARGET_COMMIT" ]; then
         log "发布包提交标记与目标提交不一致"

@@ -182,6 +182,7 @@ def test_server_activation_bootstraps_an_isolated_systemd_runtime() -> None:
     assert bootstrap < preflight
     assert 'useradd --system --home-dir "$BASE_DIR"' in script
     assert 'PIP_NO_CACHE_DIR=1 "$VENV/bin/pip" install' in script
+    assert 'chmod 755 "$release_path"' in script
     assert "User=lingzhi" in unit
     assert "WorkingDirectory=/opt/lingzhi/hackthon/backend" in unit
     assert "127.0.0.1 --port 7862" in unit
