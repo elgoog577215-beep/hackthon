@@ -22,6 +22,7 @@ from teacher_lesson_authoring import (
     extract_uploaded_pptx_review,
     lesson_scope,
     normalize_teacher_lesson_plan,
+    teacher_course_document_from_confirmed_scripts,
     teacher_lesson_script_revision,
     teacher_lesson_section_content,
     teacher_lesson_v6_source,
@@ -68,6 +69,76 @@ def course_data():
             ]
         },
     }
+
+
+def test_confirmed_teacher_scripts_compile_to_one_canonical_course_document():
+    source = {
+        "course_id": "course-1",
+        "course_name": "微积分",
+        "nodes": [
+            {
+                "node_id": "L1-1",
+                "parent_node_id": "root",
+                "node_level": 1,
+                "node_name": "第一讲 极限",
+            },
+            {
+                "node_id": "L2-1-1",
+                "parent_node_id": "L1-1",
+                "node_level": 2,
+                "node_name": "1.1 趋近与极限",
+            },
+        ],
+    }
+    plan_revision = {
+        "revision_id": "plan-1",
+        "plan": {
+            "sections": [
+                {
+                    "node_id": "L2-1-1",
+                    "learning_objective": "解释极限的含义。",
+                }
+            ]
+        },
+    }
+    script_revision = {
+        "revision_id": "script-1",
+        "sections": [
+            {
+                "section_node_id": "L2-1-1",
+                "title": "1.1 趋近与极限",
+                "content": "当自变量不断趋近时，我们观察函数值的稳定趋势。",
+                "blocks": [
+                    {
+                        "block_id": "limit-concept",
+                        "module_id": "core_explanation",
+                        "role": "concept",
+                        "title": "极限的直观含义",
+                        "content": "当自变量不断趋近时，我们观察函数值的稳定趋势。",
+                        "planned_minutes": 8,
+                    }
+                ],
+            }
+        ],
+    }
+
+    document = teacher_course_document_from_confirmed_scripts(
+        source,
+        lesson_sources=[
+            {
+                "lesson_unit_id": "L1-1",
+                "plan_revision": plan_revision,
+                "script_revision": script_revision,
+            }
+        ],
+    )
+
+    assert document.course_id == "course-1"
+    assert document.title == "微积分"
+    assert [section.section_id for section in document.sections] == ["L1-1", "L2-1-1"]
+    assert [block.block_id for block in document.blocks] == ["limit-concept"]
+    assert document.blocks[0].payload["source_script_revision_id"] == "script-1"
+    assert document.blocks[0].payload["content_perspective"] == "teacher_delivery"
 
 
 def standard_lesson_plan():

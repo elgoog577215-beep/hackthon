@@ -11,7 +11,8 @@ import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from task_manager import TaskManager, TaskRecoveryConflict, TaskStateConflict
-from dependencies import require_task_manager
+from dependencies import get_course_document_repository, require_task_manager
+from course_repository import CourseDocumentRepository, CourseDocumentNotFound
 from learner_context import resolve_actor_id
 
 router = APIRouter(tags=["tasks"])
@@ -66,13 +67,25 @@ def get_course_task(
     request: Request,
     task_type: str | None = None,
     tm: TaskManager = Depends(require_task_manager),
+    course_repository: CourseDocumentRepository = Depends(
+        get_course_document_repository
+    ),
 ):
-    _require_latest_course_task_access(
-        tm,
-        course_id,
-        request,
-        task_types={task_type} if task_type else None,
-    )
+    try:
+        _require_latest_course_task_access(
+            tm,
+            course_id,
+            request,
+            task_types={task_type} if task_type else None,
+        )
+    except HTTPException as access_error:
+        try:
+            raw = course_repository.load_raw(course_id)
+        except CourseDocumentNotFound:
+            raise access_error
+        if raw.get("is_published") or raw.get("course_document_publication"):
+            return {"status": "none"}
+        raise access_error
     task = tm.get_latest_task_by_course(course_id, task_type=task_type)
     if task is None:
         return {"status": "none"}

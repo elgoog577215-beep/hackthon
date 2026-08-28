@@ -422,6 +422,31 @@ def test_unbuilt_question_bank_is_a_normal_empty_state(monkeypatch, tmp_path):
     }
 
 
+def test_published_teacher_course_keeps_review_bank_private(monkeypatch, tmp_path):
+    course = _course()
+    course.update({
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-1",
+        "course_document_publication": {"published_at": "2026-08-28T00:00:00Z"},
+    })
+    client, repository = _client(monkeypatch, tmp_path, course=course)
+    repository.save_bundle("course-api", build_question_bank(course))
+
+    learner = client.get(
+        "/api/courses/course-api/question-bank",
+        headers={"X-User-Id": "learner-1"},
+    )
+    teacher = client.get(
+        "/api/courses/course-api/question-bank",
+        headers={"X-User-Id": "teacher-1"},
+    )
+
+    assert learner.status_code == 404
+    assert learner.json()["detail"]["code"] == "teacher_question_bank_unavailable"
+    assert teacher.status_code == 200
+    assert teacher.json()["total"] == 3
+
+
 def _rebuild(client, request_id, *, mode="incremental"):
     created = client.post(
         "/api/courses/course-api/question-bank/rebuild",

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from course_access import (
     CourseOwnershipMiddleware,
     course_id_from_api_path,
+    learner_runtime_write_allowed,
     teacher_course_access_denial,
 )
 
@@ -42,6 +43,35 @@ def test_published_or_shared_courses_remain_readable():
     assert teacher_course_access_denial(published, "learner-b") is None
     assert teacher_course_access_denial(published, "learner-b", method="DELETE") is not None
     assert teacher_course_access_denial(shared, "learner-b", method="DELETE") is None
+
+
+def test_published_course_allows_learner_state_writes_but_not_authoring_writes():
+    published = {
+        "authoring_surface": "teacher",
+        "owner_id": "teacher-a",
+        "course_document_publication": {"published_at": "2026-08-23T00:00:00Z"},
+    }
+    learning_path = "/api/courses/course-1/learning-progress/nodes/node-1"
+    personal_path = "/api/courses/course-1/personal-adaptation/evaluate"
+    teacher_evolution_path = "/api/courses/course-1/evolution/course-plans"
+    authoring_path = "/api/courses/course-1/nodes/node-1"
+
+    assert learner_runtime_write_allowed(learning_path) is True
+    assert learner_runtime_write_allowed(personal_path) is True
+    assert learner_runtime_write_allowed(teacher_evolution_path) is False
+    assert learner_runtime_write_allowed(authoring_path) is False
+    assert teacher_course_access_denial(
+        published,
+        "learner-b",
+        method="POST",
+        path=learning_path,
+    ) is None
+    assert teacher_course_access_denial(
+        published,
+        "learner-b",
+        method="POST",
+        path=authoring_path,
+    ) is not None
 
 
 def test_middleware_guards_every_course_subrouter_without_blocking_public_reads():

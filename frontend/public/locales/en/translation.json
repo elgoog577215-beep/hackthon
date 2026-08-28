@@ -724,6 +724,26 @@
       "kicker": "Companion documents",
       "description": "Create formal files quickly from school templates"
     },
+    "publication": {
+      "group": "Student site",
+      "loading": "Checking publication requirements",
+      "published": "Published",
+      "stale": "Updates ready to publish",
+      "ready": "Ready to publish",
+      "blocked": "Publication blocked",
+      "publish": "Publish to student site",
+      "republish": "Publish latest changes",
+      "view": "View student page",
+      "confirm": "Confirm publication",
+      "publishing": "Publishing…",
+      "confirmHelp": "All confirmed scripts will be published. Questions awaiting review stay private:",
+      "confirmHelpNoQuestions": "All confirmed scripts will be published and students can then open the course.",
+      "moreBlockers": "plus",
+      "blockerUnit": "more",
+      "questionUnit": "questions",
+      "loadFailed": "Could not load publication status. Try again.",
+      "publishFailed": "Could not publish the course. Try again."
+    },
     "form": {
       "learningGoal": "Teaching goal", "learningGoalPlaceholder": "Students will be able to…",
       "totalHours": "Total hours", "sessionCount": "Expected sessions", "requirements": "Additional requirements",

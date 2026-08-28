@@ -15,7 +15,7 @@ from threading import Event, Thread
 from typing import Any, Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from assessment_orchestrator import (
@@ -69,9 +69,33 @@ from storage import storage
 from storage_utils import save_course_compat
 from teacher_course_space import teacher_course_space_repository
 
+
+async def _require_question_bank_teacher(
+    course_id: str,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+) -> None:
+    """Keep teacher review assets private after a course becomes public."""
+    actor_id = require_user_id(x_user_id)
+    course = await get_course_or_404(course_id)
+    owner_id = str(course.get("owner_id") or "")
+    if (
+        course.get("authoring_surface") == "teacher"
+        and owner_id
+        and actor_id != owner_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "teacher_question_bank_unavailable",
+                "message": "题库不存在或不属于当前教师",
+            },
+        )
+
+
 router = APIRouter(
     prefix="/courses/{course_id}/question-bank",
     tags=["question_bank"],
+    dependencies=[Depends(_require_question_bank_teacher)],
 )
 
 logger = logging.getLogger(__name__)

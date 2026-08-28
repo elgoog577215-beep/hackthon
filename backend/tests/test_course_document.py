@@ -262,6 +262,62 @@ async def test_generation_shell_publishes_canonical_document_once():
 
 
 @pytest.mark.asyncio
+async def test_teacher_publication_uses_canonical_document_and_is_idempotent():
+    storage = MemoryStorage(None)
+    repository = CourseDocumentRepository(storage)
+    draft = await repository.create_teacher_draft(
+        "course-1",
+        title="线性代数",
+        metadata={"owner_id": "teacher-1"},
+    )
+    document = document_from_generation_draft(legacy_course())
+    source_revisions = {
+        "outline_revision_id": "outline-1",
+        "lessons": [
+            {
+                "lesson_unit_id": "chapter-1",
+                "plan_revision_id": "plan-1",
+                "script_revision_id": "script-1",
+            }
+        ],
+        "digest": "source-1",
+    }
+
+    receipt = await repository.publish_teacher_authored_course(
+        "course-1",
+        document,
+        command_id="publish-teacher-course-1",
+        expected_revision=draft["document"]["document_revision"],
+        actor="teacher-1",
+        source_revisions=source_revisions,
+        quality_report={"passed": True, "blocking_issues": []},
+        question_bank_status={
+            "total_count": 3,
+            "approved_count": 0,
+            "excluded_count": 3,
+            "published_with_course": False,
+        },
+    )
+    repeated = await repository.publish_teacher_authored_course(
+        "course-1",
+        document,
+        command_id="publish-teacher-course-1",
+        expected_revision="stale",
+        actor="teacher-1",
+        source_revisions={},
+        quality_report={},
+        question_bank_status={},
+    )
+
+    assert repeated == receipt
+    assert storage.course["course_status"] == "published"
+    assert storage.course["generation_status"] == "passed"
+    assert storage.course["course_document_publication"]["source_revisions"] == source_revisions
+    assert storage.course["course_document_publication"]["question_bank_status"]["excluded_count"] == 3
+    assert storage.course["course_operation_log"][-1]["operation"] == "publish_teacher_course"
+
+
+@pytest.mark.asyncio
 async def test_repository_commits_semantic_repair_as_a_canonical_operation():
     document = semantic_drift_document()
     storage = MemoryStorage({

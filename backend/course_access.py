@@ -31,6 +31,7 @@ def teacher_course_access_denial(
     actor_id: str | None,
     *,
     method: str = "GET",
+    path: str = "",
 ) -> dict | None:
     """Return a non-leaking 404 for foreign private reads or any foreign write."""
     if not course or course.get("authoring_surface") != "teacher":
@@ -46,10 +47,34 @@ def teacher_course_access_denial(
     )
     if is_published and str(method or "GET").upper() in {"GET", "HEAD"}:
         return None
+    if is_published and learner_runtime_write_allowed(path):
+        return None
     return {
         "code": "teacher_course_unavailable",
         "message": "课程不存在或不属于当前教师",
     }
+
+
+def learner_runtime_write_allowed(path: str) -> bool:
+    """Allow learner-owned state writes without opening teacher authoring APIs."""
+    parts = [unquote(part) for part in str(path or "").split("/") if part]
+    if len(parts) < 4 or parts[:2] != ["api", "courses"]:
+        return False
+    domain = parts[3]
+    if domain in {
+        "learning-progress",
+        "learning-snapshot",
+        "learner-model",
+        "learning-runtime",
+        "learning-continuation",
+        "learning-records",
+        "learning-assets",
+        "practice",
+        "review",
+        "personal-adaptation",
+    }:
+        return True
+    return domain == "blocks" and "personalization-proposals" in parts[4:]
 
 
 class CourseOwnershipMiddleware(BaseHTTPMiddleware):
@@ -73,6 +98,7 @@ class CourseOwnershipMiddleware(BaseHTTPMiddleware):
                 course,
                 request.headers.get("X-User-Id"),
                 method=request.method,
+                path=request.url.path,
             )
             if denial:
                 return JSONResponse(status_code=404, content={"detail": denial})
@@ -82,5 +108,6 @@ class CourseOwnershipMiddleware(BaseHTTPMiddleware):
 __all__ = [
     "CourseOwnershipMiddleware",
     "course_id_from_api_path",
+    "learner_runtime_write_allowed",
     "teacher_course_access_denial",
 ]

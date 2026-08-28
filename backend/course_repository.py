@@ -565,6 +565,104 @@ class CourseDocumentRepository:
             _publish_course_revision(course_id, receipt)
             return receipt
 
+    async def publish_teacher_authored_course(
+        self,
+        course_id: str,
+        document: CourseDocument,
+        *,
+        command_id: str,
+        expected_revision: str,
+        actor: str,
+        source_revisions: dict[str, Any],
+        quality_report: dict[str, Any],
+        question_bank_status: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Publish confirmed teacher assets through the canonical course boundary."""
+        async with self._command_lock(course_id):
+            raw = self.load_raw(course_id)
+            existing = next(
+                (
+                    item
+                    for item in raw.get("course_operation_log") or []
+                    if item.get("command_id") == command_id
+                ),
+                None,
+            )
+            if existing:
+                return deepcopy(existing.get("receipt") or {})
+
+            current = CourseDocument.model_validate(raw["course_document"])
+            if current.document_revision != expected_revision:
+                raise CourseDocumentConflict(
+                    "Course document revision changed before teacher publication",
+                )
+            if document.course_id != course_id:
+                raise CourseDocumentConflict(
+                    "Teacher-authored document belongs to another course",
+                )
+            if not document.sections or not document.blocks:
+                raise CourseDocumentConflict("Teacher-authored document is empty")
+
+            updated = refresh_document_revision(document)
+            committed_at = datetime.now(timezone.utc).isoformat()
+            affected_block_ids = [block.block_id for block in updated.blocks]
+            revision_change = revision_event_for_documents(
+                current,
+                updated,
+                command_id=command_id,
+                operation="publish_teacher_course",
+                affected_block_ids=affected_block_ids,
+                created_at=committed_at,
+            )
+            publication = {
+                "schema_version": "teacher_course_publication_v1",
+                "source_format": "teacher_lesson_authoring_v1",
+                "document_revision": updated.document_revision,
+                "section_count": len(updated.sections),
+                "block_count": len(updated.blocks),
+                "source_revisions": deepcopy(source_revisions),
+                "quality_report": deepcopy(quality_report),
+                "question_bank_status": deepcopy(question_bank_status),
+                "published_by": actor,
+                "published_at": committed_at,
+            }
+            receipt = {
+                "command_id": command_id,
+                "operation": "publish_teacher_course",
+                "previous_revision": current.document_revision,
+                "document_revision": updated.document_revision,
+                "affected_block_ids": affected_block_ids,
+                "committed_at": committed_at,
+                "publication": publication,
+                "revision_change": revision_change.model_dump(mode="json"),
+            }
+            operation_log = list(raw.get("course_operation_log") or [])
+            operation_log.append({
+                "command_id": command_id,
+                "operation": receipt["operation"],
+                "reason": "教师将已确认教案与讲稿发布到学生网站",
+                "actor": actor,
+                "receipt": receipt,
+            })
+            raw.update({
+                "course_name": updated.title,
+                "course_schema_version": COURSE_DOCUMENT_SCHEMA,
+                "course_document": updated.model_dump(mode="json"),
+                "course_document_revision": updated.document_revision,
+                "course_document_authoritative": True,
+                "current_course_version_id": updated.document_revision,
+                "generation_status": "passed",
+                "course_status": "published",
+                "is_published": True,
+                "course_document_publication": publication,
+                "course_operation_log": operation_log[-200:],
+                "course_revision_vector": revision_change.current.model_dump(mode="json"),
+            })
+            raw.pop("nodes", None)
+            await self._save_raw(course_id, raw)
+            _publish_course_revision(course_id, receipt)
+            return receipt
+
     def receipt_for_command(self, course_id: str, command_id: str) -> dict[str, Any] | None:
         if not command_id:
             return None
