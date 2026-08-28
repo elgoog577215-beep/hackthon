@@ -229,6 +229,27 @@ openspec/        正式规格和变更任务
 
 ## 构建与部署
 
+### 服务器与发布关系
+
+灵知和启智当前涉及四类服务器。本文只记录服务器职责、系统关系和凭据保存位置；真实 IP、登录账号、密码、私钥、Token 和模型密钥只保存在本机密码管理器、私有 SSH 配置、GitHub / GitLab Secrets 或服务器 `.env`，不得提交到 Git。
+
+| 文档别名 | 服务器职责 | 与灵知、启智的关系 | 访问与凭据 |
+| --- | --- | --- | --- |
+| `lingzhi-prod` | 灵知最早部署并持续独立运行的生产服务器 | 灵知 `main` 经 GitHub Actions 独立发布，不依赖启智版本 | SSH 信息保存在本机私有配置；自动发布凭据保存在 GitHub Secrets |
+| `qizhi-dev` | 浙江大学启智开发与联调服务器 | 启智开发环境按父仓库固定的 `services/lingzhi` 提交接入灵知 | 先连接浙江大学 aTrust / IDC；账号保存在本机密码管理器 |
+| `qizhi-prod` | 浙江大学启智正式生产服务器 | 启智 `main` 与经过验收的灵知子模块版本共同发布 | 先连接浙江大学 aTrust / IDC；账号保存在本机密码管理器，运行密钥保存在服务器 `.env` |
+| `a800-qwen` | A800 模型推理服务器 | 为启智及获准环境提供千问 3.8 推理服务；实际模型 ID、端口和调用方以运行配置为准 | 仅通过私有网络和服务认证访问；凭据保存在调用方环境变量与本机密码管理器 |
+
+```text
+灵知 main ───────────────────────▶ lingzhi-prod
+
+启智 main + 固定的 services/lingzhi ─▶ qizhi-dev ─▶ qizhi-prod
+                         │
+                         └──────────▶ a800-qwen（按环境配置调用）
+```
+
+服务器地址、账号或密钥发生变化时，先更新私有凭据记录；只有服务器职责、发布关系或访问方式变化时才修改 README。启智接入灵知的具体版本固定和发布步骤见启智仓库的 `docs/灵知新版课程接入与部署.md`。
+
 - Docker 入口：[Dockerfile](./Dockerfile)。
 - Runner 独立部署：[docker-compose.runner.yml](./docker-compose.runner.yml)。
 - 发布包构建：`scripts/build-deploy-artifact.sh`。
