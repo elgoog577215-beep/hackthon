@@ -44,6 +44,37 @@ export interface TeacherProductionAiRoute {
   reason: 'unclear' | 'active_asset' | 'cross_asset' | 'batch_change' | 'structural_change'
 }
 
+export interface TeacherCoursePlanProjection {
+  planId: string
+  requestId: string
+  status: NonNullable<TeacherProductionAiMessage['planStatus']>
+  affectedUnitCount: number
+  structuralOperationCount: number
+  assetTypes: string[]
+  blockingQuestionCount: number
+}
+
+interface TeacherCoursePlanSource {
+  change_set_id?: unknown
+  impact_summary?: {
+    request_id?: unknown
+    affected_units?: Array<{ asset_type?: unknown }>
+  }
+  teacher_change_planning?: {
+    status?: unknown
+    structural_operations?: unknown[]
+    intent?: { blocking_questions?: unknown[] }
+  } | null
+}
+
+const TEACHER_COURSE_PLAN_STATUSES = new Set<NonNullable<TeacherProductionAiMessage['planStatus']>>([
+  'draft',
+  'impact_ready',
+  'needs_clarification',
+  'candidate_ready',
+  'blocked',
+])
+
 export interface TeacherProductionAiScope {
   domain: TeacherProductionAiDomain
   courseTitle: string
@@ -215,6 +246,29 @@ export function buildTeacherCourseChangeInstruction(
     `教师连续要求（越靠后优先级越高）：\n${requirements}`,
     '请先形成可审阅的整课修改方案，识别内容修改与结构修改及其下游影响；此时不要写入正式课程。',
   ].filter(Boolean).join('\n')
+}
+
+export function projectTeacherCoursePlan(plan: TeacherCoursePlanSource): TeacherCoursePlanProjection | null {
+  const planning = plan?.teacher_change_planning
+  const planId = String(plan?.change_set_id || '')
+  const status = String(planning?.status || '') as NonNullable<TeacherProductionAiMessage['planStatus']>
+  if (!planId || !planning || !TEACHER_COURSE_PLAN_STATUSES.has(status)) return null
+  const affectedUnits = Array.isArray(plan?.impact_summary?.affected_units)
+    ? plan.impact_summary.affected_units
+    : []
+  return {
+    planId,
+    requestId: String(plan?.impact_summary?.request_id || ''),
+    status,
+    affectedUnitCount: affectedUnits.length,
+    structuralOperationCount: Array.isArray(planning.structural_operations)
+      ? planning.structural_operations.length
+      : 0,
+    assetTypes: [...new Set(affectedUnits.map(item => String(item?.asset_type || '')).filter(Boolean))],
+    blockingQuestionCount: Array.isArray(planning?.intent?.blocking_questions)
+      ? planning.intent.blocking_questions.length
+      : 0,
+  }
 }
 
 export function buildTeacherProductionAiInstruction(

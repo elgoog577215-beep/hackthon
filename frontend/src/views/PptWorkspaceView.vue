@@ -190,6 +190,7 @@
           @accept="resolvePptAiCandidate(true)"
           @reject="resolvePptAiCandidate(false)"
           @focus-candidate="focusPptAiCandidate"
+          @open-course-plan="openPptCoursePlan"
         />
       </Transition>
 
@@ -248,6 +249,7 @@ import PptTemplateCreatorDialog from '../components/PptTemplateCreatorDialog.vue
 import TeachingRepresentationsOverlay from '../components/TeachingRepresentationsOverlay.vue'
 import { t } from '../shared/i18n'
 import { useCourseStore } from '../stores/course'
+import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { usePptTemplatePacksStore, type PersonalPptTemplatePack } from '../stores/pptTemplatePacks'
 import {
   normalizedBuildFailure,
@@ -263,19 +265,25 @@ import type { CourseDocumentEnvelope } from '../stores/types'
 import type { PptSameSourceHighlightState } from '../utils/ppt-same-source'
 import { adaptSlideDeckV6ForWeb } from '../utils/slide-deck-v6-adapter'
 import {
-  assessTeacherProductionRequest,
+  buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
+  projectTeacherCoursePlan,
+  routeTeacherProductionRequest,
   teacherProductionAiBusy,
   transitionTeacherProductionAiPhase,
   type TeacherProductionAiMessage,
   type TeacherProductionAiPhase,
+  type TeacherProductionAiScope,
+  type TeacherCoursePlanProjection,
 } from '../composables/useTeacherProductionAiCollaboration'
 import http, { teacherIdentityHeaders } from '../utils/http'
 import { postGenerationStream } from '../shared/generation-stream'
+import { createUuid } from '../utils/client-id'
 
 const route = useRoute()
 const router = useRouter()
 const courseStore = useCourseStore()
+const courseEvolutionStore = useCourseEvolutionStore()
 const templatePacksStore = usePptTemplatePacksStore()
 const store = useTeachingRepresentationsStore()
 const templateStore = templatePacksStore
@@ -325,6 +333,7 @@ const pptAiPageId = ref('')
 const pptAiMessages = ref<TeacherProductionAiMessage[]>([])
 const pptAiPhase = ref<TeacherProductionAiPhase>('ready')
 const pptAiLastInstruction = ref('')
+const pptAiCoursePlanRequestId = ref('')
 const pptManuscriptState = ref<{
   generation_branch: 'manuscript_first' | 'original_ppt_review'
   revision: string
@@ -1036,12 +1045,14 @@ function addPptAiMessage(
   role: TeacherProductionAiMessage['role'],
   kind: TeacherProductionAiMessage['kind'],
   text: string,
+  metadata: Partial<Pick<TeacherProductionAiMessage, 'planId' | 'planStatus' | 'impacts'>> = {},
 ) {
   pptAiMessages.value.push({
     id: `ppt-ai-${Date.now()}-${++pptAiMessageSequence}`,
     role,
     kind,
     text,
+    ...metadata,
   })
 }
 
@@ -1138,29 +1149,93 @@ function pptAiErrorMessage(error: any) {
   )
 }
 
-async function requestPptAiCandidate(value: string) {
+function currentPptAiScope(page = pptAiPage.value): TeacherProductionAiScope {
+  return {
+    domain: 'ppt',
+    courseTitle: courseTitle.value,
+    primaryTitle: String(page?.title || pptAiScopeTitle.value),
+    secondaryTitle: pptAiScopeDetail.value,
+    referenceCount: pptAiReferences.value.length,
+    references: pptAiReferences.value,
+  }
+}
+
+function pptCoursePlanImpacts(projection: TeacherCoursePlanProjection): string[] {
+  const labels: Record<string, string> = {
+    outline: t('courseWorkbench.aiCollaboration.assetOutline', '大纲'),
+    course_content: t('courseWorkbench.aiCollaboration.assetCourseContent', '课程内容'),
+    lesson_plan: t('courseWorkbench.aiCollaboration.assetLessonPlan', '教案'),
+    script: t('courseWorkbench.aiCollaboration.assetScript', '讲稿'),
+    ppt: 'PPT',
+    question_bank: t('courseWorkbench.aiCollaboration.assetQuestionBank', '题库'),
+  }
+  const assets = projection.assetTypes.map(assetType => labels[assetType] || assetType)
+  return [
+    projection.affectedUnitCount
+      ? t('courseWorkbench.aiCollaboration.affectedUnits', '{count} 个受影响单元').replace('{count}', String(projection.affectedUnitCount))
+      : '',
+    projection.structuralOperationCount
+      ? t('courseWorkbench.aiCollaboration.structuralOperations', '{count} 项结构调整').replace('{count}', String(projection.structuralOperationCount))
+      : '',
+    assets.length ? assets.join('、') : '',
+  ].filter(Boolean)
+}
+
+async function createPptCourseChangePlan() {
+  const requestId = pptAiCoursePlanRequestId.value || `teacher-ppt-${createUuid()}`
+  pptAiCoursePlanRequestId.value = requestId
+  applyPptAiEvent('GENERATE')
+  try {
+    const payload = await courseEvolutionStore.createCoursePlan({
+      courseId: courseId.value,
+      requestId,
+      instruction: buildTeacherCourseChangeInstruction(pptAiMessages.value, currentPptAiScope()),
+    })
+    const plans = (payload?.course_evolution_plans || payload?.change_sets || []) as Array<Record<string, any>>
+    const plan = plans.find(item => String(item.impact_summary?.request_id || '') === requestId)
+    const projection = plan ? projectTeacherCoursePlan(plan) : null
+    if (!projection) throw new Error('course_change_plan_missing')
+    addPptAiMessage(
+      'assistant',
+      'course_plan',
+      projection.blockingQuestionCount
+        ? t('courseWorkbench.aiCollaboration.coursePlanNeedsDetailSummary', '我已整理修改范围，但有 {count} 个问题需要你补充。正式课程尚未改变。').replace('{count}', String(projection.blockingQuestionCount))
+        : t('courseWorkbench.aiCollaboration.coursePlanSummary', '我已把要求整理成整课修改方案。请先核对影响范围，再决定生成并应用哪些修改。'),
+      {
+        planId: projection.planId,
+        planStatus: projection.status,
+        impacts: pptCoursePlanImpacts(projection),
+      },
+    )
+    applyPptAiEvent('COURSE_PLAN_READY')
+  } catch (error: any) {
+    applyPptAiEvent('FAIL')
+    addPptAiMessage('assistant', 'error', pptAiErrorMessage(error))
+  }
+}
+
+async function requestPptAiCandidate(value: string, options: { retry?: boolean } = {}) {
   const instruction = String(value || '').trim()
   const page = pptAiPage.value
   const spec = store.selectedSpec
   const representationId = store.selectedId
   if (!instruction || !page || !spec || !representationId || pptAiBusy.value) return
   pptAiLastInstruction.value = instruction
-  addPptAiMessage('user', 'text', instruction)
-  if (assessTeacherProductionRequest('ppt', instruction) === 'clarify') {
+  if (!options.retry) addPptAiMessage('user', 'text', instruction)
+  const requestRoute = routeTeacherProductionRequest('ppt', instruction)
+  if (requestRoute.capability === 'clarify_request') {
     applyPptAiEvent('ASK_CLARIFICATION')
     addPptAiMessage('assistant', 'text', t('pptWorkspace.aiClarify', '请指定标题、副标题或关键内容。'))
     return
   }
+  if (requestRoute.capability === 'plan_course_change') {
+    if (!options.retry) pptAiCoursePlanRequestId.value = ''
+    await createPptCourseChangePlan()
+    return
+  }
   applyPptAiEvent('GENERATE')
   try {
-    const prompt = buildTeacherProductionAiInstruction(pptAiMessages.value, {
-      domain: 'ppt',
-      courseTitle: courseTitle.value,
-      primaryTitle: String(page.title || pptAiScopeTitle.value),
-      secondaryTitle: pptAiScopeDetail.value,
-      referenceCount: pptAiReferences.value.length,
-      references: pptAiReferences.value,
-    })
+    const prompt = buildTeacherProductionAiInstruction(pptAiMessages.value, currentPptAiScope(page))
     const data = await postGenerationStream<{ candidate: TeacherV6AiCandidate }>(
       `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/ai-candidates`,
       {
@@ -1182,7 +1257,15 @@ async function requestPptAiCandidate(value: string) {
 }
 
 async function retryPptAiCandidate() {
-  if (pptAiLastInstruction.value) await requestPptAiCandidate(pptAiLastInstruction.value)
+  if (pptAiLastInstruction.value) await requestPptAiCandidate(pptAiLastInstruction.value, { retry: true })
+}
+
+function openPptCoursePlan(planId: string) {
+  if (!planId) return
+  void router.push({
+    name: 'course-change-workspace',
+    params: { courseId: courseId.value, planId },
+  })
 }
 
 async function resolvePptAiCandidate(accept: boolean) {

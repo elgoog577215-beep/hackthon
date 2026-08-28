@@ -747,6 +747,7 @@ import {
   buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
   changedTeacherLessonFields,
+  projectTeacherCoursePlan,
   routeTeacherProductionRequest,
   teacherProductionAiBusy,
   transitionTeacherProductionAiPhase,
@@ -755,6 +756,7 @@ import {
   type TeacherProductionAiMessage,
   type TeacherProductionAiPhase,
   type TeacherProductionAiScope,
+  type TeacherCoursePlanProjection,
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import {
@@ -765,7 +767,7 @@ import {
   type PedagogyModeSelection,
 } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
-import { useCourseEvolutionStore, type CourseEvolutionPlan } from '../stores/courseEvolution'
+import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
@@ -1717,11 +1719,7 @@ async function generateAiCandidateFromConversation() {
   lastAiOperation.value = ''
   focusAiCandidate()
 }
-function coursePlanImpacts(plan: CourseEvolutionPlan): string[] {
-  const planning = plan.teacher_change_planning
-  const affectedUnits = Array.isArray(plan.impact_summary?.affected_units)
-    ? plan.impact_summary.affected_units
-    : []
+function coursePlanImpacts(projection: TeacherCoursePlanProjection): string[] {
   const labels: Record<string, string> = {
     outline: t('courseWorkbench.aiCollaboration.assetOutline', '大纲'),
     course_content: t('courseWorkbench.aiCollaboration.assetCourseContent', '课程内容'),
@@ -1730,14 +1728,13 @@ function coursePlanImpacts(plan: CourseEvolutionPlan): string[] {
     ppt: 'PPT',
     question_bank: t('courseWorkbench.aiCollaboration.assetQuestionBank', '题库'),
   }
-  const assets = [...new Set(affectedUnits.map((item: any) => labels[String(item?.asset_type || '')] || '').filter(Boolean))]
-  const structuralCount = planning?.structural_operations?.length || 0
+  const assets = projection.assetTypes.map(assetType => labels[assetType] || assetType)
   return [
-    affectedUnits.length
-      ? t('courseWorkbench.aiCollaboration.affectedUnits', '{count} 个受影响单元').replace('{count}', String(affectedUnits.length))
+    projection.affectedUnitCount
+      ? t('courseWorkbench.aiCollaboration.affectedUnits', '{count} 个受影响单元').replace('{count}', String(projection.affectedUnitCount))
       : '',
-    structuralCount
-      ? t('courseWorkbench.aiCollaboration.structuralOperations', '{count} 项结构调整').replace('{count}', String(structuralCount))
+    projection.structuralOperationCount
+      ? t('courseWorkbench.aiCollaboration.structuralOperations', '{count} 项结构调整').replace('{count}', String(projection.structuralOperationCount))
       : '',
     assets.length ? assets.join('、') : '',
   ].filter(Boolean)
@@ -1755,18 +1752,17 @@ async function createCourseChangePlanFromConversation() {
       requestId,
       instruction: buildTeacherCourseChangeInstruction(aiMessages.value, currentAiScope()),
     })
-    const plans = (payload?.course_evolution_plans || payload?.change_sets || []) as CourseEvolutionPlan[]
+    const plans = (payload?.course_evolution_plans || payload?.change_sets || []) as Array<Record<string, any>>
     const plan = plans.find(item => String(item.impact_summary?.request_id || '') === requestId)
-    if (!plan?.change_set_id || !plan.teacher_change_planning) throw new Error('course_change_plan_missing')
-    const planning = plan.teacher_change_planning
-    const questions = planning.intent?.blocking_questions || []
-    const summary = questions.length
-      ? t('courseWorkbench.aiCollaboration.coursePlanNeedsDetailSummary', '我已整理修改范围，但有 {count} 个问题需要你补充。正式课程尚未改变。').replace('{count}', String(questions.length))
+    const projection = plan ? projectTeacherCoursePlan(plan) : null
+    if (!projection) throw new Error('course_change_plan_missing')
+    const summary = projection.blockingQuestionCount
+      ? t('courseWorkbench.aiCollaboration.coursePlanNeedsDetailSummary', '我已整理修改范围，但有 {count} 个问题需要你补充。正式课程尚未改变。').replace('{count}', String(projection.blockingQuestionCount))
       : t('courseWorkbench.aiCollaboration.coursePlanSummary', '我已把要求整理成整课修改方案。请先核对影响范围，再决定生成并应用哪些修改。')
     appendAiMessage('assistant', 'course_plan', summary, {
-      planId: plan.change_set_id,
-      planStatus: planning.status,
-      impacts: coursePlanImpacts(plan),
+      planId: projection.planId,
+      planStatus: projection.status,
+      impacts: coursePlanImpacts(projection),
     })
     lastAiOperation.value = ''
     transitionAi({ type: 'COURSE_PLAN_READY' })

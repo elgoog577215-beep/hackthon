@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import PptWorkspaceView from '@/views/PptWorkspaceView.vue'
 import { useCourseStore } from '@/stores/course'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useTeachingRepresentationsStore } from '@/stores/teachingRepresentations'
 
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
@@ -72,6 +73,69 @@ describe('PptWorkspaceView', () => {
       loadSelectedSpec: false,
       handleMissingRepresentations: false,
     })
+  })
+
+  it('在独立 PPT 工作区把跨资产要求交给同一个整课修改方案', async () => {
+    routeState.route = reactive({
+      params: { courseId: 'course-1' },
+      query: { lesson: 'L1-1' },
+      meta: { identityScope: 'teacher', courseSurface: 'teacher' },
+    })
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.endsWith('/ppt-v6/manuscript')) return Promise.resolve({ data: { ppt_manuscript_state: null } })
+      if (url.endsWith('/spec')) return Promise.resolve({ data: { ai_candidate: null } })
+      return Promise.resolve({ data: courseEnvelope('canonical') })
+    })
+    const store = useTeachingRepresentationsStore()
+    store.registry = {
+      slide_deck_target_schema: 'slide_deck_v6',
+      representations: [{
+        representation_id: 'slides-v6', representation_type: 'slide_deck',
+        variant_key: 'teaching:qizhi-classroom', spec_id: 'spec-v6',
+        status: 'ready', stale_unit_ids: [], stale_reasons: [], revision: 'r1', updated_at: 'now',
+      }],
+    }
+    store.selectedId = 'slides-v6'
+    store.selectedSpec = {
+      spec_id: 'spec-v6', representation_type: 'slide_deck', unit_bindings: {}, revision: 'r1',
+      payload: { compiler_version: 'representation_compiler_v6:slide_deck_v6', content: {
+        schema_version: 'slide_deck_v6', title: '微积分课件', pages: [{
+          page_id: 'page-1', page_ordinal: 0, title: '导数的定义', resolved_layout: 'content-stack',
+          source_block_ids: [], regions: [],
+          speaker_notes: { source_document_revision: 'doc-1', teaching_unit_id: 'L1-1', source_blocks: [] },
+        }],
+      } },
+    }
+    vi.spyOn(store, 'ensure').mockResolvedValue(undefined)
+    vi.spyOn(store, 'select').mockResolvedValue(undefined)
+    const courseEvolutionStore = useCourseEvolutionStore()
+    const createCoursePlan = vi.spyOn(courseEvolutionStore, 'createCoursePlan').mockImplementation(async input => ({
+      course_evolution_plans: [{
+        change_set_id: 'course-change-ppt',
+        impact_summary: {
+          request_id: input.requestId,
+          affected_units: [{ asset_type: 'ppt' }, { asset_type: 'script' }],
+        },
+        teacher_change_planning: {
+          status: 'impact_ready', structural_operations: [], intent: { blocking_questions: [] },
+        },
+      }],
+    } as any))
+    const wrapper = mount(PptWorkspaceView, { global: { stubs: { SideAIPanel: true } } })
+    await flushPromises()
+
+    wrapper.getComponent({ name: 'SlideDeckWorkbench' }).vm.$emit('ask-ai', {
+      text: '导数的定义', nodeId: 'page-1', anchor: { slide_unit_id: 'page-1' }, prefill: '',
+    })
+    await nextTick()
+    await wrapper.get('.lesson-ai-composer textarea').setValue('统一修改讲稿和 PPT 中的导数定义')
+    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    await flushPromises()
+
+    expect(createCoursePlan).toHaveBeenCalledTimes(1)
+    expect(createCoursePlan.mock.calls[0]![0]).toMatchObject({ courseId: 'course-1' })
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('PPT、讲稿')
   })
 
   it('无原版 PPT 时先显示 PPT 文书步骤，不直接生成 PPT', async () => {

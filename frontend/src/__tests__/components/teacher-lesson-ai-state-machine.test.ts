@@ -12,6 +12,7 @@ import {
   assessTeacherProductionRequest,
   buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
+  projectTeacherCoursePlan,
   routeTeacherProductionRequest,
 } from '@/composables/useTeacherProductionAiCollaboration'
 
@@ -95,6 +96,9 @@ describe('教师课程生产 AI 领域适配', () => {
     expect(routeTeacherProductionRequest('lesson', '你觉得整门课应该怎么改')).toMatchObject({
       capability: 'clarify_request', reason: 'unclear',
     })
+    expect(routeTeacherProductionRequest('ppt', '统一修改讲稿和 PPT 中的导数定义')).toMatchObject({
+      capability: 'plan_course_change', reason: 'cross_asset',
+    })
   })
 
   it('整课请求只传递教师连续要求和发起位置，不冒充已经执行', () => {
@@ -108,6 +112,25 @@ describe('教师课程生产 AI 领域适配', () => {
     expect(prompt).toContain('把第二章和第三章合并')
     expect(prompt).toContain('同时更新教案和讲稿')
     expect(prompt).toContain('不要写入正式课程')
+  })
+
+  it('用同一个轻量投影向主工作台和 PPT 工作区呈现整课方案', () => {
+    expect(projectTeacherCoursePlan({
+      change_set_id: 'plan-1',
+      impact_summary: {
+        request_id: 'request-1',
+        affected_units: [{ asset_type: 'ppt' }, { asset_type: 'script' }, { asset_type: 'ppt' }],
+      },
+      teacher_change_planning: {
+        status: 'needs_clarification',
+        structural_operations: [{ operation_id: 'move-1' }],
+        intent: { blocking_questions: ['需要保留哪些页面？'] },
+      },
+    })).toEqual({
+      planId: 'plan-1', requestId: 'request-1', status: 'needs_clarification',
+      affectedUnitCount: 3, structuralOperationCount: 1,
+      assetTypes: ['ppt', 'script'], blockingQuestionCount: 1,
+    })
   })
 
   it('为不同生产对象构建各自的后端候选约束和精确资料范围', () => {
