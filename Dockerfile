@@ -17,6 +17,7 @@ RUN npm run build
 
 # Build backend
 FROM python:3.10-slim
+ARG PIP_INDEX_URL=https://pypi.org/simple
 WORKDIR /app
 
 # Use the same CJK font family for capacity checks and render every PPT page for OCR QA.
@@ -40,8 +41,8 @@ COPY --chown=user backend/requirements.txt /app/backend/requirements.txt
 # Install backend dependencies
 WORKDIR /app/backend
 ENV PYTHONPATH=/app
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --index-url "$PIP_INDEX_URL" --upgrade pip && \
+    pip install --no-cache-dir --index-url "$PIP_INDEX_URL" -r requirements.txt
 
 # Copy backend files with correct ownership
 COPY --chown=user backend/ /app/backend/
