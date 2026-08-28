@@ -4,6 +4,7 @@ import { defineComponent, h, onMounted } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import TeacherLessonPlanDocument from '@/components/TeacherLessonPlanDocument.vue'
+import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 import { useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate, type TeacherLessonProjection } from '@/stores/teacherLessonAuthoring'
 import http from '@/utils/http'
 
@@ -341,6 +342,99 @@ describe('教案 AI 协作编辑模式', () => {
     expect(createCandidate).toHaveBeenCalledTimes(1)
     expect(createCandidate.mock.calls[0]![3]).toContain('帮我改好一点')
     expect(createCandidate.mock.calls[0]![3]).toContain('补充能判断学生是否达成目标的课堂检查点')
+  })
+
+  it('结构和跨资产要求复用整课修改方案，并在原助手中交给教师确认', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [structuredClone(lesson)]
+    const localCandidate = vi.spyOn(lessonStore, 'createAiCandidate')
+    const courseEvolutionStore = useCourseEvolutionStore()
+    const createCoursePlan = vi.spyOn(courseEvolutionStore, 'createCoursePlan').mockResolvedValue({
+      course_evolution_plans: [{
+        change_set_id: 'course-change-1',
+        impact_summary: {
+          request_id: 'request-placeholder',
+          affected_units: [
+            { asset_type: 'outline' },
+            { asset_type: 'lesson_plan' },
+            { asset_type: 'script' },
+          ],
+        },
+        teacher_change_planning: {
+          status: 'impact_ready',
+          structural_operations: [{ operation_id: 'move-1' }],
+          intent: { blocking_questions: [] },
+        },
+      }],
+    } as any)
+    createCoursePlan.mockImplementation(async input => ({
+      course_evolution_plans: [{
+        change_set_id: 'course-change-1',
+        impact_summary: {
+          request_id: input.requestId,
+          affected_units: [
+            { asset_type: 'outline' },
+            { asset_type: 'lesson_plan' },
+            { asset_type: 'script' },
+          ],
+        },
+        teacher_change_planning: {
+          status: 'impact_ready',
+          structural_operations: [{ operation_id: 'move-1' }],
+          intent: { blocking_questions: [] },
+        },
+      }],
+    } as any))
+    const wrapper = mountWorkbench()
+
+    await openLessonAi(wrapper)
+    await wrapper.get('.lesson-ai-composer textarea').setValue('把第二章和第三章合并，并同步更新教案和讲稿')
+    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    await flushPromises()
+
+    expect(localCandidate).not.toHaveBeenCalled()
+    expect(createCoursePlan).toHaveBeenCalledTimes(1)
+    expect(createCoursePlan.mock.calls[0]![0]).toMatchObject({ courseId: 'course-1' })
+    expect(createCoursePlan.mock.calls[0]![0].instruction).toContain('把第二章和第三章合并')
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('3 个受影响单元')
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('大纲、教案、讲稿')
+
+    await wrapper.get('.lesson-ai-course-plan button').trigger('click')
+    expect(wrapper.emitted('open-course-adjustment')?.[0]).toEqual([{ planId: 'course-change-1' }])
+  })
+
+  it('整课方案失败后保留原要求，并用同一个请求标识重试', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [structuredClone(lesson)]
+    const courseEvolutionStore = useCourseEvolutionStore()
+    const createCoursePlan = vi.spyOn(courseEvolutionStore, 'createCoursePlan')
+      .mockRejectedValueOnce(new Error('模型暂时不可用'))
+      .mockImplementationOnce(async input => ({
+        course_evolution_plans: [{
+          change_set_id: 'course-change-retry',
+          impact_summary: { request_id: input.requestId, affected_units: [{ asset_type: 'lesson_plan' }] },
+          teacher_change_planning: {
+            status: 'candidate_ready', structural_operations: [], intent: { blocking_questions: [] },
+          },
+        }],
+      } as any))
+    const wrapper = mountWorkbench()
+
+    await openLessonAi(wrapper)
+    await wrapper.get('.lesson-ai-composer textarea').setValue('把 A 这个名词永远都替换成 B')
+    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('模型暂时不可用')
+    const firstRequestId = createCoursePlan.mock.calls[0]![0].requestId
+    await wrapper.get('.lesson-ai-assistant-line.is-error button').trigger('click')
+    await flushPromises()
+
+    expect(createCoursePlan).toHaveBeenCalledTimes(2)
+    expect(createCoursePlan.mock.calls[1]![0].requestId).toBe(firstRequestId)
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
+    expect(wrapper.text()).toContain('把 A 这个名词永远都替换成 B')
   })
 
   it('刷新后恢复当前修订尚未处理的候选', async () => {

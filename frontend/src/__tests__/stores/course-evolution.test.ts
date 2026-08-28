@@ -125,6 +125,23 @@ describe('course evolution store', () => {
     ])
   })
 
+  it('allows the embedded teacher assistant to target the current course without preloading the change workspace', async () => {
+    httpMock.post.mockResolvedValue({ data: payload() })
+    const store = useCourseEvolutionStore()
+
+    await store.createCoursePlan({
+      courseId: 'course-1',
+      instruction: '把第二章和第三章合并',
+      requestId: 'assistant-request-1',
+    })
+
+    expect(store.courseId).toBe('course-1')
+    expect(httpMock.post).toHaveBeenCalledWith(
+      '/api/courses/course-1/evolution/course-plans',
+      { request_id: 'assistant-request-1', instruction: '把第二章和第三章合并' },
+    )
+  })
+
   it('accepts a reviewed plan through the canonical course-evolution endpoint', async () => {
     httpMock.get.mockResolvedValue({ data: payload() })
     httpMock.post.mockResolvedValue({ data: payload('applied') })

@@ -10,7 +10,9 @@ import {
 } from '@/composables/useTeacherLessonAiCollaboration'
 import {
   assessTeacherProductionRequest,
+  buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
+  routeTeacherProductionRequest,
 } from '@/composables/useTeacherProductionAiCollaboration'
 
 describe('教师教案 AI 协作状态机', () => {
@@ -72,6 +74,40 @@ describe('教师课程生产 AI 领域适配', () => {
     expect(assessTeacherProductionRequest('question-bank', '增加两道应用题并保持原难度')).toBe('generate')
     expect(assessTeacherProductionRequest('ppt', '这页不好')).toBe('clarify')
     expect(assessTeacherProductionRequest('ppt', '压缩当前页标题并强化关键内容')).toBe('generate')
+  })
+
+  it('把局部候选、批量修改和结构调整送入各自唯一的正式链路', () => {
+    expect(routeTeacherProductionRequest('lesson', '把教学目标改成学生能独立完成流程图')).toMatchObject({
+      capability: 'edit_active_asset', reason: 'active_asset',
+    })
+    expect(routeTeacherProductionRequest('script', '压缩重复表达，加入一个课堂案例')).toMatchObject({
+      capability: 'edit_active_asset', reason: 'active_asset',
+    })
+    expect(routeTeacherProductionRequest('outline', '把第2、第5、第7小节删除，第8和第9合并，再与第10交换位置')).toMatchObject({
+      capability: 'plan_course_change', reason: 'structural_change',
+    })
+    expect(routeTeacherProductionRequest('lesson', '把大纲、教案和讲稿里的 A 术语统一替换成 B')).toMatchObject({
+      capability: 'plan_course_change', reason: 'cross_asset',
+    })
+    expect(routeTeacherProductionRequest('lesson', '把 A 这个名词永远都替换成 B')).toMatchObject({
+      capability: 'plan_course_change', reason: 'batch_change',
+    })
+    expect(routeTeacherProductionRequest('lesson', '你觉得整门课应该怎么改')).toMatchObject({
+      capability: 'clarify_request', reason: 'unclear',
+    })
+  })
+
+  it('整课请求只传递教师连续要求和发起位置，不冒充已经执行', () => {
+    const prompt = buildTeacherCourseChangeInstruction([
+      { id: '1', role: 'user', kind: 'text', text: '把第二章和第三章合并' },
+      { id: '2', role: 'user', kind: 'text', text: '同时更新教案和讲稿' },
+    ], {
+      domain: 'outline', courseTitle: '微积分', primaryTitle: '课程大纲', secondaryTitle: '第 2 章', referenceCount: 0,
+    })
+    expect(prompt).toContain('课程：微积分')
+    expect(prompt).toContain('把第二章和第三章合并')
+    expect(prompt).toContain('同时更新教案和讲稿')
+    expect(prompt).toContain('不要写入正式课程')
   })
 
   it('为不同生产对象构建各自的后端候选约束和精确资料范围', () => {

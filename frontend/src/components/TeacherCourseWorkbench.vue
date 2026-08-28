@@ -672,6 +672,7 @@
         @accept="resolveAiCandidate(true)"
         @reject="resolveAiCandidate(false)"
         @focus-candidate="focusAiCandidate"
+        @open-course-plan="planId => emit('open-course-adjustment', { planId })"
       />
 
       <CourseReferenceTray
@@ -721,6 +722,7 @@
       @accept="resolveAiCandidate(true)"
       @reject="resolveAiCandidate(false)"
       @focus-candidate="focusAiCandidate"
+      @open-course-plan="planId => emit('open-course-adjustment', { planId })"
     />
   </section>
 </template>
@@ -742,15 +744,17 @@ import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
 import TeacherScriptDocument from './TeacherScriptDocument.vue'
 import UploadedPptReviewWorkspace from './UploadedPptReviewWorkspace.vue'
 import {
-  assessTeacherProductionRequest,
+  buildTeacherCourseChangeInstruction,
   buildTeacherProductionAiInstruction,
   changedTeacherLessonFields,
+  routeTeacherProductionRequest,
   teacherProductionAiBusy,
   transitionTeacherProductionAiPhase,
   type TeacherProductionAiDomain,
   type TeacherProductionAiEvent,
   type TeacherProductionAiMessage,
   type TeacherProductionAiPhase,
+  type TeacherProductionAiScope,
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import {
@@ -761,11 +765,13 @@ import {
   type PedagogyModeSelection,
 } from '../shared/prompt-config'
 import { useCourseStore } from '../stores/course'
+import { useCourseEvolutionStore, type CourseEvolutionPlan } from '../stores/courseEvolution'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 import http, { teacherRequestConfig } from '../utils/http'
+import { createUuid } from '../utils/client-id'
 
 type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
 type StageId = CoreStageId | 'companion'
@@ -836,8 +842,9 @@ const emit = defineEmits<{
   (event: 'update:outlineEditing', value: boolean): void
   (event: 'outlineConfirmed'): void
   (event: 'open-course-information'): void
+  (event: 'open-course-adjustment', payload: { planId: string }): void
 }>()
-const courseStore = useCourseStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
+const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
 const stageSwitching = ref(false)
 const outlineConfirming = ref(false)
@@ -869,7 +876,8 @@ const aiMessages = ref<TeacherProductionAiMessage[]>([])
 const aiSessionScopeKey = ref('')
 const aiMessageSequence = ref(0)
 const aiClarificationOptions = ref<string[]>([])
-const lastAiOperation = ref<'generate' | 'accept' | 'reject' | ''>('')
+const lastAiOperation = ref<'generate' | 'course_plan' | 'accept' | 'reject' | ''>('')
+const lastAiCoursePlanRequestId = ref('')
 const replacingAiCandidate = ref(false)
 const outlineEditor = ref<OutlineEditorHandle | null>(null)
 type TeacherHistoryDomain = 'outline' | 'lesson' | 'script'
@@ -1492,9 +1500,14 @@ const shapeConfirmErrorPresentation = computed(() => shapeConfirmError.value ? t
 function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current')) }
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
-function appendAiMessage(role: TeacherProductionAiMessage['role'], kind: TeacherProductionAiMessage['kind'], text: string) {
+function appendAiMessage(
+  role: TeacherProductionAiMessage['role'],
+  kind: TeacherProductionAiMessage['kind'],
+  text: string,
+  metadata: Partial<Pick<TeacherProductionAiMessage, 'planId' | 'planStatus' | 'impacts'>> = {},
+) {
   aiMessageSequence.value += 1
-  aiMessages.value.push({ id: `production-ai-${aiMessageSequence.value}`, role, kind, text })
+  aiMessages.value.push({ id: `production-ai-${aiMessageSequence.value}`, role, kind, text, ...metadata })
 }
 function transitionAi(event: TeacherProductionAiEvent) {
   aiPhase.value = transitionTeacherProductionAiPhase(aiPhase.value, event)
@@ -1515,6 +1528,7 @@ function resetAiSession() {
   aiMessages.value = []
   aiClarificationOptions.value = []
   lastAiOperation.value = ''
+  lastAiCoursePlanRequestId.value = ''
   aiSessionScopeKey.value = currentAiScopeKey.value
   transitionAi({ type: 'RESET' })
   if (aiCandidatePending.value) {
@@ -1550,7 +1564,7 @@ function restoreAiSession() {
       : []
     aiMessageSequence.value = Math.max(Number(stored.sequence || 0), aiMessages.value.length)
     aiSessionScopeKey.value = currentAiScopeKey.value
-    aiPhase.value = aiCandidatePending.value
+    aiPhase.value = aiCandidatePending.value || aiMessages.value.some(message => message.kind === 'course_plan')
       ? 'review'
       : baseMatches && stored.phase === 'clarifying'
         ? 'clarifying'
@@ -1643,8 +1657,8 @@ function changeAiScope(scopeId: string) {
     aiScriptSectionTitle.value = option.label
   }
 }
-function buildAiInstruction(): string {
-  return buildTeacherProductionAiInstruction(aiMessages.value, {
+function currentAiScope(): TeacherProductionAiScope {
+  return {
     domain: aiDomain.value,
     courseTitle: props.courseTitle,
     primaryTitle: aiScopeTitle.value,
@@ -1657,7 +1671,10 @@ function buildAiInstruction(): string {
       origin: item.origin,
     })),
     selectionText: aiSelectionContext.value,
-  })
+  }
+}
+function buildAiInstruction(): string {
+  return buildTeacherProductionAiInstruction(aiMessages.value, currentAiScope())
 }
 function replacePreviousCandidateMessage() {
   const previousCandidate = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
@@ -1700,11 +1717,74 @@ async function generateAiCandidateFromConversation() {
   lastAiOperation.value = ''
   focusAiCandidate()
 }
+function coursePlanImpacts(plan: CourseEvolutionPlan): string[] {
+  const planning = plan.teacher_change_planning
+  const affectedUnits = Array.isArray(plan.impact_summary?.affected_units)
+    ? plan.impact_summary.affected_units
+    : []
+  const labels: Record<string, string> = {
+    outline: t('courseWorkbench.aiCollaboration.assetOutline', '大纲'),
+    course_content: t('courseWorkbench.aiCollaboration.assetCourseContent', '课程内容'),
+    lesson_plan: t('courseWorkbench.aiCollaboration.assetLessonPlan', '教案'),
+    script: t('courseWorkbench.aiCollaboration.assetScript', '讲稿'),
+    ppt: 'PPT',
+    question_bank: t('courseWorkbench.aiCollaboration.assetQuestionBank', '题库'),
+  }
+  const assets = [...new Set(affectedUnits.map((item: any) => labels[String(item?.asset_type || '')] || '').filter(Boolean))]
+  const structuralCount = planning?.structural_operations?.length || 0
+  return [
+    affectedUnits.length
+      ? t('courseWorkbench.aiCollaboration.affectedUnits', '{count} 个受影响单元').replace('{count}', String(affectedUnits.length))
+      : '',
+    structuralCount
+      ? t('courseWorkbench.aiCollaboration.structuralOperations', '{count} 项结构调整').replace('{count}', String(structuralCount))
+      : '',
+    assets.length ? assets.join('、') : '',
+  ].filter(Boolean)
+}
+async function createCourseChangePlanFromConversation() {
+  if (aiCollaborationBusy.value) return
+  const requestId = lastAiCoursePlanRequestId.value || `teacher-workbench-${createUuid()}`
+  lastAiCoursePlanRequestId.value = requestId
+  lastAiOperation.value = 'course_plan'
+  aiClarificationOptions.value = []
+  transitionAi({ type: 'GENERATE' })
+  try {
+    const payload = await courseEvolutionStore.createCoursePlan({
+      courseId: props.courseId,
+      requestId,
+      instruction: buildTeacherCourseChangeInstruction(aiMessages.value, currentAiScope()),
+    })
+    const plans = (payload?.course_evolution_plans || payload?.change_sets || []) as CourseEvolutionPlan[]
+    const plan = plans.find(item => String(item.impact_summary?.request_id || '') === requestId)
+    if (!plan?.change_set_id || !plan.teacher_change_planning) throw new Error('course_change_plan_missing')
+    const planning = plan.teacher_change_planning
+    const questions = planning.intent?.blocking_questions || []
+    const summary = questions.length
+      ? t('courseWorkbench.aiCollaboration.coursePlanNeedsDetailSummary', '我已整理修改范围，但有 {count} 个问题需要你补充。正式课程尚未改变。').replace('{count}', String(questions.length))
+      : t('courseWorkbench.aiCollaboration.coursePlanSummary', '我已把要求整理成整课修改方案。请先核对影响范围，再决定生成并应用哪些修改。')
+    appendAiMessage('assistant', 'course_plan', summary, {
+      planId: plan.change_set_id,
+      planStatus: planning.status,
+      impacts: coursePlanImpacts(plan),
+    })
+    lastAiOperation.value = ''
+    transitionAi({ type: 'COURSE_PLAN_READY' })
+  } catch (error: any) {
+    handleAiError(String(
+      error?.response?.data?.detail?.message
+      || error?.response?.data?.detail
+      || error?.message
+      || t('courseWorkbench.aiCollaboration.coursePlanFailed', '课程修改方案生成失败，请重试。'),
+    ))
+  }
+}
 async function handleAiRequest(instruction: string) {
   const request = instruction.trim()
   if (!request || aiCollaborationBusy.value || !activeAiDocument.value) return
   appendAiMessage('user', 'text', request)
-  if (assessTeacherProductionRequest(aiDomain.value, request) === 'clarify') {
+  const route = routeTeacherProductionRequest(aiDomain.value, request)
+  if (route.capability === 'clarify_request') {
     aiClarificationOptions.value = aiQuickActions.value.slice(0, 3).map(action => action.prompt)
     appendAiMessage(
       'assistant',
@@ -1719,6 +1799,11 @@ async function handleAiRequest(instruction: string) {
     )
     lastAiOperation.value = ''
     transitionAi({ type: 'ASK_CLARIFICATION' })
+    return
+  }
+  if (route.capability === 'plan_course_change') {
+    lastAiCoursePlanRequestId.value = ''
+    await createCourseChangePlanFromConversation()
     return
   }
   await generateAiCandidateFromConversation()
@@ -1776,6 +1861,10 @@ async function resolveAiCandidate(accept: boolean) {
 }
 async function retryAiAction() {
   if (aiCollaborationBusy.value || !lastAiOperation.value) return
+  if (lastAiOperation.value === 'course_plan') {
+    await createCourseChangePlanFromConversation()
+    return
+  }
   if (lastAiOperation.value === 'accept' && aiCandidatePending.value) {
     await resolveAiCandidate(true)
     return

@@ -318,20 +318,26 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         this.contextLoading = false
       }
     },
-    async createCoursePlan(input: { instruction: string; requestId?: string }) {
-      if (!this.courseId) throw new Error('course_change_course_required')
+    async createCoursePlan(input: { instruction: string; requestId?: string; courseId?: string }) {
+      const targetCourseId = input.courseId || this.courseId
+      if (!targetCourseId) throw new Error('course_change_course_required')
+      if (this.courseId !== targetCourseId) {
+        this.courseId = targetCourseId
+        this.courseContext = null
+        this.plans = []
+      }
       this.generating = true
       this.generationError = ''
       try {
         const response = await http.post(
-          `/api/courses/${this.courseId}/evolution/course-plans`,
+          `/api/courses/${targetCourseId}/evolution/course-plans`,
           {
             request_id: input.requestId
               || createUuid(),
             instruction: input.instruction,
           },
         )
-        this.applyPayload(this.courseId, response.data)
+        this.applyPayload(targetCourseId, response.data)
         return response.data
       } catch (error: any) {
         this.generationError = String(

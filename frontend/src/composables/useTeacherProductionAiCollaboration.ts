@@ -16,6 +16,7 @@ export type TeacherProductionAiEvent =
   | { type: 'ASK_CLARIFICATION' }
   | { type: 'GENERATE' }
   | { type: 'CANDIDATE_READY' }
+  | { type: 'COURSE_PLAN_READY' }
   | { type: 'CANDIDATE_RESTORED' }
   | { type: 'ACCEPT' }
   | { type: 'REJECT' }
@@ -25,8 +26,22 @@ export type TeacherProductionAiEvent =
 export interface TeacherProductionAiMessage {
   id: string
   role: 'assistant' | 'user'
-  kind: 'text' | 'candidate' | 'receipt' | 'error'
+  kind: 'text' | 'candidate' | 'course_plan' | 'receipt' | 'error'
   text: string
+  planId?: string
+  planStatus?: 'draft' | 'impact_ready' | 'needs_clarification' | 'candidate_ready' | 'blocked'
+  impacts?: string[]
+}
+
+export type TeacherProductionAiCapability =
+  | 'clarify_request'
+  | 'edit_active_asset'
+  | 'plan_course_change'
+
+export interface TeacherProductionAiRoute {
+  capability: TeacherProductionAiCapability
+  domains: TeacherProductionAiDomain[]
+  reason: 'unclear' | 'active_asset' | 'cross_asset' | 'batch_change' | 'structural_change'
 }
 
 export interface TeacherProductionAiScope {
@@ -73,6 +88,7 @@ export function transitionTeacherProductionAiPhase(
   if (event.type === 'ASK_CLARIFICATION' && GENERATION_START_PHASES.has(phase)) return 'clarifying'
   if (event.type === 'GENERATE' && GENERATION_START_PHASES.has(phase)) return 'generating'
   if (event.type === 'CANDIDATE_READY' && phase === 'generating') return 'review'
+  if (event.type === 'COURSE_PLAN_READY' && phase === 'generating') return 'review'
   if (event.type === 'ACCEPT' && phase === 'review') return 'accepting'
   if (event.type === 'REJECT' && phase === 'review') return 'rejecting'
   if (event.type === 'RESOLVED' && ['accepting', 'rejecting'].includes(phase)) return 'success'
@@ -89,6 +105,62 @@ const DOMAIN_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
   script: /(讲稿|口语|表达|讲解|案例|提问|过渡|开场|总结|节奏|时间|互动|课堂|学生|教师|重复|段落)/,
   'question-bank': /(题|题库|练习|选择|判断|填空|应用|难度|错因|能力|检查|测评|作答|答案|解析)/,
   ppt: /(PPT|课件|幻灯|页面|标题|副标题|结论|措辞|压缩|展示|表达|课堂)/i,
+}
+
+const EXPLICIT_ASSET_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
+  outline: /(课程大纲|大纲|目录|章节|小节|课程结构|学习路径|前置依赖)/,
+  lesson: /(教案|教学设计|教学目标|教学重点|教学难点|教学环节|师生活动)/,
+  script: /(讲稿|讲解稿|逐字稿|教师用语|口语表达)/,
+  'question-bank': /(题库|题目|试题|练习题|选择题|判断题|填空题|应用题|答案|解析)/,
+  ppt: /(PPT|课件|幻灯片|页面文案)/i,
+}
+
+const STRUCTURAL_CHANGE = /(删除|删掉|移除|合并|拆分|交换|调换|前移|后移|调整顺序|重新排序|改成\s*\d+\s*(章|节|讲)|增加\s*\d*\s*(章|节|讲)|新增\s*\d*\s*(章|节|讲))/
+const COURSE_WIDE_CHANGE = /(整门课|整门课程|全课程|全课|全文|全局|全部|所有|每一[章节讲页题]|统一|批量|一律|永远都)/
+const BATCH_CHANGE = /(替换|改成|改为|删除|删掉|移除|合并|重写|统一|批量)/
+
+/**
+ * Pick one of the two existing mutation paths before any model call:
+ * the active asset keeps its native candidate endpoint; changes that alter
+ * identities, order, or several assets use the formal CourseEvolutionPlan.
+ */
+export function routeTeacherProductionRequest(
+  domain: TeacherProductionAiDomain,
+  value: string,
+): TeacherProductionAiRoute {
+  const request = value.replace(/\s+/g, ' ').trim()
+  const domains = (Object.entries(EXPLICIT_ASSET_TARGETS) as Array<[TeacherProductionAiDomain, RegExp]>)
+    .filter(([, pattern]) => pattern.test(request))
+    .map(([targetDomain]) => targetDomain)
+
+  if (assessTeacherProductionRequest(domain, request) === 'clarify') {
+    return { capability: 'clarify_request', domains, reason: 'unclear' }
+  }
+  if (domains.length > 1) {
+    return { capability: 'plan_course_change', domains, reason: 'cross_asset' }
+  }
+  if (STRUCTURAL_CHANGE.test(request) && (domain === 'outline' || domains.includes('outline'))) {
+    return {
+      capability: 'plan_course_change',
+      domains: domains.length ? domains : ['outline'],
+      reason: 'structural_change',
+    }
+  }
+  if (COURSE_WIDE_CHANGE.test(request) && BATCH_CHANGE.test(request)) {
+    return {
+      capability: 'plan_course_change',
+      domains: domains.length ? domains : [domain],
+      reason: 'batch_change',
+    }
+  }
+  if (domains.length === 1 && domains[0] !== domain) {
+    return { capability: 'plan_course_change', domains, reason: 'cross_asset' }
+  }
+  return {
+    capability: 'edit_active_asset',
+    domains: domains.length ? domains : [domain],
+    reason: 'active_asset',
+  }
 }
 
 export function assessTeacherProductionRequest(
@@ -127,6 +199,22 @@ function compactTeacherTurns(messages: TeacherProductionAiMessage[], budget = 10
     }
   }
   return selected.reverse()
+}
+
+export function buildTeacherCourseChangeInstruction(
+  messages: TeacherProductionAiMessage[],
+  scope: TeacherProductionAiScope,
+): string {
+  const requirements = compactTeacherTurns(messages)
+    .map((turn, index) => `${index + 1}. ${turn}`)
+    .join('\n')
+  return [
+    `课程：${scope.courseTitle}。`,
+    `发起位置：${scope.primaryTitle} / ${scope.secondaryTitle}。`,
+    scope.selectionText ? `教师选中内容：\n“${scope.selectionText.slice(0, 1200)}”` : '',
+    `教师连续要求（越靠后优先级越高）：\n${requirements}`,
+    '请先形成可审阅的整课修改方案，识别内容修改与结构修改及其下游影响；此时不要写入正式课程。',
+  ].filter(Boolean).join('\n')
 }
 
 export function buildTeacherProductionAiInstruction(

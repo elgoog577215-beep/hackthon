@@ -80,6 +80,7 @@
             @generate-outline="startOutlineGeneration"
             @outline-confirmed="handleOutlineConfirmed"
             @open-course-information="courseInformationOpen = true"
+            @open-course-adjustment="openCourseAdjustment"
           />
           <TeacherCourseSpaceView
             v-else
