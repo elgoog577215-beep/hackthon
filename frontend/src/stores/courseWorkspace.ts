@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http, { teacherRequestConfig } from '../utils/http'
+import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import { useLearningSessionStore } from './learningSession'
 import { useLearningProgressStore, type LearningTaskRef, type NextLearningAction } from './learningProgress'
@@ -101,7 +102,7 @@ export interface FormalPracticeResponse {
 }
 
 const practiceDraftKey = (courseId: string, attemptId: string) => `practice_attempt_draft_v1:${courseId}:${attemptId}`
-const requestId = () => globalThis.crypto?.randomUUID?.() || `request-${Date.now()}-${Math.random().toString(16).slice(2)}`
+const requestId = () => createUuid()
 
 function sharedCount(left: unknown, right: unknown): number {
   const rightValues = new Set(Array.isArray(right) ? right.map(String) : [])

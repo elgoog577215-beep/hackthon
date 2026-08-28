@@ -719,6 +719,7 @@ import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
 import { t } from '../shared/i18n'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
+import { createUuid } from '../utils/client-id'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -1175,10 +1176,7 @@ function proposalValue(value: unknown) {
 }
 
 function outlineNodeId(prefix: string) {
-  const suffix = typeof crypto !== 'undefined' && crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
-  return `${prefix}-${suffix}`
+  return `${prefix}-${createUuid()}`
 }
 
 function markManualChange(message: string) {

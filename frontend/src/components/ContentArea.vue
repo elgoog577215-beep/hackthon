@@ -420,6 +420,7 @@ import { buildTextQuoteAnchor, resolveTextQuoteAnchor } from '@/utils/text-ancho
 import { t } from '@/shared/i18n'
 import { Cloud, CloudOff, LoaderCircle, TriangleAlert } from 'lucide-vue-next'
 import type { CourseBlockEditTarget, Note } from '@/stores/types'
+import { createUuid } from '@/utils/client-id'
 
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
@@ -1964,7 +1965,7 @@ const handleAddNote = async () => {
         ElMessage.warning(t('courseWorkspace.records.locationMissing', '无法定位选区所在章节'))
         return
     }
-    const noteId = `note-${crypto.randomUUID()}`
+    const noteId = `note-${createUuid()}`
     const note: Note = {
         id: noteId,
         nodeId,

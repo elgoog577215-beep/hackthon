@@ -828,6 +828,7 @@ import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
 import http from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
+import { createUuid } from '@/utils/client-id'
 import {
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,
@@ -1487,7 +1488,7 @@ async function requestAiCandidate(value: string) {
     ? 'nodes'
     : 'course'
   pendingAiCandidate.value = {
-    candidate_id: crypto.randomUUID(),
+    candidate_id: createUuid(),
     base_bundle_revision_id: bundleRevisionId.value,
     scope,
     node_ids: scope === 'nodes' ? [...props.initialNodeIds] : [],
@@ -1511,7 +1512,7 @@ async function resolveAiCandidate(accept: boolean) {
       const response = await http.post(
         `/api/courses/${props.courseId}/question-bank/rebuild`,
         {
-          request_id: crypto.randomUUID(),
+          request_id: createUuid(),
           scope: candidate.scope,
           node_ids: candidate.node_ids,
           material_asset_ids: candidate.material_asset_ids,
@@ -1566,7 +1567,7 @@ async function rebuild(nodeId?: string | string[], resumeExisting = true) {
     await runQuestionBankRebuild(
       props.courseId,
       {
-        request_id: crypto.randomUUID(),
+        request_id: createUuid(),
         scope: scopedNodeIds.length ? 'nodes' : 'course',
         node_ids: scopedNodeIds,
         mode: scopedNodeIds.length && resumeExisting ? 'incremental' : 'full',
@@ -1658,7 +1659,7 @@ async function rework(item: QuestionBankItem) {
     await runQuestionBankRebuild(
       props.courseId,
       {
-        request_id: crypto.randomUUID(),
+        request_id: createUuid(),
         scope: 'items',
         node_ids: [],
         revision_ids: [item.revision_id],

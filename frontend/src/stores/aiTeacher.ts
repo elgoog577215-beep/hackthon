@@ -9,6 +9,7 @@ import http, {
 } from '../utils/http'
 import { useLearningProgressStore } from './learningProgress'
 import logger from '../utils/logger'
+import { createUuid } from '../utils/client-id'
 
 export interface AIContextRef {
   course_id: string
@@ -167,7 +168,7 @@ function learningSessionId() {
     const key = 'learning_session_id'
     const current = sessionStorage.getItem(key)
     if (current) return current
-    const created = `session-${crypto.randomUUID()}`
+    const created = `session-${createUuid()}`
     sessionStorage.setItem(key, created)
     return created
   } catch {
@@ -341,8 +342,8 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
     }
     const conversation = await ensureConversation()
     if (!conversation) return
-    const localUserId = `local-user-${crypto.randomUUID()}`
-    const localAssistantId = `local-ai-${crypto.randomUUID()}`
+    const localUserId = `local-user-${createUuid()}`
+    const localAssistantId = `local-ai-${createUuid()}`
     conversation.messages.push({
       message_id: localUserId,
       role: 'user',

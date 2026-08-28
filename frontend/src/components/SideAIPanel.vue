@@ -736,6 +736,7 @@ import { useNoteStore } from '../stores/notes'
 import { useChangeProposalsStore } from '../stores/changeProposals'
 import { activeLocale, t } from '../shared/i18n'
 import type { CourseBlockEditTarget } from '../stores/types'
+import { createUuid } from '../utils/client-id'
 import type {
   ChangeProposal,
   ChangeProposalAfterPayload,
@@ -1290,7 +1291,7 @@ async function generatePersonalizationProposal() {
     const existingPlanIds = new Set(
       courseEvolutionStore.plans.map(plan => plan.change_set_id),
     )
-    const requestId = globalThis.crypto?.randomUUID?.() || `course-adjustment-${Date.now()}`
+    const requestId = createUuid()
     await courseEvolutionStore.createPlan({
       sectionId: target.block.section_id || target.nodeId,
       blockId: snapshot.scope === 'current_block' ? snapshot.blockId : undefined,

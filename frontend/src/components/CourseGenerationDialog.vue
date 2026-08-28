@@ -500,6 +500,7 @@ import {
 } from 'lucide-vue-next'
 import MaterialInputPanel from './MaterialInputPanel.vue'
 import { activeLocale, t } from '@/shared/i18n'
+import { createUuid } from '@/utils/client-id'
 import {
   PEDAGOGY_MODE_OPTIONS,
   type CourseGenerationOptions,
@@ -868,7 +869,7 @@ async function submit() {
     }
     const identity = JSON.stringify({ subject, options })
     if (!submissionRequestId.value || submissionIdentity.value !== identity) {
-      submissionRequestId.value = crypto.randomUUID()
+      submissionRequestId.value = createUuid()
       submissionIdentity.value = identity
     }
     emit('generate', {

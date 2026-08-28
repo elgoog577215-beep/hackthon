@@ -10,6 +10,7 @@ import type { LearningRecord, LearningRecordType, Note } from './types'
 import { useCourseStore } from './course'
 import { useLearningProgressStore } from './learningProgress'
 import logger from '../utils/logger'
+import { createUuid } from '../utils/client-id'
 
 // 复用 course.ts 中的工具函数
 const sanitizeFileName = (name: string) => name.replace(/[\\/:*?"<>|]/g, '_').trim()
@@ -179,7 +180,7 @@ export const useNoteStore = defineStore('notes', {
       anchor?: Record<string, unknown>
     }) {
       return this.createNote({
-        id: `record-${crypto.randomUUID()}`,
+        id: `record-${createUuid()}`,
         nodeId: payload.nodeId,
         highlightId: '',
         quote: payload.quote,

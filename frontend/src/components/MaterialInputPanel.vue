@@ -197,6 +197,7 @@ import http, { getTeacherIdentity } from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { formatFileSize, materialUploadErrorMessage, validateMaterialFile } from '@/shared/material-upload'
 import type { CourseMaterialBindingInput, CourseMaterialDraft } from '@/shared/prompt-config'
+import { createUuid } from '@/utils/client-id'
 
 const props = withDefaults(defineProps<{
   modelValue: CourseMaterialDraft[]
@@ -220,7 +221,7 @@ const updateDraft = (localId: string, patch: Partial<CourseMaterialDraft>) => {
 }
 
 const newDraft = (filename: string, file?: File): CourseMaterialDraft => ({
-  local_id: crypto.randomUUID(),
+  local_id: createUuid(),
   filename,
   file_type: (filename.split('.').pop() || 'md').toLowerCase(),
   file,

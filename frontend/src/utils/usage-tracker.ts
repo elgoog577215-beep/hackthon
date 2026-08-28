@@ -1,3 +1,5 @@
+import { createUuid } from './client-id'
+
 export type UsageEventName =
   | 'session_started'
   | 'page_viewed'
@@ -50,10 +52,7 @@ let flushPromise: Promise<boolean> | null = null
 let errorHandlersInstalled = false
 
 const randomId = (prefix: string) => {
-  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-  return `${prefix}-${suffix}`
+  return `${prefix}-${createUuid()}`
 }
 
 const safeGet = (storage: Storage | undefined, key: string) => {

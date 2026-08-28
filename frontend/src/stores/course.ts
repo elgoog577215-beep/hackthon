@@ -1,4 +1,5 @@
 import { taskProgressStep } from '@/utils/course-progress'
+import { createUuid } from '@/utils/client-id'
 import { defineStore } from 'pinia'
 import http, {
     identityRequestConfig,
@@ -674,7 +675,7 @@ export const useCourseStore = defineStore('course', {
         const response = await http.post(
             `/api/courses/${this.currentCourseId}/blocks/${target.block.block_id}/regeneration-candidates`,
             {
-                request_id: crypto.randomUUID(),
+                request_id: createUuid(),
                 expected_document_revision: this.currentDocumentRevision,
                 expected_block_revision: target.block.internal_revision,
                 instruction,
@@ -825,7 +826,7 @@ export const useCourseStore = defineStore('course', {
             ElMessage.warning('该笔记已存在'); return
         }
         const newAnno: Annotation = {
-            anno_id: anno.anno_id || `anno_${crypto.randomUUID()}`,
+            anno_id: anno.anno_id || `anno_${createUuid()}`,
             node_id: anno.node_id!, course_id: this.currentCourseId,
             question: anno.question || 'User Note', answer: anno.answer || '',
             anno_summary: anno.anno_summary || 'Note',

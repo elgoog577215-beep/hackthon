@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { AxiosInstance, AxiosError, AxiosRequestConfig, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import { trackApiAction } from './usage-tracker';
 import { publishAppError, toAppError } from './app-error';
+import { createUuid } from './client-id';
 
 const stripTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 const CONFIGURED_LEARNER_USER_ID = String(import.meta.env.VITE_LEARNER_USER_ID || '').trim();
@@ -13,10 +14,7 @@ let inMemoryLearnerId = '';
 let activeIdentityScope: RequestIdentityScope = 'learner';
 
 const createLearnerId = () => {
-  const randomId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
-  return `learner_${randomId}`;
+  return `learner_${createUuid()}`;
 };
 
 export const getLearnerIdentity = (): string => {

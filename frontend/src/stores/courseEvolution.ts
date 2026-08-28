@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import http from '../utils/http'
+import { createUuid } from '../utils/client-id'
 
 export interface EvolutionEvidence {
   evidence_id: string
@@ -324,8 +325,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           `/api/courses/${this.courseId}/evolution/course-plans`,
           {
             request_id: input.requestId
-              || globalThis.crypto?.randomUUID?.()
-              || `teacher-course-change-${Date.now()}`,
+              || createUuid(),
             instruction: input.instruction,
           },
         )
@@ -371,8 +371,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
           `/api/courses/${this.courseId}/evolution/plans`,
           {
             request_id: input.requestId
-              || globalThis.crypto?.randomUUID?.()
-              || `course-adjustment-${Date.now()}`,
+              || createUuid(),
             instruction: input.instruction,
             section_id: input.sectionId,
             scope_selection: input.scopeSelection || 'current_section',

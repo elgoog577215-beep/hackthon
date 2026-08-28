@@ -587,6 +587,7 @@ import { practiceScopeKind } from '../utils/learning-scope'
 import { splitPracticeQuestionMarkdown } from '../utils/practice-question-markdown'
 import { hasMeaningfulAnswer } from '../utils/answer-payload'
 import { presentSolutionValue } from '../utils/solution-presentation'
+import { createUuid } from '../utils/client-id'
 import {
   runQuestionBankRebuild,
   type QuestionBankRebuildJob,
@@ -1089,7 +1090,7 @@ async function rebuildQuestionBank() {
     const job = await runQuestionBankRebuild(
       props.courseId,
       {
-        request_id: crypto.randomUUID(),
+        request_id: createUuid(),
         scope: nodeScoped ? 'nodes' : 'course',
         node_ids: nodeScoped ? [String(props.nodeId)] : [],
         mode: 'incremental',
