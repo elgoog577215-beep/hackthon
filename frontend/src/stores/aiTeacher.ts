@@ -81,6 +81,10 @@ export interface AIMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
   status?: 'streaming' | 'complete' | 'failed'
+  stream_stage?: 'accepted' | 'generating'
+  stream_message?: string
+  delivery_mode?: 'token_stream' | 'buffered_fallback'
+  elapsed_ms?: number
   /** Which classified model failure produced a `failed` turn. */
   failure_code?: AIModelFailureCode
   /** Whether retrying the same question could plausibly succeed. */
@@ -491,6 +495,11 @@ export const useAITeacherStore = defineStore('aiTeacher', () => {
       if (userMessage && data.user_message_id) userMessage.message_id = data.user_message_id
       if (data.conversation_id) currentConversationId.value = data.conversation_id
       onQuestionRecorded?.()
+    } else if (eventName === 'status') {
+      assistantMessage.stream_stage = data.stage
+      assistantMessage.stream_message = data.message || ''
+      assistantMessage.delivery_mode = data.delivery_mode
+      assistantMessage.elapsed_ms = data.elapsed_ms
     } else if (eventName === 'answer') {
       assistantMessage.content += data.chunk || ''
     } else if (eventName === 'final_answer') {

@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from generation_streaming import structured_generation_stream
 from pydantic import BaseModel, Field
 
 from ai_service import ai_service
@@ -245,6 +246,11 @@ async def update_course_baseline(
 
 
 @router.post("/{course_id}/generation-request/draft")
+@structured_generation_stream(
+    stage="course_baseline_draft",
+    started_message="已开始整理对话中的课程设定。",
+    waiting_message="AI 正在生成可确认的课程信息草案。",
+)
 async def draft_course_baseline_from_conversation(
     course_id: str,
     body: CourseBaselineDraftRequest,

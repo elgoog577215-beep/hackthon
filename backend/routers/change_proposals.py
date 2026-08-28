@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from generation_streaming import structured_generation_stream
 from pydantic import BaseModel, Field
 
 from block_regeneration import (
@@ -272,6 +273,11 @@ async def reject_change_proposal_item(
 
 @router.post("/{proposal_id}/items/{item_id}/regenerate")
 @authoring_router.post("/{proposal_id}/items/{item_id}/regenerate")
+@structured_generation_stream(
+    stage="change_proposal_item",
+    started_message="已收到该项的重新生成要求。",
+    waiting_message="AI 正在重新生成修改候选。",
+)
 async def regenerate_change_proposal_item(
     course_id: str,
     proposal_id: str,

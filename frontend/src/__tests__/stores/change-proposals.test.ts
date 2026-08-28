@@ -5,12 +5,15 @@ const httpMock = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
 }))
+const generationMock = vi.hoisted(() => vi.fn())
 
 vi.mock('@/utils/http', () => ({
   default: httpMock,
   withApiBase: (path: string) => path,
   learnerIdentityHeaders: (initial: HeadersInit = {}) => new Headers(initial),
+  activeIdentityHeaders: (initial: HeadersInit = {}) => new Headers(initial),
 }))
+vi.mock('@/shared/generation-stream', () => ({ postGenerationStream: generationMock }))
 
 import { useChangeProposalsStore } from '@/stores/changeProposals'
 import type { ChangeProposal } from '@/types/changeProposal'
@@ -58,6 +61,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  generationMock.mockReset()
 })
 
 describe('change proposals store', () => {
@@ -343,14 +347,15 @@ describe('change proposals store', () => {
 
   it('regenerates an item and keeps it pending with updated content, without touching other items', async () => {
     httpMock.get.mockResolvedValue({ data: [buildProposal()] })
-    httpMock.post.mockResolvedValue({ data: { after: '重新生成的内容 A' } })
+    generationMock.mockResolvedValue({ after: '重新生成的内容 A' })
     const store = useChangeProposalsStore()
     await store.fetchChangeProposals('course-1')
 
     await store.regenerateItem('cp-1', 'item-1', '再简洁一些')
-    expect(httpMock.post).toHaveBeenCalledWith(
+    expect(generationMock).toHaveBeenCalledWith(
       '/api/courses/course-1/authoring-changes/cp-1/items/item-1/regenerate',
       { extra_instruction: '再简洁一些' },
+      expect.objectContaining({ headers: expect.any(Headers) }),
     )
     const proposal = store.findProposal('cp-1')!
     const item1 = proposal.items.find(item => item.item_id === 'item-1')!
@@ -390,7 +395,7 @@ describe('change proposals store', () => {
         },
       ],
     }
-    httpMock.post.mockResolvedValue({ data: regeneratedProposal })
+    generationMock.mockResolvedValue(regeneratedProposal)
     const store = useChangeProposalsStore()
     await store.fetchChangeProposals('course-1')
 

@@ -159,7 +159,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Check, CheckCircle2, Download, FileSearch, LoaderCircle, Pencil, RefreshCw, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
-import http, { teacherRequestConfig } from '../utils/http'
+import http, { teacherIdentityHeaders, teacherRequestConfig } from '../utils/http'
+import { postGenerationStream } from '../shared/generation-stream'
 
 type PptBlock = { block_id: string; shape_index: number; kind: 'title' | 'text' | 'table'; text: string; original_text: string; editable: boolean }
 type PptSlide = { slide_id: string; slide_number: number; title: string; blocks: PptBlock[]; content_hash: string }
@@ -293,12 +294,12 @@ async function requestAiFix(finding: ReviewFinding) {
   if (!review.value || !selectedSlide.value) return
   busy.value = true; error.value = ''
   try {
-    const response = await http.post(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/${review.value.review_id}/ai-candidates`, {
+    const data = await postGenerationStream<{ candidate: AiCandidate }>(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/${review.value.review_id}/ai-candidates`, {
       base_revision_id: review.value.revision_id,
       slide_id: selectedSlide.value.slide_id,
       instruction: `针对审阅建议修改当前页：${finding.title}。${finding.detail}`,
-    }, teacherRequestConfig({ silentError: true }))
-    review.value.ai_candidates = [...(review.value.ai_candidates || []).filter(item => item.status !== 'pending'), response.data.candidate]
+    }, { headers: teacherIdentityHeaders() })
+    review.value.ai_candidates = [...(review.value.ai_candidates || []).filter(item => item.status !== 'pending'), data.candidate]
   } catch (value) { error.value = apiError(value, t('courseWorkbench.pptReview.aiFailed', 'AI 修改候选生成失败。')) }
   finally { busy.value = false }
 }

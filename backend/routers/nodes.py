@@ -23,6 +23,7 @@ from course_generation.service import get_course_service
 from content_blocks import blocks_to_markdown, normalize_blocks
 from canonical_content_repair import persist_generated_node_content
 from dependencies import get_course_document_repository, get_course_or_404, get_node_or_404
+from generation_streaming import structured_generation_stream
 from learner_context import require_user_id
 from learning_events import record_learning_event, summarize_text
 from storage_utils import save_course_compat
@@ -63,7 +64,12 @@ async def add_custom_node(course_id: str, req: AddNodeRequest):
 
 
 @router.post("/{node_id}/subnodes")
-async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest):
+@structured_generation_stream(
+    stage="outline_subnodes",
+    started_message="已开始补充当前目录。",
+    waiting_message="AI 正在生成子章节。",
+)
+async def generate_subnodes(course_id: str, node_id: str, req: GenerateSubNodesRequest, request: Request):
     tree_data = await get_course_or_404(course_id)
 
     existing_children = [n for n in tree_data.get("nodes", []) if n.get("parent_node_id") == node_id]
@@ -159,6 +165,11 @@ async def redefine_node_stream(course_id: str, node_id: str, req: RedefineConten
 
 
 @router.post("/{node_id}/redefine")
+@structured_generation_stream(
+    stage="node_rewrite",
+    started_message="已收到正文重写要求。",
+    waiting_message="AI 正在重写当前内容。",
+)
 async def redefine_node(course_id: str, node_id: str, req: RedefineContentRequest, request: Request):
     tree_data = await get_course_or_404(course_id)
     node = get_node_or_404(tree_data, node_id)
@@ -186,6 +197,11 @@ async def redefine_node(course_id: str, node_id: str, req: RedefineContentReques
 
 
 @router.post("/{node_id}/selection-rewrite", response_model=SelectionRewriteResponse)
+@structured_generation_stream(
+    stage="selection_rewrite",
+    started_message="已收到选中内容的修改要求。",
+    waiting_message="AI 正在生成替换候选。",
+)
 async def rewrite_node_selection(course_id: str, node_id: str, req: SelectionRewriteRequest, request: Request):
     tree_data = await get_course_or_404(course_id)
     node = get_node_or_404(tree_data, node_id)
@@ -306,6 +322,11 @@ async def regenerate_node_content_block(
 
 
 @router.post("/{node_id}/extend")
+@structured_generation_stream(
+    stage="node_expansion",
+    started_message="已收到内容扩展要求。",
+    waiting_message="AI 正在补充当前内容。",
+)
 async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRequest, request: Request):
     tree_data = await get_course_or_404(course_id)
     node = get_node_or_404(tree_data, node_id)
@@ -323,6 +344,11 @@ async def extend_node_content(course_id: str, node_id: str, req: ExtendContentRe
 
 
 @router.post("/{node_id}/summarize")
+@structured_generation_stream(
+    stage="node_summary",
+    started_message="已开始整理当前内容。",
+    waiting_message="AI 正在生成摘要。",
+)
 async def summarize_node(course_id: str, node_id: str, req: SummarizeNodeRequest, request: Request):
     user_id = require_user_id(request.headers.get("X-User-Id"))
     summary = await get_course_service().summarize_content(

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { activeIdentityHeaders } from '../utils/http'
 import { createUuid } from '../utils/client-id'
+import { postGenerationStream } from '../shared/generation-stream'
 
 export interface EvolutionEvidence {
   evidence_id: string
@@ -223,6 +224,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     actingId: '',
     generating: false,
     generationError: '',
+    generationMessage: '',
     contextLoading: false,
     applicationVisual: null as CourseEvolutionApplicationVisual | null,
     applicationVisualCounter: 0,
@@ -412,12 +414,20 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
     async generateSuggested(planId: string) {
       this.actingId = planId
       this.generationError = ''
+      this.generationMessage = ''
       try {
-        const response = await http.post(
+        const payload = await postGenerationStream<Record<string, any>>(
           `/api/courses/${this.courseId}/evolution/change-sets/${planId}/generate`,
+          {},
+          {
+            headers: activeIdentityHeaders(),
+            onProgress: progress => {
+              this.generationMessage = progress.message || ''
+            },
+          },
         )
-        this.applyPayload(this.courseId, response.data)
-        return response.data
+        this.applyPayload(this.courseId, payload)
+        return payload
       } catch (error: any) {
         this.generationError = String(
           error?.response?.data?.detail?.message
@@ -428,6 +438,7 @@ export const useCourseEvolutionStore = defineStore('courseEvolution', {
         throw error
       } finally {
         this.actingId = ''
+        this.generationMessage = ''
       }
     },
     async accept(

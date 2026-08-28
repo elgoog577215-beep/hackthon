@@ -97,6 +97,15 @@ class _ChunkyService(AIQAService):
             yield piece
 
 
+class _BufferedService(AIQAService):
+    async def _stream_llm(self, *_a, **_k):
+        await asyncio.sleep(0.12)
+        yield "本地模型完整回答"
+
+    def stream_delivery_mode(self) -> str:
+        return "buffered_fallback"
+
+
 async def _request(repository_service, question="什么是线性相关？", **extra):
     request = AskQuestionRequest(
         course_id="course-1",
@@ -182,6 +191,34 @@ async def test_answer_stream_emits_exactly_one_final_answer(monkeypatch, tmp_pat
     assistant = [m for m in conversation["messages"] if m["role"] == "assistant"][0]
     assert finals[0]["answer"] == assistant["content"]
     assert finals[0]["message_id"] == assistant["message_id"]
+
+
+@pytest.mark.asyncio
+async def test_buffered_model_gets_immediate_status_and_truthful_heartbeats(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("AI_ASSISTANT_STREAM_HEARTBEAT_SECONDS", "0.05")
+    repository = _wire(monkeypatch, tmp_path, _BufferedService())
+    stream = await _request(repository)
+
+    first = _events([await stream.__anext__()])
+    remaining = _events([block async for block in stream])
+    statuses = [payload for name, payload in first + remaining if name == "status"]
+
+    assert first[0][0] == "status"
+    assert first[0][1]["stage"] == "accepted"
+    assert any(
+        item["stage"] == "generating"
+        and item["delivery_mode"] == "buffered_fallback"
+        and item["elapsed_ms"] >= 50
+        for item in statuses
+    )
+    assert "".join(
+        payload.get("chunk", "")
+        for name, payload in remaining
+        if name == "answer"
+    ) == "本地模型完整回答"
 
 
 @pytest.mark.asyncio

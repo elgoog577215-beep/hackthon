@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import http, { getTeacherIdentity } from '../utils/http'
+import http, { getTeacherIdentity, teacherIdentityHeaders } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 import type { CourseTeachingPlanProjection } from './types'
+import { postGenerationStream } from '../shared/generation-stream'
 
 export interface TeachingPlanOperation {
   operation_id: string
@@ -127,12 +128,14 @@ const requestId = (prefix: string) => (
 )
 
 function apiErrorCode(error: any): string {
+  if (typeof error?.code === 'string') return error.code
   const detail = error?.response?.data?.detail
   if (detail && typeof detail === 'object' && typeof detail.code === 'string') return detail.code
   return error?.response?.status === 409 ? 'teaching_plan_conflict' : 'teaching_plan_request_failed'
 }
 
 function apiErrorMessage(error: any): string {
+  if (typeof error?.message === 'string' && error?.detail) return error.message
   const detail = error?.response?.data?.detail
   return detail && typeof detail === 'object' && typeof detail.message === 'string'
     ? detail.message
@@ -143,6 +146,7 @@ function apiErrorMessage(error: any): string {
 // 编辑器 endpoint）。只记 code 会把这些信息丢掉，前端就只能显示一句文案、
 // 没法真的把教师送过去。
 function apiErrorDetail(error: any): Record<string, unknown> {
+  if (error?.detail && typeof error.detail === 'object') return { ...error.detail }
   const detail = error?.response?.data?.detail
   return detail && typeof detail === 'object' ? { ...detail } : {}
 }
@@ -163,6 +167,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
     errorCode: '',
     errorMessage: '',
     errorDetail: {} as Record<string, unknown>,
+    generationMessage: '',
   }),
 
   getters: {
@@ -178,6 +183,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.revisionDiff = null
       this.savingPaths = []
       this.pendingAction = ''
+      this.generationMessage = ''
       this.errorCode = ''
       this.errorMessage = ''
       this.errorDetail = {}
@@ -381,11 +387,17 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
       this.errorMessage = ''
       this.pendingAction = 'ai'
       this.errorDetail = {}
+      this.generationMessage = ''
       try {
-        const { data } = await http.post(
+        const data = await postGenerationStream<{ workbench: TeachingPlanWorkbench }>(
           `/api/courses/${this.courseId}/teaching-plan/drafts/${draft.draft_id}/ai-candidates`,
           { paths, instruction, idempotency_key: requestId('ai_candidate') },
-          teacherRequestConfig({ silentError: true }),
+          {
+            headers: teacherIdentityHeaders(),
+            onProgress: progress => {
+              this.generationMessage = progress.message || ''
+            },
+          },
         )
         this.applyWorkbench(data.workbench)
         return this.workbench?.ai_candidates.find(item => item.status === 'ready') || null
@@ -396,6 +408,7 @@ export const useTeachingPlanWorkbenchStore = defineStore('teachingPlanWorkbench'
         throw error
       } finally {
         this.pendingAction = ''
+        this.generationMessage = ''
       }
     },
 

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import http, { teacherRequestConfig } from '../utils/http'
+import http, { activeIdentityHeaders, teacherRequestConfig } from '../utils/http'
+import { postGenerationStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
 import { useLearningSessionStore } from './learningSession'
@@ -414,17 +415,17 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async recordPracticeAiSupport(courseId: string, level = 1, message = '') {
       const attempt = this.currentAttempt
       if (!attempt) return null
-      const res = await http.post(`/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/ai-support`, {
+      const data = await postGenerationStream<Record<string, any>>(`/api/courses/${courseId}/practice/attempts/${attempt.attempt_id}/ai-support`, {
         expected_revision: attempt.revision,
         level,
         summary: t('courseWorkspace.practice.aiSupportSummary', '在正式练习中打开 AI 老师'),
         // A message turns this into a Socratic guidance round (K2); without one
         // the endpoint keeps its original record-only behaviour.
         ...(message ? { message } : {}),
-      })
-      this.currentAttempt = res.data.attempt
+      }, { headers: activeIdentityHeaders() })
+      this.currentAttempt = data.attempt
       await this.syncLearningTask(courseId)
-      return res.data
+      return data
     },
     async revealPracticeSolution(courseId: string) {
       const attempt = this.currentAttempt

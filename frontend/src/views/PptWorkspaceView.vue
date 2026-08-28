@@ -270,7 +270,8 @@ import {
   type TeacherProductionAiMessage,
   type TeacherProductionAiPhase,
 } from '../composables/useTeacherProductionAiCollaboration'
-import http from '../utils/http'
+import http, { teacherIdentityHeaders } from '../utils/http'
+import { postGenerationStream } from '../shared/generation-stream'
 
 const route = useRoute()
 const router = useRouter()
@@ -1132,6 +1133,7 @@ function pptAiErrorMessage(error: any) {
   return String(
     error?.response?.data?.detail?.message
     || error?.response?.data?.detail
+    || error?.message
     || t('pptWorkspace.aiFailed', 'AI 修改失败，请重试。'),
   )
 }
@@ -1159,7 +1161,7 @@ async function requestPptAiCandidate(value: string) {
       referenceCount: pptAiReferences.value.length,
       references: pptAiReferences.value,
     })
-    const response = await http.post(
+    const data = await postGenerationStream<{ candidate: TeacherV6AiCandidate }>(
       `/api/teacher/courses/${courseId.value}/lessons/${teacherLessonId.value}/ppt-v6/${representationId}/ai-candidates`,
       {
         page_id: String(page.page_id || ''),
@@ -1167,8 +1169,9 @@ async function requestPptAiCandidate(value: string) {
         base_spec_id: spec.spec_id,
         base_spec_revision: spec.revision,
       },
+      { headers: teacherIdentityHeaders() },
     )
-    pptAiCandidate.value = response.data.candidate as TeacherV6AiCandidate
+    pptAiCandidate.value = data.candidate
     pptAiPageId.value = pptAiCandidate.value.page_id
     applyPptAiEvent('CANDIDATE_READY')
     addPptAiMessage('assistant', 'candidate', t('pptWorkspace.aiCandidateReady', '修改已显示在左侧。'))

@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 
 const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
-vi.mock('@/utils/http', () => ({ default: httpMock }))
+const generationMock = vi.hoisted(() => vi.fn())
+vi.mock('@/utils/http', () => ({
+  default: httpMock,
+  activeIdentityHeaders: () => new Headers({ 'X-User-Id': 'learner-test' }),
+}))
+vi.mock('@/shared/generation-stream', () => ({ postGenerationStream: generationMock }))
 
 import { useCourseEvolutionStore } from '@/stores/courseEvolution'
 
@@ -30,6 +35,7 @@ beforeEach(() => {
   setActivePinia(createPinia())
   httpMock.get.mockReset()
   httpMock.post.mockReset()
+  generationMock.mockReset()
 })
 
 describe('course evolution store', () => {
@@ -266,14 +272,16 @@ describe('course evolution store', () => {
   })
 
   it('turns an evidence suggestion into candidates through the same plan endpoint', async () => {
-    httpMock.post.mockResolvedValue({ data: payload() })
+    generationMock.mockResolvedValue(payload())
     const store = useCourseEvolutionStore()
     store.courseId = 'course-1'
 
     await store.generateSuggested('plan-1')
 
-    expect(httpMock.post).toHaveBeenCalledWith(
+    expect(generationMock).toHaveBeenCalledWith(
       '/api/courses/course-1/evolution/change-sets/plan-1/generate',
+      {},
+      expect.objectContaining({ headers: expect.any(Headers) }),
     )
   })
 })

@@ -7,8 +7,14 @@ const httpMock = vi.hoisted(() => ({
   patch: vi.fn(),
   post: vi.fn(),
 }))
+const generationMock = vi.hoisted(() => vi.fn())
 
-vi.mock('@/utils/http', () => ({ default: httpMock, getTeacherIdentity: () => 'teacher-test' }))
+vi.mock('@/utils/http', () => ({
+  default: httpMock,
+  getTeacherIdentity: () => 'teacher-test',
+  teacherIdentityHeaders: () => new Headers({ 'X-User-Id': 'teacher-test' }),
+}))
+vi.mock('@/shared/generation-stream', () => ({ postGenerationStream: generationMock }))
 
 import {
   useTeachingPlanWorkbenchStore,
@@ -47,6 +53,7 @@ function workbench(overrides: Partial<TeachingPlanWorkbench> = {}): TeachingPlan
 beforeEach(() => {
   setActivePinia(createPinia())
   for (const mock of Object.values(httpMock)) mock.mockReset()
+  generationMock.mockReset()
 })
 
 describe('teaching plan workbench store', () => {
@@ -150,16 +157,15 @@ describe('teaching plan workbench store', () => {
         operations: [],
       }],
     })
-    httpMock.post.mockResolvedValue({ data: { workbench: candidateWorkbench } })
+    generationMock.mockResolvedValue({ workbench: candidateWorkbench })
 
     const candidate = await store.createAiCandidate(paths, '重新设计当前小节')
 
-    expect(httpMock.post).toHaveBeenCalledWith(
+    expect(generationMock).toHaveBeenCalledWith(
       '/api/courses/course-1/teaching-plan/drafts/draft-1/ai-candidates',
       expect.objectContaining({ paths, instruction: '重新设计当前小节' }),
       expect.objectContaining({
-        silentError: true,
-        headers: { 'X-User-Id': 'teacher-test' },
+        headers: expect.any(Headers),
       }),
     )
     expect(candidate?.status).toBe('ready')

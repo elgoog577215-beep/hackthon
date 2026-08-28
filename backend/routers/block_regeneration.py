@@ -19,6 +19,7 @@ from block_regeneration import (
 )
 from change_proposals import change_proposal_repository, propose_kb_linkage_from_block_change
 from dependencies import get_course_document_repository
+from generation_streaming import structured_generation_stream
 from learner_context import require_user_id
 from course_repository import CourseDocumentNotFound
 from teaching_representations import teaching_representation_repository
@@ -85,6 +86,11 @@ def reconcile_teaching_representations_after_course_write(course_id: str) -> dic
 
 
 @regeneration_router.post("")
+@structured_generation_stream(
+    stage="course_block_candidate",
+    started_message="已收到正文修改要求。",
+    waiting_message="AI 正在生成课程块候选。",
+)
 async def create_block_regeneration_candidate(
     course_id: str,
     block_id: str,
@@ -141,6 +147,11 @@ async def get_block_regeneration_candidate(course_id: str, block_id: str, candid
 
 
 @regeneration_router.post("/{candidate_id}/retry")
+@structured_generation_stream(
+    stage="course_block_candidate",
+    started_message="已开始重试正文修改。",
+    waiting_message="AI 正在重新生成课程块候选。",
+)
 async def retry_block_regeneration_candidate(
     course_id: str,
     block_id: str,

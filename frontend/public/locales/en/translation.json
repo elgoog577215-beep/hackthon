@@ -4534,6 +4534,8 @@
       "emptyBody": "Start with a concept, problem, or course passage that is still unclear.",
       "explainSuggestion": "Explain this suggestion",
       "thinking": "Thinking",
+      "requestAccepted": "Request received. Reading the current course",
+      "bufferedGenerating": "The local model is generating the complete answer",
       "basedOn": "Based on",
       "courseSource": "Course source",
       "webSource": "Web source",

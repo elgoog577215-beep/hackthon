@@ -7,8 +7,13 @@ const httpMock = vi.hoisted(() => ({
   post: vi.fn(),
   patch: vi.fn(),
 }))
+const generationMock = vi.hoisted(() => vi.fn())
 
-vi.mock('@/utils/http', () => ({ default: httpMock }))
+vi.mock('@/utils/http', () => ({
+  default: httpMock,
+  activeIdentityHeaders: () => new Headers({ 'X-User-Id': 'learner-test' }),
+}))
+vi.mock('@/shared/generation-stream', () => ({ postGenerationStream: generationMock }))
 
 import PracticeWorkspace from '@/components/PracticeWorkspace.vue'
 
@@ -83,6 +88,8 @@ describe('PracticeWorkspace 多轮苏格拉底引导 (K2)', () => {
     httpMock.post.mockReset()
     httpMock.patch.mockReset()
     httpMock.post.mockResolvedValue({ data: { status: 'recorded', attempt: attemptWith() } })
+    generationMock.mockReset()
+    generationMock.mockResolvedValue({ status: 'recorded', attempt: attemptWith() })
   })
 
   it('没有引导记录时不显示引导面板', async () => {
@@ -117,9 +124,10 @@ describe('PracticeWorkspace 多轮苏格拉底引导 (K2)', () => {
     await wrapper.get('[data-testid="guidance-send"]').trigger('click')
     await flushPromises()
 
-    expect(httpMock.post).toHaveBeenCalledWith(
+    expect(generationMock).toHaveBeenCalledWith(
       '/api/courses/c1/practice/attempts/pa1/ai-support',
       expect.objectContaining({ message: '我不知道顶点怎么读', level: 1 }),
+      expect.objectContaining({ headers: expect.any(Headers) }),
     )
   })
 
@@ -227,9 +235,10 @@ describe('PracticeWorkspace 多轮苏格拉底引导 (K2)', () => {
     await escalate.trigger('click')
     await flushPromises()
 
-    expect(httpMock.post).toHaveBeenCalledWith(
+    expect(generationMock).toHaveBeenCalledWith(
       '/api/courses/c1/practice/attempts/pa1/ai-support',
       expect.objectContaining({ level: 1 }),
+      expect.objectContaining({ headers: expect.any(Headers) }),
     )
     expect(wrapper.emitted('askTeacher')).toBeTruthy()
   })

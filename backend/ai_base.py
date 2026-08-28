@@ -204,6 +204,7 @@ class AIBase:
             _parse_model_list(os.getenv("MODELSCOPE_MODEL"))
             or ["Qwen/Qwen3.5-35B-A3B"]
         )
+
         smart_models = (
             _parse_model_list(os.getenv("AI_MODEL_CANDIDATES"))
             or _parse_model_list(os.getenv("AI_MODEL"))
@@ -326,6 +327,10 @@ class AIBase:
             logger.info("ModelScope last-resort provider configured")
         else:
             self.modelscope_fallback_client = None
+
+    def stream_delivery_mode(self) -> str:
+        """Describe how answer text reaches the caller, without overstating it."""
+        return "buffered_fallback" if self.codex_local_provider is not None else "token_stream"
 
     @staticmethod
     def _is_official_deepseek_base(api_base: str) -> bool:
@@ -2419,11 +2424,10 @@ class AIBase:
                 )
             except CodexLocalProviderError as error:
                 raise AIProviderRequestError(str(error)) from error
-            chunk_size = 2048
-            for offset in range(0, len(output), chunk_size):
-                if on_stream_activity:
-                    on_stream_activity()
-                yield output[offset:offset + chunk_size]
+            if on_stream_activity:
+                on_stream_activity()
+            if output:
+                yield output
             return
         if not self.api_key and not self.modelscope_fallback_api_key:
             raise AIProviderUnavailable("not_configured")

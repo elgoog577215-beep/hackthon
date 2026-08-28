@@ -43,16 +43,17 @@ async def test_stream_llm_yields_local_codex_output(monkeypatch):
         "configured",
         property(lambda self: True),
     )
+    output = "链路生成正文" * 1200
     monkeypatch.setattr(
         CodexLocalProvider,
         "call",
-        AsyncMock(return_value="链路生成正文"),
+        AsyncMock(return_value=output),
     )
 
     service = AIBase()
     chunks = [chunk async for chunk in service._stream_llm("生成正文")]
 
-    assert "".join(chunks) == "链路生成正文"
+    assert chunks == [output], "整段返回的本地模型不应在事后被切块伪装成 token 流"
 
 
 @pytest.mark.asyncio

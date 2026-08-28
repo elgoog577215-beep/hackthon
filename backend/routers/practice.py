@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
+from generation_streaming import structured_generation_stream
 from pydantic import BaseModel, Field
 
 from assessment_contracts import project_public_question
@@ -521,6 +522,11 @@ async def reveal_attempt_hint(
 
 
 @router.post("/attempts/{attempt_id}/ai-support")
+@structured_generation_stream(
+    stage="practice_guidance",
+    started_message="已收到追问。",
+    waiting_message="AI 正在根据当前作答组织引导。",
+)
 async def record_attempt_ai_support(
     course_id: str,
     attempt_id: str,

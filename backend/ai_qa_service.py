@@ -180,7 +180,11 @@ class AIQAService(AIBase):
 请严格执行上面的视角、文件范围、回答策略和披露边界。不要假装已经写入笔记、错题、复习任务或课程内容；需要改变系统状态时，只能说明建议动作。"""
         emitted = ""
         try:
-            async for chunk in self._stream_llm(prompt, system_prompt):
+            async for chunk in self._stream_llm(
+                prompt,
+                system_prompt,
+                max_attempts=2,
+            ):
                 normalized = chunk.strip()
                 if normalized.startswith("[Error:") or normalized == "AI Service not configured.":
                     # Some providers stream their failure as ordinary text

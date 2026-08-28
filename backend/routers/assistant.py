@@ -1,6 +1,7 @@
 """AI 问答与聊天摘要路由。"""
 
 import asyncio
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -24,6 +25,7 @@ from course_evolution.intake import (
     record_course_evolution_request,
 )
 from dependencies import get_course_or_404
+from generation_streaming import iter_with_heartbeats
 from learning_contracts import LearnerCourseScope
 from models import AskQuestionRequest
 from ai_service import ai_service
@@ -85,8 +87,22 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             "task_ref": req.task_ref,
         },
     )
-    record_course_evolution_request(
-        CourseEvolutionRequest(
+    assistant_message_id = f"aim_{os.urandom(16).hex()}"
+    direct_action = None if req.perspective == "teacher" else _direct_action(req.question)
+    delivery_mode = getattr(
+        ai_service,
+        "stream_delivery_mode",
+        lambda: "token_stream",
+    )()
+
+    async def event_stream_with_event():
+        started_at = time.perf_counter()
+        yield _assistant_status(
+            "accepted",
+            delivery_mode=delivery_mode,
+            started_at=started_at,
+        )
+        evolution_request = CourseEvolutionRequest(
             scope=learning_scope,
             request_id=str(req.request_id or user_message.get("message_id") or ""),
             instruction=req.question,
@@ -99,38 +115,37 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
             surface_entrypoint=req.entrypoint,
             context_ref=req.context_ref,
             task_ref=req.task_ref,
-        ),
-        recorder=record_learning_event,
-    )
-
-    conversation = await run_in_threadpool(
-        ai_teacher_repository.get_conversation,
-        user_id,
-        req.course_id,
-        conversation_id,
-    )
-    context_package = await run_in_threadpool(
-        build_ai_teacher_context,
-        course,
-        user_id=user_id,
-        question=req.question,
-        node_id=req.node_id or None,
-        selection=req.selection or "",
-        perspective=req.perspective,
-        entrypoint=req.entrypoint,
-        context_ref=req.context_ref,
-        task_ref=req.task_ref,
-        conversation=conversation,
-    )
-    public_context = context_public_summary(context_package)
-    assistant_message_id = f"aim_{os.urandom(16).hex()}"
-    direct_action = None if req.perspective == "teacher" else _direct_action(req.question)
-    retrieval_requested = req.perspective != "teacher" and should_retrieve_for_message(
-        conversation,
-        direct_action=direct_action,
-    )
-
-    async def event_stream_with_event():
+        )
+        await run_in_threadpool(
+            lambda: record_course_evolution_request(
+                evolution_request,
+                recorder=record_learning_event,
+            )
+        )
+        current_conversation = await run_in_threadpool(
+            ai_teacher_repository.get_conversation,
+            user_id,
+            req.course_id,
+            conversation_id,
+        )
+        context_package = await run_in_threadpool(
+            build_ai_teacher_context,
+            course,
+            user_id=user_id,
+            question=req.question,
+            node_id=req.node_id or None,
+            selection=req.selection or "",
+            perspective=req.perspective,
+            entrypoint=req.entrypoint,
+            context_ref=req.context_ref,
+            task_ref=req.task_ref,
+            conversation=current_conversation,
+        )
+        public_context = context_public_summary(context_package)
+        retrieval_requested = req.perspective != "teacher" and should_retrieve_for_message(
+            current_conversation,
+            direct_action=direct_action,
+        )
         answer_context = context_package
         answer_public = public_context
         retrieval_package: dict = {}
@@ -341,6 +356,12 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
         if fallback_notice:
             yield _qa_event("answer", {"chunk": fallback_notice})
 
+        yield _assistant_status(
+            "generating",
+            delivery_mode=delivery_mode,
+            started_at=started_at,
+        )
+
         # One persistence path for every way this turn can end — completed,
         # classified provider failure, or cancelled by the client. `finally`
         # owns it so a disconnect (which resumes the generator at the await
@@ -349,10 +370,20 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
         outcome = "cancelled"
         failure: dict[str, Any] = {}
         try:
-            async for chunk in ai_service.answer_question_events(
-                question=req.question,
-                context_package=answer_context,
+            async for chunk in iter_with_heartbeats(
+                ai_service.answer_question_events(
+                    question=req.question,
+                    context_package=answer_context,
+                ),
+                interval_seconds=_assistant_heartbeat_seconds(),
             ):
+                if chunk is None:
+                    yield _assistant_status(
+                        "generating",
+                        delivery_mode=delivery_mode,
+                        started_at=started_at,
+                    )
+                    continue
                 full_text += chunk
                 yield chunk
             streamed_error = _extract_sse_error(full_text)
@@ -409,7 +440,45 @@ async def ask_question_events(req: AskQuestionRequest, request: Request):
 
     return StreamingResponse(
         event_stream_with_event(),
-        media_type="text/event-stream"
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _assistant_heartbeat_seconds() -> float:
+    try:
+        configured = float(os.getenv("AI_ASSISTANT_STREAM_HEARTBEAT_SECONDS", "1.5"))
+    except ValueError:
+        configured = 1.5
+    return max(0.05, min(configured, 10.0))
+
+
+def _assistant_status(
+    stage: str,
+    *,
+    delivery_mode: str,
+    started_at: float,
+) -> str:
+    messages = {
+        "accepted": "已收到，正在读取当前课程。",
+        "generating": (
+            "本地模型正在生成完整回答，完成后一次显示。"
+            if delivery_mode == "buffered_fallback"
+            else "AI 正在组织回答。"
+        ),
+    }
+    return _qa_event(
+        "status",
+        {
+            "status": "running",
+            "stage": stage,
+            "message": messages.get(stage, "AI 正在处理。"),
+            "delivery_mode": delivery_mode,
+            "elapsed_ms": int((time.perf_counter() - started_at) * 1000),
+        },
     )
 
 

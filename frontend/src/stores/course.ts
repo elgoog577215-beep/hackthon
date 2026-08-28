@@ -2,12 +2,14 @@ import { taskProgressStep } from '@/utils/course-progress'
 import { createUuid } from '@/utils/client-id'
 import { defineStore } from 'pinia'
 import http, {
+    activeIdentityHeaders,
     identityRequestConfig,
     learnerIdentityHeaders,
     teacherRequestConfig,
     withApiBase,
     type RequestIdentityScope,
 } from '../utils/http'
+import { postGenerationStream } from '../shared/generation-stream'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 import { type CourseGenerationOptions } from '@/shared/prompt-config'
@@ -569,10 +571,10 @@ export const useCourseStore = defineStore('course', {
         if (!this.currentCourseId) return
         this.loading = true
         try {
-            const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/subnodes`, {
+            const subnodes = await postGenerationStream<Node[]>(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/subnodes`, {
                 node_id: node.node_id, node_name: node.node_name, node_level: node.node_level
-            })
-            this.nodes.push(...res.data)
+            }, { headers: activeIdentityHeaders() })
+            this.nodes.push(...subnodes)
             this.courseTree = this.buildTree(this.nodes)
             ElMessage.success('子章节生成成功')
         } catch (error) { ElMessage.error('生成失败') }
@@ -667,8 +669,11 @@ export const useCourseStore = defineStore('course', {
 
     async rewriteSelection(node: Node, payload: SelectionRewritePayload): Promise<SelectionRewriteResult> {
         if (!this.currentCourseId) throw new Error('Missing current course')
-        const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/selection-rewrite`, payload)
-        return res.data as SelectionRewriteResult
+        return await postGenerationStream<SelectionRewriteResult>(
+            `/api/courses/${this.currentCourseId}/nodes/${node.node_id}/selection-rewrite`,
+            payload,
+            { headers: activeIdentityHeaders() },
+        )
     },
 
     async createBlockRegenerationCandidate(
@@ -677,7 +682,7 @@ export const useCourseStore = defineStore('course', {
         actionType: 'rewrite' | 'simplify' | 'example' | 'expand' = 'rewrite',
     ): Promise<BlockRegenerationCandidate> {
         if (!this.currentCourseId || !this.currentDocumentRevision) throw new Error('Missing canonical course revision')
-        const response = await http.post(
+        return await postGenerationStream<BlockRegenerationCandidate>(
             `/api/courses/${this.currentCourseId}/blocks/${target.block.block_id}/regeneration-candidates`,
             {
                 request_id: createUuid(),
@@ -686,8 +691,8 @@ export const useCourseStore = defineStore('course', {
                 instruction,
                 action_type: actionType,
             },
+            { headers: activeIdentityHeaders() },
         )
-        return response.data as BlockRegenerationCandidate
     },
 
     async getLatestBlockRegenerationCandidate(
@@ -725,10 +730,11 @@ export const useCourseStore = defineStore('course', {
         candidate: BlockRegenerationCandidate,
     ): Promise<BlockRegenerationCandidate> {
         if (!this.currentCourseId) throw new Error('Missing current course')
-        const response = await http.post(
+        return await postGenerationStream<BlockRegenerationCandidate>(
             `/api/courses/${this.currentCourseId}/blocks/${candidate.block_id}/regeneration-candidates/${candidate.candidate_id}/retry`,
+            {},
+            { headers: activeIdentityHeaders() },
         )
-        return response.data as BlockRegenerationCandidate
     },
 
     async applyBlockRegenerationCandidate(candidate: BlockRegenerationCandidate): Promise<BlockRegenerationApplyResult> {
@@ -807,10 +813,10 @@ export const useCourseStore = defineStore('course', {
         if (!this.currentCourseId) return
         this.loading = true
         try {
-            const res = await http.post(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/extend`, {
+            const data = await postGenerationStream<Record<string, any>>(`/api/courses/${this.currentCourseId}/nodes/${node.node_id}/extend`, {
                 node_id: node.node_id, node_name: node.node_name, current_content: node.node_content, user_requirement: requirement
-            })
-            const extension = res.data.content || res.data.node_content || ''
+            }, { headers: activeIdentityHeaders() })
+            const extension = data.content || data.node_content || ''
             node.node_content += `\n\n${extension}`
             ElMessage.success('内容扩展成功')
         } catch (error) { ElMessage.error('扩展失败') }

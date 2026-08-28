@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from course_repository import CourseDocumentConflict, CourseDocumentNotFound
 from dependencies import get_course_document_repository
+from generation_streaming import structured_generation_stream
 from learner_context import resolve_user_id
 from teaching_plan_workbench import (
     TeachingPlanWorkbenchError,
@@ -199,6 +200,11 @@ async def discard_draft(
 
 
 @router.post("/drafts/{draft_id}/ai-candidates")
+@structured_generation_stream(
+    stage="teaching_plan_candidate",
+    started_message="已收到教案修改要求。",
+    waiting_message="AI 正在生成结构化教案候选。",
+)
 async def create_ai_candidate(
     course_id: str,
     draft_id: str,

@@ -4534,6 +4534,8 @@
       "emptyBody": "从没弄懂的概念、题目或课程内容开始。",
       "explainSuggestion": "解释这条建议",
       "thinking": "正在思考",
+      "requestAccepted": "已收到，正在读取当前课程",
+      "bufferedGenerating": "本地模型正在生成完整回答",
       "basedOn": "依据",
       "courseSource": "课程原文",
       "webSource": "网页来源",

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import http from '../utils/http'
+import http, { activeIdentityHeaders } from '../utils/http'
+import { postGenerationStream } from '../shared/generation-stream'
 import type {
   ApplySelectedChangeProposalResult,
   ChangeProposal,
@@ -250,11 +251,11 @@ export const useChangeProposalsStore = defineStore('changeProposals', {
       if (!this.courseId) throw new Error('Missing current course')
       this.actingItemIds.add(itemId)
       try {
-        const response = await http.post(
+        const updated = await postGenerationStream<ChangeProposal | Partial<ChangeProposalItem>>(
           `/api/courses/${this.courseId}/authoring-changes/${proposalId}/items/${itemId}/regenerate`,
           extraInstruction ? { extra_instruction: extraInstruction } : {},
+          { headers: activeIdentityHeaders() },
         )
-        const updated = response.data as ChangeProposal | Partial<ChangeProposalItem> | undefined
         if (updated && 'proposal_id' in updated && Array.isArray(updated.items)) {
           const proposalIndex = this.proposals.findIndex(
             proposal => proposal.proposal_id === proposalId,

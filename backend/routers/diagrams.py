@@ -3,13 +3,14 @@
 # AI 图表生成、图表类型查询
 # =============================================================================
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 import logging
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from models import GenerateDiagramRequest, GenerateDiagramResponse
 from ai_service import ai_service
+from generation_streaming import structured_generation_stream
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,12 @@ DIAGRAM_TYPES = [
 
 
 @router.post("/generate", response_model=GenerateDiagramResponse)
-async def generate_diagram(req: GenerateDiagramRequest):
+@structured_generation_stream(
+    stage="diagram_generation",
+    started_message="已收到图表生成要求。",
+    waiting_message="AI 正在生成图表结构。",
+)
+async def generate_diagram(req: GenerateDiagramRequest, request: Request):
     if req.diagram_type not in DIAGRAM_TYPES:
         raise HTTPException(
             status_code=400,

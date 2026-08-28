@@ -1,10 +1,14 @@
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+const generationMock = vi.hoisted(() => vi.fn())
+
 vi.mock('@/utils/http', () => ({
   default: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   getTeacherIdentity: () => 'teacher-test',
+  teacherIdentityHeaders: () => new Headers({ 'X-User-Id': 'teacher-test' }),
 }))
+vi.mock('@/shared/generation-stream', () => ({ postGenerationStream: generationMock }))
 
 import http from '@/utils/http'
 import { useTeachingPlanWorkbenchStore } from '@/stores/teachingPlanWorkbench'
@@ -74,6 +78,7 @@ describe('分小节优化的 AI 候选作用域', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    generationMock.mockImplementation(async (_url, _body) => ({ workbench: workbenchPayload() }))
   })
 
   it('把当前小节的全部可编辑路径发出，且不混入其他小节或只读字段', async () => {
@@ -97,7 +102,7 @@ describe('分小节优化的 AI 候选作用域', () => {
 
     await store.createAiCandidate(sectionPaths, '把这一节讲得更具体')
 
-    const [url, body] = vi.mocked(http.post).mock.calls.at(-1)!
+    const [url, body] = generationMock.mock.calls.at(-1)!
     expect(url).toContain('/teaching-plan/drafts/tpd_1/ai-candidates')
     expect((body as any).paths).toEqual(sectionPaths)
     expect((body as any).instruction).toBe('把这一节讲得更具体')
@@ -118,7 +123,7 @@ describe('分小节优化的 AI 候选作用域', () => {
 
     await store.createAiCandidate(overallPaths, '让全课定位更清楚')
 
-    const [, body] = vi.mocked(http.post).mock.calls.at(-1)!
+    const [, body] = generationMock.mock.calls.at(-1)!
     expect((body as any).paths).toEqual(overallPaths)
     expect((body as any).paths.some((path: string) => path.startsWith('sections/'))).toBe(false)
   })

@@ -547,7 +547,7 @@
               <div :class="['assistant-answer', { failed: message.status === 'failed' }]">
                 <MarkdownRenderer v-if="message.content" :content="message.content" />
                 <div v-else class="thinking-line">
-                  <span class="sr-only">{{ t('courseWorkspace.aiTeacher.thinking', '正在思考') }}</span>
+                  <span>{{ assistantStreamLabel(message) }}</span>
                   <i /><i /><i />
                 </div>
               </div>
@@ -1647,6 +1647,16 @@ function retrievalStatusLabel(status: AIMessage['retrieval_status'], message?: A
   return detail ? `${detail} · ${fallback}` : fallback
 }
 
+function assistantStreamLabel(message: AIMessage) {
+  if (message.stream_stage === 'accepted') {
+    return t('courseWorkspace.aiTeacher.requestAccepted', '已收到，正在读取当前课程')
+  }
+  if (message.delivery_mode === 'buffered_fallback') {
+    return t('courseWorkspace.aiTeacher.bufferedGenerating', '本地模型正在生成完整回答')
+  }
+  return t('courseWorkspace.aiTeacher.thinking', '正在组织回答')
+}
+
 // The backend returns one receipt for every confirm/undo outcome and carries the
 // meaning in `result_code`. Translate from that code so both languages describe
 // the same outcome; `summary` is only the server-side Chinese audit line.
@@ -1964,7 +1974,8 @@ onUnmounted(() => {
 .assistant-answer :deep(tr:last-child td) { border-bottom: 0; }
 .assistant-answer :deep(th:last-child),
 .assistant-answer :deep(td:last-child) { border-right: 0; }
-.thinking-line { height: 25px; display: flex; align-items: center; gap: 4px; }
+.thinking-line { min-height: 25px; display: flex; align-items: center; gap: 4px; color:#64748b; font-size:11px; }
+.thinking-line span { margin-right:3px; }
 .thinking-line i { width: 5px; height: 5px; border-radius: 50%; background: #a5b4fc; animation: thinking-pulse 1.2s ease-in-out infinite; }
 .thinking-line i:nth-child(2) { animation-delay: .16s; }
 .thinking-line i:nth-child(3) { animation-delay: .32s; }

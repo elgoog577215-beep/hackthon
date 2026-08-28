@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import http, { getTeacherIdentity, teacherIdentityHeaders, withApiBase } from '../utils/http'
 import { createUuid } from '../utils/client-id'
+import { postGenerationStream } from '../shared/generation-stream'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
@@ -760,7 +761,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     ) {
       this.error = ''
       try {
-        const response = await http.post<{ candidate: TeacherLessonScriptCandidate }>(
+        const data = await postGenerationStream<{ candidate: TeacherLessonScriptCandidate }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/script/rewrite-candidate`,
           {
             base_revision_id: baseRevisionId,
@@ -768,9 +769,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             instruction,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
-          requestConfig(),
+          { headers: teacherIdentityHeaders() },
         )
-        return response.data.candidate
+        return data.candidate
       } catch (error) {
         this.error = errorMessage(error, 'AI 优化讲稿失败')
         throw error
@@ -804,7 +805,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       this.actionLessonId = lessonUnitId
       this.error = ''
       try {
-        const response = await http.post<{ candidate: TeacherLessonPlanCandidate }>(
+        const data = await postGenerationStream<{ candidate: TeacherLessonPlanCandidate }>(
           `/api/teacher/courses/${courseId}/lessons/${lessonUnitId}/plan/ai-candidates`,
           {
             instruction,
@@ -812,9 +813,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             base_revision_id: baseRevisionId,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
-          requestConfig(),
+          { headers: teacherIdentityHeaders() },
         )
-        return response.data.candidate
+        return data.candidate
       } catch (error) {
         this.error = errorMessage(error, 'AI 教案优化失败')
         throw error

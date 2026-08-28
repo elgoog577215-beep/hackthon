@@ -20,6 +20,7 @@ from dependencies import (
     get_teacher_lesson_authoring_repository,
     require_task_manager,
 )
+from generation_streaming import structured_generation_stream
 from learner_context import require_user_id
 from course_generation.service import get_course_service
 from question_bank import question_bank_repository
@@ -245,6 +246,11 @@ async def review_teacher_course_plan(
 
 
 @router.post("/change-sets/{change_set_id}/generate")
+@structured_generation_stream(
+    stage="course_change_candidate",
+    started_message="已收到修改要求，正在读取当前课程。",
+    waiting_message="AI 正在生成可审阅的修改方案。",
+)
 async def generate_suggested_course_evolution_plan(
     course_id: str,
     change_set_id: str,
@@ -259,7 +265,13 @@ async def generate_suggested_course_evolution_plan(
             change_set_id=change_set_id,
         )
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Course evolution change set not found") from exc
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "course_change_plan_not_found",
+                "message": "课程修改方案不存在",
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail={
             "code": "course_adjustment_generation_failed",

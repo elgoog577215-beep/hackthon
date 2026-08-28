@@ -19,6 +19,7 @@ from dependencies import (
     require_task_manager,
 )
 from learner_context import resolve_user_id
+from generation_streaming import structured_generation_stream
 from teaching_design import (
     LESSON_TYPES,
     normalize_lesson_arrangement,
@@ -1522,11 +1523,17 @@ async def update_imported_ppt_slide(
 
 
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/ppt-import/reviews/{review_id}/ai-candidates")
+@structured_generation_stream(
+    stage="imported_ppt_candidate",
+    started_message="已收到当前页的修改要求。",
+    waiting_message="AI 正在生成 PPT 修改候选。",
+)
 async def create_imported_ppt_ai_candidate(
     course_id: str,
     lesson_unit_id: str,
     review_id: str,
     body: CreateImportedPptCandidateRequest,
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(get_teacher_lesson_authoring_repository),
 ):
@@ -1965,11 +1972,17 @@ async def confirm_teacher_lesson_v6_manuscript(
 @router.post(
     "/courses/{course_id}/lessons/{lesson_unit_id}/ppt-v6/{representation_id}/ai-candidates"
 )
+@structured_generation_stream(
+    stage="ppt_page_candidate",
+    started_message="已收到当前页的修改要求。",
+    waiting_message="AI 正在生成 PPT 页面候选。",
+)
 async def create_teacher_lesson_v6_ai_candidate(
     course_id: str,
     lesson_unit_id: str,
     representation_id: str,
     body: CreateTeacherLessonV6CandidateRequest,
+    request: Request,
     tm: TaskManager = Depends(require_task_manager),
     repository: TeacherLessonAuthoringRepository = Depends(
         get_teacher_lesson_authoring_repository
@@ -3721,6 +3734,11 @@ async def restore_lesson_script_revision(
 
 
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/script/rewrite-candidate")
+@structured_generation_stream(
+    stage="lesson_script_candidate",
+    started_message="已收到讲稿修改要求。",
+    waiting_message="AI 正在生成可审阅的讲稿候选。",
+)
 async def rewrite_lesson_script_candidate(
     course_id: str,
     lesson_unit_id: str,
@@ -3967,6 +3985,11 @@ async def resolve_lesson_script_candidate(
 
 
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/plan/ai-candidates")
+@structured_generation_stream(
+    stage="lesson_plan_candidate",
+    started_message="已收到教案修改要求。",
+    waiting_message="AI 正在生成可审阅的教案候选。",
+)
 async def create_lesson_plan_candidate(
     course_id: str,
     lesson_unit_id: str,
