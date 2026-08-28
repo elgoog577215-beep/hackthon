@@ -16,8 +16,8 @@ from course_pedagogy import MODULES, module_block_role
 
 
 SCRIPT_SCHEMA_VERSION = "teacher_script_v2"
-SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v7"
-SCRIPT_QUALITY_VERSION = "teacher_script_quality_v7"
+SCRIPT_PIPELINE_VERSION = "direct_teaching_script_v8"
+SCRIPT_QUALITY_VERSION = "teacher_script_quality_v8"
 
 _ALLOWED_ROLES = {
     "orientation",
@@ -64,6 +64,10 @@ _PLACEHOLDER_PATTERN = re.compile(
     r"本块内容完整|本块用于形成一个完整|已确认的当前知识范围|"
     r"当前教学块围绕|形式化检查锦标|"
     r"(?:^|[。；\n])(?:内容与方法|展开过程|任务与检验)："
+)
+_CANNED_DISCOURSE_PATTERN = re.compile(
+    r"首先|其次|再次|最后|综上所述|值得注意的是|需要指出的是|"
+    r"不难发现|由此可见|显而易见|让我们一起来"
 )
 _ACTIVITY_TASK_PATTERN = re.compile(r"任务|问题|题目|已知|条件|要求|情境")
 _ACTIVITY_RESULT_PATTERN = re.compile(r"输出|结果|答案|解法|标准|步骤|验收|判定")
@@ -856,6 +860,13 @@ def validate_teacher_script_section(
                 "teacher_script:placeholder_content",
                 f"“{_text(block.get('title'))}”仍是恢复模板或占位文字，不是可直接授课的讲稿正文。",
             )
+        canned_count = len(_CANNED_DISCOURSE_PATTERN.findall(content))
+        if canned_count >= 4:
+            add(
+                blocking,
+                "teacher_script:canned_discourse",
+                f"“{_text(block.get('title'))}”连续使用程式化连接词，课堂语言仍有明显模板感。",
+            )
         visible_tail = re.sub(r"```\s*$", "", content).rstrip()
         if visible_tail and _INCOMPLETE_END_PATTERN.search(visible_tail):
             add(
@@ -1099,6 +1110,23 @@ def validate_teacher_script_revision(
             "repeated_clause_groups": repeated_clause_groups[:8],
         })
 
+    canned_phrase_blocks: dict[str, set[str]] = {}
+    for block in blocks:
+        block_id = _text(block.get("block_id"))
+        for phrase in set(_CANNED_DISCOURSE_PATTERN.findall(_text(block.get("content")))):
+            canned_phrase_blocks.setdefault(phrase, set()).add(block_id)
+    repeated_canned_phrases = {
+        phrase: sorted(block_ids)
+        for phrase, block_ids in canned_phrase_blocks.items()
+        if len(block_ids) >= 4
+    }
+    if repeated_canned_phrases:
+        blocking.append({
+            "code": "teacher_script:repetitive_canned_transitions",
+            "message": "多个教学块反复使用同一套程式化连接词，讲稿需要改成随内容自然推进的课堂语言。",
+            "phrase_blocks": repeated_canned_phrases,
+        })
+
     character_count = sum(len(_text(block.get("content"))) for block in blocks)
     minimum_lesson_characters = int(total_minutes * 55)
     if len(blocks) >= 4 and total_minutes >= 30 and character_count < minimum_lesson_characters:
@@ -1137,6 +1165,7 @@ def validate_teacher_script_revision(
             "minimum_lesson_characters": minimum_lesson_characters,
             "duplicate_pair_count": len(duplicate_pairs),
             "repeated_clause_group_count": len(repeated_clause_groups),
+            "repeated_canned_phrase_count": len(repeated_canned_phrases),
         },
     }
 

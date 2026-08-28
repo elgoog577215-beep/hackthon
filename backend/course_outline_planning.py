@@ -738,7 +738,7 @@ def assemble_course_outline(
     }
 
 
-_QUALITY_RULE_VERSION = "course_outline_editorial_v1"
+_QUALITY_RULE_VERSION = "course_outline_editorial_v3"
 _QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
 _NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
 _QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
@@ -751,6 +751,10 @@ _GENERIC_ASSESSMENT_PATTERNS = (
     re.compile(r"完成一项可检查的"),
     re.compile(r"提交并说明第?[^，。；]{0,20}(?:结果|任务)"),
     re.compile(r"能独立完成[^，。；]{0,40}(?:标准计算|条件判定|结果核验)"),
+)
+_SYSTEM_REGISTER_PATTERN = re.compile(
+    r"全课知识地图|先修链定位|学习路径角色|可观察成果证据|证据闭环|"
+    r"输入对象|输出对象|系统策略|课程主路径"
 )
 
 
@@ -846,6 +850,8 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
 
     overloaded_nodes: list[str] = []
     generic_objective_nodes: list[str] = []
+    overlong_objective_nodes: list[str] = []
+    system_register_nodes: list[str] = []
     generic_assessment_nodes: list[str] = []
     missing_assessment_nodes: list[str] = []
     objective_signatures: dict[str, list[str]] = {}
@@ -859,6 +865,10 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             overloaded_nodes.append(node_id)
         if not objective or any(pattern.search(objective) for pattern in _GENERIC_OBJECTIVE_PATTERNS):
             generic_objective_nodes.append(node_id)
+        if len(objective) > 120 or len(re.findall(r"[；;]", objective)) >= 4:
+            overlong_objective_nodes.append(node_id)
+        if _SYSTEM_REGISTER_PATTERN.search(" ".join((title, objective))):
+            system_register_nodes.append(node_id)
         objective_signature = _editorial_signature(objective, title=title)
         if objective_signature:
             objective_signatures.setdefault(objective_signature, []).append(node_id)
@@ -887,6 +897,37 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             category="outcome_quality",
             node_ids=unique_nodes,
             repair_instruction="把这些小节目标改成“动作 + 对象 + 条件/标准”的可观察表达；保持节点、标题、章节归属和顺序不变。",
+        ))
+    if overlong_objective_nodes:
+        unique_nodes = list(dict.fromkeys(overlong_objective_nodes))
+        issues.append(_editorial_issue(
+            "outline_editorial:overlong_objectives",
+            f"有 {len(unique_nodes)} 个小节目标塞入过多动作与判断条件，读起来不像课程大纲。",
+            category="outcome_quality",
+            node_ids=unique_nodes,
+            repair_instruction=(
+                "把目标收成一至两句，只保留本节最主要的学习结果；知识点、易错点和"
+                "验收细则留给教案与评价，不在大纲目标中展开。"
+            ),
+        ))
+    document_register_text = " ".join([
+        str(source.get("positioning") or ""),
+        *[
+            str(chapter.get("learning_focus") or "")
+            for chapter in chapters
+        ],
+    ])
+    if _SYSTEM_REGISTER_PATTERN.search(document_register_text) or system_register_nodes:
+        unique_nodes = list(dict.fromkeys(system_register_nodes))
+        issues.append(_editorial_issue(
+            "outline_editorial:system_register",
+            "教师可见大纲混入了系统规划术语，表达不像真实课程标准或教学大纲。",
+            category="teacher_register",
+            node_ids=unique_nodes,
+            repair_instruction=(
+                "改用课程大纲常用表达，直接说明学习内容与学生要达到的结果；不要出现"
+                "知识地图、先修链定位、路径角色、证据闭环或系统策略等内部规划语言。"
+            ),
         ))
     if missing_assessment_nodes:
         issues.append(_editorial_issue(
@@ -949,7 +990,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
         }),
     }
     report = {
-        "schema_version": "course_outline_editorial_review_v1",
+        "schema_version": "course_outline_editorial_review_v3",
         "rule_version": _QUALITY_RULE_VERSION,
         "non_blocking": True,
         "passed": True,

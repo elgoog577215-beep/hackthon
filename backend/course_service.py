@@ -2840,7 +2840,13 @@ class CourseService(AIBase):
                 await publish_stream_event("delta", flushed)
 
             try:
-                async with self._teaching_plan_semaphore:
+                async with self._teaching_plan_request_slot(
+                    on_phase=on_phase,
+                    phase=phase,
+                    progress=progress,
+                    heartbeat_message=heartbeat_message,
+                    phase_detail=phase_detail,
+                ):
                     try:
                         return await self._call_llm_with_heartbeat(
                             user_prompt,
@@ -4707,6 +4713,54 @@ class CourseService(AIBase):
                     merged[field] = deepcopy(previous[field])
             merged_nodes.append(merged)
         return merged_nodes
+
+    @contextlib.asynccontextmanager
+    async def _teaching_plan_request_slot(
+        self,
+        *,
+        on_phase: Callable[..., Awaitable[None] | None] | None,
+        phase: str,
+        progress: int,
+        heartbeat_message: str,
+        phase_detail: dict[str, Any] | None = None,
+        heartbeat_seconds: float = 15.0,
+    ) -> AsyncIterator[None]:
+        """Keep a persisted lesson job alive while it waits for model capacity."""
+        started_at = time.monotonic()
+        interval = max(0.05, float(heartbeat_seconds))
+        acquired = False
+        try:
+            while not acquired:
+                try:
+                    await asyncio.wait_for(
+                        self._teaching_plan_semaphore.acquire(),
+                        timeout=interval,
+                    )
+                    acquired = True
+                except asyncio.TimeoutError:
+                    if on_phase:
+                        await self._notify_phase(
+                            on_phase,
+                            phase,
+                            progress,
+                            (
+                                f"{heartbeat_message}（正在排队等待模型资源，"
+                                f"已等待约 {int(time.monotonic() - started_at)} 秒）"
+                            ),
+                            phase_progress=progress,
+                            phase_detail={
+                                **(phase_detail or {}),
+                                "heartbeat": True,
+                                "queue_wait": True,
+                                "elapsed_seconds": int(
+                                    time.monotonic() - started_at
+                                ),
+                            },
+                        )
+            yield
+        finally:
+            if acquired:
+                self._teaching_plan_semaphore.release()
 
     async def _call_llm_with_heartbeat(
         self,
@@ -6688,6 +6742,9 @@ class CourseService(AIBase):
             "你正在写教师站在讲台上实际说的完整讲稿。它必须专业、自然、连贯，教师拿来就能讲，不是教材正文、大纲、提词卡、字段回填或逐字录音稿。",
             "使用现代、克制、清楚的教师口吻，可以自然地说“我们先看”“请大家试一下”“这里容易出现两种回答”。知识、推理、例题和边界必须完整，口语化不能牺牲专业性。",
             "把教案动作转成真实讲述：提问写出问题原话；活动写出教师怎样布置、学生可能怎样回应、教师怎样接住；反馈写出针对不同表现的回应和再次检查。不要输出机械的【提问】【板书】【巡视】【等待回应】标签。",
+            "以教师是否会在真实课堂自然说出口为最终判断：优先使用短句、具体问题、常见课堂过渡和学科习惯用语，不写课程规划报告、论文摘要或系统说明。",
+            "不要用“首先、其次、再次、最后、综上所述、值得注意的是”搭出整段模板；过渡要回答上一段与当前问题为什么相连，能直接进入内容就不加连接词。",
+            "准确性高于口语感：定义要交代对象和成立条件，公式要说明符号与适用范围，计算要保留关键步骤并用代入、量纲、图像或本学科方法核验；不能为了顺口省掉必要条件。",
             "讲稿结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成内容块，不能重新套用跨学科通用模板。",
             f"本节课型：{archetype.get('label') or '沿用已确认教案'}。",
             f"课型目的：{archetype.get('purpose') or '完成本节已确认教学目标'}。",
@@ -6702,13 +6759,14 @@ class CourseService(AIBase):
             "禁止输出“本块内容完整”“围绕已确认知识范围展开”“内容与方法”“展开过程”“任务与检验”等模板占位句；不能用复述块标题代替真实教学内容。",
             "相邻教学块必须承担不同的知识推进责任，不得只替换标题、术语或公式后重复同一套句式。",
             "允许自然面向学生讲话，但不要每块都机械重复“同学们好”。不得写“教师应当……”“学生需要……”这类教案说明；要改写为教师当场会说的话。",
+            "不要把“全课知识地图、先修链定位、学习路径角色、可观察成果证据、证据闭环、输入对象、输出对象、系统策略、课程主路径、本节负责”等内部规划词说给学生听；只有当某个词本身就是该学科必须教授的概念时才可保留。",
             "已确认教案中的教师活动、学生活动、证据和反馈用于决定讲稿实际怎样说，不能逐字段照抄，也不能从讲稿中删掉真实课堂所需的提问、活动和回应。",
             "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
             "除第一块外，每块开头要用一句自然语言承接上一块，说明为什么现在进入这个问题、例子、活动或反馈，避免拼接感。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
             "选择性吸收旧正文链已经验证的学科讲解、知识边界、前后连贯、例题与学科产物完整性；把课堂调度改写为自然教师语言，不复制内部流程。",
-            "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；数学公式优先使用成对闭合的 `\\(...\\)` 或 `\\[...\\]`，也可使用完整的 `$...$`、`$$...$$`，不得把公式拆断。",
-            "块级公式的 `$$` 必须在公式或矩阵结束后立即闭合；任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外，禁止用一对 `$$` 包住公式与后续整段正文。",
+            "工程内容中的代码、命令和配置必须使用成对闭合的 Markdown 代码围栏；行内数学只用成对闭合的 `\\(...\\)`，展示公式统一用独占行且成对闭合的 `\\[...\\]`，不得把公式拆断。",
+            "本阶段禁止输出 `$$` 公式分隔符。任务条件、输出要求、参考解法、核对标准和解释正文必须写在公式分隔符之外；展示公式闭合后先换行，再继续课堂讲述。",
             "需要表格比较时必须输出完整 Markdown 表头、分隔行和数据行；原资料中的代码、公式、表格只能在语义完整时引用，不能截取成无法使用的残片。",
             "资料只用于支持课堂内容。必须区分资料事实、学科通识和教学情境；不能编造资料未给出的来源、数据或结论。",
             "不得输出一级标题，不得在模块内部再使用二级标题，不得编造来源。证据不足的高风险事实标注“需核验”。",
@@ -6768,9 +6826,24 @@ class CourseService(AIBase):
         for attempt in range(2):
             repair = ""
             if attempt:
+                blocking_codes = {
+                    str(item.get("code") or "")
+                    for item in last_report.get("blocking_issues") or []
+                    if isinstance(item, dict)
+                }
+                formula_boundary_repair = (
+                    "\n这次禁止使用 `$$`。所有展示公式只能写成独占行的 "
+                    "`\\[...\\]`，闭合 `\\]` 后空一行，再写题目、解法或解释正文。"
+                    if blocking_codes & {
+                        "teacher_script:prose_inside_display_math",
+                        "teacher_script:unclosed_math_delimiter",
+                        "teacher_script:unwrapped_display_math_environment",
+                    }
+                    else ""
+                )
                 repair = "\n\n上次输出未通过正式质量门。请保留既定模块顺序，针对问题修复结构、学科产物或格式完整性，然后完整重写。问题：" + json.dumps(
                     last_report.get("blocking_issues") or [], ensure_ascii=False
-                )
+                ) + formula_boundary_repair
             max_output_characters = sum(
                 int(item.get("max_characters") or 900)
                 for item in modules

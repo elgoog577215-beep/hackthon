@@ -332,13 +332,21 @@ def project_lesson_objective_dimensions(
     process_method: list[str] = []
     transfer_innovation: list[str] = []
 
+    # 已有正式目标时直接沿用。原子能力点属于知识与评价明细，再全部拼回
+    # “教学目标”会形成十几个分号相连的系统报告，而不是真实教案语言。
+    has_explicit_objective = bool(knowledge_capability)
     for group in section.get("knowledge_structure") or []:
         if not isinstance(group, dict):
             continue
         for knowledge in group.get("knowledge_points") or []:
             if not isinstance(knowledge, dict):
                 continue
-            for capability in knowledge.get("capability_points") or []:
+            capabilities = (
+                []
+                if has_explicit_objective
+                else knowledge.get("capability_points") or []
+            )
+            for capability in capabilities:
                 if not isinstance(capability, dict):
                     continue
                 for item in _text_list(
@@ -378,7 +386,7 @@ def project_lesson_objective_dimensions(
                 transfer_innovation.append(item)
 
     return {
-        label: values[:8]
+        label: values[:3]
         for label, values in (
             ("知识与能力", knowledge_capability),
             ("过程与方法", process_method),

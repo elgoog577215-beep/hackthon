@@ -2803,6 +2803,45 @@ class TaskManager:
                 continue
         return None
 
+    def get_generation_workspace_course_for_task(
+        self,
+        course_id: str,
+        *,
+        task_type: str,
+        require_confirmed_outline: bool = False,
+    ) -> dict[str, Any] | None:
+        """Load the newest workspace owned by one generation capability.
+
+        Teacher lesson authoring must keep consuming a newly confirmed teacher
+        outline even when the course already has an older published document.
+        Filtering by task type prevents another unfinished generation workspace
+        from silently becoming that authoring source.
+        """
+        candidates = [
+            task
+            for task in self.tasks.values()
+            if task.get("course_id") == course_id
+            and task.get("workspace_id")
+            and str(task.get("type") or "") == task_type
+        ]
+        candidates.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+        for task in candidates:
+            workflow = task.get("guided_workflow")
+            if require_confirmed_outline and (
+                not isinstance(workflow, dict)
+                or not guided_step_confirmed(workflow, "outline")
+            ):
+                continue
+            try:
+                workspace_id = str(task["workspace_id"])
+                workspace = self._generation_workspace_repository.load(workspace_id)
+                if workspace.get("status") == "published":
+                    continue
+                return self._generation_workspace_repository.load_course(workspace_id)
+            except GenerationWorkspaceNotFound:
+                continue
+        return None
+
     def get_generation_preview(
         self,
         course_id: str,

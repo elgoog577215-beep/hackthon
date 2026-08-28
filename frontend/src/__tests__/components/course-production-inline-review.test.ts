@@ -91,7 +91,7 @@ describe('课程生产内联确认', () => {
     expect(wrapper.emitted('confirmed')).toHaveLength(1)
   })
 
-  it('按父子关系展示章与小节，不受原始节点顺序影响', async () => {
+  it('按父子关系展示结构，单小节自动折叠且不破坏真实节点', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
       current: {
@@ -113,8 +113,37 @@ describe('课程生产内联确认', () => {
 
     const editor = wrapper.get('[data-testid="outline-rich-editor"]')
     expect(editor.findAll('h2').map(heading => heading.text())).toEqual(['第一章 基础', '第二章 进阶'])
-    expect(editor.findAll('h3').map(heading => heading.text())).toEqual(['1.1 概念', '2.1 实践'])
+    const sections = editor.findAll('h3')
+    expect(sections.map(heading => heading.text())).toEqual(['1.1 概念', '2.1 实践'])
+    expect(sections.every(heading => heading.attributes('data-collapsed-single-section') === 'true')).toBe(true)
+    expect(sections.every(heading => heading.attributes('aria-hidden') === 'true')).toBe(true)
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).not.toContain('小节2')
     expect(wrapper.text()).not.toContain('快速定位')
+  })
+
+  it('同章有多个小节时保留可见的小节层级', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-multi-section',
+        course_name: '结构化课程',
+        nodes: [
+          { node_id: 'chapter-1', parent_node_id: 'root', node_level: 1, node_name: '第一章 基础' },
+          { node_id: 'section-1', parent_node_id: 'chapter-1', node_level: 2, node_name: '1.1 概念' },
+          { node_id: 'section-2', parent_node_id: 'chapter-1', node_level: 2, node_name: '1.2 方法' },
+        ],
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: { courseId: 'course-multi-section', courseName: '结构化课程' },
+    })
+    await flushPromises()
+
+    const sections = wrapper.get('[data-testid="outline-rich-editor"]').findAll('h3')
+    expect(sections).toHaveLength(2)
+    expect(sections.every(heading => heading.attributes('data-collapsed-single-section') === undefined)).toBe(true)
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('小节2')
   })
 
   it('shows source-backed outline changes and retrieval failure without hiding the local blueprint', async () => {

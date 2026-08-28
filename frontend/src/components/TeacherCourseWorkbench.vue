@@ -55,6 +55,7 @@
           <button type="button" :disabled="stageSwitching || outlineConfirming" @click="openAiCollaboration('outline')"><Sparkles :size="15" />AI 修改</button>
           <button
             class="outline-manual-action"
+            :class="{ 'primary-action': !outlineAwaitingReview }"
             data-testid="outline-manual-action"
             type="button"
             :aria-pressed="editingOutline"
@@ -318,12 +319,12 @@
           </div>
         </nav>
         <nav
-          v-if="activeStage === 'lesson' && selectedLesson?.sections.length && !lessonStageBlocked"
+          v-if="activeStage === 'lesson' && Number(selectedLesson?.sections?.length || 0) > 1 && !lessonStageBlocked"
           class="lesson-section-tabs"
           :aria-label="t('courseWorkbench.lessonDocument.sectionNavigation', '教案小节')"
         >
           <button
-            v-for="section in selectedLesson.sections"
+            v-for="section in (selectedLesson?.sections || [])"
             :key="section.section_node_id"
             type="button"
             :class="{ active: selectedLessonSectionId === section.section_node_id }"
@@ -332,7 +333,7 @@
               ? t('courseWorkbench.aiCollaboration.scopeLocked', '请先采用或放弃当前候选')
               : ''"
             :aria-current="selectedLessonSectionId === section.section_node_id ? 'page' : undefined"
-            @click="selectLessonSection(selectedLesson.lesson_unit_id, section.section_node_id)"
+            @click="selectLessonSection(selectedLesson?.lesson_unit_id || '', section.section_node_id)"
           >
             <strong>{{ section.title }}</strong>
           </button>
@@ -2404,17 +2405,7 @@ onBeforeUnmount(() => {
 .lesson-switch-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .lesson-switch-actions button:disabled{border-color:transparent;color:#a3acba;background:transparent;opacity:.55;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef;border-bottom-color:#e7ebf2;border-radius:14px 14px 0 0;background:#fff}
-.lesson-document-toolbar{min-height:52px;display:flex;align-items:center;justify-content:flex-end;padding:0 20px;border-right:1px solid #e0e6ef;border-left:1px solid #e0e6ef;background:#fff}
-.lesson-toolbar-actions{min-width:0;display:flex;align-items:center;justify-content:flex-end;gap:2px;white-space:nowrap}
-.lesson-toolbar-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:11.5px;font-weight:750;cursor:pointer}
-.lesson-toolbar-actions button:hover:not(:disabled){color:#3730a3;background:#f0f1f8}
-.lesson-toolbar-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.lesson-toolbar-actions button:disabled{opacity:.48;cursor:not-allowed}
-.lesson-toolbar-actions .primary-action{margin-left:3px;border-color:#d7ddea;color:#3730a3;background:#fff}
-.lesson-toolbar-actions .primary-action:hover:not(:disabled){border-color:#c6cbe0;background:#f7f7ff}
 .workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0;border-radius:0 0 14px 14px;background:#fff}
 .workbench-center.is-lesson-workspace :deep(.script-document){overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff}
-.workbench-center.is-lesson-workspace :deep(.script-document .lesson-document-toolbar){border-right:0;border-left:0}
-@media(max-width:1320px){.lesson-toolbar-actions button:not(.primary-action){width:34px;padding:0;font-size:0}.lesson-toolbar-actions button:not(.primary-action) svg{display:block}}
-@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}.lesson-toolbar-actions .primary-action{width:34px;padding:0;font-size:0}.lesson-toolbar-actions .primary-action svg{display:block}}
+@media(max-width:900px){.lesson-navigator.has-document-actions{grid-template-columns:minmax(0,1fr) auto;gap:8px}.lesson-heading-cluster{gap:8px}.lesson-toolbar-status>span{display:none}.lesson-switch-actions button{width:34px;padding:0;justify-content:center;font-size:0}}
 </style>

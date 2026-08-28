@@ -43,6 +43,15 @@ JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
 }
+_PLAN_INTERNAL_REGISTER_PATTERN = re.compile(
+    r"全课知识地图|先修链定位|学习路径角色|可观察成果证据|证据闭环|"
+    r"输入对象|输出对象|系统(?:策略|将会|将|会自动)|模型(?:生成|输出)|质量门|"
+    r"资料不足|不得编造来源|不声称来自真实数据|无已确认教师资料或外部来源"
+)
+_PLAN_ABSTRACT_ACTIVITY_PATTERN = re.compile(
+    r"建立问题、价值与任务边界|调取经验并作出初始判断|"
+    r"依据[“\"].{0,60}[”\"]检查是否服务本讲目标"
+)
 
 
 class TeacherLessonAuthoringError(RuntimeError):
@@ -472,6 +481,45 @@ def validate_teacher_lesson_plan(
         if not homework:
             issue(blocking, "lesson_plan:homework", "小节缺少课后巩固或迁移任务。", section_id)
 
+        public_copy = [
+            objective,
+            *key_points,
+            *difficulties,
+            *checks,
+            *homework,
+            *_text_list(section.get("teacher_activities")),
+            *_text_list(section.get("student_activities")),
+            *_text_list(section.get("teaching_notes")),
+        ]
+        for module in modules:
+            public_copy.extend(
+                str(module.get(field) or "").strip()
+                for field in (
+                    "teaching_purpose",
+                    "teacher_activity",
+                    "student_activity",
+                    "expected_output",
+                    "check_method",
+                    "feedback_strategy",
+                    "transition",
+                )
+            )
+        visible_text = "\n".join(item for item in public_copy if item)
+        if _PLAN_INTERNAL_REGISTER_PATTERN.search(visible_text):
+            issue(
+                blocking,
+                "lesson_plan:internal_register",
+                "教案夹带了资料、模型或内部规划说明，没有写成教师实际备课时会使用的语言。",
+                section_id,
+            )
+        if _PLAN_ABSTRACT_ACTIVITY_PATTERN.search(visible_text):
+            issue(
+                blocking,
+                "lesson_plan:abstract_activity",
+                "教案仍使用抽象流程套话，师生活动需要改成针对本节内容的具体课堂动作。",
+                section_id,
+            )
+
         points = [
             point
             for group in section.get("knowledge_structure") or []
@@ -512,6 +560,7 @@ def validate_teacher_lesson_plan(
             "teaching_module_count": total_modules,
             "knowledge_point_count": knowledge_point_count,
             "planned_minutes": total_minutes,
+            "teacher_language_rule_version": "teacher_plan_language_v2",
         },
     }
 
@@ -1113,6 +1162,132 @@ def teacher_lesson_v6_source(
     }
     document = document_from_generation_draft(synthetic)
     return document, synthetic, synthetic_course_id
+
+
+def project_confirmed_teacher_scripts(
+    preview: dict[str, Any],
+    authoring_state: dict[str, Any],
+) -> dict[str, Any]:
+    """Overlay confirmed lesson scripts onto the teacher's current outline.
+
+    The teacher preview is a read model, not another publication channel.  It
+    keeps the confirmed outline workspace as the structural truth and only
+    exposes lesson scripts that still match their confirmed plan and pass the
+    current script quality contract.
+    """
+    projected = deepcopy(preview)
+    nodes = [
+        deepcopy(item)
+        for item in projected.get("nodes") or []
+        if isinstance(item, dict)
+    ]
+    projected["nodes"] = nodes
+    node_ids = {
+        str(item.get("node_id") or "")
+        for item in nodes
+        if item.get("node_id")
+    }
+    overlay_by_id: dict[str, dict[str, Any]] = {}
+    covered_lessons: list[str] = []
+    skipped_lessons: list[dict[str, str]] = []
+    course_data = {
+        **deepcopy(projected),
+        "course_id": str(projected.get("course_id") or authoring_state.get("course_id") or ""),
+        "nodes": nodes,
+    }
+
+    for lesson_id, lesson in (authoring_state.get("lessons") or {}).items():
+        if not isinstance(lesson, dict):
+            continue
+        lesson_id = str(lesson_id or "")
+        plan_revision_id = str(lesson.get("confirmed_revision_id") or "")
+        confirmation = lesson.get("script_confirmation") or {}
+        script_revision_id = str(confirmation.get("confirmed_revision_id") or "")
+        if (
+            not lesson_id
+            or lesson_id not in node_ids
+            or str(lesson.get("source_state") or "") != "current"
+            or str(confirmation.get("source_state") or "") != "current"
+            or not plan_revision_id
+            or str(confirmation.get("source_lesson_plan_revision_id") or "")
+            != plan_revision_id
+            or not script_revision_id
+        ):
+            skipped_lessons.append({"lesson_unit_id": lesson_id, "reason": "source_not_current"})
+            continue
+        plan_revision = next(
+            (
+                item for item in lesson.get("revisions") or []
+                if isinstance(item, dict)
+                and str(item.get("revision_id") or "") == plan_revision_id
+            ),
+            None,
+        )
+        script_revision = next(
+            (
+                item for item in lesson.get("script_revisions") or []
+                if isinstance(item, dict)
+                and str(item.get("revision_id") or "") == script_revision_id
+            ),
+            None,
+        )
+        if (
+            not isinstance(plan_revision, dict)
+            or not isinstance(script_revision, dict)
+            or not teacher_script_revision_is_publishable(script_revision)
+        ):
+            skipped_lessons.append({"lesson_unit_id": lesson_id, "reason": "quality_not_publishable"})
+            continue
+        try:
+            _document, lesson_view, _synthetic_id = teacher_lesson_v6_source(
+                course_data,
+                lesson_unit_id=lesson_id,
+                plan_revision=plan_revision,
+                script_revision=script_revision,
+            )
+        except TeacherLessonAuthoringError as exc:
+            skipped_lessons.append({"lesson_unit_id": lesson_id, "reason": exc.code})
+            continue
+        lesson_nodes = [
+            item for item in lesson_view.get("nodes") or []
+            if isinstance(item, dict) and int(item.get("node_level") or 0) == 2
+        ]
+        if not lesson_nodes or any(
+            str(item.get("node_id") or "") not in node_ids
+            for item in lesson_nodes
+        ):
+            skipped_lessons.append({"lesson_unit_id": lesson_id, "reason": "outline_scope_mismatch"})
+            continue
+        for item in lesson_nodes:
+            overlay_by_id[str(item.get("node_id") or "")] = item
+        covered_lessons.append(lesson_id)
+
+    for index, node in enumerate(nodes):
+        overlay = overlay_by_id.get(str(node.get("node_id") or ""))
+        if not overlay:
+            continue
+        nodes[index] = {
+            **node,
+            "learning_objective": str(overlay.get("learning_objective") or node.get("learning_objective") or ""),
+            "knowledge_structure": deepcopy(overlay.get("knowledge_structure") or []),
+            "key_points": deepcopy(overlay.get("key_points") or []),
+            "node_content": str(overlay.get("node_content") or ""),
+            "content_blocks": deepcopy(overlay.get("content_blocks") or []),
+            "generation_status": "completed",
+            "content_state": "finalized",
+            "generated_chars": len(str(overlay.get("node_content") or "")),
+            "error_summary": None,
+        }
+
+    projected["projection"] = "teacher_lesson_authoring"
+    projected["teacher_lesson_projection"] = {
+        "schema_version": "teacher_lesson_preview_v1",
+        "outline_revision_id": str(authoring_state.get("outline_revision_id") or ""),
+        "covered_lesson_unit_ids": covered_lessons,
+        "covered_section_count": len(overlay_by_id),
+        "skipped_lessons": skipped_lessons,
+    }
+    return projected
 
 
 class TeacherLessonAuthoringRepository:
@@ -2971,11 +3146,17 @@ class TeacherLessonAuthoringService:
             _phase_progress: int = 0,
             phase_detail: dict[str, Any] | None = None,
         ) -> None:
-            if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+            current_job = self.repository.get_job(course_id, job_id)
+            if current_job.get("cancel_requested"):
                 raise asyncio.CancelledError
+            current_progress = int(current_job.get("progress") or 0)
+            next_progress = max(
+                current_progress,
+                max(5, min(95, int(progress))),
+            )
             changes: dict[str, Any] = {
                 "phase": phase,
-                "progress": max(5, min(95, int(progress))),
+                "progress": next_progress,
                 "message": message,
             }
             detail = phase_detail or {}

@@ -654,6 +654,12 @@ async def test_teacher_outline_task_stops_after_outline_confirmation(tmp_path, m
     assert teacher_course["generation_status"] == "teacher_outline_confirmed"
     assert "course_teaching_plan" not in teacher_course
     assert all(not node.get("node_content") for node in teacher_course["nodes"])
+    scoped_teacher_course = manager.get_generation_workspace_course_for_task(
+        job["course_id"],
+        task_type="teacher_outline_generation",
+        require_confirmed_outline=True,
+    )
+    assert scoped_teacher_course == teacher_course
 
 
 @pytest.mark.asyncio

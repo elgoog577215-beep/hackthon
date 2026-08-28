@@ -180,6 +180,17 @@ def repair_split_display_math(markdown: str) -> str:
                     merged = f"{merged}\n{nxt}"
                     index += 1
                 else:
+                    # 环境后的这个 `$$` 实际是合并后公式的闭合符，而不是
+                    # 下一块公式的开启符。模型紧接着继续写课堂正文、随后再写
+                    # 一个正常展示公式时，原有奇偶切分会从这里整体错一位，
+                    # 把正文识别成 math、把下一条公式识别成 text。翻转余下
+                    # 段落的槽位即可恢复真实边界，不改任何内容。
+                    for cursor in range(index + 1, len(segments)):
+                        next_kind, next_chunk = segments[cursor]
+                        segments[cursor] = (
+                            "text" if next_kind == "math" else "math",
+                            next_chunk,
+                        )
                     break
         result.append(("math", merged))
         index += 1

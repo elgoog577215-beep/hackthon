@@ -1,3 +1,4 @@
+from course_generation_workflow import compile_course_teaching_plan_modules
 from course_teaching_plan_projection import project_course_teaching_plan
 
 
@@ -218,3 +219,24 @@ def test_projection_without_teaching_plan_still_reports_empty_consistency():
     assert projection["sections"] == []
     assert projection["dossier_consistency"]["section_count"] == 0
     assert projection["dossier_consistency"]["uniform_rubric_structure"] is True
+
+
+def test_compiled_teaching_plan_preserves_concise_outline_objective():
+    outline = _outline_section("section-1")
+    generated = _plan_section("section-1")
+    generated["knowledge_structure"][0]["knowledge_points"][0][
+        "capability_points"
+    ] = [
+        {"observable_behavior": f"原子能力 {index}"}
+        for index in range(1, 9)
+    ]
+
+    compiled = compile_course_teaching_plan_modules(
+        {
+            "schema_version": "course_teaching_plan_v3",
+            "sections": [generated],
+        },
+        sections=[outline],
+    )
+
+    assert compiled["sections"][0]["learning_objective"] == "section-1 目标"

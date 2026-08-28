@@ -22,6 +22,7 @@ from teacher_lesson_authoring import (
     extract_uploaded_pptx_review,
     lesson_scope,
     normalize_teacher_lesson_plan,
+    project_confirmed_teacher_scripts,
     teacher_lesson_script_revision,
     teacher_lesson_section_content,
     teacher_lesson_v6_source,
@@ -105,6 +106,44 @@ def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     assert scoped["lesson"]["node_name"] == "第一讲"
     assert [item["node_id"] for item in scoped["sections"]] == ["L2-1-1", "L2-1-2"]
     assert scoped["chapter"]["node_id"] == "L1-1"
+
+
+def test_lesson_projection_recommends_current_arrangement_after_outline_change(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    old_source = course_data()
+    old_source["blueprint_revision_id"] = "outline-old"
+    old_source["nodes"] = [
+        item for item in old_source["nodes"] if item.get("node_id") != "L2-1-2"
+    ]
+    old_source["course_plan"]["chapters"][0]["sections"] = [
+        {"node_id": "L2-1-1"}
+    ]
+    old_arrangement = recommend_lesson_arrangement(
+        old_source,
+        "L1-1",
+        source_outline_revision_id="outline-old",
+    )
+    repository.save_arrangement_revision(
+        "course-1",
+        "L1-1",
+        old_arrangement,
+        source_outline_revision_id="outline-old",
+        confirm=True,
+    )
+
+    current_source = course_data()
+    current_source["blueprint_revision_id"] = "outline-new"
+    repository.set_outline("course-1", "outline-new")
+    lesson = teacher_lesson_router._lesson_projection(
+        current_source,
+        repository,
+    )[0]
+
+    assert lesson["arrangement"]["source_state"] == "current"
+    assert lesson["arrangement"]["confirmed"] is False
+    assert {
+        item["section_node_id"] for item in lesson["arrangement"]["blocks"]
+    } == {"L2-1-1", "L2-1-2"}
 
 
 def test_lesson_arrangement_projects_existing_modules_without_example_exam_collision():
@@ -205,6 +244,24 @@ def test_standard_lesson_plan_quality_gate_is_shared_by_draft_and_confirmation()
         "lesson_plan:modules",
         "lesson_plan:checks",
     }
+
+
+def test_standard_lesson_plan_blocks_internal_policy_and_abstract_activity_language():
+    plan = standard_lesson_plan()
+    section = plan["sections"][0]
+    section["teaching_notes"] = [
+        "无已确认教师资料或外部来源，不声称来自真实数据。"
+    ]
+    section["teaching_modules"][0]["teacher_activity"] = "建立问题、价值与任务边界"
+
+    report = validate_teacher_lesson_plan(plan)
+
+    assert report["passed"] is False
+    assert {item["code"] for item in report["blocking_issues"]} >= {
+        "lesson_plan:internal_register",
+        "lesson_plan:abstract_activity",
+    }
+    assert report["metrics"]["teacher_language_rule_version"] == "teacher_plan_language_v2"
 
 
 def test_lesson_plan_clock_and_module_order_follow_confirmed_arrangement():
@@ -780,7 +837,37 @@ def test_teacher_script_stale_quality_contract_is_never_publishable():
             "publication_eligible": True,
         },
     }) is False
-    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v7"
+    assert SCRIPT_QUALITY_VERSION == "teacher_script_quality_v8"
+
+
+def test_teacher_script_revision_blocks_repeated_canned_transitions():
+    sections = [{
+        "section_node_id": "L2-1-1",
+        "quality_report": {
+            "schema_version": SCRIPT_QUALITY_VERSION,
+            "pipeline_version": SCRIPT_PIPELINE_VERSION,
+            "passed": True,
+            "blocking_issues": [],
+            "review_issues": [],
+        },
+        "blocks": [
+            {
+                "block_id": f"block-{index}",
+                "planned_minutes": 1,
+                "content": f"值得注意的是，第 {index} 个问题需要结合不同条件单独判断，并写出对应依据。",
+            }
+            for index in range(1, 5)
+        ],
+    }]
+
+    report = validate_teacher_script_revision(
+        sections,
+        generation_source="model_block_pipeline",
+    )
+
+    assert "teacher_script:repetitive_canned_transitions" in {
+        item["code"] for item in report["blocking_issues"]
+    }
 
 
 def test_ppt_source_rechecks_preexisting_confirmed_script_quality(tmp_path):
@@ -930,12 +1017,56 @@ def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
     assert "提问写出问题原话" in captured["system_prompt"]
     assert "## 核心教学" in captured["system_prompt"]
     assert "改写为教师当场会说的话" in captured["system_prompt"]
+    assert "本阶段禁止输出 `$$`" in captured["system_prompt"]
     assert "不得超过" in captured["system_prompt"]
     assert "自学课程的完整小节" not in captured["system_prompt"]
     assert captured["kwargs"]["use_fast_model"] is True
     assert captured["kwargs"]["enable_thinking"] is False
     assert captured["kwargs"]["max_attempts"] == 2
     assert captured["kwargs"]["reject_truncated"] is True
+
+
+def test_teacher_script_service_hardens_formula_boundaries_on_retry(monkeypatch):
+    service = CourseService()
+    prompts = []
+
+    async def fake_call(_user_prompt, system_prompt, **_kwargs):
+        prompts.append(system_prompt)
+        if len(prompts) == 1:
+            return (
+                "## 数学建模\n\n"
+                "我们把流量写成模型。\n\n$$\nQ(t)=2t+1\n"
+                "接下来请大家解释变量和单位。这个结论还要接受情境条件检查。"
+                "请先判断自变量和因变量，再说明结果的实际意义。"
+                "最后换一个时刻重新计算，并核对单位和适用边界。\n$$"
+            )
+        return (
+            "## 数学建模\n\n"
+            "我们把流量写成模型：\n\n\\[Q(t)=2t+1\\]\n\n"
+            "接下来请大家解释变量和单位，再用新的时刻检验结论是否符合情境条件。"
+        )
+
+    monkeypatch.setattr(service, "_call_llm", fake_call)
+    result = asyncio.run(service.generate_teacher_script_section(
+        course_id="course-formula-boundary",
+        outline_section={
+            "node_id": "L2-1-1",
+            "node_name": "1.1 变化率模型",
+            "module_plan": [{"module_id": "math_modeling", "label": "数学建模"}],
+        },
+        confirmed_plan_section={
+            "node_id": "L2-1-1",
+            "teaching_modules": [{
+                "module_id": "math_modeling",
+                "planned_minutes": 6,
+                "knowledge_names": ["变化率模型"],
+            }],
+        },
+    ))
+
+    assert len(prompts) == 2
+    assert "这次禁止使用 `$$`" in prompts[1]
+    assert result["quality_report"]["passed"] is True
 
 
 def test_teacher_script_service_exposes_checkable_activity_structure(monkeypatch):
@@ -1870,6 +2001,42 @@ def test_valid_fallback_finishes_with_warning_and_remains_editable(tmp_path):
     assert "模型内容校验未通过" in completed["message"]
 
 
+def test_plan_job_progress_never_moves_backwards(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    service = TeacherLessonAuthoringService(repository)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="request-monotonic-progress",
+        source_outline_revision_id="outline-v1",
+    )
+    observed_progress = []
+
+    async def planner(_course, _lesson_id, on_progress):
+        await on_progress("lesson_plan_generation", 36, "正在生成")
+        observed_progress.append(repository.get_job("course-1", job["id"])["progress"])
+        await on_progress("lesson_plan_generation", 35, "仍在生成")
+        observed_progress.append(repository.get_job("course-1", job["id"])["progress"])
+        return {
+            "plan": standard_lesson_plan(),
+            "warnings": [],
+            "generation_source": "model",
+            "source_outline_revision_id": "outline-v1",
+        }
+
+    completed = asyncio.run(service.run_plan_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        course_data=course_data(),
+        planner=planner,
+    ))
+
+    assert observed_progress == [36, 36]
+    assert completed["progress"] == 100
+
+
 def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     repository.set_outline("course-1", "outline-v1")
@@ -2344,6 +2511,79 @@ def test_teacher_lesson_v6_source_is_synthetic_and_covers_only_one_lesson():
     assert view["teacher_lesson_source"]["script_revision_id"] == "legacy-script-v1"
     assert view["nodes"][1]["content_blocks"][0]["content"] == "这是一段已确认的一手讲稿正文。"
     assert str(source) == source_before
+
+
+def test_teacher_preview_projects_only_current_publishable_script():
+    plan = standard_lesson_plan()
+    preview = {
+        "course_id": "course-1",
+        "course_name": "测试课程",
+        "nodes": [
+            {
+                "node_id": "L1-1",
+                "parent_node_id": "root",
+                "node_level": 1,
+                "node_name": "第一讲",
+                "node_content": "",
+            },
+            {
+                "node_id": "L2-1-1",
+                "parent_node_id": "L1-1",
+                "node_level": 2,
+                "node_name": "1.1 核心概念",
+                "node_content": "",
+            },
+        ],
+    }
+    quality = {
+        "schema_version": SCRIPT_QUALITY_VERSION,
+        "pipeline_version": SCRIPT_PIPELINE_VERSION,
+        "passed": True,
+        "publication_eligible": True,
+    }
+    authoring_state = {
+        "course_id": "course-1",
+        "outline_revision_id": "outline-v1",
+        "lessons": {
+            "L1-1": {
+                "source_state": "current",
+                "confirmed_revision_id": "plan-v1",
+                "revisions": [{"revision_id": "plan-v1", "plan": plan}],
+                "script_confirmation": {
+                    "confirmed_revision_id": "script-v8",
+                    "source_lesson_plan_revision_id": "plan-v1",
+                    "source_state": "current",
+                },
+                "script_revisions": [{
+                    "revision_id": "script-v8",
+                    "publication_eligible": True,
+                    "quality_report": quality,
+                    "sections": [{
+                        "section_node_id": "L2-1-1",
+                        "title": "1.1 核心概念",
+                        "blocks": [{
+                            "block_id": "block-1",
+                            "module_id": "core_explanation",
+                            "role": "concept",
+                            "title": "核心教学",
+                            "content": "这是一段教师可以直接讲授的正式内容。",
+                            "planned_minutes": 8,
+                        }],
+                    }],
+                }],
+            },
+        },
+    }
+
+    projected = project_confirmed_teacher_scripts(preview, authoring_state)
+
+    section = next(item for item in projected["nodes"] if item["node_id"] == "L2-1-1")
+    assert projected["projection"] == "teacher_lesson_authoring"
+    assert projected["teacher_lesson_projection"]["covered_lesson_unit_ids"] == ["L1-1"]
+    assert projected["teacher_lesson_projection"]["covered_section_count"] == 1
+    assert section["node_content"] == "## 核心教学\n\n这是一段教师可以直接讲授的正式内容。"
+    assert section["content_blocks"][0]["block_id"] == "block-1"
+    assert section["generation_status"] == "completed"
 
 
 def test_v6_ppt_manuscript_requires_matching_confirmation_before_formal_export(tmp_path):

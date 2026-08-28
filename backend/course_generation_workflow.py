@@ -737,8 +737,15 @@ def normalize_course_teaching_plan(
                     if value not in (None, "")
                 },
             })
+        learning_objective = str(
+            raw_section.get("learning_objective")
+            or raw_section.get("objective")
+            or ""
+        ).strip()
         normalized_sections.append({
             "node_id": str(raw_section.get("node_id") or "").strip(),
+            **({"learning_objective": learning_objective}
+               if learning_objective else {}),
             "knowledge_structure": deepcopy(
                 package.get("knowledge_structure") or []
             ),
@@ -992,6 +999,15 @@ def compile_course_teaching_plan_modules(
             ])
 
         compiled_section = deepcopy(actual)
+        outline_objective = str(
+            expected.get("learning_objective")
+            or expected.get("objective")
+            or ""
+        ).strip()
+        if outline_objective:
+            # 大纲已经拥有教师可见的学习目标。详细教案补充知识、活动与
+            # 评价，不应把所有原子能力点重新拼成一条超长目标。
+            compiled_section["learning_objective"] = outline_objective
         compiled_section["teaching_modules"] = compiled_modules
         compiled_sections.append(compiled_section)
         available_names.extend(local_names)

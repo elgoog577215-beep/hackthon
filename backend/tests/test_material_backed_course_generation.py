@@ -754,7 +754,7 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
 
     assert data["generation_pipeline_version"] == "course_generation_v16"
     assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v28"
+    assert data["prompt_contract_version"] == "course_prompt_v29"
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,
@@ -1395,6 +1395,51 @@ async def test_active_structured_call_still_persists_job_heartbeats(monkeypatch)
 
     assert result == '{"status":"ok"}'
     assert any(item["phase_detail"].get("heartbeat") for item in phases)
+
+
+@pytest.mark.asyncio
+async def test_teaching_plan_queue_wait_persists_job_heartbeats():
+    service = CourseService()
+    service._teaching_plan_semaphore = asyncio.Semaphore(1)
+    await service._teaching_plan_semaphore.acquire()
+    phases = []
+
+    async def capture_phase(
+        phase,
+        progress,
+        message,
+        phase_progress,
+        phase_detail,
+    ):
+        phases.append({
+            "phase": phase,
+            "progress": progress,
+            "message": message,
+            "phase_progress": phase_progress,
+            "phase_detail": phase_detail,
+        })
+
+    async def release_slot():
+        await asyncio.sleep(0.12)
+        service._teaching_plan_semaphore.release()
+
+    release_task = asyncio.create_task(release_slot())
+    async with service._teaching_plan_request_slot(
+        on_phase=capture_phase,
+        phase="course_teaching_plan_skeleton",
+        progress=35,
+        heartbeat_message="仍在等待 AI 冻结知识职责分片 1/2",
+        phase_detail={"chunk_index": 1},
+        heartbeat_seconds=0.01,
+    ):
+        assert service._teaching_plan_semaphore.locked()
+    await release_task
+
+    assert any(
+        item["phase_detail"].get("heartbeat")
+        and item["phase_detail"].get("queue_wait")
+        for item in phases
+    )
 
 
 @pytest.mark.asyncio

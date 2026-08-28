@@ -130,6 +130,30 @@ describe('CourseNavigatorNode 课程块目录', () => {
     })
   })
 
+  it('一章只有一个小节时只显示章，点击后仍进入真实小节', async () => {
+    const chapter: Node = {
+      node_id: 'chapter-1',
+      node_name: '第1章 向量空间',
+      node_level: 1,
+      parent_node_id: 'root',
+      node_content: '',
+      node_type: 'original',
+      generation_status: 'completed',
+      generated_chars: 0,
+      children: [section],
+      course_blocks: [],
+    }
+    const wrapper = mount(CourseNavigatorNode, {
+      props: { node: chapter, activeId: '', depth: 0 },
+    })
+
+    expect(wrapper.findAll('.navigator-node')).toHaveLength(1)
+    expect(wrapper.text()).toContain('第1章 向量空间')
+    expect(wrapper.text()).not.toContain('1.1 向量与线性组合')
+    await wrapper.get('.node-button').trigger('click')
+    expect(wrapper.emitted('select')?.[0]?.[0]).toEqual(section)
+  })
+
   it('英文模式使用完整英文标签且不泄露中文或翻译 key', async () => {
     await setLocale('en')
     const wrapper = mount(CourseNavigatorNode, {

@@ -38,14 +38,14 @@ describe('course navigator personal adaptation markers', () => {
     useCourseStore().currentCourseProjection = 'published'
   })
 
-  it('首次收到当前节点后只展开命中路径', async () => {
+  it('单小节章节不再暴露一层空展开控件', async () => {
     const wrapper = mount(CourseNavigatorNode, {
       props: { node, depth: 0, activeId: '' },
     })
 
-    expect(wrapper.get('.node-button').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.node-button').attributes('aria-expanded')).toBeUndefined()
     await wrapper.setProps({ activeId: 'section-outside-current-chapter' })
-    expect(wrapper.get('.node-button').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.node-button').attributes('aria-expanded')).toBeUndefined()
   })
 
   it('在受影响章节和小节显示轻量 AI 建议标记', () => {
@@ -69,7 +69,7 @@ describe('course navigator personal adaptation markers', () => {
     })
 
     expect(wrapper.find('.adaptation-marker').text()).toContain('AI 建议')
-    expect(wrapper.findAll('.adaptation-marker')).toHaveLength(2)
+    expect(wrapper.findAll('.adaptation-marker')).toHaveLength(1)
     expect(wrapper.findAll('.growth-trail li')).toHaveLength(3)
     expect(wrapper.find('.growth-trail').text()).toContain('当前位置解释')
     expect(wrapper.find('.growth-trail').text()).toContain('下一处承接')
@@ -185,7 +185,8 @@ describe('course navigator personal adaptation markers', () => {
 
     expect(wrapper.findAll('.is-ai-growth-target')).toHaveLength(1)
     expect(wrapper.findAll('.is-ai-growth-pulse')).toHaveLength(1)
-    expect(wrapper.find('.has-ai-growth-descendant').exists()).toBe(true)
+    expect(wrapper.find('.has-ai-growth-descendant').exists()).toBe(false)
+    expect(wrapper.get('.node-button').classes()).toContain('is-ai-growth-target')
 
     evolutionStore.setApplicationVisualPhase(token, 'content')
     await wrapper.vm.$nextTick()

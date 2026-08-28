@@ -5,7 +5,7 @@ import { ElMessage } from 'element-plus'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
 import { setLocale } from '@/shared/i18n'
-import http from '@/utils/http'
+import http, { setActiveRequestIdentityScope } from '@/utils/http'
 import enMessages from '../../../public/locales/en/translation.json'
 import zhMessages from '../../../public/locales/zh/translation.json'
 
@@ -15,6 +15,7 @@ describe('course generation lifecycle reconciliation', () => {
     vi.restoreAllMocks()
     vi.useRealTimers()
     localStorage.clear()
+    setActiveRequestIdentityScope('learner')
     setActivePinia(createPinia())
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({
       ok: true,
@@ -140,6 +141,7 @@ describe('course generation lifecycle reconciliation', () => {
   })
 
   it('全局轮询发现教师大纲任务时不用学生身份覆盖课程列表', async () => {
+    setActiveRequestIdentityScope('teacher')
     const generation = useGenerationStore()
     const courses = useCourseStore()
     courses.currentCourseId = 'course-teacher-discovered'
@@ -319,6 +321,38 @@ describe('course generation lifecycle reconciliation', () => {
 
     expect(courses.currentCourseProjection).toBe('published')
     expect(fetchCourseAnnotations).not.toHaveBeenCalled()
+  })
+
+  it('教师预览即使大纲任务已完成也优先读取当前教案讲稿投影', async () => {
+    const courses = useCourseStore()
+    const get = vi.spyOn(http, 'get').mockImplementation(async (url: string) => {
+      if (url === '/api/courses/course-teacher-current/task?task_type=teacher_outline_generation') {
+        return { data: { id: 'job-outline', type: 'teacher_outline_generation', status: 'completed', progress: 100 } } as never
+      }
+      if (url === '/api/teacher/courses/course-teacher-current/generation-preview') {
+        return { data: {
+          schema_version: 'generation_preview_v2', projection: 'teacher_lesson_authoring',
+          course_id: 'course-teacher-current', course_name: '教师当前课程', workspace_id: 'job-outline', workspace_status: 'active',
+          task: { id: 'job-outline', status: 'completed', progress: 100, phase: 'teacher_outline_confirmed' },
+          nodes: [{
+            node_id: 'L2-1-1', parent_node_id: 'L1-1', node_name: '当前讲稿', node_level: 2,
+            node_content: '当前已确认讲稿正文', content_blocks: [], generation_status: 'completed', content_state: 'finalized',
+          }],
+        } } as never
+      }
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    await courses.loadCourse('course-teacher-current', {
+      includeLearningRecords: false,
+      taskType: 'teacher_outline_generation',
+      monitorTask: false,
+      previewSurface: 'teacher',
+    })
+
+    expect(courses.currentCourseProjection).toBe('generation_preview')
+    expect(courses.nodes[0]?.node_content).toBe('当前已确认讲稿正文')
+    expect(get).not.toHaveBeenCalledWith('/api/courses/course-teacher-current/document')
   })
 
   it('任务轮询暂时失败时仍从空发布壳恢复失败任务现场', async () => {

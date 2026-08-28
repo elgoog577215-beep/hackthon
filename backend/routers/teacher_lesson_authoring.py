@@ -555,8 +555,24 @@ def _source_course(
     *,
     allow_empty: bool = False,
 ) -> dict[str, Any]:
+    teacher_workspace_getter = getattr(
+        tm,
+        "get_generation_workspace_course_for_task",
+        None,
+    )
+    teacher_workspace = (
+        teacher_workspace_getter(
+            course_id,
+            task_type="teacher_outline_generation",
+            require_confirmed_outline=True,
+        )
+        if callable(teacher_workspace_getter)
+        else None
+    )
     raw = tm.storage.load_course(course_id) if tm.storage else None
-    source = raw if _has_teaching_structure(raw) else None
+    source = teacher_workspace if _has_teaching_structure(teacher_workspace) else None
+    if not isinstance(source, dict):
+        source = raw if _has_teaching_structure(raw) else None
     if not isinstance(source, dict):
         workspace = tm.get_generation_workspace_course(course_id)
         source = workspace if _has_teaching_structure(workspace) else None
@@ -843,17 +859,27 @@ def _lesson_projection(
             ),
             None,
         )
-        arrangement = deepcopy(arrangement_revision) if isinstance(arrangement_revision, dict) else recommend_lesson_arrangement(
-            source,
-            lesson_id,
-            source_outline_revision_id=_canonical_outline_revision(source),
+        arrangement_is_current = (
+            isinstance(arrangement_revision, dict)
+            and str(arrangement_state.get("source_state") or "current") == "current"
+        )
+        arrangement = (
+            deepcopy(arrangement_revision)
+            if arrangement_is_current
+            else recommend_lesson_arrangement(
+                source,
+                lesson_id,
+                source_outline_revision_id=_canonical_outline_revision(source),
+            )
         )
         arrangement["confirmed"] = bool(
             arrangement_revision_id
             and arrangement_state.get("confirmed_revision_id") == arrangement_revision_id
-            and arrangement_state.get("source_state", "current") == "current"
+            and arrangement_is_current
         )
-        arrangement["source_state"] = str(arrangement_state.get("source_state") or "current")
+        arrangement["source_state"] = "current" if not arrangement_is_current else str(
+            arrangement_state.get("source_state") or "current"
+        )
         working_script_revision_id = str(plan_asset.get("working_script_revision_id") or "")
         script_revision = next(
             (

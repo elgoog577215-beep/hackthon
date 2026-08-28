@@ -11,9 +11,14 @@ import os
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from task_manager import TaskManager, TaskRecoveryConflict, TaskStateConflict
-from dependencies import get_course_document_repository, require_task_manager
+from dependencies import (
+    get_course_document_repository,
+    get_teacher_lesson_authoring_repository,
+    require_task_manager,
+)
 from course_repository import CourseDocumentRepository, CourseDocumentNotFound
 from learner_context import resolve_actor_id
+from teacher_lesson_authoring import project_confirmed_teacher_scripts
 
 router = APIRouter(tags=["tasks"])
 
@@ -124,6 +129,7 @@ def get_teacher_course_generation_preview(
     course_id: str,
     request: Request,
     tm: TaskManager = Depends(require_task_manager),
+    teacher_repository=Depends(get_teacher_lesson_authoring_repository),
 ):
     _require_latest_course_task_access(
         tm,
@@ -143,7 +149,10 @@ def get_teacher_course_generation_preview(
                 "message": "当前教师课程没有可读取的大纲工作区",
             },
         )
-    return preview
+    return project_confirmed_teacher_scripts(
+        preview,
+        teacher_repository.view(course_id),
+    )
 
 
 @router.get("/tasks")

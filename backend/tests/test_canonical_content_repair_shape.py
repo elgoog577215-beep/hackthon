@@ -83,6 +83,28 @@ $$
 这两个向量张成解空间。
 """
 
+# 微积分真实讲稿：拆开的 cases 后直接继续正文，随后还有一个正常公式。
+# 环境后的 `$$` 会让余下段落整体错位，正文被误判为公式块。
+SPLIT_CASES_THEN_FORMULA = r"""设温度模型为：
+
+$$
+T(t)=
+$$
+\begin{cases}
+20+0.5t,&0\le t<10,\\
+27-0.2t,&10<t\le20.
+\end{cases}
+$$
+
+目标时刻是第 10 分钟。请分别从左右两侧趋近，并检查模型的有效范围。
+
+$$
+\lim_{t\to10}T(t)=25.
+$$
+
+最后解释结果的单位和实际意义。
+"""
+
 
 def _display_blocks(text: str) -> list[str]:
     """取出所有 `$$...$$` 块的内容，用于断言合并结果。"""
@@ -165,6 +187,18 @@ def test_empty_prefix_variant_is_repaired():
     assert "这两个向量张成解空间。" in repaired
     for block in blocks:
         assert "这两个向量张成解空间。" not in block
+
+
+def test_split_environment_does_not_shift_following_prose_and_formula():
+    repaired = repair_display_math_shape(SPLIT_CASES_THEN_FORMULA)
+    blocks = _display_blocks(repaired)
+
+    assert len(blocks) == 2
+    assert "T(t)=" in blocks[0] and "\\begin{cases}" in blocks[0]
+    assert "\\lim_{t\\to10}T(t)=25" in blocks[1]
+    assert "目标时刻是第 10 分钟" in repaired
+    assert "目标时刻是第 10 分钟" not in "\n".join(blocks)
+    assert repair_display_math_shape(repaired) == repaired
 
 
 def test_well_formed_content_is_left_untouched():

@@ -311,15 +311,20 @@ export const useCourseStore = defineStore('course', {
             } catch (_ignore) { /* no task is fine */ }
 
             if (
-                backendTask
-                && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
+                (
+                    options.previewSurface === 'teacher'
+                    || (
+                        backendTask
+                        && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
+                    )
+                )
                 && await this.refreshGenerationPreview(courseId, options.previewSurface)
             ) {
                 genStore.syncCurrentCourseGenerationState(
                     courseId,
-                    normalizeTaskStatus(String(backendTask.status || 'pending')),
-                    Number(backendTask.progress || 0),
-                    taskProgressStep(backendTask as any),
+                    normalizeTaskStatus(String(backendTask?.status || 'pending')),
+                    Number(backendTask?.progress || 0),
+                    taskProgressStep(backendTask || {}),
                 )
                 return
             }

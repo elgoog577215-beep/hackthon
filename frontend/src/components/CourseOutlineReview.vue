@@ -531,7 +531,7 @@
               <p>{{ documentPositioning || t('courseGeneration.outlineReview.positioningPending', '课程定位将在教学目标与章节结构中继续明确。') }}</p>
               <dl>
                 <div><dt>{{ t('courseGeneration.outlineReview.documentChapters', '章节') }}</dt><dd>{{ documentChapters.length }}</dd></div>
-                <div><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentSectionCount }}</dd></div>
+                <div v-if="documentVisibleSectionCount"><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentVisibleSectionCount }}</dd></div>
                 <div><dt>{{ t('courseGeneration.outlineReview.documentQuality', '整篇审读') }}</dt><dd :data-ready="qualityReady">{{ qualityReady ? t('courseGeneration.outlineReview.qualityReady', '表达清晰') : t('courseGeneration.outlineReview.qualitySuggested', '建议优化') }}</dd></div>
               </dl>
             </header>
@@ -972,12 +972,21 @@ const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: an
     const sectionTitle = editorFieldHtml(sectionNode, 'title_html', sectionNode.node_name || section.title)
     const sectionBody = editorBodyHtml(sectionNode, sectionNode.learning_objective)
     const sectionChange = proposalNodeAttributes(String(sectionNode.node_id || ''))
-    return `<h3 data-node-id="${sectionId}"${sectionChange}>${sectionTitle}</h3><div data-node-body="${sectionId}"${sectionChange}>${sectionBody}</div>`
+    const collapsed = chapter.sections.length === 1
+      ? ' data-collapsed-single-section="true" aria-hidden="true"'
+      : ''
+    const singleBody = chapter.sections.length === 1
+      ? ' data-single-section-body="true"'
+      : ''
+    return `<h3 data-node-id="${sectionId}"${sectionChange}${collapsed}>${sectionTitle}</h3><div data-node-body="${sectionId}"${sectionChange}${singleBody}>${sectionBody}</div>`
   }).join('')
   return `<h2 data-node-id="${chapterId}"${chapterChange}>${chapterTitle}</h2><div data-node-body="${chapterId}"${chapterChange}>${chapterBody}</div>${sections}`
 }).join(''))
-const documentSectionCount = computed(() => documentChapters.value.reduce(
-  (total, chapter) => total + (Array.isArray(chapter.sections) ? chapter.sections.length : 0),
+const documentVisibleSectionCount = computed(() => documentChapters.value.reduce(
+  (total, chapter) => {
+    const count = Array.isArray(chapter.sections) ? chapter.sections.length : 0
+    return total + (count > 1 ? count : 0)
+  },
   0,
 ))
 const qualityIssues = computed<any[]>(() => (
@@ -3294,12 +3303,14 @@ defineExpose({
   font-weight:760;
   line-height:1.5;
 }
+.outline-rich-editor :deep(h3[data-collapsed-single-section="true"]) { display:none; }
 .outline-rich-editor :deep([data-node-body]) {
   margin:0 0 2px 28px;
   color:#626d80;
   font-size:13px;
   line-height:1.75;
 }
+.outline-rich-editor :deep([data-single-section-body="true"]) { margin-left:0; padding-bottom:22px; border-bottom:1px solid #e6e9ef; }
 .outline-rich-editor :deep(h2 + [data-node-body]) { margin-left:0; color:#6c7688; }
 .outline-rich-editor :deep([data-node-body] p) { min-height:1.75em; margin:0; }
 .outline-rich-editor :deep([data-node-body] ul),

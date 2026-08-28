@@ -1484,8 +1484,7 @@ async function renameNode(node: WorkspaceNode) {
       t('courseFiles.management.renamePrompt'),
       t('courseFiles.management.rename'),
       { inputValue: node.label, confirmButtonText: t('courseFiles.management.saveName'), cancelButtonText: t('common.cancel'), inputPattern: /\S+/, inputErrorMessage: t('courseFiles.management.nameRequired') },
-    )
-    if (typeof result === 'string') return
+    ) as unknown as { value: string }
     const nextName = result.value.trim()
     const response = node.asset
       ? await http.patch(`/api/teacher-course-spaces/${selected.value.package_id}/assets/${node.asset.asset_id}/location`, { filename: nextName }, teacherRequestConfig())

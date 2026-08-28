@@ -27,6 +27,7 @@ from course_outline_planning import (
     validate_outline_batch,
     validate_outline_skeleton,
 )
+from course_prompt_composer import CoursePromptComposer
 from course_service import CourseService
 
 
@@ -166,7 +167,7 @@ def test_whole_outline_review_locates_repeated_assessment_templates_without_bloc
         if issue["code"] == "outline_editorial:repeated_assessment_template"
     )
     assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
-    assert repeated["rule_version"] == "course_outline_editorial_v1"
+    assert repeated["rule_version"] == "course_outline_editorial_v3"
     assert "scope_boundary" in repeated["repair_instruction"]
     assert report["metrics"]["located_section_count"] == 4
 
@@ -197,6 +198,110 @@ def test_whole_outline_review_reports_ready_for_distinct_professional_evidence()
 
     assert report["status"] == "ready"
     assert report["issues"] == []
+
+
+def test_whole_outline_review_allows_single_section_chapters_but_flags_system_register():
+    chapters = []
+    for index in range(1, 7):
+        chapters.append({
+            "node_id": f"L1-{index}",
+            "chapter_number": index,
+            "title": f"第{index}章",
+            "learning_focus": (
+                "通过前置检查建立全课知识地图并完成先修链定位"
+                if index == 1 else f"理解第{index}章核心内容"
+            ),
+            "sections": [{
+                "node_id": f"L2-{index}-1",
+                "title": f"第{index}章基础",
+                "learning_objective": "能解释本章概念并完成基础计算",
+                "assessment": ["完成两道基础题并说明步骤"],
+            }],
+        })
+
+    report = review_course_outline_document({
+        "positioning": "面向本科生学习微积分基础",
+        "learning_objectives": ["能计算并解释基础微积分问题"],
+        "chapters": chapters,
+    })
+
+    codes = {issue["code"] for issue in report["issues"]}
+    assert "outline_editorial:flat_chapter_structure" not in codes
+    assert "outline_editorial:system_register" in codes
+    assert report["schema_version"] == "course_outline_editorial_review_v3"
+    assert report["status"] == "review_suggested"
+
+
+def test_whole_outline_review_flags_overlong_public_objective():
+    report = review_course_outline_document({
+        "positioning": "面向本科生学习微积分基础",
+        "learning_objectives": ["能计算并解释基础微积分问题"],
+        "chapters": [{
+            "chapter_number": 1,
+            "title": "极限",
+            "learning_focus": "理解极限的含义与基本计算方法",
+            "sections": [{
+                "node_id": "L2-1-1",
+                "title": "极限的概念",
+                "learning_objective": (
+                    "能解释极限的直观含义；能比较图像与数值表；能判断左右极限；"
+                    "能检查定义域；能说明计算依据；能核验结果是否合理"
+                ),
+                "assessment": ["根据图像判断两个极限并说明理由"],
+            }],
+        }],
+    })
+
+    issue = next(
+        item for item in report["issues"]
+        if item["code"] == "outline_editorial:overlong_objectives"
+    )
+    assert issue["node_ids"] == ["L2-1-1"]
+
+
+def test_outline_prompts_keep_internal_planning_terms_out_of_public_copy():
+    composer = CoursePromptComposer()
+    prompt = composer.build_outline_batch_v2_prompt(
+        course_title="微积分",
+        positioning="面向本科生学习微积分基础",
+        learning_objectives=["能计算并解释基础微积分问题"],
+        chapter={"chapter_number": 1, "title": "极限", "section_count": 3},
+        neighbor_chapters=[],
+        batch_spec={
+            "start_section_index": 1,
+            "end_section_index": 1,
+            "expected_node_ids": ["L2-1-1"],
+        },
+        previous_sections=[],
+        evidence_hints=[],
+        skeleton_revision_id="outline-skeleton-1",
+    )
+
+    assert "教师和学生直接阅读" in prompt
+    assert "全课知识地图、先修链定位" in prompt
+    assert "目标控制在一至两句" in prompt
+
+
+def test_single_section_outline_prompt_preserves_teacher_shape_without_duplicate_title():
+    composer = CoursePromptComposer()
+    prompt = composer.build_outline_batch_v2_prompt(
+        course_title="微积分",
+        positioning="面向本科生学习微积分基础",
+        learning_objectives=["能计算并解释基础微积分问题"],
+        chapter={"chapter_number": 1, "title": "极限", "section_count": 1},
+        neighbor_chapters=[],
+        batch_spec={
+            "start_section_index": 1,
+            "end_section_index": 1,
+            "expected_node_ids": ["L2-1-1"],
+        },
+        previous_sections=[],
+        evidence_hints=[],
+        skeleton_revision_id="outline-skeleton-1",
+    )
+
+    assert "当前章只有一个小节" in prompt
+    assert "不得机械复述章标题" in prompt
 
 
 def test_unspecified_course_rejects_six_section_skeleton():

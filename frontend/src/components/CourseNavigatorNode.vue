@@ -6,7 +6,7 @@
         'node-button',
         `level-${node.node_level}`,
         {
-          active: activeId === node.node_id,
+          active: isNodeActive,
           'is-ai-growth-target': isApplicationTarget,
           'is-ai-growth-pulse': isApplicationPulse,
           'has-ai-growth-descendant': hasApplicationTarget,
@@ -22,7 +22,7 @@
       <ChevronRight v-if="hasDisclosure" :size="13" :class="{ open: disclosureExpanded }" @click.stop="toggleDisclosure" />
       <span v-else class="node-spacer"></span>
       <span v-if="isChapter" class="node-kind chapter-kind"><BookOpenText :size="14" /></span>
-      <span v-else class="node-kind leaf-kind" :class="[{ active: activeId === node.node_id, learned: isLearned }, generationState]"></span>
+      <span v-else class="node-kind leaf-kind" :class="[{ active: isNodeActive, learned: isLearned }, generationState]"></span>
       <span class="node-label" :title="node.node_name">{{ node.node_name }}</span>
       <span v-if="adaptationMarker" class="adaptation-marker" :data-state="adaptationMarker.state" :title="adaptationMarker.title">
         {{ adaptationMarker.label }}<b>{{ adaptationMarker.count }}</b>
@@ -37,7 +37,7 @@
         :aria-label="generationStateLabel"
       />
       <CheckCircle2 v-else-if="progress?.mastery_status === 'mastered'" :size="13" class="status mastered" />
-      <CircleDot v-else-if="activeId === node.node_id" :size="13" class="status current" />
+      <CircleDot v-else-if="isNodeActive" :size="13" class="status current" />
       <span v-else-if="progress?.reading_status === 'learned'" class="read-dot"></span>
     </button>
     <ol
@@ -54,7 +54,7 @@
           :data-role="entry.block.role"
           :aria-current="activeBlockId === entry.block.block_id ? 'location' : undefined"
           :title="`${entry.roleLabel} · ${entry.title}`"
-          @click.stop="emit('selectBlock', { node, blockId: entry.block.block_id })"
+          @click.stop="emit('selectBlock', { node: selectionNode, blockId: entry.block.block_id })"
         >
           <span class="course-block-role">{{ entry.roleLabel }}</span>
           <span class="course-block-title">{{ entry.title }}</span>
@@ -114,11 +114,21 @@ const containsActiveNode = (node: Node): boolean => (
   node.node_id === props.activeId
   || Boolean(node.children?.some(containsActiveNode))
 )
-const expanded = ref(containsActiveNode(props.node) || (!props.activeId && props.depth < 1))
-const hasChildren = computed(() => Boolean(props.node.children?.length))
-const blockOutlineExpanded = ref(props.activeId === props.node.node_id)
-const progress = computed(() => progressStore.nodeProgress(props.node.node_id))
 const isChapter = computed(() => props.depth === 0 || props.node.node_level === 1)
+const singleSectionChild = computed<Node | null>(() => {
+  const children = props.node.children || []
+  if (!isChapter.value || children.length !== 1) return null
+  return Number(children[0]?.node_level || 0) === 2 ? children[0]! : null
+})
+const selectionNode = computed(() => singleSectionChild.value || props.node)
+const isNodeActive = computed(() => (
+  props.activeId === props.node.node_id
+  || props.activeId === selectionNode.value.node_id
+))
+const expanded = ref(containsActiveNode(props.node) || (!props.activeId && props.depth < 1))
+const hasChildren = computed(() => Boolean(props.node.children?.length) && !singleSectionChild.value)
+const blockOutlineExpanded = ref(isNodeActive.value)
+const progress = computed(() => progressStore.nodeProgress(selectionNode.value.node_id))
 const isLearned = computed(() => progress.value?.reading_status === 'learned' || progress.value?.mastery_status === 'mastered')
 const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
 const courseEvolutionPlans = computed(() => (
@@ -142,7 +152,8 @@ const applicationVisual = computed(() => (
     : null
 ))
 const isApplicationTarget = computed(() => Boolean(
-  applicationVisual.value?.affectedSectionIds.includes(props.node.node_id),
+  applicationVisual.value?.affectedSectionIds.includes(props.node.node_id)
+  || applicationVisual.value?.affectedSectionIds.includes(selectionNode.value.node_id),
 ))
 const hasApplicationTarget = computed(() => (
   !isApplicationTarget.value
@@ -256,11 +267,12 @@ const growthTrail = computed(() => {
 })
 const generationState = computed(() => {
   if (!isGenerationPreview.value) return ''
-  const status = String(props.node.generation_status || '')
+  const target = selectionNode.value
+  const status = String(target.generation_status || '')
   if (status === 'generating') return 'generating'
-  if (status === 'completed' || props.node.content_state === 'finalized') return 'finalized'
-  if (status === 'error' || props.node.content_state === 'failed') return 'failed'
-  if (props.node.content_state === 'draft' || Boolean(props.node.node_content)) return 'draft'
+  if (status === 'completed' || target.content_state === 'finalized') return 'finalized'
+  if (status === 'error' || target.content_state === 'failed') return 'failed'
+  if (target.content_state === 'draft' || Boolean(target.node_content)) return 'draft'
   return 'waiting'
 })
 const generationIcon = computed(() => {
@@ -283,7 +295,7 @@ const blockRoleLabel = (role: CourseDocumentBlock['role']) => t(`courseBlocks.${
   activity: '行动', feedback: '核对', misconception: '易错点', checkpoint: '检查',
   remediation: '补救', summary: '小结', transfer: '迁移',
 } as Record<CourseDocumentBlock['role'], string>)[role] || t('courseBlocks.content', '内容'))
-const blockEntries = computed(() => (props.node.course_blocks || [])
+const blockEntries = computed(() => (selectionNode.value.course_blocks || [])
   .filter(block => block.status !== 'retired')
   .slice()
   .sort((left, right) => left.position - right.position)
@@ -311,7 +323,7 @@ const hasDisclosure = computed(() => hasChildren.value || hasBlockOutline.value)
 const disclosureExpanded = computed(() => (
   hasChildren.value ? expanded.value : showBlockOutline.value
 ))
-const blockOutlineId = computed(() => `course-block-outline-${props.node.node_id}`)
+const blockOutlineId = computed(() => `course-block-outline-${selectionNode.value.node_id}`)
 const disclosureId = computed(() => (
   hasChildren.value ? `course-node-children-${props.node.node_id}` : blockOutlineId.value
 ))
@@ -330,8 +342,8 @@ const visible = computed(() => {
 const toggleDisclosure = () => {
   if (hasChildren.value) expanded.value = !expanded.value
   else if (hasBlockOutline.value) {
-    if (props.activeId !== props.node.node_id) {
-      emit('select', props.node)
+    if (!isNodeActive.value) {
+      emit('select', selectionNode.value)
       return
     }
     blockOutlineExpanded.value = !blockOutlineExpanded.value
@@ -340,8 +352,8 @@ const toggleDisclosure = () => {
 const expandDisclosure = () => {
   if (hasChildren.value) expanded.value = true
   else if (hasBlockOutline.value) {
-    if (props.activeId !== props.node.node_id) {
-      emit('select', props.node)
+    if (!isNodeActive.value) {
+      emit('select', selectionNode.value)
       return
     }
     blockOutlineExpanded.value = true
@@ -352,18 +364,18 @@ const collapseDisclosure = () => {
   else if (hasBlockOutline.value) blockOutlineExpanded.value = false
 }
 const handleNodeClick = () => {
-  if (hasBlockOutline.value && props.activeId === props.node.node_id) {
+  if (hasBlockOutline.value && isNodeActive.value) {
     toggleDisclosure()
     return
   }
-  emit('select', props.node)
+  emit('select', selectionNode.value)
 }
 watch(normalizedQuery, value => { if (value) expanded.value = true })
 watch(() => props.activeId, (value, previous) => {
   if (value && containsActiveNode(props.node)) expanded.value = true
   else if (value && !previous && props.depth === 0) expanded.value = false
-  if (value === props.node.node_id && value !== previous) blockOutlineExpanded.value = true
-  if (previous === props.node.node_id && value !== props.node.node_id) blockOutlineExpanded.value = false
+  if (value === selectionNode.value.node_id && value !== previous) blockOutlineExpanded.value = true
+  if (previous === selectionNode.value.node_id && value !== selectionNode.value.node_id) blockOutlineExpanded.value = false
 })
 </script>
 
