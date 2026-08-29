@@ -89,7 +89,7 @@ describe('TeacherMaterialAuditPanel', () => {
     httpMock.patch.mockReset().mockResolvedValue({ data: { package: packageData } })
   })
 
-  it('在当前教案页展示来源、审计结果和工作稿边界', async () => {
+  it('默认只展示摘要，展开后再展示来源、审计结果和工作稿边界', async () => {
     const wrapper = mount(TeacherMaterialAuditPanel, {
       props: { courseId: 'course-1', targetType: 'lesson_plan', targetScopeId: 'lesson-1' },
       global: { plugins: [createPinia()] },
@@ -97,10 +97,15 @@ describe('TeacherMaterialAuditPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('材料审计')
+    expect(wrapper.text()).toContain('已就绪，可整理到当前页')
+    expect(wrapper.text()).not.toContain('第一讲教案.docx')
+
+    await wrapper.get('.material-audit > header > button').trigger('click')
+
     expect(wrapper.text()).toContain('第一讲教案.docx')
     expect(wrapper.text()).toContain('结构化结果')
     expect(wrapper.text()).toContain('不覆盖正式内容')
-    expect(wrapper.text()).toContain('教学目标')
+    expect(wrapper.find('.material-audit__preview').text()).toContain('教学目标')
 
     await wrapper.get('footer .primary').trigger('click')
     await flushPromises()
@@ -148,6 +153,7 @@ describe('TeacherMaterialAuditPanel', () => {
       global: { plugins: [createPinia()] },
     })
     await flushPromises()
+    await wrapper.get('.material-audit > header > button').trigger('click')
 
     const selects = wrapper.findAll('.material-audit__sources select')
     await selects[1]!.setValue('primary')
@@ -155,5 +161,35 @@ describe('TeacherMaterialAuditPanel', () => {
 
     expect(httpMock.patch.mock.calls[0]?.[1]).toEqual({ role: 'reference', action: 'absorb' })
     expect(httpMock.patch.mock.calls[1]?.[1]).toEqual({ role: 'primary', action: 'absorb' })
+  })
+
+  it('存在需要教师确认的问题时自动展开', async () => {
+    const packageWithIssue = {
+      ...packageData,
+      material_absorption: {
+        ...plan,
+        status: 'needs_decision',
+        unresolved_items: [{
+          code: 'target_scope_unresolved',
+          target_id: 'lesson-plan:lesson-1',
+          asset_id: 'asset-1',
+          message: '第一讲教案.docx 尚未确定对应讲次。',
+        }],
+      },
+    }
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [packageWithIssue] })
+      return Promise.resolve({ data: packageWithIssue })
+    })
+
+    const wrapper = mount(TeacherMaterialAuditPanel, {
+      props: { courseId: 'course-1', targetType: 'lesson_plan', targetScopeId: 'lesson-1' },
+      global: { plugins: [createPinia()] },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('需要确认')
+    expect(wrapper.find('.material-audit__body').exists()).toBe(true)
+    expect(wrapper.text()).toContain('第一讲教案.docx 尚未确定对应讲次。')
   })
 })

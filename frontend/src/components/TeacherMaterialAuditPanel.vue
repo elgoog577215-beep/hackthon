@@ -68,18 +68,18 @@
           </ul>
         </section>
 
-        <section v-if="target?.structured_draft" class="material-audit__preview">
-          <header>
+        <details v-if="target?.structured_draft" class="material-audit__preview">
+          <summary>
             <strong>{{ t('courseWorkbench.materialAudit.preview', '结构化结果') }}</strong>
             <small>{{ previewSummary }}</small>
-          </header>
+          </summary>
           <ol>
             <li v-for="section in target.structured_draft.sections.slice(0, 6)" :key="section.section_id">
               <span>{{ section.title }}</span>
               <small>{{ sourceRoleLabel(section.source_role as any) }} · {{ section.blocks.length }} {{ t('courseWorkbench.materialAudit.blocks', '个内容块') }}</small>
             </li>
           </ol>
-        </section>
+        </details>
 
         <p v-if="auditStore.error" class="material-audit__error" role="alert">{{ auditStore.error }}</p>
         <footer>
@@ -128,7 +128,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ executed: [] }>()
 const auditStore = useTeacherMaterialAuditStore()
-const expanded = ref(true)
+const expanded = ref(false)
 
 const expectedTargetId = computed(() => {
   if (props.targetType === 'outline') return 'managed:outline'
@@ -233,28 +233,31 @@ async function assignToCurrent(assetId: string) {
 async function executeCurrent() {
   if (!expectedTargetId.value) return
   await auditStore.execute([expectedTargetId.value])
+  expanded.value = false
   emit('executed')
 }
 async function executeAll() {
   await auditStore.execute()
+  expanded.value = false
   emit('executed')
 }
 
 watch(() => props.courseId, courseId => { if (courseId) void auditStore.load(courseId) })
-watch([() => props.targetType, () => props.targetScopeId, issueCount], () => { expanded.value = true })
+watch([() => props.targetType, () => props.targetScopeId], () => { expanded.value = issueCount.value > 0 })
+watch(issueCount, count => { if (count > 0) expanded.value = true })
 onMounted(() => { if (props.courseId && auditStore.courseId !== props.courseId) void auditStore.load(props.courseId) })
 </script>
 
 <style scoped>
-.material-audit{max-width:860px;margin:0 auto 14px;border:1px solid #dfe5ee;border-radius:12px;background:#fff;box-shadow:0 5px 18px rgba(30,41,59,.04)}
+.material-audit{max-width:860px;margin:0 auto 12px;border:1px solid #dfe5ee;border-radius:10px;background:#fff;box-shadow:0 3px 12px rgba(30,41,59,.035)}
 .material-audit[data-state="warning"]{border-color:#efd5aa}.material-audit[data-state="success"]{border-color:#bfe3d2}
-.material-audit>header>button{width:100%;min-height:58px;display:grid;grid-template-columns:34px minmax(0,1fr) auto 18px;align-items:center;gap:10px;padding:9px 14px;border:0;border-radius:12px;color:#475569;background:transparent;text-align:left;cursor:pointer}
-.material-audit__icon{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;color:#4f46e5;background:#eef0ff}.material-audit[data-state="warning"] .material-audit__icon{color:#a16207;background:#fff7df}.material-audit[data-state="success"] .material-audit__icon{color:#15825d;background:#eaf8f1}
+.material-audit>header>button{width:100%;min-height:50px;display:grid;grid-template-columns:30px minmax(0,1fr) auto 18px;align-items:center;gap:9px;padding:7px 12px;border:0;border-radius:10px;color:#475569;background:transparent;text-align:left;cursor:pointer}
+.material-audit__icon{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef0ff}.material-audit[data-state="warning"] .material-audit__icon{color:#a16207;background:#fff7df}.material-audit[data-state="success"] .material-audit__icon{color:#15825d;background:#eaf8f1}
 .material-audit>header button>span:nth-child(2){display:grid;gap:2px}.material-audit>header strong{color:#273247;font-size:13px}.material-audit>header small{color:#728096;font-size:11px}.material-audit__counts{display:flex;align-items:center;gap:6px}.material-audit__counts b{padding:4px 7px;border-radius:6px;color:#64748b;background:#f1f4f8;font-size:10px}.material-audit__counts b.needs-review{color:#9a5b08;background:#fff3d6}.material-audit>header svg.rotated{transform:rotate(180deg)}
 .material-audit__body{display:grid;gap:14px;padding:0 16px 16px;border-top:1px solid #edf0f4}.material-audit__loading{min-height:72px;display:flex;align-items:center;justify-content:center;gap:8px;color:#64748b;font-size:12px}
 .material-audit__sources{display:grid;gap:8px;padding-top:14px}.material-audit__sources>header{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.material-audit__sources>header>div{display:grid;gap:3px}.material-audit__sources>header>span{color:#64748b;font-size:10px}.material-audit__sources ul{display:grid;margin:0;padding:0;border-top:1px solid #edf0f4;list-style:none}.material-audit__sources li{min-height:54px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:9px;border-bottom:1px solid #edf0f4;color:#6366f1}.material-audit__sources li>span{min-width:0;display:grid;gap:2px}.material-audit__sources li strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.material-audit__sources li small{overflow:hidden;color:#7b8799;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.material-audit__sources select{min-height:30px;padding:0 24px 0 8px;border:1px solid #d8dee8;border-radius:7px;color:#4f46e5;background:#fff;font-size:10px;font-weight:700;cursor:pointer}.material-audit__sources select:focus-visible{outline:2px solid #6366f1;outline-offset:2px}.material-audit__unassigned button{min-height:30px;padding:0 8px;border:1px solid #d8dee8;border-radius:7px;color:#4f46e5;background:#fff;font-size:10px;font-weight:700;cursor:pointer}
-.material-audit__unassigned,.material-audit__findings,.material-audit__preview{display:grid;gap:8px;padding:11px 12px;border-radius:9px;background:#f8fafc}.material-audit__unassigned>header{display:flex;align-items:center;gap:7px;color:#9a670d}.material-audit__unassigned>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:8px;border-top:1px solid #e8edf3}.material-audit__unassigned>div>span{display:grid;gap:2px}.material-audit__unassigned small{color:#7b8799;font-size:10px}.material-audit__findings>ul{display:grid;gap:6px;margin:0;padding:0;list-style:none}.material-audit__findings li{display:flex;align-items:flex-start;gap:7px;color:#6b7280;font-size:11px;line-height:1.5}.material-audit__findings li svg{flex:none;margin-top:1px;color:#b7791f}
-.material-audit__preview>header{display:flex;align-items:center;justify-content:space-between;gap:12px}.material-audit__preview>header small{color:#728096;font-size:10px}.material-audit__preview ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:0;padding:0;list-style:none}.material-audit__preview li{min-width:0;display:grid;gap:2px;padding:7px 8px;border:1px solid #e4e8ef;border-radius:7px;background:#fff}.material-audit__preview li span{overflow:hidden;color:#475569;font-size:11px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}.material-audit__preview li small{color:#8791a1;font-size:9px}.material-audit__error{margin:0;padding:9px 10px;border-radius:7px;color:#b42318;background:#fff1f0;font-size:11px}
+.material-audit__unassigned,.material-audit__findings,.material-audit__preview{display:grid;gap:8px;padding:10px 11px;border-radius:8px;background:#f8fafc}.material-audit__unassigned>header{display:flex;align-items:center;gap:7px;color:#9a670d}.material-audit__unassigned>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:8px;border-top:1px solid #e8edf3}.material-audit__unassigned>div>span{display:grid;gap:2px}.material-audit__unassigned small{color:#7b8799;font-size:10px}.material-audit__findings>ul{display:grid;gap:6px;margin:0;padding:0;list-style:none}.material-audit__findings li{display:flex;align-items:flex-start;gap:7px;color:#6b7280;font-size:11px;line-height:1.5}.material-audit__findings li svg{flex:none;margin-top:1px;color:#b7791f}
+.material-audit__preview>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#475569;cursor:pointer;list-style:none}.material-audit__preview>summary::-webkit-details-marker{display:none}.material-audit__preview>summary::after{color:#94a3b8;content:'+'}.material-audit__preview[open]>summary::after{content:'−'}.material-audit__preview>summary small{margin-left:auto;color:#728096;font-size:10px}.material-audit__preview ol{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:8px 0 0;padding:0;list-style:none}.material-audit__preview li{min-width:0;display:grid;gap:2px;padding:7px 8px;border:1px solid #e4e8ef;border-radius:7px;background:#fff}.material-audit__preview li span{overflow:hidden;color:#475569;font-size:11px;font-weight:700;text-overflow:ellipsis;white-space:nowrap}.material-audit__preview li small{color:#8791a1;font-size:9px}.material-audit__error{margin:0;padding:9px 10px;border-radius:7px;color:#b42318;background:#fff1f0;font-size:11px}
 .material-audit footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px}.material-audit footer>span{max-width:480px;color:#778195;font-size:10px;line-height:1.5}.material-audit footer>div{display:flex;gap:7px}.material-audit footer button{min-height:34px;padding:0 10px;border:1px solid #d7dde7;border-radius:7px;color:#475569;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.material-audit footer button.primary{display:flex;align-items:center;gap:6px;border-color:#514bdc;color:#fff;background:#514bdc}.material-audit button:disabled{opacity:.45;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:760px){.material-audit__counts{display:none}.material-audit__preview ol{grid-template-columns:1fr}.material-audit footer{align-items:stretch;flex-direction:column}.material-audit footer>div{justify-content:flex-end}}
 </style>
