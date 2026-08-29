@@ -511,7 +511,35 @@ def compile_teaching_block_contract(
         ((subject_standard_pack or {}).get("block_recipes") or {}).get(role) or {}
     )
     lesson_contract = LESSON_TYPE_CONTRACTS.get(lesson_type, LESSON_TYPE_CONTRACTS["theory"])
-    engagement = _value(result.get("engagement_mode")) or role_contract["engagement"]
+    subject_evidence = [
+        str(item).strip()
+        for item in (subject_standard_pack or {}).get("evidence_patterns") or []
+        if str(item).strip()
+    ]
+    subject_misconceptions = [
+        str(item).strip()
+        for item in (subject_standard_pack or {}).get("common_misconceptions") or []
+        if str(item).strip()
+    ]
+    subject_actions = [
+        str(item).strip()
+        for item in (subject_standard_pack or {}).get("professional_actions") or []
+        if str(item).strip()
+    ]
+    subject_safety = [
+        str(item).strip()
+        for item in (subject_standard_pack or {}).get("safety_boundaries") or []
+        if str(item).strip()
+    ]
+    evidence_focus = subject_evidence[0] if subject_evidence else result.get("expected_output") or role_contract["evidence"]
+    misconception_focus = subject_misconceptions[0] if subject_misconceptions else "把活动完成当成目标达成"
+    prerequisite_focus = subject_actions[0] if subject_actions else "识别核心对象"
+    transfer_focus = subject_actions[-1] if subject_actions else "解释迁移"
+    engagement = (
+        _value(result.get("engagement_mode"))
+        or _value(discipline_recipe.get("engagement_mode"))
+        or role_contract["engagement"]
+    )
     if role == "activity" and not _value(result.get("engagement_mode")):
         if lesson_type in {"case_discussion", "project_workshop"}:
             engagement = "interactive"
@@ -534,23 +562,45 @@ def compile_teaching_block_contract(
         or role_contract["evidence"]
     ).strip()
     result["check_method"] = str(
-        result.get("check_method") or f"依据“{result['expected_output']}”检查是否服务本讲目标"
+        result.get("check_method")
+        or discipline_recipe.get("check_method")
+        or f"核对“{result['expected_output']}”，重点检查{evidence_focus}是否真实出现"
     ).strip()
     result["feedback_strategy"] = str(
-        result.get("feedback_strategy") or "指出当前表现与成功标准的差距，给出下一步修正，并安排再次表现"
+        result.get("feedback_strategy")
+        or discipline_recipe.get("feedback_strategy")
+        or f"先判断是否出现“{misconception_focus}”，再指出当前表现与成功标准的具体差距，并安排修正后的再次表现"
     ).strip()
-    result["adaptation_options"] = deepcopy(result.get("adaptation_options") or [
-        "达到标准：进入下一环节或增加迁移挑战",
-        "部分达到：保留目标并补充提示、表征或范例",
-        "未达到：缩小任务、补必要前置并重新检查",
-    ])
+    result["adaptation_options"] = deepcopy(
+        result.get("adaptation_options")
+        or discipline_recipe.get("adaptation_options")
+        or [
+            f"达到标准：撤除当前支架，增加要求学习者独立完成“{transfer_focus}”的迁移挑战",
+            f"部分达到：保留原目标，针对“{misconception_focus}”补充提示、表征或范例后再次检查",
+            f"未达到：缩小任务，回到“{prerequisite_focus}”所需前置并重新取得同类证据",
+        ]
+    )
     result["access_support"] = str(
-        result.get("access_support") or "提供适合当前学科的文字、图示、口头或操作入口；核心成果标准保持一致"
+        result.get("access_support")
+        or discipline_recipe.get("access_support")
+        or "提供适合当前学科的文字、图示、口头或操作入口；核心成果标准保持一致"
     ).strip()
-    result["grouping"] = str(result.get("grouping") or "根据班额与任务采用个人、同伴或小组").strip()
+    result["grouping"] = str(
+        result.get("grouping")
+        or discipline_recipe.get("grouping")
+        or "根据班额与任务采用个人、同伴或小组"
+    ).strip()
     result["transition"] = str(
-        result.get("transition") or f"用本块证据衔接{lesson_contract['learning_cycle'][-1]}或下一教学责任"
+        result.get("transition")
+        or discipline_recipe.get("transition")
+        or f"用本块证据衔接{lesson_contract['learning_cycle'][-1]}或下一教学责任"
     ).strip()
+    if subject_safety:
+        result["safety_boundary"] = str(
+            result.get("safety_boundary")
+            or discipline_recipe.get("safety_boundary")
+            or subject_safety[0]
+        ).strip()
     result["block_contract_version"] = SCHEMA_VERSION
     if subject_standard_pack:
         result["subject_standard_pack_version"] = str(

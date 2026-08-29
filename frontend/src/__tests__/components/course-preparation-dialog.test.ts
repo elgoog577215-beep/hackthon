@@ -60,7 +60,7 @@ describe('CoursePreparationDialog', () => {
     expect(wrapper.emitted('completed')).toHaveLength(1)
   })
 
-  it('批量导入后展示可校正的资料结构，再确认进入工作台', async () => {
+  it('批量导入并完成分析后直接进入带嵌入式审计的工作台', async () => {
     const reviewPackage = {
       ...pendingPackage,
       asset_count: 2,
@@ -106,33 +106,16 @@ describe('CoursePreparationDialog', () => {
     await input.trigger('change')
     await flushPromises()
 
-    expect(wrapper.get('.preparation-review').text()).toContain('确认资料结构')
-    expect(wrapper.get('.understanding-overview').text()).toContain('AI 已完成整批理解')
-    expect(wrapper.get('.understanding-overview').text()).toContain('课程大纲')
-    expect(wrapper.get('.preparation-review').text()).toContain('教案')
-    expect(wrapper.get('.preparation-review').text()).toContain('PPT')
-    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('AI 判断 · 93%')
-    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('第一讲 线性表')
-    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('当前版本')
-    expect(wrapper.findAll('.recognized-signals')[0]!.text()).toContain('关联 1 份')
     const [url, form] = httpMock.post.mock.calls[0]!
     expect(url).toBe('/api/teacher-course-spaces/package-1/imports')
     expect((form as FormData).getAll('files')).toHaveLength(2)
 
-    await wrapper.findAll('.recognized-file select')[0]!.setValue('script')
-    await flushPromises()
     expect(httpMock.patch).toHaveBeenCalledWith(
-      '/api/teacher-course-spaces/package-1/assets/asset-1',
-      { document_type: 'script' },
-      expect.anything(),
-    )
-
-    await wrapper.get('.preparation-review footer .primary').trigger('click')
-    await flushPromises()
-    expect(httpMock.patch).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/preparation',
       { status: 'completed' },
       expect.anything(),
     )
+    expect(wrapper.emitted('completed')).toHaveLength(1)
+    expect(wrapper.find('.preparation-review').exists()).toBe(false)
   })
 })

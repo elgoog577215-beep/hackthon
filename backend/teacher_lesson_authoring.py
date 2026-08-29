@@ -86,7 +86,32 @@ def _empty_lesson_asset(lesson_unit_id: str) -> dict[str, Any]:
         "ppt_manuscript": {},
         "ppt_assets": [],
         "imported_ppt_reviews": [],
+        "material_drafts": {},
+        "current_material_draft_ids": {},
     }
+
+
+def _mark_lesson_dependents_stale(
+    lesson: dict[str, Any],
+    *,
+    reason: str,
+) -> None:
+    """Keep last usable preparation assets while marking their source as changed."""
+    if lesson.get("working_revision_id"):
+        lesson["source_state"] = "stale"
+        lesson["source_state_reason"] = reason
+    confirmation = lesson.get("script_confirmation")
+    if isinstance(confirmation, dict) and confirmation.get("confirmed_revision_id"):
+        confirmation["source_state"] = "stale"
+    for asset in lesson.get("ppt_assets") or []:
+        if isinstance(asset, dict):
+            asset["source_state"] = "stale"
+    manuscript = lesson.get("ppt_manuscript")
+    if isinstance(manuscript, dict) and manuscript:
+        manuscript["source_state"] = "stale"
+    for review in lesson.get("imported_ppt_reviews") or []:
+        if isinstance(review, dict):
+            review["source_state"] = "stale"
 
 
 def _text_list(value: Any) -> list[str]:
@@ -1312,6 +1337,9 @@ class TeacherLessonAuthoringRepository:
             "course_id": course_id,
             "revision": 0,
             "outline_revision_id": "",
+            "outline_material_drafts": [],
+            "current_outline_material_draft_id": "",
+            "material_absorptions": [],
             "lessons": {},
             "jobs": {},
             "updated_at": _now(),
@@ -1383,18 +1411,28 @@ class TeacherLessonAuthoringRepository:
                     ),
                     None,
                 )
-                lesson["source_state"] = (
-                    "current"
-                    if isinstance(working, dict)
-                    and str(working.get("source_outline_revision_id") or "") == outline_revision_id
-                    else "stale"
+                source_arrangement_revision_id = str(
+                    (working or {}).get("source_arrangement_revision_id") or ""
                 )
-                for review in lesson.get("imported_ppt_reviews") or []:
-                    if not isinstance(review, dict):
-                        continue
-                    source_revision = str(review.get("source_outline_revision_id") or "")
-                    if source_revision and source_revision != outline_revision_id:
-                        review["source_state"] = "stale"
+                current_arrangement_revision_id = str(
+                    arrangement.get("confirmed_revision_id") or ""
+                )
+                arrangement_matches = (
+                    not source_arrangement_revision_id
+                    or source_arrangement_revision_id == current_arrangement_revision_id
+                )
+                current = bool(
+                    isinstance(working, dict)
+                    and str(working.get("source_outline_revision_id") or "") == outline_revision_id
+                    and arrangement_matches
+                    and lesson.get("source_state_reason") != "arrangement_changed"
+                )
+                lesson["source_state"] = "current" if current else "stale"
+                if current:
+                    lesson.pop("source_state_reason", None)
+                else:
+                    reason = str(lesson.get("source_state_reason") or "outline_changed")
+                    _mark_lesson_dependents_stale(lesson, reason=reason)
             return self._save(value)
 
     def save_arrangement_revision(
@@ -1419,6 +1457,9 @@ class TeacherLessonAuthoringRepository:
                 "source_state": "current",
                 "revisions": [],
             })
+            previous_confirmed_revision_id = str(
+                state.get("confirmed_revision_id") or ""
+            )
             normalized = normalize_lesson_arrangement(
                 arrangement,
                 lesson_unit_id=lesson_unit_id,
@@ -1444,6 +1485,15 @@ class TeacherLessonAuthoringRepository:
             if confirm:
                 state["confirmed_revision_id"] = revision_id
             lesson["arrangement"] = state
+            if (
+                confirm
+                and previous_confirmed_revision_id
+                and previous_confirmed_revision_id != revision_id
+            ):
+                _mark_lesson_dependents_stale(
+                    lesson,
+                    reason="arrangement_changed",
+                )
             if source_outline_revision_id and not value.get("outline_revision_id"):
                 value["outline_revision_id"] = source_outline_revision_id
             saved = self._save(value)
@@ -1664,12 +1714,17 @@ class TeacherLessonAuthoringRepository:
                 lesson_unit_id,
                 _empty_lesson_asset(lesson_unit_id),
             )
+            arrangement_state = lesson.get("arrangement") or {}
+            source_arrangement_revision_id = str(
+                arrangement_state.get("confirmed_revision_id") or ""
+            )
             revision_id = f"tlpr-{uuid.uuid4().hex}"
             revision = {
                 "revision_id": revision_id,
                 "lesson_unit_id": lesson_unit_id,
                 "source_outline_revision_id": source_outline_revision_id,
                 "source_knowledge_scope_revision_id": source_knowledge_scope_revision_id,
+                "source_arrangement_revision_id": source_arrangement_revision_id,
                 "generation_source": generation_source,
                 "status": (
                     "needs_ai_review"
@@ -1694,6 +1749,11 @@ class TeacherLessonAuthoringRepository:
                 or str(value.get("outline_revision_id") or "") == source_outline_revision_id
                 else "stale"
             )
+            if arrangement_state.get("source_state", "current") != "current":
+                lesson["source_state"] = "stale"
+                lesson["source_state_reason"] = "arrangement_stale"
+            else:
+                lesson.pop("source_state_reason", None)
             for asset in lesson.get("ppt_assets") or []:
                 if not isinstance(asset, dict):
                     continue
@@ -2538,9 +2598,20 @@ class TeacherLessonAuthoringRepository:
                     },
                 )
             if lesson.get("source_state") != "current":
+                arrangement_changed = lesson.get("source_state_reason") in {
+                    "arrangement_changed", "arrangement_stale",
+                }
                 raise TeacherLessonAuthoringError(
-                    "lesson_plan_outline_conflict",
-                    "教案对应的大纲已经变化，请先更新教案。",
+                    (
+                        "lesson_plan_arrangement_conflict"
+                        if arrangement_changed
+                        else "lesson_plan_outline_conflict"
+                    ),
+                    (
+                        "本讲教学结构已经变化，请先更新教案。"
+                        if arrangement_changed
+                        else "教案对应的大纲已经变化，请先更新教案。"
+                    ),
                 )
             lesson["confirmed_revision_id"] = revision_id
             revision["status"] = "confirmed"
@@ -3027,6 +3098,136 @@ class TeacherLessonAuthoringRepository:
             quality_report=quality_report,
             actor=actor,
         )
+
+    def apply_material_absorption(
+        self,
+        course_id: str,
+        bundle: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Create linked structured working drafts without confirming them.
+
+        The whole bundle is written in one authoring-state replacement and is
+        idempotent by bundle_id.  Existing confirmed revisions are never
+        changed or hidden.
+        """
+        bundle_id = str(bundle.get("bundle_id") or "")
+        if not bundle_id or str(bundle.get("course_id") or "") != course_id:
+            raise TeacherLessonAuthoringError(
+                "material_absorption_bundle_invalid",
+                "材料吸收执行包不属于当前课程。",
+            )
+        with self._lock:
+            value = self.load(course_id)
+            existing = next(
+                (
+                    item for item in value.get("material_absorptions") or []
+                    if isinstance(item, dict) and item.get("bundle_id") == bundle_id
+                ),
+                None,
+            )
+            if isinstance(existing, dict):
+                return deepcopy(existing)
+
+            created: list[dict[str, Any]] = []
+            for target in bundle.get("targets") or []:
+                if not isinstance(target, dict):
+                    continue
+                target_id = str(target.get("target_id") or "")
+                target_type = str(target.get("target_type") or "")
+                scope_id = str(target.get("target_scope_id") or "")
+                structured = deepcopy(target.get("structured_document") or {})
+                if target_type not in {"outline", "lesson_plan", "script", "ppt"} or not target_id or not structured:
+                    raise TeacherLessonAuthoringError(
+                        "material_absorption_target_invalid",
+                        "材料吸收包中存在不完整的正式文件工作稿。",
+                    )
+                revision_id = "tmad-" + hashlib.sha256(
+                    f"{bundle_id}:{target_id}:{structured.get('content_hash', '')}".encode("utf-8")
+                ).hexdigest()[:24]
+                draft = {
+                    "revision_id": revision_id,
+                    "bundle_id": bundle_id,
+                    "plan_id": str(bundle.get("plan_id") or ""),
+                    "package_id": str(bundle.get("package_id") or ""),
+                    "target_id": target_id,
+                    "target_type": target_type,
+                    "target_scope_id": scope_id,
+                    "target_scope_label": str(target.get("target_scope_label") or ""),
+                    "title": str(target.get("title") or target_id),
+                    "status": "working_draft",
+                    "source_state": "current",
+                    "confirmation_required": True,
+                    "structured_document": structured,
+                    "source_refs": deepcopy(target.get("sources") or []),
+                    "created_at": _now(),
+                }
+                if target_type == "outline":
+                    for prior in value.setdefault("outline_material_drafts", []):
+                        if isinstance(prior, dict) and prior.get("status") == "working_draft":
+                            prior["status"] = "superseded"
+                            prior["superseded_at"] = _now()
+                    value["outline_material_drafts"].append(draft)
+                    value["current_outline_material_draft_id"] = revision_id
+                else:
+                    lesson = value.setdefault("lessons", {}).setdefault(
+                        scope_id,
+                        _empty_lesson_asset(scope_id),
+                    )
+                    drafts = lesson.setdefault("material_drafts", {}).setdefault(target_type, [])
+                    for prior in drafts:
+                        if isinstance(prior, dict) and prior.get("status") == "working_draft":
+                            prior["status"] = "superseded"
+                            prior["superseded_at"] = _now()
+                    drafts.append(draft)
+                    lesson.setdefault("current_material_draft_ids", {})[target_type] = revision_id
+                created.append({
+                    "revision_id": revision_id,
+                    "target_id": target_id,
+                    "target_type": target_type,
+                    "target_scope_id": scope_id,
+                    "status": "working_draft",
+                })
+
+            receipt = {
+                "schema_version": "teacher_material_absorption_receipt_v1",
+                "bundle_id": bundle_id,
+                "plan_id": str(bundle.get("plan_id") or ""),
+                "status": "working_drafts_created",
+                "created_at": _now(),
+                "drafts": created,
+            }
+            value.setdefault("material_absorptions", []).append(receipt)
+            self._save(value)
+            return deepcopy(receipt)
+
+    def current_material_drafts(self, course_id: str) -> dict[str, Any]:
+        value = self.load(course_id)
+        outline_id = str(value.get("current_outline_material_draft_id") or "")
+        outline = next(
+            (
+                deepcopy(item) for item in reversed(value.get("outline_material_drafts") or [])
+                if isinstance(item, dict) and item.get("revision_id") == outline_id
+            ),
+            None,
+        )
+        lessons: dict[str, dict[str, Any]] = {}
+        for lesson_id, lesson in (value.get("lessons") or {}).items():
+            if not isinstance(lesson, dict):
+                continue
+            selected: dict[str, Any] = {}
+            for target_type, revision_id in (lesson.get("current_material_draft_ids") or {}).items():
+                draft = next(
+                    (
+                        deepcopy(item) for item in reversed((lesson.get("material_drafts") or {}).get(target_type) or [])
+                        if isinstance(item, dict) and item.get("revision_id") == revision_id
+                    ),
+                    None,
+                )
+                if draft:
+                    selected[str(target_type)] = draft
+            if selected:
+                lessons[str(lesson_id)] = selected
+        return {"outline": outline, "lessons": lessons}
 
     def view(self, course_id: str) -> dict[str, Any]:
         return self.load(course_id)

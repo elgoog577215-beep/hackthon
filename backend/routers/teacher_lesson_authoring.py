@@ -850,6 +850,8 @@ def _lesson_projection(
             "script_revisions": [],
             "script_confirmation": {},
             "ppt_assets": [],
+            "material_drafts": {},
+            "current_material_draft_ids": {},
         }
         arrangement_state = plan_asset.get("arrangement") or {}
         arrangement_revision_id = str(arrangement_state.get("working_revision_id") or "")
@@ -1020,6 +1022,17 @@ def _lesson_projection(
                 ),
             },
             "plan": plan_asset,
+            "material_drafts": {
+                str(target_type): deepcopy(next(
+                    (
+                        item for item in reversed((plan_asset.get("material_drafts") or {}).get(target_type) or [])
+                        if isinstance(item, dict)
+                        and item.get("revision_id") == revision_id
+                    ),
+                    {},
+                ))
+                for target_type, revision_id in (plan_asset.get("current_material_draft_ids") or {}).items()
+            },
         })
     return result
 
@@ -1366,6 +1379,7 @@ async def get_lesson_authoring_view(
             "plan_schema_version": "course_teaching_plan_v3",
             "course_id": course_id,
             "outline_revision_id": outline_revision,
+            "outline_material_draft": repository.current_material_drafts(course_id).get("outline"),
             "lessons": _lesson_projection(source, repository),
             "jobs": list((repository.view(course_id).get("jobs") or {}).values()),
         }

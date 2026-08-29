@@ -114,6 +114,72 @@ class TeacherCourseSpaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["version_role"], "current")
         self.assertEqual(public["material_understanding"]["status"], "ai_completed")
 
+    async def test_material_absorption_decision_and_partial_execution_are_idempotent(self):
+        repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
+        created = repository.create_package(
+            "teacher-a", "数据结构", "2026-2027", "秋季", course_id="course-1"
+        )
+        package = repository.load_owned(created["package_id"], "teacher-a")
+        first = await repository.import_file(package, FakeUpload(), "第一讲教案.pdf", "batch-1")
+        second = await repository.import_file(package, FakeUpload(), "第一讲讲稿.pdf", "batch-1")
+        repository.update_asset_absorption_decision(
+            package,
+            first["asset_id"],
+            role="primary",
+            target_scope_id="lesson-1",
+            version_role="current",
+        )
+        self.assertEqual(package["assets"][0]["absorption_decision"]["role"], "primary")
+
+        plan = {
+            "package_id": created["package_id"],
+            "course_id": "course-1",
+            "plan_id": "plan-1",
+            "status": "ready",
+            "targets": [
+                {"target_id": "lesson-plan:lesson-1"},
+                {"target_id": "script:lesson-1"},
+            ],
+        }
+        repository.apply_material_absorption_plan(package, plan)
+        first_bundle = {
+            "bundle_id": "bundle-plan",
+            "plan_id": "plan-1",
+            "course_id": "course-1",
+            "targets": [{
+                "target_id": "lesson-plan:lesson-1",
+                "target_type": "lesson_plan",
+                "title": "第一讲教案",
+                "sources": [{"asset_id": first["asset_id"], "role": "primary", "action": "absorb"}],
+            }],
+        }
+        receipt = repository.execute_material_absorption(package, first_bundle)
+        duplicate = repository.execute_material_absorption(package, first_bundle)
+
+        self.assertEqual(receipt, duplicate)
+        self.assertEqual(package["material_absorption"]["status"], "partially_executed")
+        self.assertEqual(
+            package["material_absorption"]["execution"]["executed_target_ids"],
+            ["lesson-plan:lesson-1"],
+        )
+
+        second_bundle = {
+            "bundle_id": "bundle-script",
+            "plan_id": "plan-1",
+            "course_id": "course-1",
+            "targets": [{
+                "target_id": "script:lesson-1",
+                "target_type": "script",
+                "title": "第一讲讲稿",
+                "sources": [{"asset_id": second["asset_id"], "role": "primary", "action": "absorb"}],
+            }],
+        }
+        repository.execute_material_absorption(package, second_bundle)
+
+        self.assertEqual(package["material_absorption"]["status"], "executed")
+        self.assertEqual(len(package["material_absorption"]["execution"]["receipts"]), 2)
+        self.assertEqual(package["preparation_status"], "completed")
+
     async def test_course_binding_uses_stable_id_and_preserves_legacy_packages(self):
         repository = TeacherCourseSpaceRepository(Path(tempfile.mkdtemp()))
         bound = repository.create_package(

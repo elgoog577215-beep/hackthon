@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -242,7 +243,16 @@ class DoclingDocumentParser:
         else:
             document = backend.convert()
             blocks = _blocks_from_docling(document.export_to_dict(), asset.extension)
-            if asset.extension == ".pptx":
+            if asset.extension == ".docx":
+                blocks, docx_quality, docx_warnings = _enrich_docx_structure(
+                    source_path,
+                    blocks,
+                )
+                visual_quality.update(docx_quality)
+                warnings.extend(docx_warnings)
+                if docx_quality.get("tracked_change_count") or docx_quality.get("comment_part_present"):
+                    parse_status = "degraded"
+            elif asset.extension == ".pptx":
                 visual_blocks, visual_quality, visual_warnings = _pptx_visual_evidence(
                     source_path,
                     starting_order=len(blocks),
@@ -647,24 +657,179 @@ def _blocks_from_pdf_backend(backend: Any) -> list[DocumentBlock]:
     try:
         for page_number, page in enumerate(backend.iter_pages(), start=1):
             try:
-                text = "\n".join(
-                    re.sub(r"\s+", " ", str(cell.text or "")).strip()
-                    for cell in page.get_text_cells()
-                    if str(cell.text or "").strip()
-                ).strip()
-                if text:
+                cells = [
+                    cell for cell in page.get_text_cells()
+                    if re.sub(r"\s+", " ", str(getattr(cell, "text", "") or "")).strip()
+                ]
+                for cell_index, cell in enumerate(cells, start=1):
+                    text = re.sub(r"\s+", " ", str(getattr(cell, "text", "") or "")).strip()
                     blocks.append(DocumentBlock(
                         block_id=f"blk-{len(blocks) + 1}",
                         kind=_detect_block_kind(text),
                         text=text,
                         order=len(blocks),
-                        locator=DocumentLocator(page=page_number),
+                        locator=DocumentLocator(
+                            page=page_number,
+                            bbox=_pdf_cell_bbox(cell),
+                        ),
+                        metadata={
+                            "evidence_kind": "pdf_text_cell",
+                            "page_cell_index": cell_index,
+                        },
                     ))
             finally:
                 page.unload()
     finally:
         backend.unload()
     return blocks
+
+
+def _pdf_cell_bbox(cell: Any) -> dict[str, float] | None:
+    raw = getattr(cell, "rect", None) or getattr(cell, "bbox", None)
+    if isinstance(raw, dict):
+        return _normalized_bbox(raw)
+    values: dict[str, float] = {}
+    aliases = {
+        "l": ("l", "left", "x0"),
+        "t": ("t", "top", "y0"),
+        "r": ("r", "right", "x1"),
+        "b": ("b", "bottom", "y1"),
+    }
+    for target, names in aliases.items():
+        for name in names:
+            value = getattr(raw, name, None)
+            if isinstance(value, (int, float)):
+                values[target] = float(value)
+                break
+    return values or None
+
+
+def _enrich_docx_structure(
+    source_path: Path,
+    blocks: list[DocumentBlock],
+) -> tuple[list[DocumentBlock], dict[str, Any], list[str]]:
+    """Preserve Word structure and explicit review boundaries without duplicating prose."""
+    try:
+        from docx import Document
+    except ImportError as exc:
+        raise RuntimeError("DOCX 结构识别组件未安装") from exc
+
+    document = Document(str(source_path))
+    normalized_blocks = [re.sub(r"\s+", " ", item.text).strip() for item in blocks]
+    used_block_indexes: set[int] = set()
+    section_path: list[str] = []
+    heading_count = 0
+    list_item_count = 0
+    for paragraph_index, paragraph in enumerate(document.paragraphs, start=1):
+        text = re.sub(r"\s+", " ", paragraph.text or "").strip()
+        if not text:
+            continue
+        style_name = str(getattr(paragraph.style, "name", "") or "")
+        heading_match = re.search(r"(?:Heading|Title|标题)\s*(\d+)?", style_name, re.I)
+        heading_level = int(heading_match.group(1) or 1) if heading_match else 0
+        if heading_level:
+            heading_count += 1
+            section_path[:] = section_path[: max(0, heading_level - 1)]
+            section_path.append(text[:200])
+        has_numbering = bool(paragraph._p.xpath("./w:pPr/w:numPr")) or bool(
+            re.search(r"(?:^|\s)List(?:\s|$)|列表", style_name, re.I)
+        )
+        if has_numbering:
+            list_item_count += 1
+        block_index = next((
+            index for index, value in enumerate(normalized_blocks)
+            if index not in used_block_indexes and value == text
+        ), None)
+        if block_index is None:
+            continue
+        used_block_indexes.add(block_index)
+        block = blocks[block_index]
+        block.metadata = {
+            **block.metadata,
+            "docx_paragraph_index": paragraph_index,
+            "docx_style": style_name,
+            "heading_level": heading_level,
+            "numbered_or_bulleted": has_numbering,
+        }
+        if heading_level:
+            block.kind = "title" if heading_level == 1 else "heading"
+        elif has_numbering:
+            block.kind = "list_item"
+        block.locator.section_path = list(section_path)
+
+    table_cell_count = 0
+    for table_index, table in enumerate(document.tables, start=1):
+        matrix = [
+            [re.sub(r"\s+", " ", cell.text or "").strip() for cell in row.cells]
+            for row in table.rows
+        ]
+        table_cell_count += sum(len(row) for row in matrix)
+        table_block = next((
+            item for item in blocks
+            if item.kind == "table" and "docx_table_index" not in item.metadata
+        ), None)
+        if table_block is not None:
+            table_block.metadata = {
+                **table_block.metadata,
+                "docx_table_index": table_index,
+                "rows": matrix,
+                "row_count": len(matrix),
+                "column_count": max((len(row) for row in matrix), default=0),
+            }
+
+    header_footer_texts: list[tuple[str, str]] = []
+    for section_index, section in enumerate(document.sections, start=1):
+        for location, container in (("header", section.header), ("footer", section.footer)):
+            text = "\n".join(
+                paragraph.text.strip() for paragraph in container.paragraphs
+                if paragraph.text.strip()
+            )
+            if text and (location, text) not in header_footer_texts:
+                header_footer_texts.append((location, text))
+                blocks.append(DocumentBlock(
+                    block_id=f"blk-{len(blocks) + 1}",
+                    kind="other",
+                    text=text,
+                    order=len(blocks),
+                    metadata={
+                        "evidence_kind": f"docx_{location}",
+                        "docx_section_index": section_index,
+                    },
+                ))
+
+    tracked_change_count = 0
+    comment_part_present = False
+    formula_count = 0
+    media_count = 0
+    try:
+        with zipfile.ZipFile(source_path) as archive:
+            names = set(archive.namelist())
+            document_xml = archive.read("word/document.xml") if "word/document.xml" in names else b""
+            tracked_change_count = document_xml.count(b"<w:ins") + document_xml.count(b"<w:del")
+            formula_count = document_xml.count(b"<m:oMath")
+            comment_part_present = "word/comments.xml" in names
+            media_count = sum(1 for name in names if name.startswith("word/media/"))
+    except (OSError, KeyError, zipfile.BadZipFile):
+        pass
+
+    warnings: list[str] = []
+    if media_count:
+        warnings.append(f"DOCX 含 {media_count} 个图片或媒体对象，未将图像内容冒充为可引用事实")
+    if tracked_change_count:
+        warnings.append("DOCX 含修订痕迹，当前保留检测结果，采用哪个修订版本需要教师确认")
+    if comment_part_present:
+        warnings.append("DOCX 含批注，批注不会自动合并到正文")
+    return blocks, {
+        "heading_count": heading_count,
+        "list_item_count": list_item_count,
+        "table_count": len(document.tables),
+        "table_cell_count": table_cell_count,
+        "header_footer_block_count": len(header_footer_texts),
+        "picture_or_media_count": media_count,
+        "formula_count": formula_count,
+        "tracked_change_count": tracked_change_count,
+        "comment_part_present": comment_part_present,
+    }, warnings
 
 
 def _pptx_visual_evidence(

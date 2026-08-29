@@ -5,10 +5,29 @@ import { postGenerationStream } from '../shared/generation-stream'
 
 export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
+export interface TeacherMaterialWorkingDraft {
+  revision_id: string
+  bundle_id: string
+  plan_id: string
+  package_id: string
+  target_id: string
+  target_type: 'outline' | 'lesson_plan' | 'script' | 'ppt'
+  target_scope_id: string
+  target_scope_label: string
+  title: string
+  status: 'working_draft' | 'superseded'
+  source_state: 'current' | 'stale'
+  confirmation_required: true
+  structured_document: Record<string, any>
+  source_refs: Array<Record<string, any>>
+  created_at: string
+}
+
 export interface TeacherLessonPlanRevision {
   revision_id: string
   lesson_unit_id: string
   source_outline_revision_id: string
+  source_arrangement_revision_id?: string
   generation_source: string
   status: 'draft' | 'needs_ai_review' | 'confirmed'
   warnings: Array<Record<string, unknown>>
@@ -43,6 +62,8 @@ export interface TeacherLessonPlanAsset {
     confirmed_at?: string
   }
   ppt_assets: TeacherLessonPptAsset[]
+  material_drafts?: Record<string, TeacherMaterialWorkingDraft[]>
+  current_material_draft_ids?: Record<string, string>
 }
 
 export interface TeacherLessonArrangementBlock {
@@ -62,9 +83,10 @@ export interface TeacherLessonArrangementBlock {
   feedback_strategy?: string
   adaptation_options?: string[]
   engagement_mode?: 'passive' | 'active' | 'constructive' | 'interactive' | string
-  access_support?: string[]
+  access_support?: string
   grouping?: string
   transition?: string
+  safety_boundary?: string
   block_contract_version?: string
   required: boolean
 }
@@ -252,6 +274,7 @@ export interface TeacherLessonProjection {
   arrangement: TeacherLessonArrangement
   script: TeacherLessonScriptState
   plan: TeacherLessonPlanAsset
+  material_drafts?: Partial<Record<'lesson_plan' | 'script' | 'ppt', TeacherMaterialWorkingDraft>>
 }
 
 export interface TeacherLessonJob {
@@ -294,6 +317,7 @@ export interface TeacherLessonAuthoringView {
   plan_schema_version?: 'course_teaching_plan_v3'
   course_id: string
   outline_revision_id: string
+  outline_material_draft?: TeacherMaterialWorkingDraft | null
   lessons: TeacherLessonProjection[]
   jobs: TeacherLessonJob[]
 }

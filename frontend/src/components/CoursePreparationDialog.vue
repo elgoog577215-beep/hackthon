@@ -214,7 +214,7 @@ const dialogRef = ref<HTMLDialogElement | null>(null)
 const folderInput = ref<HTMLInputElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
 const coursePackage = ref<CoursePackage | null>(null)
-const step = ref<'choice' | 'import' | 'review'>('choice')
+const step = ref<'choice' | 'import'>('choice')
 const busy = ref(false)
 const dragging = ref(false)
 const outcomes = ref<ImportOutcome[]>([])
@@ -285,7 +285,16 @@ async function loadPackage() {
   const match = packages.find(item => String(item.course_id || '') === props.courseId) || packages[0]
   if (!match) return
   coursePackage.value = (await http.get<CoursePackage>(`/api/teacher-course-spaces/${match.package_id}`, teacherRequestConfig({ silentError: true }))).data
-  step.value = coursePackage.value.preparation_status === 'review' ? 'review' : 'choice'
+  if (coursePackage.value.preparation_status === 'review') {
+    coursePackage.value = (await http.patch<CoursePackage>(
+      `/api/teacher-course-spaces/${coursePackage.value.package_id}/preparation`,
+      { status: 'completed' },
+      teacherRequestConfig({ silentError: true }),
+    )).data
+    emit('completed')
+    return
+  }
+  step.value = 'choice'
 }
 
 async function updateStatus(status: 'completed' | 'skipped') {
@@ -344,7 +353,13 @@ async function uploadBatch(items: Array<{ file: File; path: string }>, emptyFold
     )
     outcomes.value = response.data?.outcomes || []
     coursePackage.value = response.data.package
-    step.value = 'review'
+    const importedPackageId = String(response.data.package?.package_id || '')
+    coursePackage.value = (await http.patch<CoursePackage>(
+      `/api/teacher-course-spaces/${importedPackageId}/preparation`,
+      { status: 'completed' },
+      teacherRequestConfig(),
+    )).data
+    emit('completed')
   } catch {
     error.value = t('courseFiles.preparation.importFailed')
   } finally {

@@ -180,7 +180,8 @@ class TeacherCourseSpaceRepository:
         entries = [{**entry, "path": entry["name"]} for entry in SCHOOL_TEMPLATE] if template == "school_course_materials" else []
         package = {"package_id": package_id, "owner_id": owner_id, "course_id": normalized_course_id, "course_name": name, "academic_year": year,
                    "term": term.strip(), "template": template, "status": "active", "created_at": _now(), "updated_at": _now(), "assets": [], "trash": [], "imports": [],
-                   "entries": entries, "relationships": [], "asset_relationships": [], "material_understanding": {}, "preparation_status": "pending"}
+                   "entries": entries, "relationships": [], "asset_relationships": [], "material_understanding": {},
+                   "material_absorption": {}, "preparation_status": "pending"}
         package_path = self._path(package_id)
         package_path.mkdir(parents=True, exist_ok=False)
         (package_path / "files").mkdir(exist_ok=True)  # immutable source copies for download/history
@@ -351,8 +352,181 @@ class TeacherCourseSpaceRepository:
         package["material_understanding"] = {
             key: value for key, value in understanding.items() if key != "assets"
         }
+        current_absorption = package.get("material_absorption") or {}
+        if current_absorption.get("status") not in {"executed"}:
+            package["material_absorption"] = {
+                **current_absorption,
+                "status": "stale",
+                "stale_reason": "material_understanding_changed",
+                "updated_at": _now(),
+            }
         self.save(package)
         return self.public(package)
+
+    def apply_material_absorption_plan(
+        self,
+        package: dict[str, Any],
+        plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist the executable audit without turning it into formal content."""
+        if str(plan.get("package_id") or "") != str(package.get("package_id") or ""):
+            raise MaterialStorageError("材料吸收方案不属于当前课程文件包")
+        previous = package.get("material_absorption") or {}
+        execution = dict(previous.get("execution") or {})
+        package["material_absorption"] = {
+            **plan,
+            "execution": execution,
+            "updated_at": _now(),
+        }
+        self.save(package)
+        return self.public(package)
+
+    def update_asset_absorption_decision(
+        self,
+        package: dict[str, Any],
+        asset_id: str,
+        *,
+        action: str | None = None,
+        role: str | None = None,
+        target_scope_id: str | None = None,
+        version_role: str | None = None,
+    ) -> dict[str, Any]:
+        asset = next((item for item in package.get("assets") or [] if item.get("asset_id") == asset_id), None)
+        if not isinstance(asset, dict):
+            raise FileNotFoundError(asset_id)
+        decision = dict(asset.get("absorption_decision") or {})
+        if action is not None:
+            normalized = str(action or "").strip()
+            if normalized not in {"absorb", "reference_only", "ignore"}:
+                raise MaterialStorageError("材料处理方式不合法")
+            decision["action"] = normalized
+        if role is not None:
+            normalized = str(role or "").strip()
+            if normalized not in {"primary", "reference"}:
+                raise MaterialStorageError("材料来源角色不合法")
+            decision["role"] = normalized
+        if target_scope_id is not None:
+            normalized = str(target_scope_id or "").strip()
+            if len(normalized) > 200:
+                raise MaterialStorageError("材料对应讲次不合法")
+            decision["target_scope_id"] = normalized
+        if version_role is not None:
+            normalized = str(version_role or "").strip()
+            if normalized not in {"current", "older", "reference", "unknown"}:
+                raise MaterialStorageError("材料版本角色不合法")
+            asset["version_role"] = normalized
+            asset["version_reason"] = "教师确认"
+        decision["decided_at"] = _now()
+        asset["absorption_decision"] = decision
+        current = package.get("material_absorption") or {}
+        package["material_absorption"] = {
+            **current,
+            "status": "stale",
+            "stale_reason": "teacher_decision_changed",
+            "updated_at": _now(),
+        }
+        self.save(package)
+        return dict(asset)
+
+    def execute_material_absorption(
+        self,
+        package: dict[str, Any],
+        bundle: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Atomically bind every source target and persist one execution receipt.
+
+        Formal authoring drafts are written by TeacherLessonAuthoringRepository
+        first.  This method is idempotent so an interrupted coordinator can
+        safely reconcile the package on retry.
+        """
+        bundle_id = str(bundle.get("bundle_id") or "")
+        if not bundle_id or str(bundle.get("course_id") or "") != str(package.get("course_id") or ""):
+            raise MaterialStorageError("材料吸收执行包不合法")
+        current = package.get("material_absorption") or {}
+        execution = dict(current.get("execution") or {})
+        receipts = [dict(item) for item in execution.get("receipts") or [] if isinstance(item, dict)]
+        previous_receipt = next(
+            (item for item in receipts if str(item.get("bundle_id") or "") == bundle_id),
+            None,
+        )
+        if isinstance(previous_receipt, dict):
+            return dict(previous_receipt)
+
+        assets = {str(item.get("asset_id") or ""): item for item in package.get("assets") or []}
+        target_ids = {str(item.get("target_id") or "") for item in bundle.get("targets") or []}
+        relationships = [
+            item for item in package.get("relationships") or []
+            if str(item.get("target_id") or "") not in target_ids
+        ]
+        created: list[dict[str, Any]] = []
+        timestamp = _now()
+        for target in bundle.get("targets") or []:
+            target_id = str(target.get("target_id") or "")
+            target_type = str(target.get("target_type") or "")
+            target_label = str(target.get("title") or target_id)
+            for source in target.get("sources") or []:
+                if str(source.get("action") or "") == "ignore":
+                    continue
+                source_asset_id = str(source.get("asset_id") or "")
+                asset = assets.get(source_asset_id)
+                if asset is None:
+                    raise FileNotFoundError(source_asset_id)
+                relationship = {
+                    "link_id": f"tcr-{uuid.uuid4().hex}",
+                    "source_asset_id": source_asset_id,
+                    "material_asset_id": str(asset.get("material_asset_id") or ""),
+                    "source_label": str(asset.get("filename") or ""),
+                    "target_id": target_id,
+                    "target_type": target_type,
+                    "target_label": target_label,
+                    "target_revision": "",
+                    "role": "primary" if source.get("role") == "primary" else "reference",
+                    "created_at": timestamp,
+                    "updated_at": timestamp,
+                    "absorption_bundle_id": bundle_id,
+                }
+                relationships.append(relationship)
+                created.append(relationship)
+            package.setdefault("source_binding_targets", {})[target_id] = {
+                "mode": "auto",
+                "updated_at": timestamp,
+                "absorption_bundle_id": bundle_id,
+            }
+        package["relationships"] = relationships
+        receipt = {
+            "schema_version": "material_absorption_receipt_v1",
+            "bundle_id": bundle_id,
+            "plan_id": str(bundle.get("plan_id") or ""),
+            "status": "working_drafts_created",
+            "target_count": len(bundle.get("targets") or []),
+            "relationship_count": len(created),
+            "executed_at": timestamp,
+        }
+        receipts.append(receipt)
+        executed_target_ids = sorted({
+            str(target_id)
+            for item in receipts
+            for target_id in item.get("target_ids") or []
+            if str(target_id)
+        } | target_ids)
+        receipt["target_ids"] = sorted(target_ids)
+        planned_target_ids = {
+            str(item.get("target_id") or "") for item in current.get("targets") or []
+        }
+        all_current_targets_executed = bool(planned_target_ids) and planned_target_ids <= set(executed_target_ids)
+        package["material_absorption"] = {
+            **current,
+            "status": "executed" if all_current_targets_executed else "partially_executed",
+            "execution": {
+                "receipt": receipt,
+                "receipts": receipts,
+                "executed_target_ids": executed_target_ids,
+            },
+            "updated_at": timestamp,
+        }
+        package["preparation_status"] = "completed"
+        self.save(package)
+        return receipt
 
     async def import_file(self, package: dict[str, Any], upload: Any, relative_path: str, batch_id: str) -> dict[str, Any]:
         relative_path = normalize_relative_path(relative_path)
@@ -424,6 +598,13 @@ class TeacherCourseSpaceRepository:
             expected = ("outline", "lesson_plan", "script", "ppt", "question_bank")
             understanding["missing_document_types"] = [value for value in expected if value not in available_types]
             package["material_understanding"] = understanding
+            current_absorption = package.get("material_absorption") or {}
+            package["material_absorption"] = {
+                **current_absorption,
+                "status": "stale",
+                "stale_reason": "document_type_changed",
+                "updated_at": _now(),
+            }
         self.save(package)
         return asset
 

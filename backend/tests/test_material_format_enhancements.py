@@ -16,6 +16,8 @@ from material_models import MaterialAsset, ParsedDocument
 from material_parser import (
     LegacyOfficeConversionParser,
     ScannedPdfOcrParser,
+    _blocks_from_pdf_backend,
+    _enrich_docx_structure,
     _pptx_visual_evidence,
 )
 from material_storage import MaterialRepository
@@ -183,3 +185,65 @@ def test_legacy_conversion_is_temporary_and_reuses_existing_parser(monkeypatch, 
     assert source.read_bytes() == original
     assert parsed.parser_name == "libreoffice_legacy+docling"
     assert "临时目录转换" in parsed.warnings[0]
+
+
+def test_docx_structure_keeps_heading_list_table_and_review_boundaries(tmp_path):
+    from docx import Document
+
+    source = tmp_path / "lesson.docx"
+    document = Document()
+    document.add_heading("第一讲 导数", level=1)
+    document.add_paragraph("能解释导数的几何意义。")
+    document.add_paragraph("使用切线图像判断变化率。", style="List Bullet")
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "教学环节"
+    table.cell(0, 1).text = "时长"
+    table.cell(1, 0).text = "导入"
+    table.cell(1, 1).text = "5"
+    document.sections[0].header.paragraphs[0].text = "高等数学"
+    document.save(source)
+    blocks = [
+        material_parser.DocumentBlock(block_id="b1", kind="paragraph", text="第一讲 导数", order=0),
+        material_parser.DocumentBlock(block_id="b2", kind="paragraph", text="能解释导数的几何意义。", order=1),
+        material_parser.DocumentBlock(block_id="b3", kind="paragraph", text="使用切线图像判断变化率。", order=2),
+        material_parser.DocumentBlock(block_id="b4", kind="table", text="教学环节 | 时长 | 导入 | 5", order=3),
+    ]
+
+    enriched, quality, warnings = _enrich_docx_structure(source, blocks)
+
+    assert enriched[0].kind == "title"
+    assert enriched[0].metadata["heading_level"] == 1
+    assert enriched[2].kind == "list_item"
+    assert enriched[3].metadata["rows"][1] == ["导入", "5"]
+    assert any(item.metadata.get("evidence_kind") == "docx_header" for item in enriched)
+    assert quality["heading_count"] == 1
+    assert quality["table_count"] == 1
+    assert warnings == []
+
+
+def test_pdf_text_cells_keep_page_and_source_locator() -> None:
+    class Cell:
+        def __init__(self, text: str, left: float):
+            self.text = text
+            self.rect = SimpleNamespace(left=left, top=1.0, right=left + 4.0, bottom=2.0)
+
+    class Page:
+        def get_text_cells(self):
+            return [Cell("教学目标", 1.0), Cell("核心概念", 6.0)]
+
+        def unload(self):
+            return None
+
+    class Backend:
+        def iter_pages(self):
+            return [Page()]
+
+        def unload(self):
+            return None
+
+    blocks = _blocks_from_pdf_backend(Backend())
+
+    assert [item.text for item in blocks] == ["教学目标", "核心概念"]
+    assert all(item.locator.page == 1 for item in blocks)
+    assert blocks[0].locator.bbox == {"l": 1.0, "t": 1.0, "r": 5.0, "b": 2.0}
+    assert blocks[1].metadata["page_cell_index"] == 2

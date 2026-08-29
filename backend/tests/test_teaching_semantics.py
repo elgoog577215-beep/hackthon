@@ -7,6 +7,7 @@ from models import CourseGenerationRequest
 from teaching_design import (
     COURSE_TEACHING_TYPES,
     LEARNING_PURPOSES,
+    LESSON_TYPE_CONTRACTS,
     SUBJECT_TYPES,
     compile_course_semantics,
     compile_lesson_semantics,
@@ -145,6 +146,47 @@ def test_subject_standard_pack_resolves_discipline_and_drives_block_language():
     assert block["discipline_profile_id"] == "higher_mathematics"
 
 
+def test_all_subject_families_compile_discipline_specific_evidence_and_feedback():
+    cases = {
+        "general": "通识导论",
+        "math_formal": "大学微积分",
+        "programming_engineering": "软件工程",
+        "natural_science": "大学物理实验",
+        "life_medical": "护理评估",
+        "humanities_social": "中国古代史",
+        "language_learning": "学术英语写作",
+        "business_career": "公司财务管理",
+    }
+
+    compiled = {}
+    for subject_type, hint in cases.items():
+        semantics = compile_lesson_semantics(
+            learning_purpose="systematic",
+            subject_type=subject_type,
+            discipline_hint=hint,
+            course_teaching_type="comprehensive",
+            lesson_type="theory_practice",
+        )
+        pack = semantics["course_semantics"]["subject_standard_pack"]
+        block = compile_teaching_block_contract(
+            {"block_id": f"{subject_type}-checkpoint", "role": "checkpoint"},
+            lesson_type="theory_practice",
+            subject_standard_pack=pack,
+        )
+        assert pack["evidence_patterns"][0] in block["check_method"]
+        assert pack["common_misconceptions"][0] in block["feedback_strategy"]
+        assert pack["professional_actions"][0] in block["adaptation_options"][2]
+        assert pack["professional_actions"][-1] in block["adaptation_options"][0]
+        assert block["safety_boundary"] == pack["safety_boundaries"][0]
+        compiled[subject_type] = (
+            block["check_method"],
+            block["feedback_strategy"],
+            tuple(block["adaptation_options"]),
+        )
+
+    assert len(set(compiled.values())) == len(cases)
+
+
 def test_auto_subject_resolution_uses_topic_without_a_parallel_prompt_chain():
     semantics = compile_course_semantics(
         subject_type="auto",
@@ -238,3 +280,46 @@ def test_cross_subject_fixed_cases_share_one_semantic_and_prompt_chain():
         assert "## 学习目的契约" in prompt
         assert "## 课程教学类型契约" in prompt
         assert "## 教学与学科契约" in prompt
+
+
+def test_representative_matrix_covers_eight_subjects_and_all_seven_lesson_types():
+    matrix = [
+        (case, lesson_type)
+        for case in CROSS_SUBJECT_CASES
+        for lesson_type in LESSON_TYPE_CONTRACTS
+    ]
+
+    assert len(matrix) == 56
+    assert {case["pedagogy_mode"] for case, _ in matrix} == set(SUBJECT_TYPES) - {"auto"}
+    assert {lesson_type for _, lesson_type in matrix} == set(LESSON_TYPE_CONTRACTS)
+
+    for case, lesson_type in matrix:
+        semantics = compile_lesson_semantics(
+            learning_purpose=case["learning_purpose"],
+            subject_type=case["pedagogy_mode"],
+            discipline_hint=case["subject"],
+            course_teaching_type=case["course_teaching_type"],
+            lesson_type=lesson_type,
+            lesson_goal=f"完成{case['subject']}的可观察学习成果",
+            classroom_constraints={"lesson_duration_minutes": 90},
+        )
+        pack = semantics["course_semantics"]["subject_standard_pack"]
+        block = compile_teaching_block_contract(
+            {
+                "block_id": f"{case['case_id']}-{lesson_type}",
+                "role": semantics["required_block_roles"][0],
+            },
+            lesson_type=lesson_type,
+            subject_standard_pack=pack,
+        )
+
+        assert semantics["lesson_type"] == lesson_type
+        assert semantics["course_semantics"]["subject_type"] == case["pedagogy_mode"]
+        assert semantics["required_learning_cycle"] == LESSON_TYPE_CONTRACTS[lesson_type]["learning_cycle"]
+        assert block["teacher_activity"]
+        assert block["student_activity"]
+        assert block["expected_output"]
+        assert block["check_method"]
+        assert block["feedback_strategy"]
+        assert len(block["adaptation_options"]) == 3
+        assert block["safety_boundary"] == pack["safety_boundaries"][0]

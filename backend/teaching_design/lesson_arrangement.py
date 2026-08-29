@@ -428,6 +428,7 @@ def normalize_lesson_arrangement(
             "access_support": _text(raw.get("access_support")),
             "grouping": _text(raw.get("grouping")),
             "transition": _text(raw.get("transition")),
+            "safety_boundary": _text(raw.get("safety_boundary")),
             "required": bool(raw.get("required", True)),
         }, lesson_type=lesson_type))
     return {
@@ -533,6 +534,7 @@ def apply_lesson_arrangement_to_plan(
                 "access_support": _text(block.get("access_support")),
                 "grouping": _text(block.get("grouping")),
                 "transition": _text(block.get("transition")),
+                "safety_boundary": _text(block.get("safety_boundary")),
                 "lesson_archetype_id": f"teacher_{lesson_type}",
                 "lesson_archetype_label": type_contract["label"],
             })

@@ -4,6 +4,7 @@ import asyncio
 import json
 import re
 import time
+from copy import deepcopy
 
 import pytest
 from fastapi import FastAPI
@@ -106,6 +107,63 @@ def test_lesson_scope_keeps_all_sections_inside_one_lesson():
     assert scoped["lesson"]["node_name"] == "第一讲"
     assert [item["node_id"] for item in scoped["sections"]] == ["L2-1-1", "L2-1-2"]
     assert scoped["chapter"]["node_id"] == "L1-1"
+
+
+def test_material_absorption_creates_unconfirmed_linked_working_drafts(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-confirmed")
+    confirmed = repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        standard_lesson_plan(),
+        source_outline_revision_id="outline-confirmed",
+    )
+    repository.confirm_plan_revision("course-1", "L1-1", confirmed["working_revision_id"])
+    bundle = {
+        "bundle_id": "bundle-1",
+        "plan_id": "audit-1",
+        "package_id": "package-1",
+        "course_id": "course-1",
+        "targets": [
+            {
+                "target_id": "managed:outline",
+                "target_type": "outline",
+                "target_scope_id": "course",
+                "target_scope_label": "整门课程",
+                "title": "课程大纲",
+                "sources": [{"asset_id": "outline-source", "role": "primary"}],
+                "structured_document": {
+                    "content_hash": "outline-hash",
+                    "sections": [{"section_id": "outline-s1", "title": "课程目标", "blocks": []}],
+                },
+            },
+            {
+                "target_id": "lesson-plan:L1-1",
+                "target_type": "lesson_plan",
+                "target_scope_id": "L1-1",
+                "target_scope_label": "第一讲",
+                "title": "第一讲教案",
+                "sources": [{"asset_id": "plan-source", "role": "primary"}],
+                "structured_document": {
+                    "content_hash": "plan-hash",
+                    "sections": [{"section_id": "plan-s1", "title": "教学流程", "blocks": []}],
+                },
+            },
+        ],
+    }
+
+    receipt = repository.apply_material_absorption("course-1", bundle)
+    duplicate = repository.apply_material_absorption("course-1", bundle)
+    view = repository.view("course-1")
+
+    assert receipt == duplicate
+    assert receipt["status"] == "working_drafts_created"
+    assert len(receipt["drafts"]) == 2
+    assert view["outline_revision_id"] == "outline-confirmed"
+    assert view["lessons"]["L1-1"]["confirmed_revision_id"] == confirmed["working_revision_id"]
+    drafts = repository.current_material_drafts("course-1")
+    assert drafts["outline"]["confirmation_required"] is True
+    assert drafts["lessons"]["L1-1"]["lesson_plan"]["status"] == "working_draft"
 
 
 def test_lesson_projection_recommends_current_arrangement_after_outline_change(tmp_path):
@@ -219,6 +277,99 @@ def test_lesson_arrangement_compacts_large_legacy_chapter_to_one_row_per_section
     }
     assert all(item["module_id"] == "teacher_section_sequence" for item in arrangement["blocks"])
     assert all("→" in item["content_summary"] for item in arrangement["blocks"])
+
+
+def test_arrangement_revision_marks_dependent_preparation_assets_stale(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    source = course_data()
+    source["blueprint_revision_id"] = "outline-v1"
+    repository.set_outline("course-1", "outline-v1")
+    arrangement = recommend_lesson_arrangement(
+        source,
+        "L1-2",
+        source_outline_revision_id="outline-v1",
+    )
+    saved_arrangement = repository.save_arrangement_revision(
+        "course-1",
+        "L1-2",
+        arrangement,
+        source_outline_revision_id="outline-v1",
+        confirm=True,
+    )
+    first_arrangement_revision_id = saved_arrangement["arrangement"]["confirmed_revision_id"]
+
+    plan = standard_lesson_plan()
+    plan["sections"][0]["node_id"] = "L2-2-1"
+    plan_asset = repository.save_plan_revision(
+        "course-1",
+        "L1-2",
+        plan,
+        source_outline_revision_id="outline-v1",
+        quality_report={
+            "passed": True,
+            "blocking_issues": [],
+            "review_issues": [],
+            "metrics": {},
+        },
+    )
+    plan_revision_id = plan_asset["working_revision_id"]
+    repository.confirm_plan_revision(
+        "course-1",
+        "L1-2",
+        plan_revision_id,
+        quality_report={
+            "passed": True,
+            "blocking_issues": [],
+            "review_issues": [],
+            "metrics": {},
+        },
+    )
+    state = repository.load("course-1")
+    prepared = state["lessons"]["L1-2"]
+    prepared["script_confirmation"] = {
+        "confirmed_revision_id": "script-v1",
+        "source_lesson_plan_revision_id": plan_revision_id,
+        "source_state": "current",
+    }
+    prepared["ppt_assets"] = [{
+        "asset_id": "ppt-v1",
+        "source_lesson_plan_revision_id": plan_revision_id,
+        "source_state": "current",
+    }]
+    repository._save(state)
+
+    updated = deepcopy(repository.confirmed_arrangement("course-1", "L1-2"))
+    assert updated is not None
+    updated["blocks"][0]["feedback_strategy"] = "按教师的新备课要求调整反馈预案。"
+    repository.save_arrangement_revision(
+        "course-1",
+        "L1-2",
+        updated,
+        source_outline_revision_id="outline-v1",
+        confirm=True,
+    )
+
+    lesson = repository.lesson("course-1", "L1-2")
+    plan_revision = next(
+        item for item in lesson["revisions"]
+        if item["revision_id"] == plan_revision_id
+    )
+    assert plan_revision["source_arrangement_revision_id"] == first_arrangement_revision_id
+    assert lesson["source_state"] == "stale"
+    assert lesson["source_state_reason"] == "arrangement_changed"
+    assert lesson["script_confirmation"]["source_state"] == "stale"
+    assert lesson["ppt_assets"][0]["source_state"] == "stale"
+
+    repository.set_outline("course-1", "outline-v1")
+    assert repository.lesson("course-1", "L1-2")["source_state"] == "stale"
+    with pytest.raises(TeacherLessonAuthoringError) as exc_info:
+        repository.confirm_plan_revision(
+            "course-1",
+            "L1-2",
+            plan_revision_id,
+            quality_report={"passed": True, "blocking_issues": [], "review_issues": [], "metrics": {}},
+        )
+    assert exc_info.value.code == "lesson_plan_arrangement_conflict"
 
 
 def test_standard_lesson_plan_quality_gate_is_shared_by_draft_and_confirmation():
