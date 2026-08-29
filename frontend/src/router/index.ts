@@ -66,6 +66,13 @@ const routes: Array<RouteRecordRaw> = [
     meta: { identityScope: 'teacher' },
   },
   {
+    path: '/course/:courseId/material-audit',
+    name: 'course-material-audit',
+    component: () => import('../views/TeacherMaterialAuditReportView.vue'),
+    props: true,
+    meta: { identityScope: 'teacher' },
+  },
+  {
     path: '/course/:courseId/changes/:planId?',
     name: 'course-change-workspace',
     component: () => import('../views/CourseChangeWorkspaceView.vue'),

@@ -116,6 +116,7 @@ export interface MaterialAuditAsset {
 export interface MaterialAuditPackage {
   package_id: string
   course_id: string
+  course_name?: string
   assets: MaterialAuditAsset[]
   asset_count: number
   material_absorption?: MaterialAbsorptionPlan
@@ -213,6 +214,26 @@ export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit'
         return this.coursePackage.material_absorption || null
       } catch (error) {
         this.error = errorMessage(error, '材料审计选择保存失败')
+        throw error
+      } finally {
+        this.updatingAssetIds = this.updatingAssetIds.filter(item => item !== assetId)
+      }
+    },
+    async updateDocumentType(assetId: string, documentType: MaterialDocumentType) {
+      if (!this.coursePackage) return null
+      this.updatingAssetIds = [...new Set([...this.updatingAssetIds, assetId])]
+      this.error = ''
+      try {
+        const updated = (await http.patch<MaterialAuditAsset>(
+          `/api/teacher-course-spaces/${this.coursePackage.package_id}/assets/${assetId}`,
+          { document_type: documentType },
+          teacherRequestConfig(),
+        )).data
+        this.coursePackage.assets = this.coursePackage.assets.map(asset => asset.asset_id === assetId ? { ...asset, ...updated } : asset)
+        await this.refresh()
+        return this.coursePackage.material_absorption || null
+      } catch (error) {
+        this.error = errorMessage(error, '材料类型保存失败')
         throw error
       } finally {
         this.updatingAssetIds = this.updatingAssetIds.filter(item => item !== assetId)

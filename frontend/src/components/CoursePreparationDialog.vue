@@ -208,7 +208,9 @@ type ImportOutcome = {
 }
 
 const props = defineProps<{ courseId: string; courseTitle: string }>()
-const emit = defineEmits<{ completed: [] }>()
+const emit = defineEmits<{
+  (event: 'completed', payload: { openAudit: boolean }): void
+}>()
 const titleId = 'course-preparation-title'
 const dialogRef = ref<HTMLDialogElement | null>(null)
 const folderInput = ref<HTMLInputElement | null>(null)
@@ -291,13 +293,13 @@ async function loadPackage() {
       { status: 'completed' },
       teacherRequestConfig({ silentError: true }),
     )).data
-    emit('completed')
+    emit('completed', { openAudit: true })
     return
   }
   step.value = 'choice'
 }
 
-async function updateStatus(status: 'completed' | 'skipped') {
+async function updateStatus(status: 'completed' | 'skipped', openAudit: boolean) {
   if (!coursePackage.value) return
   busy.value = true
   error.value = ''
@@ -307,7 +309,7 @@ async function updateStatus(status: 'completed' | 'skipped') {
       { status },
       teacherRequestConfig(),
     )).data
-    emit('completed')
+    emit('completed', { openAudit })
   } catch {
     error.value = t('courseFiles.preparation.statusFailed')
   } finally {
@@ -315,8 +317,8 @@ async function updateStatus(status: 'completed' | 'skipped') {
   }
 }
 
-function startBlank() { void updateStatus('skipped') }
-function finish() { void updateStatus('completed') }
+function startBlank() { void updateStatus('skipped', false) }
+function finish() { void updateStatus('completed', true) }
 
 const preparationRoot = '辅助资料/其他资料'
 function preparationPath(value: string) {
@@ -359,7 +361,7 @@ async function uploadBatch(items: Array<{ file: File; path: string }>, emptyFold
       { status: 'completed' },
       teacherRequestConfig(),
     )).data
-    emit('completed')
+    emit('completed', { openAudit: true })
   } catch {
     error.value = t('courseFiles.preparation.importFailed')
   } finally {

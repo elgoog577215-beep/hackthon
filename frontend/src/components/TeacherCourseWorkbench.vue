@@ -37,14 +37,6 @@
         <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
 
-      <TeacherMaterialAuditPanel
-        v-if="materialAuditTargetType"
-        :course-id="courseId"
-        :target-type="materialAuditTargetType"
-        :target-scope-id="materialAuditTargetScopeId"
-        @executed="handleMaterialAuditExecuted"
-      />
-
       <template v-if="showOutlineWorkspace">
         <TeacherDocumentCommandBar
           :label="t('courseWorkbench.outlineDocument.actions', '大纲操作')"
@@ -752,7 +744,6 @@ import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
 import TeacherLessonArrangementSummary from './TeacherLessonArrangementSummary.vue'
-import TeacherMaterialAuditPanel from './TeacherMaterialAuditPanel.vue'
 import TeacherDocumentCommandBar from './TeacherDocumentCommandBar.vue'
 import TeacherDocumentHistoryPanel, { type TeacherDocumentHistoryItem } from './TeacherDocumentHistoryPanel.vue'
 import TeacherLessonPlanDocument from './TeacherLessonPlanDocument.vue'
@@ -1002,14 +993,6 @@ const activeStageDefinition = computed(() => stages.value.find(item => item.id =
   icon: markRaw(FileCheck2),
 })
 const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
-const materialAuditTargetType = computed<'outline' | 'lesson_plan' | 'script' | 'ppt' | ''>(() => {
-  if (activeStage.value === 'foundation') return 'outline'
-  if (activeStage.value === 'lesson') return 'lesson_plan'
-  if (activeStage.value === 'script') return 'script'
-  if (activeStage.value === 'ppt') return 'ppt'
-  return ''
-})
-const materialAuditTargetScopeId = computed(() => materialAuditTargetType.value === 'outline' ? 'course' : selectedLessonId.value)
 const selectedLessonPosition = computed(() => {
   const index = lessonStore.lessons.findIndex(item => item.lesson_unit_id === selectedLessonId.value)
   return index >= 0 ? index + 1 : 1
@@ -1532,9 +1515,6 @@ const shapeConfirmErrorPresentation = computed(() => shapeConfirmError.value ? t
 }) : null)
 
 function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current')) }
-async function handleMaterialAuditExecuted() {
-  await lessonStore.load(props.courseId)
-}
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
 function appendAiMessage(

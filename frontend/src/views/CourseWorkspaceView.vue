@@ -40,6 +40,14 @@
           </label>
         </el-popover>
         <button
+          class="audit-action"
+          type="button"
+          :title="t('courseFiles.materialAuditReport.open', '查看课程材料审计报告')"
+          @click="openMaterialAudit"
+        >
+          <ScanSearch :size="16" />{{ t('courseFiles.materialAuditReport.shortTitle', '材料审计') }}
+        </button>
+        <button
           class="adjustment-action"
           type="button"
           :title="t('courseEvolution.workspace.openHint', '在独立工作区生成并审阅课程更新')"
@@ -136,7 +144,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, Search, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
@@ -323,6 +331,10 @@ function openCourseAdjustment(payload?: { planId?: string; sectionId?: string })
   })
 }
 
+function openMaterialAudit() {
+  void router.push({ name: 'course-material-audit', params: { courseId: courseId.value } })
+}
+
 async function startOutlineGeneration(payload: { subject: string; options: CourseGenerationOptions }) {
   if (generationStarting.value) return
   generationStarting.value = true
@@ -356,9 +368,10 @@ function openCoursePreview() {
   })
 }
 
-function handlePreparationCompleted() {
+async function handlePreparationCompleted(payload?: { openAudit?: boolean }) {
   materialRefreshToken.value += 1
-  if (route.query.prepare) void router.replace({ query: { ...route.query, prepare: undefined } })
+  if (route.query.prepare) await router.replace({ query: { ...route.query, prepare: undefined } })
+  if (payload?.openAudit) await router.push({ name: 'course-material-audit', params: { courseId: courseId.value } })
 }
 
 async function handleOutlineConfirmed() {
@@ -422,6 +435,8 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:12px; }
 .workspace-search button { width:24px; min-height:24px; padding:0; border:0; background:transparent; }
 .workspace-route-actions .search-action { display:none; width:38px; padding:0; }
+.workspace-route-actions .audit-action { border-color:#dfe3ea; color:#475569; background:#fff; }
+.workspace-route-actions .audit-action:hover { border-color:#aaa7f2; color:#5148dc; background:#f8f8ff; }
 .workspace-route-actions .adjustment-action { border-color:#d7d9ff; color:#5148dc; background:#f8f8ff; }
 .workspace-route-actions .adjustment-action:hover { border-color:#8580f5; background:#f0f0ff; }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }

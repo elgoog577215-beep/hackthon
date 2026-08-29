@@ -58,9 +58,10 @@ describe('CoursePreparationDialog', () => {
       expect.anything(),
     )
     expect(wrapper.emitted('completed')).toHaveLength(1)
+    expect(wrapper.emitted('completed')?.[0]).toEqual([{ openAudit: false }])
   })
 
-  it('批量导入并完成分析后直接进入带嵌入式审计的工作台', async () => {
+  it('批量导入并完成分析后要求进入独立审计报告', async () => {
     const reviewPackage = {
       ...pendingPackage,
       asset_count: 2,
@@ -116,6 +117,7 @@ describe('CoursePreparationDialog', () => {
       expect.anything(),
     )
     expect(wrapper.emitted('completed')).toHaveLength(1)
+    expect(wrapper.emitted('completed')?.[0]).toEqual([{ openAudit: true }])
     expect(wrapper.find('.preparation-review').exists()).toBe(false)
   })
 })
