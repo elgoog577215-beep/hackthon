@@ -42,18 +42,10 @@
         <button
           class="audit-action"
           type="button"
-          :title="t('courseFiles.materialAuditReport.open', '查看课程材料审计报告')"
+          :title="t('courseAuditUpdates.openHint', '查看材料变化、生成关系和全课调整')"
           @click="openMaterialAudit"
         >
-          <ScanSearch :size="16" />{{ t('courseFiles.materialAuditReport.shortTitle', '材料审计') }}
-        </button>
-        <button
-          class="adjustment-action"
-          type="button"
-          :title="t('courseEvolution.workspace.openHint', '在独立工作区生成并审阅课程更新')"
-          @click="openCourseAdjustment()"
-        >
-          <GitBranchPlus :size="16" />{{ t('courseEvolution.workspace.open', '调整课程') }}
+          <ScanSearch :size="16" />{{ t('courseAuditUpdates.open', '审计与更新') }}
         </button>
         <button class="preview-action" type="button" @click="openCoursePreview"><Eye :size="16" />{{ t('courseFiles.previewCourse') }}</button>
       </div>
@@ -144,7 +136,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Eye, FolderOpen, FolderTree, GitBranchPlus, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
+import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanSearch, Search, X } from 'lucide-vue-next'
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
@@ -323,16 +315,51 @@ function openTasks() {
 
 function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
   void router.push({
-    name: 'course-change-workspace',
+    name: 'course-audit-updates',
     params: {
       courseId: courseId.value,
       ...(payload?.planId ? { planId: payload.planId } : {}),
     },
+    query: auditCenterReturnQuery('changes'),
   })
 }
 
 function openMaterialAudit() {
-  void router.push({ name: 'course-material-audit', params: { courseId: courseId.value } })
+  void router.push({
+    name: 'course-audit-updates',
+    params: { courseId: courseId.value },
+    query: auditCenterReturnQuery('materials'),
+  })
+}
+
+function auditCenterReturnQuery(view: 'materials' | 'changes') {
+  const query: Record<string, string> = { view }
+  const workspaceQuery: Record<string, string> = {}
+  let returnLabel = t('courseAuditUpdates.returnWorkbench', '返回备课工作台')
+  if (workspaceView.value === 'files') {
+    workspaceQuery.view = 'files'
+    returnLabel = t('courseAuditUpdates.returnFiles', '返回课程文件')
+  } else {
+    workspaceQuery.stage = requestedWorkbenchStage.value
+    if (requestedLessonId.value) workspaceQuery.lesson = requestedLessonId.value
+    const stageLabels: Record<string, string> = {
+      foundation: t('courseAuditUpdates.stageFoundation', '课程大纲'),
+      lesson: t('courseAuditUpdates.stageLesson', '教案'),
+      'question-bank': t('courseAuditUpdates.stageQuestionBank', '题库'),
+      script: t('courseAuditUpdates.stageScript', '讲稿'),
+      ppt: 'PPT',
+      companion: t('courseAuditUpdates.stageCompanion', '配套文档'),
+    }
+    returnLabel = t('courseAuditUpdates.returnStage', '返回{stage}').replace('{stage}', stageLabels[requestedWorkbenchStage.value] || t('courseAuditUpdates.returnWorkbench', '备课工作台'))
+  }
+  const resolved = router.resolve({
+    name: 'course-workspace',
+    params: { courseId: courseId.value, mode: 'build' },
+    query: workspaceQuery,
+  })
+  query.returnTo = resolved.fullPath
+  query.returnLabel = returnLabel
+  return query
 }
 
 async function startOutlineGeneration(payload: { subject: string; options: CourseGenerationOptions }) {
@@ -371,7 +398,7 @@ function openCoursePreview() {
 async function handlePreparationCompleted(payload?: { openAudit?: boolean }) {
   materialRefreshToken.value += 1
   if (route.query.prepare) await router.replace({ query: { ...route.query, prepare: undefined } })
-  if (payload?.openAudit) await router.push({ name: 'course-material-audit', params: { courseId: courseId.value } })
+  if (payload?.openAudit) openMaterialAudit()
 }
 
 async function handleOutlineConfirmed() {
@@ -437,8 +464,6 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-route-actions .search-action { display:none; width:38px; padding:0; }
 .workspace-route-actions .audit-action { border-color:#dfe3ea; color:#475569; background:#fff; }
 .workspace-route-actions .audit-action:hover { border-color:#aaa7f2; color:#5148dc; background:#f8f8ff; }
-.workspace-route-actions .adjustment-action { border-color:#d7d9ff; color:#5148dc; background:#f8f8ff; }
-.workspace-route-actions .adjustment-action:hover { border-color:#8580f5; background:#f0f0ff; }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
 .workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="prepared"] { background:#ecfdf5; color:#047857; }
@@ -451,8 +476,7 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .spin { animation:spin 1s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 @media (max-width:1050px) {
-  .workspace-route-actions>button:not(.adjustment-action) { width:38px; padding:0; font-size:0; }
-  .workspace-route-actions>.adjustment-action { min-width:108px; padding:0 10px; font-size:12px; }
+  .workspace-route-actions>button { width:38px; padding:0; font-size:0; }
   .workspace-route-actions>button svg { margin:auto; }
 }
 @media (max-width:720px) {

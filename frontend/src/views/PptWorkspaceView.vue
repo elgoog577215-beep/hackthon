@@ -1263,8 +1263,13 @@ async function retryPptAiCandidate() {
 function openPptCoursePlan(planId: string) {
   if (!planId) return
   void router.push({
-    name: 'course-change-workspace',
+    name: 'course-audit-updates',
     params: { courseId: courseId.value, planId },
+    query: {
+      view: 'changes',
+      returnTo: route.fullPath,
+      returnLabel: t('courseAuditUpdates.returnPpt', '返回 PPT'),
+    },
   })
 }
 

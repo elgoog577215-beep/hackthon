@@ -162,7 +162,7 @@ export const useTeacherMaterialAuditStore = defineStore('teacher-material-audit'
         )).data
         if (
           Array.isArray(this.coursePackage.assets) && this.coursePackage.assets.length
-          && (!this.coursePackage.material_absorption?.plan_id || this.coursePackage.material_absorption.status === 'stale')
+          && !this.coursePackage.material_absorption?.plan_id
         ) await this.refresh()
         return this.coursePackage
       } catch (error) {

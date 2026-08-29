@@ -66,18 +66,32 @@ const routes: Array<RouteRecordRaw> = [
     meta: { identityScope: 'teacher' },
   },
   {
-    path: '/course/:courseId/material-audit',
-    name: 'course-material-audit',
+    path: '/course/:courseId/audit-updates/:planId?',
+    name: 'course-audit-updates',
     component: () => import('../views/TeacherMaterialAuditReportView.vue'),
     props: true,
     meta: { identityScope: 'teacher' },
   },
   {
+    path: '/course/:courseId/material-audit',
+    name: 'course-material-audit',
+    redirect: to => ({
+      name: 'course-audit-updates',
+      params: { courseId: to.params.courseId },
+      query: { ...to.query, view: 'materials' },
+    }),
+  },
+  {
     path: '/course/:courseId/changes/:planId?',
     name: 'course-change-workspace',
-    component: () => import('../views/CourseChangeWorkspaceView.vue'),
-    props: true,
-    meta: { identityScope: 'teacher' },
+    redirect: to => ({
+      name: 'course-audit-updates',
+      params: {
+        courseId: to.params.courseId,
+        ...(to.params.planId ? { planId: to.params.planId } : {}),
+      },
+      query: { ...to.query, view: 'changes' },
+    }),
   },
   {
     path: '/teacher/course/:courseId/overview',

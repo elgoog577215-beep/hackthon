@@ -1,7 +1,7 @@
 <template>
   <Teleport to="body" :disabled="standalone">
     <Transition name="course-change-layer">
-      <div v-if="modelValue" class="course-change-layer" :class="{ 'is-standalone': standalone }" @keydown="handleKeydown">
+      <div v-if="modelValue" class="course-change-layer" :class="{ 'is-standalone': standalone, 'is-update-center': embeddedInCenter }" @keydown="handleKeydown">
         <button v-if="!standalone" type="button" class="course-change-backdrop" :aria-label="t('courseEvolution.workspace.close', '关闭课程修改工作台')" @click="close" />
         <section ref="workspaceRef" class="course-change-workspace" :role="standalone ? 'region' : 'dialog'" :aria-modal="standalone ? undefined : 'true'" :aria-labelledby="titleId" tabindex="-1">
           <header class="workspace-header">
@@ -127,7 +127,7 @@ type WorkspaceState = 'request' | 'scanning' | 'interpreting' | 'content' | 'str
 type ContextAsset = TeacherCourseChangeContext['assets'][number]
 type AffectedUnit = { migration_id: string; unit_id: string; asset_type: string; unit_type: string; title: string; before_preview: string; after_preview?: string; section_ids: string[]; source_state: string; disposition: string; reason: string; confidence: number; candidate_status: string; candidate_error?: string; operation_id?: string; change_count?: number }
 
-const props = withDefaults(defineProps<{ modelValue: boolean; courseId: string; sectionId?: string; courseTitle?: string; sectionTitle?: string; focusPlanId?: string; standalone?: boolean }>(), { sectionId: '', courseTitle: '', sectionTitle: '', focusPlanId: '', standalone: false })
+const props = withDefaults(defineProps<{ modelValue: boolean; courseId: string; sectionId?: string; courseTitle?: string; sectionTitle?: string; focusPlanId?: string; standalone?: boolean; embeddedInCenter?: boolean }>(), { sectionId: '', courseTitle: '', sectionTitle: '', focusPlanId: '', standalone: false, embeddedInCenter: false })
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; courseApplied: [presentation: CourseEvolutionApplicationPresentation] }>()
 const store = useCourseEvolutionStore()
 const workspaceRef = ref<HTMLElement | null>(null)
@@ -160,6 +160,7 @@ const focusedPlan = computed(() => {
 })
 const planning = computed(() => focusedPlan.value?.teacher_change_planning || null)
 const standalone = computed(() => props.standalone)
+const embeddedInCenter = computed(() => props.embeddedInCenter)
 const hasApplicationReceipt = computed(() => Object.keys(focusedPlan.value?.application_receipt || {}).length > 0)
 const hasUndoReceipt = computed(() => Object.keys(focusedPlan.value?.undo_receipt || {}).length > 0)
 const workspaceState = computed<WorkspaceState>(() => {
@@ -266,6 +267,11 @@ watch(() => focusedPlan.value?.change_set_id, () => {
   discardConfirm.value = false
 }, { immediate: true })
 watch(() => props.modelValue, async open => { if (!open) return; previousFocus.value = document.activeElement instanceof HTMLElement ? document.activeElement : null; forceRequest.value = false; selectedPlanId.value = props.focusPlanId; await reloadWorkspace(); await nextTick(); workspaceRef.value?.focus(); if (workspaceState.value === 'request') requestInputRef.value?.focus() }, { immediate: true })
+watch(() => props.focusPlanId, value => {
+  if (!props.modelValue || !value) return
+  selectedPlanId.value = value
+  forceRequest.value = false
+})
 
 function assetIcon(value: string): Component { return ({ outline: BookText, course_content: BookOpenText, lesson_plan: ClipboardList, script: ScrollText, teacher_script: ScrollText, ppt: Presentation, slide_deck: Presentation, question_bank: FileQuestion } as Record<string, Component>)[value] || BookText }
 function assetLabel(value: string) { const item = ({ outline: ['assetOutline', '课程大纲'], course_content: ['assetCourseContent', '课程正文'], lesson_plan: ['assetLessonPlan', '教案'], script: ['assetTeacherScript', '讲稿'], teacher_script: ['assetTeacherScript', '讲稿'], ppt: ['assetSlides', 'PPT'], slide_deck: ['assetSlides', 'PPT'], question_bank: ['assetQuestionBank', '题库'] } as Record<string, string[]>)[value]; return item ? t(`courseEvolution.workspace.${item[0]}`, item[1]) : value }
@@ -355,7 +361,7 @@ function startNewRequest() { forceRequest.value = true; selectedPlanId.value = '
 function openPlan(id: string) { selectedPlanId.value = id; forceRequest.value = false }
 function close() { emit('update:modelValue', false); nextTick(() => previousFocus.value?.focus()) }
 function handleKeydown(event: KeyboardEvent) { if (event.key === 'Escape') { event.preventDefault(); close(); return } if (standalone.value || event.key !== 'Tab' || !workspaceRef.value) return; const focusable = [...workspaceRef.value.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')].filter(item => !item.hasAttribute('hidden')); if (!focusable.length) { event.preventDefault(); workspaceRef.value.focus(); return } const first = focusable[0]!; const last = focusable[focusable.length - 1]!; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() } }
-defineExpose({ reloadWorkspace })
+defineExpose({ reloadWorkspace, openPlan, startNewRequest })
 </script>
 
 <style scoped>
@@ -364,6 +370,7 @@ defineExpose({ reloadWorkspace })
 .candidate-diff{display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);align-items:center;gap:8px}.candidate-diff>svg{color:#667085}.source-preview.is-after{background:#edf8f4}.source-preview.is-after small{color:#087354}.candidate-error{display:flex;align-items:center;gap:5px;margin:8px 0 0;color:#b42318;font-size:9px}.receipt-items{display:grid;gap:6px;max-height:220px;overflow:auto;margin:0 0 18px;padding:0;text-align:left;list-style:none}.receipt-items li{display:grid;grid-template-columns:54px minmax(110px,.7fr) minmax(0,1.3fr);align-items:center;gap:8px;padding:8px 10px;border-radius:8px;background:#f6f7fa;font-size:9px}.receipt-items span{color:#667085;font-weight:800}.receipt-items li[data-status=applied] span{color:#087354}.receipt-items li[data-status=failed] span{color:#b42318}.receipt-items b{overflow:hidden;color:#253047;text-overflow:ellipsis;white-space:nowrap}.receipt-items small{color:#667085}
 
 .course-change-layer.is-standalone{position:relative;inset:auto;z-index:1;width:100%;height:100%;display:block;padding:0;background:#f5f7fb}.is-standalone .course-change-workspace{width:100%;height:100%;display:flex;flex-direction:column;border-radius:0;box-shadow:none}.is-standalone .workspace-header{display:none}.is-standalone .journey,.is-standalone .workspace-context-stack{flex:none}.is-standalone .workspace-stage{flex:1}.is-standalone .course-change-workspace:focus{outline:none}
+.course-change-layer.is-update-center{background:transparent}.is-update-center .course-change-workspace{background:#fff}.is-update-center .journey{display:none}.is-update-center .workspace-context-stack{border-bottom:1px solid #e2e6ed}.is-update-center .workspace-stage{background:#fff}.is-update-center .request-state{width:min(760px,calc(100% - 40px));padding-top:22px}.is-update-center .recent-changes{display:none}.is-update-center .request-composer{box-shadow:none}.is-update-center .review-layout{grid-template-columns:210px minmax(0,1fr)}.is-update-center .impact-nav{padding:18px 14px}.is-update-center .impact-review{padding:18px 20px 0}.is-update-center .review-actionbar{margin:0 -20px}.is-update-center .structure-review{padding:20px 22px 34px}.is-update-center .migration-panel{padding:20px 16px}
 .request-context{grid-template-columns:minmax(0,1fr) auto auto}.request-context>div{padding-left:0;border-right:0}.request-context>span{justify-self:end;padding:5px 8px;border-radius:7px;color:#5148dc;background:#ecebff;font-size:9px;font-weight:800}
 .request-state{width:min(820px,calc(100% - 48px));grid-template-columns:minmax(0,1fr);align-content:start;gap:14px;padding:24px 0 42px}.request-composer{order:2;padding:24px 26px;border:1px solid #e3e7ef;box-shadow:0 10px 28px rgba(30,41,59,.055)}.request-heading{display:block;margin-bottom:16px}.request-heading h3{margin:0;font-size:22px}.request-composer form>textarea{min-height:154px}.request-composer form>footer{justify-content:flex-end}.request-composer form>footer>span{margin-right:auto;color:#b42318}.recent-changes{order:3;margin:0;padding:18px 4px 0;border-top:1px solid #dfe4ec}.readiness-strip{order:1;display:grid;gap:12px;padding:14px 16px;border:1px solid #e1e5ec;border-radius:13px;background:#fff}.readiness-strip>header{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:9px}.readiness-strip>header>span{width:28px;height:28px;display:grid;place-items:center;border-radius:8px;color:#b54708;background:#fff3e6}.readiness-strip>header>span[data-ready=true]{color:#087354;background:#eaf8f2}.readiness-strip>header div{display:grid;gap:2px}.readiness-strip>header small{color:#667085;font-size:9px}.readiness-strip>header strong{color:#253047;font-size:12px}.readiness-strip>header>b{color:#5148dc;font-size:11px}.readiness-strip ul{display:flex;flex-wrap:wrap;gap:7px;margin:0;padding:0;list-style:none}.readiness-strip li{display:grid;grid-template-columns:7px auto auto;align-items:center;gap:5px;padding:5px 7px;border-radius:7px;color:#344054;background:#f5f6f8;font-size:9px}.readiness-strip li i{width:6px;height:6px;border-radius:50%;background:#16a36a}.readiness-strip li[data-state=partial] i,.readiness-strip li[data-state=stale] i{background:#d97706}.readiness-strip li[data-state=missing] i{background:#98a2b3}.readiness-strip li small{color:#667085}.migration-actions,.receipt-actions{display:grid;gap:8px}.migration-actions .button-primary,.migration-actions .button-secondary{width:100%}.receipt-actions{grid-template-columns:repeat(2,minmax(0,auto));justify-content:center;margin-top:8px}
 @media(max-width:920px){.course-change-layer.is-standalone{height:100%}.is-standalone .course-change-workspace{width:100%;height:100%}.request-state{width:min(720px,calc(100% - 32px))}.readiness-strip ul{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.request-context{grid-template-columns:minmax(0,1fr) auto}.request-context>span{display:none}}

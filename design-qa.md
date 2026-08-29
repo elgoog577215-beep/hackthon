@@ -92,6 +92,36 @@ final result: passed
 
 ---
 
+# Design QA — 课程审计与更新中心（2026-08-30）
+
+## Comparison target
+
+- Source visual truth: `/Users/yq/.codex/generated_images/01a04e46-cc6f-7c80-8cd4-29d0e9ddc4bf/exec-81d1d8fa-1fdf-48a1-b9a4-92c27c44c453.png`，用户选择的第三种方案。
+- Material-change implementation: `/tmp/lingzhi-audit-updates-implementation.png`。
+- Course-change implementation: `/tmp/lingzhi-audit-updates-course-change.png`。
+- Combined reference/implementation comparison: `/tmp/lingzhi-audit-updates-comparison.png`。
+- Verified route: `http://127.0.0.1:5173/course/a3b72fb9-3d2c-46df-8e57-f796a44c487b/audit-updates?view=materials`。
+- Viewport and state: `1280 × 720`，中文、浅色主题；覆盖已有材料审计、提出全课调整、执行历史以及精确返回讲稿工作台。
+
+## Product and interaction matrix
+
+- Navigation: one canonical “审计与更新中心” route replaces the separate material-audit and full-course-adjustment destinations; legacy routes redirect into the same center while preserving source, plan and return context.
+- Content: the left column lists every course change source, the middle column shows material-to-output relationships or the selected full-course change workflow, and the right column shows evidence, structured preview, impact and execution scope.
+- Actions: teachers can upload or replace materials, rescan, switch relationship/list views, inspect unaffected objects, propose a course-wide adjustment, confirm the current or full scope, and open execution/version history without leaving the center.
+- State: the center exposes pending scan/review counts, selected source, current relationship status, changed/unaffected results, execution progress, failures and exact return destination. Formal outline, lesson plan, script and PPT data remain owned by their domain stores and commands.
+
+## Findings and fixes
+
+- P1 — the detail pane originally used overlapping grid rows, causing source evidence and the structure selector to cover each other. Fixed by restoring normal block flow with a sticky detail header.
+- P1 — the bottom execution bar could be clipped when the optional error row was absent. Fixed by collapsing the empty row and assigning the action bar to the visible final row.
+- Final visual pass found no actionable P0, P1 or P2 issue. The result preserves the selected reference's relationship-first three-column hierarchy, compact blue-purple visual language and information density without duplicating report cards across workbench pages.
+- Browser interaction pass confirmed relationship/list switching, execution history, the embedded full-course-change request state, and exact return to `/workspace/build?stage=script&lesson=lesson-1`.
+- Browser console reported zero errors and zero warnings in the verified path.
+
+final result: passed
+
+---
+
 # Design QA — 课程生产工作台（2026-08-22）
 
 ## Comparison target

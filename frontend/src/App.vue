@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
 })
 
 const isLearningRoute = computed(() => route.name === 'learning')
-const isCourseWorkspaceRoute = computed(() => ['course-workspace', 'course-change-workspace'].includes(String(route.name || '')))
+const isCourseWorkspaceRoute = computed(() => ['course-workspace', 'course-audit-updates'].includes(String(route.name || '')))
 const isPublicConceptRoute = computed(() => route.meta.publicConcept === true)
 const isFullscreenConceptRoute = computed(() => route.meta.fullscreenConcept === true)
 const searchQuery = computed({
