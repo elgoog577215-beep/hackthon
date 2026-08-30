@@ -48,8 +48,6 @@
 
 final result: passed
 
----
-
 # Design QA — 题库外部文件导入工作区（2026-08-24）
 
 ## Comparison target
@@ -306,5 +304,44 @@ final result: passed
 - The add-source control is a named button with `aria-expanded`/menu semantics; Enter opens it and Escape closes it in browser verification.
 - No source creation, execution, or data mutation was performed during browser acceptance.
 - Focused component tests and the production build pass. No actionable P0, P1, or P2 design issue remains in the checked desktop flow.
+
+final result: passed
+
+---
+
+# Design QA — 审计与更新工作台同构精简（2026-08-30）
+
+## Audit scope and evidence
+
+- Reference surface: the live `微积分` preparation workbench at `1280 × 720`.
+- Reference screenshot: `/tmp/lingzhi-workbench-reference.png`.
+- Final audit screen: `/tmp/lingzhi-audit-refine-final.png` at the same viewport and course.
+- Additional states checked: `/tmp/lingzhi-audit-refine-add-menu.png`, `/tmp/lingzhi-audit-refine-history-final.png`, and `/tmp/lingzhi-audit-refine-adjustment.png`.
+
+## Findings and fixes
+
+1. P1 — a separate status banner and a full-width bottom action bar made the page read as a framed report instead of a workbench. The status now belongs to the selected content header, while execution actions stay inside the detail inspector.
+2. P1 — navigation, content, and operations had no stable ownership. The source rail now contains navigation only, the middle pane owns the current source and its relationships, and the right pane owns decisions and execution.
+3. P1 — source creation floated beside the rail title. It is now one fixed, full-width action at the bottom of the source rail; its menu opens upward without covering the navigation heading.
+4. P2 — the route header named the tool instead of the course and presented three competing actions. It now follows the preparation workbench pattern: course name first, a compact surface label, one history entry, and one return action.
+5. P2 — the selected source was repeated in a bordered card below the pane title. The source name, audit status, view switch, and rescan action now form one content header with no duplicate card.
+6. P2 — history repeated its title and repeated long request text as detail copy. It now uses one inspector title, an execution/version switch, the request once, a plain status, and time.
+7. P2 — the empty detail message asked the teacher to choose a source even when one was already selected. It now reports that the selected material has no change details requiring attention.
+
+## Verified steps
+
+1. Review sources — passed. The rail matches the workbench navigation width and rhythm, keeps pending adjustments before materials, and preserves the selected state while scrolling.
+2. Review a material — passed. The middle header contains the source, overall status, relationship/list switch, and rescan action; the body contains only the current relationship result.
+3. Add a change — passed. The single bottom action opens its menu above the rail footer and closes with Escape.
+4. Review history — passed. History remains inside the fixed right inspector and switches between execution and version records without adding another surface.
+5. Open a course-wide adjustment — passed. The full impact workspace replaces the middle/right content while the same source navigation remains available.
+
+## Accessibility and runtime
+
+- All navigation rows and actions remain native buttons with visible keyboard focus.
+- The add-change trigger retains `aria-haspopup`, `aria-expanded`, Enter/Space handling, and Escape recovery.
+- Status remains available as text rather than color alone.
+- Browser console contained no errors or warnings in the final default state.
+- Browser acceptance did not upload, execute, or mutate course data.
 
 final result: passed

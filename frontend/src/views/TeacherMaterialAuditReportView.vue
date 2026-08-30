@@ -3,19 +3,16 @@
     <Teleport to="#app-header-route-context">
       <div class="update-route-context">
         <button type="button" :aria-label="returnLabel" @click="backToWorkbench"><ArrowLeft :size="17" /></button>
-        <ScanSearch :size="18" />
-        <div>
-          <h1>{{ t('courseAuditUpdates.title', '审计与更新中心') }}</h1>
-          <small>{{ courseName || t('courseAuditUpdates.subtitle', '课程材料审计与结构化同源更新') }}</small>
-        </div>
+        <FolderOpen :size="18" />
+        <h1>{{ courseName || t('courseFiles.untitledCourse', '未命名课程') }}</h1>
+        <small>{{ t('courseAuditUpdates.title', '审计与更新') }}</small>
       </div>
     </Teleport>
 
     <Teleport to="#app-header-route-actions">
       <div class="update-route-actions">
-        <button type="button" @click="showHistory('execution')"><History :size="15" />{{ t('courseAuditUpdates.executionHistory', '执行记录') }}</button>
-        <button type="button" @click="showHistory('version')"><Clock3 :size="15" />{{ t('courseAuditUpdates.versionHistory', '版本历史') }}</button>
-        <button class="primary" type="button" @click="backToWorkbench">{{ returnLabel }}<ArrowRight :size="15" /></button>
+        <button type="button" @click="showHistory('version')"><History :size="15" />{{ t('courseAuditUpdates.historyRecords', '历史记录') }}</button>
+        <button type="button" @click="backToWorkbench">{{ returnLabel }}<ArrowRight :size="15" /></button>
       </div>
     </Teleport>
 
@@ -24,20 +21,6 @@
     </section>
 
     <section v-else class="update-center-shell" :class="{ 'has-error': Boolean(center.error || auditStore.error) }">
-      <header class="update-status-strip" :data-state="statusTone">
-        <div>
-          <CircleCheckBig v-if="statusTone === 'synced'" :size="18" />
-          <LoaderCircle v-else-if="center.loading || auditStore.refreshing" :size="18" class="spin" />
-          <TriangleAlert v-else :size="18" />
-          <strong>{{ statusSummary }}</strong>
-        </div>
-        <small>{{ lastAppliedLabel }}</small>
-        <button type="button" :disabled="center.loading || auditStore.refreshing" @click="refreshAll">
-          <RefreshCw :size="14" :class="{ spin: center.loading || auditStore.refreshing }" />
-          {{ t('courseAuditUpdates.rescan', '重新扫描') }}
-        </button>
-      </header>
-
       <p v-if="center.error || auditStore.error" class="center-error" role="alert">
         <TriangleAlert :size="15" />{{ center.error || auditStore.error }}
       </p>
@@ -47,29 +30,12 @@
           <header>
             <div class="source-heading">
               <h2>{{ t('courseAuditUpdates.changeSources', '变化来源') }}</h2>
-              <small>{{ sourceOverview }}</small>
-            </div>
-            <input ref="fileInput" hidden type="file" multiple @change="captureFiles">
-            <div ref="sourceAddMenu" class="source-add-menu" :data-open="sourceMenuOpen" @focusout="handleSourceMenuFocusout" @keydown.esc.stop="sourceMenuOpen = false">
-              <button class="source-add-trigger" type="button" aria-haspopup="menu" :aria-expanded="sourceMenuOpen" @click="sourceMenuOpen = !sourceMenuOpen" @keydown.enter.prevent="sourceMenuOpen = !sourceMenuOpen" @keydown.space.prevent="sourceMenuOpen = !sourceMenuOpen">
-                <Plus :size="14" />{{ t('courseAuditUpdates.addSource', '新增变化') }}<ChevronDown :size="13" />
-              </button>
-              <div v-if="sourceMenuOpen" role="menu">
-                <button role="menuitem" type="button" :disabled="uploading || !coursePackage" @click="openMaterialPicker">
-                  <LoaderCircle v-if="uploading" :size="16" class="spin" /><Upload v-else :size="16" />
-                  <span><b>{{ t('courseAuditUpdates.addMaterial', '上传或替换材料') }}</b><small>{{ t('courseAuditUpdates.addMaterialHint', '重新扫描材料与生成内容的关系') }}</small></span>
-                </button>
-                <button role="menuitem" type="button" @click="startNewCourseChange">
-                  <GitBranchPlus :size="16" />
-                  <span><b>{{ t('courseAuditUpdates.addCourseChange', '提出全课调整') }}</b><small>{{ t('courseAuditUpdates.addCourseChangeHint', '扫描大纲、教案、讲稿与 PPT') }}</small></span>
-                </button>
-              </div>
             </div>
           </header>
 
           <div class="source-groups">
             <section v-if="actionableCourseChanges.length || activeSource?.kind === 'new_change'" class="source-group course-change-group">
-              <header><strong>{{ t('courseAuditUpdates.pendingCourseChanges', '待处理调整') }}</strong><small>{{ courseChangeGroupSummary }}</small></header>
+              <header><strong>{{ t('courseAuditUpdates.pendingCourseChanges', '待处理调整') }}</strong><small>{{ actionableCourseChanges.length + (activeSource?.kind === 'new_change' ? 1 : 0) }}</small></header>
               <div class="source-list">
                 <button v-if="activeSource?.kind === 'new_change'" type="button" class="active" data-status="ready">
                   <span class="source-icon"><Sparkles :size="16" /></span>
@@ -92,7 +58,7 @@
             </section>
 
             <section class="source-group">
-              <header><strong>{{ t('courseAuditUpdates.courseMaterials', '课程材料') }}</strong><small>{{ materialGroupSummary }}</small></header>
+              <header><strong>{{ t('courseAuditUpdates.courseMaterials', '课程材料') }}</strong><small>{{ center.materialSources.length }}</small></header>
               <div class="source-list">
                 <button
                   v-for="source in center.materialSources"
@@ -110,6 +76,26 @@
               </div>
             </section>
           </div>
+
+          <footer class="source-ledger-footer">
+            <input ref="fileInput" hidden type="file" multiple @change="captureFiles">
+            <div ref="sourceAddMenu" class="source-add-menu" :data-open="sourceMenuOpen" @focusout="handleSourceMenuFocusout" @keydown.esc.stop="sourceMenuOpen = false">
+              <button class="source-add-trigger" type="button" aria-haspopup="menu" :aria-expanded="sourceMenuOpen" @click="sourceMenuOpen = !sourceMenuOpen" @keydown.enter.prevent="sourceMenuOpen = !sourceMenuOpen" @keydown.space.prevent="sourceMenuOpen = !sourceMenuOpen">
+                <Plus :size="15" />{{ t('courseAuditUpdates.addSource', '新增变化') }}<ChevronDown :size="13" />
+              </button>
+              <div v-if="sourceMenuOpen" role="menu">
+                <button role="menuitem" type="button" :disabled="uploading || !coursePackage" @click="openMaterialPicker">
+                  <LoaderCircle v-if="uploading" :size="16" class="spin" /><Upload v-else :size="16" />
+                  <span><b>{{ t('courseAuditUpdates.addMaterial', '上传或替换材料') }}</b><small>{{ t('courseAuditUpdates.addMaterialHint', '重新扫描材料与生成内容的关系') }}</small></span>
+                </button>
+                <button role="menuitem" type="button" @click="startNewCourseChange">
+                  <GitBranchPlus :size="16" />
+                  <span><b>{{ t('courseAuditUpdates.addCourseChange', '提出全课调整') }}</b><small>{{ t('courseAuditUpdates.addCourseChangeHint', '扫描大纲、教案、讲稿与 PPT') }}</small></span>
+                </button>
+              </div>
+            </div>
+            <small>{{ sourceOverview }}</small>
+          </footer>
         </aside>
 
         <section v-if="isCourseChangeMode" class="course-change-surface">
@@ -128,21 +114,31 @@
 
         <template v-else>
           <section class="relationship-pane">
-            <header class="pane-header">
-              <h2>{{ t('courseAuditUpdates.relationships', '生成关系') }}</h2>
-              <nav :aria-label="t('courseAuditUpdates.relationshipView', '生成关系视图')">
-                <button type="button" :class="{ active: relationshipView === 'relation' }" @click="relationshipView = 'relation'">{{ t('courseAuditUpdates.relation', '关系') }}</button>
-                <button type="button" :class="{ active: relationshipView === 'list' }" @click="relationshipView = 'list'">{{ t('courseAuditUpdates.list', '列表') }}</button>
-              </nav>
+            <header class="content-header">
+              <div class="content-heading">
+                <small>{{ t('courseAuditUpdates.currentChangeSource', '当前变化来源') }}</small>
+                <h2>{{ selectedMaterial?.filename || t('courseAuditUpdates.relationships', '生成关系') }}</h2>
+                <p :data-state="statusTone">
+                  <CircleCheckBig v-if="statusTone === 'synced'" :size="14" />
+                  <LoaderCircle v-else-if="center.loading || auditStore.refreshing" :size="14" class="spin" />
+                  <TriangleAlert v-else :size="14" />
+                  <span>{{ statusSummary }}</span>
+                  <small>{{ lastAppliedLabel }}</small>
+                </p>
+              </div>
+              <div class="content-operations">
+                <nav class="relationship-view-switch" :aria-label="t('courseAuditUpdates.relationshipView', '生成关系视图')">
+                  <button type="button" :class="{ active: relationshipView === 'relation' }" @click="relationshipView = 'relation'">{{ t('courseAuditUpdates.relation', '关系') }}</button>
+                  <button type="button" :class="{ active: relationshipView === 'list' }" @click="relationshipView = 'list'">{{ t('courseAuditUpdates.list', '列表') }}</button>
+                </nav>
+                <button class="rescan-button" type="button" :disabled="center.loading || auditStore.refreshing" @click="refreshAll">
+                  <RefreshCw :size="14" :class="{ spin: center.loading || auditStore.refreshing }" />
+                  {{ t('courseAuditUpdates.rescan', '重新扫描') }}
+                </button>
+              </div>
             </header>
 
-            <div v-if="selectedMaterial" class="selected-source-card">
-              <component :is="sourceIcon(selectedMaterial.document_type)" :size="20" />
-              <span><strong>{{ selectedMaterial.filename }}</strong><small>{{ materialVersionLabel(selectedMaterial) }} · {{ t('courseAuditUpdates.currentChangeSource', '本次变化来源') }}</small></span>
-              <b>{{ parseQualityLabel(selectedMaterial) }}</b>
-            </div>
-
-            <div v-if="relationshipView === 'relation'" class="relationship-tree">
+            <div v-if="selectedMaterialTargets.length && relationshipView === 'relation'" class="relationship-tree">
               <section v-for="group in relationshipGroups" :key="group.key" class="relationship-group">
                 <header><span /><strong>{{ group.label }}</strong><small>（{{ group.items.length }} {{ t('courseAuditUpdates.items', '项') }}）</small></header>
                 <div>
@@ -165,24 +161,32 @@
               </button>
             </div>
 
-            <div v-else class="relationship-table">
+            <div v-else-if="selectedMaterialTargets.length" class="relationship-table">
               <header><span>{{ t('courseAuditUpdates.generatedObject', '生成对象') }}</span><span>{{ t('courseAuditUpdates.sourceRole', '来源作用') }}</span><span>{{ t('courseAuditUpdates.structure', '结构') }}</span><span>{{ t('courseAuditUpdates.state', '状态') }}</span></header>
               <button v-for="target in selectedMaterialTargets" :key="target.target_id" type="button" :class="{ active: selectedTargetId === target.target_id }" @click="selectTarget(target.target_id)">
                 <span><component :is="targetIcon(target.target_type)" :size="15" />{{ target.title }}</span><span>{{ sourceRoleForTarget(target) }}</span><span>{{ relationshipItemSummary(target) }}</span><b>{{ targetStatusLabel(target) }}</b>
               </button>
             </div>
 
-            <div v-if="!selectedMaterialTargets.length" class="relationship-empty">
+            <div v-else class="relationship-empty">
               <Link2Off :size="24" /><strong>{{ t('courseAuditUpdates.noRelationship', '这份材料尚未进入生成关系') }}</strong><p>{{ t('courseAuditUpdates.noRelationshipHint', '先确认材料类型、版本与用途，再重新扫描。') }}</p>
             </div>
           </section>
 
           <aside class="detail-pane">
-            <header class="pane-header"><h2>{{ detailTitle }}</h2><span v-if="selectedTarget" :data-status="targetStatus(selectedTarget)">{{ targetStatusLabel(selectedTarget) }}</span></header>
+            <header class="pane-header">
+              <h2>{{ detailTitle }}</h2>
+              <span v-if="detailMode === 'detail' && selectedTarget" :data-status="targetStatus(selectedTarget)">{{ targetStatusLabel(selectedTarget) }}</span>
+              <button v-else-if="detailMode !== 'detail'" class="close-detail-mode" type="button" :aria-label="t('common.close', '关闭')" @click="detailMode = 'detail'"><X :size="14" /></button>
+            </header>
 
+            <div class="detail-body">
             <template v-if="detailMode !== 'detail'">
               <section class="history-panel">
-                <header><History :size="16" /><strong>{{ historyTitle }}</strong><button type="button" @click="detailMode = 'detail'"><X :size="14" /></button></header>
+                <nav class="history-switch" :aria-label="t('courseAuditUpdates.historyRecords', '历史记录')">
+                  <button type="button" :class="{ active: detailMode === 'execution' }" @click="detailMode = 'execution'">{{ t('courseAuditUpdates.executionHistory', '执行记录') }}</button>
+                  <button type="button" :class="{ active: detailMode === 'version' }" @click="detailMode = 'version'">{{ t('courseAuditUpdates.versionHistory', '版本历史') }}</button>
+                </nav>
                 <ol v-if="historyItems.length">
                   <li v-for="item in historyItems" :key="item.key" :data-status="item.status"><span /><div><b>{{ item.title }}</b><small>{{ item.detail }}</small></div><time>{{ item.time }}</time></li>
                 </ol>
@@ -230,18 +234,21 @@
               </section>
             </template>
 
-            <section v-else class="detail-empty"><ScanSearch :size="25" /><strong>{{ t('courseAuditUpdates.selectSource', '选择一个变化来源查看生成关系') }}</strong></section>
+            <section v-else class="detail-empty"><ScanSearch :size="25" /><strong>{{ selectedMaterial ? t('courseAuditUpdates.noChangeDetails', '当前没有需要处理的变更详情') : t('courseAuditUpdates.selectSource', '选择一个变化来源查看生成关系') }}</strong></section>
+            </div>
+
+            <footer v-if="detailMode === 'detail' && selectedTarget" class="detail-actions">
+              <small>{{ actionSummary }}</small>
+              <div>
+                <button type="button" :disabled="auditStore.executing" @click="executionScope = 'skip'">{{ t('courseAuditUpdates.saveForLater', '稍后处理') }}</button>
+                <button class="primary" type="button" :disabled="!canExecuteSelection" @click="executeSelection">
+                  <LoaderCircle v-if="auditStore.executing" :size="15" class="spin" /><Check v-else :size="15" />{{ executeLabel }}
+                </button>
+              </div>
+            </footer>
           </aside>
         </template>
       </div>
-
-      <footer v-if="!isCourseChangeMode" class="center-actionbar">
-        <div><strong>{{ actionSummary }}</strong><small>{{ t('courseAuditUpdates.actionBoundary', '只处理老师确认的范围；其他内容保持当前版本。') }}</small></div>
-        <button type="button" :disabled="auditStore.executing || !selectedTarget" @click="executionScope = 'skip'">{{ t('courseAuditUpdates.saveForLater', '保存判断，稍后处理') }}</button>
-        <button class="primary" type="button" :disabled="!canExecuteSelection" @click="executeSelection">
-          <LoaderCircle v-if="auditStore.executing" :size="15" class="spin" /><Check v-else :size="15" />{{ executeLabel }}
-        </button>
-      </footer>
     </section>
   </main>
 </template>
@@ -250,8 +257,8 @@
 import { computed, nextTick, onMounted, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowLeft, ArrowRight, BookOpenText, Check, ChevronDown, CircleCheckBig, Clock3,
-  FileText, GitBranchPlus, History, Link2Off, LoaderCircle, Plus, Presentation,
+  ArrowLeft, ArrowRight, BookOpenText, Check, ChevronDown, CircleCheckBig,
+  FileText, FolderOpen, GitBranchPlus, History, Link2Off, LoaderCircle, Plus, Presentation,
   RefreshCw, ScanSearch, ScrollText, ShieldCheck, Sparkles, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
@@ -312,16 +319,11 @@ const sourceOverview = computed(() => t('courseAuditUpdates.sourceOverview', '{m
   .replace('{changes}', String(actionableCourseChanges.value.length)))
 const materialStatusLabels = computed(() => [...new Set(center.materialSources.map(materialListStatusLabel))])
 const showMaterialRowStatus = computed(() => materialStatusLabels.value.length > 1)
-const materialGroupSummary = computed(() => groupStatusSummary(center.materialSources.length, materialStatusLabels.value))
 const courseChangeStatusLabels = computed(() => [...new Set([
   ...actionableCourseChanges.value.map(source => sourceStatusLabel(source.status)),
   ...(activeSource.value?.kind === 'new_change' ? [t('courseAuditUpdates.editing', '编辑中')] : []),
 ])])
 const showCourseChangeRowStatus = computed(() => courseChangeStatusLabels.value.length > 1)
-const courseChangeGroupSummary = computed(() => groupStatusSummary(
-  actionableCourseChanges.value.length + (activeSource.value?.kind === 'new_change' ? 1 : 0),
-  courseChangeStatusLabels.value,
-))
 const selectedMaterialTargets = computed(() => !selectedMaterial.value ? [] : (plan.value?.targets || []).filter(target => (
   target.sources.some(source => source.asset_id === selectedMaterial.value?.asset_id)
 )))
@@ -371,11 +373,10 @@ const detailTitle = computed(() => detailMode.value === 'execution'
     : detailMode.value === 'unaffected'
       ? t('courseAuditUpdates.unaffected', '其他不受影响的内容')
       : t('courseAuditUpdates.changeDetails', '变更详情'))
-const historyTitle = computed(() => detailTitle.value)
 const historyItems = computed(() => {
   if (detailMode.value === 'unaffected') return (plan.value?.targets || []).filter(target => !selectedMaterialTargets.value.some(item => item.target_id === target.target_id)).map(target => ({ key: target.target_id, title: target.title, detail: t('courseAuditUpdates.notReferenced', '未引用当前变化来源，保持当前版本'), time: '', status: 'unchanged' }))
-  const materialItems = (plan.value?.execution?.receipts || []).map(receipt => ({ key: receipt.bundle_id, title: t('courseAuditUpdates.materialExecution', '材料结构化执行'), detail: `${receipt.target_ids?.length || 0} ${t('courseAuditUpdates.objects', '个对象')} · ${receipt.status}`, time: formatTime(receipt.executed_at), status: receipt.status.includes('failed') ? 'failed' : 'applied' }))
-  const courseItems = center.courseChangeSources.map(source => ({ key: source.key, title: source.title, detail: source.subtitle, time: formatTime(source.updatedAt), status: source.status }))
+  const materialItems = (plan.value?.execution?.receipts || []).map(receipt => ({ key: receipt.bundle_id, title: t('courseAuditUpdates.materialExecution', '材料结构化执行'), detail: `${receipt.target_ids?.length || 0} ${t('courseAuditUpdates.objects', '个对象')} · ${receipt.status.includes('failed') ? t('courseAuditUpdates.needsAttention', '需处理') : t('courseAuditUpdates.executed', '已执行')}`, time: formatTime(receipt.executed_at), status: receipt.status.includes('failed') ? 'failed' : 'applied' }))
+  const courseItems = center.courseChangeSources.map(source => ({ key: source.key, title: source.title, detail: sourceStatusLabel(source.status), time: formatTime(source.updatedAt), status: source.status }))
   return detailMode.value === 'version' ? [...courseItems, ...materialItems] : [...materialItems, ...courseItems.filter(item => item.status === 'applied')]
 })
 const canExecuteSelection = computed(() => Boolean(
@@ -405,12 +406,7 @@ function sourceIcon(type?: string): Component {
   return ({ outline: BookOpenText, lesson_plan: FileText, script: ScrollText, ppt: Presentation } as Record<string, Component>)[String(type || '')] || FileText
 }
 function targetIcon(type: MaterialAuditTarget['target_type']): Component { return sourceIcon(type) }
-function groupStatusSummary(count: number, labels: string[]) {
-  if (labels.length !== 1) return String(count)
-  return `${count} · ${t('courseAuditUpdates.allInStatus', '全部{status}').replace('{status}', labels[0]!)}`
-}
 function materialRoleLabel(asset?: MaterialAuditAsset) { return asset?.absorption_decision?.role === 'primary' ? t('courseAuditUpdates.primary', '主来源') : t('courseAuditUpdates.reference', '参考') }
-function materialVersionLabel(asset?: MaterialAuditAsset) { return ({ current: 'V当前', older: 'V历史', reference: 'V参考', unknown: 'V待确认' } as Record<string, string>)[asset?.version_role || 'unknown'] }
 function materialTypeLabel(asset?: MaterialAuditAsset) {
   const fallback = t('courseFiles.preparation.documentTypes.other', '其他资料')
   return ({ outline: t('courseFiles.preparation.documentTypes.outline', '课程大纲'), lesson_plan: t('courseFiles.preparation.documentTypes.lessonPlan', '教案'), script: t('courseFiles.preparation.documentTypes.script', '讲稿'), ppt: 'PPT', question_bank: t('courseFiles.preparation.documentTypes.questionBank', '题库与试卷'), school_material: t('courseFiles.preparation.documentTypes.schoolMaterial', '教务材料'), other: fallback } as Record<string, string>)[asset?.document_type || 'other'] || fallback
@@ -527,27 +523,624 @@ onMounted(() => { if (courseId.value) void loadCenter() })
 </style>
 
 <style scoped>
-.source-add-trigger {
-  min-height: 31px;
+.update-center-page {
+  color: var(--lz-text-strong);
+  background: var(--lz-surface);
+}
+
+.update-route-context {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.update-route-context > button {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--lz-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.update-route-context > button:hover {
+  color: var(--lz-brand-strong);
+  background: var(--lz-brand-soft);
+}
+.update-route-context > button:focus-visible,
+.update-route-actions button:focus-visible,
+.source-add-trigger:focus-visible,
+.relationship-view-switch button:focus-visible,
+.rescan-button:focus-visible,
+.detail-actions button:focus-visible,
+.history-switch button:focus-visible {
+  outline: 2px solid var(--lz-brand);
+  outline-offset: 2px;
+}
+.update-route-context > svg {
+  flex: none;
+  color: var(--lz-brand);
+}
+.update-route-context h1 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--lz-text-strong);
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -.012em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.update-route-context > small {
+  flex: none;
+  padding: 4px 7px;
+  border-radius: 6px;
+  color: var(--lz-brand-strong);
+  background: var(--lz-brand-soft);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.update-route-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.update-route-actions button {
+  min-height: 38px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 8px;
-  border: 1px solid #d7d9ff;
-  border-radius: 7px;
-  color: #5148dc;
-  background: #f7f6ff;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--lz-border);
+  border-radius: 8px;
+  color: var(--lz-text-secondary);
+  background: var(--lz-surface);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.update-route-actions button:hover {
+  border-color: var(--lz-brand-border);
+  color: var(--lz-brand-strong);
+  background: #f8f8ff;
+}
+
+.update-center-shell,
+.update-center-shell.has-error {
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 0;
+  background: var(--lz-surface);
+}
+.update-center-shell.has-error { grid-template-rows: auto minmax(0, 1fr); }
+.center-error {
+  border: 0;
+  border-bottom: 1px solid #f0c2bd;
+  font-size: 11px;
+}
+.update-center-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 204px minmax(0, 1fr) 314px;
+  overflow: hidden;
+  border: 0;
+  background: var(--lz-surface);
+}
+
+.source-ledger {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 72px minmax(0, 1fr) auto;
+  overflow: hidden;
+  border-right: 1px solid var(--lz-border);
+  background: var(--lz-surface);
+}
+.source-ledger > header {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-bottom: 0;
+}
+.source-heading h2 {
+  margin: 0;
+  color: var(--lz-text-strong);
+  font-size: 18px;
+  font-weight: 800;
+}
+.source-groups {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 14px;
+}
+.source-group,
+.course-change-group {
+  border: 0;
+}
+.source-group + .source-group {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--lz-border);
+}
+.source-group > header {
+  height: 30px;
+  padding: 0 10px;
+  color: var(--lz-text-muted);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+}
+.source-group > header small {
+  min-width: 20px;
+  color: var(--lz-text-muted);
+  text-align: right;
+}
+.source-list {
+  display: grid;
+  gap: 2px;
+}
+.source-list > button {
+  width: 100%;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--lz-text-secondary);
+  background: transparent;
+}
+.source-list > button.no-row-status {
+  grid-template-columns: 25px minmax(0, 1fr);
+}
+.source-list > button:hover { background: #f7f7fb; }
+.source-list > button.active {
+  color: var(--lz-brand-strong);
+  background: #f0efff;
+}
+.source-icon {
+  width: 25px;
+  height: 25px;
+  display: grid !important;
+  place-items: center;
+  border-radius: 0;
+  color: #667085;
+  background: transparent;
+}
+.source-list > button.active .source-icon { color: var(--lz-brand-strong); }
+.source-list > button span:not(.source-icon) { gap: 4px; }
+.source-list > button b {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+.source-list > button small {
+  color: var(--lz-text-muted);
   font-size: 9px;
+}
+.source-list > button i {
+  padding: 3px 5px;
+  font-size: 8px;
+}
+.source-empty {
+  padding: 18px 10px;
+  color: var(--lz-text-muted);
+  font-size: 11px;
+}
+.source-ledger-footer {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px 13px;
+  border-top: 1px solid var(--lz-border);
+  background: var(--lz-surface);
+}
+.source-ledger-footer > small {
+  color: var(--lz-text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+.source-add-menu {
+  position: relative;
+  width: 100%;
+}
+.source-add-trigger {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--lz-brand-strong);
+  background: var(--lz-brand-soft);
+  font-size: 11px;
   font-weight: 750;
   cursor: pointer;
 }
 .source-add-trigger:hover,
-.source-add-trigger[aria-expanded="true"] {
-  border-color: #aaa5f3;
-  background: #efeeff;
+.source-add-trigger[aria-expanded="true"] { background: #e8e7ff; }
+.source-add-trigger svg:last-child { margin-left: auto; }
+.source-add-menu > div {
+  top: auto;
+  right: auto;
+  bottom: calc(100% + 7px);
+  left: 0;
+  width: 244px;
+  padding: 6px;
+  border-color: var(--lz-border);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(15, 23, 42, .14);
 }
-.source-add-trigger:focus-visible {
-  outline: 2px solid #827cf0;
+.source-add-menu > div button {
+  min-height: 54px;
+  border-radius: 7px;
+}
+.source-add-menu > div button b { font-size: 11px; }
+.source-add-menu > div button small { font-size: 9px; }
+
+.relationship-pane {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-right: 1px solid var(--lz-border);
+  background: var(--lz-surface);
+}
+.content-header {
+  min-height: 126px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 24px 26px 18px;
+  border-bottom: 1px solid var(--lz-border);
+}
+.content-heading {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.content-heading > small {
+  color: var(--lz-brand-strong);
+  font-size: 10px;
+  font-weight: 750;
+}
+.content-heading h2 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--lz-text-strong);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -.018em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.content-heading p {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--lz-warning);
+  font-size: 10px;
+}
+.content-heading p[data-state="synced"] { color: var(--lz-success); }
+.content-heading p[data-state="scanning"] { color: var(--lz-brand-strong); }
+.content-heading p span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.content-heading p small {
+  flex: none;
+  color: var(--lz-text-muted);
+  font-size: 9px;
+}
+.content-heading p small::before {
+  margin-right: 6px;
+  content: "·";
+}
+.content-operations {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.relationship-view-switch,
+.history-switch {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--lz-border);
+  border-radius: 8px;
+  background: #f5f6fa;
+}
+.relationship-view-switch button,
+.history-switch button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--lz-text-secondary);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.relationship-view-switch button.active,
+.history-switch button.active {
+  color: var(--lz-brand-strong);
+  background: var(--lz-surface);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+}
+.rescan-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--lz-border);
+  border-radius: 8px;
+  color: var(--lz-text-secondary);
+  background: var(--lz-surface);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.rescan-button:hover {
+  color: var(--lz-brand-strong);
+  border-color: var(--lz-brand-border);
+}
+.rescan-button:disabled,
+.source-ledger button:disabled,
+.detail-actions button:disabled { opacity: .45; cursor: not-allowed; }
+
+.relationship-tree,
+.relationship-table {
+  min-height: 0;
+  overflow: auto;
+  padding: 18px 26px 28px;
+}
+.relationship-group {
+  margin: 0 0 18px;
+  padding: 0;
+}
+.relationship-group::before,
+.relationship-group > header > span { display: none; }
+.relationship-group > header {
+  min-height: 32px;
+  gap: 6px;
+}
+.relationship-group > header strong {
+  color: var(--lz-text-strong);
+  font-size: 12px;
+}
+.relationship-group > header small {
+  color: var(--lz-text-muted);
+  font-size: 10px;
+}
+.relationship-group > div {
+  margin-left: 0;
+  border-color: var(--lz-border);
+  border-radius: 8px;
+}
+.relationship-group button {
+  min-height: 46px;
+  padding: 0 12px;
+  color: var(--lz-text-secondary);
+  font-size: 11px;
+}
+.relationship-group button:hover,
+.relationship-group button.active { background: #f8f8ff; }
+.relationship-group button.active { color: var(--lz-brand-strong); }
+.relationship-group button small,
+.relationship-group button b { font-size: 9px; }
+.unaffected-row {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-color: var(--lz-border);
+  background: #f8fafc;
+}
+.relationship-table > header,
+.relationship-table > button {
+  grid-template-columns: minmax(130px, 1fr) 70px 100px 48px;
+}
+.relationship-table > header { font-size: 10px; }
+.relationship-table > button {
+  min-height: 46px;
+  font-size: 11px;
+}
+.relationship-empty {
+  min-height: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 28px;
+  color: var(--lz-text-muted);
+}
+.relationship-empty strong {
+  color: var(--lz-text-secondary);
+  font-size: 13px;
+}
+.relationship-empty p { font-size: 10px; }
+
+.detail-pane {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 50px minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: var(--lz-surface);
+}
+.detail-pane > .pane-header {
+  position: static;
+  min-height: 50px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--lz-border);
+}
+.pane-header h2 {
+  margin: 0;
+  color: var(--lz-text-strong);
+  font-size: 13px;
+}
+.detail-pane > .pane-header > span { font-size: 9px; }
+.close-detail-mode {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  color: var(--lz-text-secondary);
+  background: #f5f6f8;
+  cursor: pointer;
+}
+.close-detail-mode:hover { color: var(--lz-brand-strong); }
+.close-detail-mode:focus-visible {
+  outline: 2px solid var(--lz-brand);
   outline-offset: 2px;
+}
+.detail-body {
+  min-height: 0;
+  overflow: auto;
+}
+.detail-source,
+.detail-section-selector,
+.structured-preview,
+.material-decisions,
+.protection-note,
+.execution-scope {
+  margin: 0 14px;
+  padding: 14px 0;
+  border-bottom-color: var(--lz-border);
+}
+.detail-source > small,
+.detail-section-selector > small,
+.material-decisions label > span {
+  color: var(--lz-text-muted);
+  font-size: 10px;
+}
+.detail-source > div {
+  padding: 10px;
+  border-color: var(--lz-border);
+}
+.detail-source strong { font-size: 11px; }
+.detail-source small,
+.detail-source button { font-size: 9px; }
+.material-decisions {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.material-decisions > header { grid-column: 1; }
+.material-decisions select,
+.detail-section-selector select {
+  height: 34px;
+  border-color: var(--lz-border);
+  color: var(--lz-text-secondary);
+  font-size: 10px;
+}
+.structured-preview > header strong,
+.material-decisions > header strong,
+.execution-scope > strong { font-size: 11px; }
+.structured-preview > header small,
+.material-decisions > header small { font-size: 9px; }
+.structured-preview p {
+  font-size: 10px;
+  line-height: 1.6;
+}
+.protection-note strong { font-size: 11px; }
+.protection-note small,
+.execution-scope label { font-size: 10px; }
+.execution-scope { gap: 10px; }
+.detail-empty {
+  min-height: 100%;
+  color: var(--lz-text-muted);
+}
+.detail-empty strong {
+  color: var(--lz-text-secondary);
+  font-size: 11px;
+}
+.detail-actions {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px 12px;
+  border-top: 1px solid var(--lz-border);
+  background: var(--lz-surface);
+}
+.detail-actions > small {
+  overflow: hidden;
+  color: var(--lz-text-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.detail-actions > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+}
+.detail-actions button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--lz-border);
+  border-radius: 8px;
+  color: var(--lz-text-secondary);
+  background: var(--lz-surface);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.detail-actions button.primary {
+  border-color: var(--lz-brand);
+  color: #fff;
+  background: var(--lz-brand);
+}
+.history-panel { padding: 14px; }
+.history-panel > header strong { font-size: 12px; }
+.history-switch { margin-top: 0; }
+.history-switch button { flex: 1; }
+.history-panel li b { font-size: 10px; }
+.history-panel li small,
+.history-panel time { font-size: 9px; }
+
+.course-change-surface {
+  grid-column: 2 / 4;
+  border: 0;
+}
+
+@media (max-width: 1180px) {
+  .update-center-grid { grid-template-columns: 188px minmax(0, 1fr) 292px; }
+  .content-header { padding-right: 18px; padding-left: 20px; }
+  .content-heading h2 { font-size: 19px; }
+  .content-heading p small { display: none; }
+  .source-ledger > header { padding: 0 14px; }
+  .source-heading h2 { font-size: 16px; }
+  .rescan-button { width: 36px; padding: 0; font-size: 0; }
+  .rescan-button svg { margin: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
 }
 </style>

@@ -136,17 +136,22 @@ describe('TeacherMaterialAuditReportView', () => {
     const wrapper = mountReport()
     await flushPromises()
 
-    expect(wrapper.text()).toContain('审计与更新中心')
+    expect(wrapper.text()).toContain('审计与更新')
     expect(wrapper.text()).toContain('变化来源')
     expect(wrapper.text()).toContain('课程材料')
     expect(wrapper.text()).toContain('待处理调整')
     expect(wrapper.text()).toContain('课程大纲.docx')
     expect(wrapper.text()).toContain('所有案例都补充适用边界')
     expect(wrapper.text()).toContain('2 次同类调整')
-    expect(wrapper.text()).toContain('生成关系')
+    expect(wrapper.find('.relationship-view-switch').exists()).toBe(true)
     expect(wrapper.text()).toContain('课程目标')
     expect(wrapper.find('.source-filters').exists()).toBe(false)
     expect(wrapper.find('.create-change-row').exists()).toBe(false)
+    expect(wrapper.find('.update-status-strip').exists()).toBe(false)
+    expect(wrapper.find('.center-actionbar').exists()).toBe(false)
+    expect(wrapper.find('.source-ledger-footer').exists()).toBe(true)
+    expect(wrapper.find('.content-header').exists()).toBe(true)
+    expect(wrapper.find('.detail-actions').exists()).toBe(true)
     expect(wrapper.findAll('.course-change-group .source-list > button')).toHaveLength(1)
 
     const addSourceTrigger = wrapper.get('.source-add-trigger')
@@ -155,6 +160,12 @@ describe('TeacherMaterialAuditReportView', () => {
     expect(wrapper.find('[role="menu"]').exists()).toBe(true)
     await addSourceTrigger.trigger('keydown', { key: 'Escape' })
     expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+
+    await wrapper.findAll('.update-route-actions button')[0]!.trigger('click')
+    expect(wrapper.find('.history-switch').exists()).toBe(true)
+    expect(wrapper.text()).toContain('版本历史')
+    await wrapper.get('.close-detail-mode').trigger('click')
+    expect(wrapper.find('.history-switch').exists()).toBe(false)
 
     await wrapper.get('.course-change-group .source-list > button').trigger('click')
     await flushPromises()
@@ -165,7 +176,7 @@ describe('TeacherMaterialAuditReportView', () => {
     const wrapper = mountReport()
     await flushPromises()
 
-    await wrapper.get('.center-actionbar .primary').trigger('click')
+    await wrapper.get('.detail-actions .primary').trigger('click')
     await flushPromises()
 
     expect(httpMock.post).toHaveBeenCalledWith(
