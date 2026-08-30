@@ -45,78 +45,71 @@
       <div class="update-center-grid" :class="{ 'is-course-change': isCourseChangeMode }">
         <aside class="source-ledger">
           <header>
-            <div><h2>{{ t('courseAuditUpdates.changeSources', '变化来源') }}</h2><Info :size="14" /></div>
-            <span>
-              <input ref="fileInput" hidden type="file" multiple @change="captureFiles">
-              <button type="button" :disabled="uploading || !coursePackage" @click="fileInput?.click()">
-                <LoaderCircle v-if="uploading" :size="14" class="spin" /><Upload v-else :size="14" />
-                {{ t('courseAuditUpdates.uploadReplace', '上传/替换') }}
+            <div class="source-heading">
+              <h2>{{ t('courseAuditUpdates.changeSources', '变化来源') }}</h2>
+              <small>{{ sourceOverview }}</small>
+            </div>
+            <input ref="fileInput" hidden type="file" multiple @change="captureFiles">
+            <div ref="sourceAddMenu" class="source-add-menu" :data-open="sourceMenuOpen" @focusout="handleSourceMenuFocusout" @keydown.esc.stop="sourceMenuOpen = false">
+              <button class="source-add-trigger" type="button" aria-haspopup="menu" :aria-expanded="sourceMenuOpen" @click="sourceMenuOpen = !sourceMenuOpen" @keydown.enter.prevent="sourceMenuOpen = !sourceMenuOpen" @keydown.space.prevent="sourceMenuOpen = !sourceMenuOpen">
+                <Plus :size="14" />{{ t('courseAuditUpdates.addSource', '新增变化') }}<ChevronDown :size="13" />
               </button>
-              <button class="new-change-button" type="button" @click="startNewCourseChange"><Sparkles :size="14" />{{ t('courseAuditUpdates.newCourseChange', '提出调整') }}</button>
-            </span>
+              <div v-if="sourceMenuOpen" role="menu">
+                <button role="menuitem" type="button" :disabled="uploading || !coursePackage" @click="openMaterialPicker">
+                  <LoaderCircle v-if="uploading" :size="16" class="spin" /><Upload v-else :size="16" />
+                  <span><b>{{ t('courseAuditUpdates.addMaterial', '上传或替换材料') }}</b><small>{{ t('courseAuditUpdates.addMaterialHint', '重新扫描材料与生成内容的关系') }}</small></span>
+                </button>
+                <button role="menuitem" type="button" @click="startNewCourseChange">
+                  <GitBranchPlus :size="16" />
+                  <span><b>{{ t('courseAuditUpdates.addCourseChange', '提出全课调整') }}</b><small>{{ t('courseAuditUpdates.addCourseChangeHint', '扫描大纲、教案、讲稿与 PPT') }}</small></span>
+                </button>
+              </div>
+            </div>
           </header>
 
-          <div class="source-filters">
-            <select v-model="documentTypeFilter" :aria-label="t('courseAuditUpdates.filterType', '筛选材料类型')">
-              <option value="">{{ t('courseAuditUpdates.allTypes', '全部类型') }}</option>
-              <option value="outline">{{ t('courseFiles.preparation.documentTypes.outline', '课程大纲') }}</option>
-              <option value="lesson_plan">{{ t('courseFiles.preparation.documentTypes.lessonPlan', '教案') }}</option>
-              <option value="script">{{ t('courseFiles.preparation.documentTypes.script', '讲稿') }}</option>
-              <option value="ppt">{{ t('courseFiles.preparation.documentTypes.ppt', 'PPT') }}</option>
-            </select>
-            <select v-model="sourceStateFilter" :aria-label="t('courseAuditUpdates.filterState', '筛选变化状态')">
-              <option value="">{{ t('courseAuditUpdates.allStates', '全部状态') }}</option>
-              <option value="changed">{{ t('courseAuditUpdates.changed', '有变化') }}</option>
-              <option value="applied">{{ t('courseAuditUpdates.synced', '已同步') }}</option>
-              <option value="failed">{{ t('courseAuditUpdates.needsAttention', '需处理') }}</option>
-            </select>
+          <div class="source-groups">
+            <section v-if="actionableCourseChanges.length || activeSource?.kind === 'new_change'" class="source-group course-change-group">
+              <header><strong>{{ t('courseAuditUpdates.pendingCourseChanges', '待处理调整') }}</strong><small>{{ courseChangeGroupSummary }}</small></header>
+              <div class="source-list">
+                <button v-if="activeSource?.kind === 'new_change'" type="button" class="active" data-status="ready">
+                  <span class="source-icon"><Sparkles :size="16" /></span>
+                  <span><b>{{ t('courseAuditUpdates.newChangeDraft', '新的全课调整') }}</b><small>{{ t('courseAuditUpdates.newChangeDraftHint', '请在右侧描述本次调整') }}</small></span>
+                  <i>{{ t('courseAuditUpdates.editing', '编辑中') }}</i>
+                </button>
+                <button
+                  v-for="source in actionableCourseChanges"
+                  :key="source.key"
+                  type="button"
+                  :class="{ active: center.activeSourceKey === source.key, 'no-row-status': !showCourseChangeRowStatus }"
+                  :data-status="source.status"
+                  @click="selectCourseChange(source.key, source.sourceId)"
+                >
+                  <span class="source-icon"><GitBranchPlus :size="16" /></span>
+                  <span><b>{{ source.title }}</b><small>{{ courseChangeMeta(source) }}</small></span>
+                  <i v-if="showCourseChangeRowStatus">{{ sourceStatusLabel(source.status) }}</i>
+                </button>
+              </div>
+            </section>
+
+            <section class="source-group">
+              <header><strong>{{ t('courseAuditUpdates.courseMaterials', '课程材料') }}</strong><small>{{ materialGroupSummary }}</small></header>
+              <div class="source-list">
+                <button
+                  v-for="source in center.materialSources"
+                  :key="source.key"
+                  type="button"
+                  :class="{ active: center.activeSourceKey === source.key, 'no-row-status': !showMaterialRowStatus }"
+                  :data-status="materialListStatus(source)"
+                  @click="selectMaterialSource(source.key)"
+                >
+                  <span class="source-icon"><component :is="sourceIcon(source.material?.document_type)" :size="16" /></span>
+                  <span><b>{{ source.title }}</b><small>{{ materialSourceMeta(source.material) }}</small></span>
+                  <i v-if="showMaterialRowStatus">{{ materialListStatusLabel(source) }}</i>
+                </button>
+                <p v-if="!center.materialSources.length" class="source-empty">{{ t('courseAuditUpdates.noMaterials', '还没有课程材料') }}</p>
+              </div>
+            </section>
           </div>
-
-          <section class="source-group">
-            <header><strong>{{ t('courseAuditUpdates.materialChanges', '材料变化') }}</strong><small>{{ filteredMaterialSources.length }}</small></header>
-            <div class="source-list">
-              <button
-                v-for="source in filteredMaterialSources"
-                :key="source.key"
-                type="button"
-                :class="{ active: center.activeSourceKey === source.key }"
-                :data-status="source.status"
-                @click="selectMaterialSource(source.key)"
-              >
-                <component :is="sourceIcon(source.material?.document_type)" :size="17" />
-                <span><b>{{ source.title }}</b><small>{{ materialRoleLabel(source.material) }} · {{ parseQualityLabel(source.material) }}</small></span>
-                <em>{{ materialVersionLabel(source.material) }}</em>
-                <i>{{ sourceStatusLabel(source.status) }}</i>
-              </button>
-              <p v-if="!filteredMaterialSources.length" class="source-empty">{{ t('courseAuditUpdates.noMaterials', '还没有符合条件的材料') }}</p>
-            </div>
-          </section>
-
-          <section class="source-group course-change-group">
-            <header><strong>{{ t('courseAuditUpdates.courseChanges', '全课调整') }}</strong><small>{{ center.courseChangeSources.length }}</small></header>
-            <div class="source-list">
-              <button
-                v-for="source in center.courseChangeSources"
-                :key="source.key"
-                type="button"
-                :class="{ active: center.activeSourceKey === source.key }"
-                :data-status="source.status"
-                @click="selectCourseChange(source.key, source.sourceId)"
-              >
-                <GitBranchPlus :size="17" />
-                <span><b>{{ source.title }}</b><small>{{ formatTime(source.updatedAt) || t('courseAuditUpdates.pendingTime', '待处理') }}</small></span>
-                <i>{{ sourceStatusLabel(source.status) }}</i>
-              </button>
-              <button class="create-change-row" type="button" :class="{ active: center.activeSourceKey === 'new-change' }" @click="startNewCourseChange">
-                <Plus :size="16" /><span><b>{{ t('courseAuditUpdates.describeChange', '描述一次新的全课调整') }}</b><small>{{ t('courseAuditUpdates.scanHint', '统一扫描大纲、教案、讲稿与 PPT') }}</small></span>
-              </button>
-            </div>
-          </section>
-
-          <footer>
-            <span>{{ t('courseAuditUpdates.sourceCount', '共 {count} 个来源').replace('{count}', String(center.sources.length)) }}</span>
-            <span>{{ t('courseAuditUpdates.pendingCount', '{count} 项待处理').replace('{count}', String(center.pendingCount)) }}</span>
-          </footer>
         </aside>
 
         <section v-if="isCourseChangeMode" class="course-change-surface">
@@ -258,7 +251,7 @@ import { computed, nextTick, onMounted, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft, ArrowRight, BookOpenText, Check, ChevronDown, CircleCheckBig, Clock3,
-  FileText, GitBranchPlus, History, Info, Link2Off, LoaderCircle, Plus, Presentation,
+  FileText, GitBranchPlus, History, Link2Off, LoaderCircle, Plus, Presentation,
   RefreshCw, ScanSearch, ScrollText, ShieldCheck, Sparkles, TriangleAlert, Upload, X,
 } from 'lucide-vue-next'
 import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
@@ -282,14 +275,14 @@ const center = useCourseUpdateCenterStore()
 const auditStore = center.materialAudit
 const evolutionStore = center.courseEvolution
 const fileInput = ref<HTMLInputElement | null>(null)
+const sourceAddMenu = ref<HTMLElement | null>(null)
+const sourceMenuOpen = ref(false)
 const evolutionWorkspaceRef = ref<{ openPlan?: (id: string) => void; startNewRequest?: () => void } | null>(null)
 const selectedTargetId = ref('')
 const selectedSectionId = ref('')
 const relationshipView = ref<'relation' | 'list'>('relation')
 const detailMode = ref<'detail' | 'execution' | 'version' | 'unaffected'>('detail')
 const executionScope = ref<'current' | 'all' | 'skip'>('current')
-const documentTypeFilter = ref('')
-const sourceStateFilter = ref('')
 const uploading = ref(false)
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
@@ -300,10 +293,35 @@ const activeSource = computed(() => center.activeSource)
 const isCourseChangeMode = computed(() => ['course_change', 'new_change'].includes(activeSource.value?.kind || ''))
 const activeCoursePlanId = computed(() => activeSource.value?.kind === 'course_change' ? activeSource.value.sourceId : '')
 const selectedMaterial = computed(() => activeSource.value?.kind === 'material' ? activeSource.value.material || null : null)
-const filteredMaterialSources = computed(() => center.materialSources.filter(source => (
-  (!documentTypeFilter.value || source.material?.document_type === documentTypeFilter.value)
-  && (!sourceStateFilter.value || source.status === sourceStateFilter.value)
-)))
+type CourseChangeListItem = CourseUpdateSource & { repeatCount: number }
+const actionableCourseChanges = computed<CourseChangeListItem[]>(() => {
+  const groups = new Map<string, CourseUpdateSource[]>()
+  center.courseChangeSources
+    .filter(source => !['applied', 'unchanged'].includes(source.status) || source.key === center.activeSourceKey)
+    .forEach(source => {
+      const fingerprint = source.title.trim().replace(/\s+/g, ' ')
+      groups.set(fingerprint, [...(groups.get(fingerprint) || []), source])
+    })
+  return [...groups.values()].map(group => ({
+    ...(group.find(source => source.key === center.activeSourceKey) || group[0]!),
+    repeatCount: group.length,
+  }))
+})
+const sourceOverview = computed(() => t('courseAuditUpdates.sourceOverview', '{materials} 份材料 · {changes} 项待处理调整')
+  .replace('{materials}', String(center.materialSources.length))
+  .replace('{changes}', String(actionableCourseChanges.value.length)))
+const materialStatusLabels = computed(() => [...new Set(center.materialSources.map(materialListStatusLabel))])
+const showMaterialRowStatus = computed(() => materialStatusLabels.value.length > 1)
+const materialGroupSummary = computed(() => groupStatusSummary(center.materialSources.length, materialStatusLabels.value))
+const courseChangeStatusLabels = computed(() => [...new Set([
+  ...actionableCourseChanges.value.map(source => sourceStatusLabel(source.status)),
+  ...(activeSource.value?.kind === 'new_change' ? [t('courseAuditUpdates.editing', '编辑中')] : []),
+])])
+const showCourseChangeRowStatus = computed(() => courseChangeStatusLabels.value.length > 1)
+const courseChangeGroupSummary = computed(() => groupStatusSummary(
+  actionableCourseChanges.value.length + (activeSource.value?.kind === 'new_change' ? 1 : 0),
+  courseChangeStatusLabels.value,
+))
 const selectedMaterialTargets = computed(() => !selectedMaterial.value ? [] : (plan.value?.targets || []).filter(target => (
   target.sources.some(source => source.asset_id === selectedMaterial.value?.asset_id)
 )))
@@ -387,14 +405,40 @@ function sourceIcon(type?: string): Component {
   return ({ outline: BookOpenText, lesson_plan: FileText, script: ScrollText, ppt: Presentation } as Record<string, Component>)[String(type || '')] || FileText
 }
 function targetIcon(type: MaterialAuditTarget['target_type']): Component { return sourceIcon(type) }
+function groupStatusSummary(count: number, labels: string[]) {
+  if (labels.length !== 1) return String(count)
+  return `${count} · ${t('courseAuditUpdates.allInStatus', '全部{status}').replace('{status}', labels[0]!)}`
+}
 function materialRoleLabel(asset?: MaterialAuditAsset) { return asset?.absorption_decision?.role === 'primary' ? t('courseAuditUpdates.primary', '主来源') : t('courseAuditUpdates.reference', '参考') }
 function materialVersionLabel(asset?: MaterialAuditAsset) { return ({ current: 'V当前', older: 'V历史', reference: 'V参考', unknown: 'V待确认' } as Record<string, string>)[asset?.version_role || 'unknown'] }
+function materialTypeLabel(asset?: MaterialAuditAsset) {
+  const fallback = t('courseFiles.preparation.documentTypes.other', '其他资料')
+  return ({ outline: t('courseFiles.preparation.documentTypes.outline', '课程大纲'), lesson_plan: t('courseFiles.preparation.documentTypes.lessonPlan', '教案'), script: t('courseFiles.preparation.documentTypes.script', '讲稿'), ppt: 'PPT', question_bank: t('courseFiles.preparation.documentTypes.questionBank', '题库与试卷'), school_material: t('courseFiles.preparation.documentTypes.schoolMaterial', '教务材料'), other: fallback } as Record<string, string>)[asset?.document_type || 'other'] || fallback
+}
+function materialSourceMeta(asset?: MaterialAuditAsset) { return `${materialTypeLabel(asset)} · ${materialRoleLabel(asset)}` }
 function parseQualityLabel(asset?: MaterialAuditAsset) {
   if (asset?.parse_status === 'failed') return t('courseAuditUpdates.parseLow', '解析失败')
   if (asset?.parse_status === 'degraded' || asset?.parse_warnings?.length) return t('courseAuditUpdates.parseMedium', '解析需复核')
   return t('courseAuditUpdates.parseHigh', '高质量解析')
 }
-function sourceStatusLabel(status: CourseUpdateSource['status']) { return ({ changed: t('courseAuditUpdates.changed', '有变化'), pending: t('courseAuditUpdates.scanningShort', '扫描中'), ready: t('courseAuditUpdates.pendingReview', '待审阅'), applied: t('courseAuditUpdates.synced', '已同步'), failed: t('courseAuditUpdates.needsAttention', '需处理'), unchanged: t('courseAuditUpdates.unchanged', '不变') } as Record<string, string>)[status] }
+function sourceStatusLabel(status: CourseUpdateSource['status']): string { return ({ changed: t('courseAuditUpdates.changed', '有变化'), pending: t('courseAuditUpdates.scanningShort', '扫描中'), ready: t('courseAuditUpdates.pendingReview', '待审阅'), applied: t('courseAuditUpdates.synced', '已同步'), failed: t('courseAuditUpdates.needsAttention', '需处理'), unchanged: t('courseAuditUpdates.unchanged', '不变') } as Record<string, string>)[status] || status }
+function materialListStatus(source: CourseUpdateSource): CourseUpdateSource['status'] {
+  const asset = source.material
+  if (asset?.parse_status === 'failed' || asset?.parse_status === 'degraded' || asset?.parse_warnings?.length) return 'failed'
+  if (!asset?.version_role || asset.version_role === 'unknown') return 'ready'
+  return source.status
+}
+function materialListStatusLabel(source: CourseUpdateSource) {
+  if (materialListStatus(source) === 'failed') return parseQualityLabel(source.material)
+  if (!source.material?.version_role || source.material.version_role === 'unknown') return t('courseAuditUpdates.versionPending', '版本待确认')
+  return sourceStatusLabel(source.status)
+}
+function courseChangeMeta(source: CourseChangeListItem) {
+  const time = formatTime(source.updatedAt) || t('courseAuditUpdates.pendingTime', '待处理')
+  return source.repeatCount > 1
+    ? `${time} · ${t('courseAuditUpdates.repeatedChanges', '{count} 次同类调整').replace('{count}', String(source.repeatCount))}`
+    : time
+}
 function targetStatus(target: MaterialAuditTarget) { return target.issues?.length || target.review_items?.length ? 'warning' : executedTargetIds.value.has(target.target_id) ? 'synced' : 'pending' }
 function targetStatusLabel(target: MaterialAuditTarget) { return targetStatus(target) === 'warning' ? t('courseAuditUpdates.needsDecision', '需判断') : targetStatus(target) === 'synced' ? t('courseAuditUpdates.unchanged', '不变') : t('courseAuditUpdates.pendingUpdate', '待更新') }
 function relationshipItemSummary(target: MaterialAuditTarget) { const sections = target.structured_draft?.sections || []; const blocks = sections.reduce((total, section) => total + section.blocks.length, 0); return `${sections.length} ${t('courseAuditUpdates.sections', '个结构段')} · ${blocks} ${t('courseAuditUpdates.blocks', '个内容块')}` }
@@ -414,7 +458,13 @@ async function loadCenter() {
 async function refreshAll() { await center.refreshAll() }
 function selectMaterialSource(key: string) { center.selectSource(key); detailMode.value = 'detail'; executionScope.value = 'current' }
 async function selectCourseChange(key: string, planId: string) { center.selectSource(key); await nextTick(); evolutionWorkspaceRef.value?.openPlan?.(planId) }
-async function startNewCourseChange() { center.selectSource('new-change'); await nextTick(); evolutionWorkspaceRef.value?.startNewRequest?.() }
+function closeSourceAddMenu() { sourceMenuOpen.value = false }
+function handleSourceMenuFocusout(event: FocusEvent) {
+  const nextTarget = event.relatedTarget as Node | null
+  if (!nextTarget || !sourceAddMenu.value?.contains(nextTarget)) closeSourceAddMenu()
+}
+function openMaterialPicker() { closeSourceAddMenu(); fileInput.value?.click() }
+async function startNewCourseChange() { closeSourceAddMenu(); center.selectSource('new-change'); await nextTick(); evolutionWorkspaceRef.value?.startNewRequest?.() }
 function selectTarget(targetId: string) { selectedTargetId.value = targetId; detailMode.value = 'detail' }
 function showHistory(mode: 'execution' | 'version' | 'unaffected') { if (isCourseChangeMode.value) return; detailMode.value = mode }
 function backToWorkbench() {
@@ -473,5 +523,31 @@ onMounted(() => { if (courseId.value) void loadCenter() })
 </script>
 
 <style scoped>
-.update-center-page{height:100%;min-height:0;overflow:hidden;color:#253047;background:#f6f7fb}.update-route-context{min-width:0;display:flex;align-items:center;gap:9px}.update-route-context>button{width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.update-route-context>button:hover{color:#5148dc;background:#efeeff}.update-route-context>svg{flex:none;color:#5148dc}.update-route-context>div{min-width:0;display:grid;gap:1px}.update-route-context h1{margin:0;color:#172033;font-size:17px}.update-route-context small{overflow:hidden;color:#7c8798;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.update-route-actions{display:flex;align-items:center;gap:8px}.update-route-actions button{min-height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #dbe1e9;border-radius:8px;color:#475569;background:#fff;font-size:11px;font-weight:700;cursor:pointer}.update-route-actions button:hover{border-color:#b8b4f2;color:#4d46cf}.update-route-actions button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.center-state{height:100%;display:grid;place-content:center;justify-items:center;gap:12px;color:#728096}.update-center-shell{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:0;padding:14px 18px 12px;box-sizing:border-box}.update-center-shell.has-error{grid-template-rows:auto auto minmax(0,1fr) auto}.update-status-strip{min-height:54px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:18px;padding:0 14px;border:1px solid #dfe4ec;border-radius:10px 10px 0 0;background:#fff}.update-status-strip>div{display:flex;align-items:center;gap:9px;color:#087354}.update-status-strip[data-state=changed]>div{color:#a35d00}.update-status-strip[data-state=scanning]>div{color:#5148dc}.update-status-strip strong{color:#273247;font-size:12px}.update-status-strip>small{color:#7a8595;font-size:9px}.update-status-strip>button{min-height:31px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;border:1px solid #d9dee7;border-radius:7px;color:#596579;background:#fff;font-size:10px;font-weight:700;cursor:pointer}.center-error{display:flex;align-items:center;gap:7px;margin:0;padding:8px 12px;border-right:1px solid #f0c2bd;border-left:1px solid #f0c2bd;color:#b42318;background:#fff4f2;font-size:10px}.update-center-grid{min-height:0;display:grid;grid-template-columns:minmax(270px,.86fr) minmax(420px,1.25fr) minmax(310px,.9fr);overflow:hidden;border:1px solid #dfe4ec;border-top:0;background:#fff}.source-ledger,.relationship-pane,.detail-pane,.course-change-surface{min-width:0;min-height:0}.source-ledger{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;overflow:hidden;border-right:1px solid #dfe4ec;background:#fff}.source-ledger>header,.pane-header{min-height:49px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #e5e9ef}.source-ledger>header>div{display:flex;align-items:center;gap:5px}.source-ledger h2,.pane-header h2{margin:0;color:#24314a;font-size:13px}.source-ledger>header>div svg{color:#8791a1}.source-ledger>header>span{display:flex;gap:5px}.source-ledger>header button{min-height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #d5dbe5;border-radius:7px;color:#5148dc;background:#fff;font-size:9px;font-weight:700;cursor:pointer}.source-ledger>header button.new-change-button{border-color:#d8d5ff;background:#f6f5ff}.source-filters{display:grid;grid-template-columns:1fr 1fr;gap:7px;padding:9px 12px;border-bottom:1px solid #e7ebf1}.source-filters select,.material-decisions select,.detail-section-selector select{min-width:0;height:31px;padding:0 25px 0 8px;border:1px solid #d7dde6;border-radius:7px;color:#566176;background:#fff;font-size:9px}.source-ledger>section{min-height:0;overflow:auto}.source-group{border-bottom:1px solid #e4e8ef}.source-group>header{height:32px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;color:#5f6b7d;background:#f8f9fb;font-size:9px}.source-group>header small{color:#8b95a4}.source-list{display:grid}.source-list>button{position:relative;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:7px;min-height:59px;padding:8px 10px;border:0;border-bottom:1px solid #edf0f4;color:#586479;background:#fff;text-align:left;cursor:pointer}.source-list>button:hover{background:#fafaff}.source-list>button.active{color:#4d46cf;background:#efeeff}.source-list>button>svg{color:#6172dc}.source-list>button span{min-width:0;display:grid;gap:3px}.source-list>button b{overflow:hidden;color:#263249;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.source-list>button small{overflow:hidden;color:#7b8697;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.source-list>button em{align-self:start;color:#596579;font-size:8px;font-style:normal}.source-list>button i{position:absolute;right:10px;bottom:8px;color:#16805f;font-size:8px;font-style:normal}.source-list>button[data-status=changed] i,.source-list>button[data-status=pending] i,.source-list>button[data-status=ready] i{color:#c26a00}.source-list>button[data-status=failed] i{color:#b42318}.source-list>button.create-change-row{min-height:53px}.source-empty{margin:0;padding:18px 12px;color:#8a94a4;font-size:9px;text-align:center}.course-change-group{min-height:142px}.source-ledger>footer{display:flex;justify-content:space-between;gap:8px;padding:9px 12px;border-top:1px solid #e0e5ec;color:#7d8796;background:#fff;font-size:8px}.relationship-pane{display:grid;grid-template-rows:auto auto minmax(0,1fr);overflow:hidden;border-right:1px solid #dfe4ec;background:#fff}.pane-header nav{display:flex;gap:2px}.pane-header nav button{min-height:31px;padding:0 9px;border:0;border-bottom:2px solid transparent;color:#7c8697;background:transparent;font-size:9px;cursor:pointer}.pane-header nav button.active{border-color:#5148dc;color:#5148dc;font-weight:800}.selected-source-card{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:9px;margin:11px 13px 7px;padding:10px 12px;border:1px solid #d9d7ff;border-radius:8px;color:#5148dc;background:#f6f5ff}.selected-source-card span{min-width:0;display:grid;gap:3px}.selected-source-card strong{overflow:hidden;color:#263249;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.selected-source-card small{color:#7b8498;font-size:8px}.selected-source-card b{color:#087354;font-size:8px}.relationship-tree{min-height:0;overflow:auto;padding:3px 13px 18px}.relationship-group{position:relative;margin-top:10px;padding-left:20px}.relationship-group::before{position:absolute;top:14px;bottom:7px;left:7px;border-left:1px solid #d8ddec;content:""}.relationship-group>header{position:relative;display:flex;align-items:center;gap:5px;min-height:28px}.relationship-group>header>span{position:absolute;left:-16px;width:7px;height:7px;border:2px solid #625be1;border-radius:50%;background:#fff}.relationship-group>header strong{color:#38445a;font-size:10px}.relationship-group>header small{color:#8a94a3;font-size:8px}.relationship-group>div{display:grid;margin-left:5px;border:1px solid #e1e5eb;border-radius:7px;overflow:hidden}.relationship-group button{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;min-height:38px;padding:0 10px;border:0;border-bottom:1px solid #edf0f3;color:#667085;background:#fff;font-size:9px;text-align:left;cursor:pointer}.relationship-group button:last-child{border-bottom:0}.relationship-group button:hover,.relationship-group button.active{background:#fafaff}.relationship-group button.active{color:#5148dc}.relationship-group button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.relationship-group button small{color:#8a94a3;font-size:8px}.relationship-group button b{color:#919aaa;font-size:8px}.relationship-group button[data-status=pending] b,.relationship-group button[data-status=warning] b{color:#d26f00}.unaffected-row{width:100%;display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:7px;margin-top:13px;padding:9px 11px;border:1px solid #e0e5ec;border-radius:8px;color:#6e7888;background:#f8f9fb;text-align:left;cursor:pointer}.unaffected-row span{display:grid;gap:2px}.unaffected-row strong{font-size:9px}.unaffected-row small{font-size:8px}.unaffected-row b{color:#16805f;font-size:9px}.relationship-table{min-height:0;overflow:auto;padding:8px 13px 18px}.relationship-table>header,.relationship-table>button{display:grid;grid-template-columns:minmax(140px,1fr) 75px 110px 52px;gap:8px;align-items:center}.relationship-table>header{padding:7px 9px;color:#8a94a3;font-size:8px}.relationship-table>button{width:100%;min-height:42px;padding:0 9px;border:0;border-top:1px solid #e6e9ee;color:#5b6678;background:#fff;font-size:9px;text-align:left;cursor:pointer}.relationship-table>button.active{color:#5148dc;background:#f7f6ff}.relationship-table>button span:first-child{display:flex;align-items:center;gap:6px}.relationship-empty,.detail-empty{display:grid;place-content:center;justify-items:center;gap:7px;padding:24px;color:#8a94a3;text-align:center}.relationship-empty strong,.detail-empty strong{color:#596579;font-size:11px}.relationship-empty p{margin:0;font-size:9px}.detail-pane{display:block;overflow:auto;background:#fff}.detail-pane>.pane-header{position:sticky;z-index:2;top:0;background:#fff}.detail-pane>.pane-header>span{padding:4px 7px;border-radius:6px;color:#16805f;background:#edf8f4;font-size:8px}.detail-pane>.pane-header>span[data-status=pending],.detail-pane>.pane-header>span[data-status=warning]{color:#bd6500;background:#fff5e6}.detail-source,.detail-section-selector,.structured-preview,.material-decisions,.protection-note,.execution-scope{margin:0 13px;padding:13px 0;border-bottom:1px solid #e8ebf0}.detail-source>small,.detail-section-selector>small{display:block;margin-bottom:8px;color:#7c8797;font-size:8px;font-weight:700}.detail-source>div{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;padding:9px;border:1px solid #e0e5ec;border-radius:8px}.detail-source span{min-width:0;display:grid;gap:2px}.detail-source strong{overflow:hidden;color:#344054;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.detail-source small{overflow:hidden;color:#8a94a3;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.detail-source button{display:inline-flex;align-items:center;gap:3px;border:0;color:#5148dc;background:transparent;font-size:8px;font-weight:700;cursor:pointer}.detail-section-selector select{width:100%}.structured-preview>header,.material-decisions>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}.structured-preview>header strong,.material-decisions>header strong,.execution-scope>strong{color:#3b4659;font-size:9px}.structured-preview>header small,.material-decisions>header small{color:#8b95a3;font-size:8px}.structured-preview>div{display:grid;gap:5px}.structured-preview p{margin:0;padding:7px 8px;border-radius:6px;color:#556071;background:#f7f8fa;font-size:8px;line-height:1.55}.structured-preview p span{margin-right:6px;color:#5148dc;font-weight:800}.preview-empty{color:#8a94a3!important;text-align:center}.material-decisions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.material-decisions>header{grid-column:1/-1}.material-decisions label{display:grid;gap:4px}.material-decisions label>span{color:#788393;font-size:8px}.protection-note{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;color:#087354}.protection-note span{display:grid;gap:3px}.protection-note strong{font-size:9px}.protection-note small{color:#5b776d;font-size:8px;line-height:1.5}.execution-scope{display:grid;gap:8px;border-bottom:0}.execution-scope label{display:flex;align-items:center;gap:7px;color:#596579;font-size:9px;cursor:pointer}.execution-scope input{position:absolute;opacity:0}.execution-scope label>span{width:13px;height:13px;border:1px solid #98a2b3;border-radius:50%;background:#fff}.execution-scope input:checked+span{border:4px solid #5148dc}.history-panel{padding:13px}.history-panel>header{display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:7px;color:#5148dc}.history-panel>header strong{color:#344054;font-size:10px}.history-panel>header button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#667085;background:#f5f6f8;cursor:pointer}.history-panel ol{display:grid;gap:0;margin:12px 0 0;padding:0;list-style:none}.history-panel li{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:8px;padding:9px 0;border-bottom:1px solid #e8ebef}.history-panel li>span{width:7px;height:7px;margin-top:3px;border-radius:50%;background:#16a36a}.history-panel li[data-status=failed]>span{background:#d92d20}.history-panel li[data-status=ready]>span,.history-panel li[data-status=pending]>span{background:#e78b16}.history-panel li div{display:grid;gap:3px}.history-panel li b{color:#344054;font-size:9px}.history-panel li small,.history-panel time{color:#8a94a3;font-size:8px}.history-panel>p{color:#8a94a3;font-size:9px}.course-change-surface{grid-column:2/4;overflow:hidden;background:#fff}.center-actionbar{min-height:62px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:9px;padding:0 12px;border:1px solid #dfe4ec;border-top:0;border-radius:0 0 10px 10px;background:#fff}.center-actionbar>div{display:grid;gap:3px}.center-actionbar strong{color:#344054;font-size:10px}.center-actionbar small{color:#7e8897;font-size:8px}.center-actionbar>button{min-height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid #d7dde6;border-radius:8px;color:#5148dc;background:#fff;font-size:10px;font-weight:750;cursor:pointer}.center-actionbar>button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.center-actionbar>button:disabled,.source-ledger button:disabled,.update-status-strip button:disabled{opacity:.45;cursor:not-allowed}.spin{animation:spin .85s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:1180px){.update-center-grid{grid-template-columns:minmax(230px,.72fr) minmax(390px,1.18fr) minmax(280px,.82fr)}.source-ledger>header button{width:30px;padding:0;font-size:0}.source-ledger>header button svg{margin:auto}.relationship-group button{grid-template-columns:minmax(0,1fr) auto}.relationship-group button small{display:none}.material-decisions{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.update-center-page{height:100%;min-height:0;overflow:hidden;color:#253047;background:#f6f7fb}.update-route-context{min-width:0;display:flex;align-items:center;gap:9px}.update-route-context>button{width:34px;height:34px;display:grid;place-items:center;border:0;border-radius:8px;color:#64748b;background:transparent;cursor:pointer}.update-route-context>button:hover{color:#5148dc;background:#efeeff}.update-route-context>svg{flex:none;color:#5148dc}.update-route-context>div{min-width:0;display:grid;gap:1px}.update-route-context h1{margin:0;color:#172033;font-size:17px}.update-route-context small{overflow:hidden;color:#7c8798;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.update-route-actions{display:flex;align-items:center;gap:8px}.update-route-actions button{min-height:36px;display:inline-flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #dbe1e9;border-radius:8px;color:#475569;background:#fff;font-size:11px;font-weight:700;cursor:pointer}.update-route-actions button:hover{border-color:#b8b4f2;color:#4d46cf}.update-route-actions button.primary{border-color:#514bdc;color:#fff;background:#514bdc}.center-state{height:100%;display:grid;place-content:center;justify-items:center;gap:12px;color:#728096}.update-center-shell{height:100%;min-height:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:0;padding:14px 18px 12px;box-sizing:border-box}.update-center-shell.has-error{grid-template-rows:auto auto minmax(0,1fr) auto}.update-status-strip{min-height:54px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:18px;padding:0 14px;border:1px solid #dfe4ec;border-radius:10px 10px 0 0;background:#fff}.update-status-strip>div{display:flex;align-items:center;gap:9px;color:#087354}.update-status-strip[data-state=changed]>div{color:#a35d00}.update-status-strip[data-state=scanning]>div{color:#5148dc}.update-status-strip strong{color:#273247;font-size:12px}.update-status-strip>small{color:#7a8595;font-size:9px}.update-status-strip>button{min-height:31px;display:inline-flex;align-items:center;gap:6px;padding:0 9px;border:1px solid #d9dee7;border-radius:7px;color:#596579;background:#fff;font-size:10px;font-weight:700;cursor:pointer}.center-error{display:flex;align-items:center;gap:7px;margin:0;padding:8px 12px;border-right:1px solid #f0c2bd;border-left:1px solid #f0c2bd;color:#b42318;background:#fff4f2;font-size:10px}.update-center-grid{min-height:0;display:grid;grid-template-columns:minmax(270px,310px) minmax(420px,1fr) minmax(310px,370px);overflow:hidden;border:1px solid #dfe4ec;border-top:0;background:#fff}.source-ledger,.relationship-pane,.detail-pane,.course-change-surface{min-width:0;min-height:0}.source-ledger{display:grid;grid-template-rows:auto minmax(0,1fr);overflow:hidden;border-right:1px solid #dfe4ec;background:#fff}.source-ledger>header,.pane-header{min-height:49px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 13px;border-bottom:1px solid #e5e9ef}.source-ledger>header{min-height:56px}.source-heading{min-width:0;display:grid;gap:2px}.source-ledger h2,.pane-header h2{margin:0;color:#24314a;font-size:13px}.source-heading small{overflow:hidden;color:#8993a2;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.source-add-menu{position:relative;flex:none}.source-add-menu summary{min-height:31px;display:inline-flex;align-items:center;gap:5px;padding:0 8px;border:1px solid #d7d9ff;border-radius:7px;color:#5148dc;background:#f7f6ff;font-size:9px;font-weight:750;list-style:none;cursor:pointer}.source-add-menu summary::-webkit-details-marker{display:none}.source-add-menu[open] summary{border-color:#aaa5f3;background:#efeeff}.source-add-menu>div{position:absolute;z-index:8;top:calc(100% + 6px);right:0;width:232px;padding:5px;border:1px solid #dfe3ea;border-radius:9px;background:#fff;box-shadow:0 12px 28px rgba(35,42,70,.16)}.source-add-menu>div button{width:100%;min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;gap:8px;padding:7px 8px;border:0;border-radius:7px;color:#596579;background:#fff;text-align:left;cursor:pointer}.source-add-menu>div button:hover{background:#f7f6ff}.source-add-menu>div button>svg{color:#5e57dc}.source-add-menu>div button span{min-width:0;display:grid;gap:3px}.source-add-menu>div button b{color:#344054;font-size:9px}.source-add-menu>div button small{color:#8791a1;font-size:8px;line-height:1.35}.source-groups{min-height:0;overflow:auto}.source-group{border-bottom:1px solid #e4e8ef}.source-group>header{height:34px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;color:#5f6b7d;background:#f8f9fb;font-size:9px}.source-group>header small{color:#8b95a4}.source-list{display:grid}.source-list>button{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:55px;padding:7px 10px;border:0;border-bottom:1px solid #edf0f4;color:#586479;background:#fff;text-align:left;cursor:pointer}.source-list>button:hover{background:#fafaff}.source-list>button.active{color:#4d46cf;background:#efeeff}.source-icon{width:28px;height:28px;display:grid!important;place-items:center;border-radius:7px;color:#5e57dc;background:#f3f2ff}.source-list>button span:not(.source-icon){min-width:0;display:grid;gap:3px}.source-list>button b{overflow:hidden;color:#263249;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.source-list>button small{overflow:hidden;color:#7b8697;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.source-list>button i{padding:4px 6px;border-radius:999px;color:#087354;background:#edf8f4;font-size:8px;font-style:normal;white-space:nowrap}.source-list>button[data-status=changed] i,.source-list>button[data-status=pending] i,.source-list>button[data-status=ready] i{color:#b66000;background:#fff4e5}.source-list>button[data-status=failed] i{color:#b42318;background:#fff0ee}.source-list>button[data-status=pending] i{color:#5148dc;background:#efeeff}.source-empty{margin:0;padding:20px 12px;color:#8a94a4;font-size:9px;text-align:center}.course-change-group{border-bottom:0}.material-decisions select,.detail-section-selector select{min-width:0;height:31px;padding:0 25px 0 8px;border:1px solid #d7dde6;border-radius:7px;color:#566176;background:#fff;font-size:9px}.relationship-pane{display:grid;grid-template-rows:auto auto minmax(0,1fr);overflow:hidden;border-right:1px solid #dfe4ec;background:#fff}.pane-header nav{display:flex;gap:2px}.pane-header nav button{min-height:31px;padding:0 9px;border:0;border-bottom:2px solid transparent;color:#7c8697;background:transparent;font-size:9px;cursor:pointer}.pane-header nav button.active{border-color:#5148dc;color:#5148dc;font-weight:800}.selected-source-card{display:grid;grid-template-columns:26px minmax(0,1fr) auto;align-items:center;gap:9px;margin:11px 13px 7px;padding:10px 12px;border:1px solid #d9d7ff;border-radius:8px;color:#5148dc;background:#f6f5ff}.selected-source-card span{min-width:0;display:grid;gap:3px}.selected-source-card strong{overflow:hidden;color:#263249;font-size:10px;text-overflow:ellipsis;white-space:nowrap}.selected-source-card small{color:#7b8498;font-size:8px}.selected-source-card b{color:#087354;font-size:8px}.relationship-tree{min-height:0;overflow:auto;padding:3px 13px 18px}.relationship-group{position:relative;margin-top:10px;padding-left:20px}.relationship-group::before{position:absolute;top:14px;bottom:7px;left:7px;border-left:1px solid #d8ddec;content:""}.relationship-group>header{position:relative;display:flex;align-items:center;gap:5px;min-height:28px}.relationship-group>header>span{position:absolute;left:-16px;width:7px;height:7px;border:2px solid #625be1;border-radius:50%;background:#fff}.relationship-group>header strong{color:#38445a;font-size:10px}.relationship-group>header small{color:#8a94a3;font-size:8px}.relationship-group>div{display:grid;margin-left:5px;border:1px solid #e1e5eb;border-radius:7px;overflow:hidden}.relationship-group button{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px;min-height:38px;padding:0 10px;border:0;border-bottom:1px solid #edf0f3;color:#667085;background:#fff;font-size:9px;text-align:left;cursor:pointer}.relationship-group button:last-child{border-bottom:0}.relationship-group button:hover,.relationship-group button.active{background:#fafaff}.relationship-group button.active{color:#5148dc}.relationship-group button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.relationship-group button small{color:#8a94a3;font-size:8px}.relationship-group button b{color:#919aaa;font-size:8px}.relationship-group button[data-status=pending] b,.relationship-group button[data-status=warning] b{color:#d26f00}.unaffected-row{width:100%;display:grid;grid-template-columns:16px minmax(0,1fr) auto;align-items:center;gap:7px;margin-top:13px;padding:9px 11px;border:1px solid #e0e5ec;border-radius:8px;color:#6e7888;background:#f8f9fb;text-align:left;cursor:pointer}.unaffected-row span{display:grid;gap:2px}.unaffected-row strong{font-size:9px}.unaffected-row small{font-size:8px}.unaffected-row b{color:#16805f;font-size:9px}.relationship-table{min-height:0;overflow:auto;padding:8px 13px 18px}.relationship-table>header,.relationship-table>button{display:grid;grid-template-columns:minmax(140px,1fr) 75px 110px 52px;gap:8px;align-items:center}.relationship-table>header{padding:7px 9px;color:#8a94a3;font-size:8px}.relationship-table>button{width:100%;min-height:42px;padding:0 9px;border:0;border-top:1px solid #e6e9ee;color:#5b6678;background:#fff;font-size:9px;text-align:left;cursor:pointer}.relationship-table>button.active{color:#5148dc;background:#f7f6ff}.relationship-table>button span:first-child{display:flex;align-items:center;gap:6px}.relationship-empty,.detail-empty{display:grid;place-content:center;justify-items:center;gap:7px;padding:24px;color:#8a94a3;text-align:center}.relationship-empty strong,.detail-empty strong{color:#596579;font-size:11px}.relationship-empty p{margin:0;font-size:9px}.detail-pane{display:block;overflow:auto;background:#fff}.detail-pane>.pane-header{position:sticky;z-index:2;top:0;background:#fff}.detail-pane>.pane-header>span{padding:4px 7px;border-radius:6px;color:#16805f;background:#edf8f4;font-size:8px}.detail-pane>.pane-header>span[data-status=pending],.detail-pane>.pane-header>span[data-status=warning]{color:#bd6500;background:#fff5e6}.detail-source,.detail-section-selector,.structured-preview,.material-decisions,.protection-note,.execution-scope{margin:0 13px;padding:13px 0;border-bottom:1px solid #e8ebf0}.detail-source>small,.detail-section-selector>small{display:block;margin-bottom:8px;color:#7c8797;font-size:8px;font-weight:700}.detail-source>div{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;padding:9px;border:1px solid #e0e5ec;border-radius:8px}.detail-source span{min-width:0;display:grid;gap:2px}.detail-source strong{overflow:hidden;color:#344054;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.detail-source small{overflow:hidden;color:#8a94a3;font-size:8px;text-overflow:ellipsis;white-space:nowrap}.detail-source button{display:inline-flex;align-items:center;gap:3px;border:0;color:#5148dc;background:transparent;font-size:8px;font-weight:700;cursor:pointer}.detail-section-selector select{width:100%}.structured-preview>header,.material-decisions>header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:9px}.structured-preview>header strong,.material-decisions>header strong,.execution-scope>strong{color:#3b4659;font-size:9px}.structured-preview>header small,.material-decisions>header small{color:#8b95a3;font-size:8px}.structured-preview>div{display:grid;gap:5px}.structured-preview p{margin:0;padding:7px 8px;border-radius:6px;color:#556071;background:#f7f8fa;font-size:8px;line-height:1.55}.structured-preview p span{margin-right:6px;color:#5148dc;font-weight:800}.preview-empty{color:#8a94a3!important;text-align:center}.material-decisions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.material-decisions>header{grid-column:1/-1}.material-decisions label{display:grid;gap:4px}.material-decisions label>span{color:#788393;font-size:8px}.protection-note{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;color:#087354}.protection-note span{display:grid;gap:3px}.protection-note strong{font-size:9px}.protection-note small{color:#5b776d;font-size:8px;line-height:1.5}.execution-scope{display:grid;gap:8px;border-bottom:0}.execution-scope label{display:flex;align-items:center;gap:7px;color:#596579;font-size:9px;cursor:pointer}.execution-scope input{position:absolute;opacity:0}.execution-scope label>span{width:13px;height:13px;border:1px solid #98a2b3;border-radius:50%;background:#fff}.execution-scope input:checked+span{border:4px solid #5148dc}.history-panel{padding:13px}.history-panel>header{display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:7px;color:#5148dc}.history-panel>header strong{color:#344054;font-size:10px}.history-panel>header button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#667085;background:#f5f6f8;cursor:pointer}.history-panel ol{display:grid;gap:0;margin:12px 0 0;padding:0;list-style:none}.history-panel li{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:8px;padding:9px 0;border-bottom:1px solid #e8ebef}.history-panel li>span{width:7px;height:7px;margin-top:3px;border-radius:50%;background:#16a36a}.history-panel li[data-status=failed]>span{background:#d92d20}.history-panel li[data-status=ready]>span,.history-panel li[data-status=pending]>span{background:#e78b16}.history-panel li div{display:grid;gap:3px}.history-panel li b{color:#344054;font-size:9px}.history-panel li small,.history-panel time{color:#8a94a3;font-size:8px}.history-panel>p{color:#8a94a3;font-size:9px}.course-change-surface{grid-column:2/4;overflow:hidden;background:#fff}.center-actionbar{min-height:62px;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:9px;padding:0 12px;border:1px solid #dfe4ec;border-top:0;border-radius:0 0 10px 10px;background:#fff}.center-actionbar>div{display:grid;gap:3px}.center-actionbar strong{color:#344054;font-size:10px}.center-actionbar small{color:#7e8897;font-size:8px}.center-actionbar>button{min-height:36px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border:1px solid #d7dde6;border-radius:8px;color:#5148dc;background:#fff;font-size:10px;font-weight:750;cursor:pointer}.center-actionbar>button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.center-actionbar>button:disabled,.source-ledger button:disabled,.update-status-strip button:disabled{opacity:.45;cursor:not-allowed}.spin{animation:spin .85s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@media(max-width:1180px){.update-center-grid{grid-template-columns:minmax(240px,270px) minmax(390px,1fr) minmax(280px,320px)}.source-add-menu summary{padding:0 7px}.relationship-group button{grid-template-columns:minmax(0,1fr) auto}.relationship-group button small{display:none}.material-decisions{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+
+<style scoped>
+.source-add-trigger {
+  min-height: 31px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid #d7d9ff;
+  border-radius: 7px;
+  color: #5148dc;
+  background: #f7f6ff;
+  font-size: 9px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.source-add-trigger:hover,
+.source-add-trigger[aria-expanded="true"] {
+  border-color: #aaa5f3;
+  background: #efeeff;
+}
+.source-add-trigger:focus-visible {
+  outline: 2px solid #827cf0;
+  outline-offset: 2px;
+}
 </style>

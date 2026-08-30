@@ -68,6 +68,20 @@ const evolutionProgress = {
       plan_id: 'change-1', updated_at: '2026-08-30T10:00:00Z', created_at: '2026-08-30T09:00:00Z',
       intent: { interpreted_goal: '补充所有案例的适用边界' },
     },
+  }, {
+    change_set_id: 'change-2', request_text: '所有案例都补充适用边界', status: 'pending', generation_status: 'ready',
+    evidence_ids: [], operations: [], allowed_scopes: ['current'], impact_summary: {}, expected_effect: '案例更完整', effect_evaluation: {},
+    teacher_change_planning: {
+      plan_id: 'change-2', updated_at: '2026-08-30T09:00:00Z', created_at: '2026-08-30T08:00:00Z',
+      intent: { interpreted_goal: '补充所有案例的适用边界' },
+    },
+  }, {
+    change_set_id: 'change-3', request_text: '所有案例都补充适用边界', status: 'applied', generation_status: 'ready',
+    evidence_ids: [], operations: [], allowed_scopes: ['current'], impact_summary: {}, expected_effect: '案例更完整', effect_evaluation: {},
+    teacher_change_planning: {
+      plan_id: 'change-3', updated_at: '2026-08-29T09:00:00Z', created_at: '2026-08-29T08:00:00Z',
+      intent: { interpreted_goal: '补充所有案例的适用边界' },
+    },
   }],
   summary: {},
 }
@@ -124,12 +138,23 @@ describe('TeacherMaterialAuditReportView', () => {
 
     expect(wrapper.text()).toContain('审计与更新中心')
     expect(wrapper.text()).toContain('变化来源')
-    expect(wrapper.text()).toContain('材料变化')
-    expect(wrapper.text()).toContain('全课调整')
+    expect(wrapper.text()).toContain('课程材料')
+    expect(wrapper.text()).toContain('待处理调整')
     expect(wrapper.text()).toContain('课程大纲.docx')
     expect(wrapper.text()).toContain('所有案例都补充适用边界')
+    expect(wrapper.text()).toContain('2 次同类调整')
     expect(wrapper.text()).toContain('生成关系')
     expect(wrapper.text()).toContain('课程目标')
+    expect(wrapper.find('.source-filters').exists()).toBe(false)
+    expect(wrapper.find('.create-change-row').exists()).toBe(false)
+    expect(wrapper.findAll('.course-change-group .source-list > button')).toHaveLength(1)
+
+    const addSourceTrigger = wrapper.get('.source-add-trigger')
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
+    await addSourceTrigger.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.find('[role="menu"]').exists()).toBe(true)
+    await addSourceTrigger.trigger('keydown', { key: 'Escape' })
+    expect(wrapper.find('[role="menu"]').exists()).toBe(false)
 
     await wrapper.get('.course-change-group .source-list > button').trigger('click')
     await flushPromises()

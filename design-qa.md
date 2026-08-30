@@ -269,3 +269,42 @@ No actionable P0, P1, or P2 findings remain.
 - P3: a future density pass may shorten the English mobile status label or slightly widen the status track to avoid two-line wrapping at 390 px.
 
 final result: passed
+
+---
+
+# Design QA — 审计与更新中心左侧来源栏（2026-08-30）
+
+## Audit scope and evidence
+
+- User-supplied before screenshot: `/var/folders/5z/ysrw5tcd3fngb509jyxr533c0000gn/T/codex-clipboard-b851c945-2610-4eb0-bea5-adbca3ebfe2d.png` (`3410 × 1706`, 2× density).
+- Normalized before screenshot: `/tmp/lingzhi-audit-left-before-1705x853.png` (`1705 × 853`).
+- Final same-course/same-viewport screenshot: `/tmp/lingzhi-audit-left-after-1705x853.png` (`1705 × 853`).
+- Add-source menu: `/tmp/lingzhi-audit-left-add-menu.png` (`1280 × 720`).
+- Pending-adjustment state: `/tmp/lingzhi-audit-left-change-mode.png` (`1280 × 720`).
+- Verified course: `微积分`; 6 materials, 5 stored course-change records, 3 pending generated-content updates.
+
+## Findings and fixes
+
+1. P1 — the left column used a fractional width, so it expanded with the page and competed with the relationship workspace. It now stays within `270–310px` on normal desktop widths and `240–270px` below `1180px`.
+2. P1 — active work and completed history were mixed in one scrolling list. The rail now shows course materials plus unresolved adjustments only; completed adjustments remain available through execution/version history.
+3. P1 — identical adjustment requests appeared as separate rows. Same-text open requests are consolidated into the latest visible row with a repeat count; the underlying plans remain unchanged and available in history.
+4. P2 — two always-visible filters consumed a full row before any source content. They were removed because the rail now has two stable, task-based groups and no longer carries the full history archive.
+5. P2 — “提出调整” appeared twice and competed with “上传/替换”. Both source-creation actions now live under one “新增变化” menu with distinct names and consequences.
+6. P2 — each source row displayed version plus update status simultaneously, producing contradictory pairs such as “版本待确认 / 已同步”. Each row now presents one current status; when every row in a group shares it, the status is shown once in the group header.
+7. P2 — the bottom source count repeated the top status strip and group counts. It was removed; the rail heading now gives one compact summary.
+8. P2 — materials pushed actionable course adjustments below the first screen. Pending adjustments now appear first, followed by the current course materials.
+
+## Verified steps
+
+1. Default source review — passed. The initial material remains selected, both open adjustment intents are visible, repeated requests are consolidated, and the relationship/detail areas keep their original responsibilities.
+2. Add a change — passed. The single menu exposes “上传或替换材料” and “提出全课调整”; selecting either preserves the existing upload or full-course workflow.
+3. Open an adjustment — passed. Selecting a consolidated request opens the full-course impact workspace and keeps the source rail available for switching.
+
+## Accessibility and runtime
+
+- Source rows remain semantic buttons with text labels; statuses are communicated by words, not color alone.
+- The add-source control is a named button with `aria-expanded`/menu semantics; Enter opens it and Escape closes it in browser verification.
+- No source creation, execution, or data mutation was performed during browser acceptance.
+- Focused component tests and the production build pass. No actionable P0, P1, or P2 design issue remains in the checked desktop flow.
+
+final result: passed
