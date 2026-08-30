@@ -92,9 +92,9 @@ describe('统一教案页面', () => {
     expect(wrapper.get('.lesson-document').text()).not.toContain('标准教案')
     expect(wrapper.find('.document-saved').exists()).toBe(false)
     for (const heading of [
-      '课程名称', '知识与能力目标', '过程与方法目标', '创新目标',
-      '重点分析', '课前预习', '案例导入', '知识讲解与讨论', '实践操作',
-      '课堂总结', '课后作业', '拓展学习', '教学活动照片',
+      '课程名称', '知识目标', '能力目标', '育人目标',
+      '教学重点与难点', '课前准备（按需）', '课堂教学过程',
+      '课程总结', '课后作业', '拓展学习', '教学活动照片',
     ]) expect(wrapper.text()).toContain(heading)
     expect(wrapper.text()).toContain('网络爬虫')
     expect(wrapper.find('.document-title p').exists()).toBe(false)
@@ -103,7 +103,7 @@ describe('统一教案页面', () => {
 
     await wrapper.findAll('.document-actions button').find(button => button.text().includes('编辑教案'))!.trigger('click')
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
-    expect(wrapper.findAll('.flow-row')).toHaveLength(3)
+    expect(wrapper.findAll('.teaching-block')).toHaveLength(2)
     await wrapper.get('.objective-section textarea').setValue('能独立说明爬虫的四步流程')
     await wrapper.findAll('.document-actions button').find(button => button.text().includes('完成编辑'))!.trigger('click')
     await flushPromises()
@@ -112,7 +112,11 @@ describe('统一教案页面', () => {
       'course-1',
       'lesson-1',
       expect.objectContaining({
-        sections: [expect.objectContaining({ learning_objective: '能独立说明爬虫的四步流程' })],
+        sections: [expect.objectContaining({
+          knowledge_objectives: ['能独立说明爬虫的四步流程'],
+          ability_objectives: ['记录并复述流程', '根据反馈修正'],
+          education_objectives: [],
+        })],
       }),
     )
     expect(wrapper.find('.objective-section textarea').exists()).toBe(false)

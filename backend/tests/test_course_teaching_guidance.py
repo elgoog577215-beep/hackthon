@@ -207,10 +207,12 @@ def test_detailed_lesson_plan_batch_must_translate_overall_guidance():
     assert "先用图像建立变化率直觉，再进入代数表达" in prompt
     assert "必须把总体教案的课程成果、教学主线和" in prompt
     assert "不得改变已确认的目录、知识身份或模块集合" in prompt
-    assert "知识与能力" in prompt
-    assert "过程与方法" in prompt
-    assert "不为补齐「创新」标题编造空洞目标" in prompt
-    assert "不得把所有课都写成" in prompt
+    assert "知识目标" in prompt
+    assert "能力目标" in prompt
+    assert "育人目标" in prompt
+    assert "育人目标必须由本讲真实内容支撑" in prompt
+    assert "不得用创新、迁移或一般课堂活动冒充" in prompt
+    assert "不得把所有课程强套成" in prompt
 
 
 def test_formal_course_baseline_guides_outline_without_becoming_a_second_plan():

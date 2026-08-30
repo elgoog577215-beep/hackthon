@@ -194,9 +194,22 @@ def teacher_lesson_section_content(section: dict[str, Any]) -> dict[str, Any]:
     explicit_objective = str(
         section.get("learning_objective") or section.get("objective") or ""
     ).strip()
+    knowledge_objectives = _text_list(
+        section.get("knowledge_objectives") or section.get("knowledge_objective")
+    ) or ([explicit_objective] if explicit_objective else statements[:3])
+    ability_objectives = _text_list(
+        section.get("ability_objectives") or section.get("ability_objective")
+    ) or capability_objectives[:3] or ([explicit_objective] if explicit_objective else [])
+    education_objectives = _text_list(
+        section.get("education_objectives")
+        or section.get("education_objective")
+        or section.get("education_goal")
+        or section.get("ideology_goal")
+    )
     learning_objective = (
         explicit_objective
-        or "；".join(capability_objectives)
+        or "；".join(ability_objectives)
+        or "；".join(knowledge_objectives)
         or "；".join(statements)
         or "；".join(_text_list(section.get("key_points")))
     )
@@ -238,6 +251,9 @@ def teacher_lesson_section_content(section: dict[str, Any]) -> dict[str, Any]:
     ])
     return {
         "learning_objective": learning_objective,
+        "knowledge_objectives": knowledge_objectives,
+        "ability_objectives": ability_objectives,
+        "education_objectives": education_objectives,
         "key_difficulties": key_difficulties,
         "teacher_activities": teacher_activities,
         "student_activities": student_activities,
@@ -255,13 +271,54 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(section, dict):
             continue
         next_section = deepcopy(section)
-        for key, value in teacher_lesson_section_content(next_section).items():
-            if key.startswith("knowledge_") or key == "misconceptions":
+        content = teacher_lesson_section_content(next_section)
+        for key, value in content.items():
+            if key in {"knowledge_statements", "knowledge_boundaries", "misconceptions"}:
                 continue
             if key in {"teacher_activities", "student_activities"} and next_section.get("teaching_modules"):
                 next_section[key] = deepcopy(value)
             elif not next_section.get(key):
                 next_section[key] = deepcopy(value)
+        checks = _text_list(next_section.get("in_class_checks"))
+        key_points = _text_list(next_section.get("key_points"))
+        normalized_modules: list[dict[str, Any]] = []
+        for index, module in enumerate(next_section.get("teaching_modules") or []):
+            if not isinstance(module, dict):
+                continue
+            normalized_module = deepcopy(module)
+            label = str(
+                normalized_module.get("label")
+                or normalized_module.get("teaching_purpose")
+                or normalized_module.get("module_id")
+                or f"教学块 {index + 1}"
+            ).strip()
+            expected_output = str(
+                normalized_module.get("expected_output")
+                or (checks[0] if checks else "")
+                or normalized_module.get("student_activity")
+                or "完成本教学块的当堂任务并说明依据。"
+            ).strip()
+            if not str(normalized_module.get("teaching_purpose") or "").strip():
+                normalized_module["teaching_purpose"] = label
+            if not str(normalized_module.get("expected_output") or "").strip():
+                normalized_module["expected_output"] = expected_output
+            if not str(normalized_module.get("check_method") or "").strip():
+                normalized_module["check_method"] = checks[0] if checks else expected_output
+            if not str(normalized_module.get("feedback_strategy") or "").strip():
+                normalized_module["feedback_strategy"] = "根据当堂表现给出具体反馈，并决定直接推进、补充支架或重新示范。"
+            if not _text_list(normalized_module.get("adaptation_options")):
+                normalized_module["adaptation_options"] = [
+                    "达到目标时进入下一教学块。",
+                    "部分达到时补充提示或示例后再次检查。",
+                    "未达到时缩小任务、重新示范并安排复查。",
+                ]
+            if not str(normalized_module.get("transition") or "").strip():
+                normalized_module["transition"] = f"根据“{label}”的当堂证据决定是否进入下一教学块。"
+            mapping_anchor = key_points[0] if key_points else label
+            if not str(normalized_module.get("handout_ppt_mapping") or "").strip():
+                normalized_module["handout_ppt_mapping"] = f"讲义对应“{mapping_anchor}”内容；PPT 对应同名教学页面。"
+            normalized_modules.append(normalized_module)
+        next_section["teaching_modules"] = normalized_modules
         normalized["sections"].append(next_section)
     return normalized
 
@@ -337,9 +394,12 @@ def align_teacher_lesson_plan_to_arrangement(
                 block.get("purpose")
                 or block.get("content_summary")
                 or source_module.get("teaching_purpose")
-                or ""
+                or f"完成“{block_name}”并形成可检查的课堂产出。"
             ).strip()
-            expected_output = str(block.get("expected_output") or "").strip()
+            expected_output = str(
+                block.get("expected_output")
+                or f"完成“{block_name}”对应的课堂任务并说明依据。"
+            ).strip()
             teacher_activity = str(
                 source_module.get("teacher_activity")
                 or block.get("teacher_activity")
@@ -369,6 +429,37 @@ def align_teacher_lesson_plan_to_arrangement(
                 "arrangement_block_id": str(block.get("block_id") or ""),
                 "teacher_activity": teacher_activity,
                 "student_activity": student_activity,
+                "expected_output": str(
+                    source_module.get("expected_output") or expected_output
+                ).strip(),
+                "check_method": str(
+                    source_module.get("check_method")
+                    or block.get("check_method")
+                    or expected_output
+                ).strip(),
+                "feedback_strategy": str(
+                    source_module.get("feedback_strategy")
+                    or block.get("feedback_strategy")
+                    or "根据当堂表现给出具体反馈，并决定直接推进、补充支架或重新示范。"
+                ).strip(),
+                "adaptation_options": _text_list(
+                    source_module.get("adaptation_options")
+                    or block.get("adaptation_options")
+                ) or [
+                    "达到目标时进入下一教学块。",
+                    "部分达到时补充提示或示例后再次检查。",
+                    "未达到时缩小任务、重新示范并安排复查。",
+                ],
+                "transition": str(
+                    source_module.get("transition")
+                    or block.get("transition")
+                    or f"根据“{block_name}”的当堂证据决定是否进入下一教学块。"
+                ).strip(),
+                "handout_ppt_mapping": str(
+                    source_module.get("handout_ppt_mapping")
+                    or block.get("handout_ppt_mapping")
+                    or f"讲义对应“{block_name}”内容；PPT 对应同名教学页面。"
+                ).strip(),
             })
 
         section["teaching_modules"] = aligned_modules
@@ -470,6 +561,8 @@ def validate_teacher_lesson_plan(
     for section in sections:
         section_id = str(section.get("node_id") or "")
         objective = str(section.get("learning_objective") or "").strip()
+        knowledge_objectives = _text_list(section.get("knowledge_objectives"))
+        ability_objectives = _text_list(section.get("ability_objectives"))
         key_points = _text_list(section.get("key_points"))
         difficulties = _text_list(section.get("key_difficulties"))
         checks = _text_list(section.get("in_class_checks"))
@@ -486,8 +579,10 @@ def validate_teacher_lesson_plan(
         )
         total_minutes += section_minutes
 
-        if not objective:
-            issue(blocking, "lesson_plan:objective", "小节缺少可观察的教学目标。", section_id)
+        if not objective or not knowledge_objectives:
+            issue(blocking, "lesson_plan:knowledge_objective", "本讲缺少明确的知识目标。", section_id)
+        if not ability_objectives:
+            issue(blocking, "lesson_plan:ability_objective", "本讲缺少可观察的能力目标。", section_id)
         if not key_points:
             issue(blocking, "lesson_plan:key_points", "小节缺少教学重点。", section_id)
         if not difficulties:
@@ -502,6 +597,24 @@ def validate_teacher_lesson_plan(
             issue(blocking, "lesson_plan:timing", "小节缺少有效的时间分配。", section_id)
         elif any(item.get("planned_minutes") in (None, "") for item in modules):
             issue(review, "lesson_plan:module_timing", "部分教学环节未单独标注时长。", section_id)
+        for module in modules:
+            missing = [
+                field for field in (
+                    "teaching_purpose", "teacher_activity", "student_activity",
+                    "expected_output", "check_method", "feedback_strategy",
+                    "transition", "handout_ppt_mapping",
+                )
+                if not str(module.get(field) or "").strip()
+            ]
+            if not _text_list(module.get("adaptation_options")):
+                missing.append("adaptation_options")
+            if missing:
+                issue(
+                    blocking,
+                    "lesson_plan:block_contract",
+                    f"教学块缺少可执行字段：{'、'.join(missing)}。",
+                    section_id,
+                )
         if not checks:
             issue(blocking, "lesson_plan:checks", "小节缺少课堂检查或可观察产出。", section_id)
         if not homework:

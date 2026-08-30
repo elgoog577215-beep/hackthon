@@ -111,7 +111,11 @@ class TeacherCourseBriefV1(BaseModel):
     academic_term: str = Field(default="", max_length=100)
     target_audience: str = Field(..., min_length=1, max_length=500)
     total_class_hours: int = Field(..., ge=1, le=1000)
-    lesson_duration_minutes: int = Field(..., ge=20, le=240)
+    # 历史字段继续保存 45 分钟的课时单位；一讲的实际时长由课表中连续
+    # 选择的格子数量确定，不能再把本字段解释为“一讲固定时长”。
+    lesson_duration_minutes: int = Field(default=45, ge=45, le=45)
+    course_period_minutes: Literal[45] = 45
+    lecture_count: Optional[int] = Field(default=None, ge=1, le=1000)
     teaching_context: Literal["classroom", "online", "blended", "self_study"] = "classroom"
     class_size: Optional[int] = Field(default=None, ge=1, le=1000)
     class_profile: str = Field(default="", max_length=2000)
@@ -135,8 +139,6 @@ class TeacherCourseBriefV1(BaseModel):
     def validate_classroom_shape(self) -> "TeacherCourseBriefV1":
         if self.chapter_count and self.section_count and self.section_count < self.chapter_count:
             raise ValueError("section_count 不能小于 chapter_count")
-        if self.lesson_duration_minutes > self.total_class_hours * 60:
-            raise ValueError("单课时长不能超过课程总时长")
         return self
     usage_policy: Literal["must_use", "prefer", "optional", "style_only"] = "prefer"
     reuse_policy: Literal["verbatim_allowed", "reference_only", "original_generation"] = "verbatim_allowed"

@@ -1,5 +1,5 @@
 <template>
-  <aside class="reference-tray" :class="{ 'is-compact': compact, 'is-question-bank': variant === 'question-bank', 'is-ppt': stage === 'ppt' }" :aria-label="trayTitle">
+  <aside class="reference-tray" :class="{ 'is-compact': compact, 'is-question-bank': variant === 'question-bank', 'is-ppt': stage === 'ppt' }" :data-workflow-state="effectiveWorkflowState" :aria-label="trayTitle">
     <header class="reference-tray__header">
       <div class="reference-tray__title">
         <span v-if="stage === 'ppt'"><Sparkles :size="16" /></span>
@@ -14,48 +14,132 @@
       <button v-if="showClose" type="button" :title="t('common.close', '关闭')" :aria-label="t('common.close', '关闭')" @click="emit('close')"><X :size="16" /></button>
     </header>
 
-    <button
-      v-if="variant === 'default' && previousAvailableSources.length"
-      type="button"
-      class="reuse-previous"
-      :disabled="loading || saving"
-      @click="reusePreviousSources"
-    >
-      <CopyPlus :size="15" />
-      <span>{{ t('courseWorkbench.references.reusePrevious', '沿用上一讲资料') }}</span>
-      <small>{{ previousAvailableSources.length }}</small>
+    <button v-if="variant === 'default'" type="button" class="system-context" @click="emit('open-course-information')">
+      <span><Database :size="16" /></span>
+      <div>
+        <strong>{{ t('courseWorkbench.courseInformation', '课程信息') }}</strong>
+        <small>{{ t('courseWorkbench.references.systemContextHelp', '课时、课型与教学设置') }}</small>
+      </div>
+      <ChevronRight :size="15" />
     </button>
 
-    <section v-if="variant === 'default'" class="source-group ppt-smart-sources">
-      <div class="group-heading"><strong>{{ t('courseWorkbench.references.selectedTitle', '已选课程资料') }}</strong><small>{{ loading || saving ? t('courseWorkbench.references.processing', '处理中…') : selected.length }}</small></div>
-      <div v-if="fileSources.length" class="ppt-smart-source-list">
-        <div v-for="item in fileSources" :key="item.asset_id" class="ppt-smart-source-item">
-          <span><Globe2 v-if="item.origin === 'web_search'" :size="17" /><FileText v-else :size="17" /></span>
-          <div>
-            <strong>{{ item.source_label || item.filename }}</strong>
-            <small>{{ sourceRoleLabel(item) }}<template v-if="item.origin !== 'web_search'"> · {{ fileSize(item.size_bytes) }}</template></small>
-          </div>
-          <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+    <Transition name="tray-mode" mode="out-in">
+      <section v-if="variant === 'default' && workflowLocked" key="workflow" class="workflow-state" :class="`workflow-state--${effectiveWorkflowState}`" aria-live="polite">
+        <header>
+          <span class="workflow-state__signal">
+            <LoaderCircle v-if="effectiveWorkflowState === 'generating'" :size="18" class="workflow-spinner" />
+            <Pause v-else :size="17" />
+          </span>
+          <div><strong>{{ workflowStatusTitle }}</strong><small>{{ workflowStatusDetail }}</small></div>
+        </header>
+        <div class="workflow-progress" role="progressbar" :aria-valuenow="normalizedWorkflowProgress" aria-valuemin="0" aria-valuemax="100">
+          <i :style="{ transform: `scaleX(${normalizedWorkflowProgress / 100})` }" />
         </div>
-      </div>
-      <div v-else class="ppt-smart-empty">
-        <Sparkles :size="20" />
-        <strong>{{ t('courseWorkbench.references.selectedEmptyTitle', '尚未选择课程资料') }}</strong>
-        <span>{{ t('courseWorkbench.references.selectedEmptyDetail', '先选择资料再生成；第一份作为原始材料，其余作为参考材料。') }}</span>
-      </div>
-      <div class="ppt-smart-actions">
+        <ul v-if="selected.length" class="workflow-source-list">
+          <li v-for="item in selected" :key="item.asset_id">
+            <span class="workflow-source-pulse"><Globe2 v-if="item.origin === 'web_search'" :size="15" /><FileText v-else :size="15" /></span>
+            <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}</small></div>
+            <em>{{ effectiveWorkflowState === 'paused' ? t('courseWorkbench.references.pausedSource', '已保留') : t('courseWorkbench.references.usingSource', '使用中') }}</em>
+          </li>
+        </ul>
+        <p v-else class="workflow-no-sources">{{ t('courseWorkbench.references.generatingWithoutSources', '未添加补充资料，系统正在使用课程信息与已确认内容。') }}</p>
+        <footer>
+          <button v-if="effectiveWorkflowState === 'generating' && workflowCanPause" type="button" @click="emit('pause-workflow')"><Pause :size="14" />{{ t('courseWorkbench.pause', '暂停') }}</button>
+          <button v-if="effectiveWorkflowState === 'paused' && workflowCanResume" class="workflow-resume" type="button" @click="emit('resume-workflow')"><Play :size="14" />{{ t('courseWorkbench.continue', '继续') }}</button>
+          <button v-if="workflowCanCancel" type="button" @click="emit('cancel-workflow')"><X :size="14" />{{ t('common.cancel', '取消') }}</button>
+        </footer>
+      </section>
+
+      <div v-else-if="variant === 'default'" key="sources" class="reference-interactive">
+        <section class="source-status" :class="`source-status--${effectiveWorkflowState}`" aria-live="polite">
+          <span><TriangleAlert v-if="effectiveWorkflowState === 'failed'" :size="16" /><CheckCircle2 v-else-if="['review', 'confirmed'].includes(effectiveWorkflowState)" :size="16" /><Upload v-else :size="16" /></span>
+          <div><strong>{{ workflowStatusTitle }}</strong><small>{{ workflowStatusDetail }}</small></div>
+          <button v-if="effectiveWorkflowState === 'failed' && workflowCanRetry" type="button" class="source-status__retry" @click="emit('retry-workflow')">
+            <RotateCcw :size="13" />{{ t('courseWorkbench.references.retryGeneration', '重试生成') }}
+          </button>
+        </section>
+
         <button
+          v-if="previousAvailableSources.length"
           type="button"
-          :class="{ dragging: dragRole === 'reference' }"
-          @click="smartInput?.click()"
-          @dragover.prevent="dragRole = 'reference'"
-          @dragleave="dragRole = ''"
-          @drop.prevent="handleSmartDrop"
-        ><Plus :size="16" />{{ t('courseWorkbench.references.addCourseMaterial', '添加课程资料') }}</button>
-        <button v-if="webResearchAvailable" type="button" @click="researchVisible = true"><Search :size="16" />{{ t('courseWorkbench.references.webSearch', '联网查找') }}</button>
+          class="reuse-previous"
+          :disabled="loading || saving"
+          @click="reusePreviousSources"
+        >
+          <CopyPlus :size="15" />
+          <span>{{ t('courseWorkbench.references.reusePrevious', '沿用上一讲资料') }}</span>
+          <small>{{ previousAvailableSources.length }}</small>
+        </button>
+
+        <section v-if="stage === 'ppt'" class="source-group ppt-smart-sources">
+          <div class="group-heading"><strong>{{ t('courseWorkbench.references.pptCurrentSources', '本次使用') }}</strong><small>{{ loading || saving ? t('courseWorkbench.references.processing', '处理中…') : selected.length }}</small></div>
+          <div v-if="selected.length" class="ppt-smart-source-list">
+            <div v-for="item in selected" :key="item.asset_id" class="ppt-smart-source-item">
+              <span><Globe2 v-if="item.origin === 'web_search'" :size="17" /><FileText v-else :size="17" /></span>
+              <div>
+                <strong>{{ item.source_label || item.filename }}</strong>
+                <small>{{ sourceRoleLabel(item) }}<template v-if="item.origin !== 'web_search'"> · {{ fileSize(item.size_bytes) }}</template></small>
+              </div>
+              <button type="button" :aria-label="t('common.remove', '移除')" :disabled="loading || saving" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+            </div>
+          </div>
+          <div v-else class="ppt-smart-empty">
+            <Sparkles :size="20" />
+            <strong>{{ t('courseWorkbench.references.pptEmpty', '尚未添加补充资料') }}</strong>
+            <span>{{ t('courseWorkbench.references.pptEmptyHint', 'AI 将先使用已确认讲义，新增资料会显示在这里。') }}</span>
+          </div>
+          <div class="ppt-smart-actions">
+            <button type="button" :disabled="loading || saving" :class="{ dragging: dragRole === 'reference' }" @click="smartInput?.click()" @dragover.prevent="dragRole = 'reference'" @dragleave="dragRole = ''" @drop.prevent="handleSmartDrop"><Plus :size="16" />{{ t('courseWorkbench.references.pptAddSources', '添加资料') }}</button>
+            <button v-if="webResearchAvailable" type="button" :disabled="loading || saving" @click="researchVisible = true"><Search :size="16" />{{ t('courseWorkbench.references.pptWebResearch', '联网查找') }}</button>
+          </div>
+          <input ref="smartInput" class="visually-hidden" type="file" multiple @change="handleSmartInput" />
+        </section>
+
+        <template v-else>
+          <section class="source-group source-group--primary">
+            <div class="group-heading"><strong>{{ t('courseWorkbench.references.primary', '资料文件') }}</strong><small>{{ t('courseWorkbench.references.primaryLimit', '最多 1 份') }}</small></div>
+            <div class="drop-zone" :class="{ 'has-file': primarySource, dragging: dragRole === 'primary' }" @dragover.prevent="dragRole = 'primary'" @dragleave="dragRole = ''" @drop.prevent="handleDrop($event, 'primary')">
+              <template v-if="primarySource">
+                <FileText :size="19" />
+                <div><strong>{{ primarySource.filename }}</strong><small>{{ fileSize(primarySource.size_bytes) }}</small></div>
+                <button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(primarySource.asset_id)"><X :size="15" /></button>
+              </template>
+              <button v-else type="button" class="empty-drop" :disabled="loading || saving" @click="primaryInput?.click()"><Plus :size="18" /><span>{{ t('courseWorkbench.references.addPrimary', '上传资料文件') }}</span></button>
+            </div>
+            <input ref="primaryInput" class="visually-hidden" type="file" @change="handleInput($event, 'primary')" />
+          </section>
+
+          <section class="source-group source-group--references">
+            <div class="group-heading"><strong>{{ t('courseWorkbench.references.supporting', '参考文件') }}</strong><small>{{ referenceSources.length }}</small></div>
+            <div class="reference-list">
+              <div v-for="item in referenceSources" :key="item.asset_id" class="reference-item">
+                <FileText :size="17" /><div><strong>{{ item.filename }}</strong><small>{{ fileSize(item.size_bytes) }}</small></div><button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+              </div>
+              <button type="button" class="reference-add" :disabled="loading || saving" :class="{ dragging: dragRole === 'reference' }" @click="referenceInput?.click()" @dragover.prevent="dragRole = 'reference'" @dragleave="dragRole = ''" @drop.prevent="handleDrop($event, 'reference')"><Plus :size="16" />{{ t('courseWorkbench.references.addSupporting', '上传参考文件') }}</button>
+            </div>
+            <input ref="referenceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'reference')" />
+          </section>
+        </template>
+
+        <section v-if="webResearchAvailable || webSources.length" class="source-group source-group--web">
+          <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
+          <div class="web-source-list">
+            <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
+              <Globe2 :size="17" />
+              <div><strong>{{ item.source_label || item.filename }}</strong><a v-if="item.source_metadata?.url" :href="String(item.source_metadata.url)" target="_blank" rel="noopener noreferrer">{{ item.source_metadata.domain || item.source_metadata.url }}<ExternalLink :size="11" /></a><small v-else>{{ item.filename }}</small></div>
+              <button type="button" :disabled="loading || saving" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
+            </div>
+            <button v-if="webResearchAvailable" type="button" class="web-research-open" :disabled="loading || saving" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
+          </div>
+        </section>
+
+        <section v-if="materials.length" class="material-library">
+          <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料库') }}</strong><small>{{ materials.length }}</small></div>
+          <button v-for="item in availableMaterials" :key="item.asset_id" type="button" :disabled="loading || saving" @click="addExisting(item)"><FileText :size="16" /><span>{{ item.filename }}</span><Plus :size="14" /></button>
+          <p v-if="!availableMaterials.length">{{ t('courseWorkbench.references.allSelected', '当前资料已全部引用') }}</p>
+        </section>
       </div>
-      <input ref="smartInput" class="visually-hidden" type="file" multiple @change="handleSmartInput" />
-    </section>
+    </Transition>
 
     <section v-if="variant === 'question-bank'" class="source-group source-group--question-bank">
       <div class="reference-list">
@@ -75,26 +159,6 @@
       <input ref="questionSourceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'question_source')" />
     </section>
 
-    <section v-if="variant === 'default' && (webResearchAvailable || webSources.length)" class="source-group source-group--web">
-      <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
-      <div class="web-source-list">
-        <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
-          <Globe2 :size="17" />
-          <div><strong>{{ item.source_label || item.filename }}</strong><a v-if="item.source_metadata?.url" :href="String(item.source_metadata.url)" target="_blank" rel="noopener noreferrer">{{ item.source_metadata.domain || item.source_metadata.url }}<ExternalLink :size="11" /></a><small v-else>{{ item.filename }}</small></div>
-          <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
-        </div>
-        <button v-if="webResearchAvailable" type="button" class="web-research-open" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
-      </div>
-    </section>
-
-    <section v-if="variant === 'default' && materials.length" class="material-library">
-      <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料') }}</strong><small>{{ materials.length }}</small></div>
-      <button v-for="item in availableMaterials" :key="item.asset_id" type="button" @click="addExisting(item)">
-        <FileText :size="16" /><span>{{ item.filename }}</span><Plus :size="14" />
-      </button>
-      <p v-if="!availableMaterials.length">{{ t('courseWorkbench.references.allSelected', '当前资料已全部引用') }}</p>
-    </section>
-
     <p v-if="error" class="tray-error" role="alert">{{ error }}</p>
     <WebResearchDialog v-if="variant === 'default' && webResearchAvailable" :visible="researchVisible" :course-id="courseId" :stage="stage" :lesson-id="lessonId" @close="researchVisible = false" @saved="handleWebSaved" />
   </aside>
@@ -102,7 +166,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { CopyPlus, ExternalLink, FileText, Globe2, Plus, Search, Sparkles, X } from 'lucide-vue-next'
+import { CheckCircle2, ChevronRight, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, Pause, Play, Plus, RotateCcw, Search, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
 import http, { teacherRequestConfig } from '../utils/http'
@@ -131,6 +195,8 @@ export type CourseReferenceItem = {
   }>
 }
 
+export type CourseReferenceWorkflowState = 'auto' | 'collecting' | 'ready' | 'generating' | 'paused' | 'review' | 'confirmed' | 'failed'
+
 const props = withDefaults(defineProps<{
   courseId: string
   modelValue: CourseReferenceItem[]
@@ -145,6 +211,14 @@ const props = withDefaults(defineProps<{
   showClose?: boolean
   compact?: boolean
   variant?: 'default' | 'question-bank'
+  workflowState?: CourseReferenceWorkflowState
+  workflowLabel?: string
+  workflowDetail?: string
+  workflowProgress?: number
+  workflowCanPause?: boolean
+  workflowCanResume?: boolean
+  workflowCanCancel?: boolean
+  workflowCanRetry?: boolean
 }>(), {
   stage: 'foundation',
   lessonId: '',
@@ -157,9 +231,22 @@ const props = withDefaults(defineProps<{
   showClose: false,
   compact: false,
   variant: 'default',
+  workflowState: 'auto',
+  workflowLabel: '',
+  workflowDetail: '',
+  workflowProgress: 0,
+  workflowCanPause: false,
+  workflowCanResume: false,
+  workflowCanCancel: false,
+  workflowCanRetry: false,
 })
 const emit = defineEmits<{
   (event: 'update:modelValue', value: CourseReferenceItem[]): void
+  (event: 'open-course-information'): void
+  (event: 'pause-workflow'): void
+  (event: 'resume-workflow'): void
+  (event: 'cancel-workflow'): void
+  (event: 'retry-workflow'): void
   (event: 'close'): void
 }>()
 const materials = ref<CourseReferenceItem[]>([])
@@ -173,9 +260,11 @@ const researchVisible = ref(false)
 const webResearchAvailable = ref(true)
 const dragRole = ref<'' | 'primary' | 'reference' | 'question_source'>('')
 const questionSourceInput = ref<HTMLInputElement | null>(null)
+const primaryInput = ref<HTMLInputElement | null>(null)
+const referenceInput = ref<HTMLInputElement | null>(null)
 const smartInput = ref<HTMLInputElement | null>(null)
 const primarySource = computed(() => selected.value.find(item => item.role === 'primary'))
-const fileSources = computed(() => selected.value.filter(item => item.origin !== 'web_search'))
+const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin !== 'web_search'))
 const questionSources = computed(() => selected.value.filter(item => item.role === 'question_source'))
 const webSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin === 'web_search'))
 const availableMaterials = computed(() => {
@@ -187,9 +276,40 @@ const trayTitle = computed(() => {
     return t('courseWorkbench.references.questionSources', '真题资料')
   }
   return props.stage === 'ppt'
-    ? t('courseWorkbench.references.pptSmartTitle', '课程资料')
-    : t('courseWorkbench.references.title', '课程资料')
+    ? t('courseWorkbench.references.pptSmartTitle', 'PPT 智能资料')
+    : t('courseWorkbench.references.title', '信息来源')
 })
+const effectiveWorkflowState = computed<Exclude<CourseReferenceWorkflowState, 'auto'>>(() => (
+  props.workflowState === 'auto'
+    ? selected.value.length ? 'ready' : 'collecting'
+    : props.workflowState
+))
+const workflowLocked = computed(() => ['generating', 'paused'].includes(effectiveWorkflowState.value))
+const normalizedWorkflowProgress = computed(() => Math.max(0, Math.min(100, Number(props.workflowProgress || 0))))
+const workflowStageLabel = computed(() => ({
+  foundation: t('courseWorkbench.stages.foundation', '课程大纲'),
+  lesson: t('courseWorkbench.stages.lesson', '本讲教案'),
+  script: t('courseWorkbench.stages.script', '本讲讲义'),
+  ppt: t('courseWorkbench.stages.ppt', '本讲 PPT'),
+}[props.stage] || t('courseWorkbench.references.currentStage', '当前内容')))
+const workflowStatusTitle = computed(() => props.workflowLabel || ({
+  collecting: t('courseWorkbench.references.collectingTitle', '先准备本阶段资料'),
+  ready: t('courseWorkbench.references.readyTitle', '资料已准备'),
+  generating: t('courseWorkbench.references.generatingTitle', '{stage}正在使用这些资料').replace('{stage}', workflowStageLabel.value),
+  paused: t('courseWorkbench.references.pausedTitle', '生成已暂停'),
+  review: t('courseWorkbench.references.reviewTitle', '生成完成，可核对来源'),
+  confirmed: t('courseWorkbench.references.confirmedTitle', '当前内容已确认'),
+  failed: t('courseWorkbench.references.failedTitle', '生成已中断'),
+}[effectiveWorkflowState.value]))
+const workflowStatusDetail = computed(() => props.workflowDetail || ({
+  collecting: t('courseWorkbench.references.collectingDetail', '上传一份资料文件，并按需补充参考文件。'),
+  ready: t('courseWorkbench.references.readyDetail', '已选 {count} 份，开始生成后这里会显示使用状态。').replace('{count}', String(selected.value.length)),
+  generating: t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'),
+  paused: t('courseWorkbench.references.pausedDetail', '资料与进度已经保留，可继续或取消。'),
+  review: t('courseWorkbench.references.reviewDetail', '当前结果使用了以下资料；调整后需要重新生成。'),
+  confirmed: t('courseWorkbench.references.confirmedDetail', '资料关系已保存，重新生成前仍可调整。'),
+  failed: t('courseWorkbench.references.failedDetail', '资料仍然保留，可调整后重新生成。'),
+}[effectiveWorkflowState.value]))
 const previousAvailableSources = computed(() => {
   if (!props.previousScopeTargetId) return []
   const chosen = new Set(selected.value.map(item => item.asset_id))
@@ -438,4 +558,6 @@ onMounted(loadAll)
 .reference-tray__title{min-width:0;display:flex;align-items:center;gap:9px}.reference-tray__title>span{width:30px;height:30px;display:grid;place-items:center;border-radius:8px;color:#4f46e5;background:#eef2ff}.reference-tray__title>div{min-width:0;display:grid;gap:1px}.reference-tray__title small{color:#778397;font-size:10px}.system-context>div{min-width:0;display:grid;gap:2px}.system-context small{color:#788497;font-size:10px}.reference-tray.is-ppt{background:#fff}.ppt-smart-sources{gap:10px}.ppt-smart-source-list{display:grid;gap:7px}.ppt-smart-source-item{min-height:54px;display:grid;grid-template-columns:32px minmax(0,1fr) 28px;align-items:center;gap:8px;padding:7px 8px;border-radius:9px;background:#f7f8fc}.ppt-smart-source-item>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#ececff}.ppt-smart-source-item>div{min-width:0;display:grid;gap:2px}.ppt-smart-source-item strong{overflow:hidden;color:#303b50;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.ppt-smart-source-item small{color:#788497;font-size:10px}.ppt-smart-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:7px;color:#7c8798;background:transparent;cursor:pointer}.ppt-smart-source-item>button:hover{color:#334155;background:#e9ebf2}.ppt-smart-empty{min-height:116px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:5px;padding:16px;color:#625dd7;text-align:center}.ppt-smart-empty strong{color:#3b4659;font-size:12px}.ppt-smart-empty span{max-width:230px;color:#788497;font-size:10.5px;line-height:1.5}.ppt-smart-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}.ppt-smart-actions button{min-height:40px;display:flex;align-items:center;justify-content:center;gap:6px;border:1px solid #dce1e9;border-radius:9px;color:#4d596e;background:#fff;font-size:11.5px;font-weight:700;cursor:pointer}.ppt-smart-actions button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.ppt-smart-actions button.dragging{border-color:#5b57e8;background:#f4f4ff}.ppt-smart-actions button:focus-visible,.ppt-smart-source-item>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 .source-group--web{padding-top:18px}.web-source-list{display:grid;gap:7px}.web-source-item{min-height:56px;display:grid;grid-template-columns:18px minmax(0,1fr) 28px;align-items:center;gap:9px;padding:8px 9px;border:1px solid #dce5f0;border-radius:9px;background:#fff}.web-source-item>svg{color:#0f766e}.web-source-item>div{min-width:0;display:grid;gap:3px}.web-source-item strong{overflow:hidden;color:#334155;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.web-source-item a{display:flex;align-items:center;gap:4px;overflow:hidden;color:#0f766e;font-size:12px;text-decoration:none;text-overflow:ellipsis;white-space:nowrap}.web-source-item small{color:#64748b;font-size:12px}.web-source-item>button{width:28px;height:28px;display:grid;place-items:center;border:0;border-radius:6px;color:#64748b;background:transparent;cursor:pointer}.web-research-open{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px dashed #8fbab5;border-radius:9px;color:#0f766e;background:#f4fbfa;font-size:12px;font-weight:750;cursor:pointer}
 .reference-tray.is-question-bank{height:100%;overflow:auto;border-left:0;background:#fbfcfe}.reference-tray.is-question-bank .reference-tray__header{min-height:64px;background:#fbfcfe}.source-group--question-bank{gap:10px;padding:12px 14px 18px}.source-group--question-bank .reference-list{gap:0}.source-group--question-bank .reference-item{min-height:48px;padding:7px 2px;border:0;border-bottom:1px solid #e7ebf2;border-radius:0;background:transparent}.reference-tray.is-question-bank .reference-add{min-height:38px;margin-top:0;border:0;border-radius:8px;color:#5552c8;background:#f0f1ff}.reference-tray.is-question-bank .reference-item~.reference-add{margin-top:10px}.reference-tray.is-question-bank .reference-add:hover{color:#4338ca;background:#e7e8ff}
+.reference-interactive{padding-bottom:18px}.source-status{display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:9px;margin:12px 16px 0;padding:10px 11px;border:1px solid #dfe5ef;border-radius:10px;background:#fff}.source-status>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#eef0ff}.source-status>div{min-width:0;display:grid;gap:3px}.source-status strong{color:#334155;font-size:12px}.source-status small{color:#738095;font-size:10.5px;line-height:1.45}.source-status--review,.source-status--confirmed{border-color:#cfe9d8;background:#f7fcf9}.source-status--review>span,.source-status--confirmed>span{color:#168044;background:#e7f7ed}.source-status--failed{border-color:#f1cdd1;background:#fff8f8}.source-status--failed>span{color:#b9404e;background:#fdebed}.workflow-state{display:grid;gap:14px;margin:12px 16px 18px;padding:14px;border:1px solid #dadcf6;border-radius:12px;background:linear-gradient(150deg,#fbfbff,#f4f5ff);box-shadow:0 10px 28px rgba(70,69,151,.08)}.workflow-state>header{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px}.workflow-state__signal{width:38px;height:38px;display:grid;place-items:center;border-radius:10px;color:#fff;background:#5955d8;box-shadow:0 7px 18px rgba(89,85,216,.22)}.workflow-state>header>div{min-width:0;display:grid;gap:4px}.workflow-state>header strong{color:#2d3650;font-size:12.5px}.workflow-state>header small{color:#6f7b90;font-size:10.5px;line-height:1.45}.workflow-state--paused{border-color:#eadfbd;background:linear-gradient(150deg,#fffdf8,#fff9e9)}.workflow-state--paused .workflow-state__signal{color:#8a5d09;background:#f6df9f;box-shadow:none}.workflow-progress{height:5px;overflow:hidden;border-radius:3px;background:#e3e5f4}.workflow-progress i{position:relative;width:100%;height:100%;display:block;transform-origin:left center;border-radius:inherit;background:#5955d8;transition:transform .25s cubic-bezier(.2,.8,.2,1)}.workflow-state--generating .workflow-progress i::after{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);animation:workflow-scan 1.6s ease-in-out infinite;content:""}.workflow-state--paused .workflow-progress i{background:#d39b2f}.workflow-source-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}.workflow-source-list li{min-height:52px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid rgba(213,216,239,.9);border-radius:9px;background:rgba(255,255,255,.8)}.workflow-source-pulse{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5551ce;background:#ececff}.workflow-state--generating .workflow-source-pulse{animation:source-usage-pulse 1.8s ease-in-out infinite}.workflow-source-list li>div{min-width:0;display:grid;gap:2px}.workflow-source-list strong{overflow:hidden;color:#354056;font-size:11.5px;text-overflow:ellipsis;white-space:nowrap}.workflow-source-list small{color:#7a8699;font-size:10px}.workflow-source-list em{color:#5b57c8;font-size:9.5px;font-style:normal;font-weight:750}.workflow-state--paused .workflow-source-list em{color:#956b19}.workflow-no-sources{margin:0;color:#6f7b90;font-size:11px;line-height:1.55}.workflow-state>footer{display:flex;align-items:center;gap:7px}.workflow-state>footer button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d5d9e5;border-radius:8px;color:#596579;background:#fff;font-size:11px;font-weight:700;cursor:pointer}.workflow-state>footer button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.workflow-state>footer .workflow-resume{border-color:#5651d1;color:#fff;background:#5651d1}.workflow-state>footer .workflow-resume:hover{border-color:#4742ba;color:#fff;background:#4742ba}.workflow-spinner{animation:spin 1s linear infinite}.tray-mode-enter-active,.tray-mode-leave-active{transition:opacity .2s ease,transform .2s cubic-bezier(.2,.8,.2,1),clip-path .2s ease}.tray-mode-enter-from{opacity:0;transform:translateY(8px);clip-path:inset(0 0 10% 0)}.tray-mode-leave-to{opacity:0;transform:translateY(-6px);clip-path:inset(0 0 10% 0)}.drop-zone button:disabled,.reference-add:disabled,.ppt-smart-actions button:disabled,.material-library>button:disabled,.web-research-open:disabled{opacity:.48;cursor:not-allowed}.drop-zone>button:not(.empty-drop):hover,.reference-item>button:hover,.web-source-item>button:hover{color:#334155;background:#eef1f6}.empty-drop:focus-visible,.reference-add:focus-visible,.material-library>button:focus-visible,.web-research-open:focus-visible,.workflow-state>footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}@keyframes workflow-scan{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes source-usage-pulse{0%,100%{box-shadow:0 0 0 0 rgba(89,85,216,0)}50%{box-shadow:0 0 0 4px rgba(89,85,216,.1)}}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.workflow-spinner,.workflow-state--generating .workflow-progress i::after,.workflow-state--generating .workflow-source-pulse{animation:none}.tray-mode-enter-active,.tray-mode-leave-active,.workflow-progress i{transition:none}}
+.source-status__retry{grid-column:2;justify-self:start;min-height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #dc9da5;border-radius:7px;color:#a73341;background:#fff;font-size:10.5px;font-weight:750;cursor:pointer}.source-status__retry:hover{border-color:#b9404e;background:#fff1f2}.source-status__retry:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 </style>

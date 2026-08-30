@@ -12,7 +12,6 @@
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
       <header>
         <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
-        <button class="course-information-entry" type="button" @click="emit('open-course-information')"><Info :size="14" />{{ t('courseWorkbench.courseInformation', '课程信息') }}</button>
       </header>
       <nav>
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== stage.id)" @click="requestStageChange(stage.id)">
@@ -127,15 +126,10 @@
 
       <section v-else-if="activeStage === 'foundation' && outlineShapeAwaitingReview" class="formal-surface outline-shape-review" data-testid="outline-shape-review">
         <article>
-          <ol class="shape-chapter-list">
-            <li v-for="(chapter, index) in outlineGrowthChapters" :key="String(chapter.chapter_number || index)">
-              <div><strong>{{ chapter.title }}</strong><small>{{ chapter.learning_focus }}</small></div>
-              <label><input v-model.number="chapterSectionCounts[index]" type="number" min="1" max="100" :aria-label="t('courseWorkbench.shapeReview.countLabel', '{chapter}的小节数').replace('{chapter}', String(chapter.title || index + 1))" /><span>{{ t('courseWorkbench.form.sectionUnit', '小节') }}</span></label>
-            </li>
-          </ol>
+          <LoaderCircle :size="22" class="spin" />
+          <div><strong>{{ t('courseWorkbench.shapeReview.lectureContinuing', '讲数已经确认，正在继续生成课程大纲') }}</strong><small>{{ t('courseWorkbench.shapeReview.lectureAdapterHelp', '系统正在整理每一讲的内容与前后关系，不需要再填写章或小节。') }}</small></div>
           <AppErrorNotice v-if="shapeConfirmErrorPresentation" class="shape-confirm-error" :presentation="shapeConfirmErrorPresentation" compact />
         </article>
-        <footer><span>{{ t('courseWorkbench.shapeReview.total', '确认后将生成 {count} 个小节').replace('{count}', String(totalSectionCount)) }}</span><button class="primary" type="button" :disabled="shapeConfirming || !shapeCountsValid" @click="confirmOutlineShape"><Sparkles :size="16" />{{ shapeConfirming ? t('courseWorkbench.shapeReview.confirming', '正在继续…') : t('courseWorkbench.shapeReview.confirm', '确认并生成小章节') }}</button></footer>
       </section>
 
       <section
@@ -170,6 +164,7 @@
         <label class="form-field form-field--wide"><span>{{ foundationGoalLabel }} <b>*</b></span><textarea v-model.trim="foundation.goal" required rows="4" :placeholder="foundationGoalPlaceholder" /></label>
         <div class="form-grid">
           <label class="form-field"><span>{{ t('courseWorkbench.form.totalHours', '总学时') }}</span><input v-model.number="foundation.totalHours" type="number" min="1" max="1000" /></label>
+          <label class="form-field"><span>{{ t('courseWorkbench.form.lectureCount', '计划讲数') }} <b>*</b></span><input v-model.number="foundation.lectureCount" type="number" min="1" max="1000" required /></label>
         </div>
         <section class="foundation-semantics" aria-labelledby="foundation-semantics-title">
           <header>
@@ -238,10 +233,10 @@
             <label class="form-field"><span>{{ t('courseWorkbench.form.examScope', '考试范围') }} <b>*</b></span><input v-model.trim="foundation.examScope" required maxlength="1000" :placeholder="t('courseWorkbench.form.examScopePlaceholder', '例如：教材第 1—8 章与课堂重点')" /></label>
           </div>
         </section>
-        <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：每章包含案例讨论，兼顾理论与实践')" /></label>
+        <label class="form-field form-field--wide"><span>{{ t('courseWorkbench.form.requirements', '补充要求') }}</span><textarea v-model.trim="foundation.requirements" rows="4" :placeholder="t('courseWorkbench.form.requirementsPlaceholder', '例如：部分讲次安排案例讨论，兼顾理论与实践')" /></label>
         <footer>
           <span>{{ t('courseWorkbench.form.semanticHint', '系统先规划整课的课型分布，再为每一讲编排可调整的教学块。') }}</span>
-          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady"><Sparkles :size="16" />{{ t('courseWorkbench.generateChapterSkeleton', '生成大章节') }}</button>
+          <button class="primary" type="submit" :disabled="generationStarting || !foundationReady"><Sparkles :size="16" />{{ t('courseWorkbench.generateOutline', '生成课程大纲') }}</button>
         </footer>
       </form>
 
@@ -408,26 +403,6 @@
               </button>
             </template>
         </TeacherDocumentCommandBar>
-        <nav
-          v-if="activeStage === 'lesson' && Number(selectedLesson?.sections?.length || 0) > 1 && !lessonStageBlocked"
-          class="lesson-section-tabs"
-          :aria-label="t('courseWorkbench.lessonDocument.sectionNavigation', '教案小节')"
-        >
-          <button
-            v-for="section in (selectedLesson?.sections || [])"
-            :key="section.section_node_id"
-            type="button"
-            :class="{ active: selectedLessonSectionId === section.section_node_id }"
-            :disabled="aiCandidatePending && selectedLessonSectionId !== section.section_node_id"
-            :title="aiCandidatePending && selectedLessonSectionId !== section.section_node_id
-              ? t('courseWorkbench.aiCollaboration.scopeLocked', '请先采用或放弃当前候选')
-              : ''"
-            :aria-current="selectedLessonSectionId === section.section_node_id ? 'page' : undefined"
-            @click="selectLessonSection(selectedLesson?.lesson_unit_id || '', section.section_node_id)"
-          >
-            <strong>{{ section.title }}</strong>
-          </button>
-        </nav>
         <TeacherDocumentHistoryPanel
           v-if="activeStage === 'lesson' && historyOpen && historyDomain === 'lesson'"
           title="教案历史版本"
@@ -736,6 +711,18 @@
         :scope-target-position="selectedLessonPosition"
         :previous-scope-target-id="previousLessonReferenceTargetId"
         :refresh-token="materialRefreshToken"
+        :workflow-state="referenceWorkflowState"
+        :workflow-detail="referenceWorkflowDetail"
+        :workflow-progress="referenceWorkflowProgress"
+        :workflow-can-pause="referenceWorkflowCanPause"
+        :workflow-can-resume="referenceWorkflowCanResume"
+        :workflow-can-cancel="referenceWorkflowCanCancel"
+        :workflow-can-retry="referenceWorkflowCanRetry"
+        @open-course-information="emit('open-course-information')"
+        @pause-workflow="pauseReferenceWorkflow"
+        @resume-workflow="resumeReferenceWorkflow"
+        @cancel-workflow="cancelReferenceWorkflow"
+        @retry-workflow="retryReferenceWorkflow"
       />
     </aside>
 
@@ -776,11 +763,11 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Info, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
-import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
+import CourseReferenceTray, { type CourseReferenceItem, type CourseReferenceWorkflowState } from './CourseReferenceTray.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
@@ -956,6 +943,7 @@ const activeReferenceLessonId = computed(() => ['lesson', 'script', 'ppt'].inclu
 const foundation = reactive({
   goal: '',
   totalHours: 32,
+  lectureCount: 16,
   requirements: '',
   learningPurpose: 'systematic' as LearningPurpose,
   subjectType: 'auto' as PedagogyModeSelection,
@@ -1001,6 +989,8 @@ const foundationGoalPlaceholder = computed(() => ({
 }[foundation.learningPurpose]))
 const foundationReady = computed(() => Boolean(
   foundation.goal.trim()
+  && Number.isInteger(Number(foundation.lectureCount))
+  && Number(foundation.lectureCount) > 0
   && (foundation.learningPurpose !== 'project' || foundation.projectDeliverable.trim())
   && (foundation.learningPurpose !== 'exam' || (foundation.examDate && foundation.examScope.trim()))
 ))
@@ -1010,11 +1000,9 @@ const foundationSemanticRequirement = computed(() => {
   const teachingType = courseTeachingTypeOptions.value.find(option => option.value === foundation.courseTeachingType)?.label || ''
   return [`学习目的：${purpose}`, `学科类型：${subject}`, `课程教学类型：${teachingType}`].join('\n')
 })
-const chapterSectionCounts = ref<number[]>([])
 const loadedShapeRevision = ref('')
 const shapeConfirming = ref(false)
 const shapeConfirmError = ref<unknown>(null)
-const totalSectionCount = computed(() => chapterSectionCounts.value.reduce((total, count) => total + Math.max(1, Number(count || 1)), 0))
 const lessonRequirements = ref('')
 const batchStarting = ref(false)
 const lessonBusy = ref(false); const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
@@ -1050,7 +1038,7 @@ const aiScopeTitle = computed(() => ['outline', 'question-bank'].includes(aiDoma
 const aiScopeDetail = computed(() => {
   if (aiDomain.value === 'outline') return t('courseWorkbench.aiCollaboration.outlineScope', '课程大纲')
   if (aiDomain.value === 'question-bank') return t('courseWorkbench.aiCollaboration.questionBankScope', '整门课程题库')
-  if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲义小节')
+  if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲义内容')
   return selectedLessonSectionTitle.value || t('courseWorkbench.aiCollaboration.lessonScope', '整讲教案')
 })
 const aiScopeOptions = computed<TeacherAiScopeOption[]>(() => {
@@ -1078,12 +1066,12 @@ function prioritizeAiActions(actions: TeacherAiQuickAction[], priorities: string
 const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
   if (aiDomain.value === 'outline') {
     const actions: TeacherAiQuickAction[] = [
-    { id: 'outline-diagnose', icon: 'diagnose', label: t('courseWorkbench.aiCollaboration.quickOutlineDiagnose', '检查结构问题'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineDiagnosePrompt', '检查当前大纲的章节顺序、学习路径和重复内容，只调整确有必要的部分') },
-    { id: 'outline-sequence', icon: 'sequence', label: t('courseWorkbench.aiCollaboration.quickOutlineSequence', '调整章节顺序'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineSequencePrompt', '调整章节顺序，让知识难度与前置关系更合理') },
+    { id: 'outline-diagnose', icon: 'diagnose', label: t('courseWorkbench.aiCollaboration.quickOutlineDiagnose', '检查结构问题'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineDiagnosePrompt', '检查当前大纲的讲次顺序、学习路径和重复内容，只调整确有必要的部分') },
+    { id: 'outline-sequence', icon: 'sequence', label: t('courseWorkbench.aiCollaboration.quickOutlineSequence', '调整讲次顺序'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineSequencePrompt', '调整讲次顺序，让知识难度与前置关系更合理') },
     { id: 'outline-path', icon: 'path', label: t('courseWorkbench.aiCollaboration.quickOutlinePath', '补齐学习路径'), prompt: t('courseWorkbench.aiCollaboration.quickOutlinePathPrompt', '补齐缺失的学习路径和前置衔接') },
-    { id: 'outline-merge', icon: 'merge', label: t('courseWorkbench.aiCollaboration.quickOutlineMerge', '合并重复内容'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineMergePrompt', '合并重复的小节，同时保留必要的知识覆盖') },
-    { id: 'outline-objective', icon: 'target', label: t('courseWorkbench.aiCollaboration.quickOutlineObjective', '细化学习目标'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineObjectivePrompt', '细化各小节学习目标，使其具体、可观察且与内容对应') },
-    { id: 'outline-split', icon: 'split', label: t('courseWorkbench.aiCollaboration.quickOutlineSplit', '拆分过大小节'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineSplitPrompt', '拆分范围过大的小节，使每节课的学习任务更聚焦') },
+    { id: 'outline-merge', icon: 'merge', label: t('courseWorkbench.aiCollaboration.quickOutlineMerge', '合并重复内容'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineMergePrompt', '合并重复的讲次内容，同时保留必要的知识覆盖') },
+    { id: 'outline-objective', icon: 'target', label: t('courseWorkbench.aiCollaboration.quickOutlineObjective', '细化学习目标'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineObjectivePrompt', '细化每一讲的学习目标，使其具体、可观察且与内容对应') },
+    { id: 'outline-split', icon: 'split', label: t('courseWorkbench.aiCollaboration.quickOutlineSplit', '拆分过大讲次'), prompt: t('courseWorkbench.aiCollaboration.quickOutlineSplitPrompt', '拆分内容范围过大的讲次，使每次课的学习任务更聚焦') },
     ]
     const nodes = courseStore.nodes as Array<Record<string, any>>
     const titles = nodes.map(node => String(node.node_name || '').trim()).filter(Boolean)
@@ -1233,10 +1221,10 @@ const aiCandidateFieldLabels = computed(() => {
   if (aiDomain.value === 'outline') {
     const diff = aiCandidate.value?.diff || {}
     const operationLabels = [
-      ...(Array.isArray(diff.moved) ? diff.moved.map((item: any) => `移动 ${item.node_name || '章节'}：${item.old_position || '原位置'} → ${item.new_position || '新位置'}`) : []),
-      ...(Array.isArray(diff.updated) ? diff.updated.map((item: any) => `修改 ${item.node_name || '章节'}`) : []),
-      ...(Array.isArray(diff.added) ? diff.added.map((item: any) => `新增 ${item.node_name || '章节'}`) : []),
-      ...(Array.isArray(diff.removed) ? diff.removed.map((item: any) => `删除 ${item.node_name || '章节'}`) : []),
+      ...(Array.isArray(diff.moved) ? diff.moved.map((item: any) => `移动 ${item.node_name || '讲次'}：${item.old_position || '原位置'} → ${item.new_position || '新位置'}`) : []),
+      ...(Array.isArray(diff.updated) ? diff.updated.map((item: any) => `修改 ${item.node_name || '讲次'}`) : []),
+      ...(Array.isArray(diff.added) ? diff.added.map((item: any) => `新增 ${item.node_name || '讲次'}`) : []),
+      ...(Array.isArray(diff.removed) ? diff.removed.map((item: any) => `删除 ${item.node_name || '讲次'}`) : []),
     ]
     return operationLabels.length ? operationLabels : ['大纲内容']
   }
@@ -1371,7 +1359,7 @@ const documentHistoryItems = computed<TeacherDocumentHistoryItem[]>(() => {
         title: historySourceLabel(item.operation),
         time: formatHistoryTime(item.created_at),
         actor: String(item.actor || ''),
-        detail: `${Number(item.chapter_count || 0)} 章 · ${Number(item.section_count || 0)} 小节`,
+        detail: `${Number(item.section_count || item.chapter_count || 0)} 讲`,
         current,
       }
     })
@@ -1456,7 +1444,6 @@ const outlineGrowth = computed<Record<string, any> | null>(() => {
 })
 const outlineGrowthChapters = computed<Record<string, any>[]>(() => Array.isArray(outlineGrowth.value?.chapters) ? outlineGrowth.value!.chapters as Record<string, any>[] : [])
 const outlineShapeRevision = computed(() => String(generationTask.value?.phaseDetail?.skeleton_revision_id || ''))
-const shapeCountsValid = computed(() => chapterSectionCounts.value.length === outlineGrowthChapters.value.length && chapterSectionCounts.value.every(count => Number.isInteger(Number(count)) && Number(count) >= 1 && Number(count) <= 100))
 const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
   && !outlineShapeAwaitingReview.value
@@ -1506,6 +1493,7 @@ const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.v
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
 const scriptGenerationBusy = computed(() => scriptGenerating.value || scriptGenerationActive.value)
+const scriptGenerationProgress = computed(() => Math.max(3, Number(scriptJob.value?.progress || 0)))
 const effectiveScriptGenerationError = computed(() => String(
   selectedLesson.value?.script?.ready
     ? ''
@@ -1515,6 +1503,66 @@ const effectiveScriptGenerationError = computed(() => String(
     ? scriptJob.value.error?.message || scriptGenerationError.value
     : scriptGenerationError.value,
 ))
+const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
+  if (activeStage.value === 'foundation') {
+    if (props.generationStarting || taskInFlight.value) return 'generating'
+    if (taskPaused.value) return 'paused'
+    if (generationFailed.value) return 'failed'
+    if (outlineGatePending.value || hasOutline.value) return 'review'
+    return activeReferences.value.length ? 'ready' : 'collecting'
+  }
+  if (activeStage.value === 'lesson') {
+    if (lessonGenerationActive.value || lessonBusy.value) return 'generating'
+    if (lessonJob.value?.status === 'paused') return 'paused'
+    if (['failed', 'cancelled'].includes(String(lessonJob.value?.status || ''))) return 'failed'
+    if (lessonPlanConfirmed.value) return 'confirmed'
+    if (workingLessonRevision.value) return 'review'
+    return activeReferences.value.length ? 'ready' : 'collecting'
+  }
+  if (activeStage.value === 'script') {
+    if (scriptGenerationBusy.value) return 'generating'
+    if (scriptJob.value?.status === 'paused') return 'paused'
+    if (['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || effectiveScriptGenerationError.value) return 'failed'
+    if (scriptConfirmed.value) return 'confirmed'
+    if (selectedLesson.value?.script?.ready) return 'review'
+    return activeReferences.value.length ? 'ready' : 'collecting'
+  }
+  if (activeStage.value === 'ppt') return currentPptAsset.value ? 'confirmed' : activeReferences.value.length ? 'ready' : 'collecting'
+  return activeReferences.value.length ? 'ready' : 'collecting'
+})
+const referenceWorkflowDetail = computed(() => {
+  if (referenceWorkflowState.value === 'generating') {
+    if (activeStage.value === 'foundation') return currentGenerationLabel.value
+    if (activeStage.value === 'lesson') return String(lessonJob.value?.current_block_title || lessonJob.value?.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
+    if (activeStage.value === 'script') return String(scriptJob.value?.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
+  }
+  if (referenceWorkflowState.value === 'failed') {
+    if (activeStage.value === 'foundation') return generationError.value
+    if (activeStage.value === 'lesson') return lessonGenerationError.value
+    if (activeStage.value === 'script') return effectiveScriptGenerationError.value
+  }
+  return ''
+})
+const referenceWorkflowProgress = computed(() => {
+  if (activeStage.value === 'foundation') return generationProgress.value
+  if (activeStage.value === 'lesson') return lessonGenerationProgress.value
+  if (activeStage.value === 'script') return scriptGenerationProgress.value
+  return referenceWorkflowState.value === 'confirmed' ? 100 : 0
+})
+const referenceWorkflowCanPause = computed(() => (
+  activeStage.value === 'foundation' ? taskInFlight.value
+    : activeStage.value === 'lesson' ? lessonGenerationActive.value
+      : activeStage.value === 'script' ? scriptGenerationActive.value
+        : false
+))
+const referenceWorkflowCanResume = computed(() => (
+  activeStage.value === 'foundation' ? taskPaused.value
+    : activeStage.value === 'lesson' ? lessonJob.value?.status === 'paused'
+      : activeStage.value === 'script' ? scriptJob.value?.status === 'paused'
+        : false
+))
+const referenceWorkflowCanCancel = computed(() => referenceWorkflowCanPause.value || referenceWorkflowCanResume.value)
+const referenceWorkflowCanRetry = computed(() => referenceWorkflowState.value === 'failed' && activeStage.value !== 'ppt')
 const readyStageCount = computed(() => stages.value.filter(item => stageReady(item.id)).length)
 const lessonStageBlocked = computed(() => (
   lessonStore.loading
@@ -1530,7 +1578,7 @@ const lessonPrerequisiteState = computed(() => {
   }
   if (outlineShapeAwaitingReview.value) return {
     kind: 'review',
-    title: t('courseWorkbench.lessonPrerequisite.shapeReview', '大章节已生成，等待确认小节数'),
+    title: t('courseWorkbench.lessonPrerequisite.shapeReview', '课程讲数已确认，正在生成大纲'),
     detail: t('courseWorkbench.lessonPrerequisite.shapeReviewHelp', '完成这一步后，系统会继续生成完整大纲。'),
     action: t('courseWorkbench.lessonPrerequisite.continueOutline', '继续完善大纲'),
   }
@@ -1582,6 +1630,29 @@ function stageReady(stage: CoreStageId) {
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
 function cancelOutlineGeneration() { void generationStore.cancelTask(props.courseId) }
+async function pauseReferenceWorkflow() {
+  if (activeStage.value === 'foundation') return generationStore.stopGeneration()
+  if (activeStage.value === 'lesson') return pauseLessonGeneration()
+  if (activeStage.value === 'script') return pauseScriptGeneration()
+}
+async function resumeReferenceWorkflow() {
+  if (activeStage.value === 'foundation' && generationTask.value?.id) {
+    await generationStore.resumeTask(props.courseId, generationTask.value.id)
+    return
+  }
+  if (activeStage.value === 'lesson') return generateLessonPlan()
+  if (activeStage.value === 'script') return generateScript()
+}
+async function cancelReferenceWorkflow() {
+  if (activeStage.value === 'foundation') return generationStore.cancelTask(props.courseId)
+  if (activeStage.value === 'lesson') return cancelLessonGeneration()
+  if (activeStage.value === 'script') return cancelScriptGeneration()
+}
+async function retryReferenceWorkflow() {
+  if (activeStage.value === 'foundation') return submitFoundation()
+  if (activeStage.value === 'lesson') return generateLessonPlan()
+  if (activeStage.value === 'script') return generateScript()
+}
 function appendAiMessage(
   role: TeacherProductionAiMessage['role'],
   kind: TeacherProductionAiMessage['kind'],
@@ -1866,7 +1937,7 @@ async function handleAiRequest(instruction: string) {
       'assistant',
       'text',
       aiDomain.value === 'outline'
-        ? '你希望先调整章节顺序、学习路径，还是合并重复内容？'
+        ? '你希望先调整讲次顺序、学习路径，还是合并重复内容？'
         : aiDomain.value === 'question-bank'
           ? '你希望先补齐目标覆盖、增加应用题，还是强化错因诊断？'
         : aiDomain.value === 'script'
@@ -2086,7 +2157,9 @@ async function submitFoundation() {
           schema_version: 'teacher_course_brief_v1',
           target_audience: baseTeacherBrief.target_audience || '大学生',
           total_class_hours: foundation.totalHours,
-          lesson_duration_minutes: baseTeacherBrief.lesson_duration_minutes || 45,
+          lesson_duration_minutes: 45,
+          course_period_minutes: 45,
+          lecture_count: Number(foundation.lectureCount),
           teaching_context: baseTeacherBrief.teaching_context || 'classroom',
           additional_requirements: additionalRequirements,
         },
@@ -2098,7 +2171,16 @@ async function submitFoundation() {
     generationRequested.value = false
   }
 }
-async function confirmOutlineShape() { if (!shapeCountsValid.value || shapeConfirming.value) return; shapeConfirming.value = true; shapeConfirmError.value = null; try { const counts = chapterSectionCounts.value.map(count => Number(count)); await courseWorkspaceStore.confirmOutlineShape(props.courseId, counts); generationRequested.value = true; await generationStore.fetchGlobalTasks() } catch (error: any) { shapeConfirmError.value = error } finally { shapeConfirming.value = false } }
+async function confirmLectureOutlineShape() {
+  if (shapeConfirming.value) return
+  const count = Math.max(1, Number(foundation.lectureCount || outlineGrowthChapters.value.length || 1))
+  shapeConfirming.value = true; shapeConfirmError.value = null
+  try {
+    await courseWorkspaceStore.confirmOutlineShape(props.courseId, Array.from({ length: count }, () => 1))
+    generationRequested.value = true
+    await generationStore.fetchGlobalTasks()
+  } catch (error: any) { shapeConfirmError.value = error } finally { shapeConfirming.value = false }
+}
 async function generateLessonPlan() {
   const lesson = selectedLesson.value
   if (!lesson || lessonBusy.value || lessonGenerationActive.value) return
@@ -2407,9 +2489,15 @@ watch(() => props.generationOptions, options => {
   foundation.subjectType = (canonical.pedagogy_mode || 'auto') as PedagogyModeSelection
   foundation.courseTeachingType = (canonical.course_teaching_type || 'comprehensive') as CourseTeachingType
   foundation.totalHours = Number(brief?.total_class_hours || 32)
+  foundation.lectureCount = Number(brief?.lecture_count || brief?.section_count || 16)
   foundation.requirements = String(canonical.requirements || '')
 }, { immediate: true, deep: true })
-watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => { if (!waiting || !revision || loadedShapeRevision.value === revision) return; chapterSectionCounts.value = outlineGrowthChapters.value.map(chapter => Math.max(1, Number(chapter.section_count || 1))); loadedShapeRevision.value = revision; shapeConfirmError.value = null }, { immediate: true })
+watch([outlineShapeAwaitingReview, outlineShapeRevision], ([waiting, revision]) => {
+  if (!waiting || !revision || loadedShapeRevision.value === revision) return
+  loadedShapeRevision.value = revision
+  shapeConfirmError.value = null
+  void confirmLectureOutlineShape()
+}, { immediate: true })
 watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (value && typeof value === 'object') retainedOutlineGrowth.value = JSON.parse(JSON.stringify(value)) as Record<string, any> }, { immediate: true, deep: true })
 watch(outlineAwaitingReview, waiting => { if (waiting) void courseStore.refreshGenerationPreview(props.courseId, 'teacher') }, { immediate: true })
 watch(() => props.initialStage, stage => { void requestStageChange(stage) })

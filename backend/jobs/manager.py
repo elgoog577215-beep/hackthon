@@ -6511,6 +6511,10 @@ class TaskManager:
                 task.get("outline_shape_confirmed")
                 or outline_stage.get("shape_confirmed")
             )
+            teacher_brief = request.get("teacher_course_brief") or {}
+            if is_teacher_outline and int(teacher_brief.get("lecture_count") or 0) > 0:
+                # 讲数已经由教师确认，不再插入“逐章填写小节数”的第二次确认。
+                outline_shape_confirmed = True
             stop_after_skeleton = bool(
                 is_teacher_outline
                 and not outline_shape_confirmed

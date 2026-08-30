@@ -41,8 +41,17 @@
               <label class="field field--wide" for="prerequisites"><span>{{ t('teacherCourseCreate.prerequisiteCourses') }}</span><input id="prerequisites" v-model.trim="form.prerequisiteCourses" maxlength="1000" :placeholder="t('teacherCourseCreate.prerequisitePlaceholder')" /></label>
               <label class="field" for="academic-year"><span>{{ t('teacherCourseCreate.academicYear') }}</span><input id="academic-year" v-model.trim="form.academicYear" maxlength="30" placeholder="2026-2027" /></label>
               <label class="field" for="term"><span>{{ t('teacherCourseCreate.term') }}</span><select id="term" v-model="form.term"><option value="">{{ t('teacherCourseCreate.notSet') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter') }}</option><option value="春夏">{{ t('teacherCourseCreate.springSummer') }}</option></select></label>
-              <label class="field" for="weekday"><span>{{ t('teacherCourseCreate.weekday') }}</span><select id="weekday" v-model="form.weekday"><option value="">{{ t('teacherCourseCreate.notSet') }}</option><option v-for="option in weekdayOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
-              <label class="field" for="periods"><span>{{ t('teacherCourseCreate.periods') }}</span><input id="periods" v-model.trim="form.periods" maxlength="100" :placeholder="t('teacherCourseCreate.periodsPlaceholder')" /></label>
+              <label class="field" for="active-week-start"><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input id="active-week-start" v-model.number="form.activeWeekStart" type="number" min="1" max="30" /></label>
+              <label class="field" for="active-week-end"><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input id="active-week-end" v-model.number="form.activeWeekEnd" type="number" min="1" max="30" /></label>
+              <ZjuCourseScheduleGrid v-model="form.scheduleSlots" />
+              <div class="lecture-plan field--wide">
+                <div>
+                  <strong>{{ t('teacherCourseCreate.plannedLectures', '计划讲数') }}</strong>
+                  <span>{{ scheduleSuggestionText }}</span>
+                  <button v-if="suggestedLectureCount && suggestedLectureCount !== form.plannedLectureCount" type="button" class="apply-suggestion" @click="form.plannedLectureCount = suggestedLectureCount">{{ t('teacherCourseCreate.applyLectureSuggestion', '采用建议') }}</button>
+                </div>
+                <label class="field" for="planned-lecture-count"><span>{{ t('teacherCourseCreate.teacherConfirmLectures', '由老师确认') }}</span><input id="planned-lecture-count" v-model.number="form.plannedLectureCount" type="number" min="1" max="1000" required /></label>
+              </div>
               <label class="field field--wide" for="location"><span>{{ t('teacherCourseCreate.classLocation') }}</span><input id="location" v-model.trim="form.defaultLocation" maxlength="200" /></label>
             </div>
           </section>
@@ -51,7 +60,7 @@
         <footer class="form-footer">
           <div class="form-actions">
             <button type="button" @click="closeCourseCreate">{{ t('common.cancel') }}</button>
-            <button class="primary" type="submit" :disabled="creating || !form.courseName || !form.courseCategory || !form.targetGrade || !form.credits || !form.weeklyHours">
+            <button class="primary" type="submit" :disabled="creating || !form.courseName || !form.courseCategory || !form.targetGrade || !form.credits || !form.weeklyHours || form.activeWeekEnd < form.activeWeekStart || !form.plannedLectureCount">
               <LoaderCircle v-if="creating" :size="16" class="spin" />
               {{ t('teacherCourseCreate.createCourse') }}
             </button>
@@ -63,12 +72,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { LoaderCircle, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
+import ZjuCourseScheduleGrid, { type CourseScheduleSlot } from '../components/ZjuCourseScheduleGrid.vue'
 
 const emit = defineEmits<{ (event: 'close'): void }>()
 const router = useRouter()
@@ -91,19 +101,31 @@ const courseCategoryOptions = computed(() => [
   { value: '专业选修课', label: t('teacherCourseCreate.majorElective') },
   { value: '实践课', label: t('teacherCourseCreate.practicalCourse') },
 ])
-const weekdayOptions = computed(() => [
-  { value: '周一', label: t('teacherCourseCreate.weekdays.monday') },
-  { value: '周二', label: t('teacherCourseCreate.weekdays.tuesday') },
-  { value: '周三', label: t('teacherCourseCreate.weekdays.wednesday') },
-  { value: '周四', label: t('teacherCourseCreate.weekdays.thursday') },
-  { value: '周五', label: t('teacherCourseCreate.weekdays.friday') },
-  { value: '周六', label: t('teacherCourseCreate.weekdays.saturday') },
-  { value: '周日', label: t('teacherCourseCreate.weekdays.sunday') },
-])
 const form = reactive({
   courseName: '', englishName: '', targetGrade: '本科生', courseCategory: '', courseCode: '',
   credits: 2, weeklyHours: 2, totalHours: 32,
-  prerequisiteCourses: '', academicYear: '', term: '', weekday: '', periods: '', defaultLocation: '',
+  prerequisiteCourses: '', academicYear: '', term: '', defaultLocation: '',
+  activeWeekStart: 1, activeWeekEnd: 16, scheduleSlots: [] as CourseScheduleSlot[], plannedLectureCount: 16,
+})
+
+const weeklySessionCount = computed(() => {
+  const byDay = new Map<number, number[]>()
+  for (const slot of form.scheduleSlots) byDay.set(slot.weekday, [...(byDay.get(slot.weekday) || []), slot.period])
+  let count = 0
+  for (const periods of byDay.values()) {
+    periods.sort((a, b) => a - b)
+    periods.forEach((period, index) => { if (index === 0 || period !== periods[index - 1]! + 1) count += 1 })
+  }
+  return count
+})
+const suggestedLectureCount = computed(() => weeklySessionCount.value * Math.max(0, form.activeWeekEnd - form.activeWeekStart + 1))
+const scheduleSuggestionText = computed(() => suggestedLectureCount.value
+  ? t('teacherCourseCreate.lectureSuggestion', '按已选课表建议 {count} 讲；可按实际教学安排修改').replace('{count}', String(suggestedLectureCount.value))
+  : t('teacherCourseCreate.lectureSuggestionEmpty', '选择课表后会给出建议，最终讲数仍由老师确定'))
+watch(() => [form.scheduleSlots.length, form.activeWeekStart, form.activeWeekEnd], () => {
+  if (!form.scheduleSlots.length) return
+  form.weeklyHours = form.scheduleSlots.length
+  form.totalHours = form.scheduleSlots.length * Math.max(0, form.activeWeekEnd - form.activeWeekStart + 1)
 })
 
 function closeCourseCreate() {
@@ -113,7 +135,12 @@ function closeCourseCreate() {
 }
 
 async function createCourse() {
-  if (creating.value || !form.courseName.trim()) return
+  if (
+    creating.value
+    || !form.courseName.trim()
+    || form.activeWeekEnd < form.activeWeekStart
+    || Number(form.plannedLectureCount) < 1
+  ) return
   creating.value = true
   const totalHours = Number(form.totalHours || 32)
   try {
@@ -122,7 +149,9 @@ async function createCourse() {
       course_code: form.courseCode, target_grade: form.targetGrade,
       course_category: form.courseCategory, credits: Number(form.credits), weekly_hours: Number(form.weeklyHours),
       total_hours: form.totalHours, prerequisite_courses: form.prerequisiteCourses,
-      weekday: form.weekday, periods: form.periods, default_location: form.defaultLocation,
+      active_week_start: form.activeWeekStart, active_week_end: form.activeWeekEnd,
+      schedule_slots: form.scheduleSlots, planned_lecture_count: Number(form.plannedLectureCount),
+      default_location: form.defaultLocation,
       generation_request: {
         subject: form.courseName, target_audience: form.targetGrade || '大学生', difficulty: 'intermediate',
         learning_purpose: 'systematic',
@@ -134,6 +163,8 @@ async function createCourse() {
           schema_version: 'teacher_course_brief_v1', academic_term: [form.academicYear, form.term].filter(Boolean).join(' '),
           target_audience: form.targetGrade || '大学生', total_class_hours: totalHours,
           lesson_duration_minutes: 45,
+          course_period_minutes: 45,
+          lecture_count: Number(form.plannedLectureCount),
           additional_requirements: '',
         }, teacher_authoring_mode: 'lesson_assets_v1',
       },
@@ -168,7 +199,8 @@ onBeforeUnmount(() => { if (dialogRef.value?.open) dialogRef.value.close() })
 .field input,.field select,.field textarea{width:100%;min-height:42px;padding:9px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.field textarea{resize:vertical;line-height:1.6}.field input:focus,.field select:focus,.field textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.field--name input{min-height:48px;font-size:15px}
 .course-details{border-top:1px solid #e8edf4}.details-heading{min-height:56px;display:flex;align-items:center;gap:9px;padding:0 30px}.details-heading strong{color:#334155;font-size:14px}.details-heading small{padding:3px 7px;border-radius:5px;color:#64748b;background:#f1f5f9;font-size:11px;font-weight:650}
 .details-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:0 30px 30px}.field--wide{grid-column:1/-1}
+.lecture-plan{display:flex;align-items:end;justify-content:space-between;gap:24px;padding:14px 16px;border:1px solid #e3e8f0;border-radius:10px;background:#f8fafc}.lecture-plan>div{display:grid;gap:5px}.lecture-plan strong{color:#334155;font-size:13px}.lecture-plan>div span{color:#64748b;font-size:12px}.lecture-plan .field{width:150px;flex:none}.apply-suggestion{justify-self:start;padding:2px 0;border:0;color:#514bdc;background:transparent;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.apply-suggestion:focus-visible{outline:2px solid #514bdc;outline-offset:3px;border-radius:3px}
 .form-footer{min-height:76px;display:flex;align-items:center;justify-content:flex-end;gap:20px;padding:14px 30px;border-top:1px solid #e8edf4;background:#fbfcfe}.form-actions{display:flex;gap:9px}.form-actions button{min-height:40px;padding:0 15px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:13px;font-weight:700;cursor:pointer}.form-actions button.primary{min-width:132px;border-color:#514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.18)}.form-actions button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:680px){.course-create-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:12px}.form-heading{min-height:82px;padding:18px 20px}.form-heading h2{font-size:21px}.identity-section{grid-template-columns:1fr;padding:20px}.identity-section .field--name{grid-column:auto}.details-heading{padding-inline:20px}.details-grid{grid-template-columns:1fr;padding:0 20px 24px}.field--wide{grid-column:auto}.form-footer{min-height:0;align-items:stretch;flex-direction:column;padding:14px 20px}.form-actions{display:grid;grid-template-columns:auto 1fr}.form-actions button.primary{min-width:0}}
+@media(max-width:680px){.course-create-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:12px}.form-heading{min-height:82px;padding:18px 20px}.form-heading h2{font-size:21px}.identity-section{grid-template-columns:1fr;padding:20px}.identity-section .field--name{grid-column:auto}.details-heading{padding-inline:20px}.details-grid{grid-template-columns:1fr;padding:0 20px 24px}.field--wide{grid-column:auto}.lecture-plan{align-items:stretch;flex-direction:column}.lecture-plan .field{width:100%}.form-footer{min-height:0;align-items:stretch;flex-direction:column;padding:14px 20px}.form-actions{display:grid;grid-template-columns:auto 1fr}.form-actions button.primary{min-width:0}}
 @media(prefers-reduced-motion:reduce){.course-create-dialog,.course-create-dialog::backdrop,.spin{animation:none}}
 </style>

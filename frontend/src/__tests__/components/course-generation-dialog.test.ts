@@ -119,7 +119,7 @@ describe('CourseGenerationDialog', () => {
     ).toBeUndefined()
   })
 
-  it('把必要课堂约束写入生成请求，并阻止不合理的章节规模', async () => {
+  it('固定浙大 45 分钟课时，并把教师确定的讲数写入生成请求', async () => {
     const wrapper = mount(CourseGenerationDialog, {
       props: { modelValue: true },
       global: { stubs: { Teleport: true, MaterialInputPanel: true } },
@@ -128,12 +128,11 @@ describe('CourseGenerationDialog', () => {
     await wrapper.get('#course-subject').setValue('一次函数')
     await wrapper.get('#teacher-target-audience').setValue('初中二年级学生')
     await wrapper.get('#teacher-total-hours').setValue('12')
-    await wrapper.get('#teacher-lesson-minutes').setValue('40')
-    await wrapper.get('#teacher-chapter-count').setValue('6')
-    await wrapper.get('#teacher-section-count').setValue('4')
+    expect(wrapper.get('#teacher-lesson-minutes').attributes('disabled')).toBeDefined()
+    await wrapper.get('#teacher-lecture-count').setValue('0')
     expect(wrapper.find('.generation-dialog__footer .primary-button').attributes('disabled')).toBeDefined()
 
-    await wrapper.get('#teacher-section-count').setValue('18')
+    await wrapper.get('#teacher-lecture-count').setValue('18')
     await wrapper.get('#teacher-class-profile').setValue('有基础差异，需要分层讨论')
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
     await flushPromises()
@@ -141,9 +140,9 @@ describe('CourseGenerationDialog', () => {
     expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief).toMatchObject({
       target_audience: '初中二年级学生',
       total_class_hours: 12,
-      lesson_duration_minutes: 40,
-      chapter_count: 6,
-      section_count: 18,
+      lesson_duration_minutes: 45,
+      course_period_minutes: 45,
+      lecture_count: 18,
       class_profile: '有基础差异，需要分层讨论',
     })
     expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief.teaching_context).toBeUndefined()
@@ -164,9 +163,7 @@ describe('CourseGenerationDialog', () => {
     await wrapper.find('.generation-dialog__footer .primary-button').trigger('click')
     await flushPromises()
 
-    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief).toMatchObject({
-      chapter_count: 10,
-    })
+    expect((wrapper.emitted('generate')?.[0]?.[0] as any).options.teacher_course_brief).toMatchObject({ lecture_count: 10 })
   })
 
   it('从工作台打开时恢复原课程生成设置，并保留已有资料绑定', async () => {
@@ -203,6 +200,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.get('.generation-dialog__heading').text()).toContain('课程生产设置')
     expect((wrapper.get('#teacher-target-audience').element as HTMLInputElement).value).toBe('高中二年级')
     expect((wrapper.get('#teacher-total-hours').element as HTMLInputElement).value).toBe('24')
+    expect((wrapper.get('#teacher-lecture-count').element as HTMLInputElement).value).toBe('8')
     expect((wrapper.get('#course-requirements').element as HTMLTextAreaElement).value).toBe('加强实验设计')
     expect(wrapper.find('.difficulty-option.active').text()).toContain('高阶')
 
@@ -263,7 +261,9 @@ describe('CourseGenerationDialog', () => {
     expect(advanced.text()).toContain('更多课堂设置')
     expect(advanced.find('#teacher-lesson-minutes').exists()).toBe(true)
     expect(advanced.find('#teacher-context').exists()).toBe(false)
-    expect(advanced.find('#teacher-chapter-count').exists()).toBe(true)
+    expect(advanced.find('#teacher-lecture-count').exists()).toBe(true)
+    expect(advanced.find('#teacher-chapter-count').exists()).toBe(false)
+    expect(advanced.find('#teacher-section-count').exists()).toBe(false)
     expect(advanced.find('#teacher-class-profile').exists()).toBe(true)
   })
 
@@ -505,7 +505,7 @@ describe('CourseGenerationDialog', () => {
     expect(wrapper.find('.fixed-audience-field').exists()).toBe(false)
     expect(wrapper.find('#course-learning-goal').exists()).toBe(true)
     expect(wrapper.find('#teacher-academic-term').exists()).toBe(true)
-    expect(wrapper.find('#teacher-section-count').exists()).toBe(true)
+    expect(wrapper.find('#teacher-lecture-count').exists()).toBe(true)
     expect(wrapper.find('.teacher-brief-section__advanced').exists()).toBe(false)
     expect(wrapper.find('.supplemental-settings').exists()).toBe(false)
     expect(wrapper.find('.material-section').exists()).toBe(false)

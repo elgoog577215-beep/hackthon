@@ -15,6 +15,7 @@ from teaching_design import (
     resolve_course_teaching_type,
     resolve_learning_purpose,
 )
+from course_schedule import COURSE_PERIOD_MINUTES, legacy_schedule_labels, normalize_schedule_slots
 
 
 COURSE_TYPES = {"systematic", "project", "inquiry", "exam"}
@@ -46,6 +47,11 @@ COURSE_PROFILE_FIELDS = (
     "prerequisite_courses",
     "weekday",
     "periods",
+    "course_period_minutes",
+    "active_week_start",
+    "active_week_end",
+    "schedule_slots",
+    "planned_lecture_count",
     "assessment_method",
     "course_intro",
     "teaching_goals",
@@ -133,7 +139,11 @@ def course_information_snapshot(course: dict[str, Any]) -> dict[str, Any]:
         "course_profile": {
             field: (
                 deepcopy(profile.get(field))
-                if field in {"credits", "weekly_hours", "total_hours"}
+                if field in {
+                    "credits", "weekly_hours", "total_hours", "course_period_minutes",
+                    "active_week_start", "active_week_end", "schedule_slots",
+                    "planned_lecture_count",
+                }
                 else str(profile.get(field) or "")
             )
             for field in COURSE_PROFILE_FIELDS
@@ -160,6 +170,21 @@ def normalize_course_information(
         field: deepcopy(profile.get(field))
         for field in COURSE_PROFILE_FIELDS
     }
+    profile["course_period_minutes"] = COURSE_PERIOD_MINUTES
+    profile["schedule_slots"] = normalize_schedule_slots(profile.get("schedule_slots"))
+    try:
+        active_week_start = int(profile.get("active_week_start") or 1)
+        active_week_end = int(profile.get("active_week_end") or 16)
+    except (TypeError, ValueError):
+        active_week_start, active_week_end = 1, 16
+    if active_week_end < active_week_start:
+        raise ValueError("active_week_end 不能小于 active_week_start")
+    profile["active_week_start"] = active_week_start
+    profile["active_week_end"] = active_week_end
+    weekday, periods = legacy_schedule_labels(profile["schedule_slots"])
+    if profile["schedule_slots"]:
+        profile["weekday"] = weekday
+        profile["periods"] = periods
     request = normalized.get("generation_request")
     if not isinstance(request, dict):
         request = {}
@@ -172,11 +197,16 @@ def normalize_course_information(
     brief.setdefault("schema_version", "teacher_course_brief_v1")
     brief.setdefault("total_class_hours", profile.get("total_hours") or 32)
     brief.setdefault("lesson_duration_minutes", 45)
+    brief.setdefault("course_period_minutes", 45)
     brief.setdefault("teaching_context", "classroom")
 
     total_hours = brief.get("total_class_hours")
     if total_hours is not None:
         profile["total_hours"] = total_hours
+
+    planned_lecture_count = profile.get("planned_lecture_count")
+    if planned_lecture_count:
+        brief["lecture_count"] = planned_lecture_count
 
     audience = str(
         profile.get("target_grade")
@@ -240,6 +270,8 @@ def course_information_changed_fields(
     after_brief = after_request.get("teacher_course_brief") or {}
     for field in (
         "lesson_duration_minutes",
+        "course_period_minutes",
+        "lecture_count",
         "teaching_context",
         "class_size",
         "class_profile",

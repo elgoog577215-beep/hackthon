@@ -20,6 +20,7 @@ from dependencies import (
 )
 from learner_context import resolve_user_id
 from generation_streaming import structured_generation_stream
+from course_schedule import lecture_duration_minutes
 from teaching_design import (
     LESSON_TYPES,
     normalize_lesson_arrangement,
@@ -836,6 +837,7 @@ def _lesson_projection(
         and str(item.get("parent_node_id") or "").lower() in {"", "root"}
     ]
     result = []
+    schedule_slots = (source.get("course_profile") or {}).get("schedule_slots") or []
     for index, lesson in enumerate(lessons, start=1):
         lesson_id = str(lesson.get("node_id") or "")
         sections = [
@@ -968,8 +970,7 @@ def _lesson_projection(
             "title": str(lesson.get("node_name") or f"第{index}讲"),
             "duration_minutes": int(
                 lesson.get("duration_minutes")
-                or (source.get("teacher_course_brief") or {}).get("lesson_duration_minutes")
-                or 45
+                or lecture_duration_minutes(schedule_slots, index - 1)
             ),
             "sections": [
                 {

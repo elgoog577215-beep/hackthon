@@ -325,7 +325,10 @@ export interface TeacherCourseBriefV1 {
   academic_term?: string;
   target_audience: string;
   total_class_hours: number;
+  /** 兼容字段固定保存一个课时单位；一讲时长由所选课表连续格子决定。 */
   lesson_duration_minutes: number;
+  course_period_minutes?: 45;
+  lecture_count?: number;
   /** 旧课程兼容字段；新教师工作台不再要求用户选择授课场景。 */
   teaching_context?: 'classroom' | 'online' | 'blended' | 'self_study';
   class_size?: number;
@@ -595,8 +598,11 @@ export function validateGenerateCourseParams(
     if (!Number.isInteger(teacherBrief.total_class_hours) || teacherBrief.total_class_hours < 1 || teacherBrief.total_class_hours > 1000) {
       errors.push('teacher_course_brief.total_class_hours must be an integer between 1 and 1000');
     }
-    if (!Number.isInteger(teacherBrief.lesson_duration_minutes) || teacherBrief.lesson_duration_minutes < 20 || teacherBrief.lesson_duration_minutes > 240) {
-      errors.push('teacher_course_brief.lesson_duration_minutes must be an integer between 20 and 240');
+    if (teacherBrief.lesson_duration_minutes !== 45) {
+      errors.push('teacher_course_brief.lesson_duration_minutes must equal the 45-minute course period');
+    }
+    if (teacherBrief.lecture_count !== undefined && (!Number.isInteger(teacherBrief.lecture_count) || teacherBrief.lecture_count < 1 || teacherBrief.lecture_count > 1000)) {
+      errors.push('teacher_course_brief.lecture_count must be an integer between 1 and 1000');
     }
   }
   

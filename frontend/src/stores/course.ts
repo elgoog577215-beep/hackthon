@@ -78,6 +78,10 @@ export type TeacherCourseSpaceCreate = {
     prerequisite_courses?: string
     weekday?: string
     periods?: string
+    active_week_start?: number
+    active_week_end?: number
+    schedule_slots?: Array<{ weekday: number; period: number }>
+    planned_lecture_count?: number
     assessment_method?: string
     course_intro?: string
     teaching_goals?: string

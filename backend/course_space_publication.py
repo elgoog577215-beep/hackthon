@@ -479,9 +479,9 @@ def _render_teaching_plan(course_data: dict[str, Any]) -> str:
 
         objective_dimensions = project_lesson_objective_dimensions(section)
         for heading, objective_key in (
-            ("知识与能力目标", "知识与能力"),
-            ("过程与方法目标", "过程与方法"),
-            ("创新目标", "创新目标"),
+            ("知识目标", "知识目标"),
+            ("能力目标", "能力目标"),
+            ("育人目标", "育人目标"),
         ):
             lines.append(f"#### {heading}")
             values = objective_dimensions.get(objective_key) or []
@@ -496,28 +496,16 @@ def _render_teaching_plan(course_data: dict[str, Any]) -> str:
         lines.append("")
 
         lines += [
-            "#### 课前预习",
+            "#### 课前准备（按需）",
             *(
                 [f"- {item}" for item in _lesson_flow_items(section, "课前预习")]
                 or ["尚未确认。"]
             ),
             "",
-            "#### 重点分析",
-            *(
-                [f"- {item}" for item in _lesson_flow_items(section, "重点分析")]
-                or ["尚未确认。"]
-            ),
+            "#### 课堂教学过程",
             "",
-            "#### 案例导入",
-            *(
-                [f"- {item}" for item in _lesson_flow_items(section, "案例导入")]
-                or ["尚未确认。"]
-            ),
-            "",
-            "#### 知识讲解与讨论",
-            "",
-            "| 教学环节 | 教学目的 | 时间 | 教师活动 | 学生活动 |",
-            "|---|---|---:|---|---|",
+            "| 教学块 | 时间 | 本块目标与内容 | 教师活动 | 学生活动 | 课堂产出与达成检查 | 反馈与调整 | 衔接 | 讲义与 PPT 对应 |",
+            "|---|---:|---|---|---|---|---|---|---|",
         ]
         modules = [
             item for item in section.get("teaching_modules") or []
@@ -527,19 +515,27 @@ def _render_teaching_plan(course_data: dict[str, Any]) -> str:
             minutes = module.get("planned_minutes")
             time_label = f"{minutes} 分钟" if minutes not in (None, "") else ""
             lines.append(
-                f"| {_md_cell(module.get('label') or module.get('module_id'))} | "
+                f"| {_md_cell(module.get('label') or module.get('module_id'))} | {_md_cell(time_label)} | "
                 f"{_md_cell(module.get('teaching_purpose') or module.get('teaching_guidance'))} | "
-                f"{_md_cell(time_label)} | {_md_cell(module.get('teacher_activity'))} | "
-                f"{_md_cell(module.get('student_activity'))} |"
+                f"{_md_cell(module.get('teacher_activity'))} | {_md_cell(module.get('student_activity'))} | "
+                f"{_md_cell('；'.join(filter(None, (str(module.get('expected_output') or ''), str(module.get('check_method') or '')))))} | "
+                f"{_md_cell('；'.join([str(module.get('feedback_strategy') or ''), *_text_items(module.get('adaptation_options'))]))} | "
+                f"{_md_cell(module.get('transition'))} | {_md_cell(module.get('handout_ppt_mapping'))} |"
             )
         if not modules:
-            lines.append("| 待完善 | 尚未确认可执行教学流程 |  |  |  |")
+            lines.append("| 待完善 |  | 尚未确认可执行教学流程 |  |  |  |  |  |  |")
         lines.append("")
 
         for flow in (
-            "实践操作", "课堂总结", "课后作业", "拓展学习", "教学活动照片",
+            "课堂总结", "课后作业", "拓展学习", "教学活动照片",
         ):
-            lines.append(f"#### {flow}")
+            heading = {
+                "课堂总结": "课程总结",
+                "课后作业": "作业布置",
+                "拓展学习": "拓展学习",
+                "教学活动照片": "教学资料与活动记录｜教学活动照片",
+            }[flow]
+            lines.append(f"#### {heading}")
             values = _lesson_flow_items(section, flow)
             empty = (
                 "待教师补充，不编造照片。"

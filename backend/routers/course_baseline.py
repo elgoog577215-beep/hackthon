@@ -49,6 +49,7 @@ class CourseBaselineDraftRequest(BaseModel):
 
 
 class CourseProfileInput(BaseModel):
+    english_name: str = Field(default="", max_length=200)
     course_code: str = Field(default="", max_length=64)
     course_goal: str = Field(default="", max_length=5000)
     default_location: str = Field(default="", max_length=200)
@@ -56,7 +57,16 @@ class CourseProfileInput(BaseModel):
     course_category: str = Field(default="", max_length=100)
     target_major: str = Field(default="", max_length=200)
     credits: float | None = Field(default=None, ge=0, le=100)
+    weekly_hours: float | None = Field(default=None, ge=0, le=100)
     total_hours: int | None = Field(default=None, ge=1, le=1000)
+    prerequisite_courses: str = Field(default="", max_length=1000)
+    weekday: str = Field(default="", max_length=100)
+    periods: str = Field(default="", max_length=500)
+    course_period_minutes: Literal[45] = 45
+    active_week_start: int = Field(default=1, ge=1, le=30)
+    active_week_end: int = Field(default=16, ge=1, le=30)
+    schedule_slots: list[dict[str, int]] = Field(default_factory=list, max_length=91)
+    planned_lecture_count: int | None = Field(default=None, ge=1, le=1000)
     assessment_method: str = Field(default="", max_length=500)
     course_intro: str = Field(default="", max_length=3000)
     teaching_goals: str = Field(default="", max_length=5000)

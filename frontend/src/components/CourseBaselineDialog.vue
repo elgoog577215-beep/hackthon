@@ -77,9 +77,11 @@
                   <label class="wide"><span>{{ t('teacherCourseCreate.prerequisiteCourses', '先修课程') }}</span><input v-model.trim="draft.course_profile.prerequisite_courses" maxlength="1000" /></label>
                   <label><span>{{ t('teacherCourseCreate.academicYear', '学年') }}</span><input v-model.trim="draft.academic_year" maxlength="30" placeholder="2026-2027" /></label>
                   <label><span>{{ t('teacherCourseCreate.term', '学期') }}</span><select v-model="draft.term"><option value="">{{ t('courseFiles.workbench.notSet', '待填写') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter', '秋冬') }}</option><option value="春夏">{{ t('teacherCourseCreate.springSummer', '春夏') }}</option></select></label>
-                  <label><span>{{ t('teacherCourseCreate.weekday', '上课星期') }}</span><select v-model="draft.course_profile.weekday"><option value="">{{ t('courseFiles.workbench.notSet', '待填写') }}</option><option v-for="option in weekdayOptions" :key="option.value" :value="option.value">{{ option.label }}</option></select></label>
-                  <label><span>{{ t('teacherCourseCreate.periods', '上课节次') }}</span><input v-model.trim="draft.course_profile.periods" maxlength="100" :placeholder="t('teacherCourseCreate.periodsPlaceholder', '例如：第 3—4 节')" /></label>
+                  <label><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input v-model.number="draft.course_profile.active_week_start" type="number" min="1" max="30" /></label>
+                  <label><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input v-model.number="draft.course_profile.active_week_end" type="number" min="1" max="30" /></label>
                   <label><span>{{ t('teacherCourseCreate.defaultLocation', '常用地点') }}</span><input v-model.trim="draft.course_profile.default_location" maxlength="200" /></label>
+                  <ZjuCourseScheduleGrid v-model="draft.course_profile.schedule_slots" />
+                  <label><span>{{ t('teacherCourseCreate.plannedLectures', '计划讲数') }} <b>*</b></span><input v-model.number="draft.course_profile.planned_lecture_count" type="number" min="1" max="1000" required /></label>
                 </div>
               </section>
             </form>
@@ -150,6 +152,7 @@ import {
   type LearningPurpose,
 } from '../shared/prompt-config'
 import http, { teacherRequestConfig } from '../utils/http'
+import ZjuCourseScheduleGrid, { type CourseScheduleSlot } from './ZjuCourseScheduleGrid.vue'
 
 type CourseProfile = {
   english_name: string
@@ -165,6 +168,11 @@ type CourseProfile = {
   prerequisite_courses: string
   weekday: string
   periods: string
+  course_period_minutes: 45
+  active_week_start: number
+  active_week_end: number
+  schedule_slots: CourseScheduleSlot[]
+  planned_lecture_count: number | null
   assessment_method: string
   course_intro: string
   teaching_goals: string
@@ -253,16 +261,6 @@ const courseCategoryOptions = computed(() => ([
   { value: '专业选修课', label: t('teacherCourseCreate.majorElective', '专业选修课') },
   { value: '实践课', label: t('teacherCourseCreate.practicalCourse', '实践课') },
 ]))
-const weekdayOptions = computed(() => ([
-  { value: '周一', label: t('teacherCourseCreate.weekdays.monday', '周一') },
-  { value: '周二', label: t('teacherCourseCreate.weekdays.tuesday', '周二') },
-  { value: '周三', label: t('teacherCourseCreate.weekdays.wednesday', '周三') },
-  { value: '周四', label: t('teacherCourseCreate.weekdays.thursday', '周四') },
-  { value: '周五', label: t('teacherCourseCreate.weekdays.friday', '周五') },
-  { value: '周六', label: t('teacherCourseCreate.weekdays.saturday', '周六') },
-  { value: '周日', label: t('teacherCourseCreate.weekdays.sunday', '周日') },
-]))
-
 const viewGroups = computed(() => {
   if (!original.value) return []
   const info = original.value
@@ -281,8 +279,10 @@ const viewGroups = computed(() => {
         item(t('teacherCourseCreate.prerequisiteCourses', '先修课程'), profile.prerequisite_courses, undefined, true),
         item(t('teacherCourseCreate.academicYear', '学年'), info.academic_year),
         item(t('teacherCourseCreate.term', '学期'), info.term),
-        item(t('teacherCourseCreate.weekday', '上课星期'), optionLabel(weekdayOptions.value, profile.weekday)),
+        item(t('teacherCourseCreate.weekday', '上课星期'), profile.weekday),
         item(t('teacherCourseCreate.periods', '上课节次'), profile.periods),
+        item(t('teacherCourseCreate.activeWeeks', '上课周次'), `${profile.active_week_start || 1}–${profile.active_week_end || 16} 周`),
+        item(t('teacherCourseCreate.plannedLectures', '计划讲数'), profile.planned_lecture_count),
         item(t('teacherCourseCreate.defaultLocation', '常用地点'), profile.default_location),
       ],
     },
@@ -311,6 +311,9 @@ const canReview = computed(() => {
     && Boolean(String(draft.value.course_profile.course_category || '').trim())
     && Number(draft.value.course_profile.credits) > 0
     && Number(draft.value.course_profile.weekly_hours) > 0
+    && Number(draft.value.course_profile.active_week_start) >= 1
+    && Number(draft.value.course_profile.active_week_end) >= Number(draft.value.course_profile.active_week_start)
+    && Number(draft.value.course_profile.planned_lecture_count) >= 1
 })
 
 function emptyInformation(): CourseInformation {
@@ -319,6 +322,7 @@ function emptyInformation(): CourseInformation {
     course_profile: {
       english_name: '', course_code: '', course_goal: '', default_location: '', target_grade: '', course_category: '',
       target_major: '', credits: null, weekly_hours: null, total_hours: null, prerequisite_courses: '', weekday: '', periods: '', assessment_method: '', course_intro: '', teaching_goals: '',
+      course_period_minutes: 45, active_week_start: 1, active_week_end: 16, schedule_slots: [], planned_lecture_count: 16,
     },
     generation_request: {
       subject: '', target_audience: '大学生', difficulty: 'intermediate', learning_purpose: 'systematic',
@@ -390,14 +394,15 @@ function comparisonDescriptors(before: CourseInformation, after: CourseInformati
     descriptor('target_grade', t('courseGeneration.teacherBrief.targetAudience', '教学对象'), bp.target_grade, ap.target_grade),
     descriptor('academic_year', t('teacherCourseCreate.academicYear', '学年'), before.academic_year, after.academic_year),
     descriptor('term', t('teacherCourseCreate.term', '学期'), before.term, after.term),
-    descriptor('weekday', t('teacherCourseCreate.weekday', '上课星期'), optionLabel(weekdayOptions.value, bp.weekday), optionLabel(weekdayOptions.value, ap.weekday)),
-    descriptor('periods', t('teacherCourseCreate.periods', '上课节次'), bp.periods, ap.periods),
+    descriptor('active_week_start', t('teacherCourseCreate.activeWeekStart', '开始周'), bp.active_week_start, ap.active_week_start),
+    descriptor('active_week_end', t('teacherCourseCreate.activeWeekEnd', '结束周'), bp.active_week_end, ap.active_week_end),
+    descriptor('schedule_slots', t('teacherCourseCreate.scheduleTitle', '上课时间'), scheduleSummary(bp.schedule_slots), scheduleSummary(ap.schedule_slots)),
+    descriptor('planned_lecture_count', t('teacherCourseCreate.plannedLectures', '计划讲数'), bp.planned_lecture_count, ap.planned_lecture_count),
     descriptor('default_location', t('teacherCourseCreate.defaultLocation', '常用地点'), bp.default_location, ap.default_location),
     descriptor('total_hours', t('courseGeneration.teacherBrief.totalHours', '总课时'), bb.total_class_hours, ab.total_class_hours),
-    descriptor('lesson_minutes', t('courseFiles.workbench.lessonDuration', '每次课时长'), bb.lesson_duration_minutes, ab.lesson_duration_minutes),
+    descriptor('course_period_minutes', t('courseFiles.workbench.lessonDuration', '每课时时长'), bb.course_period_minutes || 45, ab.course_period_minutes || 45),
     descriptor('class_size', t('courseFiles.workbench.classSize', '班级规模'), bb.class_size, ab.class_size),
-    descriptor('chapter_count', t('courseGeneration.teacherBrief.chapterCount', '预计章节数'), bb.chapter_count, ab.chapter_count),
-    descriptor('section_count', t('courseFiles.workbench.plannedLessonCount', '计划讲数'), bb.section_count, ab.section_count),
+    descriptor('lecture_count', t('courseFiles.workbench.plannedLessonCount', '计划讲数'), bb.lecture_count, ab.lecture_count),
     descriptor('class_profile', t('courseGeneration.teacherBrief.classProfile', '班级与学情特点'), bb.class_profile, ab.class_profile),
     descriptor('learning_purpose', t('courseWorkbench.form.learningPurpose', '学习目的'), optionLabel(learningPurposeOptions.value, br.learning_purpose), optionLabel(learningPurposeOptions.value, ar.learning_purpose)),
     descriptor('pedagogy_mode', t('courseGeneration.pedagogy.label', '学科类型'), optionLabel(pedagogyOptions.value, br.pedagogy_mode), optionLabel(pedagogyOptions.value, ar.pedagogy_mode)),
@@ -413,6 +418,13 @@ function comparisonDescriptors(before: CourseInformation, after: CourseInformati
 }
 
 function descriptor(key: string, label: string, before: unknown, after: unknown) { return { key, label, before, after } }
+function scheduleSummary(value: CourseScheduleSlot[]) {
+  const slots = Array.isArray(value) ? value : []
+  const dayLabels = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
+  const grouped = new Map<number, number[]>()
+  slots.forEach(slot => grouped.set(slot.weekday, [...(grouped.get(slot.weekday) || []), slot.period]))
+  return [...grouped.entries()].sort((a, b) => a[0] - b[0]).map(([day, periods]) => `${dayLabels[day]}第${periods.sort((a, b) => a - b).join('、')}节`).join('；')
+}
 function stable(value: unknown) { return JSON.stringify(value ?? '') }
 function display(value: unknown) { return value === undefined || value === null || String(value).trim() === '' ? t('courseFiles.workbench.notSet', '待填写') : String(value) }
 
@@ -435,7 +447,14 @@ function startEditing() {
   draft.value = clone(original.value); restoreRevision.value = null; saveError.value = ''; successMessage.value = ''; mode.value = 'edit'
 }
 function cancelEditing() { if (original.value) draft.value = clone(original.value); restoreRevision.value = null; saveError.value = ''; mode.value = 'view' }
-function reviewChanges() { if (canReview.value) mode.value = 'review' }
+function reviewChanges() {
+  if (!canReview.value) return
+  draft.value.course_profile.course_period_minutes = 45
+  draft.value.generation_request.teacher_course_brief.lesson_duration_minutes = 45
+  draft.value.generation_request.teacher_course_brief.course_period_minutes = 45
+  draft.value.generation_request.teacher_course_brief.lecture_count = Number(draft.value.course_profile.planned_lecture_count)
+  mode.value = 'review'
+}
 function prepareRestore(version: CourseInformationVersion) { draft.value = normalizeInformation(version.information); restoreRevision.value = version.revision; saveError.value = ''; successMessage.value = ''; mode.value = 'review' }
 
 async function saveChanges() {

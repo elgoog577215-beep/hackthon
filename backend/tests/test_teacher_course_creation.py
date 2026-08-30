@@ -36,6 +36,13 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "assessment_method": "过程考核 + 课程项目",
         "course_intro": "从真实问题出发学习设计思维。",
         "teaching_goals": "能够完成问题定义、创意与验证。",
+        "active_week_start": 1,
+        "active_week_end": 16,
+        "schedule_slots": [
+            {"weekday": 2, "period": 3},
+            {"weekday": 2, "period": 4},
+        ],
+        "planned_lecture_count": 16,
         "generation_request": {
             "subject": "设计思维",
             "target_audience": "大学生",
@@ -53,7 +60,8 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
                 "target_audience": "大学生",
                 "total_class_hours": 32,
                 "lesson_duration_minutes": 45,
-                "section_count": 16,
+                "course_period_minutes": 45,
+                "lecture_count": 16,
             },
         },
     })
@@ -68,7 +76,8 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
     metadata = repository.create_teacher_draft.await_args.kwargs["metadata"]
     assert metadata["generation_request"]["subject"] == "设计思维"
     assert metadata["generation_request"]["production_mode"] == "automatic"
-    assert metadata["generation_request"]["teacher_course_brief"]["section_count"] == 16
+    assert metadata["generation_request"]["teacher_course_brief"]["lecture_count"] == 16
+    assert metadata["authoring_structure_version"] == "lecture_v1"
     assert metadata["course_profile"] == {
         "english_name": "",
         "course_code": "DES101",
@@ -81,11 +90,19 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "weekly_hours": 2.0,
         "total_hours": 32,
         "prerequisite_courses": "",
-        "weekday": "",
-        "periods": "",
+        "weekday": "周二",
+        "periods": "周二第3-4节",
         "assessment_method": "过程考核 + 课程项目",
         "course_intro": "从真实问题出发学习设计思维。",
         "teaching_goals": "能够完成问题定义、创意与验证。",
+        "active_week_start": 1,
+        "active_week_end": 16,
+        "schedule_slots": [
+                {"weekday": 2, "period": 3},
+                {"weekday": 2, "period": 4},
+        ],
+        "course_period_minutes": 45,
+        "planned_lecture_count": 16,
     }
     package_repository.create_package.assert_called_once()
 

@@ -16,6 +16,12 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from models import CourseGenerationRequest, LocateNodeRequest, NodeGenerationConfig
 from course_baseline import confirmed_generation_request
+from course_schedule import (
+    COURSE_PERIOD_MINUTES,
+    legacy_schedule_labels,
+    normalize_schedule_slots,
+    suggested_lecture_count,
+)
 from storage import storage
 from course_generation.service import get_course_service
 from course_space_publication import (
@@ -121,6 +127,10 @@ class TeacherCourseCreateRequest(BaseModel):
     prerequisite_courses: str = Field(default="", max_length=1000)
     weekday: str = Field(default="", max_length=30)
     periods: str = Field(default="", max_length=100)
+    active_week_start: int = Field(default=1, ge=1, le=30)
+    active_week_end: int = Field(default=16, ge=1, le=30)
+    schedule_slots: list[dict[str, int]] = Field(default_factory=list, max_length=91)
+    planned_lecture_count: int | None = Field(default=None, ge=1, le=1000)
     assessment_method: str = Field(default="", max_length=500)
     course_intro: str = Field(default="", max_length=3000)
     teaching_goals: str = Field(default="", max_length=3000)
@@ -261,7 +271,13 @@ def _teacher_preparation_projection(course: dict, repository) -> dict:
     lessons = authoring.get("lessons") if isinstance(authoring, dict) else {}
     lessons = lessons if isinstance(lessons, dict) else {}
     brief = (course.get("generation_request") or {}).get("teacher_course_brief") or {}
-    planned = len(lessons) or int(brief.get("section_count") or 0)
+    profile = course.get("course_profile") or {}
+    planned = len(lessons) or int(
+        profile.get("planned_lecture_count")
+        or brief.get("lecture_count")
+        or brief.get("section_count")
+        or 0
+    )
     confirmed_outline = bool(str(authoring.get("outline_revision_id") or ""))
     confirmed_plans = 0
     confirmed_handouts = 0
@@ -394,12 +410,30 @@ async def create_teacher_course(
         if body.generation_request
         else {}
     )
+    if body.active_week_end < body.active_week_start:
+        raise HTTPException(status_code=422, detail="结束周不能早于开始周")
+    schedule_slots = normalize_schedule_slots(body.schedule_slots)
+    projected_weekday, projected_periods = legacy_schedule_labels(schedule_slots)
+    planned_lecture_count = body.planned_lecture_count or suggested_lecture_count(
+        schedule_slots,
+        body.active_week_start,
+        body.active_week_end,
+    )
+    if generation_request:
+        teacher_brief = dict(generation_request.get("teacher_course_brief") or {})
+        teacher_brief.update({
+            "lesson_duration_minutes": COURSE_PERIOD_MINUTES,
+            "course_period_minutes": COURSE_PERIOD_MINUTES,
+            "lecture_count": planned_lecture_count or teacher_brief.get("lecture_count"),
+        })
+        generation_request["teacher_course_brief"] = teacher_brief
     repository = get_course_document_repository()
     await repository.create_teacher_draft(
         course_id,
         title=course_name,
         metadata={
             "owner_id": owner_id,
+            "authoring_structure_version": "lecture_v1",
             "academic_year": academic_year,
             "term": term,
             "course_profile": {
@@ -414,8 +448,13 @@ async def create_teacher_course(
                 "weekly_hours": body.weekly_hours,
                 "total_hours": body.total_hours,
                 "prerequisite_courses": body.prerequisite_courses.strip(),
-                "weekday": body.weekday.strip(),
-                "periods": body.periods.strip(),
+                "weekday": projected_weekday or body.weekday.strip(),
+                "periods": projected_periods or body.periods.strip(),
+                "course_period_minutes": COURSE_PERIOD_MINUTES,
+                "active_week_start": body.active_week_start,
+                "active_week_end": body.active_week_end,
+                "schedule_slots": schedule_slots,
+                "planned_lecture_count": planned_lecture_count,
                 "assessment_method": body.assessment_method.strip(),
                 "course_intro": body.course_intro.strip(),
                 "teaching_goals": body.teaching_goals.strip(),

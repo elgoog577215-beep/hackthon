@@ -56,7 +56,9 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
             "assessment_method": "实验与期末设计",
         },
         "teacher_course_brief": {
-            "lesson_duration_minutes": 90,
+            "lesson_duration_minutes": 45,
+            "course_period_minutes": 45,
+            "lecture_count": 16,
             "class_size": 48,
             "class_profile": "学生已修完电路基础，但工程验证经验不足。",
             "additional_requirements": "实验与期末设计",
@@ -69,9 +71,9 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     })
 
     assert context["course_information"]["教学对象"] == "大学一年级"
-    assert context["schema_version"] == "formal_course_authoring_v3"
+    assert context["schema_version"] == "formal_course_authoring_v4"
     assert "课程名称" not in context["course_information"]
-    assert context["course_information"]["每次课时长"] == "90 分钟"
+    assert context["course_information"]["每课时时长"] == "45 分钟"
     assert context["course_information"]["班级规模"] == "48 人"
     assert context["student_profile"] == "学生已修完电路基础，但工程验证经验不足。"
     assert context["assessment_methods"] == ["实验与期末设计"]
@@ -81,4 +83,4 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     assert [item["label"] for item in context["outline_objective_dimensions"]] == [
         "学习目标", "育人目标", "可测量成果",
     ]
-    assert context["lesson_flow_contract"]["required_roles"][-1] == "教学活动照片"
+    assert context["lesson_flow_contract"]["required_roles"][-1] == "教学活动照片（教师课后补充）"

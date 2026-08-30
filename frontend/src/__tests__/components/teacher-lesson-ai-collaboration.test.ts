@@ -485,7 +485,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(second.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
   })
 
-  it('切换实际教案小节时同步左侧正文与独立对话，不把修改串到别的小节', async () => {
+  it('AI 范围切换只改变讲内当前内容，不恢复教师端小节 Tab', async () => {
     const scopedLesson = structuredClone(lesson)
     scopedLesson.sections.push({ section_node_id: 'section-2', title: '1.2 HTTP 请求与响应' })
     scopedLesson.plan.revisions[0]!.plan.sections.push({
@@ -514,10 +514,10 @@ describe('教案 AI 协作编辑模式', () => {
     expect(wrapper.text()).toContain('1.2 HTTP 请求与响应')
     expect(wrapper.text()).not.toContain('帮我改好一点')
     expect(wrapper.find('.lesson-ai-quick-grid').exists()).toBe(true)
-    expect(wrapper.findAll('.lesson-section-tabs button')[1]!.classes()).toContain('active')
+    expect(wrapper.find('.lesson-section-tabs').exists()).toBe(false)
     expect(window.localStorage.getItem('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:section-1')).toContain('帮我改好一点')
 
-    await wrapper.findAll('.lesson-section-tabs button')[0]!.trigger('click')
+    await scopeSelect.setValue('section-1')
     await flushPromises()
 
     expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-1')

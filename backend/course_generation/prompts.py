@@ -189,6 +189,15 @@ class CoursePromptComposer:
             audience=audience,
             brief=brief,
         )
+        teacher_lecture_mode = bool(shape.get("teacher_lecture_mode"))
+        structure_heading = "全课讲次骨架 V2" if teacher_lecture_mode else "全课章节骨架 V2"
+        structure_instruction = (
+            "教师端正式结构只有‘课程→讲’。JSON 中 chapters/section_count 仅为现有引擎的技术兼容字段："
+            "每个 chapter 必须对应一讲，标题直接写本讲主题，每讲 section_count 必须为 1；"
+            "不得在教师可见文本中生成章、小节或二级教学目录。"
+            if teacher_lecture_mode else
+            "你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习焦点，以及每章需要展开的小节数量。"
+        )
         # These values already have dedicated, typed sections below. Avoid
         # repeating them inside the generic brief where duplication increases
         # prompt noise and makes one fact look like several instructions.
@@ -218,10 +227,10 @@ class CoursePromptComposer:
                 "teacher_course_brief",
             }
         }
-        return f"""## 全课章节骨架 V2
+        return f"""## {structure_heading}
 
-你只做一次轻量的全局课程决策：确定课程定位、全课成果、章节顺序、每章唯一学习
-焦点，以及每章需要展开的小节数量。不要生成任何小节、知识点、教案、正文或题目。
+{structure_instruction}
+不要生成任何知识点、教案、正文或题目。
 后续系统会按章节并行生成小节目录并在本地汇编。只输出有效 JSON。
 
 ## 课程输入
@@ -270,6 +279,7 @@ class CoursePromptComposer:
 {json.dumps(formal_outline_contract, ensure_ascii=False)}
 
 ## 约束
+0. {structure_instruction}
 1. 用户指定章数或小节总数时必须精确满足；所有 `section_count` 之和必须等于指定总数。
 2. 未指定数量时必须覆盖从必要前置到最终成果的完整知识与能力依赖，并达到上面的完整课程最低规模；可以按主题需要继续增加，课程总量没有固定产品上限。
 3. 这是所有课程统一使用的完整规划入口。单次批次大小只是执行预算，不得把整门课程压缩成一个批次或默认六节。
@@ -854,14 +864,16 @@ class CoursePromptComposer:
    教学环节、师生活动和原文表述优先保留，只补齐缺失项；不得为了套系统模板而重排、
    改写或删去原教案已有结构。原教案与课程大纲或已确认知识范围冲突时，不得静默覆盖，
    应保留可兼容内容，并把冲突写入备注或审核提示。
-14. 「正式教案模板」是同一份结构化教案的展示和导出契约，不是第二份教案。知识与能力、
-   过程与方法、迁移与创新应有机落在已有的能力点、掌握标准、教学活动和作业中；不为三类目标
-   增加平行真源，也不为补齐「创新」标题编造空洞目标。每节同时返回 `pre_study`、
+14. 「正式教案模板」是同一份结构化教案的展示和导出契约，不是第二份教案。每讲目标只分为
+   `knowledge_objectives`（知识目标）、`ability_objectives`（能力目标）和
+   `education_objectives`（育人目标）三类；育人目标必须由本讲真实内容支撑，没有时保持空数组，
+   不得用创新、迁移或一般课堂活动冒充。每讲同时返回 `pre_study`、
    `key_analysis`、`case_intro`、`practice`、`class_summary`、`extension_learning` 字符串数组；
    `teaching_activity_photos` 只保留已有引用，不得生成照片、链接或描述。
-15. 教学流程必须完整包含「进入问题或任务 → 核心教学 → 学习者行动 → 就近证据 → 反馈调整 → 迁移或收束」这六项职责；
-   具体环节仍由教学类型、学科画像、本讲课型和允许的教学块决定，不得把所有课都写成
-   「案例导入—理论讲授—总结讨论」同一套流程。
+15. 正式教案外壳保持“本讲基本信息—教学目标—重点难点—本讲教学设计—教学资料与活动记录”；
+   具体教学块只放在课堂教学过程中。流程必须完整承担「进入问题或任务 → 核心教学 → 学习者行动
+   → 就近证据 → 反馈调整 → 迁移或收束」，但块名称和顺序由学科、目标与本讲课型决定，
+   不得把所有课程强套成「案例导入—理论讲授—实践操作」同一顺序。
 16. `resource_refs` 只能使用已给定的证据名称或标识；没有已确认来源时留空，不得自行生成书目、
    课程、案例、数据或链接。
 17. `engagement_mode` 只能取 `passive|active|constructive|interactive`。关键学习环节优先让学生
@@ -887,6 +899,9 @@ class CoursePromptComposer:
   "sections": [
     {{
       "node_id": "L2-1-1",
+      "knowledge_objectives": ["本讲需要理解和掌握的知识"],
+      "ability_objectives": ["学生能够完成的可观察学科任务"],
+      "education_objectives": [],
       "knowledge_details": [
         {{
           "knowledge_key": "K001",
@@ -955,7 +970,8 @@ class CoursePromptComposer:
         "engagement_mode": "constructive",
         "access_support": "怎样减少无关进入障碍，同时保持核心标准",
         "grouping": "个人、同伴或小组及其责任方式",
-        "transition": "本环节证据怎样自然衔接下一环节"
+        "transition": "本环节证据怎样自然衔接下一环节",
+        "handout_ppt_mapping": "本环节在讲义中的内容位置与 PPT 页面任务"
       }}],
       "planned_minutes": 45,
       "key_difficulties": ["需要重点突破的概念或操作"],

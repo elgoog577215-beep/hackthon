@@ -125,7 +125,13 @@ def _lesson_nodes(course: dict[str, Any]) -> list[dict[str, Any]]:
 def _expected_session_count(course: dict[str, Any]) -> int | None:
     request = course.get("generation_request") or {}
     brief = request.get("teacher_course_brief") or course.get("teacher_course_brief") or {}
-    explicit = brief.get("expected_session_count") or brief.get("session_count")
+    profile = course.get("course_profile") or {}
+    explicit = (
+        profile.get("planned_lecture_count")
+        or brief.get("lecture_count")
+        or brief.get("expected_session_count")
+        or brief.get("session_count")
+    )
     if explicit:
         try:
             value = int(explicit)
@@ -133,10 +139,8 @@ def _expected_session_count(course: dict[str, Any]) -> int | None:
         except (TypeError, ValueError):
             return None
 
-    # A Chinese university credit hour is normally 45 minutes.  The creation
-    # form already collects total class hours and lesson duration, so retain
-    # that intent even when an older generation request did not persist the
-    # explicit expected-session field.
+    # 下面只为旧课程保留。新教师课程必须保存老师确认的 lecture_count；
+    # 45 分钟是一个课时单位，不能再由它推断“一讲固定几个课时”。
     try:
         total_class_hours = float(brief.get("total_class_hours") or 0)
         lesson_duration_minutes = float(brief.get("lesson_duration_minutes") or 0)

@@ -1724,6 +1724,9 @@ class CourseService(AIBase):
                 "node_id": str(item.get("node_id") or ""),
                 "title": str(item.get("title") or item.get("node_name") or ""),
                 "learning_objective": view["learning_objective"],
+                "knowledge_objectives": list(item.get("knowledge_objectives") or view.get("knowledge_objectives") or []),
+                "ability_objectives": list(item.get("ability_objectives") or view.get("ability_objectives") or []),
+                "education_objectives": list(item.get("education_objectives") or view.get("education_objectives") or []),
                 "key_points": [
                     str(value).strip() for value in item.get("key_points") or []
                     if str(value).strip()
@@ -1744,6 +1747,7 @@ class CourseService(AIBase):
                         "access_support": str(module.get("access_support") or ""),
                         "grouping": str(module.get("grouping") or ""),
                         "transition": str(module.get("transition") or ""),
+                        "handout_ppt_mapping": str(module.get("handout_ppt_mapping") or ""),
                     }
                     for module in item.get("teaching_modules") or []
                     if isinstance(module, dict) and str(module.get("module_id") or "")
@@ -1783,12 +1787,14 @@ class CourseService(AIBase):
             f"教师要求：{normalized_instruction}\n"
             f"作用域：{'小节 ' + section_node_id if section_node_id else '整讲'}\n"
             "根对象只能包含 sections；每个 section 必须保留 node_id，并完整返回标准教案字段："
-            "learning_objective 字符串，key_points、key_difficulties、in_class_checks、homework、"
+            "learning_objective 字符串，knowledge_objectives、ability_objectives、education_objectives、"
+            "key_points、key_difficulties、in_class_checks、homework、"
             "teaching_notes、pre_study、key_analysis、case_intro、practice、"
             "class_summary、extension_learning 字符串数组，以及 teaching_modules 数组。"
             "每个 teaching_module 必须保持 module_id 和原顺序，并返回 teaching_purpose、planned_minutes、"
             "teacher_activity、student_activity、expected_output、check_method、feedback_strategy、"
             "adaptation_options、engagement_mode、access_support、grouping、transition。"
+            "还必须返回 handout_ppt_mapping，说明本环节与讲义、PPT 的对应关系。"
             "必须按教师要求产生可见修改，但只修改实现要求所必需的字段，其余字段逐字保持输入值。"
             "教学目标要可观察，课堂活动与检查要对应目标；除非教师明确要求调整节奏，否则保持原有总时长。"
             "不得返回 knowledge_context 或 selected_material_evidence，不得改写知识事实或生成学生课程正文。"
@@ -1822,6 +1828,9 @@ class CourseService(AIBase):
             raise AIProviderRequestError("AI 教案优化改变了小节身份或顺序")
         editable_fields = {
             "learning_objective": str,
+            "knowledge_objectives": list,
+            "ability_objectives": list,
+            "education_objectives": list,
             "key_points": list,
             "key_difficulties": list,
             "in_class_checks": list,
@@ -1837,7 +1846,8 @@ class CourseService(AIBase):
         compact_by_id = {str(item["node_id"]): item for item in compact_sections}
         optional_formal_fields = {
             "pre_study", "key_analysis", "case_intro", "practice",
-            "class_summary", "extension_learning",
+            "class_summary", "extension_learning", "knowledge_objectives",
+            "ability_objectives", "education_objectives",
         }
         replacements: dict[str, dict[str, Any]] = {}
         changed = False
@@ -1860,7 +1870,7 @@ class CourseService(AIBase):
                     value = [str(entry).strip() for entry in value if str(entry).strip()]
                     if field not in {
                         "teaching_notes", "pre_study", "key_analysis", "case_intro",
-                        "practice", "class_summary", "extension_learning",
+                        "practice", "class_summary", "extension_learning", "education_objectives",
                     } and not value:
                         raise AIProviderRequestError(f"AI 教案优化缺少 {field}")
                 replacement[field] = value
@@ -1905,6 +1915,7 @@ class CourseService(AIBase):
                 for field in (
                     "expected_output", "check_method", "feedback_strategy",
                     "engagement_mode", "access_support", "grouping", "transition",
+                    "handout_ppt_mapping",
                 ):
                     optimized_module[field] = str(
                         candidate_module.get(field)
@@ -1934,6 +1945,7 @@ class CourseService(AIBase):
                         "access_support",
                         "grouping",
                         "transition",
+                        "handout_ppt_mapping",
                     )
                 ):
                     changed = True

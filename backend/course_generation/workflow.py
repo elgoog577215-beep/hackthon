@@ -131,6 +131,15 @@ def apply_teacher_course_brief(
         return brief
     teacher.setdefault("schema_version", "teacher_course_brief_v1")
     shape = deepcopy(brief.get("course_shape_constraints") or {})
+    lecture_count = teacher.get("lecture_count")
+    if isinstance(lecture_count, int) and lecture_count > 0:
+        # 生成引擎仍使用两层 JSON；在教师端 lecture_v1 中，这两层只是一对一
+        # 的技术适配器，每个内部 chapter 恰好对应一讲且只有一个内部 section。
+        shape.update({
+            "chapter_count": lecture_count,
+            "section_count": lecture_count,
+            "teacher_lecture_mode": True,
+        })
     for key in ("chapter_count", "section_count"):
         value = teacher.get(key)
         if isinstance(value, int) and value > 0:
@@ -140,13 +149,17 @@ def apply_teacher_course_brief(
     brief["audience"] = str(teacher.get("target_audience") or brief.get("audience") or "").strip()
     for constraint in (
         f"课程总课时为 {teacher.get('total_class_hours')} 学时",
-        f"单课时长为 {teacher.get('lesson_duration_minutes')} 分钟",
+        f"每课时为 {teacher.get('course_period_minutes') or 45} 分钟",
         f"教学场景为 {teacher.get('teaching_context')}",
     ):
         if constraint not in brief.setdefault("hard_constraints", []):
             brief["hard_constraints"].append(constraint)
     if teacher.get("academic_term"):
         brief["hard_constraints"].append(f"教学学期为 {teacher['academic_term']}")
+    if shape.get("teacher_lecture_mode"):
+        brief["hard_constraints"].append(
+            f"教师已确认全课共 {lecture_count} 讲；每讲是正式最小单元，内部兼容层必须一讲一容器"
+        )
     if teacher.get("additional_requirements"):
         brief["hard_constraints"].append("遵守教师补充要求")
     return brief
@@ -670,6 +683,9 @@ def _classroom_payload(value: Any) -> dict[str, Any]:
 
 def _section_execution_payload(value: dict[str, Any]) -> dict[str, Any]:
     payload = {
+        "knowledge_objectives": _unique_strings(list(value.get("knowledge_objectives") or [])),
+        "ability_objectives": _unique_strings(list(value.get("ability_objectives") or [])),
+        "education_objectives": _unique_strings(list(value.get("education_objectives") or [])),
         "planned_minutes": _bounded_optional_integer(
             value.get("planned_minutes"), lower=1, upper=240,
         ),
@@ -743,6 +759,12 @@ def normalize_course_teaching_plan(
                         ),
                         "teacher_activity": str(raw_module.get("teacher_activity") or "").strip(),
                         "student_activity": str(raw_module.get("student_activity") or "").strip(),
+                        "expected_output": str(raw_module.get("expected_output") or "").strip(),
+                        "check_method": str(raw_module.get("check_method") or "").strip(),
+                        "feedback_strategy": str(raw_module.get("feedback_strategy") or "").strip(),
+                        "adaptation_options": _unique_strings(list(raw_module.get("adaptation_options") or [])),
+                        "transition": str(raw_module.get("transition") or "").strip(),
+                        "handout_ppt_mapping": str(raw_module.get("handout_ppt_mapping") or "").strip(),
                     }.items()
                     if value not in (None, "")
                 },
@@ -772,6 +794,9 @@ def normalize_course_teaching_plan(
             "teaching_modules": teaching_modules,
             **_section_execution_payload(raw_section),
         })
+        # 生成器永远不能制造课后活动照片；教师后续在教案草稿中补充的引用
+        # 由教师教案仓库保存，不经过这条模型归一化路径。
+        normalized_sections[-1]["teaching_activity_photos"] = []
     schema_version = str(payload.get("schema_version") or "")
     if schema_version not in {"course_teaching_plan_v2", "course_teaching_plan_v3"}:
         schema_version = "course_teaching_plan_v2"

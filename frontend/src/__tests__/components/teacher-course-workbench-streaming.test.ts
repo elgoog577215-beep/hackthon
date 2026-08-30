@@ -239,7 +239,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.emitted('update:outlineEditing')).toBeUndefined()
   })
 
-  it('先展示真实大章节，再由老师确认每章小节数并继续同一任务', async () => {
+  it('讲数已由老师确认时自动继续同一大纲任务，不再要求章和小节确认', async () => {
     const generation = useGenerationStore()
     const task = generation.createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'waiting_for_review'
@@ -252,23 +252,22 @@ describe('teacher course workbench outline streaming', () => {
     generation.generationStatus = 'error'
 
     const wrapper = mountWorkbench()
+    await flushPromises()
     const sectionInputs = wrapper.findAll('.shape-chapter-list input')
 
     expect(wrapper.find('.generation-surface').exists()).toBe(false)
     expect(wrapper.find('.shape-chapter-index').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="outline-shape-review"]').text()).toContain('程序环境与基础语法')
-    expect(wrapper.get('[data-testid="outline-shape-review"]').text()).toContain('流程控制结构')
-    expect(sectionInputs).toHaveLength(2)
-    await sectionInputs[0]!.setValue(3)
-    await sectionInputs[1]!.setValue(5)
-    await wrapper.get('.outline-shape-review>footer button').trigger('click')
-    await flushPromises()
+    expect(wrapper.get('[data-testid="outline-shape-review"]').text()).toContain('讲数已经确认')
+    expect(wrapper.get('[data-testid="outline-shape-review"]').text()).not.toContain('程序环境与基础语法')
+    expect(sectionInputs).toHaveLength(0)
 
     expect(http.post).toHaveBeenCalledWith(
       '/api/courses/course-1/generation/outline-shape/confirm',
-      { chapter_section_counts: [3, 5] },
+      { chapter_section_counts: expect.any(Array) },
       expect.any(Object),
     )
+    const shapePayload = vi.mocked(http.post).mock.calls.find(call => String(call[0]).includes('outline-shape/confirm'))?.[1] as any
+    expect(shapePayload.chapter_section_counts.every((count: number) => count === 1)).toBe(true)
   })
 
   it('生成前只展示业务输入和操作，不展示内部流程解释', async () => {
@@ -291,7 +290,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.text()).not.toContain('大纲生成顺序')
     expect(wrapper.text()).not.toContain('学时不自动换算小节')
     expect(wrapper.text()).not.toContain('右侧资料会与这些信息一起交给 AI')
-    expect(wrapper.get('form.stage-form button.primary').text()).toContain('生成大章节')
+    expect(wrapper.get('form.stage-form button.primary').text()).toContain('生成课程大纲')
     await wrapper.get('.form-field input[type="number"]').setValue(12)
     await wrapper.get('form.stage-form').trigger('submit')
     await flushPromises()
@@ -559,17 +558,17 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateScript).toHaveBeenCalledWith('course-1', 'L1-1', '', [], '')
   })
 
-  it('大章目录以浮层按需展开，小节在正文顶部横向切换', async () => {
+  it('讲次目录以浮层按需展开，教案正文不再出现小节 Tab', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [1, 2].map(number => ({
-      lesson_unit_id: `L1-${number}`, number, title: `第${number}章`, duration_minutes: 45,
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
       sections: [1, 2].map(section => ({ section_node_id: `L2-${number}-${section}`, title: `${number}.${section} 小节${section}` })),
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
       plan: { lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: number === 2 ? 'plan-2' : '', source_state: 'current', revisions: [], ppt_assets: [] },
     })) as any
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第1章')
+    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第1讲')
     expect(wrapper.get('.lesson-title-trigger').text()).toContain('1/2')
     expect(wrapper.get('.lesson-title-trigger').attributes('aria-expanded')).toBe('false')
     expect(wrapper.find('.lesson-outline-popover').exists()).toBe(false)
@@ -578,8 +577,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(currentLessonGroup.element.children).toHaveLength(1)
     expect(wrapper.get('.lesson-heading-cluster').element.firstElementChild).toBe(currentLessonGroup.element)
     expect(wrapper.find('.lesson-selector').exists()).toBe(false)
-    expect(wrapper.findAll('.lesson-section-tabs button')).toHaveLength(2)
-    expect(wrapper.get('.lesson-section-tabs button.active').text()).toBe('1.1 小节1')
+    expect(wrapper.find('.lesson-section-tabs').exists()).toBe(false)
     expect(wrapper.get('.lesson-navigator').text()).toContain('上一讲')
     expect(wrapper.get('.lesson-navigator').text()).toContain('下一讲')
 
@@ -587,19 +585,16 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.lesson-title-trigger').attributes('aria-expanded')).toBe('true')
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons).toHaveLength(2)
-    expect(chapterButtons[0]!.text()).toBe('第1章')
+    expect(chapterButtons[0]!.text()).toBe('第1讲')
     expect(chapterButtons[0]!.attributes('aria-label')).toContain('待确认')
     expect(chapterButtons[1]!.attributes('aria-label')).toContain('已确认')
     expect(wrapper.find('.lesson-outline-sections').exists()).toBe(false)
 
     await chapterButtons[1]!.trigger('click')
     expect(wrapper.find('.lesson-outline-popover').exists()).toBe(false)
-    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第2章')
+    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第2讲')
     expect(wrapper.get('.lesson-title-trigger').text()).toContain('2/2')
-    expect(wrapper.get('.lesson-section-tabs button.active').text()).toBe('2.1 小节1')
-    const secondSection = wrapper.findAll('.lesson-section-tabs button')[1]!
-    await secondSection.trigger('click')
-    expect(secondSection.classes()).toContain('active')
+    expect(wrapper.find('.lesson-section-tabs').exists()).toBe(false)
 
     await wrapper.get('.lesson-title-trigger').trigger('click')
     expect(wrapper.get('.lesson-title-trigger').attributes('aria-expanded')).toBe('true')

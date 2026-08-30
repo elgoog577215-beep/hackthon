@@ -1,9 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import CourseReferenceTray from '@/components/CourseReferenceTray.vue'
+import CourseReferenceTray, { type CourseReferenceItem } from '@/components/CourseReferenceTray.vue'
 import http from '@/utils/http'
 
-const assets = [
+const assets: CourseReferenceItem[] = [
   {
     package_id: 'package-1', asset_id: 'asset-1', material_asset_id: 'mat-1',
     filename: '第一讲案例.docx', relative_path: '生成资料/第一讲案例.docx', size_bytes: 1200,
@@ -49,11 +49,10 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('课程资料')
-    expect(wrapper.find('.system-context').exists()).toBe(false)
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第一讲案例.docx')
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('原始材料')
-    expect(wrapper.get('.ppt-smart-source-list').text()).not.toContain('第二讲练习.pdf')
+    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
+    expect(wrapper.find('.system-context').exists()).toBe(true)
+    expect(wrapper.get('.drop-zone').text()).toContain('第一讲案例.docx')
+    expect(wrapper.get('.source-group--references').text()).not.toContain('第二讲练习.pdf')
 
     await wrapper.setProps({
       lessonId: 'L1-2', scopeTargetId: 'lesson-plan:L1-2',
@@ -62,14 +61,14 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('课程资料')
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第二讲练习.pdf')
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
+    expect(wrapper.get('.source-group--references').text()).toContain('第二讲练习.pdf')
+    expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
 
     await wrapper.get('.reuse-previous').trigger('click')
     await flushPromises()
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第二讲主教材.docx')
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第一讲案例.docx')
+    expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.source-group--references').text()).toContain('第一讲案例.docx')
     expect(wrapper.find('.reuse-previous').exists()).toBe(false)
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
@@ -84,8 +83,12 @@ describe('CourseReferenceTray lesson scope', () => {
       expect.any(Object),
     )
 
-    while (wrapper.find('.ppt-smart-source-item button').exists()) {
-      await wrapper.get('.ppt-smart-source-item button').trigger('click')
+    if (wrapper.find('.drop-zone.has-file > button').exists()) {
+      await wrapper.get('.drop-zone.has-file > button').trigger('click')
+      await flushPromises()
+    }
+    while (wrapper.find('.reference-item > button').exists()) {
+      await wrapper.get('.reference-item > button').trigger('click')
       await flushPromises()
     }
     expect(http.put).toHaveBeenLastCalledWith(
@@ -124,8 +127,8 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第1讲教案.docx')
-    expect(wrapper.get('.ppt-smart-source-list').text()).not.toContain('第2讲教案.docx')
+    expect(wrapper.get('.drop-zone').text()).toContain('第1讲教案.docx')
+    expect(wrapper.get('.source-group--references').text()).not.toContain('第2讲教案.docx')
     expect(http.put).toHaveBeenCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
       expect.objectContaining({
@@ -137,7 +140,7 @@ describe('CourseReferenceTray lesson scope', () => {
       expect.any(Object),
     )
 
-    await wrapper.get('.ppt-smart-source-item button').trigger('click')
+    await wrapper.get('.drop-zone.has-file > button').trigger('click')
     await flushPromises()
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
@@ -162,7 +165,8 @@ describe('CourseReferenceTray lesson scope', () => {
       global: { stubs: { WebResearchDialog: true } },
     })
     await flushPromises()
-    expect(wrapper.get('.ppt-smart-empty').text()).toContain('尚未选择课程资料')
+    expect(wrapper.get('.empty-drop').text()).toContain('上传资料文件')
+    expect(wrapper.get('.reference-add').text()).toContain('上传参考文件')
 
     currentAssets = [{
       package_id: 'package-1', asset_id: 'asset-outline', material_asset_id: 'mat-outline',
@@ -172,7 +176,7 @@ describe('CourseReferenceTray lesson scope', () => {
     await wrapper.setProps({ refreshToken: 1 })
     await flushPromises()
 
-    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('课程大纲.md')
+    expect(wrapper.get('.drop-zone').text()).toContain('课程大纲.md')
     expect(http.put).toHaveBeenCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
       expect.objectContaining({
@@ -182,6 +186,65 @@ describe('CourseReferenceTray lesson scope', () => {
       }),
       expect.any(Object),
     )
+  })
+
+  it('生成开始后把上传命令切换为资料使用状态，并支持暂停、继续和取消', async () => {
+    const selected = [
+      { ...assets[2]!, role: 'primary' as const },
+      { ...assets[1]!, role: 'reference' as const },
+    ]
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: selected, stage: 'lesson',
+        workflowState: 'generating', workflowProgress: 42,
+        workflowCanPause: true, workflowCanCancel: true,
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.system-context').exists()).toBe(true)
+    expect(wrapper.get('.workflow-state--generating').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.workflow-state--generating').text()).toContain('第二讲练习.pdf')
+    expect(wrapper.get('.workflow-state--generating').text()).toContain('使用中')
+    expect(wrapper.get('.workflow-progress i').attributes('style')).toContain('scaleX(0.42)')
+    expect(wrapper.find('.empty-drop').exists()).toBe(false)
+    expect(wrapper.find('.reference-add').exists()).toBe(false)
+
+    const generatingButtons = wrapper.findAll('.workflow-state footer button')
+    await generatingButtons[0]!.trigger('click')
+    await generatingButtons[1]!.trigger('click')
+    expect(wrapper.emitted('pause-workflow')).toHaveLength(1)
+    expect(wrapper.emitted('cancel-workflow')).toHaveLength(1)
+
+    await wrapper.setProps({ workflowState: 'paused', workflowCanPause: false, workflowCanResume: true })
+    await flushPromises()
+    expect(wrapper.get('.workflow-state--paused').text()).toContain('已保留')
+    expect(wrapper.find('.reference-add').exists()).toBe(false)
+    await wrapper.get('.workflow-resume').trigger('click')
+    expect(wrapper.emitted('resume-workflow')).toHaveLength(1)
+
+    await wrapper.setProps({ workflowState: 'ready', workflowCanResume: false, workflowCanCancel: false })
+    await flushPromises()
+    expect(wrapper.get('.source-group--primary').text()).toContain('资料文件')
+    expect(wrapper.get('.source-group--references').text()).toContain('参考文件')
+  })
+
+  it('生成失败后保留课程信息与资料，并提供同一任务重试入口', async () => {
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
+        workflowState: 'failed', workflowDetail: '模型返回结构不完整', workflowCanRetry: true,
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.system-context').exists()).toBe(true)
+    expect(wrapper.get('.source-status--failed').text()).toContain('模型返回结构不完整')
+    expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
+    await wrapper.get('.source-status__retry').trigger('click')
+    expect(wrapper.emitted('retry-workflow')).toHaveLength(1)
   })
 
   it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {

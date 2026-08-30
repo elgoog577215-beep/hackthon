@@ -13,7 +13,7 @@ from copy import deepcopy
 from typing import Any
 
 
-FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v3"
+FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v4"
 
 OUTLINE_DOCUMENT_SECTIONS = (
     "课程基本信息",
@@ -29,37 +29,28 @@ OUTLINE_DOCUMENT_SECTIONS = (
 )
 
 LESSON_PLAN_DOCUMENT_SECTIONS = (
-    "课程名称与课次信息",
-    "知识与能力目标",
-    "过程与方法目标",
-    "创新目标",
+    "本讲基本信息",
+    "教学目标",
     "教学重点与难点",
-    "课前预习",
-    "重点分析",
-    "案例导入",
-    "知识讲解与讨论",
-    "实践操作",
-    "课堂总结",
-    "课后作业",
-    "拓展学习",
-    "教学活动照片",
+    "本讲教学设计",
+    "教学资料与活动记录",
 )
 
 OBJECTIVE_DIMENSIONS = (
     {
-        "id": "knowledge_capability",
-        "label": "知识与能力",
-        "policy": "必须落到可观察、可检查的学习者表现",
+        "id": "knowledge",
+        "label": "知识目标",
+        "policy": "说明本讲需要理解、掌握或辨析的知识内容",
     },
     {
-        "id": "process_method",
-        "label": "过程与方法",
-        "policy": "通过学科适配的分析、推导、实验、实作或论证任务体现",
+        "id": "ability",
+        "label": "能力目标",
+        "policy": "说明学生能够完成的分析、推导、实验、表达、设计或应用任务",
     },
     {
-        "id": "transfer_innovation",
-        "label": "创新目标",
-        "policy": "只在课程目标和本讲课型真实需要时生成，不为补齐模板编造空洞目标",
+        "id": "education",
+        "label": "育人目标",
+        "policy": "只在课程内容确有价值判断、责任或规范要求时填写，不为补齐模板编造套话",
     },
 )
 
@@ -70,15 +61,12 @@ OUTLINE_OBJECTIVE_DIMENSIONS = (
 )
 
 LESSON_FLOW_SECTIONS = (
-    "课前预习",
-    "重点分析",
-    "案例导入",
-    "知识讲解与讨论",
-    "实践操作",
-    "课堂总结",
-    "课后作业",
-    "拓展学习",
-    "教学活动照片",
+    "课前准备（按需）",
+    "课堂教学过程",
+    "课程总结",
+    "作业与拓展",
+    "拓展阅读",
+    "教学活动照片（教师课后补充）",
 )
 
 _PROFILE_FIELDS = (
@@ -93,6 +81,11 @@ _PROFILE_FIELDS = (
     "target_grade",
     "weekday",
     "periods",
+    "course_period_minutes",
+    "active_week_start",
+    "active_week_end",
+    "schedule_slots",
+    "planned_lecture_count",
     "default_location",
     "course_intro",
     "assessment_method",
@@ -255,7 +248,7 @@ def compile_formal_course_context(
         "学分": profile.get("credits"),
         "周学时": profile.get("weekly_hours"),
         "总学时": total_hours,
-        "每次课时长": (
+        "每课时时长": (
             f"{lesson_minutes} 分钟"
             if lesson_minutes not in (None, "")
             else ""
@@ -320,8 +313,19 @@ def compile_formal_course_context(
         "objective_dimensions": [deepcopy(item) for item in OBJECTIVE_DIMENSIONS],
         "lesson_flow_contract": {
             "required_roles": list(LESSON_FLOW_SECTIONS),
+            "classroom_block_fields": [
+                "时长", "本块目标与内容", "教师活动", "学生活动", "课堂产出",
+                "达成检查", "反馈与调整", "与前后块的衔接", "讲义与PPT对应关系",
+            ],
+            "discipline_patterns": {
+                "math_formal": ["问题引入", "定义建立", "推导或证明", "例题与变式", "应用与检查"],
+                "language_learning": ["语境输入", "理解与辨析", "语言操练", "真实表达", "反馈与修正"],
+                "natural_science": ["现象或问题", "假设与方法", "实验或证据", "解释", "误差与边界"],
+                "programming_engineering": ["任务与约束", "方案设计", "实现", "测试与调试", "复盘与迁移"],
+            },
             "selection_rule": (
-                "每讲都要对这些栏目给出具体内容；没有活动照片时明确标记待补充，不编造照片。"
+                "正式外壳保持稳定，课堂教学过程中的教学块按学科、本讲目标和课型动态选择；"
+                "案例、讨论、实践不是所有课程的固定顺序。活动照片只能由教师课后补充，AI 必须保持空白。"
             ),
         },
         "reference_policy": (
@@ -358,7 +362,7 @@ def compile_outline_prompt_contract(
         "integration_rules": [
             "确认的课程信息是只读输入，不得改写、换算或猜测缺失值",
             "当前模型只规划课程定位、目标和目录，正式文书由结构化真源确定性投影",
-            "教学目标应为章节学习路径提供依据，不把正式大纲栏目复制到章节标题中",
+            "教学目标应为讲次学习路径提供依据，不把正式大纲栏目复制到讲次标题中",
         ],
     }
 
@@ -367,25 +371,35 @@ def project_lesson_objective_dimensions(
     section: dict[str, Any],
 ) -> dict[str, list[str]]:
     """Group existing lesson fields without creating another objective truth."""
-    knowledge_capability = _text_list(
-        section.get("learning_objective") or section.get("objective")
+    knowledge_objectives = _text_list(
+        section.get("knowledge_objectives")
+        or section.get("knowledge_objective")
+        or section.get("learning_objective")
+        or section.get("objective")
     )
-    process_method: list[str] = []
-    transfer_innovation: list[str] = []
+    ability = _text_list(
+        section.get("ability_objectives") or section.get("ability_objective")
+    )
+    education = _text_list(
+        section.get("education_objectives")
+        or section.get("education_objective")
+        or section.get("education_goal")
+        or section.get("ideology_goal")
+    )
 
     # 已有正式目标时直接沿用。原子能力点属于知识与评价明细，再全部拼回
     # “教学目标”会形成十几个分号相连的系统报告，而不是真实教案语言。
-    has_explicit_objective = bool(knowledge_capability)
+    has_explicit_ability = bool(ability)
     for group in section.get("knowledge_structure") or []:
         if not isinstance(group, dict):
             continue
-        for knowledge in group.get("knowledge_points") or []:
-            if not isinstance(knowledge, dict):
+        for knowledge_point in group.get("knowledge_points") or []:
+            if not isinstance(knowledge_point, dict):
                 continue
             capabilities = (
                 []
-                if has_explicit_objective
-                else knowledge.get("capability_points") or []
+                if has_explicit_ability
+                else knowledge_point.get("capability_points") or []
             )
             for capability in capabilities:
                 if not isinstance(capability, dict):
@@ -394,22 +408,8 @@ def project_lesson_objective_dimensions(
                     capability.get("observable_behavior")
                     or capability.get("name")
                 ):
-                    if item not in knowledge_capability:
-                        knowledge_capability.append(item)
-            for criterion in knowledge.get("mastery_criteria") or []:
-                if not isinstance(criterion, dict):
-                    continue
-                if str(criterion.get("required_transfer") or "") not in {
-                    "variation",
-                    "novel",
-                }:
-                    continue
-                for item in _text_list(
-                    criterion.get("observable_performance")
-                    or criterion.get("name")
-                ):
-                    if item not in transfer_innovation:
-                        transfer_innovation.append(item)
+                    if item not in ability:
+                        ability.append(item)
 
     process_candidates = _text_list(section.get("student_activities"))
     for module in section.get("teaching_modules") or []:
@@ -417,23 +417,16 @@ def project_lesson_objective_dimensions(
             continue
         process_candidates.extend(_text_list(module.get("student_activity")))
     for item in process_candidates:
-        if item not in process_method:
-            process_method.append(item)
-
-    transfer_signals = ("迁移", "变式", "应用", "设计", "探究", "创新", "综合", "真实")
-    for item in _text_list(section.get("homework")):
-        if any(signal in item for signal in transfer_signals):
-            if item not in transfer_innovation:
-                transfer_innovation.append(item)
+        if item not in ability:
+            ability.append(item)
 
     return {
         label: values[:3]
         for label, values in (
-            ("知识与能力", knowledge_capability),
-            ("过程与方法", process_method),
-            ("创新目标", transfer_innovation),
+            ("知识目标", knowledge_objectives),
+            ("能力目标", ability),
+            ("育人目标", education),
         )
-        if values
     }
 
 

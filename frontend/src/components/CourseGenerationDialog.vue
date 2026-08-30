@@ -232,9 +232,9 @@
                 <span class="field-label">{{ t('courseGeneration.teacherBrief.totalHours', '总课时') }}</span>
                 <input id="teacher-total-hours" v-model.number="form.totalClassHours" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
               </label>
-              <label v-if="props.courseSpaceMode" for="teacher-section-count">
-                <span class="field-label">{{ t('teacherCourseCreate.expectedSessions', '预计课次') }}</span>
-                <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+              <label v-if="props.courseSpaceMode" for="teacher-lecture-count">
+                <span class="field-label">{{ t('teacherCourseCreate.plannedLectureCount', '计划讲数') }}</span>
+                <input id="teacher-lecture-count" v-model.number="form.lectureCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
               </label>
             </div>
             <details v-if="!props.courseSpaceMode" class="teacher-brief-section__advanced">
@@ -242,8 +242,8 @@
               <div class="teacher-brief-section__advanced-body">
                 <div class="teacher-brief-section__advanced-grid">
                   <label for="teacher-lesson-minutes">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每次课时长（分钟）') }}</span>
-                    <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="20" max="240" step="1" :disabled="busy" />
+                    <span class="field-label">{{ t('courseGeneration.teacherBrief.lessonMinutes', '每课时时长（分钟）') }}</span>
+                    <input id="teacher-lesson-minutes" v-model.number="form.lessonDurationMinutes" class="text-input" type="number" min="45" max="45" step="1" disabled />
                   </label>
                   <label for="teacher-academic-term">
                     <span class="field-label">{{ t('courseGeneration.teacherBrief.academicTerm', '开课学期') }}</span>
@@ -253,13 +253,9 @@
                     <span class="field-label">{{ t('courseGeneration.teacherBrief.classSize', '预计班级人数') }}</span>
                     <input id="teacher-class-size" v-model.number="form.classSize" class="text-input" type="number" min="1" max="1000" step="1" :disabled="busy" />
                   </label>
-                  <label for="teacher-chapter-count">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.chapterCount', '预计章节数') }}</span>
-                    <input id="teacher-chapter-count" v-model.number="form.chapterCount" class="text-input" type="number" min="1" max="100" step="1" :disabled="busy" />
-                  </label>
-                  <label for="teacher-section-count">
-                    <span class="field-label">{{ t('courseGeneration.teacherBrief.sectionCount', '预计小节数') }}</span>
-                    <input id="teacher-section-count" v-model.number="form.sectionCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
+                  <label for="teacher-lecture-count">
+                    <span class="field-label">{{ t('teacherCourseCreate.plannedLectureCount', '计划讲数') }}</span>
+                    <input id="teacher-lecture-count" v-model.number="form.lectureCount" class="text-input" type="number" min="1" max="500" step="1" :disabled="busy" />
                   </label>
                 </div>
                 <label class="teacher-brief-section__profile" for="teacher-class-profile">
@@ -537,8 +533,7 @@ const form = reactive({
   lessonDurationMinutes: 45,
   classSize: undefined as number | undefined,
   classProfile: '',
-  chapterCount: undefined as number | undefined,
-  sectionCount: undefined as number | undefined,
+  lectureCount: 16,
   productionMode: 'manual' as 'manual' | 'automatic',
 })
 
@@ -624,8 +619,7 @@ function resetFormForOpen() {
     lessonDurationMinutes: 45,
     classSize: undefined,
     classProfile: '',
-    chapterCount: undefined,
-    sectionCount: undefined,
+    lectureCount: 16,
     productionMode: 'manual' as const,
   })
 }
@@ -653,11 +647,10 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
     if (brief.target_audience) form.targetAudience = brief.target_audience
     if (brief.academic_term) form.academicTerm = brief.academic_term
     if (brief.total_class_hours) form.totalClassHours = brief.total_class_hours
-    if (brief.lesson_duration_minutes) form.lessonDurationMinutes = brief.lesson_duration_minutes
+    form.lessonDurationMinutes = 45
     form.classSize = brief.class_size
     form.classProfile = brief.class_profile || ''
-    form.chapterCount = brief.chapter_count
-    form.sectionCount = brief.section_count
+    form.lectureCount = Number(brief.lecture_count || brief.chapter_count || brief.section_count || 16)
     if (!form.requirements && brief.additional_requirements) form.requirements = brief.additional_requirements
   }
   if (!intent) return
@@ -677,8 +670,8 @@ function hydrateInitialOptions(options?: CourseGenerationOptions) {
 }
 const canSubmit = computed(() => !busy.value && typeIntentComplete.value && Boolean(form.targetAudience.trim())
   && Number.isInteger(form.totalClassHours) && form.totalClassHours >= 1 && form.totalClassHours <= 1000
-  && Number.isInteger(form.lessonDurationMinutes) && form.lessonDurationMinutes >= 20 && form.lessonDurationMinutes <= 240
-  && (!form.chapterCount || !form.sectionCount || form.sectionCount >= form.chapterCount)
+  && form.lessonDurationMinutes === 45
+  && Number.isInteger(form.lectureCount) && form.lectureCount >= 1 && form.lectureCount <= 500
 )
 watch(() => props.modelValue, async open => {
   if (!open) {
@@ -697,11 +690,10 @@ watch(() => props.modelValue, async open => {
   else if (props.initialAudience.trim()) form.targetAudience = props.initialAudience.trim()
   if (props.initialAcademicTerm.trim()) form.academicTerm = props.initialAcademicTerm.trim()
   const initialTotalClassHours = props.initialTotalClassHours
-  const initialLessonDurationMinutes = props.initialLessonDurationMinutes
   if (typeof initialTotalClassHours === 'number' && Number.isFinite(initialTotalClassHours) && initialTotalClassHours > 0) form.totalClassHours = initialTotalClassHours
-  if (typeof initialLessonDurationMinutes === 'number' && Number.isFinite(initialLessonDurationMinutes) && initialLessonDurationMinutes > 0) form.lessonDurationMinutes = initialLessonDurationMinutes
-  if (Number.isFinite(props.initialChapterCount) && Number(props.initialChapterCount) > 0) form.chapterCount = Number(props.initialChapterCount)
-  if (Number.isFinite(props.initialSectionCount) && Number(props.initialSectionCount) > 0) form.sectionCount = Number(props.initialSectionCount)
+  form.lessonDurationMinutes = 45
+  if (Number.isFinite(props.initialChapterCount) && Number(props.initialChapterCount) > 0) form.lectureCount = Number(props.initialChapterCount)
+  else if (Number.isFinite(props.initialSectionCount) && Number(props.initialSectionCount) > 0) form.lectureCount = Number(props.initialSectionCount)
   await nextTick()
   dialogRef.value?.focus()
 }, { immediate: true })
@@ -784,11 +776,11 @@ async function submit() {
         academic_term: form.academicTerm.trim(),
         target_audience: form.targetAudience.trim(),
         total_class_hours: form.totalClassHours,
-        lesson_duration_minutes: form.lessonDurationMinutes,
+        lesson_duration_minutes: 45,
+        course_period_minutes: 45,
         ...(form.classSize ? { class_size: form.classSize } : {}),
         ...(form.classProfile.trim() ? { class_profile: form.classProfile.trim() } : {}),
-        ...(form.chapterCount ? { chapter_count: form.chapterCount } : {}),
-        ...(form.sectionCount ? { section_count: form.sectionCount } : {}),
+        lecture_count: form.lectureCount,
         additional_requirements: form.requirements.trim(),
         material_refs: (materialBindings || []).map(binding => ({
           resource_id: binding.asset_id,

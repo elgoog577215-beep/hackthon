@@ -8,17 +8,15 @@ const workbenchSource = readFileSync(
 )
 
 describe('teacher lesson toolbar placement', () => {
-  it('keeps document actions above the section tabs so the tabs attach to the document', () => {
+  it('keeps document actions above the formal document without restoring section tabs', () => {
     const toolbar = workbenchSource.indexOf('class="lesson-command-bar"')
-    const sectionTabs = workbenchSource.indexOf('class="lesson-section-tabs"')
+    const document = workbenchSource.indexOf('<TeacherLessonPlanDocument')
 
     expect(toolbar).toBeGreaterThan(-1)
-    expect(sectionTabs).toBeGreaterThan(toolbar)
+    expect(document).toBeGreaterThan(toolbar)
+    expect(workbenchSource).not.toContain('class="lesson-section-tabs"')
     expect(workbenchSource).toContain(
-      '.workbench-center.is-lesson-workspace .lesson-section-tabs{border:1px solid #e0e6ef',
-    )
-    expect(workbenchSource).toContain(
-      '.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef;border-top:0',
+      '.workbench-center.is-lesson-workspace :deep(.lesson-document){overflow:hidden;border:1px solid #e0e6ef',
     )
   })
 })

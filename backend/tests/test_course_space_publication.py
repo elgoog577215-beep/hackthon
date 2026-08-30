@@ -167,7 +167,7 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
     assert "## 一、课程基本信息" in outline
     assert "MATH-101" in outline
     assert "| 课程名称 |" not in outline
-    assert "| 每次课时长 | 45 分钟 |" in outline
+    assert "| 每课时时长 | 45 分钟 |" in outline
     assert "| 班级规模 | 48 人 |" in outline
     assert "### 教学对象与学情" in outline
     assert "形式化论证经验不足" in outline
@@ -180,15 +180,14 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
     assert "## 八、课程思政案例" in outline
     assert "## 十、课程网站" in outline
 
-    assert "#### 知识与能力目标" in teaching_plan
-    assert "#### 过程与方法目标" in teaching_plan
-    assert "#### 创新目标" in teaching_plan
+    assert "#### 知识目标" in teaching_plan
+    assert "#### 能力目标" in teaching_plan
+    assert "#### 育人目标" in teaching_plan
     assert "#### 教学重点与难点" in teaching_plan
-    assert "#### 课前预习" in teaching_plan
-    assert "#### 案例导入" in teaching_plan
-    assert "#### 实践操作" in teaching_plan
-    assert "#### 教学活动照片" in teaching_plan
-    assert "| 教学环节 | 教学目的 | 时间 | 教师活动 | 学生活动 |" in teaching_plan
+    assert "#### 课前准备（按需）" in teaching_plan
+    assert "#### 课堂教学过程" in teaching_plan
+    assert "#### 教学资料与活动记录｜教学活动照片" in teaching_plan
+    assert "| 教学块 | 时间 | 本块目标与内容 | 教师活动 | 学生活动 | 课堂产出与达成检查 | 反馈与调整 | 衔接 | 讲义与 PPT 对应 |" in teaching_plan
     assert "展示数表与图像并追问趋势" in teaching_plan
     assert "微积分教材.pdf" in teaching_plan
 

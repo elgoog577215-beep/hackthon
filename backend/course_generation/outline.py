@@ -302,6 +302,17 @@ def validate_outline_skeleton(
             "outline_skeleton:section_count_mismatch",
             f"用户要求 {expected_sections} 节，骨架实际分配 {actual_sections} 节",
         ))
+    if shape_constraints.get("teacher_lecture_mode"):
+        non_unitary = [
+            int(item.get("chapter_number") or index)
+            for index, item in enumerate(chapters, start=1)
+            if int(item.get("section_count") or 0) != 1
+        ]
+        if non_unitary:
+            issues.append(_issue(
+                "outline_skeleton:teacher_lecture_adapter_mismatch",
+                f"教师课程的每一讲只能有一个内部内容容器，异常讲次：{non_unitary}",
+            ))
     if expected_chapters is None and minimum_chapters is not None and len(chapters) < minimum_chapters:
         issues.append(_issue(
             "outline_skeleton:below_complete_chapter_minimum",
