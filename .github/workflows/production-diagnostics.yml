@@ -50,20 +50,29 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
+      - name: Probe production ZJU Qwen routes
+        if: ${{ inputs.probe_ai_model }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; /opt/lingzhi/.venv/bin/python scripts/probe_zju_qwen_runtime.py"
+
       - name: Inspect retrieval path
-        continue-on-error: ${{ inputs.export_v6_replay }}
+        continue-on-error: ${{ inputs.export_v6_replay || inputs.probe_ai_model }}
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
           DIAGNOSTIC_QUERY: ${{ inputs.query }}
-          PROBE_AI_MODEL: ${{ inputs.probe_ai_model }}
         run: |
           set -euo pipefail
           remote_query="$(printf '%q' "$DIAGNOSTIC_QUERY")"
-          remote_probe="$(printf '%q' "$PROBE_AI_MODEL")"
           ssh -i ~/.ssh/lingzhi_deploy -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "LINGZHI_DIAGNOSTIC_QUERY=$remote_query LINGZHI_PROBE_AI_MODEL=$remote_probe bash -s" <<'REMOTE'
+            "LINGZHI_DIAGNOSTIC_QUERY=$remote_query bash -s" <<'REMOTE'
           set -euo pipefail
           echo "== service =="
           systemctl is-active lingzhi || true
@@ -378,76 +387,6 @@ jobs:
               "visual_reason": visual.get("degradation_reason"),
           }, ensure_ascii=False, sort_keys=True))
           PY
-
-          if [ "$LINGZHI_PROBE_AI_MODEL" = "true" ]; then
-            /opt/lingzhi/.venv/bin/python - <<'PY'
-          import asyncio
-          import json
-
-          from ai_base import AIBase
-          from ai_provider_route import provider_route_snapshot
-
-
-          async def probe_ai_model(
-              *,
-              model_role: str,
-              use_fast_model: bool,
-          ) -> None:
-              provider = AIBase(provider_profile="ppt")
-              telemetry = []
-              status = "failed"
-              error_code = ""
-              try:
-                  response = await provider._call_llm(
-                      json.dumps({"probe": model_role}),
-                      system_prompt='Return only this JSON object: {"ok":true}',
-                      use_fast_model=use_fast_model,
-                      enable_thinking=False,
-                      retry_count=1,
-                      max_attempts=3,
-                      max_tokens=64,
-                      reject_truncated=True,
-                      raise_on_failure=True,
-                      json_mode=True,
-                      model_role=model_role,
-                      telemetry_sink=telemetry.append,
-                  )
-                  parsed = provider._extract_json(response or "") or {}
-                  status = "completed" if parsed.get("ok") is True else "invalid_json"
-              except Exception as error:
-                  error_code = type(error).__name__
-
-              attempts = [
-                  {
-                      "model_id": str(item.get("model_id") or ""),
-                      "provider_route": str(item.get("provider_route") or "primary"),
-                      "status": str(item.get("status") or "unknown"),
-                      "error_code": str(item.get("error_code") or ""),
-                      "duration_ms": int(item.get("duration_ms") or 0),
-                  }
-                  for item in telemetry
-                  if isinstance(item, dict)
-              ]
-              print(f"{model_role}_model_probe", json.dumps({
-                  "status": status,
-                  "error_code": error_code,
-                  "attempts": attempts,
-                  "provider_route": provider_route_snapshot(),
-              }, ensure_ascii=False, sort_keys=True))
-              if status != "completed":
-                  raise SystemExit(1)
-
-
-          asyncio.run(probe_ai_model(
-              model_role="ppt_story",
-              use_fast_model=False,
-          ))
-          asyncio.run(probe_ai_model(
-              model_role="ppt_visual",
-              use_fast_model=True,
-          ))
-          PY
-          fi
 
           /opt/lingzhi/.venv/bin/python - <<'PY'
           import asyncio

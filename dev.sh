@@ -30,12 +30,9 @@ else
     FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 fi
 EVOLUTION_DEMO_MODE="${EVOLUTION_DEMO_MODE:-0}"
-AI_LOCAL_PROVIDER="${AI_LOCAL_PROVIDER:-codex}"
-AI_CODEX_EXECUTABLE="${AI_CODEX_EXECUTABLE:-$(command -v codex 2>/dev/null || true)}"
-if [ -z "$AI_CODEX_EXECUTABLE" ] \
-    && [ -x "/Applications/ChatGPT.app/Contents/Resources/codex" ]; then
-    AI_CODEX_EXECUTABLE="/Applications/ChatGPT.app/Contents/Resources/codex"
-fi
+AI_LOCAL_PROVIDER="http"
+unset MODELSCOPE_API_KEY MODELSCOPE_BASE_URL MODELSCOPE_MODEL
+unset MODELSCOPE_MODEL_CANDIDATES MODELSCOPE_MODEL_FAST_CANDIDATES
 VITE_RECORDLY_DEMO_MODE="${VITE_RECORDLY_DEMO_MODE:-0}"
 VITE_LEARNER_USER_ID="${VITE_LEARNER_USER_ID:-}"
 if [ "$RECORDLY_DEMO" -eq 1 ]; then
@@ -90,10 +87,7 @@ wait_for_url() {
     fail "$name 在 20 秒内没有通过健康检查：$url"
 }
 
-if [ "$AI_LOCAL_PROVIDER" = "codex" ]; then
-    [ -n "$AI_CODEX_EXECUTABLE" ] && [ -x "$AI_CODEX_EXECUTABLE" ] \
-        || fail "本地 AI 默认使用 Codex，但当前找不到可执行的 codex 命令"
-elif [[ ! "$EVOLUTION_DEMO_MODE" =~ ^(1|true|yes|on)$ ]]; then
+if [[ ! "$EVOLUTION_DEMO_MODE" =~ ^(1|true|yes|on)$ ]]; then
     [ -f "$ENV_FILE" ] || fail "缺少 $ENV_FILE，请先配置 AI_API_KEY"
     grep -Eq '^[[:space:]]*AI_API_KEY[[:space:]]*=[[:space:]]*[^[:space:]#]+' "$ENV_FILE" \
         || fail "$ENV_FILE 中缺少有效的 AI_API_KEY"
@@ -128,7 +122,6 @@ printf '正在启动后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
     cd "$BACKEND_DIR"
     export EVOLUTION_DEMO_MODE
     export AI_LOCAL_PROVIDER
-    export AI_CODEX_EXECUTABLE
     if [ "$RECORDLY_DEMO" -eq 1 ]; then
         exec "$PYTHON_BIN" -m uvicorn main:app \
             --host "$BACKEND_HOST" \
@@ -159,7 +152,7 @@ printf '\n本地环境已就绪\n'
 printf '前端：http://%s:%s\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
 printf '后端：http://%s:%s\n' "$BACKEND_HOST" "$BACKEND_PORT"
 printf 'API 文档：http://%s:%s/docs\n' "$BACKEND_HOST" "$BACKEND_PORT"
-printf '本地 AI 提供方：%s\n' "$AI_LOCAL_PROVIDER"
+printf '本地文本模型：浙大自建 qwen3.8-27b\n'
 if [ "$RECORDLY_DEMO" -eq 1 ]; then
     printf '视频一：http://%s:%s/course/demo-ai-literacy-update-v1/ppt\n' "$FRONTEND_HOST" "$FRONTEND_PORT"
     printf '视频二：http://%s:%s/course/demo-matrix-growth-v2/learn/v2-sec-1-2\n' "$FRONTEND_HOST" "$FRONTEND_PORT"

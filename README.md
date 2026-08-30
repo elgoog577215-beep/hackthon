@@ -31,7 +31,7 @@ AI Agent 的正式执行规则位于 [AGENTS.md](./AGENTS.md)。它主要面向 
 
 - 前端：Vue 3、Vite、Pinia、Element Plus、Tailwind CSS、Mermaid、KaTeX。
 - 后端：FastAPI、Python 3.10+。
-- AI：官方 DeepSeek OpenAI 兼容接口或 ModelScope 兼容接口。
+- AI：浙大自建 OpenAI 兼容接口，文本模型固定为 `qwen3.8-27b`。
 - 代码执行：独立 `runner/` 服务。
 - 规格：OpenSpec。
 
@@ -92,55 +92,26 @@ notepad .env
 
 `dev.sh` 和 `dev.bat` 会检查配置、依赖、端口与健康状态，但不会在每次启动时自动安装依赖。
 
-macOS / Linux 的 `dev.sh` 默认把本地真实模型调用路由到当前已登录的
-Codex CLI（`AI_LOCAL_PROVIDER=codex`）。Codex 只充当课程链路的模型提供方；
+macOS / Linux 的 `dev.sh` 与生产环境使用同一套 HTTP 文本路由政策：
+所有真实模型调用都读取 `.env` 中的浙大自建 `qwen3.8-27b` 配置；
 大纲、教案、讲稿、PPT 文书和 PPT 仍由后端既有阶段、确认状态与质量门负责。
-如需在本地显式测试 OpenAI-compatible HTTP 提供方，可在启动时传入
-`AI_LOCAL_PROVIDER=http ./dev.sh`，并继续使用下方 `.env` 配置。
 
 ## AI 提供方配置
 
-从 `.env.example` 创建 `.env`，选择一个主提供方并填写自己的密钥。可以额外配置一个仅在主模型池全部失败后启用的 ModelScope 兜底。不要提交 `.env` 或真实密钥。
+灵知的课程生成、AI 老师、内容修改、评估和 PPT 文本规划只允许调用浙大自建 `qwen3.8-27b`。私有端点从个人服务器登记的 `a800-qwen` 条目获取，真实地址和凭据只写入本地 `.env` 或 GitHub Secrets，不进入 Git。
 
-### 官方 DeepSeek
+```bash
+# 从私有登记安全载入 ZJU_QWEN_BASE_URL / ZJU_QWEN_API_KEY 后，
+# 通过标准输入原子更新配置；脚本不会输出地址和凭据。
+python3 -c 'import json,os; print(json.dumps({"api_key":os.environ["ZJU_QWEN_API_KEY"],"base_url":os.environ["ZJU_QWEN_BASE_URL"],"model":"qwen3.8-27b"}))' \
+  | python3 scripts/configure_zju_qwen_provider.py --env-file .env
 
-```dotenv
-AI_API_KEY=your_deepseek_api_key
-AI_API_BASE=https://api.deepseek.com
-AI_THINKING_ENABLED=true
-AI_SLIDE_PLANNER_ENABLED=true
-
-# 可选；未设置时使用项目默认模型
-AI_MODEL=deepseek-v4-pro
-AI_MODEL_FAST=deepseek-v4-flash
+# 验证通用文本、PPT 故事和 PPT 视觉三个真实调用角色。
+set -a; . ./.env; set +a
+backend/.venv/bin/python scripts/probe_zju_qwen_runtime.py
 ```
 
-### ModelScope
-
-```dotenv
-AI_API_KEY=your_modelscope_api_key
-AI_API_BASE=https://api-inference.modelscope.cn/v1
-AI_THINKING_ENABLED=true
-AI_SLIDE_PLANNER_ENABLED=true
-
-# 可选；未设置时使用项目内候选模型列表
-# AI_MODEL_CANDIDATES=Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B,deepseek-ai/DeepSeek-V4-Flash
-# AI_MODEL_FAST_CANDIDATES=deepseek-ai/DeepSeek-V4-Flash,Qwen/Qwen3.5-122B-A10B,Qwen/Qwen3.5-397B-A17B
-```
-
-### ModelScope 最后兜底
-
-主提供方仍使用上面的 `AI_*` 配置；以下凭据只在主模型池因额度、限流、连接故障或提供方鉴权故障而不可用时调用：
-
-```dotenv
-MODELSCOPE_API_KEY=your_modelscope_fallback_key
-MODELSCOPE_BASE_URL=https://api-inference.modelscope.cn/v1/
-MODELSCOPE_MODEL=Qwen/Qwen3.5-35B-A3B
-# PPT story/visual roles may use a verified cross-course route without
-# changing the model order used by course generation or assessments.
-AI_PPT_STORY_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
-AI_PPT_VISUAL_MODELS=deepseek-ai/DeepSeek-V4-Flash-0731,Qwen/Qwen3.5-122B-A10B
-```
+运行时会检查 `AI_API_BASE`、`AI_PPT_API_BASE` 与 `ZJU_QWEN_BASE_URL` 指向同一个 `/v1` 端点，并要求所有文本模型字段都精确等于 `qwen3.8-27b`。配置不一致或模型不可用时，系统进入现有可恢复失败，不得切换到魔搭、DeepSeek 或其他文本提供方。赛事作品中的魔搭展示链接和独立图像生成不属于文本模型路由。
 
 题目生成固定使用唯一的完整质量策略，不再暴露速度或思考档位。链路保留完整候选内容、逐题独立求解、选择性模型思考和最多三轮质量修复；确定性本地解题器只处理能严格证明的合同，其余继续交给模型独立求解。历史客户端传入的 `fast` 或 `deliberate` 只作为兼容值接收，服务端会在创建或恢复任务前统一归一为 `complete`。任何带有 `ai_validation_unavailable` 的本地保底合同都会被丢弃，不能自动进入正式题库。服务器中的模型密钥和端点只保存在目标环境私有配置，发布包和浏览器端都不包含真实密钥。
 

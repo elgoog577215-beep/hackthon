@@ -906,10 +906,7 @@ async def test_invalid_model_json_never_falls_back_to_placeholder_course(monkeyp
 @pytest.mark.asyncio
 async def test_outline_provider_failure_is_not_reported_as_structure_error():
     service = CourseService()
-    service.codex_local_provider = None
     service.api_key = None
-    service.modelscope_fallback_api_key = None
-    service.modelscope_fallback_client = None
 
     with pytest.raises(AIProviderUnavailable, match="not_configured"):
         await service._call_llm_with_heartbeat(

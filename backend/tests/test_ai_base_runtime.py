@@ -89,18 +89,11 @@ def test_provider_authentication_circuit_expires_for_task_resume(monkeypatch) ->
     service = AIBase()
 
     service._block_provider("authentication_failed")
-    service._block_modelscope_fallback("authentication_failed")
 
     assert service._active_provider_failure() == "authentication_failed"
-    assert (
-        service._active_modelscope_fallback_failure()
-        == "authentication_failed"
-    )
     service._provider_failure_until = time.monotonic() - 1
-    service._modelscope_fallback_failure_until = time.monotonic() - 1
 
     assert service._active_provider_failure() is None
-    assert service._active_modelscope_fallback_failure() is None
 
 
 @pytest.mark.asyncio
@@ -260,34 +253,25 @@ def test_latex_cleanup_uses_standard_display_delimiters(monkeypatch):
     assert not re.search(r"(?m)^[ \t]*\$[ \t]*$", cleaned)
 
 
-def test_official_deepseek_base_uses_official_model_defaults(monkeypatch):
-    _clear_model_environment(monkeypatch)
-    monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setenv("AI_API_BASE", "https://api.deepseek.com/v1")
-
-    service = AIBase()
-
-    assert service.smart_models == ["deepseek-v4-pro"]
-    assert service.fast_models == ["deepseek-v4-flash"]
-
-
-def test_modelscope_defaults_use_only_verified_qwen35_pool(monkeypatch):
-    _clear_model_environment(monkeypatch)
-    monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setenv(
-        "AI_API_BASE",
+@pytest.mark.parametrize(
+    "legacy_endpoint",
+    [
+        "https://api.deepseek.com/v1",
         "https://api-inference.modelscope.cn/v1",
-    )
+    ],
+)
+def test_legacy_endpoint_never_changes_locked_qwen_defaults(
+    monkeypatch,
+    legacy_endpoint,
+):
+    _clear_model_environment(monkeypatch)
+    monkeypatch.setenv("AI_API_KEY", "test-key")
+    monkeypatch.setenv("AI_API_BASE", legacy_endpoint)
 
     service = AIBase()
 
-    expected = [
-        "Qwen/Qwen3.5-27B",
-        "Qwen/Qwen3.5-122B-A10B",
-        "Qwen/Qwen3.5-397B-A17B",
-    ]
-    assert service.smart_models == expected
-    assert service.fast_models == expected
+    assert service.smart_models == ["qwen3.8-27b"]
+    assert service.fast_models == ["qwen3.8-27b"]
 
 
 def test_explicit_model_configuration_is_not_overridden_for_official_deepseek(monkeypatch):
@@ -487,7 +471,7 @@ async def test_json_mode_requests_structured_provider_output(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_modelscope_json_mode_uses_prompt_schema_without_response_format(
+async def test_qwen_json_mode_requests_structured_provider_output(
     monkeypatch,
 ):
     captured = {}
@@ -503,10 +487,7 @@ async def test_modelscope_json_mode_uses_prompt_schema_without_response_format(
             ])
 
     monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setenv(
-        "AI_API_BASE",
-        "https://api-inference.modelscope.cn/v1",
-    )
+    monkeypatch.setenv("AI_API_BASE", "http://qwen.internal.test/v1")
     service = AIBase()
     service.client = SimpleNamespace(
         chat=SimpleNamespace(completions=CapturingCompletions())
@@ -519,7 +500,7 @@ async def test_modelscope_json_mode_uses_prompt_schema_without_response_format(
         retry_count=1,
         json_mode=True,
     ) == '{"status":"ok"}'
-    assert "response_format" not in captured
+    assert captured["response_format"] == {"type": "json_object"}
 
 
 @pytest.mark.asyncio
@@ -539,9 +520,9 @@ async def test_request_spacing_smooths_concurrent_provider_bursts(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("thinking_enabled, expected_type", [(True, "enabled"), (False, "disabled")])
-async def test_official_deepseek_uses_thinking_body_for_normal_calls(
-    monkeypatch, thinking_enabled, expected_type
+@pytest.mark.parametrize("thinking_enabled", [True, False])
+async def test_qwen_uses_vllm_thinking_body_for_normal_calls(
+    monkeypatch, thinking_enabled
 ):
     captured = {}
 
@@ -558,17 +539,20 @@ async def test_official_deepseek_uses_thinking_body_for_normal_calls(
     _clear_model_environment(monkeypatch)
     monkeypatch.delenv("AI_ENABLE_THINKING", raising=False)
     monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setenv("AI_API_BASE", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("AI_API_BASE", "http://qwen.internal.test/v1")
     monkeypatch.setenv("AI_THINKING_ENABLED", str(thinking_enabled).lower())
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
 
     assert await service._call_llm("test", retry_count=1, enable_thinking=True) == "answer"
-    assert captured["extra_body"] == {"thinking": {"type": expected_type}}
+    assert captured["extra_body"] == {
+        "enable_thinking": thinking_enabled,
+        "chat_template_kwargs": {"enable_thinking": thinking_enabled},
+    }
 
 
 @pytest.mark.asyncio
-async def test_official_deepseek_uses_thinking_body_for_stream_calls(monkeypatch):
+async def test_qwen_uses_vllm_thinking_body_for_stream_calls(monkeypatch):
     captured = {}
 
     class CapturingCompletions:
@@ -583,16 +567,20 @@ async def test_official_deepseek_uses_thinking_body_for_stream_calls(monkeypatch
 
     _clear_model_environment(monkeypatch)
     monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setenv("AI_API_BASE", "https://api.deepseek.com")
+    monkeypatch.setenv("AI_API_BASE", "http://qwen.internal.test/v1")
+    monkeypatch.setenv("AI_THINKING_ENABLED", "true")
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
 
     assert [chunk async for chunk in service._stream_llm("test", enable_thinking=True)] == ["answer"]
-    assert captured["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert captured["extra_body"] == {
+        "enable_thinking": True,
+        "chat_template_kwargs": {"enable_thinking": True},
+    }
 
 
 @pytest.mark.asyncio
-async def test_modelscope_and_non_official_deepseek_hosts_keep_modelscope_thinking_body(monkeypatch):
+async def test_openai_compatible_qwen_host_uses_vllm_thinking_body(monkeypatch):
     captured = {}
 
     class CapturingCompletions:
@@ -607,13 +595,13 @@ async def test_modelscope_and_non_official_deepseek_hosts_keep_modelscope_thinki
 
     _clear_model_environment(monkeypatch)
     monkeypatch.setenv("AI_API_KEY", "test-key")
-    monkeypatch.setenv("AI_API_BASE", "https://deepseek-proxy.example.com/v1")
+    monkeypatch.setenv("AI_API_BASE", "http://qwen.internal.test/v1")
+    monkeypatch.setenv("AI_THINKING_ENABLED", "true")
     service = AIBase()
     service.client = SimpleNamespace(chat=SimpleNamespace(completions=CapturingCompletions()))
 
     assert await service._call_llm("test", retry_count=1, enable_thinking=True) == "answer"
-    # 非官方 DeepSeek 主机保持扁平写法；同时附带 vLLM 需要的嵌套写法，
-    # 只认扁平写法的 provider 不受影响。
+    # 自建 vLLM 同时接收兼容扁平字段与实际生效的嵌套字段。
     assert captured["extra_body"]["enable_thinking"] is True
     assert captured["extra_body"]["chat_template_kwargs"] == {
         "enable_thinking": True

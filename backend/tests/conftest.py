@@ -7,10 +7,22 @@ Requirements: 16.1, 16.2, 16.3
 """
 from __future__ import annotations
 
+import os
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+os.environ["LINGZHI_TEST_ALLOW_EXTERNAL_TEXT_PROVIDERS"] = "true"
+os.environ["AI_LOCAL_PROVIDER"] = "http"
+for _forbidden_text_key in (
+    "MODELSCOPE_API_KEY",
+    "MODELSCOPE_BASE_URL",
+    "MODELSCOPE_MODEL",
+    "MODELSCOPE_MODEL_CANDIDATES",
+    "MODELSCOPE_MODEL_FAST_CANDIDATES",
+):
+    os.environ.pop(_forbidden_text_key, None)
 
 from models import NodeStatus
 
@@ -179,6 +191,9 @@ def isolate_learning_event_store(tmp_path, monkeypatch):
     that did not know they needed the fixture. Tests that patch the singleton
     themselves still win, because their ``monkeypatch.setattr`` runs after this.
     """
+    monkeypatch.setenv("LINGZHI_TEST_ALLOW_EXTERNAL_TEXT_PROVIDERS", "true")
+    monkeypatch.setenv("AI_LOCAL_PROVIDER", "http")
+
     import learning_events
     import product_usage
 

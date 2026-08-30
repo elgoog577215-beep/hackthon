@@ -360,64 +360,6 @@ async def check_enable_thinking(client: Any, config: SmokeConfig) -> CheckResult
     )
 
 
-async def check_failover_drill(config: SmokeConfig) -> CheckResult:
-    """Rehearse the primary→backup switch without touching a real provider.
-
-    The failover lives in ``ai_base`` (primary pool → ModelScope last resort).
-    This drill drives it with stub clients so a deployment can answer three
-    questions before go-live, offline:
-
-    * does a dead primary actually reach the backup, or does the job just fail?
-    * is the switch observable, or only a line in the server log?
-    * does a recovered primary end fallback mode by itself?
-    """
-    try:
-        from ai_provider_route import (
-            provider_route_snapshot,
-            reset_provider_route,
-        )
-    except ImportError as exc:  # pragma: no cover - defensive
-        return CheckResult("failover 演练", FAIL, f"无法导入路由记录模块：{exc}")
-
-    reset_provider_route()
-    before = provider_route_snapshot()["route"]
-
-    # Simulate what ai_base does on switch and on primary recovery. We call the
-    # recorder rather than a live provider so the drill needs no network.
-    from ai_provider_route import record_fallback_switch, record_primary_recovered
-
-    record_fallback_switch(endpoint=config.base_url or "https://backup.example/v1")
-    switched = provider_route_snapshot()
-    record_primary_recovered()
-    recovered = provider_route_snapshot()
-
-    data = {
-        "before": before,
-        "after_switch": switched["route"],
-        "after_recovery": recovered["route"],
-        "switch_count": recovered["switch_count"],
-    }
-
-    if switched["route"] != "fallback":
-        return CheckResult(
-            "failover 演练", FAIL, "切换未被记录，任务摘要将看不到备用服务状态", data
-        )
-    if recovered["route"] != "primary":
-        return CheckResult(
-            "failover 演练", FAIL, "主服务恢复后未切回，界面会一直显示备用状态", data
-        )
-    return CheckResult(
-        "failover 演练",
-        PASS,
-        (
-            "切换与恢复均被记录：primary → fallback → primary，"
-            f"switch_count={recovered['switch_count']}。"
-            "任务摘要会带上 provider_route，界面据此显示「已切换备用模型服务」。"
-        ),
-        data,
-    )
-
-
 CHECKS = (
     ("GET /v1/models", check_models),
     ("短补全", check_short_completion),
@@ -428,7 +370,7 @@ CHECKS = (
 
 def print_plan(config: SmokeConfig) -> None:
     print("千问自部署端点 smoke —— 计划（dry-run，不发起任何请求）")
-    print(f"  base_url : {config.base_url}")
+    print("  base_url : <private endpoint>")
     print(f"  model    : {config.model}")
     print(f"  api_key  : {'<已提供>' if config.api_key else '<空>'}")
     print(f"  max_tokens: {config.max_tokens}")
@@ -439,13 +381,12 @@ def print_plan(config: SmokeConfig) -> None:
     print("  说明：api_key 不能为空字符串。ai_base.py 在 AI_API_KEY 为空时")
     print("       直接把 client 置为 None 并禁用全部 AI 能力，因此无鉴权端点也必须")
     print("       配一个占位符（例如 EMPTY）。")
-    print("  另有 --failover：离线演练主→备切换与恢复的可观测性，不请求任何端点。")
 
 
 def print_report(results: list[CheckResult], config: SmokeConfig) -> None:
     print()
     print("=" * 72)
-    print(f"千问自部署端点 smoke 报告  base_url={config.base_url}  model={config.model}")
+    print(f"千问自部署端点 smoke 报告  base_url=<private>  model={config.model}")
     print("=" * 72)
     for result in results:
         print(f"[{result.status:4}] {result.name}")
@@ -532,11 +473,6 @@ def main() -> int:
     )
     parser.add_argument("--verbose", action="store_true", help="报告中附带原始数据")
     parser.add_argument(
-        "--failover",
-        action="store_true",
-        help="只演练主→备切换与恢复的可观测性，不请求任何端点",
-    )
-    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="只打印将要执行的检查，不发起任何请求",
@@ -555,12 +491,6 @@ def main() -> int:
     if args.dry_run:
         print_plan(config)
         return 0
-
-    if args.failover:
-        # Offline drill: needs neither an endpoint nor a model.
-        result = asyncio.run(check_failover_drill(config))
-        print_report([result], config)
-        return 1 if result.blocking else 0
 
     missing = [
         flag

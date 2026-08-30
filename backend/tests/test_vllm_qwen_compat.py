@@ -14,6 +14,7 @@ from ai_base import AIBase
 
 
 def _service(monkeypatch, base="http://qwen.internal.test/v1"):
+    monkeypatch.setenv("AI_LOCAL_PROVIDER", "http")
     monkeypatch.setenv("AI_API_KEY", "EMPTY")
     monkeypatch.setenv("AI_API_BASE", base)
     monkeypatch.delenv("MODELSCOPE_API_KEY", raising=False)
@@ -37,14 +38,13 @@ def test_thinking_switch_is_sent_in_both_shapes(monkeypatch):
     assert enabled["chat_template_kwargs"] == {"enable_thinking": True}
 
 
-def test_official_deepseek_shape_is_untouched(monkeypatch):
-    """DeepSeek 分支不能被这次兼容改动影响。"""
-    service = _service(monkeypatch, base="https://api.deepseek.com/v1")
+def test_qwen_shape_does_not_depend_on_hostname(monkeypatch):
+    service = _service(monkeypatch, base="http://another-qwen.internal.test/v1")
 
     body = service._thinking_extra_body(False)
 
-    assert body == {"thinking": {"type": "disabled"}}
-    assert "chat_template_kwargs" not in body
+    assert body["enable_thinking"] is False
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 @pytest.mark.parametrize("field_name", ["reasoning", "reasoning_content"])

@@ -6,6 +6,12 @@ set "PYTHON=%~dp0backend\.venv\Scripts\python.exe"
 set "BACKEND_DIR=%~dp0backend"
 set "FRONTEND_DIR=%~dp0frontend"
 set "ENV_FILE=%~dp0.env"
+set "AI_LOCAL_PROVIDER=http"
+set "MODELSCOPE_API_KEY="
+set "MODELSCOPE_BASE_URL="
+set "MODELSCOPE_MODEL="
+set "MODELSCOPE_MODEL_CANDIDATES="
+set "MODELSCOPE_MODEL_FAST_CANDIDATES="
 
 if /I "%EVOLUTION_DEMO_MODE%"=="1" goto env_ready
 if /I "%EVOLUTION_DEMO_MODE%"=="true" goto env_ready

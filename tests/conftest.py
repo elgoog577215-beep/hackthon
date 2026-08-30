@@ -6,6 +6,23 @@
 import sys
 import os
 import pytest
+
+os.environ["LINGZHI_TEST_ALLOW_EXTERNAL_TEXT_PROVIDERS"] = "true"
+os.environ["AI_LOCAL_PROVIDER"] = "http"
+for _forbidden_text_key in (
+    "MODELSCOPE_API_KEY",
+    "MODELSCOPE_BASE_URL",
+    "MODELSCOPE_MODEL",
+    "MODELSCOPE_MODEL_CANDIDATES",
+    "MODELSCOPE_MODEL_FAST_CANDIDATES",
+):
+    os.environ.pop(_forbidden_text_key, None)
+
+
+@pytest.fixture(autouse=True)
+def allow_external_text_providers_only_in_legacy_unit_tests(monkeypatch):
+    """旧单测仍使用虚拟第三方端点；生产不识别该测试闭环。"""
+    monkeypatch.setenv("LINGZHI_TEST_ALLOW_EXTERNAL_TEXT_PROVIDERS", "true")
 import json
 import uuid
 from unittest.mock import MagicMock, AsyncMock, patch

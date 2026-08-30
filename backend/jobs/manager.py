@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Any
 
 from ai_base import AIProviderRequestError, AIProviderUnavailable
-from ai_provider_route import provider_route_snapshot
 from assessment_blueprint import compile_course_assessment_blueprint
 from assessment_contracts import (
     compile_assessment_objectives,
@@ -3814,9 +3813,6 @@ class TaskManager:
             view["quality"] = public_quality
         view["logs"] = deepcopy((task.get("logs") or [])[-PUBLIC_TASK_LOG_LIMIT:])
         view["recovery"] = self._task_recovery_summary(task)
-        # Which provider is currently serving calls. Process-wide, not per task:
-        # one AIBase client is shared by every concurrent job.
-        view["provider_route"] = provider_route_snapshot()
         return view
 
     def _task_view(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -8210,7 +8206,6 @@ class TaskManager:
                 "error": task.get("error"),
                 "error_code": task.get("error_code"),
                 "error_user_message": task.get("error_user_message"),
-                "provider_route": provider_route_snapshot(),
                 "progress": progress,
                 "current_node_name": task.get("current_node_name", ""),
                 "current_node_location": deepcopy(

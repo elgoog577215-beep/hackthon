@@ -62,41 +62,69 @@ jobs:
           chmod 600 ~/.ssh/lingzhi_deploy
           ssh-keyscan -H "$LINGZHI_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Verify DeepSeek PPT primary models
+      - name: Verify ZJU Qwen text provider
         env:
-          AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          ZJU_QWEN_API_KEY: ${{ secrets.ZJU_QWEN_API_KEY }}
+          ZJU_QWEN_BASE_URL: ${{ secrets.ZJU_QWEN_BASE_URL }}
+          ZJU_QWEN_MODEL: qwen3.8-27b
         run: |
           set -euo pipefail
-          test -n "$AI_PPT_API_KEY"
-          curl -fsS --max-time 20 \
-            -H "Authorization: Bearer $AI_PPT_API_KEY" \
-            https://api.deepseek.com/models \
-            | python3 -c 'import json,sys; payload=json.load(sys.stdin); ids={str(item.get("id") or "") for item in payload.get("data") or []}; required={"deepseek-v4-pro", "deepseek-v4-flash"}; missing=required-ids; missing and sys.exit("required DeepSeek PPT models unavailable"); print("DeepSeek PPT models verified")'
+          test -n "$ZJU_QWEN_API_KEY"
+          test -n "$ZJU_QWEN_BASE_URL"
+          if ! models_payload="$(curl -fsS --max-time 20 \
+            -H "Authorization: Bearer $ZJU_QWEN_API_KEY" \
+            "${ZJU_QWEN_BASE_URL%/}/models" 2>/dev/null)"; then
+            echo "ZJU Qwen model list probe failed" >&2
+            exit 1
+          fi
+          MODELS_PAYLOAD="$models_payload" python3 -c 'import json,os; payload=json.loads(os.environ["MODELS_PAYLOAD"]); ids={str(item.get("id") or "") for item in payload.get("data") or []}; expected=os.environ["ZJU_QWEN_MODEL"]; expected in ids or (_ for _ in ()).throw(SystemExit("required ZJU Qwen model unavailable")); print("ZJU Qwen model list verified")'
+          if ! chat_payload="$(curl -fsS --max-time 45 \
+            -H "Authorization: Bearer $ZJU_QWEN_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"qwen3.8-27b","messages":[{"role":"system","content":"Return only this JSON object: {\"ok\":true}"},{"role":"user","content":"probe"}],"max_tokens":64,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}' \
+            "${ZJU_QWEN_BASE_URL%/}/chat/completions" 2>/dev/null)"; then
+            echo "ZJU Qwen chat probe failed" >&2
+            exit 1
+          fi
+          CHAT_PAYLOAD="$chat_payload" python3 -c 'import json,os; payload=json.loads(os.environ["CHAT_PAYLOAD"]); choice=(payload.get("choices") or [{}])[0]; content=str((choice.get("message") or {}).get("content") or ""); choice.get("finish_reason") == "stop" and "ok" in content or (_ for _ in ()).throw(SystemExit("ZJU Qwen chat probe failed")); print("ZJU Qwen chat probe verified")'
 
-      - name: Configure production model providers
+      - name: Configure production ZJU Qwen provider
         env:
           LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
           LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
-          AI_PPT_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          AI_PPT_API_BASE: https://api.deepseek.com
-          MODELSCOPE_API_KEY: ${{ secrets.MODELSCOPE_API_KEY }}
-          MODELSCOPE_BASE_URL: https://api-inference.modelscope.cn/v1/
-          MODELSCOPE_MODEL: Qwen/Qwen3.5-27B
-          AI_PPT_STORY_MODELS: deepseek-v4-pro,deepseek-v4-flash
-          AI_PPT_VISUAL_MODELS: deepseek-v4-flash,deepseek-v4-pro
+          ZJU_QWEN_API_KEY: ${{ secrets.ZJU_QWEN_API_KEY }}
+          ZJU_QWEN_BASE_URL: ${{ secrets.ZJU_QWEN_BASE_URL }}
+          ZJU_QWEN_MODEL: qwen3.8-27b
           SLIDE_DECK_V6_ENABLED: true
           SLIDE_DECK_V6_DEFAULT_ENABLED: true
         run: |
           set -euo pipefail
-          test -n "$AI_PPT_API_KEY"
-          test -n "$MODELSCOPE_API_KEY"
+          test -n "$ZJU_QWEN_API_KEY"
+          test -n "$ZJU_QWEN_BASE_URL"
+          previous_release="$(ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "readlink -f /opt/lingzhi/hackthon")"
+          test -n "$previous_release"
+          printf 'LINGZHI_PREVIOUS_RELEASE=%s\n' "$previous_release" >> "$GITHUB_ENV"
+          env_backup="$(ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "set -e; install -d -m 700 /opt/lingzhi/backups; backup=/opt/lingzhi/backups/env-${GITHUB_SHA}-$(date +%Y%m%d%H%M%S).bak; if [ -f /opt/lingzhi/state/.env ]; then install -m 600 /opt/lingzhi/state/.env \"\$backup\"; else : > \"\$backup.empty\"; fi; printf '%s' \"\$backup\"")"
+          printf 'LINGZHI_ENV_BACKUP=%s\n' "$env_backup" >> "$GITHUB_ENV"
           remote_script="$(ssh \
             -i ~/.ssh/lingzhi_deploy \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
-            "mktemp /tmp/lingzhi-configure-modelscope.XXXXXX.py")"
+            "mktemp /tmp/lingzhi-configure-zju-qwen.XXXXXX.py")"
           cleanup_remote_script() {
             ssh \
               -i ~/.ssh/lingzhi_deploy \
@@ -113,9 +141,9 @@ jobs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
-            scripts/configure_modelscope_fallback.py \
+            scripts/configure_zju_qwen_provider.py \
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST:$remote_script"
-          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["MODELSCOPE_API_KEY"], "base_url": os.environ["MODELSCOPE_BASE_URL"], "model": os.environ["MODELSCOPE_MODEL"], "ppt_api_key": os.environ["AI_PPT_API_KEY"], "ppt_api_base": os.environ["AI_PPT_API_BASE"], "ppt_story_models": os.environ["AI_PPT_STORY_MODELS"], "ppt_visual_models": os.environ["AI_PPT_VISUAL_MODELS"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' \
+          python3 -c 'import json, os; print(json.dumps({"api_key": os.environ["ZJU_QWEN_API_KEY"], "base_url": os.environ["ZJU_QWEN_BASE_URL"], "model": os.environ["ZJU_QWEN_MODEL"], "slide_deck_v6_enabled": os.environ["SLIDE_DECK_V6_ENABLED"], "slide_deck_v6_default_enabled": os.environ["SLIDE_DECK_V6_DEFAULT_ENABLED"]}))' \
             | ssh \
               -i ~/.ssh/lingzhi_deploy \
               -o BatchMode=yes \
@@ -166,3 +194,32 @@ jobs:
             "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
             "LINGZHI_TARGET_COMMIT='$GITHUB_SHA' LINGZHI_ARTIFACT_PATH='$remote_artifact' LINGZHI_ARTIFACT_SHA256='$artifact_sha256' bash -s" \
             < scripts/github-action-deploy.sh
+
+      - name: Verify production ZJU Qwen routes
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "set -a; . /opt/lingzhi/state/.env; set +a; cd /opt/lingzhi/hackthon; /opt/lingzhi/.venv/bin/python scripts/probe_zju_qwen_runtime.py"
+
+      - name: Restore previous release and model config on failure
+        if: ${{ failure() && env.LINGZHI_ENV_BACKUP != '' }}
+        env:
+          LINGZHI_SSH_HOST: ${{ secrets.LINGZHI_SSH_HOST }}
+          LINGZHI_SSH_USER: ${{ secrets.LINGZHI_SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh \
+            -i ~/.ssh/lingzhi_deploy \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$LINGZHI_SSH_USER@$LINGZHI_SSH_HOST" \
+            "set -e; if [ -d '$LINGZHI_PREVIOUS_RELEASE' ]; then ln -sfn '$LINGZHI_PREVIOUS_RELEASE' /opt/lingzhi/hackthon; fi; if [ -f '$LINGZHI_ENV_BACKUP' ]; then install -m 600 '$LINGZHI_ENV_BACKUP' /opt/lingzhi/state/.env; elif [ -f '$LINGZHI_ENV_BACKUP.empty' ]; then rm -f /opt/lingzhi/state/.env; fi; systemctl restart lingzhi; curl -fsS --max-time 10 http://127.0.0.1:7862/health >/dev/null"
