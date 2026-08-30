@@ -9,7 +9,7 @@ on:
         default: "什么是面向对象编程 例子"
         type: string
       probe_ai_model:
-        description: "Send one minimal PPT story request and print sanitized routing telemetry"
+        description: "Probe general, PPT story, and PPT visual text roles with sanitized telemetry"
         required: false
         default: false
         type: boolean
