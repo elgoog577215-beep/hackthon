@@ -79,10 +79,16 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.file-layout')).toBeTruthy()
     expect(wrapper.get('.file-tree-pane').text()).toContain('课程文件夹')
     expect(wrapper.get('.file-tree-pane').text()).not.toContain('数据结构')
-    expect(wrapper.get('.file-list-pane').text()).toContain('教务材料')
-    expect(wrapper.get('.file-list-pane').text()).toContain('课程逻辑文件')
-    expect(wrapper.get('.file-list-pane').text()).toContain('辅助资料')
-    expect(wrapper.findAll('.file-row')).toHaveLength(3)
+    expect(wrapper.findAll('.file-row').map(row => row.text())).toEqual(expect.arrayContaining([
+      expect.stringContaining('教学大纲'),
+      expect.stringContaining('分讲教案'),
+      expect.stringContaining('讲义'),
+      expect.stringContaining('PPT'),
+      expect.stringContaining('其他课程文件'),
+      expect.stringContaining('课程资料'),
+      expect.stringContaining('回收站'),
+    ]))
+    expect(wrapper.findAll('.file-row')).toHaveLength(7)
     expect(wrapper.get('.folder-navigation')).toBeTruthy()
     expect(wrapper.get('.folder-navigation').attributes('aria-label')).toBe('课程文件夹')
     expect(wrapper.get('.file-table__head').text()).toContain('修改时间')
@@ -91,13 +97,12 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.findAll('[role="columnheader"]')[1]!.attributes('aria-sort')).toBe('ascending')
     await wrapper.findAll('.sort-button')[0]!.trigger('click')
     expect(wrapper.findAll('[role="columnheader"]')[1]!.attributes('aria-sort')).toBe('descending')
-    expect(wrapper.findAll('.file-name small')).toHaveLength(3)
-    expect(wrapper.get('.file-list-pane').text()).toContain('面向学校提交与归档')
+    expect(wrapper.findAll('.file-name small')).toHaveLength(1)
     expect(wrapper.get('.file-inspector').text()).toContain('全课文件')
     expect(wrapper.get('.inspector-overview').text()).toContain('修改时间')
     expect(wrapper.get('.inspector-actions').text()).toContain('导出整课文件')
     expect(wrapper.find('.course-assembly-note').exists()).toBe(false)
-    await wrapper.findAll('.file-row').find(row => row.text().includes('课程逻辑文件'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('教学大纲'))!.trigger('click')
     await wrapper.findAll('.file-row').find(row => row.text().includes('大纲'))!.trigger('click')
     expect(wrapper.get('.inspector-overview').text()).toContain('母文件')
     expect(wrapper.get('.inspector-overview').text()).toContain('参考原始文件')
@@ -111,7 +116,7 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.emitted('createOutline')).toBeTruthy()
 
     await wrapper.get('.list-toolbar nav button').trigger('click')
-    await wrapper.findAll('.file-row').find(row => row.text().includes('教务材料'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('其他课程文件'))!.trigger('click')
     const calendarRow = wrapper.findAll('.file-row').find(row => row.text().includes('教学日历文件'))!
     expect(calendarRow.text()).toContain('未生成')
     await calendarRow.trigger('click')
@@ -129,11 +134,11 @@ describe('TeacherCourseSpaceView', () => {
     expect(wrapper.get('.standalone-header').find('.workspace-view-switch').exists()).toBe(true)
     await wrapper.findAll('.workspace-view-switch button')[0]!.trigger('click')
     expect(wrapper.get('.category-layout')).toBeTruthy()
-    expect(wrapper.findAll('.category-navigation nav button')).toHaveLength(5)
+    expect(wrapper.findAll('.category-navigation nav button')).toHaveLength(4)
     expect(wrapper.get('.category-navigation').text()).toContain('大纲')
     expect(wrapper.get('.category-navigation').text()).not.toContain('教学日历')
     expect(wrapper.get('.category-navigation').text()).toContain('教案')
-    expect(wrapper.get('.category-navigation').text()).toContain('讲稿')
+    expect(wrapper.get('.category-navigation').text()).toContain('讲义')
     expect(wrapper.get('.category-navigation').text()).toContain('PPT')
     expect(wrapper.get('.category-navigation').text()).not.toContain('练习')
     expect(wrapper.find('.category-table').exists()).toBe(false)
@@ -392,7 +397,7 @@ describe('TeacherCourseSpaceView', () => {
     mountedWrappers.push(wrapper)
     await flushPromises()
 
-    await wrapper.findAll('.file-row').find(row => row.text().includes('教务材料'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('其他课程文件'))!.trigger('click')
     const calendarRow = wrapper.findAll('.file-row').find(row => row.text().includes('教学日历文件'))!
     expect(calendarRow.text()).toContain('未生成')
     await calendarRow.trigger('click')
@@ -574,6 +579,28 @@ describe('TeacherCourseSpaceView', () => {
       node_content: '# 引用计数\n\n正文内容', node_type: 'original',
       generation_status: 'completed', generated_chars: 15,
     }]
+    const handoutLessons = [{
+      lesson_unit_id: 'lesson-1', number: 1, title: '内存管理', duration_minutes: 45, sections: [],
+      arrangement: { blocks: [], confirmed: true, source_state: 'current' },
+      script: {
+        current_revision_id: 'handout-1', confirmed_revision_id: 'handout-1',
+        source_lesson_plan_revision_id: 'plan-1', source_state: 'current',
+        ready: true, confirmed: true, confirmed_at: '2026-08-30T00:00:00Z', sections: [],
+      },
+      plan: {
+        lesson_unit_id: 'lesson-1', working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1',
+        source_state: 'current', revisions: [], ppt_assets: [],
+      },
+    }] as any
+    useTeacherLessonAuthoringStore().lessons = handoutLessons
+    httpMock.get.mockImplementation((url: string) => {
+      if (url === '/api/teacher-course-spaces') return Promise.resolve({ data: [coursePackage] })
+      if (url === '/api/teacher-course-spaces/package-1') return Promise.resolve({ data: coursePackage })
+      if (url === '/api/teacher/courses/course-1/lesson-authoring') return Promise.resolve({ data: { outline_revision_id: 'revision-1', lessons: handoutLessons, jobs: [] } })
+      if (url === '/api/courses/course-1/teaching-calendar') return Promise.resolve({ data: emptyTeachingCalendar })
+      if (url === '/api/courses/course-1/question-bank') return Promise.resolve({ data: { items: [] } })
+      return Promise.resolve({ data: {} })
+    })
     const wrapper = mount(TeacherCourseSpaceView, {
       props: { courseId: 'course-1', courseTitle: '数据结构' },
       global: {
@@ -584,12 +611,9 @@ describe('TeacherCourseSpaceView', () => {
     mountedWrappers.push(wrapper)
     await flushPromises()
 
-    await wrapper.findAll('.file-row').find(row => row.text().includes('课程逻辑文件'))!.trigger('click')
-    await wrapper.findAll('.file-row').find(row => row.text().includes('讲稿-PPT'))!.trigger('click')
-    const lessonRow = wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))
-    await lessonRow!.trigger('click')
-    const contentRow = wrapper.findAll('.file-row').find(row => row.text().includes('讲稿'))
-    expect(contentRow?.text()).toContain('讲稿')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('讲义'))!.trigger('click')
+    const contentRow = wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))
+    expect(contentRow?.text()).toContain('讲义')
     expect(contentRow?.text()).toContain('已就绪')
     await contentRow!.trigger('click')
     expect(router.currentRoute.value.name).toBe('course-workspace')
@@ -618,7 +642,7 @@ describe('TeacherCourseSpaceView', () => {
     mountedWrappers.push(wrapper)
     await flushPromises()
 
-    await wrapper.findAll('.file-row').find(row => row.text().includes('课程逻辑文件'))!.trigger('click')
+    await wrapper.findAll('.file-row').find(row => row.text().includes('其他课程文件'))!.trigger('click')
     await wrapper.findAll('.file-row').find(row => row.text().includes('题库'))!.trigger('click')
     await wrapper.findAll('.file-row').find(row => row.text().includes('分讲练习'))!.trigger('click')
     await wrapper.findAll('.file-row').find(row => row.text().includes('内存管理'))!.trigger('click')

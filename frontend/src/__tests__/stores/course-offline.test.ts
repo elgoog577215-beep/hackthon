@@ -32,8 +32,8 @@ describe('course list offline continuity', () => {
     const store = useCourseStore()
     vi.spyOn(http, 'get').mockResolvedValue({ data: [] } as any)
 
-    await store.fetchCourseList()
+    await store.fetchCourseList({ surface: 'teacher' })
 
-    expect(http.get).toHaveBeenCalledWith('/api/teacher/courses')
+    expect(http.get).toHaveBeenCalledWith('/api/teacher/courses', expect.any(Object))
   })
 })

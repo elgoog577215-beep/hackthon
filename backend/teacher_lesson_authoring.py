@@ -1689,6 +1689,35 @@ class TeacherLessonAuthoringRepository:
             self._save(value)
             return deepcopy(job)
 
+    def pause_job(self, course_id: str, job_id: str) -> dict[str, Any]:
+        """Pause one job at its next safe checkpoint without discarding progress."""
+        with self._lock:
+            value = self.load(course_id)
+            job = (value.get("jobs") or {}).get(job_id)
+            if not isinstance(job, dict):
+                raise TeacherLessonAuthoringError(
+                    "teacher_job_not_found",
+                    "教师讲次任务不存在。",
+                )
+            if str(job.get("status") or "") not in {"pending", "running"}:
+                return deepcopy(job)
+            timestamp = _now()
+            job.update({
+                "status": "paused",
+                "phase": "teacher_asset_job_paused",
+                "message": "生成已暂停，继续时将沿用已保存进度",
+                "pause_requested": True,
+                "cancel_requested": True,
+                "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
+                "stream_complete": True,
+                "retryable": True,
+                "error": None,
+                "updated_at": timestamp,
+            })
+            value["jobs"][job_id] = job
+            self._save(value)
+            return deepcopy(job)
+
     def save_plan_revision(
         self,
         course_id: str,

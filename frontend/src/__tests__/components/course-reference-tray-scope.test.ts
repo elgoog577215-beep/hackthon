@@ -49,13 +49,11 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
-    expect(wrapper.get('.system-context').text()).toBe('课程上下文')
-    expect(wrapper.find('.system-context small').exists()).toBe(false)
-    await wrapper.get('.system-context').trigger('click')
-    expect(wrapper.emitted('open-course-information')).toHaveLength(1)
-    expect(wrapper.get('.drop-zone').text()).toContain('第一讲案例.docx')
-    expect(wrapper.get('.reference-list').text()).not.toContain('第二讲练习.pdf')
+    expect(wrapper.get('.reference-tray__header').text()).toBe('课程资料')
+    expect(wrapper.find('.system-context').exists()).toBe(false)
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第一讲案例.docx')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('原始材料')
+    expect(wrapper.get('.ppt-smart-source-list').text()).not.toContain('第二讲练习.pdf')
 
     await wrapper.setProps({
       lessonId: 'L1-2', scopeTargetId: 'lesson-plan:L1-2',
@@ -64,14 +62,14 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.reference-tray__header').text()).toBe('信息来源')
-    expect(wrapper.get('.reference-list').text()).toContain('第二讲练习.pdf')
-    expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.reference-tray__header').text()).toBe('课程资料')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第二讲练习.pdf')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第二讲主教材.docx')
 
     await wrapper.get('.reuse-previous').trigger('click')
     await flushPromises()
-    expect(wrapper.get('.drop-zone').text()).toContain('第二讲主教材.docx')
-    expect(wrapper.get('.reference-list').text()).toContain('第一讲案例.docx')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第一讲案例.docx')
     expect(wrapper.find('.reuse-previous').exists()).toBe(false)
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
@@ -86,12 +84,10 @@ describe('CourseReferenceTray lesson scope', () => {
       expect.any(Object),
     )
 
-    while (wrapper.find('.reference-item button').exists()) {
-      await wrapper.get('.reference-item button').trigger('click')
+    while (wrapper.find('.ppt-smart-source-item button').exists()) {
+      await wrapper.get('.ppt-smart-source-item button').trigger('click')
       await flushPromises()
     }
-    await wrapper.get('.drop-zone button').trigger('click')
-    await flushPromises()
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
       expect.objectContaining({ target_id: 'lesson-plan:L1-2', target_type: 'lesson_plan', sources: [] }),
@@ -128,8 +124,8 @@ describe('CourseReferenceTray lesson scope', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.drop-zone').text()).toContain('第1讲教案.docx')
-    expect(wrapper.get('.reference-list').text()).not.toContain('第2讲教案.docx')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('第1讲教案.docx')
+    expect(wrapper.get('.ppt-smart-source-list').text()).not.toContain('第2讲教案.docx')
     expect(http.put).toHaveBeenCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
       expect.objectContaining({
@@ -141,7 +137,7 @@ describe('CourseReferenceTray lesson scope', () => {
       expect.any(Object),
     )
 
-    await wrapper.get('.drop-zone button').trigger('click')
+    await wrapper.get('.ppt-smart-source-item button').trigger('click')
     await flushPromises()
     expect(http.put).toHaveBeenLastCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
@@ -166,7 +162,7 @@ describe('CourseReferenceTray lesson scope', () => {
       global: { stubs: { WebResearchDialog: true } },
     })
     await flushPromises()
-    expect(wrapper.get('.drop-zone').text()).toContain('添加主来源')
+    expect(wrapper.get('.ppt-smart-empty').text()).toContain('尚未选择课程资料')
 
     currentAssets = [{
       package_id: 'package-1', asset_id: 'asset-outline', material_asset_id: 'mat-outline',
@@ -176,7 +172,7 @@ describe('CourseReferenceTray lesson scope', () => {
     await wrapper.setProps({ refreshToken: 1 })
     await flushPromises()
 
-    expect(wrapper.get('.drop-zone').text()).toContain('课程大纲.md')
+    expect(wrapper.get('.ppt-smart-source-list').text()).toContain('课程大纲.md')
     expect(http.put).toHaveBeenCalledWith(
       '/api/teacher-course-spaces/package-1/relationships',
       expect.objectContaining({

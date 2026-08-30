@@ -63,16 +63,21 @@ type CourseProjection = 'published' | 'generation_preview'
 
 export type TeacherCourseSpaceCreate = {
     course_name: string
+    english_name?: string
     academic_year: string
     term: string
     course_code?: string
     course_goal?: string
     default_location?: string
-    target_grade?: string
-    course_category?: string
+    target_grade: string
+    course_category: string
     target_major?: string
-    credits?: number
+    credits: number
+    weekly_hours: number
     total_hours?: number
+    prerequisite_courses?: string
+    weekday?: string
+    periods?: string
     assessment_method?: string
     course_intro?: string
     teaching_goals?: string

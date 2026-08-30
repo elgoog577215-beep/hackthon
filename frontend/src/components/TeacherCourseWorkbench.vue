@@ -10,7 +10,10 @@
     :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
   >
     <aside v-show="!aiCollaborationOpen || activeStage !== 'question-bank'" class="stage-rail" :aria-label="t('courseWorkbench.stageNavigation', '课程生产阶段')">
-      <header><strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong></header>
+      <header>
+        <strong class="stage-rail-title">{{ t('courseWorkbench.title', '课程工作台') }}</strong>
+        <button class="course-information-entry" type="button" @click="emit('open-course-information')"><Info :size="14" />{{ t('courseWorkbench.courseInformation', '课程信息') }}</button>
+      </header>
       <nav>
         <button v-for="stage in stages" :key="stage.id" type="button" :class="{ active: activeStage === stage.id }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== stage.id)" @click="requestStageChange(stage.id)">
           <span>{{ stage.step }}</span><component :is="stage.icon" :size="18" /><strong>{{ stage.label }}</strong><Check v-if="stageReady(stage.id)" :size="15" />
@@ -18,11 +21,14 @@
       </nav>
       <section class="companion-entry">
         <small>{{ t('courseWorkbench.supporting.group', '其他课程文件') }}</small>
+        <button type="button" :class="{ active: activeStage === 'question-bank' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'question-bank')" @click="requestStageChange('question-bank')">
+          <ListChecks :size="18" /><strong>{{ t('courseWorkbench.stages.questionBank', '题库') }}</strong><ChevronRight :size="16" />
+        </button>
         <button type="button" :class="{ active: activeStage === 'companion' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="requestStageChange('companion')">
           <FileCheck2 :size="18" /><strong>{{ t('courseWorkbench.supporting.title', '配套文档') }}</strong><ChevronRight :size="16" />
         </button>
       </section>
-      <footer><span>{{ readyStageCount }}/5</span><div><i :style="{ width: `${readyStageCount / 5 * 100}%` }" /></div></footer>
+      <footer><span>{{ readyStageCount }}/4</span><div><i :style="{ width: `${readyStageCount / 4 * 100}%` }" /></div></footer>
     </aside>
 
     <main
@@ -34,7 +40,7 @@
       }"
     >
       <header v-if="!['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage)" class="center-heading">
-        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '配套文档') : `${activeStageDefinition.step} / 05` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
+        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '其他课程文件') : `${activeStageDefinition.step} / 04` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
 
       <template v-if="showOutlineWorkspace">
@@ -94,7 +100,10 @@
       <section v-if="showStreaming" class="generation-surface" aria-live="polite">
         <header>
           <div><TriangleAlert v-if="generationFailed" :size="18" /><LoaderCircle v-else :size="18" class="spin" /><span><strong>{{ generationFailed ? t('courseWorkbench.generationInterrupted', '生成已中断') : t('courseWorkbench.generating', '正在生成课程大纲') }}</strong><small>{{ generationFailed ? generationErrorPresentation?.summary : currentGenerationLabel }}</small></span></div>
-          <button v-if="generationRunning" type="button" @click="stopGeneration"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
+          <div v-if="generationRunning" class="generation-header-actions">
+            <button type="button" @click="stopGeneration"><Pause :size="15" />{{ t('courseWorkbench.pause', '暂停') }}</button>
+            <button type="button" @click="cancelOutlineGeneration"><X :size="15" />{{ t('common.cancel', '取消') }}</button>
+          </div>
         </header>
         <div class="generation-progress"><i :style="{ transform: `scaleX(${generationProgress / 100})` }" /></div>
         <article class="stream-content">
@@ -317,6 +326,36 @@
             <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
           </div>
         </nav>
+        <section v-if="activeStage === 'lesson' && !lessonStageBlocked && (batchEligibleCount || batchLessonJobs.length)" class="lesson-batch-panel" aria-live="polite">
+          <header>
+            <div>
+              <strong>{{ t('courseWorkbench.lessonBatch.title', '全部教案') }}</strong>
+              <small v-if="batchLessonJobs.length">{{ t('courseWorkbench.lessonBatch.progress', '{completed}/{total} 讲已完成，每讲可独立暂停、继续或重试').replace('{completed}', String(batchCompletedCount)).replace('{total}', String(batchLessonJobs.length)) }}</small>
+              <small v-else>{{ t('courseWorkbench.lessonBatch.ready', '按当前课程资料与统一要求，为 {count} 讲分别生成教案').replace('{count}', String(batchEligibleCount)) }}</small>
+            </div>
+            <div class="lesson-batch-actions">
+              <button v-if="batchRunning" type="button" @click="pauseAllLessonGeneration"><Pause :size="14" />{{ t('courseWorkbench.lessonBatch.pauseAll', '全部暂停') }}</button>
+              <button v-if="batchRunning" type="button" @click="cancelAllLessonGeneration"><X :size="14" />{{ t('courseWorkbench.lessonBatch.cancelAll', '全部取消') }}</button>
+              <button v-else-if="batchEligibleCount" class="primary-action" type="button" :disabled="batchStarting" @click="generateAllLessonPlans">
+                <LoaderCircle v-if="batchStarting" :size="14" class="spin" /><Sparkles v-else :size="14" />
+                {{ batchStarting ? t('courseWorkbench.lessonBatch.starting', '正在创建任务…') : t('courseWorkbench.lessonBatch.generateAll', '一键生成全部教案') }}
+              </button>
+            </div>
+          </header>
+          <ol v-if="batchLessonJobs.length" class="lesson-batch-jobs">
+            <li v-for="job in batchLessonJobs" :key="job.id">
+              <span><strong>{{ lessonTitleForJob(job.lesson_unit_id) }}</strong><small>{{ lessonJobStatusLabel(job.status) }}<template v-if="['pending', 'running'].includes(job.status)"> · {{ Math.round(job.progress || 0) }}%</template></small></span>
+              <span class="lesson-batch-job-actions">
+                <button v-if="['pending', 'running'].includes(job.status)" type="button" @click="pauseLessonJob(job.id)">{{ t('courseWorkbench.pause', '暂停') }}</button>
+                <button v-if="['pending', 'running'].includes(job.status)" type="button" @click="cancelLessonJob(job.id)">{{ t('common.cancel', '取消') }}</button>
+                <button v-if="job.status === 'paused'" type="button" @click="retryLessonJob(job.lesson_unit_id, job.id)">{{ t('courseWorkbench.continue', '继续') }}</button>
+                <button v-if="job.status === 'paused'" type="button" @click="cancelLessonJob(job.id)">{{ t('common.cancel', '取消') }}</button>
+                <button v-if="['failed', 'cancelled'].includes(job.status)" type="button" @click="retryLessonJob(job.lesson_unit_id, job.id)">{{ t('common.retry', '重试') }}</button>
+                <button v-if="['completed', 'completed_with_warnings'].includes(job.status)" type="button" @click="regenerateLessonJob(job.lesson_unit_id)">{{ t('courseWorkbench.regenerate', '重新生成') }}</button>
+              </span>
+            </li>
+          </ol>
+        </section>
         <TeacherDocumentCommandBar
           v-if="activeStage === 'lesson' && lessonToolbarVisible"
           class="lesson-command-bar"
@@ -413,6 +452,7 @@
             ref="questionBankPanel"
             class="question-workbench-surface"
             :course-id="courseId"
+            :course-title="courseTitle"
             :assistant-open="aiCollaborationOpen && aiDomain === 'question-bank'"
             @updated="handleQuestionBankUpdated"
             @open-ai="openAiCollaboration('question-bank')"
@@ -437,7 +477,8 @@
                 <div><LoaderCircle :size="18" class="spin" /><span><strong>{{ t('courseWorkbench.generatingLessonPlan', '正在生成本讲教案') }}</strong><small>{{ lessonJob?.message || selectedLesson?.title }}</small></span></div>
                 <div class="lesson-generation-controls">
                   <span>{{ Math.min(100, Math.round(lessonGenerationProgress)) }}%</span>
-                  <button type="button" @click="cancelLessonGeneration">{{ t('courseWorkbench.stopGeneration', '停止') }}</button>
+                  <button type="button" @click="pauseLessonGeneration">{{ t('courseWorkbench.pause', '暂停') }}</button>
+                  <button type="button" @click="cancelLessonGeneration">{{ t('common.cancel', '取消') }}</button>
                 </div>
               </header>
               <div
@@ -466,7 +507,7 @@
               <button class="primary" type="submit" :disabled="lessonBusy || lessonGenerationActive || !selectedLessonId">
                 <LoaderCircle v-if="lessonBusy" :size="16" class="spin" />
                 <Sparkles v-else :size="16" />
-                {{ lessonJob?.status === 'cancelled'
+                {{ ['cancelled', 'paused'].includes(String(lessonJob?.status || ''))
                   ? t('courseWorkbench.continueLessonPlan', '继续生成本讲教案')
                   : lessonGenerationFailed
                     ? t('courseWorkbench.retryLessonPlan', '重新生成本讲教案')
@@ -485,6 +526,7 @@
             v-else-if="workingLessonRevision && selectedLesson"
             ref="lessonPlanDocument"
             :course-id="courseId"
+            :course-title="courseTitle"
             :lesson="selectedLesson"
             :confirmed="lessonPlanConfirmed"
             :assistant-open="aiCollaborationOpen && aiDomain === 'lesson'"
@@ -521,6 +563,7 @@
             :can-generate="Boolean(confirmedLessonRevision)"
             external-toolbar
             @generate="generateScript"
+            @pause-generation="pauseScriptGeneration"
             @cancel-generation="cancelScriptGeneration"
             @saved="handleScriptSaved"
             @confirm="confirmScript"
@@ -535,7 +578,7 @@
             <template #toolbar>
               <TeacherDocumentCommandBar
                 v-if="scriptToolbarVisible"
-                :label="t('courseWorkbench.scriptDocument.actions', '讲稿操作')"
+                :label="t('courseWorkbench.scriptDocument.actions', '讲义操作')"
                 :editing="scriptDocumentEditing"
                 :can-undo="scriptCanUndo"
                 :can-redo="scriptCanRedo"
@@ -567,22 +610,22 @@
                   </template>
                   <template v-else>
                     <button type="button" :disabled="scriptDocumentAiBusy || scriptConfirming" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
-                    <button type="button" :disabled="scriptConfirming" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲稿') }}</button>
+                    <button type="button" :disabled="scriptConfirming" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
                     <button v-if="!scriptConfirmed && !scriptPublicationEligible" class="primary-action" type="button" :disabled="scriptGenerationBusy || scriptConfirming" :title="scriptPublicationBlockReason" @click="generateScript()">
                       <LoaderCircle v-if="scriptGenerationBusy" :size="15" class="spin" />
                       <RefreshCw v-else :size="15" />
-                      {{ scriptGenerationBusy ? t('courseWorkbench.scriptGenerating', '正在生成…') : t('courseWorkbench.scriptRegenerate', '重新生成本讲讲稿') }}
+                      {{ scriptGenerationBusy ? t('courseWorkbench.scriptGenerating', '正在生成…') : t('courseWorkbench.scriptRegenerate', '重新生成本讲讲义') }}
                     </button>
                     <button v-else-if="!scriptConfirmed" class="primary-action" type="button" :disabled="scriptConfirming" @click="confirmScript">
                       <LoaderCircle v-if="scriptConfirming" :size="15" class="spin" />
                       <Check v-else :size="15" />
-                      {{ scriptConfirming ? t('courseWorkbench.scriptDocument.confirming', '正在确认…') : t('courseWorkbench.scriptDocument.confirm', '确认本讲讲稿') }}
+                      {{ scriptConfirming ? t('courseWorkbench.scriptDocument.confirming', '正在确认…') : t('courseWorkbench.scriptDocument.confirm', '确认本讲讲义') }}
                     </button>
                   </template>
               </TeacherDocumentCommandBar>
               <TeacherDocumentHistoryPanel
                 v-if="historyOpen && historyDomain === 'script'"
-                title="讲稿历史版本"
+                :title="t('courseWorkbench.scriptDocument.historyTitle', '讲义历史版本')"
                 :items="documentHistoryItems"
                 :restoring-id="historyRestoringId"
                 :restore-disabled="scriptDocumentEditing"
@@ -643,7 +686,7 @@
           role="tab"
           :aria-selected="contextPaneTab === 'references'"
           @click="showReferenceTab"
-        ><FileText :size="14" />{{ t('courseWorkbench.contextPane.references', '参考资料') }}<small>{{ activeReferences.length }}</small></button>
+        ><FileText :size="14" />{{ t('courseWorkbench.contextPane.references', '课程资料') }}<small>{{ activeReferences.length }}</small></button>
       </nav>
 
       <TeacherLessonAiWorkspace
@@ -693,7 +736,6 @@
         :scope-target-position="selectedLessonPosition"
         :previous-scope-target-id="previousLessonReferenceTargetId"
         :refresh-token="materialRefreshToken"
-        @open-course-information="emit('open-course-information')"
       />
     </aside>
 
@@ -734,7 +776,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Info, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -776,13 +818,13 @@ import { useCourseStore } from '../stores/course'
 import { useCourseEvolutionStore } from '../stores/courseEvolution'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
 import { useGenerationStore } from '../stores/generation'
-import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
+import { lessonPlanStreamSegments, useTeacherLessonAuthoringStore, type TeacherLessonJob, type TeacherLessonPlanCandidate } from '../stores/teacherLessonAuthoring'
 import { toAppError } from '../utils/app-error'
 import http, { teacherRequestConfig } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 
-type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'
-type StageId = CoreStageId | 'companion'
+type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
+type StageId = CoreStageId | 'question-bank' | 'companion'
 type LessonPlanDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
@@ -974,6 +1016,7 @@ const shapeConfirming = ref(false)
 const shapeConfirmError = ref<unknown>(null)
 const totalSectionCount = computed(() => chapterSectionCounts.value.reduce((total, count) => total + Math.max(1, Number(count || 1)), 0))
 const lessonRequirements = ref('')
+const batchStarting = ref(false)
 const lessonBusy = ref(false); const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
@@ -982,15 +1025,14 @@ const questionBankRevisionId = ref('')
 const stages = computed(() => [
   { id: 'foundation' as const, step: '01', label: t('courseWorkbench.stages.foundation', '大纲'), icon: markRaw(Layers3) },
   { id: 'lesson' as const, step: '02', label: t('courseWorkbench.stages.lesson', '教案'), icon: markRaw(ClipboardList) },
-  { id: 'question-bank' as const, step: '03', label: t('courseWorkbench.stages.questionBank', '题库'), icon: markRaw(ListChecks) },
-  { id: 'script' as const, step: '04', label: t('courseWorkbench.stages.script', '讲稿'), icon: markRaw(BookOpenText) },
-  { id: 'ppt' as const, step: '05', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
+  { id: 'script' as const, step: '03', label: t('courseWorkbench.stages.script', '讲义'), icon: markRaw(BookOpenText) },
+  { id: 'ppt' as const, step: '04', label: t('courseWorkbench.stages.ppt', 'PPT'), icon: markRaw(Presentation) },
 ])
 const activeStageDefinition = computed(() => stages.value.find(item => item.id === activeStage.value) || {
-  id: 'companion' as const,
+  id: activeStage.value === 'question-bank' ? 'question-bank' as const : 'companion' as const,
   step: '',
-  label: t('courseWorkbench.supporting.title', '配套文档'),
-  icon: markRaw(FileCheck2),
+  label: activeStage.value === 'question-bank' ? t('courseWorkbench.stages.questionBank', '题库') : t('courseWorkbench.supporting.title', '配套文档'),
+  icon: markRaw(activeStage.value === 'question-bank' ? ListChecks : FileCheck2),
 })
 const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
 const selectedLessonPosition = computed(() => {
@@ -1008,7 +1050,7 @@ const aiScopeTitle = computed(() => ['outline', 'question-bank'].includes(aiDoma
 const aiScopeDetail = computed(() => {
   if (aiDomain.value === 'outline') return t('courseWorkbench.aiCollaboration.outlineScope', '课程大纲')
   if (aiDomain.value === 'question-bank') return t('courseWorkbench.aiCollaboration.questionBankScope', '整门课程题库')
-  if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲稿小节')
+  if (aiDomain.value === 'script') return aiScriptSectionTitle.value || t('courseWorkbench.aiCollaboration.scriptScope', '当前讲义小节')
   return selectedLessonSectionTitle.value || t('courseWorkbench.aiCollaboration.lessonScope', '整讲教案')
 })
 const aiScopeOptions = computed<TeacherAiScopeOption[]>(() => {
@@ -1058,7 +1100,7 @@ const aiQuickActions = computed<TeacherAiQuickAction[]>(() => {
     { id: 'script-example', icon: 'example', label: t('courseWorkbench.aiCollaboration.quickScriptExample', '加入课堂案例'), prompt: t('courseWorkbench.aiCollaboration.quickScriptExamplePrompt', '加入一个贴合当前知识点、适合课堂讲解的具体案例') },
     { id: 'script-question', icon: 'question', label: t('courseWorkbench.aiCollaboration.quickScriptQuestion', '增加引导提问'), prompt: t('courseWorkbench.aiCollaboration.quickScriptQuestionPrompt', '增加能引导学生思考的课堂提问，并自然衔接讲解') },
     { id: 'script-transition', icon: 'transition', label: t('courseWorkbench.aiCollaboration.quickScriptTransition', '优化段落过渡'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTransitionPrompt', '优化段落之间的过渡，让讲解推进更自然') },
-    { id: 'script-timing', icon: 'timing', label: t('courseWorkbench.aiCollaboration.quickScriptTiming', '适配授课时长'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTimingPrompt', '在不改变教学目标的前提下调整内容密度，使讲稿适配当前授课时长') },
+    { id: 'script-timing', icon: 'timing', label: t('courseWorkbench.aiCollaboration.quickScriptTiming', '适配授课时长'), prompt: t('courseWorkbench.aiCollaboration.quickScriptTimingPrompt', '在不改变教学目标的前提下调整内容密度，使讲义适配当前授课时长') },
     ]
     const scriptSection = (selectedLesson.value?.script.sections || []).find(
       section => section.section_node_id === currentAiScopeId.value,
@@ -1116,7 +1158,7 @@ const aiPlaceholder = computed(() => aiDomain.value === 'outline'
   : aiDomain.value === 'question-bank'
     ? '说说你想怎么调整题库…'
   : aiDomain.value === 'script'
-    ? '说说你想怎么改这段讲稿…'
+    ? t('courseWorkbench.aiCollaboration.scriptPlaceholder', '说说你想怎么改这段讲义…')
     : '说说你想怎么调整教案…')
 const currentAiScopeKey = computed(() => aiDomain.value === 'question-bank'
   ? [props.courseId, aiDomain.value, 'course'].join(':')
@@ -1198,7 +1240,7 @@ const aiCandidateFieldLabels = computed(() => {
     ]
     return operationLabels.length ? operationLabels : ['大纲内容']
   }
-  if (aiDomain.value === 'script') return [t('courseWorkbench.aiCollaboration.scriptBody', '讲稿正文')]
+  if (aiDomain.value === 'script') return [t('courseWorkbench.aiCollaboration.scriptBody', '讲义正文')]
   if (aiDomain.value === 'question-bank') return [
     t('courseWorkbench.aiCollaboration.questionScopeField', '出题范围'),
     t('courseWorkbench.aiCollaboration.questionInstructionField', '教师要求'),
@@ -1229,7 +1271,7 @@ const aiCandidateImpacts = computed(() => {
   if (aiDomain.value === 'lesson') {
     return [
       selectedLesson.value?.script?.ready
-        ? t('courseWorkbench.aiCollaboration.impactScript', '讲稿需更新')
+        ? t('courseWorkbench.aiCollaboration.impactScript', '讲义需更新')
         : '',
       questionBankReady.value
         ? t('courseWorkbench.aiCollaboration.impactQuestionBank', '题库需核对')
@@ -1253,7 +1295,7 @@ const lessonArrangementImpactLabels = computed(() => {
   if (!lesson) return []
   const labels: string[] = []
   if (lesson.plan.working_revision_id) labels.push(t('courseWorkbench.arrangement.impactLessonPlan', '当前教案需要重新核对'))
-  if (lesson.script?.ready) labels.push(t('courseWorkbench.arrangement.impactScript', '讲稿需要更新'))
+  if (lesson.script?.ready) labels.push(t('courseWorkbench.arrangement.impactScript', '讲义需要更新'))
   if (lesson.plan.ppt_assets?.length) labels.push(t('courseWorkbench.arrangement.impactPpt', 'PPT 需要更新'))
   return labels
 })
@@ -1268,7 +1310,7 @@ const scriptConfirmed = computed(() => Boolean(selectedLesson.value?.script?.con
 const scriptPublicationEligible = computed(() => selectedLesson.value?.script?.publication_eligible !== false)
 const scriptPublicationBlockReason = computed(() => String(
   selectedLesson.value?.script?.quality_report?.blocking_issues?.[0]?.message
-  || (!scriptPublicationEligible.value ? t('courseWorkbench.scriptDocument.qualityBlocked', '讲稿尚未通过当前质量与来源检查') : ''),
+  || (!scriptPublicationEligible.value ? t('courseWorkbench.scriptDocument.qualityBlocked', '讲义尚未通过当前质量与来源检查') : ''),
 ))
 const scriptToolbarVisible = computed(() => activeStage.value === 'script' && Boolean(selectedLesson.value?.script?.ready) && !scriptGenerationBusy.value)
 const scriptDocumentEditing = computed(() => Boolean(scriptDocument.value?.editing))
@@ -1430,7 +1472,23 @@ const generationErrorPresentation = computed(() => generationError.value ? toApp
 }) : null)
 const lessonJob = computed(() => selectedLessonId.value ? lessonStore.latestJobByLesson(selectedLessonId.value) : undefined)
 const lessonGenerationActive = computed(() => ['pending', 'running'].includes(String(lessonJob.value?.status || '')))
-const lessonGenerationFailed = computed(() => ['failed', 'cancelled'].includes(String(lessonJob.value?.status || '')))
+const lessonGenerationFailed = computed(() => ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')))
+const batchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => !lesson.plan.confirmed_revision_id).length)
+const latestBatchParentId = computed(() => [...lessonStore.jobs]
+  .filter(job => job.type === 'teacher_lesson_plan_generation' && job.parent_job_id)
+  .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))[0]?.parent_job_id || '')
+const batchLessonJobs = computed(() => {
+  if (!latestBatchParentId.value) return []
+  const lessonIds = new Set(lessonStore.jobs
+    .filter(job => job.parent_job_id === latestBatchParentId.value)
+    .map(job => job.lesson_unit_id))
+  return lessonStore.lessons
+    .filter(lesson => lessonIds.has(lesson.lesson_unit_id))
+    .map(lesson => lessonStore.latestJobByLesson(lesson.lesson_unit_id))
+    .filter((job): job is TeacherLessonJob => Boolean(job))
+})
+const batchRunning = computed(() => batchLessonJobs.value.some(job => ['pending', 'running'].includes(job.status)))
+const batchCompletedCount = computed(() => batchLessonJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
 const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancelled'
   ? ''
@@ -1514,9 +1572,16 @@ const shapeConfirmErrorPresentation = computed(() => shapeConfirmError.value ? t
   fallback: t('courseWorkbench.shapeReview.failed', '无法继续生成，请稍后重试'),
 }) : null)
 
-function stageReady(stage: CoreStageId) { if (stage === 'foundation') return hasOutline.value; if (stage === 'lesson') return lessonStore.lessons.some(item => Boolean(item.plan.confirmed_revision_id)); if (stage === 'question-bank') return questionBankReady.value; if (stage === 'script') return lessonStore.lessons.some(item => item.script?.confirmed); return lessonStore.lessons.some(item => item.plan.ppt_assets.some(asset => ['slide_deck_v6', 'uploaded_pptx'].includes(String(asset.engine || '')) && asset.source_state === 'current')) }
+function stageReady(stage: CoreStageId) {
+  if (stage === 'foundation') return hasOutline.value && !outlineAwaitingReview.value
+  if (!lessonStore.lessons.length) return false
+  if (stage === 'lesson') return lessonStore.lessons.every(item => Boolean(item.plan.confirmed_revision_id))
+  if (stage === 'script') return lessonStore.lessons.every(item => item.script?.confirmed)
+  return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current' && asset.ppt_manuscript_status === 'confirmed'))
+}
 function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
 function stopGeneration() { void generationStore.stopGeneration() }
+function cancelOutlineGeneration() { void generationStore.cancelTask(props.courseId) }
 function appendAiMessage(
   role: TeacherProductionAiMessage['role'],
   kind: TeacherProductionAiMessage['kind'],
@@ -1727,7 +1792,7 @@ async function generateAiCandidateFromConversation() {
       : aiDomain.value === 'question-bank'
         ? '出题任务已在左侧展示，请核对范围与资料。'
       : aiDomain.value === 'script'
-        ? '讲稿候选已在左侧高亮，请核对表达和事实。'
+        ? t('courseWorkbench.aiCollaboration.scriptCandidateSummary', '讲义候选已在左侧高亮，请核对表达和事实。')
         : t('courseWorkbench.aiCollaboration.candidateSummary', '候选已显示在左侧，请核对高亮内容。'),
   )
   transitionAi({ type: 'CANDIDATE_READY' })
@@ -1739,7 +1804,7 @@ function coursePlanImpacts(projection: TeacherCoursePlanProjection): string[] {
     outline: t('courseWorkbench.aiCollaboration.assetOutline', '大纲'),
     course_content: t('courseWorkbench.aiCollaboration.assetCourseContent', '课程内容'),
     lesson_plan: t('courseWorkbench.aiCollaboration.assetLessonPlan', '教案'),
-    script: t('courseWorkbench.aiCollaboration.assetScript', '讲稿'),
+    script: t('courseWorkbench.aiCollaboration.assetScript', '讲义'),
     ppt: 'PPT',
     question_bank: t('courseWorkbench.aiCollaboration.assetQuestionBank', '题库'),
   }
@@ -1840,15 +1905,20 @@ function handleAiResolved(result: { accept: boolean }) {
   transitionAi({ type: 'RESOLVED' })
   lastAiOperation.value = ''
   const objectName = aiDomain.value === 'outline'
-    ? '大纲'
+    ? t('courseWorkbench.aiCollaboration.assetOutline', '大纲')
     : aiDomain.value === 'question-bank'
-      ? '题库任务'
+      ? t('courseWorkbench.aiCollaboration.assetQuestionBank', '题库')
       : aiDomain.value === 'script'
-        ? '讲稿'
-        : '教案'
-  const receipt = result.accept
-    ? `候选已采用，并形成新的${objectName}工作修订。`
-    : `候选已放弃，当前${objectName}保持不变。`
+        ? t('courseWorkbench.aiCollaboration.assetScript', '讲义')
+        : t('courseWorkbench.aiCollaboration.assetLessonPlan', '教案')
+  const receipt = t(
+    result.accept
+      ? 'courseWorkbench.aiCollaboration.candidateReceiptApplied'
+      : 'courseWorkbench.aiCollaboration.candidateReceiptDiscarded',
+    result.accept
+      ? '候选已采用，并形成新的{asset}工作修订。'
+      : '候选已放弃，当前{asset}保持不变。',
+  ).replace('{asset}', objectName)
   const candidateMessage = [...aiMessages.value].reverse().find(message => message.kind === 'candidate')
   if (candidateMessage) {
     candidateMessage.kind = 'receipt'
@@ -2066,6 +2136,60 @@ async function generateLessonPlan() {
     lessonBusy.value = false
   }
 }
+function activeLessonGenerationSource() {
+  const primary = activeReferences.value.find(item => item.role === 'primary')
+  return primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined
+}
+async function generateAllLessonPlans() {
+  if (batchStarting.value || batchRunning.value || !batchEligibleCount.value) return
+  batchStarting.value = true
+  lessonConfirmError.value = ''
+  try {
+    await lessonStore.generateAllLessons(
+      props.courseId,
+      activeLessonGenerationSource(),
+      lessonRequirements.value,
+      activeReferences.value.map(item => item.material_asset_id),
+    )
+  } catch {
+    lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonBatch.failed', '全部教案任务创建失败，请重试。')
+  } finally {
+    batchStarting.value = false
+  }
+}
+function lessonTitleForJob(lessonUnitId: string) {
+  return lessonStore.lessons.find(lesson => lesson.lesson_unit_id === lessonUnitId)?.title || lessonUnitId
+}
+function lessonJobStatusLabel(status: TeacherLessonJob['status']) {
+  return t(`courseWorkbench.lessonBatch.status.${status}`, ({ pending: '等待中', running: '生成中', paused: '已暂停', completed: '已生成', completed_with_warnings: '已生成，待检查', failed: '生成失败', cancelled: '已取消' } as const)[status])
+}
+async function pauseLessonJob(jobId: string) { await lessonStore.pauseJob(props.courseId, jobId).catch(() => undefined) }
+async function cancelLessonJob(jobId: string) { await lessonStore.cancelJob(props.courseId, jobId).catch(() => undefined) }
+async function retryLessonJob(lessonUnitId: string, resumeJobId: string) {
+  await lessonStore.generateLesson(
+    props.courseId,
+    lessonUnitId,
+    activeLessonGenerationSource(),
+    lessonRequirements.value,
+    activeReferences.value.map(item => item.material_asset_id),
+    resumeJobId,
+  ).catch(() => undefined)
+}
+async function regenerateLessonJob(lessonUnitId: string) {
+  await lessonStore.generateLesson(
+    props.courseId,
+    lessonUnitId,
+    activeLessonGenerationSource(),
+    lessonRequirements.value,
+    activeReferences.value.map(item => item.material_asset_id),
+  ).catch(() => undefined)
+}
+async function pauseAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => pauseLessonJob(job.id))) }
+async function cancelAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => cancelLessonJob(job.id))) }
+async function pauseLessonGeneration() {
+  if (!lessonJob.value || !lessonGenerationActive.value) return
+  await pauseLessonJob(lessonJob.value.id)
+}
 async function cancelLessonGeneration() {
   if (!lessonJob.value || !lessonGenerationActive.value) return
   await lessonStore.cancelJob(props.courseId, lessonJob.value.id).catch(() => undefined)
@@ -2110,7 +2234,7 @@ async function restoreDocumentHistory(revisionId: string) {
     if (historyDomain.value === 'lesson') {
       lessonConfirmError.value = lessonStore.error || '教案历史版本恢复失败，请重试。'
     } else if (historyDomain.value === 'script') {
-      scriptConfirmError.value = lessonStore.error || '讲稿历史版本恢复失败，请重试。'
+      scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptDocument.restoreFailed', '讲义历史版本恢复失败，请重试。')
     }
   } finally {
     historyRestoringId.value = ''
@@ -2173,16 +2297,16 @@ async function generateScript(requirements = '') {
   scriptGenerationError.value = ''
   scriptConfirmError.value = ''
   try {
-    await saveRelationships(`script:${selectedLessonId.value}`, 'script', `${selectedLesson.value.title} 讲稿`)
+    await saveRelationships(`script:${selectedLessonId.value}`, 'script', `${selectedLesson.value.title} 讲义`)
     await lessonStore.generateScript(
       props.courseId,
       selectedLessonId.value,
       requirements,
       activeReferences.value.map(item => item.material_asset_id),
-      ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) ? scriptJob.value?.id || '' : '',
+      ['failed', 'cancelled', 'paused'].includes(String(scriptJob.value?.status || '')) ? scriptJob.value?.id || '' : '',
     )
   } catch {
-    scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed', '本讲讲稿生成失败，请重试。')
+    scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptGenerationFailed', '本讲讲义生成失败，请重试。')
   } finally {
     scriptGenerating.value = false
   }
@@ -2192,6 +2316,11 @@ async function cancelScriptGeneration() {
   scriptGenerationError.value = ''
   await lessonStore.cancelJob(props.courseId, scriptJob.value.id).catch(() => undefined)
 }
+async function pauseScriptGeneration() {
+  if (!scriptJob.value || !scriptGenerationActive.value) return
+  scriptGenerationError.value = ''
+  await lessonStore.pauseJob(props.courseId, scriptJob.value.id).catch(() => undefined)
+}
 async function confirmScript() {
   const revision = selectedLesson.value?.script.current_revision_id
   if (!selectedLesson.value || !revision || scriptConfirmed.value || scriptConfirming.value || !scriptPublicationEligible.value) return
@@ -2200,7 +2329,7 @@ async function confirmScript() {
   try {
     await lessonStore.confirmScript(props.courseId, selectedLessonId.value, revision)
   } catch {
-    scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptConfirmFailed', '本讲讲稿确认失败，请重试。')
+    scriptConfirmError.value = lessonStore.error || t('courseWorkbench.scriptConfirmFailed', '本讲讲义确认失败，请重试。')
   } finally {
     scriptConfirming.value = false
   }
@@ -2347,7 +2476,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.teacher-workbench{height:100%;min-height:0;display:grid;grid-template-columns:210px minmax(520px,1fr) 310px;overflow:hidden;background:#f3f5f9}.stage-rail{min-height:0;display:flex;flex-direction:column;border-right:1px solid #e4e9f1;background:#fff}.stage-rail>header{display:grid;gap:4px;padding:21px 18px 16px}.stage-rail>header strong{color:#1f2a40;font-size:15px}.stage-rail>header small{color:#64748b;font-size:12px}.stage-rail nav{display:grid;gap:4px;padding:4px 9px}.stage-rail nav button{min-height:54px;display:grid;grid-template-columns:26px 22px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.stage-rail nav button:hover{background:#f6f7fb}.stage-rail nav button.active{color:#4338ca;background:#eef0ff}.stage-rail nav button>span{font-size:15px;font-weight:800}.stage-rail nav strong{min-width:0;color:#334155;font-size:13px}.stage-rail nav button.active strong{color:#3730a3}.stage-rail nav button>svg:last-child{color:#16a34a}.stage-rail>footer{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:9px;margin-top:auto;padding:16px 18px;color:#64748b;font-size:12px}.stage-rail>footer>div{height:4px;overflow:hidden;border-radius:2px;background:#e8ecf3}.stage-rail>footer i{height:100%;display:block;background:#5b57e8}.workbench-center{min-width:0;min-height:0;overflow:auto;padding:24px 26px 52px}.center-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;max-width:860px;margin:0 auto 18px}.center-heading>div{display:grid;gap:4px}.center-heading small{color:#6366f1;font-size:11px;font-weight:800}.center-heading h2{margin:0;color:#172033;font-size:24px;letter-spacing:-.018em}.center-heading>button,.formal-surface>header button,.generation-surface>header button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.stage-form,.formal-surface,.generation-surface,.lesson-stage{max-width:860px;margin:0 auto;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.stage-form{display:grid;gap:20px;padding:26px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form-field{display:grid;gap:8px}.form-field>span,.lesson-selector>span{color:#334155;font-size:13px;font-weight:700}.form-field b{color:#dc2626}.form-field input,.form-field select,.form-field textarea,.lesson-selector select{width:100%;min-height:44px;padding:10px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical;line-height:1.6}.form-field input:focus,.form-field select:focus,.form-field textarea:focus,.form-field textarea:focus,.lesson-selector select:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.stage-form>footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px}.stage-form>footer>span{color:#64748b;font-size:12px}.primary{min-height:42px;display:flex;align-items:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:13px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}.primary:disabled{opacity:.48;cursor:not-allowed}.generation-surface{overflow:hidden}.generation-surface>header,.formal-surface>header{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid #e7ebf2}.generation-surface>header>div{display:flex;align-items:center;gap:10px;color:#4f46e5}.generation-surface>header span,.formal-surface>header>div{display:grid;gap:3px}.generation-surface>header strong,.formal-surface>header strong{color:#263147;font-size:13px}.generation-surface>header small,.formal-surface>header small{color:#64748b;font-size:11px}.generation-progress{height:3px;background:#e8ebf5}.generation-progress i{width:100%;height:100%;display:block;transform-origin:left;background:#5b57e8;transition:transform .25s ease-out}.stream-content,.formal-surface>article{max-height:calc(100vh - 260px);overflow:auto;padding:22px 28px 42px}.stream-content section,.formal-surface article section{margin-bottom:26px}.stream-content h3,.formal-surface h3{margin:0 0 10px;color:#202b40;font-size:17px}.stream-waiting{min-height:260px;display:flex;align-items:center;justify-content:center;gap:9px;color:#64748b;font-size:13px}.stream-caret{width:2px;height:18px;display:inline-block;background:#5b57e8;animation:blink .8s steps(1) infinite}.generation-error{margin:0;padding:12px 20px;color:#b91c1c;background:#fff1f2;font-size:12px}.generation-error button{border:0;color:inherit;background:transparent;font-weight:750;text-decoration:underline;cursor:pointer}.lesson-stage{padding:0 0 24px}.lesson-selector{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #e7ebf2}.stage-form--lesson{border:0;box-shadow:none}.prerequisite,.empty-asset{min-height:260px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#64748b;font-size:13px}.prerequisite strong{color:#334155}.prerequisite button{padding:7px 10px;border:1px solid #d7dde7;border-radius:7px;color:#4f46e5;background:#fff;font-weight:700;cursor:pointer}.lesson-formal{margin:20px 20px 0;border-radius:10px;box-shadow:none}.lesson-formal>article{max-height:calc(100vh - 360px)}.formal-surface ol{display:grid;gap:8px;padding-left:22px;color:#475569;font-size:13px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes blink{50%{opacity:0}}
+.teacher-workbench{height:100%;min-height:0;display:grid;grid-template-columns:210px minmax(520px,1fr) 310px;overflow:hidden;background:#f3f5f9}.stage-rail{min-height:0;display:flex;flex-direction:column;border-right:1px solid #e4e9f1;background:#fff}.stage-rail>header{display:grid;gap:10px;padding:21px 18px 16px}.stage-rail>header strong{color:#1f2a40;font-size:15px}.course-information-entry{min-height:32px;display:flex;align-items:center;gap:7px;padding:0 9px;border:1px solid #dfe4ec;border-radius:8px;color:#566279;background:#fff;font-size:11px;font-weight:700;cursor:pointer}.course-information-entry:hover,.course-information-entry:focus-visible{border-color:#c7c9ee;color:#4338ca;background:#f7f7ff;outline:none}.stage-rail nav{display:grid;gap:4px;padding:4px 9px}.stage-rail nav button{min-height:54px;display:grid;grid-template-columns:26px 22px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.stage-rail nav button:hover{background:#f6f7fb}.stage-rail nav button.active{color:#4338ca;background:#eef0ff}.stage-rail nav button>span{font-size:15px;font-weight:800}.stage-rail nav strong{min-width:0;color:#334155;font-size:13px}.stage-rail nav button.active strong{color:#3730a3}.stage-rail nav button>svg:last-child{color:#16a34a}.stage-rail>footer{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:9px;margin-top:auto;padding:16px 18px;color:#64748b;font-size:12px}.stage-rail>footer>div{height:4px;overflow:hidden;border-radius:2px;background:#e8ecf3}.stage-rail>footer i{height:100%;display:block;background:#5b57e8}.workbench-center{min-width:0;min-height:0;overflow:auto;padding:24px 26px 52px}.center-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;max-width:860px;margin:0 auto 18px}.center-heading>div{display:grid;gap:4px}.center-heading small{color:#6366f1;font-size:11px;font-weight:800}.center-heading h2{margin:0;color:#172033;font-size:24px;letter-spacing:-.018em}.center-heading>button,.formal-surface>header button,.generation-surface>header button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}.generation-header-actions{display:flex!important;align-items:center;gap:7px}.stage-form,.formal-surface,.generation-surface,.lesson-stage{max-width:860px;margin:0 auto;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.stage-form{display:grid;gap:20px;padding:26px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.form-field{display:grid;gap:8px}.form-field>span,.lesson-selector>span{color:#334155;font-size:13px;font-weight:700}.form-field b{color:#dc2626}.form-field input,.form-field select,.form-field textarea,.lesson-selector select{width:100%;min-height:44px;padding:10px 11px;border:1px solid #cfd7e3;border-radius:8px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px}.form-field textarea{resize:vertical;line-height:1.6}.form-field input:focus,.form-field select:focus,.form-field textarea:focus,.form-field textarea:focus,.lesson-selector select:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.stage-form>footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-top:2px}.stage-form>footer>span{color:#64748b;font-size:12px}.primary{min-height:42px;display:flex;align-items:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:13px;font-weight:750;cursor:pointer;box-shadow:0 7px 18px rgba(81,75,220,.16)}.primary:disabled{opacity:.48;cursor:not-allowed}.generation-surface{overflow:hidden}.generation-surface>header,.formal-surface>header{min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 20px;border-bottom:1px solid #e7ebf2}.generation-surface>header>div{display:flex;align-items:center;gap:10px;color:#4f46e5}.generation-surface>header span,.formal-surface>header>div{display:grid;gap:3px}.generation-surface>header strong,.formal-surface>header strong{color:#263147;font-size:13px}.generation-surface>header small,.formal-surface>header small{color:#64748b;font-size:11px}.generation-progress{height:3px;background:#e8ebf5}.generation-progress i{width:100%;height:100%;display:block;transform-origin:left;background:#5b57e8;transition:transform .25s ease-out}.stream-content,.formal-surface>article{max-height:calc(100vh - 260px);overflow:auto;padding:22px 28px 42px}.stream-content section,.formal-surface article section{margin-bottom:26px}.stream-content h3,.formal-surface h3{margin:0 0 10px;color:#202b40;font-size:17px}.stream-waiting{min-height:260px;display:flex;align-items:center;justify-content:center;gap:9px;color:#64748b;font-size:13px}.stream-caret{width:2px;height:18px;display:inline-block;background:#5b57e8;animation:blink .8s steps(1) infinite}.generation-error{margin:0;padding:12px 20px;color:#b91c1c;background:#fff1f2;font-size:12px}.generation-error button{border:0;color:inherit;background:transparent;font-weight:750;text-decoration:underline;cursor:pointer}.lesson-stage{padding:0 0 24px}.lesson-selector{display:grid;grid-template-columns:110px minmax(0,1fr);align-items:center;gap:14px;padding:18px 22px;border-bottom:1px solid #e7ebf2}.stage-form--lesson{border:0;box-shadow:none}.prerequisite,.empty-asset{min-height:260px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#64748b;font-size:13px}.prerequisite strong{color:#334155}.prerequisite button{padding:7px 10px;border:1px solid #d7dde7;border-radius:7px;color:#4f46e5;background:#fff;font-weight:700;cursor:pointer}.lesson-formal{margin:20px 20px 0;border-radius:10px;box-shadow:none}.lesson-formal>article{max-height:calc(100vh - 360px)}.formal-surface ol{display:grid;gap:8px;padding-left:22px;color:#475569;font-size:13px}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}@keyframes blink{50%{opacity:0}}
 .center-heading>.center-heading-actions{display:flex;align-items:center;gap:8px}
 .center-heading-actions>button{min-height:36px;display:flex;align-items:center;gap:7px;padding:0 11px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:12px;font-weight:700;cursor:pointer}
 .center-heading-actions>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
@@ -2365,12 +2494,13 @@ onBeforeUnmount(() => {
 .companion-entry{display:grid;gap:7px;margin:10px 9px 0;padding-top:14px;border-top:1px solid #e7ebf2}.companion-entry>small{padding:0 10px;color:#64748b;font-size:11px;font-weight:700}.companion-entry>button{min-height:50px;display:grid;grid-template-columns:22px minmax(0,1fr) 16px;align-items:center;gap:9px;padding:8px 10px;border:0;border-radius:10px;color:#64748b;background:transparent;text-align:left;cursor:pointer}.companion-entry>button:hover{background:#f6f7fb}.companion-entry>button.active{color:#4338ca;background:#eef0ff}.companion-entry strong{min-width:0;color:#334155;font-size:13px}.companion-entry>button.active strong{color:#3730a3}
 .question-workbench-surface{max-width:860px;margin:0 auto;padding:0}
 @media(max-width:1050px){.teacher-workbench{grid-template-columns:180px minmax(0,1fr) 280px}.workbench-center{padding-inline:18px}.stage-rail nav button{grid-template-columns:23px minmax(0,1fr)}.stage-rail nav button>svg,.stage-rail nav button>svg:last-child{display:none}}
-@media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(5,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.foundation-preset-row{grid-template-columns:1fr;gap:9px}.foundation-preset-options{grid-template-columns:1fr}.foundation-preset-options>button{min-height:52px}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
+@media(max-width:760px){.teacher-workbench{height:auto;min-height:100%;grid-template-columns:1fr;overflow:auto}.stage-rail{display:block;border-right:0;border-bottom:1px solid #e4e9f1}.stage-rail>header,.stage-rail>footer{display:none}.stage-rail nav{grid-template-columns:repeat(4,minmax(0,1fr));overflow:auto;padding:8px}.stage-rail nav button{min-width:108px;min-height:50px;grid-template-columns:22px minmax(0,1fr);padding:6px 8px}.workbench-center{overflow:visible;padding:18px 12px 30px}.center-heading h2{font-size:21px}.center-heading>button{font-size:0;width:38px;padding:0;justify-content:center}.stage-form{padding:19px 16px}.form-grid{grid-template-columns:1fr}.foundation-preset-row{grid-template-columns:1fr;gap:9px}.foundation-preset-options{grid-template-columns:1fr}.foundation-preset-options>button{min-height:52px}.stage-form>footer{align-items:stretch;flex-direction:column}.primary{justify-content:center}.lesson-selector{grid-template-columns:1fr}.stream-content,.formal-surface>article{max-height:none;padding-inline:18px}.reference-tray{border-left:0;border-top:1px solid #e4e9f1}}
 @media(max-width:760px){.foundation-semantic-row{grid-template-columns:1fr;gap:10px}.foundation-semantic-options--three,.foundation-semantic-options--six{grid-template-columns:1fr}.foundation-semantic-options>button{min-height:54px}.foundation-subject-select{grid-template-columns:1fr;gap:7px}.foundation-purpose-fields--two{grid-template-columns:1fr}}
 @media(max-width:760px){.center-heading-actions>button{width:38px;padding:0;justify-content:center;font-size:0}}
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0}
 .workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-error{margin:-4px 0 0}.lesson-generation-float{position:sticky;z-index:8;top:14px;width:min(760px,calc(100% - 40px));overflow:hidden;margin:14px auto 0;border-radius:12px;background:rgba(255,255,255,.98);box-shadow:0 12px 30px rgba(30,41,59,.14)}.lesson-generation-float>header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 15px 0 17px}.lesson-generation-float>header>div:first-child{min-width:0;display:flex;align-items:center;gap:10px;color:#4f46e5}.lesson-generation-float>header span{min-width:0;display:grid;gap:3px}.lesson-generation-float>header strong{overflow:hidden;color:#263147;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-float>header small{overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-controls{flex:0 0 auto;display:flex;align-items:center;gap:12px}.lesson-generation-controls>span{display:block;color:#6366f1;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-generation-controls>button{min-height:34px;padding:0 11px;border:0;border-radius:8px;color:#475569;background:#f1f3f7;font-size:12px;font-weight:700;cursor:pointer}.lesson-generation-controls>button:hover{color:#3730a3;background:#ececff}.lesson-generation-controls>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-generation-float>.generation-progress{height:3px}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:10px;font-weight:800;letter-spacing:.08em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:13px;line-height:1.85}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px}
+.lesson-batch-panel{margin:12px 18px 0;border:1px solid #e0e4ee;border-radius:11px;background:#fafbff}.lesson-batch-panel>header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 13px}.lesson-batch-panel>header>div:first-child{display:grid;gap:3px}.lesson-batch-panel strong{color:#30394e;font-size:12px}.lesson-batch-panel small{color:#707b8e;font-size:10px}.lesson-batch-actions,.lesson-batch-job-actions{display:flex;align-items:center;gap:6px}.lesson-batch-actions button,.lesson-batch-job-actions button{min-height:30px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d8deea;border-radius:7px;color:#505c70;background:#fff;font-size:10px;font-weight:700;cursor:pointer}.lesson-batch-actions .primary-action{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-batch-jobs{display:grid;max-height:178px;overflow:auto;margin:0;padding:0 13px 10px;list-style:none}.lesson-batch-jobs li{min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid #e9ecf3}.lesson-batch-jobs li>span:first-child{min-width:0;display:grid;gap:2px}.lesson-batch-jobs li>span:first-child strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-batch-job-actions{flex:0 0 auto}
 .workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace.is-outline-editing{overflow:visible}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .center-heading,.workbench-center.is-lesson-workspace .lesson-stage{max-width:1160px}.lesson-workspace{min-width:0}.lesson-stage-content{min-width:0}.lesson-stage.has-lesson-outline{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}.has-lesson-outline .lesson-workspace{display:grid;grid-template-columns:206px minmax(0,1fr);gap:12px;transition:grid-template-columns .2s cubic-bezier(.2,.8,.2,1)}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:30px minmax(0,1fr)}.has-lesson-outline .lesson-stage-content{overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.lesson-outline{min-width:0;align-self:start;display:grid;grid-template-columns:minmax(0,1fr) 28px;background:transparent}.is-outline-collapsed .lesson-outline{grid-template-columns:28px}.lesson-outline>nav{max-height:calc(100vh - 205px);overflow:auto;padding:0 4px 0 0}.lesson-outline-chapter{display:grid}.lesson-outline-chapter-button{min-height:48px;display:grid;grid-template-columns:9px minmax(0,1fr);align-items:center;gap:7px;width:100%;padding:6px 5px;border:0;color:#94a3b8;background:transparent;text-align:left;cursor:pointer}.lesson-outline-chapter-marker{width:5px;height:5px;justify-self:center;border:1px solid #b8c2d0;border-radius:50%;background:transparent}.lesson-outline-chapter-marker[data-state="generating"]{border-color:#6366f1;background:#6366f1;animation:lesson-pulse 1.4s ease-in-out infinite}.lesson-outline-chapter-marker[data-state="review"]{border-color:#d97706;background:#f59e0b}.lesson-outline-chapter-marker[data-state="confirmed"]{border-color:#16a34a;background:#22c55e}.lesson-outline-chapter-marker[data-state="failed"]{border-color:#dc2626;background:#ef4444}.lesson-outline-chapter-copy{min-width:0;display:grid;gap:2px}.lesson-outline-chapter-copy strong{overflow:hidden;color:#59677b;font-size:11.5px;font-weight:600;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.lesson-outline-chapter-copy small{color:#8a97aa;font-size:9.5px;line-height:1.3}.lesson-outline-chapter-button:hover strong{color:#334155}.lesson-outline-chapter-button.active .lesson-outline-chapter-marker{box-shadow:0 0 0 3px rgba(99,102,241,.12)}.lesson-outline-chapter-button.active strong{color:#373b71;font-weight:700}.lesson-outline-chapter-button.active small{color:#6366f1}.lesson-section-tabs{display:flex;min-width:0;overflow-x:auto;padding:0 18px;border-bottom:1px solid #e7ebf2;background:#fff;scrollbar-width:thin}.lesson-section-tabs button{min-height:56px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 14px;border:0;color:#718096;background:transparent;cursor:pointer;white-space:nowrap}.lesson-section-tabs button>span{color:#94a3b8;font-size:10px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-section-tabs button>strong{max-width:260px;overflow:hidden;font-size:12px;font-weight:600;text-overflow:ellipsis}.lesson-section-tabs button:hover{color:#475569}.lesson-section-tabs button.active{color:#3730a3;box-shadow:inset 0 -2px #5b57e8}.lesson-section-tabs button.active>span{color:#6366f1}.lesson-section-tabs button.active>strong{font-weight:700}.has-lesson-outline :deep(.lesson-document .document-title h3){overflow:visible;line-height:1.35;text-overflow:clip;white-space:normal}.has-lesson-outline :deep(.lesson-document .flow-table){overflow:auto}.has-lesson-outline :deep(.lesson-document .flow-row){min-width:800px}@keyframes lesson-pulse{50%{opacity:.42;transform:scale(.72)}}

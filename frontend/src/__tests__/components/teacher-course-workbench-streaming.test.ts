@@ -96,7 +96,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stage-rail > header small').exists()).toBe(false)
     expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
-    expect(wrapper.get('.companion-entry button').text()).toBe('配套文档')
+    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '配套文档'])
   })
 
   it('能从尚未闭合的 JSON 增量中提前显示教案正文', () => {
@@ -489,7 +489,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(pptWrapper.get('.ppt-generate-primary').attributes('disabled')).toBeDefined()
   })
 
-  it('讲稿确认成功后停留当前阶段，由左侧五步流程负责切换', async () => {
+  it('讲义确认成功后停留当前阶段，由左侧四步流程负责切换', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -517,15 +517,15 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.lesson-title-trigger').text()).toContain('第一讲')
     expect(wrapper.get('.lesson-toolbar-status').text()).toContain('待确认')
     expect(wrapper.find('.lesson-toolbar-status button').exists()).toBe(false)
-    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('确认本讲讲稿')
+    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('确认本讲讲义')
     await wrapper.get('.lesson-document-toolbar .primary-action').trigger('click')
     await flushPromises()
 
     expect(confirmScript).toHaveBeenCalledWith('course-1', 'L1-1', 'script-1')
-    expect(wrapper.get('.stage-rail button.active').text()).toContain('讲稿')
+    expect(wrapper.get('.stage-rail button.active').text()).toContain('讲义')
   })
 
-  it('旧质量规则阻断讲稿确认时提供重新生成入口', async () => {
+  it('旧质量规则阻断讲义确认时提供重新生成入口', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -551,7 +551,7 @@ describe('teacher course workbench outline streaming', () => {
     const generateScript = vi.spyOn(lessonStore, 'generateScript').mockResolvedValue({ id: 'script-job-new' } as any)
     const wrapper = mountWorkbench({ initialStage: 'script' })
 
-    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('重新生成本讲讲稿')
+    expect(wrapper.get('.lesson-document-toolbar .primary-action').text()).toContain('重新生成本讲讲义')
     expect(wrapper.get('.lesson-document-toolbar .primary-action').attributes('disabled')).toBeUndefined()
     expect(wrapper.get('.lesson-document-toolbar .primary-action').attributes('title')).toContain('旧质量规则')
     await wrapper.get('.lesson-document-toolbar .primary-action').trigger('click')

@@ -31,6 +31,7 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "course_category": "通识必修课",
         "target_major": "工业设计",
         "credits": 2.0,
+        "weekly_hours": 2.0,
         "total_hours": 32,
         "assessment_method": "过程考核 + 课程项目",
         "course_intro": "从真实问题出发学习设计思维。",
@@ -69,6 +70,7 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
     assert metadata["generation_request"]["production_mode"] == "automatic"
     assert metadata["generation_request"]["teacher_course_brief"]["section_count"] == 16
     assert metadata["course_profile"] == {
+        "english_name": "",
         "course_code": "DES101",
         "course_goal": "完成可验证的创新方案",
         "default_location": "西1-205",
@@ -76,7 +78,11 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "course_category": "通识必修课",
         "target_major": "工业设计",
         "credits": 2.0,
+        "weekly_hours": 2.0,
         "total_hours": 32,
+        "prerequisite_courses": "",
+        "weekday": "",
+        "periods": "",
         "assessment_method": "过程考核 + 课程项目",
         "course_intro": "从真实问题出发学习设计思维。",
         "teaching_goals": "能够完成问题定义、创意与验证。",
@@ -99,7 +105,13 @@ async def test_empty_teacher_course_stays_draft_in_teacher_list_and_hidden_from_
     monkeypatch.setattr(courses.uuid, "uuid4", lambda: "course-2")
 
     result = await courses.create_teacher_course(
-        courses.TeacherCourseCreateRequest(course_name="空白课程"),
+        courses.TeacherCourseCreateRequest(
+            course_name="空白课程",
+            target_grade="本科生",
+            course_category="专业课",
+            credits=2,
+            weekly_hours=2,
+        ),
         SimpleNamespace(headers={"X-User-Id": "teacher-a"}),
     )
 
@@ -132,6 +144,10 @@ async def test_teacher_course_creation_persists_only_current_classifications(mon
     await courses.create_teacher_course(
         courses.TeacherCourseCreateRequest.model_validate({
             "course_name": "微积分",
+            "target_grade": "本科生",
+            "course_category": "学科基础课",
+            "credits": 4,
+            "weekly_hours": 4,
             "generation_request": {
                 "subject": "微积分",
                 "learning_purpose": "systematic",

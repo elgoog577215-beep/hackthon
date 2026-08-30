@@ -59,20 +59,66 @@
       <header v-if="!externalToolbar" class="section-title">
         <h4>{{ sectionTitle(selectedSection) }}</h4>
       </header>
+      <section class="document-section lesson-identity">
+        <div>
+          <span>{{ tr('courseWorkbench.lessonDocument.courseName') }}</span>
+          <strong>{{ courseTitle || emptyValue }}</strong>
+        </div>
+        <div>
+          <span>{{ tr('courseWorkbench.lessonDocument.lessonName') }}</span>
+          <strong>{{ lesson.title }}</strong>
+        </div>
+      </section>
       <section :class="['document-section', 'objective-section', { 'ai-change-target': candidateChanged('learning_objective') }]">
         <i v-if="candidateChanged('learning_objective')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
-        <h4>{{ tr('courseWorkbench.lessonDocument.objective') }}</h4>
-        <textarea
-          v-if="editing"
-          v-model="selectedSection.learning_objective"
-          rows="3"
-          :aria-label="tr('courseWorkbench.lessonDocument.objective')"
-          @input="recordEditSnapshot"
-        />
-        <p v-else>{{ selectedSection.learning_objective || emptyValue }}</p>
+        <h4>{{ tr('courseWorkbench.lessonDocument.objectives') }}</h4>
+        <div class="objective-grid">
+          <div>
+            <h5>{{ tr('courseWorkbench.lessonDocument.knowledgeAbilityObjective') }}</h5>
+            <textarea
+              v-if="editing"
+              v-model="selectedSection.learning_objective"
+              rows="3"
+              :aria-label="tr('courseWorkbench.lessonDocument.knowledgeAbilityObjective')"
+              @input="recordEditSnapshot"
+            />
+            <p v-else>{{ selectedSection.learning_objective || emptyValue }}</p>
+          </div>
+          <div>
+            <h5>{{ tr('courseWorkbench.lessonDocument.processMethodObjective') }}</h5>
+            <ul v-if="processMethodObjectives.length">
+              <li v-for="item in processMethodObjectives" :key="item">{{ item }}</li>
+            </ul>
+            <p v-else>{{ emptyValue }}</p>
+          </div>
+          <div>
+            <h5>{{ tr('courseWorkbench.lessonDocument.innovationObjective') }}</h5>
+            <ul v-if="innovationObjectives.length">
+              <li v-for="item in innovationObjectives" :key="item">{{ item }}</li>
+            </ul>
+            <p v-else>{{ emptyValue }}</p>
+          </div>
+        </div>
       </section>
 
-      <section class="document-section focus-grid">
+      <section class="document-section">
+        <h4>{{ tr('courseWorkbench.lessonDocument.preStudy') }}</h4>
+        <textarea
+          v-if="editing"
+          :value="listText(selectedSection.pre_study)"
+          rows="3"
+          :aria-label="tr('courseWorkbench.lessonDocument.preStudy')"
+          @input="updateList(selectedSection, 'pre_study', $event)"
+        />
+        <ul v-else-if="stringList(selectedSection.pre_study).length">
+          <li v-for="item in stringList(selectedSection.pre_study)" :key="item">{{ item }}</li>
+        </ul>
+        <p v-else>{{ emptyValue }}</p>
+      </section>
+
+      <section class="document-section">
+        <h4>{{ tr('courseWorkbench.lessonDocument.keyAnalysis') }}</h4>
+        <div class="focus-grid">
         <div :class="{ 'ai-change-target': candidateChanged('key_points') }">
           <i v-if="candidateChanged('key_points')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
           <h4>{{ tr('courseWorkbench.lessonDocument.keyPoints') }}</h4>
@@ -103,15 +149,31 @@
           </ul>
           <p v-else>{{ emptyValue }}</p>
         </div>
+        </div>
+      </section>
+
+      <section class="document-section">
+        <h4>{{ tr('courseWorkbench.lessonDocument.caseIntro') }}</h4>
+        <textarea
+          v-if="editing"
+          :value="listText(selectedSection.case_intro)"
+          rows="3"
+          :aria-label="tr('courseWorkbench.lessonDocument.caseIntro')"
+          @input="updateList(selectedSection, 'case_intro', $event)"
+        />
+        <ul v-else-if="caseIntroItems.length">
+          <li v-for="item in caseIntroItems" :key="item">{{ item }}</li>
+        </ul>
+        <p v-else>{{ emptyValue }}</p>
       </section>
 
       <section :class="['document-section', 'flow-section', { 'ai-change-target': candidateChanged('teaching_modules') || candidateChanged('in_class_checks') }]">
         <i v-if="candidateChanged('teaching_modules') || candidateChanged('in_class_checks')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
         <div class="section-heading">
-          <h4>{{ tr('courseWorkbench.lessonDocument.flow') }}</h4>
+          <h4>{{ tr('courseWorkbench.lessonDocument.knowledgeDiscussion') }}</h4>
           <span>{{ selectedSectionMinutes }} {{ tr('courseWorkbench.minutes') }}</span>
         </div>
-        <div class="flow-table" role="table" :aria-label="tr('courseWorkbench.lessonDocument.flow')">
+        <div class="flow-table" role="table" :aria-label="tr('courseWorkbench.lessonDocument.knowledgeDiscussion')">
           <div class="flow-row flow-head" role="row">
             <span role="columnheader">{{ tr('courseWorkbench.lessonDocument.duration') }}</span>
             <span role="columnheader">{{ tr('courseWorkbench.lessonDocument.phase') }}</span>
@@ -186,6 +248,37 @@
         </div>
       </section>
 
+      <section class="document-section closing-grid flow-summary-grid">
+        <div>
+          <h4>{{ tr('courseWorkbench.lessonDocument.practice') }}</h4>
+          <textarea
+            v-if="editing"
+            :value="listText(selectedSection.practice)"
+            rows="4"
+            :aria-label="tr('courseWorkbench.lessonDocument.practice')"
+            @input="updateList(selectedSection, 'practice', $event)"
+          />
+          <ul v-else-if="practiceItems.length">
+            <li v-for="item in practiceItems" :key="item">{{ item }}</li>
+          </ul>
+          <p v-else>{{ emptyValue }}</p>
+        </div>
+        <div>
+          <h4>{{ tr('courseWorkbench.lessonDocument.classSummary') }}</h4>
+          <textarea
+            v-if="editing"
+            :value="listText(selectedSection.class_summary)"
+            rows="4"
+            :aria-label="tr('courseWorkbench.lessonDocument.classSummary')"
+            @input="updateList(selectedSection, 'class_summary', $event)"
+          />
+          <ul v-else-if="summaryItems.length">
+            <li v-for="item in summaryItems" :key="item">{{ item }}</li>
+          </ul>
+          <p v-else>{{ emptyValue }}</p>
+        </div>
+      </section>
+
       <section class="document-section closing-grid">
         <div :class="{ 'ai-change-target': candidateChanged('homework') }">
           <i v-if="candidateChanged('homework')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
@@ -201,6 +294,37 @@
             <li v-for="item in stringList(selectedSection.homework)" :key="item">{{ item }}</li>
           </ol>
           <p v-else>{{ emptyValue }}</p>
+        </div>
+        <div>
+          <h4>{{ tr('courseWorkbench.lessonDocument.extensionLearning') }}</h4>
+          <textarea
+            v-if="editing"
+            :value="listText(selectedSection.extension_learning)"
+            rows="4"
+            :aria-label="tr('courseWorkbench.lessonDocument.extensionLearning')"
+            @input="updateList(selectedSection, 'extension_learning', $event)"
+          />
+          <ul v-else-if="extensionItems.length">
+            <li v-for="item in extensionItems" :key="item">{{ item }}</li>
+          </ul>
+          <p v-else>{{ emptyValue }}</p>
+        </div>
+      </section>
+
+      <section class="document-section closing-grid">
+        <div>
+          <h4>{{ tr('courseWorkbench.lessonDocument.activityPhotos') }}</h4>
+          <textarea
+            v-if="editing"
+            :value="listText(selectedSection.teaching_activity_photos)"
+            rows="4"
+            :aria-label="tr('courseWorkbench.lessonDocument.activityPhotos')"
+            @input="updateList(selectedSection, 'teaching_activity_photos', $event)"
+          />
+          <ul v-else-if="stringList(selectedSection.teaching_activity_photos).length">
+            <li v-for="item in stringList(selectedSection.teaching_activity_photos)" :key="item">{{ item }}</li>
+          </ul>
+          <p v-else>{{ tr('courseWorkbench.lessonDocument.activityPhotosPending') }}</p>
         </div>
         <div :class="{ 'ai-change-target': candidateChanged('teaching_notes') }">
           <i v-if="candidateChanged('teaching_notes')" class="ai-change-marker">{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</i>
@@ -255,6 +379,7 @@ import { toAppError } from '../utils/app-error'
 
 const props = withDefaults(defineProps<{
   courseId: string
+  courseTitle?: string
   lesson: TeacherLessonProjection
   confirmed?: boolean
   assistantOpen?: boolean
@@ -271,6 +396,7 @@ const props = withDefaults(defineProps<{
   activeSectionId: '',
   materialAssetIds: () => [],
   externalToolbar: false,
+  courseTitle: '',
 })
 
 const emit = defineEmits<{
@@ -331,6 +457,21 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
   'courseWorkbench.lessonDocument.sectionNavigation': '教案小节',
   'courseWorkbench.lessonDocument.objective': '教学目标',
+  'courseWorkbench.lessonDocument.courseName': '课程名称',
+  'courseWorkbench.lessonDocument.lessonName': '课次',
+  'courseWorkbench.lessonDocument.objectives': '教学目标',
+  'courseWorkbench.lessonDocument.knowledgeAbilityObjective': '知识与能力目标',
+  'courseWorkbench.lessonDocument.processMethodObjective': '过程与方法目标',
+  'courseWorkbench.lessonDocument.innovationObjective': '创新目标',
+  'courseWorkbench.lessonDocument.preStudy': '课前预习',
+  'courseWorkbench.lessonDocument.keyAnalysis': '重点分析',
+  'courseWorkbench.lessonDocument.caseIntro': '案例导入',
+  'courseWorkbench.lessonDocument.knowledgeDiscussion': '知识讲解与讨论',
+  'courseWorkbench.lessonDocument.practice': '实践操作',
+  'courseWorkbench.lessonDocument.classSummary': '课堂总结',
+  'courseWorkbench.lessonDocument.extensionLearning': '拓展学习',
+  'courseWorkbench.lessonDocument.activityPhotos': '教学活动照片',
+  'courseWorkbench.lessonDocument.activityPhotosPending': '待教师课后补充，系统不编造照片。',
   'courseWorkbench.lessonDocument.keyPoints': '教学重点',
   'courseWorkbench.lessonDocument.difficulties': '教学难点',
   'courseWorkbench.lessonDocument.flow': '教学流程',
@@ -410,6 +551,29 @@ const selectedSectionMinutes = computed(() => teachingModules.value.reduce(
   (total, module) => total + normalizedMinutes(module.planned_minutes),
   0,
 ))
+const processMethodObjectives = computed(() => uniqueItems([
+  ...stringList(selectedSection.value?.student_activities),
+  ...teachingModules.value.map(module => module.student_activity),
+], 3))
+const innovationObjectives = computed(() => uniqueItems([
+  ...stringList(selectedSection.value?.extension_learning),
+  ...stringList(selectedSection.value?.homework).filter(item => /(迁移|变式|应用|设计|探究|创新|综合|真实)/.test(item)),
+], 3))
+const caseIntroItems = computed(() => stringList(selectedSection.value?.case_intro).length
+  ? stringList(selectedSection.value?.case_intro)
+  : moduleItems(['case', 'intro', 'opening', 'scenario']))
+const practiceItems = computed(() => stringList(selectedSection.value?.practice).length
+  ? stringList(selectedSection.value?.practice)
+  : uniqueItems([
+    ...moduleItems(['practice', 'learner', 'experiment', 'exercise', 'activity']),
+    ...stringList(selectedSection.value?.in_class_checks),
+  ]))
+const summaryItems = computed(() => stringList(selectedSection.value?.class_summary).length
+  ? stringList(selectedSection.value?.class_summary)
+  : moduleItems(['summary', 'reflection', 'closure', 'transfer']))
+const extensionItems = computed(() => stringList(selectedSection.value?.extension_learning).length
+  ? stringList(selectedSection.value?.extension_learning)
+  : innovationObjectives.value)
 const qualityBlocked = computed(() => workingRevision.value?.quality_report?.passed === false)
 const qualityBlockMessage = computed(() => String(
   workingRevision.value?.quality_report?.blocking_issues?.[0]?.message || '',
@@ -443,6 +607,18 @@ function stringList(value: unknown): string[] {
 
 function listText(value: unknown): string {
   return stringList(value).join('\n')
+}
+
+function uniqueItems(values: unknown[], limit = 8): string[] {
+  return [...new Set(values.map(item => String(item || '').trim()).filter(Boolean))].slice(0, limit)
+}
+
+function moduleItems(signals: string[]): string[] {
+  return uniqueItems(teachingModules.value.flatMap(module => {
+    const identity = `${String(module.module_id || '').toLowerCase()} ${String(module.label || '').toLowerCase()}`
+    if (!signals.some(signal => identity.includes(signal))) return []
+    return [module.teacher_activity, module.student_activity]
+  }))
 }
 
 function updateList(target: Record<string, any>, key: string, event: Event) {
@@ -621,11 +797,11 @@ defineExpose({
 .document-actions{flex:none;display:flex;align-items:center;gap:2px}.document-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.document-actions button:hover{color:#3730a3;background:#f2f3fa}.document-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.document-actions button:disabled{opacity:.5;cursor:not-allowed}.document-actions .primary-action{margin-left:4px;border-color:#d7ddea;color:#3730a3;background:#fff}.document-actions .primary-action:hover{border-color:#c6cbe0;background:#f7f7ff}
 .candidate-canvas-notice{display:flex;align-items:center;gap:10px;padding:11px 28px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.candidate-canvas-notice strong{font-size:11.5px}.lesson-document>:deep(.app-error-notice){margin:12px 28px 0}
 .document-body{min-width:0;display:grid;padding:12px 28px 34px}.section-title{display:flex;align-items:center;gap:10px;padding:17px 0 2px}.section-title span{color:#6366f1;font-size:11px;font-weight:850}.section-title h4{margin:0;color:#172033;font-size:16px}.document-section{min-width:0;padding:22px 0;border-bottom:1px solid #e8ecf2}.document-section:last-child{border-bottom:0}.document-section h4{margin:0 0 12px;color:#263147;font-size:13px}.document-section p{margin:0;color:#536176;font-size:13px;line-height:1.7}.document-section ul,.document-section ol{display:grid;gap:7px;margin:0;padding-left:18px;color:#536176;font-size:13px;line-height:1.6}.document-section textarea,.flow-row input{width:100%;box-sizing:border-box;border:1px solid #cbd4e1;border-radius:7px;outline:0;color:#263147;background:#fff;font:inherit;font-size:12px;line-height:1.55}.document-section textarea{min-height:74px;padding:9px 10px;resize:vertical}.document-section textarea:focus,.flow-row input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}
-.objective-section>p{max-width:820px;font-size:14px}.focus-grid,.closing-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}.focus-grid>div,.closing-grid>div{min-width:0;padding-right:26px}.focus-grid>div+div,.closing-grid>div+div{padding-right:0;padding-left:26px;border-left:1px solid #e8ecf2}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading span{color:#7a8699;font-size:11px}
+.lesson-identity{display:grid;grid-template-columns:1fr 1fr;gap:28px}.lesson-identity div{display:grid;gap:6px}.lesson-identity span{color:#7a8699;font-size:11px}.lesson-identity strong{color:#263147;font-size:13px}.objective-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.objective-grid>div{min-width:0}.objective-grid h5{margin:0 0 9px;color:#4a5568;font-size:12px}.objective-section p{font-size:13px}.focus-grid,.closing-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}.focus-grid>div,.closing-grid>div{min-width:0;padding-right:26px}.focus-grid>div+div,.closing-grid>div+div{padding-right:0;padding-left:26px;border-left:1px solid #e8ecf2}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading span{color:#7a8699;font-size:11px}
 .ai-change-target{position:relative}.is-ai-candidate .ai-change-target{margin-inline:-10px;padding-inline:10px;border-radius:9px;background:linear-gradient(90deg,rgba(238,242,255,.92),rgba(248,250,255,.42))}.ai-change-target::before{position:absolute;top:8px;bottom:8px;left:0;width:2px;border-radius:2px;background:#6366f1;content:""}.ai-change-marker{position:absolute;top:7px;right:9px;padding:3px 6px;border-radius:5px;color:#4338ca;background:#e0e7ff;font-size:9px;font-style:normal;font-weight:800}.flow-section.ai-change-target{padding-inline:10px}.focus-grid>div.ai-change-target,.closing-grid>div.ai-change-target{padding-top:12px;padding-bottom:12px}.focus-grid>div+div.ai-change-target,.closing-grid>div+div.ai-change-target{padding-left:36px}
 .flow-table{width:100%;max-width:100%;box-sizing:border-box;overflow:hidden;border:1px solid #dde3ec;border-radius:8px}.flow-row{display:grid;grid-template-columns:64px minmax(120px,.82fr) minmax(170px,1.2fr) minmax(150px,1fr) minmax(150px,1fr);border-top:1px solid #e3e8f0}.flow-row:first-child{border-top:0}.flow-row>div,.flow-head>span{min-width:0;padding:12px 11px;border-left:1px solid #e3e8f0}.flow-row>div:first-child,.flow-head>span:first-child{border-left:0}.flow-head{color:#64748b;background:#f6f8fb;font-size:11px;font-weight:750}.flow-row p{font-size:12px;line-height:1.58}.flow-row ul{gap:5px;padding-left:15px;font-size:12px;line-height:1.5}.duration-cell{color:#475569;font-size:12px;text-align:center}.duration-cell input{height:34px;padding:6px;text-align:center}.phase-cell{display:grid;align-content:start;gap:7px}.phase-cell strong{color:#334155;font-size:12px}.phase-cell p{color:#7a8699;font-size:11px}.flow-row textarea{min-height:112px}.flow-empty{padding:28px;color:#7a8699;font-size:12px;text-align:center}
 .document-empty{min-height:280px;display:grid;place-items:center;color:#7a8699;font-size:13px}.document-footer{min-height:64px;display:flex;align-items:center;justify-content:flex-end;gap:18px;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.document-footer button{min-height:38px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 15px;border:1px solid #514bdc;border-radius:8px;color:#fff;background:#514bdc;font-size:12px;font-weight:750;cursor:pointer}.document-footer button:hover{border-color:#4338ca;background:#4338ca}.document-footer button:disabled{opacity:.45;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:1050px){.document-body{padding-inline:20px}.flow-table{overflow:auto}.flow-row{min-width:800px}}
+@media(max-width:1050px){.document-body{padding-inline:20px}.objective-grid{grid-template-columns:1fr}.flow-table{overflow:auto}.flow-row{min-width:800px}}
 @media(max-width:760px){.document-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.document-actions{width:100%;justify-content:flex-end}.focus-grid,.closing-grid{grid-template-columns:1fr}.focus-grid>div,.closing-grid>div{padding-right:0}.focus-grid>div+div,.closing-grid>div+div{margin-top:20px;padding:20px 0 0;border-top:1px solid #e8ecf2;border-left:0}.document-footer{padding-inline:18px}}
 .document-footer,.document-actions button:hover{background:var(--teacher-component-tint,#f7f7ff)}
 </style>

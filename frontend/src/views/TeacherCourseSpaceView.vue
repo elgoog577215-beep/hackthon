@@ -16,7 +16,7 @@
           <input v-model="query" type="search" :placeholder="t('courseFiles.searchCurrent')" :aria-label="t('courseFiles.searchCurrent')" />
           <button v-if="query" type="button" :aria-label="t('courseFiles.clearSearch')" @click="query = ''"><X :size="14" /></button>
         </div>
-        <button type="button" @click="router.push({ name: 'course-library' })"><ArrowLeft :size="16" />{{ t('courseFiles.backToCalendar') }}</button>
+        <button type="button" @click="backToCourses"><ArrowLeft :size="16" />{{ t('courseFiles.backToCalendar') }}</button>
       </div>
     </header>
 
@@ -530,7 +530,7 @@ type CreateType = 'outline' | 'lesson_plan' | 'material' | 'ppt' | 'practice' | 
 type SortKey = 'name' | 'updated' | 'type' | 'size' | 'status'
 type SortDirection = 'ascending' | 'descending'
 type WorkspaceView = 'files' | 'categories'
-type CategoryType = 'outline' | 'lesson_plan' | 'practice' | 'content' | 'ppt'
+type CategoryType = 'outline' | 'lesson_plan' | 'content' | 'ppt'
 type CategoryGroup = {
   type: CategoryType
   step: number
@@ -674,9 +674,20 @@ const textSize = (value: string) => new TextEncoder().encode(value).byteLength |
 const displayPath = (value: string) => {
   if (!value) return t('courseFiles.rootName')
   const labels = activeLocale.value === 'en'
-    ? { 教务材料: 'Course administration', 课程逻辑文件: 'Course logic', 辅助资料: 'Supporting materials', 大纲文件: 'Outline file', 教学日历文件: 'Teaching calendar file', 其他教务材料: 'Other administration materials', 大纲: 'Outline', 教案: 'Lesson plans', '讲稿-PPT': 'Scripts & PPTs', 题库: 'Question bank', 分讲练习: 'Session practice', 正式试卷: 'Formal exam papers', 老师题库: 'Teacher question banks', 试卷: 'Exam papers', 学生作业: 'Student work', 其他资料: 'Other materials', 课次: 'Sessions', 讲稿: 'Script', 练习: 'Practice' }
-    : { 教务材料: '教务材料', 课程逻辑文件: '课程逻辑文件', 辅助资料: '辅助资料', 大纲文件: '大纲文件', 教学日历文件: '教学日历文件', 其他教务材料: '其他教务材料', 大纲: '大纲', 教案: '教案', '讲稿-PPT': '讲稿-PPT', 题库: '题库', 分讲练习: '分讲练习', 正式试卷: '正式试卷', 老师题库: '老师题库', 试卷: '试卷', 学生作业: '学生作业', 其他资料: '其他资料', 课次: '课次', 讲稿: '讲稿', 练习: '练习' }
+    ? { 教务材料: 'Course administration', 课程逻辑文件: 'Course logic', 辅助资料: 'Course materials', 大纲文件: 'Outline file', 教学日历文件: 'Teaching calendar file', 其他教务材料: 'Other administration materials', 教学大纲: 'Syllabus', 分讲教案: 'Lesson plans', 讲义: 'Handouts', PPT: 'PPT', 其他课程文件: 'Other course files', 课程资料: 'Course materials', 回收站: 'Trash', 大纲: 'Outline', 教案: 'Lesson plans', '讲稿-PPT': 'Handouts & PPTs', 题库: 'Question bank', 分讲练习: 'Session practice', 正式试卷: 'Formal exam papers', 老师题库: 'Teacher question banks', 试卷: 'Exam papers', 学生作业: 'Student work', 其他资料: 'Other materials', 课次: 'Sessions', 讲稿: 'Handout', 练习: 'Practice' }
+    : { 教务材料: '教务材料', 课程逻辑文件: '课程逻辑文件', 辅助资料: '课程资料', 大纲文件: '大纲文件', 教学日历文件: '教学日历文件', 其他教务材料: '其他教务材料', 教学大纲: '教学大纲', 分讲教案: '分讲教案', 讲义: '讲义', PPT: 'PPT', 其他课程文件: '其他课程文件', 课程资料: '课程资料', 回收站: '回收站', 大纲: '大纲', 教案: '教案', '讲稿-PPT': '讲义-PPT', 题库: '题库', 分讲练习: '分讲练习', 正式试卷: '正式试卷', 老师题库: '老师题库', 试卷: '试卷', 学生作业: '学生作业', 其他资料: '其他资料', 课次: '课次', 讲稿: '讲义', 练习: '练习' }
   return value.split('/').filter(Boolean).map(part => (labels as Record<string, string>)[part] || part.replace(/^(\d+)_/, '$1 ')).join(' / ')
+}
+
+function backToCourses() {
+  const returnTo = String(route.query.returnTo || '')
+  if (returnTo.startsWith('/courses')) {
+    void router.push(returnTo)
+    return
+  }
+  const query = { ...route.query }
+  delete query.returnTo
+  void router.push({ name: 'course-library', query })
 }
 
 function lessonContentNodes(lesson: TeacherLessonProjection): Node[] {
@@ -701,12 +712,6 @@ function lessonContentNodes(lesson: TeacherLessonProjection): Node[] {
   }
   return courseStore.nodes.filter(node => includedIds.has(node.node_id))
 }
-
-const hasUsableContent = (node: Node) => Boolean(
-  node.node_content?.trim()
-  || node.content_blocks?.some(block => block.content?.trim())
-  || node.course_blocks?.length,
-)
 
 function physicalChildren(basePath: string, parentId: string): WorkspaceNode[] {
   const result = new Map<string, WorkspaceNode>()
@@ -791,12 +796,12 @@ const treeData = computed<WorkspaceNode[]>(() => {
   const outlineRevision = courseStore.currentDocumentRevision || ''
   const outlineSize = courseStore.nodes.length ? textSize(outlineMarkdown()) : undefined
   const logicOutline: WorkspaceNode = {
-    id: 'managed:outline', label: t('courseFiles.names.outline'), kind: 'managed', type: 'outline', path: '课程逻辑文件/大纲',
-    status: outlineStatus, revision: outlineRevision, parentId: 'folder:course-logic', sizeBytes: outlineSize, order: 1,
+    id: 'managed:outline', label: t('courseFiles.names.onlineOutline'), kind: 'managed', type: 'outline', path: '教学大纲/在线教学大纲',
+    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 1,
   }
   const outlineDeliverable: WorkspaceNode = {
-    id: 'deliverable:outline', label: t('courseFiles.names.outlineFile'), kind: 'managed', type: 'outline_export', path: '教务材料/大纲文件',
-    status: outlineStatus, revision: outlineRevision, parentId: 'folder:deliverables', sizeBytes: outlineSize, order: 1,
+    id: 'deliverable:outline', label: t('courseFiles.names.exportableOutline'), kind: 'managed', type: 'outline_export', path: '教学大纲/可导出教学大纲',
+    status: outlineStatus, revision: outlineRevision, parentId: 'folder:outlines', sizeBytes: outlineSize, order: 2,
     description: t('courseFiles.descriptions.outlineDeliverable'),
   }
   const calendar = calendarStore.calendar?.course_id === props.courseId ? calendarStore.calendar : null
@@ -808,21 +813,21 @@ const treeData = computed<WorkspaceNode[]>(() => {
       ? 'ready'
       : 'draft'
   const teachingCalendar: WorkspaceNode = {
-    id: 'managed:teaching-calendar', label: t('courseFiles.names.teachingCalendarFile'), kind: 'managed', type: 'teaching_calendar', path: '教务材料/教学日历文件',
-    status: calendarStore.loading && !calendar ? 'working' : calendarStatus, revision: calendar?.revision ? `r${calendar.revision}` : '', updatedAt: calendar?.updated_at, parentId: 'folder:deliverables',
+    id: 'managed:teaching-calendar', label: t('courseFiles.names.teachingCalendarFile'), kind: 'managed', type: 'teaching_calendar', path: '其他课程文件/教学日历',
+    status: calendarStore.loading && !calendar ? 'working' : calendarStatus, revision: calendar?.revision ? `r${calendar.revision}` : '', updatedAt: calendar?.updated_at, parentId: 'folder:other-course-files',
     sizeBytes: calendarSessions.length ? textSize(JSON.stringify(calendarSessions)) : undefined, order: 2,
   }
   const formalQuestionBank: WorkspaceNode = {
-    id: 'managed:question-bank', label: t('courseFiles.names.questionBank'), kind: 'managed', type: 'question_bank', path: '课程逻辑文件/题库/课程题库',
+    id: 'managed:question-bank', label: t('courseFiles.names.questionBank'), kind: 'managed', type: 'question_bank', path: '其他课程文件/题库/课程题库',
     status: questionBankItems.value.length ? 'ready' : 'missing', revision: questionBankRevisionId.value, parentId: 'folder:question-bank-files', order: 1,
     sizeBytes: questionBankItems.value.length ? textSize(JSON.stringify(questionBankItems.value)) : undefined,
   }
   const examPaperNodes: WorkspaceNode[] = examPapers.value.map(paper => ({
-    id: `exam-paper:${paper.paper_id}`, label: paper.title, kind: 'managed', type: 'exam_paper', path: `课程逻辑文件/题库/正式试卷/${safePart(paper.title)}`,
+    id: `exam-paper:${paper.paper_id}`, label: paper.title, kind: 'managed', type: 'exam_paper', path: `其他课程文件/题库/正式试卷/${safePart(paper.title)}`,
     status: 'ready', revision: paper.revision_id, updatedAt: paper.updated_at, parentId: 'folder:exam-papers', sizeBytes: textSize(JSON.stringify(paper)),
   }))
   const examPapersFolder: WorkspaceNode = {
-    id: 'folder:exam-papers', label: t('courseFiles.names.formalExamPapers'), kind: 'folder', type: 'exam_papers', path: '课程逻辑文件/题库/正式试卷',
+    id: 'folder:exam-papers', label: t('courseFiles.names.formalExamPapers'), kind: 'folder', type: 'exam_papers', path: '其他课程文件/题库/正式试卷',
     status: examPaperNodes.length ? 'ready' : 'empty', parentId: 'folder:question-bank-files', order: 3, children: examPaperNodes,
   }
   const companionDocumentNodes: WorkspaceNode[] = companionDocuments.value.map(document => ({
@@ -830,7 +835,7 @@ const treeData = computed<WorkspaceNode[]>(() => {
     label: document.title,
     kind: 'managed',
     type: 'companion_document',
-    path: `教务材料/其他教务材料/${safePart(document.title)}`,
+    path: `其他课程文件/配套文档/${safePart(document.title)}`,
     status: document.status === 'ready' ? 'ready' : 'draft',
     revision: document.revision_id,
     updatedAt: document.updated_at,
@@ -839,73 +844,78 @@ const treeData = computed<WorkspaceNode[]>(() => {
     companionDocument: document,
   }))
   const lessonPlanNodes: WorkspaceNode[] = []
-  const scriptPptLessonNodes: WorkspaceNode[] = []
+  const scriptNodes: WorkspaceNode[] = []
+  const pptNodes: WorkspaceNode[] = []
   const practiceNodes: WorkspaceNode[] = []
   lessons.value.forEach(lesson => {
+    const script = lesson.script || {
+      current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
+      source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [],
+    }
     const working = lesson.plan.revisions.find(item => item.revision_id === lesson.plan.working_revision_id)
     const ppt = lesson.plan.ppt_assets.find(item => item.role === 'primary') || lesson.plan.ppt_assets[0]
     const activeJob = lessonStore.activeJobByLesson(lesson.lesson_unit_id)
-    const contentNodes = lessonContentNodes(lesson)
-    const contentReady = contentNodes.some(hasUsableContent)
     const lessonPrefix = `${String(lesson.number).padStart(2, '0')}  ${lesson.title}`
     const planNode: WorkspaceNode = {
-      id: `plan:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPlan')}`, kind: 'managed', type: 'lesson_plan', path: `课程逻辑文件/教案/${safePart(lessonPrefix)}`,
+      id: `plan:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPlan')}`, kind: 'managed', type: 'lesson_plan', path: `分讲教案/${safePart(lessonPrefix)}`,
       lessonId: lesson.lesson_unit_id, parentId: 'folder:lesson-plans', status: activeJob?.type?.includes('plan') ? 'working' : lesson.plan.source_state === 'stale' ? 'stale' : working ? (working.status === 'confirmed' ? 'ready' : 'draft') : 'missing',
       revision: working?.revision_id || '', updatedAt: working?.created_at, sizeBytes: working ? textSize(lessonPlanMarkdown(lesson)) : undefined,
     }
     const contentNode: WorkspaceNode = {
-      id: `content:${lesson.lesson_unit_id}`, label: t('courseFiles.names.content'), kind: 'managed', type: 'content', path: `课程逻辑文件/讲稿-PPT/${safePart(lessonPrefix)}/讲稿`,
-      lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: contentReady ? 'ready' : contentNodes.length ? 'draft' : 'missing',
-      revision: courseStore.currentDocumentRevision, sizeBytes: contentReady ? textSize(lessonContentMarkdown(lesson)) : undefined,
+      id: `content:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.content')}`, kind: 'managed', type: 'content', path: `讲义/${safePart(lessonPrefix)}`,
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:handouts', status: script.confirmed ? 'ready' : script.ready ? 'draft' : 'missing',
+      revision: script.current_revision_id || '', updatedAt: script.revisions?.[0]?.updated_at || script.revisions?.[0]?.created_at,
+      sizeBytes: script.ready ? textSize(lessonContentMarkdown(lesson)) : undefined,
     }
     const pptNode: WorkspaceNode = {
-      id: `ppt:${lesson.lesson_unit_id}`, label: t('courseFiles.names.ppt'), kind: 'managed', type: 'ppt', path: `课程逻辑文件/讲稿-PPT/${safePart(lessonPrefix)}/PPT`,
-      lessonId: lesson.lesson_unit_id, parentId: `lesson:${lesson.lesson_unit_id}`, status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt ? 'ready' : 'missing',
+      id: `ppt:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · PPT`, kind: 'managed', type: 'ppt', path: `PPT/${safePart(lessonPrefix)}`,
+      lessonId: lesson.lesson_unit_id, parentId: 'folder:ppts', status: activeJob?.type?.includes('ppt') ? 'working' : ppt?.source_state === 'stale' ? 'stale' : ppt?.ppt_manuscript_status === 'confirmed' ? 'ready' : ppt ? 'draft' : 'missing',
       revision: ppt?.working_revision_id || '', updatedAt: ppt?.revisions?.at(-1)?.created_at, origin: (ppt || activeJob?.type?.includes('ppt') ? 'generated' : undefined) as 'generated' | undefined,
     }
     const practiceNode: WorkspaceNode = {
-      id: `practice:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPractice')}`, kind: 'managed', type: 'practice', path: `课程逻辑文件/题库/分讲练习/${safePart(lessonPrefix)}`,
+      id: `practice:${lesson.lesson_unit_id}`, label: `${lessonPrefix} · ${t('courseFiles.names.lessonPractice')}`, kind: 'managed', type: 'practice', path: `其他课程文件/题库/分讲练习/${safePart(lessonPrefix)}`,
       lessonId: lesson.lesson_unit_id, parentId: 'folder:question-practices', status: practiceStatus(lesson),
     }
     lessonPlanNodes.push(planNode)
     practiceNodes.push(practiceNode)
-    scriptPptLessonNodes.push({
-      id: `lesson:${lesson.lesson_unit_id}`, label: lessonPrefix, kind: 'folder', type: 'lesson', path: `课程逻辑文件/讲稿-PPT/${safePart(lessonPrefix)}`,
-      status: aggregateStatus([contentNode, pptNode]), lessonId: lesson.lesson_unit_id, parentId: 'folder:script-ppt', children: [contentNode, pptNode],
-    })
+    scriptNodes.push(contentNode)
+    pptNodes.push(pptNode)
   })
 
   const otherDeliverables: WorkspaceNode = {
-    id: 'folder:other-deliverables', label: t('courseFiles.names.otherDeliverables'), kind: 'folder', type: 'companion_documents', path: '教务材料/其他教务材料',
-    status: companionDocumentNodes.length ? 'ready' : 'empty', parentId: 'folder:deliverables', order: 3, children: companionDocumentNodes,
+    id: 'folder:other-deliverables', label: t('courseFiles.names.companionDocuments'), kind: 'folder', type: 'companion_documents', path: '其他课程文件/配套文档',
+    status: companionDocumentNodes.length ? 'ready' : 'empty', parentId: 'folder:other-course-files', order: 3, children: companionDocumentNodes,
   }
-  const deliverables: WorkspaceNode = {
-    id: 'folder:deliverables', label: t('courseFiles.names.deliverables'), kind: 'folder', type: 'deliverables', path: '教务材料',
-    status: aggregateStatus([outlineDeliverable, teachingCalendar]), parentId: 'root', order: 1, description: t('courseFiles.descriptions.deliverables'),
-    children: [outlineDeliverable, teachingCalendar, ...(companionDocumentNodes.length ? [otherDeliverables] : [])],
+  const outlinesFolder: WorkspaceNode = {
+    id: 'folder:outlines', label: t('courseFiles.names.deliverables'), kind: 'folder', type: 'deliverables', path: '教学大纲',
+    status: aggregateStatus([logicOutline, outlineDeliverable]), parentId: 'root', order: 1,
+    children: [logicOutline, outlineDeliverable],
   }
   const lessonPlansFolder: WorkspaceNode = {
-    id: 'folder:lesson-plans', label: t('courseFiles.names.lessonPlans'), kind: 'folder', type: 'lesson_plans', path: '课程逻辑文件/教案',
-    status: aggregateStatus(lessonPlanNodes), parentId: 'folder:course-logic', order: 2, children: lessonPlanNodes,
+    id: 'folder:lesson-plans', label: t('courseFiles.names.lessonPlans'), kind: 'folder', type: 'lesson_plans', path: '分讲教案',
+    status: aggregateStatus(lessonPlanNodes), parentId: 'root', order: 2, children: lessonPlanNodes,
   }
-  const scriptPptFolder: WorkspaceNode = {
-    id: 'folder:script-ppt', label: t('courseFiles.names.scriptPpt'), kind: 'folder', type: 'script_ppt', path: '课程逻辑文件/讲稿-PPT',
-    status: aggregateStatus(scriptPptLessonNodes), parentId: 'folder:course-logic', order: 3, children: scriptPptLessonNodes,
-    description: t('courseFiles.descriptions.scriptPpt'),
+  const handoutsFolder: WorkspaceNode = {
+    id: 'folder:handouts', label: t('courseFiles.names.content'), kind: 'folder', type: 'script_ppt', path: '讲义',
+    status: aggregateStatus(scriptNodes), parentId: 'root', order: 3, children: scriptNodes,
+  }
+  const pptsFolder: WorkspaceNode = {
+    id: 'folder:ppts', label: t('courseFiles.names.ppt'), kind: 'folder', type: 'script_ppt', path: 'PPT',
+    status: aggregateStatus(pptNodes), parentId: 'root', order: 4, children: pptNodes,
   }
   const questionPracticesFolder: WorkspaceNode = {
-    id: 'folder:question-practices', label: t('courseFiles.names.questionPractices'), kind: 'folder', type: 'question_practices', path: '课程逻辑文件/题库/分讲练习',
+    id: 'folder:question-practices', label: t('courseFiles.names.questionPractices'), kind: 'folder', type: 'question_practices', path: '其他课程文件/题库/分讲练习',
     status: aggregateStatus(practiceNodes), parentId: 'folder:question-bank-files', order: 2, children: practiceNodes,
   }
   const questionBankFolder: WorkspaceNode = {
-    id: 'folder:question-bank-files', label: t('courseFiles.names.questionBankFiles'), kind: 'folder', type: 'question_bank_files', path: '课程逻辑文件/题库',
-    status: aggregateStatus([formalQuestionBank, questionPracticesFolder, examPapersFolder]), parentId: 'folder:course-logic', order: 4,
+    id: 'folder:question-bank-files', label: t('courseFiles.names.questionBankFiles'), kind: 'folder', type: 'question_bank_files', path: '其他课程文件/题库',
+    status: aggregateStatus([formalQuestionBank, questionPracticesFolder, examPapersFolder]), parentId: 'folder:other-course-files', order: 2,
     children: [formalQuestionBank, questionPracticesFolder, examPapersFolder],
   }
-  const courseLogic: WorkspaceNode = {
-    id: 'folder:course-logic', label: t('courseFiles.names.courseLogic'), kind: 'folder', type: 'course_logic', path: '课程逻辑文件',
-    status: aggregateStatus([logicOutline, lessonPlansFolder, scriptPptFolder, questionBankFolder]), parentId: 'root', order: 2,
-    description: t('courseFiles.descriptions.courseLogic'), children: [logicOutline, lessonPlansFolder, scriptPptFolder, questionBankFolder],
+  const otherCourseFiles: WorkspaceNode = {
+    id: 'folder:other-course-files', label: t('courseFiles.names.otherCourseFiles'), kind: 'folder', type: 'course_logic', path: '其他课程文件',
+    status: aggregateStatus([teachingCalendar, questionBankFolder, otherDeliverables]), parentId: 'root', order: 5,
+    children: [teachingCalendar, questionBankFolder, otherDeliverables],
   }
 
   const auxiliaryDefinitions: Array<{ id: string; label: string; type: NodeType; path: string; bucket: AuxiliaryBucket; order: number }> = [
@@ -920,12 +930,16 @@ const treeData = computed<WorkspaceNode[]>(() => {
   })
   const supportingMaterials: WorkspaceNode = {
     id: 'folder:supporting-materials', label: t('courseFiles.names.supportingMaterials'), kind: 'folder', type: 'supporting_materials', path: '辅助资料',
-    status: auxiliaryFolders.some(folder => folder.children?.length) ? 'ready' : 'empty', parentId: 'root', order: 3,
+    status: auxiliaryFolders.some(folder => folder.children?.length) ? 'ready' : 'empty', parentId: 'root', order: 6,
     description: t('courseFiles.descriptions.supportingMaterials'), children: auxiliaryFolders,
   }
+  const recycleBin: WorkspaceNode = {
+    id: 'trash', label: t('courseFiles.names.recycleBin'), kind: 'folder', type: 'trash', path: '',
+    status: Number(selected.value?.trash_count || 0) ? 'trashed' : 'empty', parentId: 'root', order: 7, children: [],
+  }
   const courseRoot: WorkspaceNode = {
-    id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: courseLogic.status,
-    children: [deliverables, courseLogic, supportingMaterials],
+    id: 'root', label: t('courseFiles.rootName'), kind: 'folder', type: 'root', path: '', status: aggregateStatus([outlinesFolder, lessonPlansFolder, handoutsFolder, pptsFolder]),
+    children: [outlinesFolder, lessonPlansFolder, handoutsFolder, pptsFolder, otherCourseFiles, supportingMaterials, recycleBin],
   }
   return [courseRoot]
 })
@@ -962,9 +976,8 @@ const trashRoot = computed<WorkspaceNode>(() => ({
 const categoryGroups = computed<CategoryGroup[]>(() => ([
   { type: 'outline' as const, step: 1, label: t('courseFiles.names.outline'), description: t('courseFiles.workbench.stages.outline'), icon: markRaw(FileText) },
   { type: 'lesson_plan' as const, step: 2, label: t('courseFiles.names.lessonPlan'), description: t('courseFiles.workbench.stages.lessonPlan'), icon: markRaw(ClipboardList) },
-  { type: 'practice' as const, step: 3, label: t('courseFiles.names.questionBank'), description: t('courseFiles.workbench.stages.questionBank'), icon: markRaw(ListChecks) },
-  { type: 'content' as const, step: 4, label: t('courseFiles.names.content'), description: t('courseFiles.workbench.stages.content'), icon: markRaw(BookOpenText) },
-  { type: 'ppt' as const, step: 5, label: t('courseFiles.names.ppt'), description: t('courseFiles.workbench.stages.ppt'), icon: markRaw(Presentation) },
+  { type: 'content' as const, step: 3, label: t('courseFiles.names.content'), description: t('courseFiles.workbench.stages.content'), icon: markRaw(BookOpenText) },
+  { type: 'ppt' as const, step: 4, label: t('courseFiles.names.ppt'), description: t('courseFiles.workbench.stages.ppt'), icon: markRaw(Presentation) },
 ]).map(definition => {
   const items = [...flatNodes.value.values()]
     .filter(node => node.kind === 'managed' && node.type === definition.type)
@@ -1398,6 +1411,10 @@ function toggleFolder(id: string) {
     : [...expandedFolderIds.value, id]
 }
 function openFolder(id: string) {
+  if (id === 'trash') {
+    openTrash()
+    return
+  }
   const node = flatNodes.value.get(id)
   if (node?.kind !== 'folder') return
   viewingTrash.value = false

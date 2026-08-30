@@ -27,6 +27,7 @@ from learning_progress import project_learning_objective_bindings
 from dependencies import (
     get_course_document_repository,
     get_course_or_404,
+    get_teacher_lesson_authoring_repository,
     require_task_manager,
     get_node_or_404,
 )
@@ -105,16 +106,21 @@ class CourseDocumentMigrationRequest(BaseModel):
 
 class TeacherCourseCreateRequest(BaseModel):
     course_name: str = Field(min_length=1, max_length=200)
+    english_name: str = Field(default="", max_length=200)
     academic_year: str = Field(default="", max_length=30)
     term: str = Field(default="", max_length=30)
     course_code: str = Field(default="", max_length=64)
     course_goal: str = Field(default="", max_length=1500)
     default_location: str = Field(default="", max_length=200)
-    target_grade: str = Field(default="", max_length=100)
-    course_category: str = Field(default="", max_length=100)
+    target_grade: str = Field(min_length=1, max_length=100)
+    course_category: str = Field(min_length=1, max_length=100)
     target_major: str = Field(default="", max_length=200)
-    credits: float | None = Field(default=None, ge=0, le=100)
+    credits: float = Field(gt=0, le=100)
+    weekly_hours: float = Field(gt=0, le=100)
     total_hours: int | None = Field(default=None, ge=0, le=10000)
+    prerequisite_courses: str = Field(default="", max_length=1000)
+    weekday: str = Field(default="", max_length=30)
+    periods: str = Field(default="", max_length=100)
     assessment_method: str = Field(default="", max_length=500)
     course_intro: str = Field(default="", max_length=3000)
     teaching_goals: str = Field(default="", max_length=3000)
@@ -234,11 +240,70 @@ def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) 
             "academic_year": str(session.get("academic_year") or ""),
             "term": str(session.get("term") or ""),
         }
-    return _list_teacher_courses(
+    courses = _list_teacher_courses(
         known_task_ids,
         next_sessions_by_course_id,
         owner_id,
     )
+    repository = get_teacher_lesson_authoring_repository()
+    for course in courses:
+        course.update(_teacher_preparation_projection(course, repository))
+    return courses
+
+
+def _teacher_preparation_projection(course: dict, repository) -> dict:
+    """Derive the course status from confirmed teacher assets, never from a job."""
+    course_id = str(course.get("course_id") or "")
+    try:
+        authoring = repository.view(course_id)
+    except Exception:
+        authoring = {}
+    lessons = authoring.get("lessons") if isinstance(authoring, dict) else {}
+    lessons = lessons if isinstance(lessons, dict) else {}
+    brief = (course.get("generation_request") or {}).get("teacher_course_brief") or {}
+    planned = len(lessons) or int(brief.get("section_count") or 0)
+    confirmed_outline = bool(str(authoring.get("outline_revision_id") or ""))
+    confirmed_plans = 0
+    confirmed_handouts = 0
+    confirmed_ppts = 0
+    for lesson in lessons.values():
+        if not isinstance(lesson, dict):
+            continue
+        if str(lesson.get("confirmed_revision_id") or ""):
+            confirmed_plans += 1
+        confirmation = lesson.get("script_confirmation") or {}
+        if (
+            str(confirmation.get("confirmed_revision_id") or "")
+            and str(confirmation.get("source_state") or "current") == "current"
+        ):
+            confirmed_handouts += 1
+        if any(
+            isinstance(asset, dict)
+            and str(asset.get("source_state") or "current") == "current"
+            and (
+                str(asset.get("ppt_manuscript_status") or "") == "confirmed"
+                or bool(asset.get("confirmed_at"))
+            )
+            for asset in lesson.get("ppt_assets") or []
+        ):
+            confirmed_ppts += 1
+    prepared = bool(
+        confirmed_outline
+        and planned > 0
+        and confirmed_plans >= planned
+        and confirmed_handouts >= planned
+        and confirmed_ppts >= planned
+    )
+    return {
+        "preparation_state": "prepared" if prepared else "preparing",
+        "preparation_summary": {
+            "planned_lessons": planned,
+            "outline_confirmed": confirmed_outline,
+            "confirmed_lesson_plans": confirmed_plans,
+            "confirmed_handouts": confirmed_handouts,
+            "confirmed_ppts": confirmed_ppts,
+        },
+    }
 
 
 def _require_unpublished_teacher_course_access(course: dict, request: Request) -> None:
@@ -338,6 +403,7 @@ async def create_teacher_course(
             "academic_year": academic_year,
             "term": term,
             "course_profile": {
+                "english_name": body.english_name.strip(),
                 "course_code": body.course_code.strip(),
                 "course_goal": body.course_goal.strip(),
                 "default_location": body.default_location.strip(),
@@ -345,7 +411,11 @@ async def create_teacher_course(
                 "course_category": body.course_category.strip(),
                 "target_major": body.target_major.strip(),
                 "credits": body.credits,
+                "weekly_hours": body.weekly_hours,
                 "total_hours": body.total_hours,
+                "prerequisite_courses": body.prerequisite_courses.strip(),
+                "weekday": body.weekday.strip(),
+                "periods": body.periods.strip(),
                 "assessment_method": body.assessment_method.strip(),
                 "course_intro": body.course_intro.strip(),
                 "teaching_goals": body.teaching_goals.strip(),
@@ -688,6 +758,24 @@ async def get_course_web_research(
     _require_teacher_course_write_access(course, request)
     raw = await run_in_threadpool(repository.load_raw, course_id)
     return scoped_research_projection(raw, stage=stage, lesson_id=lesson_id)
+
+
+@router.get("/courses/{course_id}/web-research/capability")
+async def get_course_web_research_capability(
+    course_id: str,
+    request: Request,
+):
+    """Expose only whether this teacher can currently use web research."""
+    course = await get_course_or_404(course_id)
+    _require_teacher_course_write_access(course, request)
+    actor_id = resolve_user_id(request.headers.get("X-User-Id"))
+    _gateway, feature = configured_retrieval_gateway(actor_id)
+    return {
+        "available": bool(
+            feature.get("enabled_for_user")
+            and feature.get("provider_configured")
+        ),
+    }
 
 
 @router.post("/courses/{course_id}/web-research/search")

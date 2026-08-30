@@ -8,8 +8,10 @@ import zhMessages from '../../../public/locales/zh/translation.json'
 const information = {
   course_name: '人工智能通识课', academic_year: '2026-2027', term: '秋冬',
   course_profile: {
+    english_name: 'Introduction to Artificial Intelligence',
     course_code: 'AI101', course_goal: '理解人工智能的基本原理', default_location: '西1-205',
     target_grade: '本科生', course_category: '通识必修课', target_major: '', credits: 2,
+    weekly_hours: 2, prerequisite_courses: '无', weekday: '周三', periods: '第 3—4 节',
     total_hours: 32, assessment_method: '过程考核', course_intro: '理解 AI 的基本原理。',
     teaching_goals: '理解人工智能的基本原理',
   },
@@ -43,7 +45,7 @@ describe('CourseBaselineDialog', () => {
   })
 
   it('默认查看基础信息，编辑后先确认差异再保存', async () => {
-    const updated = envelope({ ...information, course_profile: { ...information.course_profile, total_hours: 64 }, generation_request: { ...information.generation_request, teacher_course_brief: { ...information.generation_request.teacher_course_brief, total_class_hours: 64 } } })
+    const updated = envelope({ ...information, course_profile: { ...information.course_profile, weekly_hours: 4 } })
     updated.revision = 2
     vi.spyOn(http, 'put').mockResolvedValue({ data: updated } as any)
     const wrapper = mount(CourseBaselineDialog, {
@@ -53,13 +55,16 @@ describe('CourseBaselineDialog', () => {
     await flushPromises()
 
     expect(wrapper.get('.course-identity').text()).toContain('人工智能通识课')
-    expect(wrapper.get('.information-view').text()).toContain('32 学时')
+    expect(wrapper.get('.information-view').text()).toContain('Introduction to Artificial Intelligence')
+    expect(wrapper.get('.information-view').text()).toContain('周学时2')
+    expect(wrapper.get('.information-view').text()).toContain('先修课程无')
     expect(wrapper.get('.information-view').text()).toContain('课程基本信息')
-    expect(wrapper.get('.information-view').text()).toContain('教学实施条件')
-    expect(wrapper.get('.information-view').text()).toContain('教学设计')
+    expect(wrapper.get('.information-view').text()).not.toContain('教学实施条件')
+    expect(wrapper.get('.information-view').text()).not.toContain('教学设计')
     expect(wrapper.get('.information-view').text()).not.toContain('预计章节数')
     expect(wrapper.get('.information-view').text()).not.toContain('预计课次')
-    expect(wrapper.get('.information-view').text()).toContain('计划讲数')
+    expect(wrapper.get('.information-view').text()).toContain('上课星期周三')
+    expect(wrapper.get('.information-view').text()).toContain('上课节次第 3—4 节')
     expect(wrapper.get('.information-view').text()).not.toContain('待填写')
     expect(wrapper.text()).not.toContain('集中查看建课信息')
     expect(wrapper.text()).not.toContain('编号、类别、教学对象和学期信息')
@@ -69,24 +74,26 @@ describe('CourseBaselineDialog', () => {
     expect(wrapper.text()).not.toContain('已确认教案')
 
     await wrapper.get('.primary-button').trigger('click')
-    expect(wrapper.get('.information-form').text()).toContain('学习目的')
-    expect(wrapper.get('.information-form').text()).toContain('学科类型')
-    expect(wrapper.get('.information-form').text()).toContain('课程教学类型')
+    expect(wrapper.get('.information-form').text()).toContain('课程英文名称')
+    expect(wrapper.get('.information-form').text()).toContain('周学时')
+    expect(wrapper.get('.information-form').text()).toContain('先修课程')
     expect(wrapper.get('.information-form').text()).not.toContain('辅助学科类型')
     expect(wrapper.get('.information-form').text()).not.toContain('预计章节数')
     expect(wrapper.get('.information-form').text()).not.toContain('预计课次')
-    expect(wrapper.get('.information-form').text()).toContain('计划讲数')
+    expect(wrapper.get('.information-form').text()).not.toContain('计划讲数')
     expect(wrapper.text()).not.toContain('编号、类别、教学对象和学期信息')
     expect(wrapper.text()).not.toContain('课时与班级情况')
     expect(wrapper.text()).not.toContain('教学类型、学科类型与难度')
     expect(wrapper.text()).not.toContain('课程简介、考核方式与额外教学要求')
     expect(wrapper.get('.information-form').text()).not.toContain('授课场景')
-    await wrapper.get('input[type="number"][min="1"][max="1000"]').setValue(64)
+    const weeklyHoursField = wrapper.findAll('label').find(label => label.text().includes('周学时'))
+    expect(weeklyHoursField).toBeTruthy()
+    await weeklyHoursField!.get('input').setValue(4)
     await wrapper.get('.primary-button').trigger('click')
 
-    expect(wrapper.get('.review-panel').text()).toContain('总课时')
-    expect(wrapper.get('.review-panel').text()).toContain('32')
-    expect(wrapper.get('.review-panel').text()).toContain('64')
+    expect(wrapper.get('.review-panel').text()).toContain('周学时')
+    expect(wrapper.get('.review-panel').text()).toContain('2')
+    expect(wrapper.get('.review-panel').text()).toContain('4')
     expect(wrapper.text()).not.toContain('不会自动重新生成已有内容')
 
     await wrapper.get('.primary-button').trigger('click')
@@ -97,9 +104,7 @@ describe('CourseBaselineDialog', () => {
         expected_revision: 1,
         source: 'manual',
         information: expect.objectContaining({
-          generation_request: expect.objectContaining({
-            teacher_course_brief: expect.objectContaining({ total_class_hours: 64 }),
-          }),
+          course_profile: expect.objectContaining({ weekly_hours: 4 }),
         }),
       }),
       expect.any(Object),
@@ -112,7 +117,7 @@ describe('CourseBaselineDialog', () => {
     expect(savedInformation.information.generation_request).not.toHaveProperty('course_type')
     expect(savedInformation.information.generation_request).not.toHaveProperty('course_purpose')
     expect(savedInformation.information.generation_request).not.toHaveProperty('composition_style')
-    expect(wrapper.get('.save-status').text()).toContain('课程基础信息已保存')
+    expect(wrapper.get('.save-status').text()).toContain('课程信息已保存')
   })
 
   it('可从修改记录恢复上一版，并以新修订保存', async () => {

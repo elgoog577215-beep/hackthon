@@ -1,5 +1,15 @@
 ## ADDED Requirements
 
+### Requirement: 教师可见产物必须命名为讲义
+
+教师端、课程文件、导出名称和状态文案 MUST 将本能力称为“讲义”。为兼容现有数据与接口，系统 MAY 继续使用 `script`、`script_revision_id` 等内部标识，但它们只表示讲义的技术存储身份，不得向教师暴露为“讲稿”。
+
+#### Scenario: 查看历史 script 修订
+
+- **WHEN** 教师打开由旧版 `script` 记录迁移的课程
+- **THEN** 页面和导出显示“讲义”及原有修订历史
+- **AND** 不复制数据或建立第二份讲义真源
+
 ### Requirement: 讲稿必须以已确认教案为唯一正式上游
 系统 MUST 从本讲已确认教案修订生成教师可直接讲授的完整讲稿，并记录 `lesson_unit_id` 和 `source_lesson_plan_revision_id`。系统 MUST NOT 同时把旧学生正文或未确认教案作为另一份正式上游。
 

@@ -260,11 +260,17 @@ describe('LearningView 正文任务覆盖层', () => {
     expect(wrapper.find('[data-testid="open-content-practice"]').exists()).toBe(false)
     expect(wrapper.find('[title="打开 AI 老师"]').exists()).toBe(false)
     expect(wrapper.findAll('.learning-dock__domain').map(button => button.text())).toEqual(['笔记本', '题库本1', '学习概况', '知识库', '智能助教'])
-    expect(course.loadCourse).toHaveBeenCalledWith('c1')
-    expect(notes.loadCourseRecords).toHaveBeenCalledWith('c1')
-    expect(progress.load).toHaveBeenCalledWith('c1', 'n1')
-    expect(ai.load).toHaveBeenCalledWith('c1', 'n1')
-    expect(workspace.loadMistakeBook).toHaveBeenCalledWith('c1')
+    expect(course.loadCourse).toHaveBeenCalledWith('c1', {
+      includeLearningRecords: false,
+      monitorTask: false,
+      previewSurface: 'teacher',
+      silentError: true,
+      taskType: 'teacher_outline_generation',
+    })
+    expect(notes.loadCourseRecords).not.toHaveBeenCalled()
+    expect(progress.load).not.toHaveBeenCalled()
+    expect(ai.load).not.toHaveBeenCalled()
+    expect(workspace.loadMistakeBook).not.toHaveBeenCalled()
 
     await wrapper.get('[data-domain="notebook"]').trigger('click')
     expect(wrapper.find('.notebook-side-panel').exists()).toBe(true)

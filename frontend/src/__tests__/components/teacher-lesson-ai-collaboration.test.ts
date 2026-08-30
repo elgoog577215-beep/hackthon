@@ -398,7 +398,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(createCoursePlan.mock.calls[0]![0].instruction).toContain('把第二章和第三章合并')
     expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
     expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('3 个受影响单元')
-    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('大纲、教案、讲稿')
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('大纲、教案、讲义')
 
     await wrapper.get('.lesson-ai-course-plan button').trigger('click')
     expect(wrapper.emitted('open-course-adjustment')?.[0]).toEqual([{ planId: 'course-change-1' }])

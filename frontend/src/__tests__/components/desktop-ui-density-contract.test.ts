@@ -26,7 +26,7 @@ describe('desktop UI density contract', () => {
     // 表头高度跟随组件：5150a085「simplify teacher workspace ui」把 .course-workbench
     // 改成 64px，本断言原停在 8f4322de（2026-08-12）的 62px，是过期值不是回归。
     expect(workbenchSource).toMatch(/grid-template-rows:64px minmax\(0,1fr\)/)
-    expect(taskCenterSource).toMatch(/grid-template-columns:260px minmax\(0,1fr\)/)
+    expect(taskCenterSource).toMatch(/grid-template-columns:290px minmax\(0,1fr\)/)
   })
 
   it('keeps technical diagnostics available without placing raw codes in the primary alert', () => {

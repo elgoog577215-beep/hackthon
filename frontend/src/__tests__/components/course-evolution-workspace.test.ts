@@ -117,7 +117,7 @@ describe('CourseEvolutionWorkspace', () => {
     const wrapper = mountWorkspace(createPinia())
 
     expect(wrapper.findAll('.journey li')).toHaveLength(4)
-    expect(wrapper.get('.journey li.active').text()).toContain('说出要求')
+    expect(wrapper.get('.journey li.active').text()).toContain('提出要求')
     expect(wrapper.get('.request-composer').text()).toContain('这次想让课程怎么变')
     expect(wrapper.get('.readiness-strip').text()).toContain('课程准备情况')
     expect(wrapper.get('.readiness-strip').text()).toContain('部分完成')
@@ -135,7 +135,7 @@ describe('CourseEvolutionWorkspace', () => {
     store.generating = true
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('分析影响')
+    expect(wrapper.get('.journey li.active').text()).toContain('查看影响')
     expect(wrapper.get('.scan-main').text()).toContain('索引召回')
     expect(wrapper.get('.scan-main').text()).toContain('AI 判断')
     expect(wrapper.findAll('.scanning-state aside li')).toHaveLength(4)
@@ -159,7 +159,7 @@ describe('CourseEvolutionWorkspace', () => {
     const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('分析影响')
+    expect(wrapper.get('.journey li.active').text()).toContain('查看影响')
     expect(wrapper.get('.request-context').text()).toContain('本次目标')
     expect(wrapper.findAll('.impact-nav nav button')).toHaveLength(2)
     expect(wrapper.get('.impact-list').text()).toContain('原讲稿只介绍方法')
@@ -272,7 +272,7 @@ describe('CourseEvolutionWorkspace', () => {
     const generate = vi.spyOn(store, 'generateSuggested').mockResolvedValue({} as any)
     const wrapper = mountWorkspace(pinia)
 
-    expect(wrapper.get('.journey li.active').text()).toContain('审阅修改')
+    expect(wrapper.get('.journey li.active').text()).toContain('审阅候选')
     expect(wrapper.get('.tree-comparison').text()).toContain('第三章 原理与项目')
     expect(wrapper.get('.tree-comparison').text()).toContain('第四章 项目实践')
     expect(wrapper.get('.migration-panel').text()).toContain('重新生成')

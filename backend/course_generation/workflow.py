@@ -680,6 +680,16 @@ def _section_execution_payload(value: dict[str, Any]) -> dict[str, Any]:
         "in_class_checks": _unique_strings(list(value.get("in_class_checks") or [])),
         "homework": _unique_strings(list(value.get("homework") or [])),
         "teaching_notes": _unique_strings(list(value.get("teaching_notes") or [])),
+        "pre_study": _unique_strings(list(value.get("pre_study") or [])),
+        "key_analysis": _unique_strings(list(value.get("key_analysis") or [])),
+        "case_intro": _unique_strings(list(value.get("case_intro") or [])),
+        "practice": _unique_strings(list(value.get("practice") or [])),
+        "class_summary": _unique_strings(list(value.get("class_summary") or [])),
+        "extension_learning": _unique_strings(list(value.get("extension_learning") or [])),
+        # 照片是课后由教师上传或关联的证据，模型生成时只能保留已有引用。
+        "teaching_activity_photos": _unique_strings(
+            list(value.get("teaching_activity_photos") or [])
+        ),
     }
     return {key: item for key, item in payload.items() if item not in (None, [])}
 

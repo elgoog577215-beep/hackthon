@@ -174,14 +174,20 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
     assert "## 五、考核与成绩构成" in outline
     assert "平时任务 40%" in outline
     assert outline.count("平时任务 40%") == 1
-    assert "## 七、参考资料" in outline
+    assert "## 九、参考书目与网站" in outline
     assert "微积分教材.pdf" in outline
+    assert "## 七、教学日历" in outline
+    assert "## 八、课程思政案例" in outline
+    assert "## 十、课程网站" in outline
 
-    assert "#### 教学目标" in teaching_plan
-    assert "**知识与能力**" in teaching_plan
-    assert "**过程与方法**" in teaching_plan
-    assert "**迁移与创新**" in teaching_plan
+    assert "#### 知识与能力目标" in teaching_plan
+    assert "#### 过程与方法目标" in teaching_plan
+    assert "#### 创新目标" in teaching_plan
     assert "#### 教学重点与难点" in teaching_plan
+    assert "#### 课前预习" in teaching_plan
+    assert "#### 案例导入" in teaching_plan
+    assert "#### 实践操作" in teaching_plan
+    assert "#### 教学活动照片" in teaching_plan
     assert "| 教学环节 | 教学目的 | 时间 | 教师活动 | 学生活动 |" in teaching_plan
     assert "展示数表与图像并追问趋势" in teaching_plan
     assert "微积分教材.pdf" in teaching_plan

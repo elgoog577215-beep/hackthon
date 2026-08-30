@@ -13,27 +13,36 @@ from copy import deepcopy
 from typing import Any
 
 
-FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v2"
+FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v3"
 
 OUTLINE_DOCUMENT_SECTIONS = (
     "课程基本信息",
-    "课程定位与简介",
+    "中英文课程简介",
     "教学目标",
     "课程要求",
     "考核与成绩构成",
-    "教学内容与学时安排",
-    "参考资料",
+    "按周与按讲教学进度",
+    "教学日历",
+    "课程思政案例",
+    "参考书目与网站",
+    "课程网站",
 )
 
 LESSON_PLAN_DOCUMENT_SECTIONS = (
-    "课次基本信息",
-    "教学目标",
+    "课程名称与课次信息",
+    "知识与能力目标",
+    "过程与方法目标",
+    "创新目标",
     "教学重点与难点",
-    "教学准备与来源资料",
-    "教学过程",
-    "课堂检查与评价证据",
-    "作业与拓展",
-    "教学备注与课后反思",
+    "课前预习",
+    "重点分析",
+    "案例导入",
+    "知识讲解与讨论",
+    "实践操作",
+    "课堂总结",
+    "课后作业",
+    "拓展学习",
+    "教学活动照片",
 )
 
 OBJECTIVE_DIMENSIONS = (
@@ -49,18 +58,42 @@ OBJECTIVE_DIMENSIONS = (
     },
     {
         "id": "transfer_innovation",
-        "label": "迁移与创新",
+        "label": "创新目标",
         "policy": "只在课程目标和本讲课型真实需要时生成，不为补齐模板编造空洞目标",
     },
 )
 
+OUTLINE_OBJECTIVE_DIMENSIONS = (
+    {"id": "learning", "label": "学习目标", "policy": "说清学生要掌握的知识与能力"},
+    {"id": "education", "label": "育人目标", "policy": "结合真实课程内容表达价值判断与责任，不空泛套话"},
+    {"id": "measurable", "label": "可测量成果", "policy": "使用可观察行为、作品或评价证据说明达成标准"},
+)
+
+LESSON_FLOW_SECTIONS = (
+    "课前预习",
+    "重点分析",
+    "案例导入",
+    "知识讲解与讨论",
+    "实践操作",
+    "课堂总结",
+    "课后作业",
+    "拓展学习",
+    "教学活动照片",
+)
+
 _PROFILE_FIELDS = (
+    "english_name",
     "course_code",
     "course_category",
     "credits",
+    "weekly_hours",
     "total_hours",
+    "prerequisite_courses",
     "target_major",
     "target_grade",
+    "weekday",
+    "periods",
+    "default_location",
     "course_intro",
     "assessment_method",
     "teaching_goals",
@@ -216,9 +249,11 @@ def compile_formal_course_context(
     lesson_minutes = classroom.get("lesson_duration_minutes")
     class_size = classroom.get("class_size")
     information = {
+        "课程英文名称": _text(profile.get("english_name")),
         "课程代码": _text(profile.get("course_code")),
         "课程类别": _text(profile.get("course_category")),
         "学分": profile.get("credits"),
+        "周学时": profile.get("weekly_hours"),
         "总学时": total_hours,
         "每次课时长": (
             f"{lesson_minutes} 分钟"
@@ -233,6 +268,9 @@ def compile_formal_course_context(
             else ""
         ),
         "学期": _text(classroom.get("academic_term")),
+        "上课星期": _text(profile.get("weekday")),
+        "上课节次": _text(profile.get("periods")),
+        "上课地点": _text(profile.get("default_location")),
         "授课方式": _TEACHING_CONTEXT_LABELS.get(
             teaching_context,
             teaching_context,
@@ -259,6 +297,8 @@ def compile_formal_course_context(
         "schema_version": FORMAL_AUTHORING_TEMPLATE_VERSION,
         "course_information": information,
         "course_intro": _text(profile.get("course_intro")),
+        "course_intro_zh": _text(effective_plan.get("course_intro_zh") or profile.get("course_intro")),
+        "course_intro_en": _text(effective_plan.get("course_intro_en")),
         "positioning": _text(effective_plan.get("positioning")),
         "student_profile": class_profile,
         "learning_objectives": _text_list(
@@ -266,23 +306,22 @@ def compile_formal_course_context(
             or profile.get("teaching_goals")
             or profile.get("course_goal")
         ),
-        "prerequisites": _text_list(effective_plan.get("prerequisites")),
+        "prerequisites": _text_list(effective_plan.get("prerequisites") or profile.get("prerequisite_courses")),
         "teaching_requirements": list(dict.fromkeys(requirements)),
         "assessment_methods": list(dict.fromkeys(assessment_methods)),
         "references": _source_labels(course_data, effective_plan),
+        "reference_books": _text_list(effective_plan.get("reference_books")),
+        "reference_websites": _text_list(effective_plan.get("reference_websites")),
+        "course_website": _text(effective_plan.get("course_website")),
+        "ideology_cases": deepcopy(effective_plan.get("ideology_cases") or []),
         "outline_document_sections": list(OUTLINE_DOCUMENT_SECTIONS),
+        "outline_objective_dimensions": [deepcopy(item) for item in OUTLINE_OBJECTIVE_DIMENSIONS],
         "lesson_plan_document_sections": list(LESSON_PLAN_DOCUMENT_SECTIONS),
         "objective_dimensions": [deepcopy(item) for item in OBJECTIVE_DIMENSIONS],
         "lesson_flow_contract": {
-            "required_roles": [
-                "进入本讲问题或任务",
-                "完成核心教学",
-                "安排学习者可观察行动",
-                "产生检查或总结证据",
-            ],
+            "required_roles": list(LESSON_FLOW_SECTIONS),
             "selection_rule": (
-                "由教学类型、学科画像、本讲课型和已确认教学块决定具体流程；"
-                "不强制所有课次套用相同环节。"
+                "每讲都要对这些栏目给出具体内容；没有活动照片时明确标记待补充，不编造照片。"
             ),
         },
         "reference_policy": (
@@ -312,7 +351,9 @@ def compile_outline_prompt_contract(
         "teaching_requirements": context["teaching_requirements"],
         "assessment_methods": context["assessment_methods"],
         "required_document_sections": context["outline_document_sections"],
-        "objective_dimensions": context["objective_dimensions"],
+        "objective_dimensions": context["outline_objective_dimensions"],
+        "schedule_contract": "教学进度必须细化到周和讲，每讲说清主题、内容、重难点、活动、作业与学时",
+        "ideology_case_contract": "思政案例必须对应具体讲次、课程内容、育人目标和实施方式",
         "reference_policy": context["reference_policy"],
         "integration_rules": [
             "确认的课程信息是只读输入，不得改写、换算或猜测缺失值",
@@ -390,7 +431,7 @@ def project_lesson_objective_dimensions(
         for label, values in (
             ("知识与能力", knowledge_capability),
             ("过程与方法", process_method),
-            ("迁移与创新", transfer_innovation),
+            ("创新目标", transfer_innovation),
         )
         if values
     }
@@ -398,8 +439,10 @@ def project_lesson_objective_dimensions(
 
 __all__ = [
     "FORMAL_AUTHORING_TEMPLATE_VERSION",
+    "LESSON_FLOW_SECTIONS",
     "LESSON_PLAN_DOCUMENT_SECTIONS",
     "OBJECTIVE_DIMENSIONS",
+    "OUTLINE_OBJECTIVE_DIMENSIONS",
     "OUTLINE_DOCUMENT_SECTIONS",
     "attach_formal_course_profile",
     "compile_formal_course_context",

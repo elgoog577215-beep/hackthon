@@ -29,14 +29,6 @@
         :accessibility-label="t('teacherCourseLibrary.termFilter')"
         @update:model-value="setTermFilter"
       />
-      <UiSelectMenu
-        data-testid="course-sort-menu"
-        :model-value="sortMode"
-        :options="sortMenuOptions"
-        :label="t('teacherCourseLibrary.sortLabel')"
-        :accessibility-label="t('teacherCourseLibrary.sortBy')"
-        @update:model-value="setSortMode"
-      />
       <UiSegmentedControl
         class="library-view-control"
         :model-value="displayMode"
@@ -64,19 +56,14 @@
       :aria-label="t('teacherCourseLibrary.collectionTitle')"
     >
       <p class="sr-only" aria-live="polite">{{ t('teacherCourseLibrary.collectionSummary').replace('{count}', String(filteredCourses.length)) }}</p>
-      <div v-if="displayMode === 'list'" class="course-list-columns" aria-hidden="true">
-        <span>{{ t('teacherCourseLibrary.columns.course') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.status') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.time') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.location') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.term') }}</span>
-        <span>{{ t('teacherCourseLibrary.columns.version') }}</span>
+      <div v-if="displayMode === 'list'" class="course-list-columns">
+        <button v-for="column in listColumns" :key="column.key" type="button" :aria-label="t('teacherCourseLibrary.sortBy').replace('{field}', column.label)" @click="toggleSort(column.key)">{{ column.label }}<component :is="sortIcon(column.key)" :size="13" /></button>
         <span>{{ t('teacherCourseLibrary.columns.actions') }}</span>
       </div>
       <div ref="courseGridRef" class="course-grid-anchor">
         <TransitionGroup name="course-result" tag="div" class="course-grid" :data-view="displayMode" data-layout="responsive-three-column">
           <article
-          v-for="{ course, status, action } in courseCards"
+          v-for="{ course, status } in courseCards"
           :key="course.course_id"
           class="course-item glass-panel"
           :class="{ 'course-item--menu-open': openCourseMenuId === course.course_id }"
@@ -126,10 +113,10 @@
                 <strong>{{ courseTermLabel(course) }}</strong>
               </span>
             </span>
-            <span class="course-version course-field" :class="{ 'course-field--muted': !course.current_course_version_id }">
+            <span class="course-updated course-field">
               <span class="course-field__copy">
-                <small>{{ t('teacherCourseLibrary.columns.version') }}</small>
-                <strong>{{ courseVersionLabel(course) }}</strong>
+                <small>{{ t('teacherCourseLibrary.columns.lastEdited') }}</small>
+                <strong>{{ courseUpdatedLabel(course) }}</strong>
               </span>
             </span>
             <span
@@ -150,15 +137,6 @@
           :data-course-menu-root="course.course_id"
           @keydown.esc.stop.prevent="closeCourseMenu"
         >
-          <button
-            type="button"
-            class="course-primary-action"
-            @click="handleRecommendedAction(course, status)"
-          >
-            {{ action.label }}
-            <ArrowRight :size="17" />
-          </button>
-
           <button
             type="button"
             class="course-menu-trigger"
@@ -249,21 +227,15 @@
       </Transition>
     </Teleport>
 
-    <CourseWorkbench
-      v-model="workbenchOpen"
-      :course-id="selectedWorkbenchCourseId"
-      surface="teacher"
-    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowRight, BookOpenText, ChevronLeft, ChevronRight, Clock3, Ellipsis, Grid2X2, List, LoaderCircle, MapPin, Search, Trash2 } from 'lucide-vue-next'
+import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, Clock3, Ellipsis, Grid2X2, List, LoaderCircle, MapPin, Search, Trash2 } from 'lucide-vue-next'
 import CourseCover from '../components/CourseCover.vue'
-import CourseWorkbench from '../components/CourseWorkbench.vue'
 import UiSegmentedControl from '../components/UiSegmentedControl.vue'
 import UiSelectMenu from '../components/UiSelectMenu.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
@@ -274,21 +246,22 @@ import { formatCourseTitle } from '../utils/course-presentation'
 import type { Course } from '../stores/course'
 
 const router = useRouter()
+const route = useRoute()
 const { embedded = false } = defineProps<{ embedded?: boolean }>()
 const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
-type CourseStatusFilter = 'all' | 'attention' | 'preparing' | 'prepared'
-type CourseSortMode = 'priority' | 'nextSession' | 'term' | 'name'
-const query = ref('')
-const statusFilter = ref<CourseStatusFilter>('all')
-const termFilter = ref('all')
-const sortMode = ref<CourseSortMode>('priority')
-const displayMode = ref<'grid' | 'list'>(localStorage.getItem('teacher_course_library_view') === 'list' ? 'list' : 'grid')
+type CourseStatusFilter = 'all' | 'preparing' | 'prepared'
+type CourseSortMode = 'name' | 'status' | 'nextSession' | 'location' | 'term' | 'updated'
+type CourseSortDirection = 'ascending' | 'descending'
+const query = ref(String(route.query.q || ''))
+const statusFilter = ref<CourseStatusFilter>(['preparing', 'prepared'].includes(String(route.query.status)) ? route.query.status as CourseStatusFilter : 'all')
+const termFilter = ref(String(route.query.term || 'all'))
+const sortMode = ref<CourseSortMode>(['name', 'status', 'nextSession', 'location', 'term', 'updated'].includes(String(route.query.sort)) ? route.query.sort as CourseSortMode : 'updated')
+const sortDirection = ref<CourseSortDirection>(route.query.dir === 'ascending' ? 'ascending' : 'descending')
+const displayMode = ref<'grid' | 'list'>(route.query.display === 'list' || (!route.query.display && localStorage.getItem('teacher_course_library_view') === 'list') ? 'list' : 'grid')
 const currentPage = ref(1)
 const courseGridRef = ref<HTMLElement | null>(null)
 const openCourseMenuId = ref('')
-const workbenchOpen = ref(false)
-const selectedWorkbenchCourseId = ref('')
 
 const termFilterOptions = computed(() => {
   const options = new Map<string, string>()
@@ -318,14 +291,12 @@ const filteredCourses = computed(() => sortCourses(statusFilter.value === 'all'
 const statusFilterOptions = computed<Array<{ value: CourseStatusFilter; label: string; count: number }>>(() => {
   const counts: Record<CourseStatusFilter, number> = {
     all: termFilteredCourses.value.length,
-    attention: 0,
     preparing: 0,
     prepared: 0,
   }
   termFilteredCourses.value.forEach(course => { counts[courseFilterKey(course)] += 1 })
   return [
     { value: 'all', label: t('teacherCourseLibrary.allCourses'), count: counts.all },
-    { value: 'attention', label: t('teacherCourseLibrary.attentionCourses'), count: counts.attention },
     { value: 'preparing', label: t('teacherCourseLibrary.preparingCourses'), count: counts.preparing },
     { value: 'prepared', label: t('teacherCourseLibrary.preparedCourses'), count: counts.prepared },
   ]
@@ -339,11 +310,13 @@ const termMenuOptions = computed(() => [
   { value: 'all', label: t('teacherCourseLibrary.allTerms') },
   ...termFilterOptions.value,
 ])
-const sortMenuOptions = computed(() => [
-  { value: 'priority', label: t('teacherCourseLibrary.sortPriority'), hint: t('teacherCourseLibrary.sortHints.priority') },
-  { value: 'nextSession', label: t('teacherCourseLibrary.sortNextSession'), hint: t('teacherCourseLibrary.sortHints.nextSession') },
-  { value: 'term', label: t('teacherCourseLibrary.sortTerm'), hint: t('teacherCourseLibrary.sortHints.term') },
-  { value: 'name', label: t('teacherCourseLibrary.sortName'), hint: t('teacherCourseLibrary.sortHints.name') },
+const listColumns = computed<Array<{ key: CourseSortMode; label: string }>>(() => [
+  { key: 'name', label: t('teacherCourseLibrary.columns.course') },
+  { key: 'status', label: t('teacherCourseLibrary.columns.status') },
+  { key: 'nextSession', label: t('teacherCourseLibrary.columns.time') },
+  { key: 'location', label: t('teacherCourseLibrary.columns.location') },
+  { key: 'term', label: t('teacherCourseLibrary.columns.term') },
+  { key: 'updated', label: t('teacherCourseLibrary.columns.lastEdited') },
 ])
 const viewModeOptions = computed(() => [
   { value: 'grid', label: t('teacherCourseLibrary.cardView'), icon: Grid2X2 },
@@ -360,7 +333,6 @@ const courseCards = computed(() => paginatedCourses.value.map(course => {
   return {
     course,
     status,
-    action: recommendedAction(course, status),
   }
 }))
 const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
@@ -370,9 +342,10 @@ const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis
   if (currentPage.value >= pages - 3) return [1, 'start-ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages]
   return [1, 'start-ellipsis', currentPage.value - 1, currentPage.value, currentPage.value + 1, 'end-ellipsis', pages]
 })
-watch([query, statusFilter, termFilter, sortMode], () => {
+watch([query, statusFilter, termFilter, sortMode, sortDirection, displayMode], () => {
   currentPage.value = 1
   closeCourseMenu()
+  if (!embedded) void router.replace({ query: libraryQuery() })
 })
 
 watch(displayMode, mode => localStorage.setItem('teacher_course_library_view', mode))
@@ -413,7 +386,6 @@ function closeCourseMenu() {
 
 function setStatusFilter(value: string) { statusFilter.value = value as CourseStatusFilter }
 function setTermFilter(value: string) { termFilter.value = value }
-function setSortMode(value: string) { sortMode.value = value as CourseSortMode }
 function setDisplayMode(value: string) { displayMode.value = value === 'list' ? 'list' : 'grid' }
 
 function pageNumberLabel(page: number) {
@@ -465,11 +437,10 @@ function courseLocation(course: Course) {
   return course.next_session?.location || t('teacherCourseLibrary.locationPending')
 }
 
-function courseVersionLabel(course: Course) {
-  const versionId = String(course.current_course_version_id || '').trim()
-  const numbered = /^cv(\d+)$/i.exec(versionId)
-  if (numbered) return `V${numbered[1]}`
-  return versionId ? t('teacherCourseLibrary.currentVersion') : t('teacherCourseLibrary.versionPending')
+function courseUpdatedLabel(course: Course) {
+  if (!course.updated_at) return '—'
+  const parsed = new Date(course.updated_at)
+  return Number.isNaN(parsed.getTime()) ? course.updated_at : new Intl.DateTimeFormat(localeTag(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(parsed)
 }
 
 function courseNextSessionTime(course: Course) {
@@ -480,39 +451,33 @@ function courseUpdatedTime(course: Course) {
   return Date.parse(course.updated_at || '') || 0
 }
 
-function coursePriority(course: Course) {
-  const status = courseStatus(course)
-  if (status.needsAction) return 0
-  if (status.inProgress) return 1
-  if (course.next_session) return 2
-  return 3
-}
-
 function sortCourses(courses: Course[]) {
   return [...courses].sort((left, right) => {
-    if (sortMode.value === 'name') return left.course_name.localeCompare(right.course_name, localeTag())
-    if (sortMode.value === 'term') return courseTermLabel(right).localeCompare(courseTermLabel(left), localeTag())
-    if (sortMode.value === 'nextSession') {
-      return courseNextSessionTime(left) - courseNextSessionTime(right)
-        || courseUpdatedTime(right) - courseUpdatedTime(left)
-    }
-    return coursePriority(left) - coursePriority(right)
-      || courseNextSessionTime(left) - courseNextSessionTime(right)
-      || courseUpdatedTime(right) - courseUpdatedTime(left)
+    let result = 0
+    if (sortMode.value === 'name') result = left.course_name.localeCompare(right.course_name, localeTag())
+    else if (sortMode.value === 'status') result = coursePreparationState(left).localeCompare(coursePreparationState(right))
+    else if (sortMode.value === 'term') result = courseTermLabel(left).localeCompare(courseTermLabel(right), localeTag())
+    else if (sortMode.value === 'location') result = courseLocation(left).localeCompare(courseLocation(right), localeTag())
+    else if (sortMode.value === 'nextSession') result = courseNextSessionTime(left) - courseNextSessionTime(right)
+    else result = courseUpdatedTime(left) - courseUpdatedTime(right)
+    return result * (sortDirection.value === 'ascending' ? 1 : -1)
   })
 }
+
+function toggleSort(key: CourseSortMode) {
+  if (sortMode.value === key) sortDirection.value = sortDirection.value === 'ascending' ? 'descending' : 'ascending'
+  else { sortMode.value = key; sortDirection.value = key === 'updated' ? 'descending' : 'ascending' }
+}
+function sortIcon(key: CourseSortMode) { return sortMode.value !== key ? ArrowUpDown : sortDirection.value === 'ascending' ? ArrowUp : ArrowDown }
 
 function courseStatus(course: Course) {
   const task = generationStore.getTask(course.course_id)
   const preparation = coursePreparationState(course, task)
   const inProgress = Boolean(task && ['pending', 'running'].includes(task.status))
-  const needsAction = Boolean(task && taskRequiresAction(task))
   return {
-    active: inProgress || needsAction,
+    active: inProgress,
     inProgress,
-    needsAction,
-    retryable: task?.status === 'error',
-    tone: task?.status === 'error' ? 'danger' : needsAction ? 'warning' : preparation === 'prepared' ? 'ready' : 'processing',
+    tone: preparation === 'prepared' ? 'ready' : 'processing',
     label: coursePreparationLabel(preparation),
     detail: courseProductionTaskDetail(task)
       || (task?.currentPhase ? t(`courseGeneration.phases.${task.currentPhase}`, task.currentPhase) : '')
@@ -522,35 +487,16 @@ function courseStatus(course: Course) {
 }
 
 function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> {
-  const task = generationStore.getTask(course.course_id)
-  if (task && taskRequiresAction(task)) return 'attention'
-  return coursePreparationState(course, task)
+  return coursePreparationState(course)
 }
 
-function taskRequiresAction(task: { status: string; publicationAllowed?: boolean; recovery?: { state: string } }) {
-  if (task.status === 'completed_with_warnings'
-    && (task.publicationAllowed === true || task.recovery?.state === 'completed')) return false
-  return ['paused', 'waiting_for_review', 'conflict', 'error', 'completed_with_warnings'].includes(task.status)
+function libraryQuery() {
+  return { view: 'courses', ...(query.value ? { q: query.value } : {}), ...(statusFilter.value !== 'all' ? { status: statusFilter.value } : {}), ...(termFilter.value !== 'all' ? { term: termFilter.value } : {}), sort: sortMode.value, dir: sortDirection.value, display: displayMode.value }
 }
-
-function recommendedAction(course: Course, status: ReturnType<typeof courseStatus>) {
-  if (status.needsAction) {
-    return { label: t('teacherCourseLibrary.actions.resolve') }
-  }
-  if (status.active) return { label: t('teacherCourseLibrary.actions.viewProgress') }
-  if (course.course_status === 'draft' && !course.is_published) {
-    return { label: t('teacherCourseLibrary.actions.start') }
-  }
-  if (course.next_session) return { label: t('teacherCourseLibrary.actions.prepareNext') }
-  return { label: t('teacherCourseLibrary.actions.continue') }
-}
-
-function handleRecommendedAction(course: Course, status: ReturnType<typeof courseStatus>) {
-  if (status.active) {
-    openTaskCenter(course.course_id)
-    return
-  }
-  openCourse(course.course_id)
+function returnPath() {
+  const routeName = router.hasRoute('course-library') ? 'course-library' : route.name
+  if (routeName) return router.resolve({ name: routeName, query: libraryQuery() }).fullPath
+  return router.resolve({ path: route.path || '/courses', query: libraryQuery() }).fullPath
 }
 
 function openCourse(courseId: string) {
@@ -558,18 +504,12 @@ function openCourse(courseId: string) {
   void router.push({
     name: 'course-workspace',
     params: { courseId, mode: 'setup' },
-    query: { returnTo: '/courses?view=courses' },
+    query: { returnTo: returnPath() },
   })
 }
 
 function handleCoursePrimary(courseId: string) {
   openCourse(courseId)
-}
-
-function openTaskCenter(courseId = '') {
-  closeCourseMenu()
-  selectedWorkbenchCourseId.value = courseId
-  workbenchOpen.value = true
 }
 
 async function deleteCourse(courseId: string, courseName: string) {
@@ -590,28 +530,28 @@ async function deleteCourse(courseId: string, courseName: string) {
 <style scoped>
 .course-library { --course-content-width:1320px; --course-grid-width:1320px; --course-grid-gap:18px; --course-cover-width:52px; width:100%; height:100%; overflow:auto; padding:24px clamp(20px,3.2vw,44px) 48px; border:0; border-radius:var(--lz-radius-surface); background:#fbfcff; box-shadow:none; }
 .course-library--embedded { border:0; border-radius:0; background:var(--lz-surface); box-shadow:none; }
-.library-toolbar { position:relative; z-index:20; max-width:var(--course-content-width); margin:0 auto 22px; display:grid; grid-template-columns:minmax(320px,1fr) 156px 156px 156px auto; align-items:center; gap:10px; }
+.library-toolbar { position:relative; z-index:20; max-width:var(--course-content-width); margin:0 auto 22px; display:grid; grid-template-columns:minmax(320px,1fr) 156px 156px auto; align-items:center; gap:10px; }
 .library-search { width:100%; height:42px; display:flex; align-items:center; gap:9px; padding:0 14px; border:1px solid #dbe2ee; border-radius:12px; color:#64748b; background:#fff; transition:border-color .16s ease,box-shadow .16s ease; }
 .library-search:focus-within { border-color:#a5b4fc; box-shadow:0 4px 14px rgba(79,70,229,.08),0 0 0 3px rgba(99,102,241,.09); }
 .library-toolbar input { min-width:0; flex:1; border:0; outline:0; color:#334155; background:transparent; font-size:13px; }
 .library-toolbar input::placeholder { color:#64748b; }
 .library-view-control { width:154px; }
 .course-collection { width:100%; max-width:var(--course-grid-width); margin:0 auto; }
-.course-collection--list { --course-list-main-columns:minmax(260px,1.55fr) 124px 144px 130px 126px 94px; --course-list-action-column:148px; min-width:1120px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
+.course-collection--list { --course-list-main-columns:minmax(260px,1.55fr) 124px 144px 130px 126px 130px; --course-list-action-column:54px; min-width:1080px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
 .course-grid-anchor { width:100%; scroll-margin-top:18px; }
 .course-grid { position:relative; width:100%; margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
 .course-list-columns{min-width:1120px;height:38px;display:grid;grid-template-columns:var(--course-list-main-columns) var(--course-list-action-column);align-items:center;gap:0;border-bottom:1px solid #e1e6ef;border-radius:13px 13px 0 0;color:#64748b;background:#f8fafc;font-size:11px;font-weight:750}
-.course-list-columns span{padding:0 14px}.course-list-columns span:first-child{padding-left:16px}.course-list-columns span:last-child{padding-left:10px}
+.course-list-columns button,.course-list-columns span{height:100%;display:flex;align-items:center;gap:5px;padding:0 14px;border:0;color:inherit;background:transparent;font:inherit;font-weight:inherit;text-align:left}.course-list-columns button{cursor:pointer}.course-list-columns button:hover{color:#4338ca}.course-list-columns button:first-child{padding-left:16px}.course-list-columns span:last-child{padding-left:10px}
 .course-grid[data-view='list'] { --course-cover-width:34px; min-width:1120px; max-width:none; display:block; }
 .course-item { position:relative; min-width:0; min-height:198px; display:grid; grid-template-rows:minmax(0,1fr) 46px; overflow:visible; border:1px solid #e1e6ef; border-radius:15px; background:#fff; box-shadow:none; transition:border-color .18s ease,background .18s ease,transform .18s cubic-bezier(.2,.8,.2,1); }
 .course-item:hover { border-color:#bfc8f7; background:#fefeff; transform:translateY(-2px); }
 .course-item--menu-open { z-index:30; }
-.course-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:'identity status' 'time time' 'location location' 'progress progress'; align-content:start; gap:14px 12px; padding:20px 20px 16px; border:0; border-radius:15px 15px 0 0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
+.course-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:'identity status' 'time time' 'location location' 'updated updated' 'progress progress'; align-content:start; gap:14px 12px; padding:20px 20px 16px; border:0; border-radius:15px 15px 0 0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
 .course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
 .course-identity{grid-area:identity;min-width:0;display:grid;grid-template-columns:var(--course-cover-width) minmax(0,1fr);align-items:center;gap:13px}
 .course-identity__copy{min-width:0;display:grid;gap:5px}.course-identity h2{margin:0;overflow:hidden;display:-webkit-box;color:#1e293b;font-size:16px;font-weight:800;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.course-identity__meta{display:none;overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
 .course-field{min-width:0;display:flex;align-items:center;gap:9px;color:#64748b}.course-field__icon{flex:0 0 auto;color:#94a3b8}.course-field__copy{min-width:0;display:grid;gap:2px}.course-field small,.course-status__copy small{color:#64748b;font-size:10px;font-weight:650}.course-field strong{overflow:hidden;color:#475569;font-size:12px;font-weight:720;text-overflow:ellipsis;white-space:nowrap}
-.course-time{grid-area:time}.course-location{grid-area:location}.course-term{grid-area:term;display:none}.course-version{grid-area:version;display:none}
+.course-time{grid-area:time}.course-location{grid-area:location}.course-term{grid-area:term;display:none}.course-updated{grid-area:updated}
 .course-status{grid-area:status;min-width:0;display:flex;align-items:center;align-self:start;gap:7px;padding:6px 9px;border-radius:999px;color:#166534;background:#f0fdf4}
 .course-status__copy{min-width:0;display:grid}.course-status__copy small{display:none}.course-status__copy strong{overflow:hidden;color:inherit;font-size:11px;font-weight:780;text-overflow:ellipsis;white-space:nowrap}.course-status>strong{margin-left:0;color:inherit;font-size:11px;font-weight:800}
 .course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
@@ -628,8 +568,6 @@ async function deleteCourse(courseId: string, courseName: string) {
 .progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
 .course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
 .course-actions { position:relative; min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:6px 10px 6px 14px; border-top:1px solid #edf0f5; }
-.course-primary-action { min-height:34px; display:inline-flex; align-items:center; justify-content:center; gap:6px; padding:0 9px; border:0; border-radius:8px; color:var(--lz-brand-strong); background:transparent; font-size:12px; font-weight:800; white-space:nowrap; cursor:pointer; }
-.course-primary-action:hover,.course-primary-action:focus-visible { color:#4f46e5; background:var(--lz-brand-soft); outline:none; }
 .course-menu-trigger { width:32px; height:32px; flex:0 0 auto; display:grid; place-items:center; border:1px solid transparent; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
 .course-menu-trigger:hover,.course-menu-trigger:focus-visible,.course-menu-trigger[aria-expanded='true'] { border-color:#c7d2fe; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
 .course-menu { position:absolute; z-index:50; right:10px; bottom:42px; width:160px; overflow:hidden; padding:4px; border:1px solid rgba(203,213,225,.82); border-radius:10px; background:#fff; box-shadow:0 12px 28px rgba(51,65,85,.16),0 3px 8px rgba(79,70,229,.07); }
@@ -640,12 +578,12 @@ async function deleteCourse(courseId: string, courseName: string) {
 .course-grid[data-view='list'] .course-item{min-height:66px;display:grid;grid-template-columns:minmax(0,1fr) var(--course-list-action-column);grid-template-rows:none;margin:0;border:0;border-bottom:1px solid #e8ecf3;border-radius:0;background:#fff;box-shadow:none;transform:none;transition:background .16s ease,box-shadow .16s ease}
 .course-grid[data-view='list'] .course-item:last-child{border-bottom:0;border-radius:0 0 13px 13px}
 .course-grid[data-view='list'] .course-item:hover{background:#f8faff;box-shadow:inset 0 1px 0 rgba(99,102,241,.04),inset 0 -1px 0 rgba(99,102,241,.04)}
-.course-grid[data-view='list'] .course-main{min-height:65px;grid-template-columns:var(--course-list-main-columns);grid-template-areas:'identity status time location term version';align-items:center;gap:0;padding:0;border-radius:0}
+.course-grid[data-view='list'] .course-main{min-height:65px;grid-template-columns:var(--course-list-main-columns);grid-template-areas:'identity status time location term updated';align-items:center;gap:0;padding:0;border-radius:0}
 .course-grid[data-view='list'] .course-main:focus-visible{position:relative;z-index:1;outline:2px solid rgba(99,102,241,.34);outline-offset:-2px}
 .course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field{padding:0 14px}
 .course-grid[data-view='list'] .course-identity{grid-template-columns:var(--course-cover-width) minmax(0,1fr);gap:10px;padding-left:16px}.course-grid[data-view='list'] .course-identity__copy{gap:3px}.course-grid[data-view='list'] .course-identity h2{display:block;overflow:hidden;color:#24324a;font-size:13px;font-weight:780;text-overflow:ellipsis;white-space:nowrap}.course-grid[data-view='list'] .course-identity__meta{display:block;color:#64748b;font-size:10px}
-.course-grid[data-view='list'] .course-field{display:block}.course-grid[data-view='list'] .course-field__icon,.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{display:block;color:#526079;font-size:11.5px;font-weight:680;line-height:1.45;white-space:normal}.course-grid[data-view='list'] .course-field--muted strong{color:#64748b;font-weight:620}.course-grid[data-view='list'] .course-status{max-width:calc(100% - 20px);align-self:center;justify-self:start;margin:0 10px;padding:5px 8px}.course-grid[data-view='list'] .course-status__copy strong{font-size:11px}.course-grid[data-view='list'] .course-term,.course-grid[data-view='list'] .course-version{display:block}.course-grid[data-view='list'] .generation-progress{display:none}
-.course-grid[data-view='list'] .course-actions{justify-content:flex-end;gap:2px;padding:0 10px 0 6px;border:0}.course-grid[data-view='list'] .course-primary-action{min-height:30px;padding:0 8px;border:1px solid #e0e7ff;background:#f8faff;font-size:11.5px}.course-grid[data-view='list'] .course-primary-action svg{transition:transform .16s ease}.course-grid[data-view='list'] .course-primary-action:hover svg,.course-grid[data-view='list'] .course-primary-action:focus-visible svg{transform:translateX(2px)}.course-grid[data-view='list'] .course-menu-trigger{width:30px;height:30px}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:52px}
+.course-grid[data-view='list'] .course-field{display:block}.course-grid[data-view='list'] .course-field__icon,.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{display:block;color:#526079;font-size:11.5px;font-weight:680;line-height:1.45;white-space:normal}.course-grid[data-view='list'] .course-field--muted strong{color:#64748b;font-weight:620}.course-grid[data-view='list'] .course-status{max-width:calc(100% - 20px);align-self:center;justify-self:start;margin:0 10px;padding:5px 8px}.course-grid[data-view='list'] .course-status__copy strong{font-size:11px}.course-grid[data-view='list'] .course-term,.course-grid[data-view='list'] .course-updated{display:block}.course-grid[data-view='list'] .generation-progress{display:none}
+.course-grid[data-view='list'] .course-actions{justify-content:flex-end;gap:2px;padding:0 10px 0 6px;border:0}.course-grid[data-view='list'] .course-menu-trigger{width:30px;height:30px}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:52px}
 .course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
 .course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
 .course-result-enter-active,.course-result-leave-active { transition:opacity .18s ease-out,transform .24s cubic-bezier(.16,1,.3,1),filter .18s ease-out; }
@@ -690,7 +628,7 @@ async function deleteCourse(courseId: string, courseName: string) {
   .course-list-columns { display:none; }
   .course-grid[data-view='list'] { min-width:0; }
   .course-grid[data-view='list'] .course-item { min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto 44px; margin:0 0 12px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
-  .course-grid[data-view='list'] .course-main { min-height:0; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:'identity identity' 'status term' 'time location' 'version version'; align-items:start; gap:15px 12px; padding:16px; border-radius:14px 14px 0 0; }
+  .course-grid[data-view='list'] .course-main { min-height:0; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:'identity identity' 'status term' 'time location' 'updated updated'; align-items:start; gap:15px 12px; padding:16px; border-radius:14px 14px 0 0; }
   .course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field,.course-grid[data-view='list'] .course-status { padding:0; }
   .course-grid[data-view='list'] .course-field { display:flex; align-items:flex-start; }
   .course-grid[data-view='list'] .course-field__copy { gap:3px; }

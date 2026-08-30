@@ -76,9 +76,8 @@
           <span>{{ generationJob.message }}</span>
           <span class="script-generation-progress__actions">
             <strong>{{ generationJob.completed_blocks || 0 }}/{{ generationJob.total_blocks || 0 }}</strong>
-            <button v-if="generating" type="button" @click="emit('cancel-generation')">
-              {{ tr('courseWorkbench.scriptDocument.stopGeneration') }}
-            </button>
+            <button v-if="generating" type="button" @click="emit('pause-generation')">{{ tr('courseWorkbench.pause') }}</button>
+            <button v-if="generating" type="button" @click="emit('cancel-generation')">{{ tr('common.cancel') }}</button>
           </span>
         </div>
         <i><span :style="{ width: `${generationProgress}%` }" /></i>
@@ -126,7 +125,7 @@
         @input="recordEditSnapshot"
       />
       <div v-else-if="pendingCandidate && visibleContent" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
-        <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>AI 修改</strong><span>{{ selectedNode.title }}</span></aside>
+        <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</strong><span>{{ selectedNode.title }}</span></aside>
         <MarkdownRenderer :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="visibleContent" />
       </div>
       <div v-else-if="selectedNode.blocks?.length" class="script-modules">
@@ -210,6 +209,7 @@ const emit = defineEmits<{
   (event: 'confirm'): void
   (event: 'saved'): void
   (event: 'generate', requirement: string): void
+  (event: 'pause-generation'): void
   (event: 'cancel-generation'): void
   (event: 'open-ai'): void
   (event: 'open-ai-selection', value: { text: string }): void
@@ -262,12 +262,12 @@ const documentError = computed(() => {
 })
 
 const fallbackMessages: Record<string, string> = {
-  'courseWorkbench.scriptDocument.edit': '编辑讲稿',
+  'courseWorkbench.scriptDocument.edit': '编辑讲义',
   'courseWorkbench.scriptDocument.editing': '编辑中',
   'courseWorkbench.scriptDocument.cancel': '取消',
   'courseWorkbench.scriptDocument.finishEditing': '完成编辑',
   'courseWorkbench.scriptDocument.saving': '正在保存…',
-  'courseWorkbench.scriptDocument.saveFailed': '讲稿保存失败，请重试。',
+  'courseWorkbench.scriptDocument.saveFailed': '讲义保存失败，请重试。',
   'courseWorkbench.scriptDocument.aiImprove': 'AI 优化',
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
   'courseWorkbench.scriptDocument.aiPlaceholder': '输入你想调整的内容…',
@@ -278,36 +278,36 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.applyAi': '采用',
   'courseWorkbench.scriptDocument.applyingAi': '正在采用…',
   'courseWorkbench.scriptDocument.aiFailed': 'AI 优化失败，请重试。',
-  'courseWorkbench.scriptDocument.sectionNavigation': '讲稿小节',
+  'courseWorkbench.scriptDocument.sectionNavigation': '讲义小节',
   'courseWorkbench.scriptDocument.pendingReview': '待确认',
   'courseWorkbench.scriptDocument.confirmed': '已确认',
   'courseWorkbench.scriptDocument.confirming': '正在确认…',
-  'courseWorkbench.scriptDocument.confirm': '确认本讲讲稿',
+  'courseWorkbench.scriptDocument.confirm': '确认本讲讲义',
   'courseWorkbench.scriptDocument.incomplete': '请先补全本讲所有小节内容',
-  'courseWorkbench.scriptDocument.qualityBlocked': '讲稿尚未通过当前质量与来源检查',
+  'courseWorkbench.scriptDocument.qualityBlocked': '讲义尚未通过当前质量与来源检查',
   'courseWorkbench.scriptDocument.sourceRecovery': '恢复草稿',
   'courseWorkbench.scriptDocument.sourceTeacherEdit': '教师编辑稿',
   'courseWorkbench.scriptDocument.sourceAiOptimization': 'AI 优化稿',
   'courseWorkbench.scriptDocument.sourceModel': 'AI 生成稿',
-  'courseWorkbench.scriptDocument.sourceLegacy': '旧版讲稿',
+  'courseWorkbench.scriptDocument.sourceLegacy': '旧版讲义',
   'courseWorkbench.scriptDocument.statusCannotConfirm': '尚不能确认',
   'courseWorkbench.scriptDocument.statusCurrentReady': '当前正文可用',
   'courseWorkbench.scriptDocument.statusPassed': '已通过当前检查',
   'courseWorkbench.scriptDocument.statusBlockedDetail': '当前内容尚未通过最新质量与来源检查，请继续编辑或重新生成。',
   'courseWorkbench.scriptDocument.statusPreviousFailureDetail': '最近一次 AI 生成没有完成；当前展示的是已经单独保存并通过检查的正文，不是该次失败任务的输出。',
   'courseWorkbench.scriptDocument.statusPassedDetail': '确认后，这一修订才会成为 PPT 文书与 PPT 的唯一内容上游。',
-  'courseWorkbench.scriptDocument.generationRequirement': '讲稿生成要求',
+  'courseWorkbench.scriptDocument.generationRequirement': '讲义生成要求',
   'courseWorkbench.scriptDocument.generationPlaceholder': '例如：增加一个贴近学生的课堂案例，保留教案时间安排',
-  'courseWorkbench.scriptDocument.generate': '生成本讲讲稿',
+  'courseWorkbench.scriptDocument.generate': '生成本讲讲义',
   'courseWorkbench.scriptDocument.generating': '正在生成…',
   'courseWorkbench.scriptDocument.stopGeneration': '停止',
   'courseWorkbench.scriptDocument.continueGenerating': '继续生成剩余内容',
   'courseWorkbench.scriptDocument.waitingForNextBlock': '正在准备下一个教学块',
-  'courseWorkbench.scriptDocument.generateFailed': '讲稿生成失败',
-  'courseWorkbench.scriptDocument.confirmFailed': '讲稿确认失败',
+  'courseWorkbench.scriptDocument.generateFailed': '讲义生成失败',
+  'courseWorkbench.scriptDocument.confirmFailed': '讲义确认失败',
   'courseWorkbench.scriptDocument.planRequired': '请先确认本讲教案',
   'courseWorkbench.scriptDocument.minutes': '分钟',
-  'courseWorkbench.scriptPending': '本讲暂时没有可用讲稿。',
+  'courseWorkbench.scriptPending': '本讲暂时没有可用讲义。',
 }
 
 function tr(key: string): string {

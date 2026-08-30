@@ -1757,6 +1757,12 @@ class CourseService(AIBase):
                     str(value).strip() for value in item.get("teaching_notes") or []
                     if str(value).strip()
                 ],
+                "pre_study": list(item.get("pre_study") or []),
+                "key_analysis": list(item.get("key_analysis") or []),
+                "case_intro": list(item.get("case_intro") or []),
+                "practice": list(item.get("practice") or []),
+                "class_summary": list(item.get("class_summary") or []),
+                "extension_learning": list(item.get("extension_learning") or []),
                 "knowledge_context": {
                     "statements": view["knowledge_statements"],
                     "boundaries": view["knowledge_boundaries"],
@@ -1778,7 +1784,8 @@ class CourseService(AIBase):
             f"作用域：{'小节 ' + section_node_id if section_node_id else '整讲'}\n"
             "根对象只能包含 sections；每个 section 必须保留 node_id，并完整返回标准教案字段："
             "learning_objective 字符串，key_points、key_difficulties、in_class_checks、homework、"
-            "teaching_notes 字符串数组，以及 teaching_modules 数组。"
+            "teaching_notes、pre_study、key_analysis、case_intro、practice、"
+            "class_summary、extension_learning 字符串数组，以及 teaching_modules 数组。"
             "每个 teaching_module 必须保持 module_id 和原顺序，并返回 teaching_purpose、planned_minutes、"
             "teacher_activity、student_activity、expected_output、check_method、feedback_strategy、"
             "adaptation_options、engagement_mode、access_support、grouping、transition。"
@@ -1820,8 +1827,18 @@ class CourseService(AIBase):
             "in_class_checks": list,
             "homework": list,
             "teaching_notes": list,
+            "pre_study": list,
+            "key_analysis": list,
+            "case_intro": list,
+            "practice": list,
+            "class_summary": list,
+            "extension_learning": list,
         }
         compact_by_id = {str(item["node_id"]): item for item in compact_sections}
+        optional_formal_fields = {
+            "pre_study", "key_analysis", "case_intro", "practice",
+            "class_summary", "extension_learning",
+        }
         replacements: dict[str, dict[str, Any]] = {}
         changed = False
         for item in candidate_sections:
@@ -1831,6 +1848,8 @@ class CourseService(AIBase):
             source_view = compact_by_id[node_id]
             for field, expected_type in editable_fields.items():
                 value = item.get(field)
+                if field in optional_formal_fields and value is None:
+                    value = source_view[field]
                 if expected_type is str:
                     value = str(value or "").strip()
                     if not value:
@@ -1839,7 +1858,10 @@ class CourseService(AIBase):
                     if not isinstance(value, list):
                         raise AIProviderRequestError(f"AI 教案优化字段 {field} 必须为数组")
                     value = [str(entry).strip() for entry in value if str(entry).strip()]
-                    if field != "teaching_notes" and not value:
+                    if field not in {
+                        "teaching_notes", "pre_study", "key_analysis", "case_intro",
+                        "practice", "class_summary", "extension_learning",
+                    } and not value:
                         raise AIProviderRequestError(f"AI 教案优化缺少 {field}")
                 replacement[field] = value
                 if value != source_view[field]:

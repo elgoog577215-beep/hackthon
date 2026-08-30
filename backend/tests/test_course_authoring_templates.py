@@ -14,13 +14,14 @@ def test_formal_profile_is_a_bounded_generation_snapshot():
         "credits": 4,
         "course_intro": "  建立向量空间与线性变换的结构观  ",
         "course_goal": "能使用线性变换解决典型问题",
-        "default_location": "不进入生成模板的排课字段",
+        "default_location": "东二-101",
     })
 
     assert brief["formal_course_profile"] == {
         "course_code": "MATH-202",
         "credits": 4,
         "course_intro": "建立向量空间与线性变换的结构观",
+        "default_location": "东二-101",
         "teaching_goals": "能使用线性变换解决典型问题",
     }
 
@@ -68,7 +69,7 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     })
 
     assert context["course_information"]["教学对象"] == "大学一年级"
-    assert context["schema_version"] == "formal_course_authoring_v2"
+    assert context["schema_version"] == "formal_course_authoring_v3"
     assert "课程名称" not in context["course_information"]
     assert context["course_information"]["每次课时长"] == "90 分钟"
     assert context["course_information"]["班级规模"] == "48 人"
@@ -77,3 +78,7 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     assert context["teaching_requirements"] == []
     assert context["references"] == []
     assert "不编造" in context["reference_policy"]
+    assert [item["label"] for item in context["outline_objective_dimensions"]] == [
+        "学习目标", "育人目标", "可测量成果",
+    ]
+    assert context["lesson_flow_contract"]["required_roles"][-1] == "教学活动照片"

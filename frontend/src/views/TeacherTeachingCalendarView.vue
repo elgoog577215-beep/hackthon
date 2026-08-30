@@ -325,7 +325,7 @@ const monthLabel = computed(() => t('teacherHome.monthLabel').replace('{year}', 
 const periodLabel = computed(() => view.value === 'week' ? `${iso(weekStart.value)} — ${iso(weekEnd.value)}` : monthLabel.value)
 const todayLabel = computed(() => new Intl.DateTimeFormat(document.documentElement.lang || 'zh-CN', { month: 'long', day: 'numeric', weekday: 'long' }).format(new Date()))
 const weekdayNames = computed(() => [1, 2, 3, 4, 5, 6, 7].map(index => t(`teacherHome.weekdays.${index}`)))
-const activeHomeTab = computed<'calendar' | 'courses'>(() => route.query.view === 'courses' ? 'courses' : 'calendar')
+const activeHomeTab = computed<'calendar' | 'courses'>(() => route.query.view === 'calendar' ? 'calendar' : 'courses')
 const calendarError = computed(() => calendarStore.error ? toAppError(calendarStore.error, {
   title: t('teacherHome.calendarLoadFailed', '教学日历读取失败'),
   fallback: t('teacherHome.calendarLoadFailed', '教学日历读取失败'),
@@ -482,7 +482,7 @@ function selectDay(date: string) {
   const value = new Date(`${date}T12:00:00`)
   if (!Number.isNaN(value.getTime()) && (value.getFullYear() !== cursor.value.getFullYear() || value.getMonth() !== cursor.value.getMonth())) cursor.value = value
 }
-function switchHomeTab(tab: 'calendar' | 'courses') { void router.replace({ name: 'course-library', query: tab === 'courses' ? { view: 'courses' } : {} }) }
+function switchHomeTab(tab: 'calendar' | 'courses') { void router.replace({ name: 'course-library', query: tab === 'calendar' ? { view: 'calendar' } : {} }) }
 function openCourse(courseId: string) { if (courseId) void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' } }) }
 function clearCourseFilter() { selectedCourseId.value = ''; clearSelection() }
 function focusCourse(course: Course) {

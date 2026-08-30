@@ -33,6 +33,7 @@ PEDAGOGY_MODES = {
 PRODUCTION_MODES = {"manual", "automatic"}
 
 COURSE_PROFILE_FIELDS = (
+    "english_name",
     "course_code",
     "course_goal",
     "default_location",
@@ -40,7 +41,11 @@ COURSE_PROFILE_FIELDS = (
     "course_category",
     "target_major",
     "credits",
+    "weekly_hours",
     "total_hours",
+    "prerequisite_courses",
+    "weekday",
+    "periods",
     "assessment_method",
     "course_intro",
     "teaching_goals",
@@ -128,7 +133,7 @@ def course_information_snapshot(course: dict[str, Any]) -> dict[str, Any]:
         "course_profile": {
             field: (
                 deepcopy(profile.get(field))
-                if field in {"credits", "total_hours"}
+                if field in {"credits", "weekly_hours", "total_hours"}
                 else str(profile.get(field) or "")
             )
             for field in COURSE_PROFILE_FIELDS

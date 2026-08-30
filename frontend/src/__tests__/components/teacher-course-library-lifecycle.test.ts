@@ -110,10 +110,10 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-resume')
-    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
+    expect(router.currentRoute.value.query.returnTo).toBe('/teacher/courses?view=courses&sort=updated&dir=descending&display=grid')
   })
 
-  it('把新建空课程归入正在备课，并提供开始备课入口', async () => {
+  it('把新建空课程归入备课中，并以整张课程卡进入工作台', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{
@@ -135,14 +135,14 @@ describe('CourseLibraryView generation lifecycle', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('.course-status').text()).toContain('正在备课')
+    expect(wrapper.get('.course-status').text()).toContain('备课中')
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
-    expect(wrapper.get('.course-primary-action').text()).toContain('开始备课')
+    expect(wrapper.find('.course-primary-action').exists()).toBe(false)
     const statusMenu = wrapper.get('[data-testid="course-status-filter"]')
     expect(statusMenu.text()).toContain('状态全部课程1')
     await statusMenu.get('.ui-select-menu__trigger').trigger('click')
     expect(statusMenu.findAll('[role="option"]').map(option => option.text())).toEqual([
-      '全部课程1', '待处理0', '备课中1', '备课完成0',
+      '全部课程1', '备课中1', '备课完成0',
     ])
 
     await statusMenu.get('[data-option-value="prepared"]').trigger('click')
@@ -161,6 +161,8 @@ describe('CourseLibraryView generation lifecycle', () => {
       term: '秋季',
       course_code: 'MATH-221',
       is_published: true,
+      preparation_state: 'prepared',
+      updated_at: '2026-08-24T10:00:00Z',
       next_session: {
         session_id: 'session-7',
         sequence: 7,
@@ -188,12 +190,13 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('.course-time').text()).toContain('14:00')
     expect(wrapper.get('.course-location').text()).toContain('理科楼 A108')
     expect(wrapper.find('.course-readiness').exists()).toBe(false)
-    expect(wrapper.find('.course-updated').exists()).toBe(false)
+    expect(wrapper.get('.course-updated').text()).toContain('最后编辑')
+    expect(wrapper.get('.course-updated').text()).toContain('8月24日')
     expect(wrapper.find('.teacher-asset-summary').exists()).toBe(false)
-    expect(wrapper.get('.course-primary-action').text()).toContain('准备下次课')
+    expect(wrapper.find('.course-primary-action').exists()).toBe(false)
   })
 
-  it('列表模式展示学期、版本、上课时间和地点，并可按代码和学期筛选', async () => {
+  it('列表模式展示学期、最后编辑、上课时间和地点，并可按代码和学期筛选', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [
@@ -223,11 +226,13 @@ describe('CourseLibraryView generation lifecycle', () => {
     await flushPromises()
 
     await wrapper.get('button[title="列表"]').trigger('click')
-    expect(wrapper.get('.course-list-columns').text()).toContain('课程版本')
+    expect(wrapper.get('.course-list-columns').text()).toContain('最后编辑')
+    expect(wrapper.get('.course-list-columns').text()).not.toContain('课程版本')
     expect(wrapper.get('.course-list-columns').text()).toContain('上课地点')
     expect(wrapper.get('.course-grid').attributes('data-view')).toBe('list')
     expect(wrapper.findAll('.course-item')).toHaveLength(2)
-    expect(wrapper.findAll('.course-version')[0]!.text()).toContain('V3')
+    expect(wrapper.findAll('.course-updated')[0]!.text()).toContain('8月24日')
+    expect(wrapper.find('.course-version').exists()).toBe(false)
     expect(wrapper.findAll('.course-location')[0]!.text()).toContain('理科楼 A108')
 
     await wrapper.get('input[type="search"]').setValue('AI-101')
@@ -247,7 +252,7 @@ describe('CourseLibraryView generation lifecycle', () => {
   it('已发布的质量建议不占用待处理任务角标', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
-    courses.courseList = [{ course_id: 'course-1', course_name: '世界模型', node_count: 20 }]
+    courses.courseList = [{ course_id: 'course-1', course_name: '世界模型', node_count: 20, preparation_state: 'prepared' }]
     vi.spyOn(courses, 'fetchCourseList').mockResolvedValue(undefined)
     vi.spyOn(generation, 'fetchGlobalTasks').mockResolvedValue(undefined)
     vi.spyOn(generation, 'startGlobalMonitor').mockImplementation(() => undefined)
@@ -314,7 +319,7 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.get('[data-testid="course-menu-course-review"]').text()).not.toContain('题库管理')
   })
 
-  it('主操作直接进入课程工作台，更多菜单只保留低频危险操作', async () => {
+  it('整张课程卡直接进入课程工作台，更多菜单只保留低频危险操作', async () => {
     const courses = useCourseStore()
     const generation = useGenerationStore()
     courses.courseList = [{ course_id: 'course-authoring', course_name: '设计思维', node_count: 18 }]
@@ -339,12 +344,13 @@ describe('CourseLibraryView generation lifecycle', () => {
     expect(wrapper.find('[data-testid="open-course-production-course-authoring"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="course-menu-course-authoring"]').text()).toContain('删除课程')
 
-    await wrapper.get('.course-primary-action').trigger('click')
+    expect(wrapper.find('.course-primary-action').exists()).toBe(false)
+    await wrapper.get('.course-main').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-authoring')
-    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
+    expect(router.currentRoute.value.query.returnTo).toBe('/teacher/courses?view=courses&sort=updated&dir=descending&display=grid')
   })
 
   it('把删除课程放在更多操作菜单的危险操作区', async () => {
@@ -553,7 +559,7 @@ describe('CourseLibraryView generation lifecycle', () => {
 
     expect(router.currentRoute.value.name).toBe('course-workspace')
     expect(router.currentRoute.value.params.courseId).toBe('course-ready')
-    expect(router.currentRoute.value.query.returnTo).toBe('/courses?view=courses')
+    expect(router.currentRoute.value.query.returnTo).toBe('/teacher/courses?view=courses&sort=updated&dir=descending&display=grid')
     wrapper.unmount()
   })
 })

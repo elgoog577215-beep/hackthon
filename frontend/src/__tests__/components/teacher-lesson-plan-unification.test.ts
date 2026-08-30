@@ -84,17 +84,19 @@ describe('统一教案页面', () => {
     const store = useTeacherLessonAuthoringStore()
     const saveDraft = vi.spyOn(store, 'saveDraft').mockResolvedValue(lesson.plan)
     const wrapper = mount(TeacherLessonPlanDocument, {
-      props: { courseId: 'course-1', lesson, confirmed: true },
+      props: { courseId: 'course-1', courseTitle: '网络爬虫', lesson, confirmed: true },
     })
 
     expect(wrapper.get('.document-title h3').text()).toBe('第1讲 爬虫概述与HTTP基础')
     expect(wrapper.find('.document-state').exists()).toBe(false)
     expect(wrapper.get('.lesson-document').text()).not.toContain('标准教案')
     expect(wrapper.find('.document-saved').exists()).toBe(false)
-    expect(wrapper.text()).toContain('教学目标')
-    expect(wrapper.text()).toContain('教学重点')
-    expect(wrapper.text()).toContain('教学流程')
-    expect(wrapper.text()).toContain('课后作业')
+    for (const heading of [
+      '课程名称', '知识与能力目标', '过程与方法目标', '创新目标',
+      '重点分析', '课前预习', '案例导入', '知识讲解与讨论', '实践操作',
+      '课堂总结', '课后作业', '拓展学习', '教学活动照片',
+    ]) expect(wrapper.text()).toContain(heading)
+    expect(wrapper.text()).toContain('网络爬虫')
     expect(wrapper.find('.document-title p').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('理论型')
     expect(wrapper.text()).not.toContain('实战型')

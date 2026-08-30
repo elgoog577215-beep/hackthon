@@ -14,15 +14,6 @@
       <button v-if="showClose" type="button" :title="t('common.close', '关闭')" :aria-label="t('common.close', '关闭')" @click="emit('close')"><X :size="16" /></button>
     </header>
 
-    <button v-if="variant === 'default'" type="button" class="system-context" @click="emit('open-course-information')">
-      <span><Database :size="16" /></span>
-      <div>
-        <strong>{{ stage === 'ppt' ? t('courseWorkbench.references.pptContext', '课程内容基线') : t('courseWorkbench.references.systemContext', '课程上下文') }}</strong>
-        <small v-if="stage === 'ppt'">{{ t('courseWorkbench.references.pptContextAuto', 'AI 自动读取') }}</small>
-      </div>
-      <ChevronRight :size="15" />
-    </button>
-
     <button
       v-if="variant === 'default' && previousAvailableSources.length"
       type="button"
@@ -35,10 +26,10 @@
       <small>{{ previousAvailableSources.length }}</small>
     </button>
 
-    <section v-if="variant === 'default' && stage === 'ppt'" class="source-group ppt-smart-sources">
-      <div class="group-heading"><strong>{{ t('courseWorkbench.references.pptCurrentSources', '本次使用') }}</strong><small>{{ selected.length }}</small></div>
-      <div v-if="selected.length" class="ppt-smart-source-list">
-        <div v-for="item in selected" :key="item.asset_id" class="ppt-smart-source-item">
+    <section v-if="variant === 'default'" class="source-group ppt-smart-sources">
+      <div class="group-heading"><strong>{{ t('courseWorkbench.references.selectedTitle', '已选课程资料') }}</strong><small>{{ loading || saving ? t('courseWorkbench.references.processing', '处理中…') : selected.length }}</small></div>
+      <div v-if="fileSources.length" class="ppt-smart-source-list">
+        <div v-for="item in fileSources" :key="item.asset_id" class="ppt-smart-source-item">
           <span><Globe2 v-if="item.origin === 'web_search'" :size="17" /><FileText v-else :size="17" /></span>
           <div>
             <strong>{{ item.source_label || item.filename }}</strong>
@@ -49,8 +40,8 @@
       </div>
       <div v-else class="ppt-smart-empty">
         <Sparkles :size="20" />
-        <strong>{{ t('courseWorkbench.references.pptEmpty', '尚未添加补充资料') }}</strong>
-        <span>{{ t('courseWorkbench.references.pptEmptyHint', 'AI 将先使用已确认讲稿，新增资料会显示在这里。') }}</span>
+        <strong>{{ t('courseWorkbench.references.selectedEmptyTitle', '尚未选择课程资料') }}</strong>
+        <span>{{ t('courseWorkbench.references.selectedEmptyDetail', '先选择资料再生成；第一份作为原始材料，其余作为参考材料。') }}</span>
       </div>
       <div class="ppt-smart-actions">
         <button
@@ -60,48 +51,10 @@
           @dragover.prevent="dragRole = 'reference'"
           @dragleave="dragRole = ''"
           @drop.prevent="handleSmartDrop"
-        ><Plus :size="16" />{{ t('courseWorkbench.references.pptAddSources', '添加资料') }}</button>
-        <button type="button" @click="researchVisible = true"><Search :size="16" />{{ t('courseWorkbench.references.pptWebResearch', '联网查找') }}</button>
+        ><Plus :size="16" />{{ t('courseWorkbench.references.addCourseMaterial', '添加课程资料') }}</button>
+        <button v-if="webResearchAvailable" type="button" @click="researchVisible = true"><Search :size="16" />{{ t('courseWorkbench.references.webSearch', '联网查找') }}</button>
       </div>
       <input ref="smartInput" class="visually-hidden" type="file" multiple @change="handleSmartInput" />
-    </section>
-
-    <section v-if="variant === 'default' && stage !== 'ppt'" class="source-group">
-      <div class="group-heading"><strong>{{ stage === 'ppt' ? t('courseWorkbench.references.pptPrimary', '主参考') : t('courseWorkbench.references.primary', '主来源') }}</strong><small>{{ t('courseWorkbench.references.primaryLimit', '最多 1 份') }}</small></div>
-      <div
-        class="drop-zone"
-        :class="{ 'has-file': primarySource, dragging: dragRole === 'primary' }"
-        @dragover.prevent="dragRole = 'primary'"
-        @dragleave="dragRole = ''"
-        @drop.prevent="handleDrop($event, 'primary')"
-      >
-        <template v-if="primarySource">
-          <FileText :size="19" />
-          <div><strong>{{ primarySource.filename }}</strong><small>{{ fileSize(primarySource.size_bytes) }}</small></div>
-          <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(primarySource.asset_id)"><X :size="15" /></button>
-        </template>
-        <button v-else type="button" class="empty-drop" @click="primaryInput?.click()"><Plus :size="18" /><span>{{ stage === 'ppt' ? t('courseWorkbench.references.addPptPrimary', '添加主参考') : t('courseWorkbench.references.addPrimary', '添加主来源') }}</span></button>
-      </div>
-      <input ref="primaryInput" class="visually-hidden" type="file" @change="handleInput($event, 'primary')" />
-    </section>
-
-    <section v-if="variant === 'default' && stage !== 'ppt'" class="source-group source-group--references">
-      <div class="group-heading"><strong>{{ t('courseWorkbench.references.supporting', '参考资料') }}</strong><small>{{ referenceSources.length }}</small></div>
-      <div class="reference-list">
-        <div v-for="item in referenceSources" :key="item.asset_id" class="reference-item">
-          <FileText :size="17" /><div><strong>{{ item.filename }}</strong><small>{{ fileSize(item.size_bytes) }}</small></div><button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
-        </div>
-        <button
-          type="button"
-          class="reference-add"
-          :class="{ dragging: dragRole === 'reference' }"
-          @click="referenceInput?.click()"
-          @dragover.prevent="dragRole = 'reference'"
-          @dragleave="dragRole = ''"
-          @drop.prevent="handleDrop($event, 'reference')"
-        ><Plus :size="16" />{{ t('courseWorkbench.references.addSupporting', '添加或拖入资料') }}</button>
-      </div>
-      <input ref="referenceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'reference')" />
     </section>
 
     <section v-if="variant === 'question-bank'" class="source-group source-group--question-bank">
@@ -122,7 +75,7 @@
       <input ref="questionSourceInput" class="visually-hidden" type="file" multiple @change="handleInput($event, 'question_source')" />
     </section>
 
-    <section v-if="variant === 'default' && stage !== 'ppt'" class="source-group source-group--web">
+    <section v-if="variant === 'default' && (webResearchAvailable || webSources.length)" class="source-group source-group--web">
       <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
       <div class="web-source-list">
         <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
@@ -130,7 +83,7 @@
           <div><strong>{{ item.source_label || item.filename }}</strong><a v-if="item.source_metadata?.url" :href="String(item.source_metadata.url)" target="_blank" rel="noopener noreferrer">{{ item.source_metadata.domain || item.source_metadata.url }}<ExternalLink :size="11" /></a><small v-else>{{ item.filename }}</small></div>
           <button type="button" :aria-label="t('common.remove', '移除')" @click="removeSource(item.asset_id)"><X :size="14" /></button>
         </div>
-        <button type="button" class="web-research-open" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
+        <button v-if="webResearchAvailable" type="button" class="web-research-open" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
       </div>
     </section>
 
@@ -143,13 +96,13 @@
     </section>
 
     <p v-if="error" class="tray-error" role="alert">{{ error }}</p>
-    <WebResearchDialog v-if="variant === 'default'" :visible="researchVisible" :course-id="courseId" :stage="stage" :lesson-id="lessonId" @close="researchVisible = false" @saved="handleWebSaved" />
+    <WebResearchDialog v-if="variant === 'default' && webResearchAvailable" :visible="researchVisible" :course-id="courseId" :stage="stage" :lesson-id="lessonId" @close="researchVisible = false" @saved="handleWebSaved" />
   </aside>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ChevronRight, CopyPlus, Database, ExternalLink, FileText, Globe2, Plus, Search, Sparkles, X } from 'lucide-vue-next'
+import { CopyPlus, ExternalLink, FileText, Globe2, Plus, Search, Sparkles, X } from 'lucide-vue-next'
 import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
 import http, { teacherRequestConfig } from '../utils/http'
@@ -207,7 +160,6 @@ const props = withDefaults(defineProps<{
 })
 const emit = defineEmits<{
   (event: 'update:modelValue', value: CourseReferenceItem[]): void
-  (event: 'open-course-information'): void
   (event: 'close'): void
 }>()
 const materials = ref<CourseReferenceItem[]>([])
@@ -218,13 +170,12 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const researchVisible = ref(false)
+const webResearchAvailable = ref(true)
 const dragRole = ref<'' | 'primary' | 'reference' | 'question_source'>('')
-const primaryInput = ref<HTMLInputElement | null>(null)
-const referenceInput = ref<HTMLInputElement | null>(null)
 const questionSourceInput = ref<HTMLInputElement | null>(null)
 const smartInput = ref<HTMLInputElement | null>(null)
 const primarySource = computed(() => selected.value.find(item => item.role === 'primary'))
-const referenceSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin !== 'web_search'))
+const fileSources = computed(() => selected.value.filter(item => item.origin !== 'web_search'))
 const questionSources = computed(() => selected.value.filter(item => item.role === 'question_source'))
 const webSources = computed(() => selected.value.filter(item => item.role === 'reference' && item.origin === 'web_search'))
 const availableMaterials = computed(() => {
@@ -236,8 +187,8 @@ const trayTitle = computed(() => {
     return t('courseWorkbench.references.questionSources', '真题资料')
   }
   return props.stage === 'ppt'
-    ? t('courseWorkbench.references.pptSmartTitle', 'PPT 智能资料')
-    : t('courseWorkbench.references.title', '信息来源')
+    ? t('courseWorkbench.references.pptSmartTitle', '课程资料')
+    : t('courseWorkbench.references.title', '课程资料')
 })
 const previousAvailableSources = computed(() => {
   if (!props.previousScopeTargetId) return []
@@ -261,8 +212,8 @@ function fileSize(value: number) { return value >= 1024 * 1024 ? `${(value / 102
 function sourceRoleLabel(item: CourseReferenceItem) {
   if (item.origin === 'web_search') return t('courseWorkbench.references.webSources', '联网来源')
   return item.role === 'primary'
-    ? t('courseWorkbench.references.pptPrimary', '主参考')
-    : t('courseWorkbench.references.supporting', '参考资料')
+    ? t('courseWorkbench.references.primaryMaterial', '原始材料')
+    : t('courseWorkbench.references.referenceMaterial', '参考材料')
 }
 
 async function resolvePackageId(value: CourseReferenceItem[]) {
@@ -372,11 +323,27 @@ async function loadWebReferences() {
   } catch (reason: any) { error.value = String(reason?.response?.data?.detail?.message || reason?.response?.data?.detail || reason?.message || t('courseWorkbench.webResearch.loadFailed', '调研记录读取失败')) }
 }
 
+async function loadWebResearchCapability() {
+  try {
+    const response = await http.get(
+      `/api/courses/${props.courseId}/web-research/capability`,
+      teacherRequestConfig({ silentError: true }),
+    )
+    webResearchAvailable.value = response.data?.available !== false
+  } catch {
+    webResearchAvailable.value = false
+    researchVisible.value = false
+  }
+}
+
 async function loadAll() {
   const targetId = props.scopeTargetId
   loading.value = true; error.value = ''
   try {
-    if (props.variant === 'default') await loadWebReferences()
+    if (props.variant === 'default') {
+      await loadWebResearchCapability()
+      await loadWebReferences()
+    }
     else storedWebReferences.value = []
     await loadMaterials()
     if (targetId && targetId === props.scopeTargetId) {
@@ -451,7 +418,7 @@ function handleSmartInput(event: Event) {
 }
 function handleSmartDrop(event: DragEvent) { dragRole.value = ''; void uploadSmartFiles(Array.from(event.dataTransfer?.files || [])) }
 function removeSource(assetId: string) { commit(selected.value.filter(item => item.asset_id !== assetId)) }
-function addExisting(item: CourseReferenceItem) { commit([...selected.value, { ...item, role: props.stage === 'ppt' && !primarySource.value ? 'primary' : 'reference' }]) }
+function addExisting(item: CourseReferenceItem) { commit([...selected.value, { ...item, role: !primarySource.value ? 'primary' : 'reference' }]) }
 function reusePreviousSources() {
   let hasPrimary = selected.value.some(item => item.role === 'primary')
   const reused = previousAvailableSources.value.map(item => {

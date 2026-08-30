@@ -7,17 +7,16 @@ const source = (path: string) => readFileSync(
   'utf8',
 )
 
-describe('five-stage course workbench boundary', () => {
+describe('four-stage course workbench boundary', () => {
   it('keeps the question bank optional and places paper composition inside it', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     const questionBank = source('components/QuestionBankReviewPanel.vue')
     const questionBankUsage = workbench.match(/<QuestionBankReviewPanel[\s\S]*?\/>/)?.[0] || ''
 
-    expect(workbench).toContain("type CoreStageId = 'foundation' | 'lesson' | 'question-bank' | 'script' | 'ppt'")
-    expect(workbench).toContain("type StageId = CoreStageId | 'companion'")
-    expect(workbench.indexOf("id: 'question-bank'")).toBeLessThan(
-      workbench.indexOf("id: 'script'"),
-    )
+    expect(workbench).toContain("type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'")
+    expect(workbench).toContain("type StageId = CoreStageId | 'question-bank' | 'companion'")
+    expect(workbench).not.toContain("{ id: 'question-bank' as const, step:")
+    expect(workbench).toContain("readyStageCount }}/4")
     expect(workbench).toContain('<QuestionBankReviewPanel')
     expect(questionBankUsage).not.toContain('initial-node-ids')
     expect(questionBankUsage).not.toContain('material-asset-ids')

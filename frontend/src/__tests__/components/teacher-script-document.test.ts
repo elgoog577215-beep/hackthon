@@ -42,10 +42,10 @@ describe('统一讲稿页面', () => {
 
     expect(wrapper.get('.script-title h3').text()).toBe('第1讲 爬虫概述')
     expect(wrapper.find('.script-state').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('课程讲稿')
+    expect(wrapper.text()).not.toContain('课程讲义')
     expect(wrapper.text()).not.toContain('1 个小节')
 
-    await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲稿'))!.trigger('click')
+    await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲义'))!.trigger('click')
     await wrapper.get('.script-body textarea').setValue('老师修改后的讲稿')
     await wrapper.findAll('.script-actions button').find(button => button.text().includes('完成编辑'))!.trigger('click')
     await flushPromises()
@@ -95,7 +95,7 @@ describe('统一讲稿页面', () => {
     expect(wrapper.text()).toContain('本节任务')
     expect(wrapper.text()).toContain('核心教学')
 
-    await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲稿'))!.trigger('click')
+    await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲义'))!.trigger('click')
     const editors = wrapper.findAll('.script-block-editor textarea')
     expect(editors).toHaveLength(2)
     await editors[1]!.setValue('老师逐块修改后的核心讲解。')
@@ -152,7 +152,7 @@ describe('统一讲稿页面', () => {
   it('底部只负责确认讲稿，确认后由左侧流程切换阶段', async () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
     const button = wrapper.get('.script-footer button')
-    expect(button.text()).toContain('确认本讲讲稿')
+    expect(button.text()).toContain('确认本讲讲义')
     await button.trigger('click')
     expect(wrapper.emitted('confirm')).toHaveLength(1)
 
@@ -224,7 +224,11 @@ describe('统一讲稿页面', () => {
     })
     expect(wrapper.find('.script-generate').exists()).toBe(false)
     expect(wrapper.get('.script-generation-progress').text()).toContain('正在生成：核心教学')
-    await wrapper.get('.script-generation-progress button').trigger('click')
+    const generationActions = wrapper.findAll('.script-generation-progress button')
+    expect(generationActions.map(button => button.text())).toEqual(['暂停', '取消'])
+    await generationActions[0]!.trigger('click')
+    expect(wrapper.emitted('pause-generation')).toHaveLength(1)
+    await generationActions[1]!.trigger('click')
     expect(wrapper.emitted('cancel-generation')).toHaveLength(1)
 
     await wrapper.setProps({
@@ -293,7 +297,7 @@ describe('统一讲稿页面', () => {
       },
     })
 
-    expect(wrapper.text()).toContain('教师编辑稿 · 当前正文可用')
+    expect(wrapper.text()).toContain('教师编辑稿 · 当前讲义可用')
     expect(wrapper.text()).toContain('不是该次失败任务的输出')
     expect(wrapper.text()).not.toContain('讲稿生成失败')
     expect(wrapper.get('.script-footer button').attributes('disabled')).toBeUndefined()

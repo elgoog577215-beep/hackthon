@@ -553,6 +553,14 @@ export interface Course {
     academic_year?: string
     term?: string
     course_code?: string
+    preparation_state?: 'preparing' | 'prepared'
+    preparation_summary?: {
+        planned_lessons: number
+        outline_confirmed: boolean
+        confirmed_lesson_plans: number
+        confirmed_handouts: number
+        confirmed_ppts: number
+    }
     current_course_version_id?: string
     updated_at?: string
     next_session?: {

@@ -107,6 +107,15 @@ class GenerateLessonPlanRequest(BaseModel):
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
 
 
+class GenerateAllLessonPlansRequest(BaseModel):
+    request_id: str = Field(default="", max_length=160)
+    source_package_id: str = Field(default="", max_length=160)
+    source_asset_id: str = Field(default="", max_length=160)
+    requirements: str = Field(default="", max_length=4000)
+    material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
+    regenerate_confirmed: bool = False
+
+
 class ConfirmLessonArrangementRequest(BaseModel):
     lesson_type: str
     blocks: list[dict[str, Any]] = Field(min_length=1, max_length=32)
@@ -3093,6 +3102,102 @@ async def generate_lesson_plan(
         _raise(exc)
 
 
+@router.post("/courses/{course_id}/lesson-plans/generate-all", status_code=202)
+async def generate_all_lesson_plans(
+    course_id: str,
+    body: GenerateAllLessonPlansRequest,
+    request: Request,
+    tm: TaskManager = Depends(require_task_manager),
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    """Start one durable child job per lecture and return one batch receipt."""
+    try:
+        source = _source_course(tm, course_id)
+        outline_revision = _canonical_outline_revision(source)
+        lessons = _lesson_projection(source, repository)
+        if not lessons:
+            raise TeacherLessonAuthoringError(
+                "teacher_lesson_batch_empty",
+                "课程大纲中还没有可生成教案的讲次。",
+            )
+        actor = resolve_user_id(request.headers.get("X-User-Id"))
+        parent_job_id = f"tlj-batch-{uuid.uuid4().hex}"
+        request_prefix = body.request_id.strip() or parent_job_id
+        jobs: list[dict[str, Any]] = []
+        skipped_lesson_ids = [
+            str(lesson.get("lesson_unit_id") or "")
+            for lesson in lessons
+            if not body.regenerate_confirmed
+            and isinstance(lesson.get("plan"), dict)
+            and lesson["plan"].get("confirmed_revision_id")
+            and lesson["plan"].get("source_state", "current") == "current"
+        ]
+        target_lessons = [
+            lesson for lesson in lessons
+            if str(lesson.get("lesson_unit_id") or "") not in skipped_lesson_ids
+        ]
+        for lesson in target_lessons:
+            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            arrangement = lesson.get("arrangement")
+            if not isinstance(arrangement, dict) or not arrangement.get("blocks"):
+                raise TeacherLessonAuthoringError(
+                    "lesson_arrangement_unavailable",
+                    f"{lesson.get('title') or lesson_unit_id} 暂时无法形成教学结构。",
+                )
+            if not arrangement.get("confirmed"):
+                await run_in_threadpool(
+                    repository.save_arrangement_revision,
+                    course_id,
+                    lesson_unit_id,
+                    arrangement,
+                    source_outline_revision_id=outline_revision,
+                    actor=actor,
+                    confirm=True,
+                )
+            child_body = GenerateLessonPlanRequest(
+                request_id=f"{request_prefix}-{lesson_unit_id}",
+                source_package_id=body.source_package_id,
+                source_asset_id=body.source_asset_id,
+                requirements=body.requirements,
+                material_asset_ids=body.material_asset_ids,
+            )
+            result = await generate_lesson_plan(
+                course_id,
+                lesson_unit_id,
+                child_body,
+                request,
+                tm,
+                repository,
+            )
+            job = deepcopy(result.get("job") or {})
+            if job.get("id"):
+                job = await run_in_threadpool(
+                    repository.update_job,
+                    course_id,
+                    str(job["id"]),
+                    parent_job_id=parent_job_id,
+                    batch_position=len(jobs) + 1,
+                    batch_size=len(target_lessons),
+                )
+                jobs.append(job)
+        parent_job = {
+            "id": parent_job_id,
+            "course_id": course_id,
+            "type": "teacher_lesson_plan_batch",
+            "status": "running" if jobs else "completed",
+            "child_job_ids": [str(item.get("id") or "") for item in jobs],
+            "skipped_lesson_ids": skipped_lesson_ids,
+            "total": len(lessons),
+            "started": len(jobs),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return {"parent_job": parent_job, "jobs": jobs}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
 @router.get("/courses/{course_id}/lesson-jobs/{job_id}")
 async def get_lesson_job(
     course_id: str,
@@ -3124,6 +3229,21 @@ async def cancel_lesson_job(
 ):
     try:
         job = await run_in_threadpool(repository.cancel_job, course_id, job_id)
+        return {"job": job}
+    except TeacherLessonAuthoringError as exc:
+        _raise(exc)
+
+
+@router.post("/courses/{course_id}/lesson-jobs/{job_id}/pause")
+async def pause_lesson_job(
+    course_id: str,
+    job_id: str,
+    repository: TeacherLessonAuthoringRepository = Depends(
+        get_teacher_lesson_authoring_repository
+    ),
+):
+    try:
+        job = await run_in_threadpool(repository.pause_job, course_id, job_id)
         return {"job": job}
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
@@ -3178,6 +3298,7 @@ async def stream_lesson_job(
                 "completed_with_warnings",
                 "failed",
                 "cancelled",
+                "paused",
             }
             if sequence > last_sequence or updated_at != last_updated_at:
                 last_sequence = sequence
@@ -3188,6 +3309,8 @@ async def stream_lesson_job(
                     if script_job and status in {"completed", "completed_with_warnings"}
                     else "lesson_script_cancelled"
                     if script_job and status == "cancelled"
+                    else "lesson_script_paused"
+                    if script_job and status == "paused"
                     else "lesson_script_failed"
                     if script_job and status == "failed"
                     else "lesson_script_stream"
@@ -3196,6 +3319,8 @@ async def stream_lesson_job(
                     if status in {"completed", "completed_with_warnings"}
                     else "lesson_plan_cancelled"
                     if status == "cancelled"
+                    else "lesson_plan_paused"
+                    if status == "paused"
                     else "lesson_plan_failed"
                     if status == "failed"
                     else "lesson_plan_stream"
@@ -3220,6 +3345,8 @@ async def stream_lesson_job(
                         "stream_complete": bool(job.get("stream_complete")),
                         "checkpoint": deepcopy(job.get("checkpoint") or {}),
                         "cancel_requested": bool(job.get("cancel_requested")),
+                        "pause_requested": bool(job.get("pause_requested")),
+                        "parent_job_id": str(job.get("parent_job_id") or ""),
                         "retryable": bool(job.get("retryable")),
                         "heartbeat_at": str(job.get("heartbeat_at") or ""),
                         "requirements": str(job.get("requirements") or ""),

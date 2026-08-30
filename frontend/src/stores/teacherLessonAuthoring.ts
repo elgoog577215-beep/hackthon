@@ -2,8 +2,9 @@ import { defineStore } from 'pinia'
 import http, { getTeacherIdentity, teacherIdentityHeaders, withApiBase } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 import { postGenerationStream } from '../shared/generation-stream'
+import { t } from '../shared/i18n'
 
-export type TeacherLessonJobStatus = 'pending' | 'running' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
+export type TeacherLessonJobStatus = 'pending' | 'running' | 'paused' | 'completed' | 'completed_with_warnings' | 'failed' | 'cancelled'
 
 export interface TeacherMaterialWorkingDraft {
   revision_id: string
@@ -289,6 +290,8 @@ export interface TeacherLessonJob {
   warnings: Array<Record<string, unknown>>
   error?: { code: string; message: string; retryable?: boolean } | null
   result_revision_id?: string
+  parent_job_id?: string
+  pause_requested?: boolean
   stream_sequence?: number
   stream_batches?: Record<string, string>
   stream_complete?: boolean
@@ -304,8 +307,8 @@ export interface TeacherLessonJob {
 
 export interface TeacherLessonJobStreamEvent {
   event: 'lesson_plan_stream' | 'lesson_plan_complete' | 'lesson_plan_failed'
-    | 'lesson_plan_cancelled' | 'lesson_script_stream' | 'lesson_script_complete'
-    | 'lesson_script_failed' | 'lesson_script_cancelled' | 'error'
+    | 'lesson_plan_cancelled' | 'lesson_plan_paused' | 'lesson_script_stream' | 'lesson_script_complete'
+    | 'lesson_script_failed' | 'lesson_script_cancelled' | 'lesson_script_paused' | 'error'
   job?: TeacherLessonJob
   job_id?: string
   message?: string
@@ -545,6 +548,38 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.actionLessonId = ''
       }
     },
+    async generateAllLessons(
+      courseId: string,
+      source?: { packageId: string; assetId: string },
+      requirements = '',
+      materialAssetIds: string[] = [],
+    ) {
+      this.error = ''
+      try {
+        const response = await http.post<{
+          parent_job: { id: string; child_job_ids: string[]; skipped_lesson_ids: string[]; total: number; started: number }
+          jobs: TeacherLessonJob[]
+        }>(
+          `/api/teacher/courses/${courseId}/lesson-plans/generate-all`,
+          {
+            request_id: createUuid(),
+            source_package_id: source?.packageId || '',
+            source_asset_id: source?.assetId || '',
+            requirements,
+            material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
+          },
+          requestConfig(),
+        )
+        const incoming = response.data.jobs
+        const incomingIds = new Set(incoming.map(job => job.id))
+        this.jobs = [...this.jobs.filter(job => !incomingIds.has(job.id)), ...incoming]
+        incoming.forEach(job => { void this.streamJob(courseId, job.id) })
+        return response.data
+      } catch (error) {
+        this.error = errorMessage(error, t('courseWorkbench.lessonBatch.failed'))
+        throw error
+      }
+    },
     async confirmArrangement(
       courseId: string,
       lessonUnitId: string,
@@ -585,7 +620,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         )
         const job = response.data.job
         this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
-        if (['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(job.status)) {
+        if (['completed', 'completed_with_warnings', 'failed', 'cancelled', 'paused'].includes(job.status)) {
           await this.load(courseId)
           return job
         }
@@ -614,13 +649,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             return
           }
           this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
-          terminal = ['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(job.status)
+          terminal = ['completed', 'completed_with_warnings', 'failed', 'cancelled', 'paused'].includes(job.status)
         })
         if (terminal) await this.load(courseId)
         return this.jobs.find(item => item.id === jobId)
       } catch {
         const current = this.jobs.find(item => item.id === jobId)
-        if (current && !['completed', 'completed_with_warnings', 'failed', 'cancelled'].includes(current.status)) {
+        if (current && !['completed', 'completed_with_warnings', 'failed', 'cancelled', 'paused'].includes(current.status)) {
           return this.pollJob(courseId, jobId)
         }
         return current
@@ -633,6 +668,16 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     async cancelJob(courseId: string, jobId: string) {
       const response = await http.delete<{ job: TeacherLessonJob }>(
         `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}`,
+        requestConfig(),
+      )
+      const job = response.data.job
+      this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]
+      return job
+    },
+    async pauseJob(courseId: string, jobId: string) {
+      const response = await http.post<{ job: TeacherLessonJob }>(
+        `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}/pause`,
+        {},
         requestConfig(),
       )
       const job = response.data.job

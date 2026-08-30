@@ -39,7 +39,13 @@ def test_teacher_library_filters_courses_by_owner(monkeypatch):
 async def test_teacher_course_creation_rejects_shared_or_missing_identity():
     with pytest.raises(HTTPException) as captured:
         await courses.create_teacher_course(
-            courses.TeacherCourseCreateRequest(course_name="身份边界"),
+            courses.TeacherCourseCreateRequest(
+                course_name="身份边界",
+                target_grade="本科生",
+                course_category="专业课",
+                credits=2,
+                weekly_hours=2,
+            ),
             _request(),
         )
 
