@@ -1383,11 +1383,26 @@ class TaskManager:
         )
         summary = str(model_result.get("summary") or "").strip()
         if not summary:
-            summary = (
-                f"目录将从 {diff['before']['chapter_count']} 章"
-                f"{diff['before']['section_count']} 节调整为 "
-                f"{diff['after']['chapter_count']} 章{diff['after']['section_count']} 节。"
+            source_plan = source_draft.get("course_plan") or source_draft.get("course_outline") or {}
+            source_shape = (
+                (source_draft.get("course_generation_brief") or {})
+                .get("course_shape_constraints") or {}
             )
+            if (
+                source_draft.get("authoring_structure_version") == "lecture_v1"
+                or source_plan.get("authoring_structure_version") == "lecture_v1"
+                or source_shape.get("teacher_lecture_mode")
+            ):
+                summary = (
+                    f"大纲将从 {diff['before']['chapter_count']} 讲调整为 "
+                    f"{diff['after']['chapter_count']} 讲。"
+                )
+            else:
+                summary = (
+                    f"目录将从 {diff['before']['chapter_count']} 章"
+                    f"{diff['before']['section_count']} 节调整为 "
+                    f"{diff['after']['chapter_count']} 章{diff['after']['section_count']} 节。"
+                )
         logger.info(
             "outline_adjustment_preview request_id=%s proposal_id=%s latency_ms=%s "
             "operation_count=%s validation_code=%s",

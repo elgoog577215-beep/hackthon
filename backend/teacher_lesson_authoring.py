@@ -40,6 +40,7 @@ SCHEMA_VERSION = "teacher_lesson_authoring_v1"
 LESSON_PLAN_PIPELINE_VERSION = "standard_lesson_plan_v1"
 TEACHER_ASSET_JOB_SCHEMA_VERSION = "teacher_asset_job_v1"
 LESSON_JOB_STALE_SECONDS = 300
+LESSON_BATCH_QUEUED_STALE_SECONDS = 14400
 JOB_TYPES = {
     "teacher_lesson_plan_generation",
     "teacher_lesson_script_generation",
@@ -2651,7 +2652,14 @@ class TeacherLessonAuthoringRepository:
             except ValueError:
                 updated_at = datetime.fromtimestamp(0, tz=timezone.utc)
             age_seconds = (datetime.now(timezone.utc) - updated_at).total_seconds()
-            if age_seconds < max(1, int(stale_after_seconds)):
+            effective_stale_seconds = stale_after_seconds
+            if (
+                stale_after_seconds == LESSON_JOB_STALE_SECONDS
+                and str(job.get("status") or "") == "pending"
+                and str(job.get("parent_job_id") or "")
+            ):
+                effective_stale_seconds = LESSON_BATCH_QUEUED_STALE_SECONDS
+            if age_seconds < max(1, int(effective_stale_seconds)):
                 return deepcopy(job)
             script_job = str(job.get("type") or "") == "teacher_lesson_script_generation"
             job.update({

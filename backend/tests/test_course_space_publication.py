@@ -156,6 +156,13 @@ def test_outline_document_carries_the_coverage_verdict():
     assert "中值定理" in outline["content"]
 
 
+def test_outline_calendar_does_not_invent_schedule_or_class_hours():
+    documents = build_course_artifact_documents(_course())
+    outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
+
+    assert "| 待排课 | 1 | 第1讲 极限 |  |" in outline
+
+
 def test_formal_templates_are_projected_from_the_existing_course_truth():
     """启智式正式文书骨架只作投影，不新建一份大纲或教案。"""
     documents = build_course_artifact_documents(_course())
@@ -164,21 +171,27 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
         d for d in documents if d["artifact_type"] == "course_teaching_plan"
     )["content"]
 
-    assert "## 一、课程基本信息" in outline
-    assert "MATH-101" in outline
-    assert "| 课程名称 |" not in outline
-    assert "| 每课时时长 | 45 分钟 |" in outline
-    assert "| 班级规模 | 48 人 |" in outline
-    assert "### 教学对象与学情" in outline
-    assert "形式化论证经验不足" in outline
-    assert "## 五、考核与成绩构成" in outline
+    assert "## 一、课程介绍" in outline
+    assert "### 中文简介" in outline
+    assert "### 英文简介" in outline
+    assert "## 二、教学目标" in outline
+    assert "### 学习目标" in outline
+    assert "### 育人目标" in outline
+    assert "### 可测量结果" in outline
+    assert "## 三、课程要求" in outline
+    assert "### 授课方式" in outline
+    assert "### 考核方式" in outline
     assert "平时任务 40%" in outline
     assert outline.count("平时任务 40%") == 1
-    assert "## 九、参考书目与网站" in outline
+    assert "## 四、教学内容及教学安排" in outline
+    assert "### 第1讲 极限" in outline
+    assert "1.1" not in outline
+    assert "第1章" not in outline
+    assert "## 五、参考资料" in outline
     assert "微积分教材.pdf" in outline
-    assert "## 七、教学日历" in outline
-    assert "## 八、课程思政案例" in outline
-    assert "## 十、课程网站" in outline
+    assert "### 附件1：课程教学日历" in outline
+    assert "### 附件2：思政融合案例" in outline
+    assert "## 六、课程教学网站" in outline
 
     assert "#### 知识目标" in teaching_plan
     assert "#### 能力目标" in teaching_plan

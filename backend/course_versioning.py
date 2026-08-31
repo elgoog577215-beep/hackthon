@@ -15,8 +15,14 @@ BLUEPRINT_SCHEMA = "blueprint_revision_v1"
 DISPLAY_FIELDS = ("node_name", "outline_editor_html")
 SEMANTIC_FIELDS = (
     "learning_objective",
+    "content_summary",
     "scope_boundary",
     "key_points",
+    "key_difficulties",
+    "activities",
+    "homework",
+    "planned_hours",
+    "teaching_week",
     "knowledge_structure",
     "module_plan",
     "assessment",
@@ -162,6 +168,9 @@ def build_blueprint_draft(course_data: dict[str, Any]) -> dict[str, Any]:
         "schema_version": BLUEPRINT_SCHEMA,
         "course_id": course_data.get("course_id"),
         "course_name": course_data.get("course_name"),
+        "authoring_structure_version": course_data.get("authoring_structure_version")
+        or (course_data.get("course_plan") or {}).get("authoring_structure_version")
+        or "",
         "course_purpose": course_data.get("course_purpose") or "systematic",
         "course_type": course_data.get("course_type") or "systematic",
         "course_intent": deepcopy(course_data.get("course_intent") or {}),
@@ -200,6 +209,7 @@ def merge_blueprint_draft(course_data: dict[str, Any], draft: dict[str, Any]) ->
     candidate["nodes"] = merged_nodes
     for field in (
         "course_name",
+        "authoring_structure_version",
         "course_purpose",
         "course_type",
         "course_intent",

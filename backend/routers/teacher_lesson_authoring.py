@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from copy import deepcopy
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -97,6 +97,23 @@ from slide_deck_v6 import (
 
 router = APIRouter(prefix="/teacher", tags=["teacher-lesson-authoring"])
 _background_jobs: set[asyncio.Task] = set()
+_lesson_plan_course_locks: dict[str, asyncio.Lock] = {}
+
+
+async def _run_lesson_plan_serially(
+    *,
+    course_id: str,
+    job_id: str,
+    repository: TeacherLessonAuthoringRepository,
+    run: Callable[[], Awaitable[None]],
+) -> None:
+    """Allow only one lesson-plan model run per course at a time."""
+    lock = _lesson_plan_course_locks.setdefault(course_id, asyncio.Lock())
+    async with lock:
+        job = await run_in_threadpool(repository.get_job, course_id, job_id)
+        if str(job.get("status") or "") not in {"pending", "running"}:
+            return
+        await run()
 
 
 class GenerateLessonPlanRequest(BaseModel):
@@ -106,6 +123,9 @@ class GenerateLessonPlanRequest(BaseModel):
     source_asset_id: str = Field(default="", max_length=160)
     requirements: str = Field(default="", max_length=4000)
     material_asset_ids: list[str] = Field(default_factory=list, max_length=24)
+    batch_parent_job_id: str = Field(default="", max_length=160)
+    batch_position: int = Field(default=0, ge=0, le=1000)
+    batch_size: int = Field(default=0, ge=0, le=1000)
 
 
 class GenerateAllLessonPlansRequest(BaseModel):
@@ -3016,6 +3036,17 @@ async def generate_lesson_plan(
             resume_from_job_id=(body.resume_job_id if resume_checkpoint else ""),
             requirements=body.requirements,
             material_asset_ids=selected_material_ids,
+            **({
+                "parent_job_id": body.batch_parent_job_id,
+                "batch_position": body.batch_position,
+                "batch_size": body.batch_size,
+                "phase": "waiting_for_previous_lesson",
+                "message": (
+                    "等待上一讲生成完成"
+                    if body.batch_position > 1
+                    else "等待生成第一讲教案"
+                ),
+            } if body.batch_parent_job_id else {}),
         )
         if source_evidence:
             job_source_kind = (
@@ -3087,12 +3118,20 @@ async def generate_lesson_plan(
             )
 
         async def run() -> None:
-            await service.run_plan_job(
+            async def run_current_lesson() -> None:
+                await service.run_plan_job(
+                    course_id=course_id,
+                    lesson_unit_id=lesson_unit_id,
+                    job_id=str(job["id"]),
+                    course_data=source,
+                    planner=planner,
+                )
+
+            await _run_lesson_plan_serially(
                 course_id=course_id,
-                lesson_unit_id=lesson_unit_id,
                 job_id=str(job["id"]),
-                course_data=source,
-                planner=planner,
+                repository=repository,
+                run=run_current_lesson,
             )
 
         task = asyncio.create_task(run())
@@ -3113,7 +3152,7 @@ async def generate_all_lesson_plans(
         get_teacher_lesson_authoring_repository
     ),
 ):
-    """Start one durable child job per lecture and return one batch receipt."""
+    """Queue every lecture but run at most one lesson-plan model job at a time."""
     try:
         source = _source_course(tm, course_id)
         outline_revision = _canonical_outline_revision(source)
@@ -3132,14 +3171,18 @@ async def generate_all_lesson_plans(
             for lesson in lessons
             if not body.regenerate_confirmed
             and isinstance(lesson.get("plan"), dict)
-            and lesson["plan"].get("confirmed_revision_id")
+            and (
+                lesson["plan"].get("working_revision_id")
+                or lesson["plan"].get("confirmed_revision_id")
+            )
             and lesson["plan"].get("source_state", "current") == "current"
         ]
         target_lessons = [
             lesson for lesson in lessons
             if str(lesson.get("lesson_unit_id") or "") not in skipped_lesson_ids
         ]
-        for lesson in target_lessons:
+        prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
+        for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
             arrangement = lesson.get("arrangement")
             if not isinstance(arrangement, dict) or not arrangement.get("blocks"):
@@ -3159,10 +3202,21 @@ async def generate_all_lesson_plans(
                 )
             child_body = GenerateLessonPlanRequest(
                 request_id=f"{request_prefix}-{lesson_unit_id}",
+                resume_job_id=str(next((
+                    item.get("id")
+                    for item in reversed(prior_jobs)
+                    if isinstance(item, dict)
+                    and item.get("lesson_unit_id") == lesson_unit_id
+                    and item.get("type") == "teacher_lesson_plan_generation"
+                    and item.get("status") in {"paused", "failed", "cancelled"}
+                ), "")),
                 source_package_id=body.source_package_id,
                 source_asset_id=body.source_asset_id,
                 requirements=body.requirements,
                 material_asset_ids=body.material_asset_ids,
+                batch_parent_job_id=parent_job_id,
+                batch_position=batch_position,
+                batch_size=len(target_lessons),
             )
             result = await generate_lesson_plan(
                 course_id,
@@ -3179,7 +3233,7 @@ async def generate_all_lesson_plans(
                     course_id,
                     str(job["id"]),
                     parent_job_id=parent_job_id,
-                    batch_position=len(jobs) + 1,
+                    batch_position=batch_position,
                     batch_size=len(target_lessons),
                 )
                 jobs.append(job)
@@ -3348,6 +3402,8 @@ async def stream_lesson_job(
                         "cancel_requested": bool(job.get("cancel_requested")),
                         "pause_requested": bool(job.get("pause_requested")),
                         "parent_job_id": str(job.get("parent_job_id") or ""),
+                        "batch_position": int(job.get("batch_position") or 0),
+                        "batch_size": int(job.get("batch_size") or 0),
                         "retryable": bool(job.get("retryable")),
                         "heartbeat_at": str(job.get("heartbeat_at") or ""),
                         "requirements": str(job.get("requirements") or ""),

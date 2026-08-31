@@ -127,6 +127,80 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.find('.outline-review__adjustment').exists()).toBe(false)
   })
 
+  it('教师正式大纲按老师模板显示，并把已有一章一节结果归一为单层讲次', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const draft = {
+      ...currentDraft(),
+      authoring_structure_version: 'lecture_v1',
+      course_generation_brief: {
+        course_shape_constraints: { teacher_lecture_mode: true },
+        formal_course_profile: {
+          active_week_start: 1,
+          schedule_slots: [
+            { weekday: 1, period: 1 },
+            { weekday: 1, period: 2 },
+            { weekday: 3, period: 5 },
+            { weekday: 3, period: 6 },
+            { weekday: 3, period: 7 },
+          ],
+        },
+      },
+      course_plan: {
+        authoring_structure_version: 'lecture_v1',
+        course_title: '电动力学',
+        course_intro_zh: '从经典电磁场理论建立统一分析框架。',
+        course_intro_en: 'A systematic introduction to classical electrodynamics.',
+        learning_objectives: ['能解释并运用麦克斯韦方程组'],
+        education_objectives: ['形成严谨求证的科学态度'],
+        measurable_outcomes: ['能够独立完成典型边值问题'],
+        teaching_methods: ['线下课堂'],
+        assessment_methods: ['课堂任务与期末考核'],
+        reference_books: ['郭硕鸿：《电动力学》'],
+        chapters: [{
+          chapter_number: 1,
+          title: '第1章 静电场与边值问题',
+          sections: [{
+            node_id: 'L2-1-1',
+            section_number: '1.1',
+            title: '1.1 静电场基本方程',
+            content_summary: '介绍静电场基本方程、边界条件与典型求解方法。',
+            planned_hours: 2,
+          }],
+        }],
+      },
+      nodes: [
+        { ...currentDraft().nodes[0], node_name: '第1章 静电场与边值问题' },
+        { ...currentDraft().nodes[1], node_name: '1.1 静电场基本方程', content_summary: '介绍静电场基本方程、边界条件与典型求解方法。' },
+      ],
+    }
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: draft } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-electrodynamics',
+        courseName: '电动力学',
+        editable: false,
+        variant: 'inline',
+        surface: 'teacher',
+      },
+    })
+    await flushPromises()
+
+    const document = wrapper.get('[data-testid="formal-outline-document"]')
+    expect(document.text()).toContain('一、课程介绍')
+    expect(document.text()).toContain('二、教学目标')
+    expect(document.text()).toContain('三、课程要求')
+    expect(document.text()).toContain('四、教学内容及教学安排')
+    expect(document.text()).toContain('第1讲 静电场与边值问题')
+    expect(document.text()).toContain('五、参考资料')
+    expect(document.text()).toContain('六、课程教学网站')
+    expect(document.text()).not.toContain('第1章')
+    expect(document.text()).not.toContain('1.1')
+    expect(document.text()).not.toContain('小节')
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').text()).toContain('介绍静电场基本方程')
+    expect(wrapper.find('button[title="Markdown"]').exists()).toBe(false)
+  })
+
   it('页面内部不再复制节点 AI，整篇 AI 仍通过右侧接口生成和应用', async () => {
     const workspace = useCourseWorkspaceStore()
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: currentDraft() } as any)

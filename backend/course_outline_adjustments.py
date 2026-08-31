@@ -12,7 +12,7 @@ from typing import Any
 ALLOWED_OPERATIONS = {"add_node", "remove_node", "move_node", "update_node"}
 
 _CHAPTER_NUMBER_PREFIX = re.compile(
-    r"^\s*第\s*[0-9一二三四五六七八九十百零〇两]+\s*章\s*[:：、.．\-]?\s*"
+    r"^\s*第\s*[0-9一二三四五六七八九十百零〇两]+\s*[章讲]\s*[:：、.．\-]?\s*"
 )
 _SECTION_NUMBER_PREFIX = re.compile(
     r"^\s*\d+\s*[.．]\s*\d+\s*[:：、.．\-]?\s*"
@@ -104,7 +104,10 @@ def apply_outline_operations(
             _update_node(state, ref, operation)
 
     _validate_lock_changes(source.get("blueprint_locks") or {}, touched)
-    ordered_refs = _validate_final_state(state)
+    ordered_refs = _validate_final_state(
+        state,
+        lecture_mode=_is_lecture_draft(source),
+    )
     adjusted, id_map = _compile_draft(source, state, ordered_refs)
     return {
         "draft": adjusted,
@@ -118,7 +121,10 @@ def compile_outline_draft(draft: dict[str, Any]) -> dict[str, Any]:
     """Canonicalize an already edited outline and rebuild its derived projections."""
     source = deepcopy(draft)
     state = _state_from_nodes(source.get("nodes") or [])
-    ordered_refs = _validate_final_state(state)
+    ordered_refs = _validate_final_state(
+        state,
+        lecture_mode=_is_lecture_draft(source),
+    )
     compiled, _ = _compile_draft(source, state, ordered_refs)
     return compiled
 
@@ -386,17 +392,31 @@ def _insert_after(items: list[str], ref: str, after_ref: str | None, *, level: i
     items.insert(items.index(after_ref) + 1, ref)
 
 
-def _validate_final_state(state: _OutlineState) -> list[str]:
+def _validate_final_state(
+    state: _OutlineState,
+    *,
+    lecture_mode: bool = False,
+) -> list[str]:
     if not state.chapters:
         raise OutlineAdjustmentError("outline_empty", "课程目录至少需要一个章节")
     ordered: list[str] = []
-    for chapter in state.chapters:
+    for chapter_index, chapter in enumerate(state.chapters, start=1):
         children = state.sections.get(chapter) or []
         if not children:
             raise OutlineAdjustmentError(
                 "chapter_empty",
-                f"章节“{state.nodes[chapter].get('node_name') or chapter}”至少需要一个小节",
+                (
+                    f"第{chapter_index}讲缺少内部内容，请重新生成这一讲"
+                    if lecture_mode
+                    else f"章节“{state.nodes[chapter].get('node_name') or chapter}”至少需要一个小节"
+                ),
                 details={"node_ref": chapter},
+            )
+        if lecture_mode and len(children) != 1:
+            raise OutlineAdjustmentError(
+                "lecture_has_nested_units",
+                "每一讲只能保留一份讲次内容，不能再拆成小节或二级目录",
+                details={"node_ref": chapter, "child_count": len(children)},
             )
         ordered.append(chapter)
         ordered.extend(children)
@@ -431,6 +451,17 @@ def _validate_final_state(state: _OutlineState) -> list[str]:
                 )
     _validate_sibling_semantic_duplicates(state)
     return ordered
+
+
+def _is_lecture_draft(draft: dict[str, Any]) -> bool:
+    plan = draft.get("course_plan") or draft.get("course_outline") or {}
+    brief = draft.get("course_generation_brief") or {}
+    shape = brief.get("course_shape_constraints") or {}
+    return bool(
+        draft.get("authoring_structure_version") == "lecture_v1"
+        or plan.get("authoring_structure_version") == "lecture_v1"
+        or shape.get("teacher_lecture_mode")
+    )
 
 
 def _validate_sibling_semantic_duplicates(state: _OutlineState) -> None:
@@ -525,6 +556,19 @@ def _compile_draft(
     state: _OutlineState,
     ordered_refs: list[str],
 ) -> tuple[dict[str, Any], dict[str, str]]:
+    source_plan = source.get("course_plan") or source.get("course_outline") or {}
+    source_brief = source.get("course_generation_brief") or {}
+    source_shape = source_brief.get("course_shape_constraints") or {}
+    authoring_structure_version = str(
+        source.get("authoring_structure_version")
+        or source_plan.get("authoring_structure_version")
+        or (
+            "lecture_v1"
+            if source_shape.get("teacher_lecture_mode")
+            else ""
+        )
+    )
+    lecture_mode = authoring_structure_version == "lecture_v1"
     id_map: dict[str, str] = {}
     chapter_numbers: dict[str, int] = {}
     section_numbers: dict[str, tuple[int, int]] = {}
@@ -551,6 +595,7 @@ def _compile_draft(
                 str(raw.get("node_name") or ""),
                 level=1,
                 chapter_number=chapter_numbers[ref],
+                authoring_structure_version=authoring_structure_version,
             )
         else:
             chapter_number, section_number = section_numbers[ref]
@@ -559,6 +604,7 @@ def _compile_draft(
                 level=2,
                 chapter_number=chapter_number,
                 section_number=section_number,
+                authoring_structure_version=authoring_structure_version,
             )
         node["parent_node_id"] = (
             "root" if level == 1 else id_map[str(raw.get("parent_node_id") or "")]
@@ -580,8 +626,11 @@ def _compile_draft(
         ).strip()
         chapter: dict[str, Any] = {
             "chapter_number": chapter_number,
+            "lecture_number": chapter_number if lecture_mode else None,
             "node_id": chapter_node["node_id"],
-            "title": chapter_node.get("node_name") or f"第{chapter_number}章",
+            "title": chapter_node.get("node_name") or (
+                f"第{chapter_number}讲" if lecture_mode else f"第{chapter_number}章"
+            ),
             "learning_focus": chapter_learning_focus,
             "learning_objective": chapter_learning_focus,
             "sections": [],
@@ -596,18 +645,28 @@ def _compile_draft(
                 for key, value in section_node.items()
                 if key not in {"parent_node_id", "node_level", "node_name"}
             }
-            section["section_number"] = f"{chapter_number}.{section_index}"
+            section["section_number"] = (
+                str(chapter_number)
+                if lecture_mode
+                else f"{chapter_number}.{section_index}"
+            )
             section["title"] = section_node.get("node_name") or section["section_number"]
             chapter["sections"].append(section)
         chapters.append(chapter)
 
     compiled = deepcopy(source)
+    if authoring_structure_version:
+        compiled["authoring_structure_version"] = authoring_structure_version
     compiled["nodes"] = compiled_nodes
-    plan = deepcopy(source.get("course_plan") or source.get("course_outline") or {})
+    plan = deepcopy(source_plan)
+    if authoring_structure_version:
+        plan["authoring_structure_version"] = authoring_structure_version
     plan["chapters"] = chapters
     compiled["course_plan"] = plan
     compiled["course_outline"] = deepcopy(plan)
     blueprint = deepcopy(source.get("course_blueprint") or {})
+    if authoring_structure_version:
+        blueprint["authoring_structure_version"] = authoring_structure_version
     blueprint["sections"] = deepcopy(chapters)
     blueprint["nodes"] = deepcopy(compiled_nodes)
     compiled["course_blueprint"] = blueprint
@@ -618,6 +677,11 @@ def _compile_draft(
         "chapter_count_source": "outline_adjustment",
         "section_count_source": "outline_adjustment",
     }
+    if lecture_mode:
+        shape_constraints.update({
+            "teacher_lecture_mode": True,
+            "lecture_count": len(chapters),
+        })
     brief = deepcopy(source.get("course_generation_brief") or {})
     brief["course_shape_constraints"] = deepcopy(shape_constraints)
     compiled["course_generation_brief"] = brief
@@ -650,11 +714,16 @@ def canonical_outline_node_name(
     level: int,
     chapter_number: int,
     section_number: int | None = None,
+    authoring_structure_version: str = "",
 ) -> str:
+    lecture_mode = authoring_structure_version == "lecture_v1"
     if level == 1:
         title = _strip_outline_number_prefix(value, level=1)
-        return f"第{chapter_number}章 {title}".strip()
+        unit = "讲" if lecture_mode else "章"
+        return f"第{chapter_number}{unit} {title}".strip()
     title = _strip_outline_number_prefix(value, level=2)
+    if lecture_mode:
+        return title
     return f"{chapter_number}.{section_number or 1} {title}".strip()
 
 

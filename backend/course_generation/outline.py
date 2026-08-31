@@ -112,6 +112,20 @@ def _clip(value: Any, max_chars: int) -> str:
     return text[: max(1, max_chars - 1)] + "…"
 
 
+_VISIBLE_UNIT_PREFIX = re.compile(
+    r"^(?:(?:第\s*)?\d+(?:\.\d+)?\s*[章节讲]\s*|\d+(?:\.\d+)+\s*)"
+)
+
+
+def _plain_unit_title(value: Any, fallback: str) -> str:
+    title = _clip(value, 140)
+    previous = ""
+    while title and title != previous:
+        previous = title
+        title = _VISIBLE_UNIT_PREFIX.sub("", title, count=1).strip()
+    return title or fallback
+
+
 def _planning_stages(value: Any) -> list[str]:
     if isinstance(value, str):
         values = [value]
@@ -189,22 +203,68 @@ def normalize_outline_skeleton(
     topic: str,
     request_fingerprint: str,
 ) -> dict[str, Any]:
+    lecture_payload = payload.get("lectures")
+    lecture_mode = bool(
+        isinstance(lecture_payload, list)
+        or payload.get("authoring_structure_version") == "lecture_v1"
+    )
+    raw_units = (
+        lecture_payload
+        if isinstance(lecture_payload, list)
+        else payload.get("chapters") or []
+    )
     chapters: list[dict[str, Any]] = []
-    for index, raw in enumerate(payload.get("chapters") or [], start=1):
+    for index, raw in enumerate(raw_units, start=1):
         if not isinstance(raw, dict):
             continue
-        section_count = _positive_int(raw.get("section_count"))
+        section_count = 1 if lecture_mode else _positive_int(raw.get("section_count"))
+        title = _plain_unit_title(
+            raw.get("title"),
+            f"第 {index} 讲" if lecture_mode else f"第 {index} 章",
+        )
         chapters.append({
             "chapter_number": index,
-            "title": _clip(raw.get("title") or f"第 {index} 章", 120),
+            "lecture_number": index if lecture_mode else None,
+            "title": title,
             "planning_stages": _planning_stages(
                 raw.get("planning_stages") or raw.get("planning_stage")
             ),
             "learning_focus": _clip(
                 raw.get("learning_focus")
+                or raw.get("learning_objective")
                 or f"完成{topic}的第 {index} 阶段学习任务",
                 220,
             ),
+            "content_summary": _clip(
+                raw.get("content_summary")
+                or raw.get("content")
+                or raw.get("learning_focus"),
+                720,
+            ),
+            "learning_objective": _clip(
+                raw.get("learning_objective") or raw.get("learning_focus"),
+                260,
+            ),
+            "key_points": [
+                _clip(item, 160)
+                for item in raw.get("key_points") or []
+                if str(item or "").strip()
+            ][:6],
+            "key_difficulties": [
+                _clip(item, 160)
+                for item in raw.get("key_difficulties") or []
+                if str(item or "").strip()
+            ][:6],
+            "activities": [
+                _clip(item, 180)
+                for item in raw.get("activities") or []
+                if str(item or "").strip()
+            ][:6],
+            "homework": [
+                _clip(item, 180)
+                for item in raw.get("homework") or []
+                if str(item or "").strip()
+            ][:6],
             "learning_path_role": _learning_path_role(
                 raw.get("learning_path_role")
             ),
@@ -216,6 +276,9 @@ def normalize_outline_skeleton(
         })
     skeleton = {
         "schema_version": "course_outline_skeleton_v2",
+        "authoring_structure_version": (
+            "lecture_v1" if lecture_mode else "legacy_chapter_v1"
+        ),
         "request_fingerprint": request_fingerprint,
         "course_title": _clip(payload.get("course_title") or topic, 160),
         "positioning": _clip(
@@ -233,6 +296,40 @@ def normalize_outline_skeleton(
             for item in payload.get("prerequisites") or []
             if str(item or "").strip()
         ][:16],
+        "course_intro_zh": _clip(payload.get("course_intro_zh"), 1800),
+        "course_intro_en": _clip(payload.get("course_intro_en"), 1800),
+        "education_objectives": [
+            _clip(item, 220)
+            for item in payload.get("education_objectives") or []
+            if str(item or "").strip()
+        ][:12],
+        "measurable_outcomes": [
+            _clip(item, 220)
+            for item in payload.get("measurable_outcomes") or []
+            if str(item or "").strip()
+        ][:12],
+        "teaching_methods": [
+            _clip(item, 220)
+            for item in payload.get("teaching_methods") or []
+            if str(item or "").strip()
+        ][:12],
+        "assessment_methods": [
+            _clip(item, 220)
+            for item in payload.get("assessment_methods") or []
+            if str(item or "").strip()
+        ][:12],
+        "ideology_cases": deepcopy(payload.get("ideology_cases") or []),
+        "reference_books": [
+            _clip(item, 260)
+            for item in payload.get("reference_books") or []
+            if str(item or "").strip()
+        ][:30],
+        "reference_websites": [
+            _clip(item, 260)
+            for item in payload.get("reference_websites") or []
+            if str(item or "").strip()
+        ][:30],
+        "course_website": _clip(payload.get("course_website"), 500),
         "chapters": chapters,
     }
     if not skeleton["learning_objectives"]:
@@ -694,6 +791,79 @@ def compile_fallback_outline_batch(
     )
 
 
+def compile_teacher_lecture_outline_batch(
+    *,
+    spec: dict[str, Any],
+    lecture: dict[str, Any],
+    skeleton_revision_id: str,
+) -> dict[str, Any]:
+    """Project one lecture-native model unit into the legacy inner container.
+
+    The container keeps existing downstream generation code working, but it is
+    not a second teacher-visible course level and therefore receives no visible
+    1.1-style title.
+    """
+    lecture_number = int(spec.get("chapter_number") or 1)
+    previous_anchor = str(spec.get("previous_chapter_anchor_id") or "")
+    title = _plain_unit_title(lecture.get("title"), f"第 {lecture_number} 讲")
+    objective = _clip(
+        lecture.get("learning_objective")
+        or lecture.get("learning_focus")
+        or f"完成“{title}”的学习任务",
+        260,
+    )
+    content_summary = _clip(
+        lecture.get("content_summary")
+        or lecture.get("learning_focus")
+        or objective,
+        720,
+    )
+    payload = {
+        "sections": [{
+            "node_id": f"L2-{lecture_number}-1",
+            "title": title,
+            "content_summary": content_summary,
+            "learning_objective": objective,
+            "prerequisite_node_ids": [previous_anchor] if previous_anchor else [],
+            "assessment": [
+                _clip(item, 180)
+                for item in lecture.get("assessment") or []
+                if str(item or "").strip()
+            ] or [f"通过课堂任务或课后作业检查“{title}”的目标达成情况"],
+            "scope_boundary": _clip(
+                lecture.get("scope_boundary")
+                or f"本讲只承担“{title}”对应的教学内容",
+                240,
+            ),
+            "learning_path_role": _learning_path_role(
+                lecture.get("learning_path_role")
+            ),
+            "path_reason": _clip(
+                lecture.get("path_reason") or "本讲在整课中的推进作用",
+                240,
+            ),
+        }],
+    }
+    batch = normalize_outline_batch(
+        payload,
+        spec=spec,
+        skeleton_revision_id=skeleton_revision_id,
+    )
+    section = (batch.get("sections") or [{}])[0]
+    section.update({
+        "title": title,
+        "content_summary": content_summary,
+        "key_points": deepcopy(lecture.get("key_points") or []),
+        "key_difficulties": deepcopy(lecture.get("key_difficulties") or []),
+        "activities": deepcopy(lecture.get("activities") or []),
+        "homework": deepcopy(lecture.get("homework") or []),
+        "planned_hours": lecture.get("planned_hours"),
+        "week": lecture.get("week"),
+    })
+    batch["revision_id"] = stable_hash(batch, prefix="outline_batch_")
+    return batch
+
+
 def assemble_course_outline(
     *,
     skeleton: dict[str, Any],
@@ -724,6 +894,11 @@ def assemble_course_outline(
             )
         chapters.append({
             "chapter_number": chapter_number,
+            "lecture_number": (
+                chapter_number
+                if skeleton.get("authoring_structure_version") == "lecture_v1"
+                else None
+            ),
             "title": str(chapter.get("title") or f"第 {chapter_number} 章"),
             "planning_stages": _planning_stages(
                 chapter.get("planning_stages") or chapter.get("planning_stage")
@@ -737,15 +912,42 @@ def assemble_course_outline(
             "path_reason": str(
                 chapter.get("path_reason") or "课程主路径"
             ),
+            "content_summary": str(chapter.get("content_summary") or ""),
+            "learning_objective": str(chapter.get("learning_objective") or ""),
+            "key_points": deepcopy(chapter.get("key_points") or []),
+            "key_difficulties": deepcopy(chapter.get("key_difficulties") or []),
+            "activities": deepcopy(chapter.get("activities") or []),
+            "homework": deepcopy(chapter.get("homework") or []),
             "sections": sections,
         })
     return {
+        "authoring_structure_version": str(
+            skeleton.get("authoring_structure_version") or "legacy_chapter_v1"
+        ),
         "course_title": str(skeleton.get("course_title") or ""),
+        "course_intro_zh": str(skeleton.get("course_intro_zh") or ""),
+        "course_intro_en": str(skeleton.get("course_intro_en") or ""),
         "positioning": str(skeleton.get("positioning") or ""),
         "learning_objectives": list(
             skeleton.get("learning_objectives") or []
         ),
         "prerequisites": list(skeleton.get("prerequisites") or []),
+        "education_objectives": list(
+            skeleton.get("education_objectives") or []
+        ),
+        "measurable_outcomes": list(
+            skeleton.get("measurable_outcomes") or []
+        ),
+        "teaching_methods": list(skeleton.get("teaching_methods") or []),
+        "assessment_methods": list(
+            skeleton.get("assessment_methods") or []
+        ),
+        "ideology_cases": deepcopy(skeleton.get("ideology_cases") or []),
+        "reference_books": list(skeleton.get("reference_books") or []),
+        "reference_websites": list(
+            skeleton.get("reference_websites") or []
+        ),
+        "course_website": str(skeleton.get("course_website") or ""),
         "chapters": chapters,
     }
 

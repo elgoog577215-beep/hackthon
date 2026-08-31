@@ -83,7 +83,7 @@ def test_pause_keeps_checkpoint_and_marks_job_resumable(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_generate_all_lesson_plans_returns_parent_and_independent_children(monkeypatch):
+async def test_generate_all_lesson_plans_returns_parent_and_serial_queue_metadata(monkeypatch):
     source = {"course_id": "course-1"}
     projected_lessons = [
         {
@@ -103,7 +103,10 @@ async def test_generate_all_lesson_plans_returns_parent_and_independent_children
     monkeypatch.setattr(lesson_router, "_canonical_outline_revision", lambda _source: "outline-1")
     monkeypatch.setattr(lesson_router, "_lesson_projection", lambda _source, _repository: projected_lessons)
 
+    requested_children = []
+
     async def fake_generate(course_id, lesson_id, body, request, tm, repository):
+        requested_children.append((lesson_id, body))
         return {"job": {
             "id": f"job-{lesson_id}",
             "lesson_unit_id": lesson_id,
@@ -115,6 +118,9 @@ async def test_generate_all_lesson_plans_returns_parent_and_independent_children
     monkeypatch.setattr(lesson_router, "generate_lesson_plan", fake_generate)
 
     class Repository:
+        def view(self, _course_id):
+            return {"jobs": {}}
+
         def update_job(self, course_id, job_id, **changes):
             return {
                 "id": job_id,
@@ -137,3 +143,46 @@ async def test_generate_all_lesson_plans_returns_parent_and_independent_children
     assert result["parent_job"]["child_job_ids"] == ["job-lesson-1", "job-lesson-2"]
     assert {job["batch_position"] for job in result["jobs"]} == {1, 2}
     assert len({job["parent_job_id"] for job in result["jobs"]}) == 1
+    assert [body.batch_position for _, body in requested_children] == [1, 2]
+    assert {body.batch_size for _, body in requested_children} == {2}
+    assert len({body.batch_parent_job_id for _, body in requested_children}) == 1
+
+
+@pytest.mark.asyncio
+async def test_lesson_plan_batch_runs_one_model_job_at_a_time():
+    class Repository:
+        def get_job(self, _course_id, job_id):
+            return {"id": job_id, "status": "pending"}
+
+    active = 0
+    peak_active = 0
+    order = []
+
+    def runner(label):
+        async def run():
+            nonlocal active, peak_active
+            active += 1
+            peak_active = max(peak_active, active)
+            order.append(f"start:{label}")
+            await lesson_router.asyncio.sleep(0)
+            order.append(f"end:{label}")
+            active -= 1
+        return run
+
+    await lesson_router.asyncio.gather(
+        lesson_router._run_lesson_plan_serially(
+            course_id="course-1",
+            job_id="job-1",
+            repository=Repository(),
+            run=runner("lesson-1"),
+        ),
+        lesson_router._run_lesson_plan_serially(
+            course_id="course-1",
+            job_id="job-2",
+            repository=Repository(),
+            run=runner("lesson-2"),
+        ),
+    )
+
+    assert peak_active == 1
+    assert order == ["start:lesson-1", "end:lesson-1", "start:lesson-2", "end:lesson-2"]

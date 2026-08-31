@@ -291,6 +291,8 @@ export interface TeacherLessonJob {
   error?: { code: string; message: string; retryable?: boolean } | null
   result_revision_id?: string
   parent_job_id?: string
+  batch_position?: number
+  batch_size?: number
   pause_requested?: boolean
   stream_sequence?: number
   stream_batches?: Record<string, string>

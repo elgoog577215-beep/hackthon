@@ -71,7 +71,7 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     })
 
     assert context["course_information"]["教学对象"] == "大学一年级"
-    assert context["schema_version"] == "formal_course_authoring_v4"
+    assert context["schema_version"] == "formal_course_authoring_v5"
     assert "课程名称" not in context["course_information"]
     assert context["course_information"]["每课时时长"] == "45 分钟"
     assert context["course_information"]["班级规模"] == "48 人"
@@ -81,6 +81,6 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     assert context["references"] == []
     assert "不编造" in context["reference_policy"]
     assert [item["label"] for item in context["outline_objective_dimensions"]] == [
-        "学习目标", "育人目标", "可测量成果",
+        "学习目标", "育人目标", "可测量结果",
     ]
     assert context["lesson_flow_contract"]["required_roles"][-1] == "教学活动照片（教师课后补充）"

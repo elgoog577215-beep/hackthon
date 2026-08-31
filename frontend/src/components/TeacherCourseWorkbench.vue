@@ -321,36 +321,6 @@
             <button type="button" :disabled="!nextLesson || aiCandidatePending" @click="selectLesson(nextLesson?.lesson_unit_id)">{{ t('courseWorkbench.nextLesson', '下一讲') }}<ChevronRight :size="15" /></button>
           </div>
         </nav>
-        <section v-if="activeStage === 'lesson' && !lessonStageBlocked && (batchEligibleCount || batchLessonJobs.length)" class="lesson-batch-panel" aria-live="polite">
-          <header>
-            <div>
-              <strong>{{ t('courseWorkbench.lessonBatch.title', '全部教案') }}</strong>
-              <small v-if="batchLessonJobs.length">{{ t('courseWorkbench.lessonBatch.progress', '{completed}/{total} 讲已完成，每讲可独立暂停、继续或重试').replace('{completed}', String(batchCompletedCount)).replace('{total}', String(batchLessonJobs.length)) }}</small>
-              <small v-else>{{ t('courseWorkbench.lessonBatch.ready', '按当前课程资料与统一要求，为 {count} 讲分别生成教案').replace('{count}', String(batchEligibleCount)) }}</small>
-            </div>
-            <div class="lesson-batch-actions">
-              <button v-if="batchRunning" type="button" @click="pauseAllLessonGeneration"><Pause :size="14" />{{ t('courseWorkbench.lessonBatch.pauseAll', '全部暂停') }}</button>
-              <button v-if="batchRunning" type="button" @click="cancelAllLessonGeneration"><X :size="14" />{{ t('courseWorkbench.lessonBatch.cancelAll', '全部取消') }}</button>
-              <button v-else-if="batchEligibleCount" class="primary-action" type="button" :disabled="batchStarting" @click="generateAllLessonPlans">
-                <LoaderCircle v-if="batchStarting" :size="14" class="spin" /><Sparkles v-else :size="14" />
-                {{ batchStarting ? t('courseWorkbench.lessonBatch.starting', '正在创建任务…') : t('courseWorkbench.lessonBatch.generateAll', '一键生成全部教案') }}
-              </button>
-            </div>
-          </header>
-          <ol v-if="batchLessonJobs.length" class="lesson-batch-jobs">
-            <li v-for="job in batchLessonJobs" :key="job.id">
-              <span><strong>{{ lessonTitleForJob(job.lesson_unit_id) }}</strong><small>{{ lessonJobStatusLabel(job.status) }}<template v-if="['pending', 'running'].includes(job.status)"> · {{ Math.round(job.progress || 0) }}%</template></small></span>
-              <span class="lesson-batch-job-actions">
-                <button v-if="['pending', 'running'].includes(job.status)" type="button" @click="pauseLessonJob(job.id)">{{ t('courseWorkbench.pause', '暂停') }}</button>
-                <button v-if="['pending', 'running'].includes(job.status)" type="button" @click="cancelLessonJob(job.id)">{{ t('common.cancel', '取消') }}</button>
-                <button v-if="job.status === 'paused'" type="button" @click="retryLessonJob(job.lesson_unit_id, job.id)">{{ t('courseWorkbench.continue', '继续') }}</button>
-                <button v-if="job.status === 'paused'" type="button" @click="cancelLessonJob(job.id)">{{ t('common.cancel', '取消') }}</button>
-                <button v-if="['failed', 'cancelled'].includes(job.status)" type="button" @click="retryLessonJob(job.lesson_unit_id, job.id)">{{ t('common.retry', '重试') }}</button>
-                <button v-if="['completed', 'completed_with_warnings'].includes(job.status)" type="button" @click="regenerateLessonJob(job.lesson_unit_id)">{{ t('courseWorkbench.regenerate', '重新生成') }}</button>
-              </span>
-            </li>
-          </ol>
-        </section>
         <TeacherDocumentCommandBar
           v-if="activeStage === 'lesson' && lessonToolbarVisible"
           class="lesson-command-bar"
@@ -442,30 +412,21 @@
 
         <template v-else-if="activeStage === 'lesson'">
           <TeacherLessonArrangementSummary
-            v-if="selectedLesson?.arrangement?.blocks?.length"
+            v-if="workingLessonRevision && selectedLesson?.arrangement?.blocks?.length"
             :arrangement="selectedLesson.arrangement"
             :impact-labels="lessonArrangementImpactLabels"
           />
-          <template v-if="lessonGenerationActive">
-            <aside class="lesson-generation-float" aria-live="polite">
-              <header>
-                <div><LoaderCircle :size="18" class="spin" /><span><strong>{{ t('courseWorkbench.generatingLessonPlan', '正在生成本讲教案') }}</strong><small>{{ lessonJob?.message || selectedLesson?.title }}</small></span></div>
-                <div class="lesson-generation-controls">
-                  <span>{{ Math.min(100, Math.round(lessonGenerationProgress)) }}%</span>
-                  <button type="button" @click="pauseLessonGeneration">{{ t('courseWorkbench.pause', '暂停') }}</button>
-                  <button type="button" @click="cancelLessonGeneration">{{ t('common.cancel', '取消') }}</button>
-                </div>
-              </header>
-              <div
-                class="generation-progress"
-                role="progressbar"
-                :aria-valuenow="Math.min(100, Math.round(lessonGenerationProgress))"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
-                <i :style="{ transform: `scaleX(${lessonGenerationProgress / 100})` }" />
+          <template v-if="lessonGenerationRunning">
+            <div class="lesson-generation-status" aria-live="polite">
+              <div>
+                <LoaderCircle :size="17" class="spin" />
+                <span>
+                  <strong>{{ t('courseWorkbench.lessonBatch.generatingCurrent', '正在生成{lesson}').replace('{lesson}', selectedLesson?.title || '') }}</strong>
+                  <small>{{ lessonJob?.message || t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…') }}</small>
+                </span>
               </div>
-            </aside>
+              <em>{{ Math.min(100, Math.round(lessonGenerationProgress)) }}%</em>
+            </div>
             <article v-if="lessonStreamSegments.length" class="lesson-stream-document" :aria-label="t('courseWorkbench.lessonStreamDraft', 'AI 工作稿')">
               <small>{{ t('courseWorkbench.lessonStreamDraft', 'AI 工作稿') }}</small>
               <p v-for="(segment, index) in lessonStreamSegments" :key="`${index}-${segment}`">
@@ -474,28 +435,13 @@
             </article>
             <div v-else class="lesson-stream-waiting">{{ t('courseWorkbench.lessonStreamWaiting', '正在组织教案结构…') }}</div>
           </template>
-          <div v-else-if="selectedLesson && !workingLessonRevision" class="lesson-generation-step">
-            <form class="lesson-generation-entry" data-testid="lesson-generation-form" @submit.prevent="generateLessonPlan">
-              <label class="lesson-generation-hint" for="lesson-generation-requirements">
-                {{ t('courseWorkbench.lessonGenerationHint', '请补充本讲的重难点、教学方法或课堂活动要求（选填）。') }}
-              </label>
-              <button class="primary" type="submit" :disabled="lessonBusy || lessonGenerationActive || !selectedLessonId">
-                <LoaderCircle v-if="lessonBusy" :size="16" class="spin" />
-                <Sparkles v-else :size="16" />
-                {{ ['cancelled', 'paused'].includes(String(lessonJob?.status || ''))
-                  ? t('courseWorkbench.continueLessonPlan', '继续生成本讲教案')
-                  : lessonGenerationFailed
-                    ? t('courseWorkbench.retryLessonPlan', '重新生成本讲教案')
-                    : t('courseWorkbench.generateLessonPlan', '生成本讲教案') }}
-              </button>
-              <textarea
-                id="lesson-generation-requirements"
-                v-model.trim="lessonRequirements"
-                rows="2"
-                :aria-label="t('courseWorkbench.lessonGenerationRequirements', '教案生成要求')"
-              />
-            </form>
-            <AppErrorNotice v-if="lessonGenerationErrorPresentation" class="lesson-generation-error" :presentation="lessonGenerationErrorPresentation" compact />
+          <div v-else-if="selectedLesson && !workingLessonRevision && lessonGenerationQueued" class="lesson-queue-state" aria-live="polite">
+            <LoaderCircle :size="22" />
+            <strong>{{ t('courseWorkbench.lessonBatch.waitingTitle', '等待按顺序生成') }}</strong>
+            <p>{{ t('courseWorkbench.lessonBatch.waitingDetail', '上一讲完成后，系统会自动生成本讲，不需要再次操作。') }}</p>
+          </div>
+          <div v-else-if="selectedLesson && !workingLessonRevision" class="lesson-empty-canvas" aria-live="polite">
+            <span>{{ t('courseWorkbench.lessonBatch.empty', '教案尚未生成') }}</span>
           </div>
           <TeacherLessonPlanDocument
             v-else-if="workingLessonRevision && selectedLesson"
@@ -723,7 +669,17 @@
         @resume-workflow="resumeReferenceWorkflow"
         @cancel-workflow="cancelReferenceWorkflow"
         @retry-workflow="retryReferenceWorkflow"
-      />
+      >
+        <template #workflow-action>
+          <div v-if="lessonBatchLaunchVisible" class="lesson-batch-launch" data-testid="lesson-batch-launch">
+            <small>{{ t('courseWorkbench.lessonBatch.ready', '剩余 {count} 讲，将按顺序逐讲生成').replace('{count}', String(batchEligibleCount)) }}</small>
+            <button data-testid="lesson-batch-start" type="button" @click="generateAllLessonPlans">
+              <Sparkles :size="16" />
+              {{ t('courseWorkbench.lessonBatch.generateAll', '生成全部教案') }}
+            </button>
+          </div>
+        </template>
+      </CourseReferenceTray>
     </aside>
 
     <TeacherLessonAiWorkspace
@@ -1003,9 +959,8 @@ const foundationSemanticRequirement = computed(() => {
 const loadedShapeRevision = ref('')
 const shapeConfirming = ref(false)
 const shapeConfirmError = ref<unknown>(null)
-const lessonRequirements = ref('')
 const batchStarting = ref(false)
-const lessonBusy = ref(false); const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
+const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
 const questionBankImportMode = ref(false)
@@ -1459,8 +1414,11 @@ const generationErrorPresentation = computed(() => generationError.value ? toApp
 }) : null)
 const lessonJob = computed(() => selectedLessonId.value ? lessonStore.latestJobByLesson(selectedLessonId.value) : undefined)
 const lessonGenerationActive = computed(() => ['pending', 'running'].includes(String(lessonJob.value?.status || '')))
-const lessonGenerationFailed = computed(() => ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')))
-const batchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => !lesson.plan.confirmed_revision_id).length)
+const lessonGenerationRunning = computed(() => lessonJob.value?.status === 'running')
+const lessonGenerationQueued = computed(() => lessonJob.value?.status === 'pending' && Boolean(lessonJob.value?.parent_job_id))
+const batchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => (
+  !lesson.plan.working_revision_id || lesson.plan.source_state !== 'current'
+)).length)
 const latestBatchParentId = computed(() => [...lessonStore.jobs]
   .filter(job => job.type === 'teacher_lesson_plan_generation' && job.parent_job_id)
   .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))[0]?.parent_job_id || '')
@@ -1476,19 +1434,45 @@ const batchLessonJobs = computed(() => {
 })
 const batchRunning = computed(() => batchLessonJobs.value.some(job => ['pending', 'running'].includes(job.status)))
 const batchCompletedCount = computed(() => batchLessonJobs.value.filter(job => ['completed', 'completed_with_warnings'].includes(job.status)).length)
+const batchPaused = computed(() => (
+  batchLessonJobs.value.some(job => job.status === 'paused')
+  && !batchRunning.value
+))
+const batchFailed = computed(() => batchLessonJobs.value.some(job => ['failed', 'cancelled'].includes(job.status)))
+const batchRecoveryAvailable = computed(() => batchPaused.value || batchFailed.value || lessonStore.lessons.some(lesson => (
+  (!lesson.plan.working_revision_id || lesson.plan.source_state !== 'current')
+  && ['paused', 'failed', 'cancelled'].includes(String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || ''))
+)))
+const lessonBatchLaunchVisible = computed(() => (
+  activeStage.value === 'lesson'
+  && batchEligibleCount.value > 0
+  && !batchRunning.value
+  && !batchStarting.value
+  && !batchPaused.value
+  && !batchRecoveryAvailable.value
+))
+const batchTotalCount = computed(() => Math.max(
+  ...batchLessonJobs.value.map(job => Number(job.batch_size || 0)),
+  batchLessonJobs.value.length,
+  0,
+))
+const batchCurrentJob = computed(() => batchLessonJobs.value.find(job => job.status === 'running'))
+const batchProgress = computed(() => {
+  if (!batchTotalCount.value) return 0
+  const completed = batchLessonJobs.value.reduce((total, job) => {
+    if (['completed', 'completed_with_warnings'].includes(job.status)) return total + 100
+    if (job.status === 'running') return total + Math.max(0, Math.min(100, Number(job.progress || 0)))
+    return total
+  }, 0)
+  return Math.round(completed / batchTotalCount.value)
+})
+const batchError = computed(() => String(
+  [...(batchLessonJobs.value.length ? batchLessonJobs.value : lessonStore.jobs)].reverse().find(job => job.status === 'failed')?.error?.message || '',
+))
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
 const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancelled'
   ? ''
   : String(lessonJob.value?.error?.message || lessonConfirmError.value || lessonStore.error || ''))
-const lessonGenerationErrorPresentation = computed(() => lessonGenerationError.value ? toAppError(
-  lessonJob.value?.error || lessonGenerationError.value,
-  {
-    title: t('courseWorkbench.lessonGenerationFailed', '本讲教案生成失败'),
-    fallback: lessonGenerationError.value,
-    code: String(lessonJob.value?.error?.code || ''),
-    requestId: String(lessonJob.value?.id || ''),
-  },
-) : null)
 const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.value?.stream_batches))
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
@@ -1512,9 +1496,9 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'lesson') {
-    if (lessonGenerationActive.value || lessonBusy.value) return 'generating'
-    if (lessonJob.value?.status === 'paused') return 'paused'
-    if (['failed', 'cancelled'].includes(String(lessonJob.value?.status || ''))) return 'failed'
+    if (batchRunning.value || batchStarting.value) return 'generating'
+    if (batchPaused.value) return 'paused'
+    if (batchRecoveryAvailable.value && batchEligibleCount.value) return batchPaused.value ? 'paused' : 'failed'
     if (lessonPlanConfirmed.value) return 'confirmed'
     if (workingLessonRevision.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
@@ -1533,31 +1517,37 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
 const referenceWorkflowDetail = computed(() => {
   if (referenceWorkflowState.value === 'generating') {
     if (activeStage.value === 'foundation') return currentGenerationLabel.value
-    if (activeStage.value === 'lesson') return String(lessonJob.value?.current_block_title || lessonJob.value?.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
+    if (activeStage.value === 'lesson') {
+      const currentTitle = batchCurrentJob.value ? lessonTitleForJob(batchCurrentJob.value.lesson_unit_id) : ''
+      return t('courseWorkbench.lessonBatch.overallProgress', '已完成 {completed}/{total} 讲{current}')
+        .replace('{completed}', String(batchCompletedCount.value))
+        .replace('{total}', String(batchTotalCount.value || batchEligibleCount.value))
+        .replace('{current}', currentTitle ? ` · ${currentTitle}` : '')
+    }
     if (activeStage.value === 'script') return String(scriptJob.value?.message || t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'))
   }
   if (referenceWorkflowState.value === 'failed') {
     if (activeStage.value === 'foundation') return generationError.value
-    if (activeStage.value === 'lesson') return lessonGenerationError.value
+    if (activeStage.value === 'lesson') return batchError.value || lessonGenerationError.value
     if (activeStage.value === 'script') return effectiveScriptGenerationError.value
   }
   return ''
 })
 const referenceWorkflowProgress = computed(() => {
   if (activeStage.value === 'foundation') return generationProgress.value
-  if (activeStage.value === 'lesson') return lessonGenerationProgress.value
+  if (activeStage.value === 'lesson') return batchRunning.value || batchLessonJobs.value.length ? batchProgress.value : 0
   if (activeStage.value === 'script') return scriptGenerationProgress.value
   return referenceWorkflowState.value === 'confirmed' ? 100 : 0
 })
 const referenceWorkflowCanPause = computed(() => (
   activeStage.value === 'foundation' ? taskInFlight.value
-    : activeStage.value === 'lesson' ? lessonGenerationActive.value
+    : activeStage.value === 'lesson' ? batchRunning.value
       : activeStage.value === 'script' ? scriptGenerationActive.value
         : false
 ))
 const referenceWorkflowCanResume = computed(() => (
   activeStage.value === 'foundation' ? taskPaused.value
-    : activeStage.value === 'lesson' ? lessonJob.value?.status === 'paused'
+    : activeStage.value === 'lesson' ? batchPaused.value
       : activeStage.value === 'script' ? scriptJob.value?.status === 'paused'
         : false
 ))
@@ -1632,7 +1622,7 @@ function stopGeneration() { void generationStore.stopGeneration() }
 function cancelOutlineGeneration() { void generationStore.cancelTask(props.courseId) }
 async function pauseReferenceWorkflow() {
   if (activeStage.value === 'foundation') return generationStore.stopGeneration()
-  if (activeStage.value === 'lesson') return pauseLessonGeneration()
+  if (activeStage.value === 'lesson') return pauseAllLessonGeneration()
   if (activeStage.value === 'script') return pauseScriptGeneration()
 }
 async function resumeReferenceWorkflow() {
@@ -1640,17 +1630,17 @@ async function resumeReferenceWorkflow() {
     await generationStore.resumeTask(props.courseId, generationTask.value.id)
     return
   }
-  if (activeStage.value === 'lesson') return generateLessonPlan()
+  if (activeStage.value === 'lesson') return generateAllLessonPlans()
   if (activeStage.value === 'script') return generateScript()
 }
 async function cancelReferenceWorkflow() {
   if (activeStage.value === 'foundation') return generationStore.cancelTask(props.courseId)
-  if (activeStage.value === 'lesson') return cancelLessonGeneration()
+  if (activeStage.value === 'lesson') return cancelAllLessonGeneration()
   if (activeStage.value === 'script') return cancelScriptGeneration()
 }
 async function retryReferenceWorkflow() {
   if (activeStage.value === 'foundation') return submitFoundation()
-  if (activeStage.value === 'lesson') return generateLessonPlan()
+  if (activeStage.value === 'lesson') return generateAllLessonPlans()
   if (activeStage.value === 'script') return generateScript()
 }
 function appendAiMessage(
@@ -2181,43 +2171,6 @@ async function confirmLectureOutlineShape() {
     await generationStore.fetchGlobalTasks()
   } catch (error: any) { shapeConfirmError.value = error } finally { shapeConfirming.value = false }
 }
-async function generateLessonPlan() {
-  const lesson = selectedLesson.value
-  if (!lesson || lessonBusy.value || lessonGenerationActive.value) return
-  const arrangement = lesson.arrangement
-  if (!arrangement?.lesson_type || !arrangement.blocks?.length) {
-    lessonConfirmError.value = t('courseWorkbench.arrangement.autoPlanningUnavailable', '暂时无法准备本讲教学结构，请重新载入后再试。')
-    return
-  }
-  lessonBusy.value = true
-  lessonConfirmError.value = ''
-  try {
-    if (!arrangement.confirmed) {
-      await lessonStore.confirmArrangement(props.courseId, selectedLessonId.value, {
-        lesson_type: arrangement.lesson_type,
-        blocks: arrangement.blocks,
-      })
-    }
-    await saveRelationships(`lesson-plan:${selectedLessonId.value}`, 'lesson_plan', lesson.title)
-    const primary = activeReferences.value.find(item => item.role === 'primary')
-    const generationArgs = [
-      props.courseId,
-      selectedLessonId.value,
-      primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined,
-      lessonRequirements.value,
-      activeReferences.value.map(item => item.material_asset_id),
-    ] as const
-    if (lessonGenerationFailed.value && lessonJob.value?.id) {
-      await lessonStore.generateLesson(...generationArgs, lessonJob.value.id)
-    } else {
-      await lessonStore.generateLesson(...generationArgs)
-    }
-  } catch {
-    lessonConfirmError.value = lessonStore.error || t('courseWorkbench.arrangement.confirmFailed', '本讲教学结构准备失败，请重试。')
-  } finally {
-    lessonBusy.value = false
-  }
-}
 function activeLessonGenerationSource() {
   const primary = activeReferences.value.find(item => item.role === 'primary')
   return primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined
@@ -2230,7 +2183,7 @@ async function generateAllLessonPlans() {
     await lessonStore.generateAllLessons(
       props.courseId,
       activeLessonGenerationSource(),
-      lessonRequirements.value,
+      '',
       activeReferences.value.map(item => item.material_asset_id),
     )
   } catch {
@@ -2242,40 +2195,10 @@ async function generateAllLessonPlans() {
 function lessonTitleForJob(lessonUnitId: string) {
   return lessonStore.lessons.find(lesson => lesson.lesson_unit_id === lessonUnitId)?.title || lessonUnitId
 }
-function lessonJobStatusLabel(status: TeacherLessonJob['status']) {
-  return t(`courseWorkbench.lessonBatch.status.${status}`, ({ pending: '等待中', running: '生成中', paused: '已暂停', completed: '已生成', completed_with_warnings: '已生成，待检查', failed: '生成失败', cancelled: '已取消' } as const)[status])
-}
 async function pauseLessonJob(jobId: string) { await lessonStore.pauseJob(props.courseId, jobId).catch(() => undefined) }
 async function cancelLessonJob(jobId: string) { await lessonStore.cancelJob(props.courseId, jobId).catch(() => undefined) }
-async function retryLessonJob(lessonUnitId: string, resumeJobId: string) {
-  await lessonStore.generateLesson(
-    props.courseId,
-    lessonUnitId,
-    activeLessonGenerationSource(),
-    lessonRequirements.value,
-    activeReferences.value.map(item => item.material_asset_id),
-    resumeJobId,
-  ).catch(() => undefined)
-}
-async function regenerateLessonJob(lessonUnitId: string) {
-  await lessonStore.generateLesson(
-    props.courseId,
-    lessonUnitId,
-    activeLessonGenerationSource(),
-    lessonRequirements.value,
-    activeReferences.value.map(item => item.material_asset_id),
-  ).catch(() => undefined)
-}
 async function pauseAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => pauseLessonJob(job.id))) }
 async function cancelAllLessonGeneration() { await Promise.all(batchLessonJobs.value.filter(job => ['pending', 'running'].includes(job.status)).map(job => cancelLessonJob(job.id))) }
-async function pauseLessonGeneration() {
-  if (!lessonJob.value || !lessonGenerationActive.value) return
-  await pauseLessonJob(lessonJob.value.id)
-}
-async function cancelLessonGeneration() {
-  if (!lessonJob.value || !lessonGenerationActive.value) return
-  await lessonStore.cancelJob(props.courseId, lessonJob.value.id).catch(() => undefined)
-}
 async function confirmLessonPlan() { const revision = workingLessonRevision.value?.revision_id; if (!selectedLesson.value || !revision || lessonPlanConfirmed.value || lessonConfirming.value) return; lessonConfirming.value = true; lessonConfirmError.value = ''; try { await lessonStore.confirm(props.courseId, selectedLessonId.value, revision) } catch { lessonConfirmError.value = lessonStore.error || t('courseWorkbench.lessonConfirmFailed', '本讲教案确认失败，请重试。') } finally { lessonConfirming.value = false } }
 function beginLessonPlanEditing() { lessonPlanDocument.value?.beginEditing() }
 function cancelLessonPlanEditing() { lessonPlanDocument.value?.cancelEditing() }
@@ -2355,7 +2278,8 @@ function selectLessonSection(lessonId: string, sectionId: string) {
 }
 function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'review' | 'confirmed' | 'failed' {
   const jobStatus = String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '')
-  if (['pending', 'running'].includes(jobStatus)) return 'generating'
+  if (jobStatus === 'running') return 'generating'
+  if (jobStatus === 'pending') return 'pending'
   if (jobStatus === 'failed') return 'failed'
   if (lesson.plan?.confirmed_revision_id) return 'confirmed'
   if (lesson.plan?.working_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus)) return 'review'
@@ -2363,6 +2287,9 @@ function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'review'
 }
 function lessonGenerationStateLabel(lesson: any): string {
   const state = lessonGenerationState(lesson)
+  const jobStatus = String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '')
+  if (jobStatus === 'pending') return t('courseWorkbench.lessonOutline.status.queued', '等待生成')
+  if (jobStatus === 'paused') return t('courseWorkbench.lessonOutline.status.paused', '已暂停')
   const labels = {
     pending: t('courseWorkbench.lessonOutline.status.pending', '未生成'),
     generating: t('courseWorkbench.lessonOutline.status.generating', '生成中'),
@@ -2587,14 +2514,11 @@ onBeforeUnmount(() => {
 @media(max-width:760px){.center-heading-actions>button{width:38px;padding:0;justify-content:center;font-size:0}}
 .stream-failed{color:#b91c1c;background:#fffafa}
 .outline-shape-review>article{padding-bottom:20px}.shape-chapter-list{display:grid;gap:0;margin:0;padding:0!important;list-style:none}.shape-chapter-list li{min-height:72px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:12px;padding:10px 2px;border-bottom:1px solid #edf1f6}.shape-chapter-index{width:30px;height:30px;display:grid;place-items:center;border-radius:50%;color:#4f46e5;background:#eef2ff;font-size:11px;font-weight:800}.shape-chapter-list li>div{min-width:0;display:grid;gap:4px}.shape-chapter-list li>div strong{color:#263147;font-size:13px}.shape-chapter-list li>div small{color:#64748b;font-size:11px;line-height:1.45}.shape-chapter-list label{display:flex;align-items:center;gap:7px;color:#64748b;font-size:11px}.shape-chapter-list input{width:68px;min-height:36px;padding:6px 8px;border:1px solid #cfd7e3;border-radius:7px;outline:0;color:#172033;background:#fff;font:inherit;font-size:13px;text-align:center}.shape-chapter-list input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.outline-shape-review>footer{min-height:66px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 20px;border-top:1px solid #e7ebf2}.outline-shape-review>footer>span{color:#64748b;font-size:12px}.shape-confirm-error{margin:12px 0 0}
-.workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-error{margin:-4px 0 0}.lesson-generation-float{position:sticky;z-index:8;top:14px;width:min(760px,calc(100% - 40px));overflow:hidden;margin:14px auto 0;border-radius:12px;background:rgba(255,255,255,.98);box-shadow:0 12px 30px rgba(30,41,59,.14)}.lesson-generation-float>header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 15px 0 17px}.lesson-generation-float>header>div:first-child{min-width:0;display:flex;align-items:center;gap:10px;color:#4f46e5}.lesson-generation-float>header span{min-width:0;display:grid;gap:3px}.lesson-generation-float>header strong{overflow:hidden;color:#263147;font-size:13px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-float>header small{overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-controls{flex:0 0 auto;display:flex;align-items:center;gap:12px}.lesson-generation-controls>span{display:block;color:#6366f1;font-size:11px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-generation-controls>button{min-height:34px;padding:0 11px;border:0;border-radius:8px;color:#475569;background:#f1f3f7;font-size:12px;font-weight:700;cursor:pointer}.lesson-generation-controls>button:hover{color:#3730a3;background:#ececff}.lesson-generation-controls>button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.lesson-generation-float>.generation-progress{height:3px}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:10px;font-weight:800;letter-spacing:.08em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:13px;line-height:1.85}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px}
-.lesson-batch-panel{margin:12px 18px 0;border:1px solid #e0e4ee;border-radius:11px;background:#fafbff}.lesson-batch-panel>header{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 13px}.lesson-batch-panel>header>div:first-child{display:grid;gap:3px}.lesson-batch-panel strong{color:#30394e;font-size:12px}.lesson-batch-panel small{color:#707b8e;font-size:10px}.lesson-batch-actions,.lesson-batch-job-actions{display:flex;align-items:center;gap:6px}.lesson-batch-actions button,.lesson-batch-job-actions button{min-height:30px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d8deea;border-radius:7px;color:#505c70;background:#fff;font-size:10px;font-weight:700;cursor:pointer}.lesson-batch-actions .primary-action{border-color:#514bdc;color:#fff;background:#514bdc}.lesson-batch-jobs{display:grid;max-height:178px;overflow:auto;margin:0;padding:0 13px 10px;list-style:none}.lesson-batch-jobs li{min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px;border-top:1px solid #e9ecf3}.lesson-batch-jobs li>span:first-child{min-width:0;display:grid;gap:2px}.lesson-batch-jobs li>span:first-child strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-batch-job-actions{flex:0 0 auto}
+.workbench-error{margin:12px 20px 16px}.prerequisite-error{margin:24px}.lesson-generation-status{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:0 30px;border-bottom:1px solid #eceef4;background:#fafaff}.lesson-generation-status>div{min-width:0;display:flex;align-items:center;gap:10px;color:#5752d4}.lesson-generation-status span{min-width:0;display:grid;gap:2px}.lesson-generation-status strong,.lesson-generation-status small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.lesson-generation-status strong{color:#30394e;font-size:12.5px}.lesson-generation-status small{color:#737f92;font-size:10.5px}.lesson-generation-status em{color:#5b57d7;font-size:11px;font-style:normal;font-weight:750;font-variant-numeric:tabular-nums}.lesson-stream-document{padding:34px 50px 64px}.lesson-stream-document>small{display:block;margin-bottom:9px;color:#6366f1;font-size:10px;font-weight:800;letter-spacing:.08em}.lesson-stream-document h3{margin:0 0 22px;color:#202b40;font-size:20px}.lesson-stream-document p{max-width:75ch;margin:0 0 15px;color:#475569;font-size:13px;line-height:1.85}.lesson-stream-document .stream-caret{height:15px;margin-left:3px;vertical-align:-2px}.lesson-stream-waiting{min-height:280px;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px}.lesson-queue-state{min-height:330px;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;color:#7d87a0;text-align:center}.lesson-queue-state svg{margin-bottom:15px;color:#7470d8}.lesson-queue-state strong{color:#354057;font-size:15px}.lesson-queue-state p{max-width:38ch;margin:8px 0 0;font-size:12px;line-height:1.65}.lesson-empty-canvas{min-height:430px;display:grid;place-items:center;color:#9aa4b5;background:#fff;font-size:12px}.lesson-batch-launch{display:grid;gap:9px}.lesson-batch-launch small{color:#778397;font-size:10.5px;line-height:1.5}.lesson-batch-launch button{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;width:100%;border:0;border-radius:9px;color:#fff;background:#5752d4;font-size:12.5px;font-weight:750;cursor:pointer}.lesson-batch-launch button:hover{background:#4843bd}.lesson-batch-launch button:focus-visible{outline:2px solid #5752d4;outline-offset:2px}
 .workbench-center.is-outline-workspace{padding-bottom:24px}.outline-workspace{overflow:hidden}.outline-workspace.is-outline-editing{overflow:visible}.outline-workspace>.inline-outline-review{width:100%;min-height:0}
 .prerequisite{padding:28px;text-align:center}.prerequisite>span{max-width:480px;line-height:1.55}.prerequisite[data-state="review"]>svg{color:#4f46e5}.prerequisite[data-state="error"]>svg{color:#b91c1c}.prerequisite button{min-height:36px;padding:7px 11px}.prerequisite button:hover{border-color:#aaa7f4;background:#f7f7ff}.prerequisite button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.prerequisite button:disabled{opacity:.5;cursor:not-allowed}
 .workbench-center.is-lesson-workspace .center-heading,.workbench-center.is-lesson-workspace .lesson-stage{max-width:1160px}.lesson-workspace{min-width:0}.lesson-stage-content{min-width:0}.lesson-stage.has-lesson-outline{overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none}.has-lesson-outline .lesson-workspace{display:grid;grid-template-columns:206px minmax(0,1fr);gap:12px;transition:grid-template-columns .2s cubic-bezier(.2,.8,.2,1)}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:30px minmax(0,1fr)}.has-lesson-outline .lesson-stage-content{overflow:hidden;border:1px solid #e0e6ef;border-radius:14px;background:#fff;box-shadow:0 10px 30px rgba(30,41,59,.05)}.lesson-outline{min-width:0;align-self:start;display:grid;grid-template-columns:minmax(0,1fr) 28px;background:transparent}.is-outline-collapsed .lesson-outline{grid-template-columns:28px}.lesson-outline>nav{max-height:calc(100vh - 205px);overflow:auto;padding:0 4px 0 0}.lesson-outline-chapter{display:grid}.lesson-outline-chapter-button{min-height:48px;display:grid;grid-template-columns:9px minmax(0,1fr);align-items:center;gap:7px;width:100%;padding:6px 5px;border:0;color:#94a3b8;background:transparent;text-align:left;cursor:pointer}.lesson-outline-chapter-marker{width:5px;height:5px;justify-self:center;border:1px solid #b8c2d0;border-radius:50%;background:transparent}.lesson-outline-chapter-marker[data-state="generating"]{border-color:#6366f1;background:#6366f1;animation:lesson-pulse 1.4s ease-in-out infinite}.lesson-outline-chapter-marker[data-state="review"]{border-color:#d97706;background:#f59e0b}.lesson-outline-chapter-marker[data-state="confirmed"]{border-color:#16a34a;background:#22c55e}.lesson-outline-chapter-marker[data-state="failed"]{border-color:#dc2626;background:#ef4444}.lesson-outline-chapter-copy{min-width:0;display:grid;gap:2px}.lesson-outline-chapter-copy strong{overflow:hidden;color:#59677b;font-size:11.5px;font-weight:600;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}.lesson-outline-chapter-copy small{color:#8a97aa;font-size:9.5px;line-height:1.3}.lesson-outline-chapter-button:hover strong{color:#334155}.lesson-outline-chapter-button.active .lesson-outline-chapter-marker{box-shadow:0 0 0 3px rgba(99,102,241,.12)}.lesson-outline-chapter-button.active strong{color:#373b71;font-weight:700}.lesson-outline-chapter-button.active small{color:#6366f1}.lesson-section-tabs{display:flex;min-width:0;overflow-x:auto;padding:0 18px;border-bottom:1px solid #e7ebf2;background:#fff;scrollbar-width:thin}.lesson-section-tabs button{min-height:56px;flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:0 14px;border:0;color:#718096;background:transparent;cursor:pointer;white-space:nowrap}.lesson-section-tabs button>span{color:#94a3b8;font-size:10px;font-weight:750;font-variant-numeric:tabular-nums}.lesson-section-tabs button>strong{max-width:260px;overflow:hidden;font-size:12px;font-weight:600;text-overflow:ellipsis}.lesson-section-tabs button:hover{color:#475569}.lesson-section-tabs button.active{color:#3730a3;box-shadow:inset 0 -2px #5b57e8}.lesson-section-tabs button.active>span{color:#6366f1}.lesson-section-tabs button.active>strong{font-weight:700}.has-lesson-outline :deep(.lesson-document .document-title h3){overflow:visible;line-height:1.35;text-overflow:clip;white-space:normal}.has-lesson-outline :deep(.lesson-document .flow-table){overflow:auto}.has-lesson-outline :deep(.lesson-document .flow-row){min-width:800px}@keyframes lesson-pulse{50%{opacity:.42;transform:scale(.72)}}
 .lesson-stage{padding:0;overflow:hidden}.lesson-navigator{min-height:54px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:14px;padding:0 20px;border-bottom:1px solid #e7ebf2;background:#fbfcfe}.lesson-navigator>button{min-height:36px;display:flex;align-items:center;gap:5px;padding:0 11px;border:1px solid #d9dcfa;border-radius:8px;color:#4338ca;background:#f3f2ff;font-size:12px;font-weight:750;cursor:pointer;transition:color .16s ease,border-color .16s ease,background .16s ease,transform .16s ease}.lesson-navigator>button:hover:not(:disabled){transform:translateY(-1px);border-color:#aaa7f2;color:#3730a3;background:#eae8ff}.lesson-navigator>button:focus-visible{outline:3px solid rgba(91,87,232,.18);outline-offset:2px}.lesson-navigator>button:disabled{border-color:transparent;color:#94a3b8;background:transparent;opacity:.48;cursor:not-allowed}.lesson-selector{min-width:0;display:flex;align-items:center;justify-content:center;gap:0;padding:0;border:0}.lesson-selector>span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}.lesson-selector select{width:min(100%,560px);min-height:36px;padding:0 34px 0 12px;border:0;border-radius:7px;color:#263147;background:transparent;font-size:13px;font-weight:750;text-align:center;box-shadow:none}.lesson-selector select:hover{background:#f3f5fa}.lesson-selector select:focus{background:#fff}.stage-form>.lesson-form-actions{justify-content:flex-end}.stage-next-bar{min-height:64px;display:flex;align-items:center;justify-content:space-between;padding:12px 28px;border-top:1px solid #e8ecf2;background:#fbfcfe}.ppt-entry{min-height:180px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:16px;padding:36px 28px}.ppt-entry>svg{color:#5b57e8}.ppt-entry>div{min-width:0;display:grid;gap:5px}.ppt-entry strong{color:#1f2a40;font-size:15px}.ppt-entry span{color:#64748b;font-size:12px}.question-workbench-surface{max-width:860px;margin:0 auto;padding:0;border:0;border-radius:0;box-shadow:none}
-.lesson-generation-entry{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"hint action" "input input";align-items:center;gap:14px 24px}.lesson-generation-hint{grid-area:hint;color:#475569;font-size:13px;line-height:1.55}.lesson-generation-entry>.primary{grid-area:action;min-height:38px;padding-inline:16px}.lesson-generation-entry>textarea{box-sizing:border-box;grid-area:input;width:100%;min-height:88px;padding:12px 14px;border:1px solid #cbd4e1;border-radius:10px;outline:0;color:#263147;background:#fbfcfe;font:inherit;font-size:13px;line-height:1.55;resize:vertical;transition:border-color .16s ease,background-color .16s ease,box-shadow .16s ease}.lesson-generation-entry>textarea:hover{border-color:#aeb9c9;background:#fff}.lesson-generation-entry>textarea:focus{border-color:#5b57e8;background:#fff;box-shadow:0 0 0 3px rgba(91,87,232,.1)}.lesson-generation-entry>.primary:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
-.lesson-generation-step{padding:24px 28px 28px;background:#fff}
 .has-lesson-outline .lesson-workspace{grid-template-columns:190px minmax(0,1fr);gap:14px}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:minmax(0,1fr);gap:0}.lesson-outline{display:block;min-height:156px}.lesson-outline>nav{position:relative;padding:3px 0 3px 2px}.lesson-outline>nav::before{position:absolute;top:18px;bottom:18px;left:12px;width:1px;background:#dde3ec;content:""}.lesson-outline-chapter-button{position:relative;min-height:46px;grid-template-columns:20px minmax(0,1fr);gap:7px;padding:5px 7px 5px 2px;border-radius:8px}.lesson-outline-chapter-button:disabled{opacity:.48;cursor:not-allowed}.lesson-outline-chapter-marker{position:relative;z-index:1;width:6px;height:6px;border-color:#c4cedb;background:#f3f5f9}.lesson-outline-chapter-marker[data-state="generating"]{border-color:#6661dc;background:#6661dc}.lesson-outline-chapter-marker[data-state="review"]{border-color:#8884d8;background:#f3f2ff}.lesson-outline-chapter-marker[data-state="confirmed"]{border-color:#6661dc;background:#6661dc}.lesson-outline-chapter-marker[data-state="failed"]{border-color:#d75563;background:#d75563}.lesson-outline-chapter-copy{gap:1px}.lesson-outline-chapter-copy strong{color:#5e6b7e;font-size:11.5px;font-weight:620;line-height:1.4}.lesson-outline-chapter-copy small{color:#8a96a8;font-size:9.5px}.lesson-outline-chapter-copy small[data-state="review"]{color:#7773bd}.lesson-outline-chapter-copy small[data-state="failed"]{color:#b94b57}.lesson-outline-chapter-button:hover:not(:disabled){background:rgba(255,255,255,.52)}.lesson-outline-chapter-button.active{background:rgba(239,240,255,.62)}.lesson-outline-chapter-button.active .lesson-outline-chapter-marker{box-shadow:none}.lesson-outline-chapter-button.active strong{color:#34316f}.lesson-outline-chapter-button.active small{color:#6965b9}.lesson-outline-toggle{color:#596579!important;background:transparent!important;border-color:transparent!important;font-weight:650!important;box-shadow:none!important}.lesson-outline-toggle:hover{color:#3730a3!important;background:#f1f2f7!important}.lesson-section-tabs button:disabled{opacity:.5;cursor:not-allowed}
 .teacher-workbench.is-ai-collaboration{grid-template-columns:minmax(0,1fr) 10px var(--ai-pane-width)}.lesson-navigator{grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px}.is-ai-collaboration .lesson-navigator{grid-template-columns:auto minmax(0,1fr) auto}.lesson-selector select:disabled{color:#94a3b8;cursor:not-allowed}.lesson-outline-chapter-button:focus-visible,.lesson-section-tabs button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
 @media(max-width:1320px){.has-lesson-outline .lesson-workspace{grid-template-columns:184px minmax(0,1fr);gap:12px}.has-lesson-outline .lesson-workspace.is-outline-collapsed{grid-template-columns:minmax(0,1fr);gap:0}}
@@ -2611,7 +2535,6 @@ onBeforeUnmount(() => {
   --teacher-component-active:#f0efff;
 }
 .lesson-navigator,.stage-next-bar{background:var(--teacher-component-tint)}
-.lesson-generation-step,.lesson-generation-entry>textarea{background:var(--teacher-component-surface)}
 .lesson-selector select:hover,.lesson-title-trigger:hover,.lesson-title-trigger[aria-expanded="true"]{background:var(--teacher-component-tint)}
 .lesson-outline-chapter-button:hover:not(:disabled){background:var(--teacher-component-tint)}
 .lesson-outline-chapter-button.active{background:var(--teacher-component-active)}

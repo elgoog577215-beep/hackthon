@@ -311,6 +311,7 @@
           >
             <div class="outline-editor-modes" :aria-label="t('courseGeneration.outlineReview.editorMode', '编辑方式')">
               <button
+                v-if="!isLectureOutline"
                 type="button"
                 :class="{ 'is-active': editorMode === 'visual' }"
                 :aria-pressed="editorMode === 'visual'"
@@ -342,8 +343,8 @@
                 <span>{{ t('courseGeneration.outlineReview.textStyle', '文字样式') }}</span>
                 <select :disabled="adjustmentBusy" :aria-label="t('courseGeneration.outlineReview.textStyle', '文字样式')" @change="applyEditorBlockStyle">
                   <option value="p">{{ t('courseGeneration.outlineReview.bodyText', '正文') }}</option>
-                  <option value="h2">{{ t('courseGeneration.outlineReview.chapterHeading', '章标题') }}</option>
-                  <option value="h3">{{ t('courseGeneration.outlineReview.sectionHeading', '小节标题') }}</option>
+                  <option value="h2">{{ isLectureOutline ? t('courseGeneration.outlineReview.lectureHeading', '讲次标题') : t('courseGeneration.outlineReview.chapterHeading', '章标题') }}</option>
+                  <option v-if="!isLectureOutline" value="h3">{{ t('courseGeneration.outlineReview.sectionHeading', '小节标题') }}</option>
                 </select>
               </label>
               <i aria-hidden="true" />
@@ -515,9 +516,11 @@
               </div>
             </template>
             <p v-else class="outline-markdown-guide">
-              <Heading2 :size="14" />## {{ t('courseGeneration.outlineReview.chapterHeading', '章标题') }}
-              <span>·</span>
-              <Heading3 :size="14" />### {{ t('courseGeneration.outlineReview.sectionHeading', '小节标题') }}
+              <Heading2 :size="14" />## {{ isLectureOutline ? t('courseGeneration.outlineReview.lectureHeading', '讲次标题') : t('courseGeneration.outlineReview.chapterHeading', '章标题') }}
+              <template v-if="!isLectureOutline">
+                <span>·</span>
+                <Heading3 :size="14" />### {{ t('courseGeneration.outlineReview.sectionHeading', '小节标题') }}
+              </template>
             </p>
           </div>
 
@@ -528,15 +531,15 @@
                 <span>{{ t('courseGeneration.outlineReview.documentKicker', '正式教学大纲') }}</span>
               </div>
               <h1>{{ documentTitle }}</h1>
-              <p>{{ documentPositioning || t('courseGeneration.outlineReview.positioningPending', '课程定位将在教学目标与章节结构中继续明确。') }}</p>
+              <p>{{ documentPositioning || t('courseGeneration.outlineReview.lecturePositioningPending', '课程定位将在教学目标与讲次安排中继续明确。') }}</p>
               <dl>
-                <div><dt>{{ t('courseGeneration.outlineReview.documentChapters', '章节') }}</dt><dd>{{ documentChapters.length }}</dd></div>
-                <div v-if="documentVisibleSectionCount"><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentVisibleSectionCount }}</dd></div>
+                <div><dt>{{ isLectureOutline ? t('courseGeneration.outlineReview.documentLectures', '讲次') : t('courseGeneration.outlineReview.documentChapters', '章节') }}</dt><dd>{{ documentChapters.length }}</dd></div>
+                <div v-if="!isLectureOutline && documentVisibleSectionCount"><dt>{{ t('courseGeneration.outlineReview.documentSections', '小节') }}</dt><dd>{{ documentVisibleSectionCount }}</dd></div>
                 <div><dt>{{ t('courseGeneration.outlineReview.documentQuality', '整篇审读') }}</dt><dd :data-ready="qualityReady">{{ qualityReady ? t('courseGeneration.outlineReview.qualityReady', '表达清晰') : t('courseGeneration.outlineReview.qualitySuggested', '建议优化') }}</dd></div>
               </dl>
             </header>
 
-            <section class="formal-outline__brief">
+            <section v-if="!isLectureOutline" class="formal-outline__brief">
               <div>
                 <h2>{{ t('courseGeneration.outlineReview.courseOutcomes', '课程学习成果') }}</h2>
                 <ol v-if="documentObjectives.length">
@@ -553,11 +556,44 @@
               </div>
             </section>
 
+            <template v-if="isLectureOutline">
+              <section class="formal-outline__template-section">
+                <h2>{{ t('courseGeneration.outlineReview.templateCourseIntro', '一、课程介绍') }}</h2>
+                <h3>{{ t('courseGeneration.outlineReview.templateChineseIntro', '中文简介') }}</h3>
+                <p>{{ documentIntroZh || t('courseGeneration.outlineReview.introPending', '尚未确认中文课程简介。') }}</p>
+                <h3>{{ t('courseGeneration.outlineReview.templateEnglishIntro', '英文简介') }}</h3>
+                <p>{{ documentIntroEn || t('courseGeneration.outlineReview.englishIntroPending', '尚未确认英文课程简介。') }}</p>
+              </section>
+
+              <section class="formal-outline__template-section">
+                <h2>{{ t('courseGeneration.outlineReview.templateObjectives', '二、教学目标') }}</h2>
+                <template v-for="group in formalObjectiveGroups" :key="group.label">
+                  <h3>{{ group.label }}</h3>
+                  <ul v-if="group.items.length"><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+                  <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
+                </template>
+              </section>
+
+              <section class="formal-outline__template-section">
+                <h2>{{ t('courseGeneration.outlineReview.templateRequirements', '三、课程要求') }}</h2>
+                <h3>{{ t('courseGeneration.outlineReview.templateTeachingMethods', '授课方式') }}</h3>
+                <ul v-if="documentTeachingMethods.length"><li v-for="item in documentTeachingMethods" :key="item">{{ item }}</li></ul>
+                <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
+                <h3>{{ t('courseGeneration.outlineReview.templateAssessmentMethods', '考核方式') }}</h3>
+                <ul v-if="documentAssessmentMethods.length"><li v-for="item in documentAssessmentMethods" :key="item">{{ item }}</li></ul>
+                <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
+              </section>
+
+              <header class="formal-outline__template-heading">
+                <h2>{{ t('courseGeneration.outlineReview.templateSchedule', '四、教学内容及教学安排') }}</h2>
+              </header>
+            </template>
+
             <section v-if="qualityIssues.length" class="outline-quality" aria-labelledby="outline-quality-title">
               <header>
                 <div>
                   <span>{{ t('courseGeneration.outlineReview.qualityEyebrow', '整篇审读') }}</span>
-                  <h2 id="outline-quality-title">{{ t('courseGeneration.outlineReview.qualityTitle', '让每一节都更像专业教学设计') }}</h2>
+                  <h2 id="outline-quality-title">{{ isLectureOutline ? t('courseGeneration.outlineReview.lectureQualityTitle', '让每一讲都更像专业教学设计') : t('courseGeneration.outlineReview.qualityTitle', '让每一节都更像专业教学设计') }}</h2>
                 </div>
                 <p>{{ qualityArtifact.summary }}</p>
               </header>
@@ -614,6 +650,43 @@
                 <MarkdownRenderer class="outline-markdown-preview" :content="markdownDraft" :enable-code-run="false" />
               </div>
             </section>
+
+            <template v-if="isLectureOutline">
+              <section class="formal-outline__template-section formal-outline__attachments">
+                <h3>{{ t('courseGeneration.outlineReview.templateCalendarAttachment', '附件1：课程教学日历') }}</h3>
+                <div class="formal-outline__table-wrap">
+                  <table>
+                    <thead><tr><th>{{ t('courseGeneration.outlineReview.calendarWeek', '周次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarLecture', '讲次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarTopic', '教学主题') }}</th><th>{{ t('courseGeneration.outlineReview.calendarHours', '学时') }}</th></tr></thead>
+                    <tbody><tr v-for="item in documentLectureSchedule" :key="item.number"><td>{{ item.week }}</td><td>{{ item.number }}</td><td>{{ item.title }}</td><td>{{ item.hours }}</td></tr></tbody>
+                  </table>
+                </div>
+                <h3>{{ t('courseGeneration.outlineReview.templateIdeologyAttachment', '附件2：思政融合案例') }}</h3>
+                <div class="formal-outline__table-wrap">
+                  <table>
+                    <thead><tr><th>{{ t('courseGeneration.outlineReview.calendarLecture', '讲次') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyContent', '课程内容') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyGoal', '育人目标') }}</th><th>{{ t('courseGeneration.outlineReview.ideologyMethod', '案例与实施方式') }}</th></tr></thead>
+                    <tbody>
+                      <tr v-if="!documentIdeologyCases.length"><td colspan="4">{{ t('courseGeneration.outlineReview.ideologyPending', '待教师结合具体讲次补充。') }}</td></tr>
+                      <tr v-for="(item, index) in documentIdeologyCases" :key="index"><td>{{ item.lecture || item.lesson || '—' }}</td><td>{{ item.course_content || item.content || '—' }}</td><td>{{ item.education_objective || item.objective || '—' }}</td><td>{{ item.case || item.implementation || '—' }}</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="formal-outline__template-section">
+                <h2>{{ t('courseGeneration.outlineReview.templateReferences', '五、参考资料') }}</h2>
+                <h3>{{ t('courseGeneration.outlineReview.templateReferenceBooks', '参考书籍') }}</h3>
+                <ul v-if="documentReferenceBooks.length"><li v-for="item in documentReferenceBooks" :key="item">{{ item }}</li></ul>
+                <p v-else>{{ t('courseGeneration.outlineReview.referencesPending', '暂无已确认参考书籍。') }}</p>
+                <h3>{{ t('courseGeneration.outlineReview.templateWebResources', '网站资料') }}</h3>
+                <ul v-if="documentReferenceWebsites.length"><li v-for="item in documentReferenceWebsites" :key="item">{{ item }}</li></ul>
+                <p v-else>{{ t('courseGeneration.outlineReview.webReferencesPending', '暂无已确认网站资料。') }}</p>
+              </section>
+
+              <section class="formal-outline__template-section">
+                <h2>{{ t('courseGeneration.outlineReview.templateCourseWebsite', '六、课程教学网站') }}</h2>
+                <p>{{ documentCourseWebsite || t('courseGeneration.outlineReview.courseWebsitePending', '暂未确认课程教学网站。') }}</p>
+              </section>
+            </template>
           </article>
 
 
@@ -880,6 +953,32 @@ const documentPlan = computed<Record<string, any>>(() => (
   || blueprintDraft.value?.course_outline
   || {}
 ))
+const isLectureOutline = computed(() => {
+  if (
+    documentPlan.value.authoring_structure_version === 'lecture_v1'
+    || blueprintDraft.value?.authoring_structure_version === 'lecture_v1'
+    || blueprintDraft.value?.course_generation_brief?.course_shape_constraints?.teacher_lecture_mode
+  ) return true
+  const chapters = Array.isArray(documentPlan.value.chapters) ? documentPlan.value.chapters : []
+  return chapters.length > 0 && chapters.every((chapter: any) => (
+    Array.isArray(chapter?.sections) && chapter.sections.length === 1
+  ))
+})
+const formalProfile = computed<Record<string, any>>(() => (
+  blueprintDraft.value?.course_generation_brief?.formal_course_profile || {}
+))
+const teacherCourseBrief = computed<Record<string, any>>(() => (
+  blueprintDraft.value?.course_generation_brief?.teacher_course_brief || {}
+))
+function formalList(value: unknown) {
+  if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean)
+  return String(value || '').split(/\r?\n/).map(item => item.trim()).filter(Boolean)
+}
+function plainLectureTitle(value: unknown) {
+  return String(value || '')
+    .replace(/^(?:(?:第\s*)?\d+(?:\.\d+)?\s*[章节讲]\s*|\d+(?:\.\d+)+\s*)+/, '')
+    .trim()
+}
 const documentTitle = computed(() => String(
   documentPlan.value.course_title
   || blueprintDraft.value?.course_name
@@ -897,6 +996,86 @@ const documentPrerequisites = computed<string[]>(() => (
     ? documentPlan.value.prerequisites.map((item: any) => String(item || '').trim()).filter(Boolean)
     : []
 ))
+const documentIntroZh = computed(() => String(
+  documentPlan.value.course_intro_zh
+  || formalProfile.value.course_intro
+  || documentPositioning.value
+  || '',
+).trim())
+const documentIntroEn = computed(() => String(documentPlan.value.course_intro_en || '').trim())
+const documentEducationObjectives = computed(() => formalList(documentPlan.value.education_objectives))
+const documentMeasurableOutcomes = computed(() => formalList(documentPlan.value.measurable_outcomes))
+const documentTeachingMethods = computed(() => {
+  const explicit = formalList(documentPlan.value.teaching_methods)
+  if (explicit.length) return explicit
+  const labels: Record<string, string> = {
+    classroom: t('courseGeneration.outlineReview.teachingClassroom', '线下课堂'),
+    online: t('courseGeneration.outlineReview.teachingOnline', '在线教学'),
+    blended: t('courseGeneration.outlineReview.teachingBlended', '混合式教学'),
+    self_study: t('courseGeneration.outlineReview.teachingSelfStudy', '自主学习'),
+  }
+  const method = String(teacherCourseBrief.value.teaching_context || '').trim()
+  return method ? [labels[method] || method] : []
+})
+const documentAssessmentMethods = computed(() => (
+  formalList(documentPlan.value.assessment_methods).length
+    ? formalList(documentPlan.value.assessment_methods)
+    : formalList(formalProfile.value.assessment_method || teacherCourseBrief.value.course_assessment_plan)
+))
+const documentReferenceBooks = computed(() => formalList(documentPlan.value.reference_books))
+const documentReferenceWebsites = computed(() => formalList(documentPlan.value.reference_websites))
+const documentCourseWebsite = computed(() => String(documentPlan.value.course_website || '').trim())
+const documentIdeologyCases = computed<any[]>(() => (
+  Array.isArray(documentPlan.value.ideology_cases) ? documentPlan.value.ideology_cases : []
+))
+const documentLectureSchedule = computed(() => {
+  const slots = (Array.isArray(formalProfile.value.schedule_slots) ? formalProfile.value.schedule_slots : [])
+    .map((slot: any) => ({ weekday: Number(slot?.weekday || 0), period: Number(slot?.period || 0) }))
+    .filter(slot => slot.weekday > 0 && slot.period > 0)
+    .sort((left, right) => left.weekday - right.weekday || left.period - right.period)
+  const sessions: Array<{ weekday: number; periods: number[] }> = []
+  slots.forEach((slot) => {
+    const previous = sessions[sessions.length - 1]
+    const previousPeriod = previous?.periods[previous.periods.length - 1]
+    if (previous && previousPeriod !== undefined && previous.weekday === slot.weekday && previousPeriod + 1 === slot.period) {
+      previous.periods.push(slot.period)
+    } else {
+      sessions.push({ weekday: slot.weekday, periods: [slot.period] })
+    }
+  })
+  const hasSchedule = sessions.length > 0
+  const sessionPattern = hasSchedule ? sessions : [{ weekday: 0, periods: [] }]
+  const weekStart = Math.max(1, Number(formalProfile.value.active_week_start || 1))
+  return documentChapters.value.map((chapter: any, index: number) => {
+    const section = Array.isArray(chapter.sections) ? chapter.sections[0] || {} : {}
+    const session = sessionPattern[index % sessionPattern.length] || { weekday: 0, periods: [] }
+    const explicitWeek = Number(section.week || section.teaching_week || chapter.week || 0)
+    const week = explicitWeek > 0
+      ? `第${explicitWeek}周`
+      : hasSchedule
+        ? `第${weekStart + Math.floor(index / sessionPattern.length)}周`
+        : t('courseGeneration.outlineReview.calendarPending', '待排课')
+    const explicitHours = Number(section.planned_hours || chapter.planned_hours || 0)
+    const hours = explicitHours > 0
+      ? explicitHours
+      : hasSchedule
+        ? session.periods.length
+        : 0
+    return {
+      number: `第${index + 1}讲`,
+      title: plainLectureTitle(chapter.title),
+      week,
+      hours: hours > 0
+        ? (Number.isInteger(hours) ? String(hours) : String(Number(hours.toFixed(1))))
+        : t('courseGeneration.outlineReview.calendarHoursPending', '待确认'),
+    }
+  })
+})
+const formalObjectiveGroups = computed(() => [
+  { label: t('courseGeneration.outlineReview.templateLearningGoals', '学习目标'), items: documentObjectives.value },
+  { label: t('courseGeneration.outlineReview.templateEducationGoals', '育人目标'), items: documentEducationObjectives.value },
+  { label: t('courseGeneration.outlineReview.templateMeasurableResults', '可测量结果'), items: documentMeasurableOutcomes.value },
+])
 function proposalNodeChange(nodeId: string) {
   const diff = adjustmentProposal.value?.diff || {}
   const moved = (diff.moved || []).find((item: any) => String(item.node_id || '') === nodeId)
@@ -933,7 +1112,9 @@ const documentChapters = computed<any[]>(() => {
         _node: chapterNode,
         node_id: chapterNode.node_id,
         chapter_number: chapterIndex + 1,
-        title: chapterNode.node_name,
+        title: isLectureOutline.value
+          ? `第${chapterIndex + 1}讲 ${plainLectureTitle(chapterNode.node_name || plannedChapter.title)}`.trim()
+          : chapterNode.node_name,
         learning_focus: chapterNode.learning_objective || plannedChapter.learning_focus || '',
         learning_objective: chapterNode.learning_objective || plannedChapter.learning_objective || '',
         sections: group.sections.map(({ node }, sectionIndex) => {
@@ -944,8 +1125,8 @@ const documentChapters = computed<any[]>(() => {
             ...plannedSection,
             ...node,
             _node: node,
-            section_number: `${chapterIndex + 1}.${sectionIndex + 1}`,
-            title: node.node_name,
+            section_number: isLectureOutline.value ? String(chapterIndex + 1) : `${chapterIndex + 1}.${sectionIndex + 1}`,
+            title: isLectureOutline.value ? plainLectureTitle(node.node_name) : node.node_name,
           }
         }),
       }
@@ -955,7 +1136,9 @@ const documentChapters = computed<any[]>(() => {
     _node: node,
     node_id: node.node_id,
     chapter_number: chapterIndex + 1,
-    title: node.node_name,
+    title: isLectureOutline.value
+      ? `第${chapterIndex + 1}讲 ${plainLectureTitle(node.node_name)}`.trim()
+      : node.node_name,
     learning_focus: node.learning_objective || '',
     learning_objective: node.learning_objective || '',
     sections: [],
@@ -964,24 +1147,40 @@ const documentChapters = computed<any[]>(() => {
 const outlineEditorHtml = computed(() => documentChapters.value.map((chapter: any) => {
   const chapterNode = chapter._node || chapter
   const chapterId = escapeEditorAttribute(String(chapterNode.node_id || outlineNodeId('chapter')))
-  const chapterTitle = editorFieldHtml(chapterNode, 'title_html', chapterNode.node_name || chapter.title)
+  const chapterTitle = editorFieldHtml(
+    chapterNode,
+    'title_html',
+    isLectureOutline.value ? chapter.title : chapterNode.node_name || chapter.title,
+  )
   const chapterBody = editorBodyHtml(chapterNode, chapterNode.learning_objective || chapter.learning_focus)
   const chapterChange = proposalNodeAttributes(String(chapterNode.node_id || ''))
   const sections = (chapter.sections || []).map((section: any) => {
     const sectionNode = section._node || section
     const sectionId = escapeEditorAttribute(String(sectionNode.node_id || outlineNodeId('section')))
-    const sectionTitle = editorFieldHtml(sectionNode, 'title_html', sectionNode.node_name || section.title)
-    const sectionBody = editorBodyHtml(sectionNode, sectionNode.learning_objective)
+    const sectionTitle = editorFieldHtml(
+      sectionNode,
+      'title_html',
+      isLectureOutline.value ? section.title || plainLectureTitle(chapter.title) : sectionNode.node_name || section.title,
+    )
+    const sectionBody = editorBodyHtml(
+      sectionNode,
+      isLectureOutline.value
+        ? sectionNode.content_summary || section.content_summary || sectionNode.learning_objective
+        : sectionNode.learning_objective,
+    )
     const sectionChange = proposalNodeAttributes(String(sectionNode.node_id || ''))
-    const collapsed = chapter.sections.length === 1
+    const collapsed = isLectureOutline.value || chapter.sections.length === 1
       ? ' data-collapsed-single-section="true" aria-hidden="true"'
       : ''
-    const singleBody = chapter.sections.length === 1
+    const singleBody = isLectureOutline.value || chapter.sections.length === 1
       ? ' data-single-section-body="true"'
       : ''
     return `<h3 data-node-id="${sectionId}"${sectionChange}${collapsed}>${sectionTitle}</h3><div data-node-body="${sectionId}"${sectionChange}${singleBody}>${sectionBody}</div>`
   }).join('')
-  return `<h2 data-node-id="${chapterId}"${chapterChange}>${chapterTitle}</h2><div data-node-body="${chapterId}"${chapterChange}>${chapterBody}</div>${sections}`
+  const chapterBodyVisibility = isLectureOutline.value && chapter.sections?.length
+    ? ' data-lecture-meta-body="true" hidden'
+    : ''
+  return `<h2 data-node-id="${chapterId}"${chapterChange}>${chapterTitle}</h2><div data-node-body="${chapterId}"${chapterChange}${chapterBodyVisibility}>${chapterBody}</div>${sections}`
 }).join(''))
 const documentVisibleSectionCount = computed(() => documentChapters.value.reduce(
   (total, chapter) => {
@@ -1836,7 +2035,11 @@ function syncRichEditorToNodes() {
   const flushBody = () => {
     if (!activeNode) return
     const bodyHtml = sanitizeEditorHtml(bodyFragments.join(''))
-    activeNode.learning_objective = editorLearningObjective(bodyHtml, activeNode.learning_objective)
+    if (isLectureOutline.value && Number(activeNode.node_level || 0) === 2) {
+      activeNode.content_summary = editorPlainText(bodyHtml).trim()
+    } else {
+      activeNode.learning_objective = editorLearningObjective(bodyHtml, activeNode.learning_objective)
+    }
     const editorHtml = {
       ...(activeNode.outline_editor_html || {}),
       body_html: bodyHtml,
@@ -1894,7 +2097,9 @@ function syncRichEditorToNodes() {
   flushBody()
 
   if (!parsed.some(node => Number(node.node_level || 2) === 1)) {
-    actionError.value = t('courseGeneration.outlineReview.chapterRequired', '大纲至少需要保留一个章标题。')
+    actionError.value = isLectureOutline.value
+      ? t('courseGeneration.outlineReview.lectureRequired', '大纲至少需要保留一讲。')
+      : t('courseGeneration.outlineReview.chapterRequired', '大纲至少需要保留一个章标题。')
     return false
   }
   const keptIds = new Set(parsed.map(node => String(node.node_id || '')))
@@ -2290,7 +2495,9 @@ function qualityIssueLocation(issue: Record<string, any>) {
   if (!names.length) return t('courseGeneration.outlineReview.qualityWholeDocument', '整篇大纲')
   const visible = names.slice(0, 3).join('、')
   return names.length > 3
-    ? t('courseGeneration.outlineReview.qualityLocationsMore', '{names} 等 {count} 节')
+    ? (isLectureOutline.value
+      ? t('courseGeneration.outlineReview.lectureQualityLocationsMore', '{names} 等 {count} 讲')
+      : t('courseGeneration.outlineReview.qualityLocationsMore', '{names} 等 {count} 节'))
       .replace('{names}', visible)
       .replace('{count}', String(names.length))
     : visible
@@ -2839,6 +3046,55 @@ defineExpose({
 .formal-outline__brief ul { margin:15px 0 0; padding-left:22px; }
 .formal-outline__brief li { margin:9px 0; padding-left:5px; color:#4f596d; font-size:13px; line-height:1.7; }
 .formal-outline__brief > div > p { margin:15px 0 0; color:#737d8f; font-size:13px; line-height:1.7; }
+.formal-outline__template-section {
+  padding:34px clamp(18px,4vw,44px) 4px;
+}
+.formal-outline__template-section + .formal-outline__template-section {
+  padding-top:28px;
+}
+.formal-outline__template-section h2,
+.formal-outline__template-heading h2 {
+  margin:0;
+  color:#242d40;
+  font-size:18px;
+  line-height:1.4;
+  letter-spacing:-.012em;
+}
+.formal-outline__template-section h3 {
+  margin:20px 0 8px;
+  color:#3b4559;
+  font-size:14px;
+  line-height:1.5;
+}
+.formal-outline__template-section p,
+.formal-outline__template-section li {
+  color:#596579;
+  font-size:13px;
+  line-height:1.75;
+}
+.formal-outline__template-section p { margin:0; }
+.formal-outline__template-section ul { margin:8px 0 0; padding-left:22px; }
+.formal-outline__template-heading {
+  padding:34px clamp(18px,4vw,44px) 0;
+}
+.formal-outline__attachments {
+  margin-top:30px;
+  border-top:1px solid #e7e9ef;
+}
+.formal-outline__table-wrap { overflow-x:auto; margin-top:10px; }
+.formal-outline__table-wrap table { width:100%; border-collapse:collapse; }
+.formal-outline__table-wrap th,
+.formal-outline__table-wrap td {
+  min-width:88px;
+  padding:10px 12px;
+  border:1px solid #e1e5ec;
+  color:#596579;
+  font-size:12px;
+  line-height:1.55;
+  text-align:left;
+  vertical-align:top;
+}
+.formal-outline__table-wrap th { color:#394357; background:#f7f8fb; font-weight:800; }
 .outline-quality {
   margin:38px clamp(18px,4vw,44px) 8px;
   padding:24px 0 12px;

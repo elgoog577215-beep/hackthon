@@ -28,7 +28,7 @@ from teaching_design import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v29"
+PROMPT_CONTRACT_VERSION = "course_prompt_v30"
 
 
 def _course_planning_rules(brief: dict[str, Any]) -> str:
@@ -40,6 +40,11 @@ def _course_planning_rules(brief: dict[str, Any]) -> str:
     teacher.
     """
     learning_purpose = str(brief.get("learning_purpose") or "").strip()
+    unit = (
+        "讲"
+        if (brief.get("course_shape_constraints") or {}).get("teacher_lecture_mode")
+        else "章"
+    )
     if not learning_purpose:
         return _course_type_planning_rules(brief)
     if learning_purpose == "project":
@@ -55,8 +60,8 @@ def _course_planning_rules(brief: dict[str, Any]) -> str:
             "mock_assessment",
             "final_consolidation",
         ]
-        return f"""9. 每章必须填写 `planning_stages` 数组，只允许使用 {json.dumps(stage_ids, ensure_ascii=False)}。
-10. 上述任务必须全部覆盖并按给定顺序推进；同一任务可以占多章，一章也可以连续承载多个任务，但不得倒序。
+        return f"""9. 每{unit}必须填写 `planning_stages` 数组，只允许使用 {json.dumps(stage_ids, ensure_ascii=False)}。
+10. 上述任务必须全部覆盖并按给定顺序推进；同一任务可以占多{unit}，一{unit}也可以连续承载多个任务，但不得倒序。
 11. 学习路径角色只使用 `focus|standard|compressed`，不得把复习任务写成项目里程碑。"""
     return """9. `planning_stages` 使用空数组，目录按当前学科的学习先后关系推进。
 10. 学习路径角色只使用 `focus|standard|compressed`，不得出现项目专属角色。
@@ -227,6 +232,81 @@ class CoursePromptComposer:
                 "teacher_course_brief",
             }
         }
+        if teacher_lecture_mode:
+            lecture_count = int(shape.get("chapter_count") or 0)
+            return f"""## 全课讲次大纲
+
+请按照高校教师正式教学大纲的写法，为本课程生成一份按讲组织的大纲。课程内容只有
+“第 1 讲”至“第 {lecture_count} 讲”这一个层级；不得使用章、小节、1.1、3.1 或任何
+二级课程目录。每一讲直接承担一次完整授课安排，讲内的知识、活动和评价只写进该讲的
+内容说明，不再拆成目录。
+
+## 课程输入
+- 课程名称：{subject}
+- 教学对象：{audience}
+- 已确认讲数：{lecture_count}
+- 其余生成要求：{json.dumps(outline_input_brief, ensure_ascii=False)}
+
+## 正式教学大纲模板
+{json.dumps(formal_outline_contract, ensure_ascii=False)}
+
+## 学习目的、课程类型与学科要求
+- 学习目的：{brief.get('learning_purpose_label') or brief.get('course_type_label') or '系统学习'}
+- 学习目的要求：{json.dumps(learning_purpose_contract, ensure_ascii=False)}
+- 课程教学类型：{brief.get('course_teaching_type_label') or '综合课'}
+- 整课编排要求：{json.dumps(brief.get('course_teaching_type_contract') or {}, ensure_ascii=False)}
+- 一级学科类型：{brief.get('subject_type_label') or '自动判断'}
+- 学科专业要求：{json.dumps(brief.get('subject_standard_pack') or {}, ensure_ascii=False)}
+- 难度与学情：{json.dumps({'difficulty': difficulty_profile, 'gap': gap_assessment, 'adaptation': adaptation_decision}, ensure_ascii=False)}
+
+## 资料摘要
+{material_context or '未上传资料；只能使用通用知识，不得伪装引用资料。'}
+
+## 写作要求
+1. 严格返回 {lecture_count} 讲，按真实教学先后排列；讲数由教师决定，不得增减。
+2. `course_intro_zh` 与 `course_intro_en` 分别写中文和英文课程简介，说明课程对象、范围与主要学习结果。
+3. 教学目标分为学习目标、育人目标和可测量成果；育人目标必须结合真实课程内容，不能写空泛套话。
+4. `teaching_methods` 与 `assessment_methods` 优先沿用已确认信息；没有依据时保持空数组，不得编造比例或制度。
+5. 每讲 `content_summary` 使用二至四句自然中文，既说清实际要教的内容，又不过度展开成教案或讲稿。
+6. 每讲标题只写主题，不带“第N讲”、章、节或数字编号；系统会统一加上“第N讲”。
+7. 每讲目标、重点、难点、活动和作业要与本讲内容对应；案例、讨论、实验、实践按学科需要选择，不强行套同一顺序。
+8. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
+9. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲稿或题目。
+{coverage_rules}
+{planning_rules}
+
+## JSON Schema
+{{
+  "course_title": "课程名称",
+  "course_intro_zh": "中文简介",
+  "course_intro_en": "English description",
+  "positioning": "课程定位",
+  "learning_objectives": ["学习目标"],
+  "education_objectives": ["育人目标"],
+  "measurable_outcomes": ["可测量成果"],
+  "prerequisites": ["先修要求"],
+  "teaching_methods": ["授课方式"],
+  "assessment_methods": ["考核方式"],
+  "lectures": [
+    {{
+      "lecture_number": 1,
+      "title": "本讲主题",
+      "content_summary": "本讲具体教学内容，二至四句。",
+      "learning_objective": "本讲完成后学生能够做到什么",
+      "key_points": ["教学重点"],
+      "key_difficulties": ["教学难点"],
+      "activities": ["按需安排的主要教学活动"],
+      "homework": ["课后任务"],
+      "planning_stages": [],
+      "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
+      "path_reason": "本讲在整课中的推进作用"
+    }}
+  ],
+  "ideology_cases": [],
+  "reference_books": [],
+  "reference_websites": [],
+  "course_website": ""
+}}""".strip()
         return f"""## {structure_heading}
 
 {structure_instruction}
@@ -333,6 +413,17 @@ class CoursePromptComposer:
             f"- {clip_text(item.get('message'), 240)}"
             for item in issues[:10]
         ) or "- 上一次输出不是完整有效的章节骨架 JSON"
+        if '"lectures"' in original_prompt:
+            return f"""## 全课讲次大纲修复
+
+上一次讲次大纲存在以下问题：
+{issue_text}
+
+只修复这些问题并重新输出完整 JSON。必须保持教师确认的讲数，只使用 `lectures`；
+不得改成 chapters，不得生成章、小节、1.1 或任何二级目录。
+
+{clip_text(original_prompt, 12000)}
+""".strip()
         return f"""## 全课章节骨架 V2 定点修复
 
 上一次章节骨架存在以下问题：

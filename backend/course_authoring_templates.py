@@ -13,19 +13,15 @@ from copy import deepcopy
 from typing import Any
 
 
-FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v4"
+FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v5"
 
 OUTLINE_DOCUMENT_SECTIONS = (
-    "课程基本信息",
-    "中英文课程简介",
+    "课程介绍",
     "教学目标",
     "课程要求",
-    "考核与成绩构成",
-    "按周与按讲教学进度",
-    "教学日历",
-    "课程思政案例",
-    "参考书目与网站",
-    "课程网站",
+    "教学内容及教学安排",
+    "参考资料",
+    "课程教学网站",
 )
 
 LESSON_PLAN_DOCUMENT_SECTIONS = (
@@ -57,7 +53,7 @@ OBJECTIVE_DIMENSIONS = (
 OUTLINE_OBJECTIVE_DIMENSIONS = (
     {"id": "learning", "label": "学习目标", "policy": "说清学生要掌握的知识与能力"},
     {"id": "education", "label": "育人目标", "policy": "结合真实课程内容表达价值判断与责任，不空泛套话"},
-    {"id": "measurable", "label": "可测量成果", "policy": "使用可观察行为、作品或评价证据说明达成标准"},
+    {"id": "measurable", "label": "可测量结果", "policy": "使用可观察行为、作品或评价证据说明达成标准"},
 )
 
 LESSON_FLOW_SECTIONS = (
@@ -299,7 +295,22 @@ def compile_formal_course_context(
             or profile.get("teaching_goals")
             or profile.get("course_goal")
         ),
+        "education_objectives": _text_list(
+            effective_plan.get("education_objectives")
+            or effective_plan.get("育人目标")
+        ),
+        "measurable_outcomes": _text_list(
+            effective_plan.get("measurable_outcomes")
+            or effective_plan.get("measurable_objectives")
+            or effective_plan.get("可测量成果")
+        ),
         "prerequisites": _text_list(effective_plan.get("prerequisites") or profile.get("prerequisite_courses")),
+        "teaching_methods": _text_list(
+            effective_plan.get("teaching_methods")
+            or effective_plan.get("teaching_method")
+        ) or _text_list(
+            _TEACHING_CONTEXT_LABELS.get(teaching_context, teaching_context)
+        ),
         "teaching_requirements": list(dict.fromkeys(requirements)),
         "assessment_methods": list(dict.fromkeys(assessment_methods)),
         "references": _source_labels(course_data, effective_plan),
@@ -356,13 +367,17 @@ def compile_outline_prompt_contract(
         "assessment_methods": context["assessment_methods"],
         "required_document_sections": context["outline_document_sections"],
         "objective_dimensions": context["outline_objective_dimensions"],
-        "schedule_contract": "教学进度必须细化到周和讲，每讲说清主题、内容、重难点、活动、作业与学时",
+        "schedule_contract": (
+            "教学内容只按第1讲至第N讲平铺，不使用章、小节或1.1式编号；"
+            "每讲用一段适中篇幅说明实际教学内容，并可附周次、目标、重难点、活动、作业与学时"
+        ),
         "ideology_case_contract": "思政案例必须对应具体讲次、课程内容、育人目标和实施方式",
         "reference_policy": context["reference_policy"],
         "integration_rules": [
             "确认的课程信息是只读输入，不得改写、换算或猜测缺失值",
-            "当前模型只规划课程定位、目标和目录，正式文书由结构化真源确定性投影",
+            "当前模型按老师模板规划课程介绍、教学目标、课程要求、讲次安排、参考资料与课程网站",
             "教学目标应为讲次学习路径提供依据，不把正式大纲栏目复制到讲次标题中",
+            "讲次是教学安排中唯一的课程内容层级，不得在讲次下再生成小节目录",
         ],
     }
 

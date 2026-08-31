@@ -235,6 +235,72 @@ def test_recompile_replaces_stale_numeric_prefixes_in_every_projection():
     assert adjusted["course_blueprint"]["nodes"] == adjusted["nodes"]
 
 
+def test_lecture_outline_adjustment_preserves_one_visible_level():
+    draft = _draft()
+    draft["authoring_structure_version"] = "lecture_v1"
+    draft["course_generation_brief"]["course_shape_constraints"] = {
+        "teacher_lecture_mode": True,
+        "chapter_count": 2,
+        "section_count": 2,
+    }
+    draft["nodes"] = [
+        draft["nodes"][0],
+        draft["nodes"][1],
+        draft["nodes"][3],
+        draft["nodes"][4],
+    ]
+    draft["nodes"][0]["node_name"] = "第1章 基础"
+    draft["nodes"][1]["node_name"] = "1.1 场景与对象"
+    draft["nodes"][2]["node_name"] = "第2章 工程实践"
+    draft["nodes"][3]["node_name"] = "2.1 组件组合"
+    draft["nodes"][3]["prerequisite_node_ids"] = ["L2-1-1"]
+
+    adjusted = apply_outline_operations(
+        draft,
+        [{
+            "op": "update_node",
+            "node_ref": "L1-1",
+            "node_name": "场景、对象与基本机制",
+        }],
+    )["draft"]
+
+    assert adjusted["authoring_structure_version"] == "lecture_v1"
+    assert [node["node_name"] for node in adjusted["nodes"]] == [
+        "第1讲 场景、对象与基本机制",
+        "场景与对象",
+        "第2讲 工程实践",
+        "组件组合",
+    ]
+    assert [chapter["title"] for chapter in adjusted["course_plan"]["chapters"]] == [
+        "第1讲 场景、对象与基本机制",
+        "第2讲 工程实践",
+    ]
+    assert [
+        section["section_number"]
+        for chapter in adjusted["course_plan"]["chapters"]
+        for section in chapter["sections"]
+    ] == ["1", "2"]
+    assert adjusted["course_generation_brief"]["course_shape_constraints"]["teacher_lecture_mode"] is True
+
+
+def test_lecture_outline_rejects_a_second_internal_unit():
+    draft = _draft()
+    draft["authoring_structure_version"] = "lecture_v1"
+    draft["nodes"] = draft["nodes"][:3]
+
+    with pytest.raises(OutlineAdjustmentError) as error:
+        apply_outline_operations(
+            draft,
+            [{
+                "op": "update_node",
+                "node_ref": "L2-1-1",
+                "learning_objective": "识别场景对象",
+            }],
+        )
+
+    assert error.value.code == "lecture_has_nested_units"
+
+
 def test_same_chapter_release_and_delivery_duplicate_is_blocked():
     draft = _draft()
     draft["nodes"].extend(

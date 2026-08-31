@@ -21,6 +21,7 @@ from course_generation.outline import (
     course_coverage_verdict,
     build_outline_batch_specs,
     compile_fallback_outline_batch,
+    compile_teacher_lecture_outline_batch,
     normalize_outline_skeleton,
     outline_request_fingerprint,
     review_course_outline_document,
@@ -29,6 +30,7 @@ from course_generation.outline import (
 )
 from course_generation.prompts import CoursePromptComposer
 from course_generation.service import CourseService
+from course_pedagogy import resolve_pedagogy_profile
 
 
 def _outline_skeleton_payload(
@@ -96,6 +98,85 @@ def test_plan_conversion_keeps_existing_outline_numbering_idempotent():
         "第1章 开发环境与核心机制",
         "1.1 初始化项目",
     ]
+
+
+def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_call():
+    brief = {
+        "course_shape_constraints": {
+            "teacher_lecture_mode": True,
+            "chapter_count": 2,
+            "section_count": 2,
+        },
+        "formal_course_profile": {
+            "planned_lecture_count": 2,
+            "course_intro": "建立电动力学的经典理论框架。",
+        },
+        "teacher_course_brief": {"lecture_count": 2},
+    }
+    prompt = CoursePromptComposer().build_outline_skeleton_v2_prompt(
+        subject="电动力学",
+        audience="物理学本科生",
+        brief=brief,
+        profile=resolve_pedagogy_profile(subject="电动力学"),
+        difficulty_profile={},
+        gap_assessment={},
+        adaptation_decision={},
+        material_context="教材目录已上传。",
+        detail_level="full",
+        coverage_verdict={},
+    )
+
+    assert '"lectures"' in prompt
+    assert '"chapters"' not in prompt
+    assert "严格返回 2 讲" in prompt
+    assert "第N讲" in prompt
+
+    skeleton = normalize_outline_skeleton(
+        {
+            "course_title": "电动力学",
+            "course_intro_zh": "从经典场论建立统一分析框架。",
+            "learning_objectives": ["能解释麦克斯韦方程组的物理意义"],
+            "lectures": [
+                {
+                    "title": "静电场与边值问题",
+                    "content_summary": "介绍静电场基本方程、边界条件与典型求解方法。",
+                    "learning_objective": "能建立并求解典型静电边值问题",
+                },
+                {
+                    "title": "稳恒磁场",
+                    "content_summary": "讨论稳恒电流产生的磁场及其基本性质。",
+                    "learning_objective": "能运用安培定律分析磁场",
+                },
+            ],
+        },
+        topic="电动力学",
+        request_fingerprint="outline-request",
+    )
+    specs = build_outline_batch_specs(skeleton, CourseOutlinePlanningBudget())
+    batches = {
+        str(spec["batch_id"]): compile_teacher_lecture_outline_batch(
+            spec=spec,
+            lecture=skeleton["chapters"][index],
+            skeleton_revision_id=skeleton["revision_id"],
+        )
+        for index, spec in enumerate(specs)
+    }
+    plan = assemble_course_outline(
+        skeleton=skeleton,
+        batch_specs=specs,
+        batches=batches,
+    )
+    nodes = CourseService._convert_plan_to_nodes(None, plan, "course-electrodynamics")
+
+    assert plan["authoring_structure_version"] == "lecture_v1"
+    assert [node["node_name"] for node in nodes if node["node_level"] == 1] == [
+        "第1讲 静电场与边值问题",
+        "第2讲 稳恒磁场",
+    ]
+    assert all(
+        not re.match(r"^\d+\.\d+", node["node_name"])
+        for node in nodes
+    )
 
 
 def test_confirmed_outline_snapshot_is_not_replaced_by_downstream_normalization():

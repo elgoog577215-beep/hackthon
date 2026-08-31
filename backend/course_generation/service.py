@@ -112,6 +112,7 @@ from course_generation.outline import (
     assemble_course_outline,
     build_outline_batch_specs,
     compile_fallback_outline_batch,
+    compile_teacher_lecture_outline_batch,
     course_coverage_verdict,
     normalize_outline_batch,
     normalize_outline_skeleton,
@@ -254,6 +255,14 @@ class CourseService(AIBase):
         correction: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Ask the primary planner for atomic outline operations only."""
+        plan = draft.get("course_plan") or draft.get("course_outline") or {}
+        generation_brief = draft.get("course_generation_brief") or {}
+        shape_constraints = generation_brief.get("course_shape_constraints") or {}
+        lecture_mode = bool(
+            draft.get("authoring_structure_version") == "lecture_v1"
+            or plan.get("authoring_structure_version") == "lecture_v1"
+            or shape_constraints.get("teacher_lecture_mode")
+        )
         request = {
             "instruction": instruction,
             "outline": [
@@ -281,10 +290,26 @@ class CourseService(AIBase):
                     (draft.get("course_generation_brief") or {}).get("material_scope") or {}
                 ),
                 "blueprint_locks": deepcopy(draft.get("blueprint_locks") or {}),
+                "authoring_structure_version": (
+                    "lecture_v1" if lecture_mode else "legacy_chapter_v1"
+                ),
             },
         }
         if correction:
             request["correction"] = deepcopy(correction)
+        structure_policy = (
+            """
+本课程正式大纲只有“第N讲”一个层级，绝不能生成章、小节、1.1、3.1 或二级目录。
+输入中的 L2 只是现有代码保存每讲正文所需的内部内容记录，不是课程层级，不得在 summary
+或 node_name 中把它称为小节。每个 L1 对应一讲且必须恰好保留一个 L2 内容记录：
+- 调整标题、目标或内容时，更新对应讲次，不得新增第二个 L2；
+- 新增一讲时，必须同时新增一个 L1 和它唯一的 L2，二者使用同一主题且都不带数字前缀；
+- 删除一讲时，先删除其 L2，再删除 L1；移动一讲时只移动 L1，内部记录随讲保留；
+- summary 只使用“讲”“讲次”等称呼，不得暴露 L1、L2 或内部记录。
+""".strip()
+            if lecture_mode
+            else "只允许 L1 章节和 L2 小节；每章最终至少一个小节。"
+        )
         system_prompt = """
 你是课程目录结构调整器。只返回一个 JSON 对象，不要返回 Markdown 或解释。
 根对象只能包含 operations 和 summary。operations 只能使用以下四种原子操作：
@@ -297,7 +322,7 @@ class CourseService(AIBase):
 4. update_node: {"op":"update_node","node_ref":"现有引用","node_name":"可选",
    "learning_objective":"可选","scope_boundary":"可选",
    "assessment":["可选的达成检验"],"prerequisite_refs":["可选"]}
-拆章、并章必须组合上述操作。只允许 L1 章节和 L2 小节；每章最终至少一个小节。
+拆章、并章必须组合上述操作。__STRUCTURE_POLICY__
 删除非空章节前必须显式移动或删除其小节。不要直接指定最终 L1/L2 ID。
 重构已有章节时优先复用、移动或更新原有小节；如果新增小节覆盖了原有小节的职责，必须同时合并或删除被替代的小节。
 同一章节内不得保留标题不同但学习目标重复的两个小节，尤其不得重复安排打包、调试、发布和交付等收尾职责。
@@ -306,7 +331,7 @@ class CourseService(AIBase):
 如果用户要求修复大纲专业性，只修改被点名节点的目标、范围或达成检验；每节的检验
 必须体现该节独有的证据形态和判断标准，不能只替换主题词复用同一句式。
 不要生成课程正文、教案、course_plan、course_outline 或 course_blueprint。
-""".strip()
+""".replace("__STRUCTURE_POLICY__", structure_policy).strip()
         response = await self._call_llm(
             json.dumps(request, ensure_ascii=False),
             system_prompt,
@@ -4427,6 +4452,7 @@ class CourseService(AIBase):
         """Build every outline as chapter skeleton -> batches -> local assembly."""
         brief = artifacts.get("course_generation_brief") or {}
         shape_constraints = brief.get("course_shape_constraints") or {}
+        teacher_lecture_mode = bool(shape_constraints.get("teacher_lecture_mode"))
         # D-1: decide what this course size can honestly promise before any
         # model call, so the skeleton is planned against a stated scope rather
         # than being silently downgraded and still called complete.
@@ -4481,7 +4507,11 @@ class CourseService(AIBase):
         stage.update({
             "status": "in_progress",
             "schema_version": "course_outline_execution_v2",
-            "strategy": "hierarchical_chapter_batches",
+            "strategy": (
+                "teacher_lecture_sequence"
+                if teacher_lecture_mode
+                else "hierarchical_chapter_batches"
+            ),
             "request_fingerprint": request_fingerprint,
             "batch_max_sections": self._outline_budget.batch_max_sections,
             "max_concurrency": self._planning_concurrency,
@@ -4635,7 +4665,8 @@ class CourseService(AIBase):
                 for detail_level in skeleton_levels
             }
             skeleton_user = (
-                f"为「{clip_text(topic, 160)}」规划全课章节骨架，只输出 JSON。"
+                f"为「{clip_text(topic, 160)}」规划全课"
+                f"{'讲次大纲' if teacher_lecture_mode else '章节骨架'}，只输出 JSON。"
             )
             selected_skeleton = select_budgeted_prompt(
                 (
@@ -4662,7 +4693,11 @@ class CourseService(AIBase):
                     on_phase,
                     "outline_generation",
                     32,
-                    "正在生成轻量章节骨架",
+                    (
+                        "正在生成全课讲次大纲"
+                        if teacher_lecture_mode
+                        else "正在生成轻量章节骨架"
+                    ),
                     phase_progress=0,
                     phase_detail={
                         "artifact_type": "course_outline_skeleton",
@@ -4673,7 +4708,11 @@ class CourseService(AIBase):
                         user_prompt=selected_skeleton.user_prompt,
                         system_prompt=selected_skeleton.system_prompt,
                         phase="outline_generation",
-                        message="仍在等待 AI 生成轻量章节骨架",
+                        message=(
+                            "仍在等待 AI 生成全课讲次大纲"
+                            if teacher_lecture_mode
+                            else "仍在等待 AI 生成轻量章节骨架"
+                        ),
                         phase_detail={
                             "artifact_type": "course_outline_skeleton",
                         },
@@ -4717,7 +4756,9 @@ class CourseService(AIBase):
                 and selected_skeleton is not None
             ):
                 correction_user = (
-                    "只修复全课章节骨架，重新输出完整 JSON。"
+                    "只修复全课讲次大纲，重新输出完整 JSON。"
+                    if teacher_lecture_mode
+                    else "只修复全课章节骨架，重新输出完整 JSON。"
                 )
                 correction_prompt = (
                     self._prompt_composer
@@ -4764,7 +4805,9 @@ class CourseService(AIBase):
                             ),
                             phase="outline_validation",
                             message=(
-                                "仍在等待 AI 修复轻量章节骨架"
+                                "仍在等待 AI 修复全课讲次大纲"
+                                if teacher_lecture_mode
+                                else "仍在等待 AI 修复轻量章节骨架"
                             ),
                             phase_detail={
                                 "artifact_type": (
@@ -4813,6 +4856,9 @@ class CourseService(AIBase):
             "skeleton_revision_id": skeleton.get("revision_id"),
             "skeleton_validation_report": deepcopy(skeleton_report),
             "course_coverage_verdict": deepcopy(coverage_verdict),
+            "authoring_structure_version": skeleton.get(
+                "authoring_structure_version"
+            ),
             "chapter_count": len(skeleton.get("chapters") or []),
             "section_count": sum(
                 int(item.get("section_count") or 0)
@@ -4857,13 +4903,20 @@ class CourseService(AIBase):
                 on_phase,
                 "outline_shape_ready",
                 32,
-                "大章节骨架已生成，请确认每章小节数",
+                (
+                    "全课讲次已生成，正在按教师确认讲数继续"
+                    if teacher_lecture_mode
+                    else "大章节骨架已生成，请确认每章小节数"
+                ),
                 phase_progress=100,
                 phase_detail={
                     "artifact_type": "course_outline_skeleton",
                     "skeleton_revision_id": skeleton.get("revision_id"),
                     "outline_growth": {
                         "schema_version": "course_outline_growth_v1",
+                        "authoring_structure_version": skeleton.get(
+                            "authoring_structure_version"
+                        ),
                         "state": "shape_review",
                         "course_title": str(
                             skeleton.get("course_title") or topic
@@ -4936,6 +4989,49 @@ class CourseService(AIBase):
             ):
                 results[batch_id] = candidate
 
+        if teacher_lecture_mode:
+            # The model already returned each complete lecture in the one-level
+            # skeleton. Project it into the legacy inner container locally;
+            # asking a second model pass for a "1.1" child would recreate the
+            # hierarchy the teacher explicitly removed.
+            for spec in batch_specs:
+                batch_id = str(spec.get("batch_id") or "")
+                lecture = chapter_by_number.get(
+                    int(spec.get("chapter_number") or 0)
+                ) or {}
+                batch = compile_teacher_lecture_outline_batch(
+                    spec=spec,
+                    lecture=lecture,
+                    skeleton_revision_id=str(
+                        skeleton.get("revision_id") or ""
+                    ),
+                )
+                report = validate_outline_batch(
+                    batch,
+                    spec=spec,
+                    skeleton_revision_id=str(
+                        skeleton.get("revision_id") or ""
+                    ),
+                )
+                if not report.get("passed"):
+                    raise AIProviderRequestError(
+                        f"第 {spec.get('chapter_number')} 讲的本地投影失败；"
+                        "这是生成编排器错误"
+                    )
+                results[batch_id] = batch
+                stored_batches[batch_id] = {
+                    "status": "completed",
+                    "skeleton_revision_id": skeleton.get("revision_id"),
+                    "section_ids": list(
+                        spec.get("expected_node_ids") or []
+                    ),
+                    "payload": deepcopy(batch),
+                    "validation_report": deepcopy(report),
+                    "generation_source": "lecture_outline_projection",
+                    "fallback_reason": None,
+                    "prompt_detail_level": "local_projection",
+                }
+
         def outline_growth_detail(
             *,
             active_spec: dict[str, Any] | None = None,
@@ -5001,6 +5097,9 @@ class CourseService(AIBase):
                 })
             return {
                 "schema_version": "course_outline_growth_v1",
+                "authoring_structure_version": skeleton.get(
+                    "authoring_structure_version"
+                ),
                 "state": state,
                 "course_title": str(skeleton.get("course_title") or topic),
                 "positioning": str(skeleton.get("positioning") or ""),
@@ -5025,7 +5124,11 @@ class CourseService(AIBase):
             on_phase,
             "outline_generation",
             32,
-            "课程章节主干已形成，正在展开各章小节",
+            (
+                "全课讲次已形成，正在整理教学安排"
+                if teacher_lecture_mode
+                else "课程章节主干已形成，正在展开各章小节"
+            ),
             phase_progress=int(
                 100 * len(results) / max(1, len(batch_specs))
             ),
@@ -5506,7 +5609,11 @@ class CourseService(AIBase):
             on_phase,
             "outline_generation",
             34,
-            "课程目录已完整形成，正在准备确认",
+            (
+                "全课讲次大纲已完整形成，正在准备确认"
+                if teacher_lecture_mode
+                else "课程目录已完整形成，正在准备确认"
+            ),
             phase_progress=100,
             phase_detail={
                 "artifact_type": "course_outline_growth",
@@ -5526,6 +5633,9 @@ class CourseService(AIBase):
             节点字典列表
         """
         nodes: list[dict] = []
+        authoring_structure_version = str(
+            plan.get("authoring_structure_version") or ""
+        )
 
         for chapter in plan.get("chapters", []):
             chapter_num = chapter.get("chapter_number", len(nodes) + 1)
@@ -5542,6 +5652,7 @@ class CourseService(AIBase):
                     str(chapter.get("title") or ""),
                     level=1,
                     chapter_number=int(chapter_num),
+                    authoring_structure_version=authoring_structure_version,
                 ),
                 "node_level": 1,
                 "node_content": "",
@@ -5574,6 +5685,7 @@ class CourseService(AIBase):
                         level=2,
                         chapter_number=int(chapter_num),
                         section_number=section_index,
+                        authoring_structure_version=authoring_structure_version,
                     ),
                     "node_level": 2,
                     "node_content": "",
@@ -5583,6 +5695,12 @@ class CourseService(AIBase):
                     "knowledge_structure": section.get("knowledge_structure", []),
                     "reused_knowledge_names": section.get("reused_knowledge_names", []),
                     "learning_objective": section.get("learning_objective", ""),
+                    "content_summary": section.get("content_summary", ""),
+                    "key_difficulties": section.get("key_difficulties", []),
+                    "activities": section.get("activities", []),
+                    "homework": section.get("homework", []),
+                    "planned_hours": section.get("planned_hours"),
+                    "teaching_week": section.get("week"),
                     "prerequisite_node_ids": section.get("prerequisite_node_ids", []),
                     "misconceptions": section.get("misconceptions", []),
                     "assessment": section.get("assessment", []),

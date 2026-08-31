@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 import uuid
@@ -33,6 +34,7 @@ from course_authoring_templates import (
     compile_formal_course_context,
     project_lesson_objective_dimensions,
 )
+from course_schedule import schedule_sessions
 from teacher_course_space import (
     MaterialStorageError,
     classify_path,
@@ -121,31 +123,90 @@ def _first_items(source: dict[str, Any], *keys: str) -> list[str]:
     return []
 
 
-def _outline_lessons(chapters: list[Any]) -> list[dict[str, Any]]:
+_UNIT_PREFIX = re.compile(
+    r"^(?:(?:第\s*)?\d+(?:\.\d+)?\s*[章节讲]\s*|\d+(?:\.\d+)+\s*)"
+)
+
+
+def _plain_lesson_title(value: Any) -> str:
+    title = " ".join(str(value or "").split())
+    previous = ""
+    while title and title != previous:
+        previous = title
+        title = _UNIT_PREFIX.sub("", title, count=1).strip()
+    return title
+
+
+def _outline_lessons(
+    chapters: list[Any],
+    *,
+    course_data: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     lecture = 0
+    profile = (
+        (course_data or {}).get("course_profile")
+        or ((course_data or {}).get("course_generation_brief") or {}).get(
+            "formal_course_profile"
+        )
+        or {}
+    )
+    sessions = schedule_sessions(profile.get("schedule_slots"))
+    sessions_per_week = max(1, len(sessions))
+    week_start = int(profile.get("active_week_start") or 1)
     for chapter in chapters:
         if not isinstance(chapter, dict):
             continue
-        chapter_title = str(chapter.get("title") or "").strip()
-        for section in chapter.get("sections") or []:
-            if not isinstance(section, dict):
-                continue
-            lecture += 1
-            result.append({
-                **section,
-                "chapter_title": chapter_title,
-                "lecture": section.get("lecture") or section.get("lesson_number") or lecture,
-                "week": section.get("week") or section.get("teaching_week") or lecture,
-            })
+        lecture += 1
+        section = next(
+            (
+                item for item in chapter.get("sections") or []
+                if isinstance(item, dict)
+            ),
+            {},
+        )
+        title = _plain_lesson_title(
+            chapter.get("title") or section.get("title")
+        )
+        session = sessions[(lecture - 1) % len(sessions)] if sessions else {}
+        result.append({
+            **chapter,
+            **section,
+            "title": title,
+            "content_summary": (
+                section.get("content_summary")
+                or chapter.get("content_summary")
+                or section.get("learning_objective")
+                or chapter.get("learning_focus")
+                or ""
+            ),
+            "lecture": chapter.get("lecture_number") or lecture,
+            "planned_hours": (
+                section.get("planned_hours")
+                or chapter.get("planned_hours")
+                or len(session.get("periods") or [])
+                or ""
+            ),
+            "week": (
+                section.get("week")
+                or section.get("teaching_week")
+                or chapter.get("week")
+                or (
+                    week_start + (lecture - 1) // sessions_per_week
+                    if sessions
+                    else "待排课"
+                )
+            ),
+        })
     return result
 
 
 def _lesson_title(section: dict[str, Any]) -> str:
-    return " ".join(filter(None, (
-        str(section.get("section_number") or "").strip(),
-        str(section.get("title") or section.get("node_name") or "").strip(),
-    )))
+    lecture = int(section.get("lecture") or section.get("lesson_number") or 1)
+    title = _plain_lesson_title(
+        section.get("title") or section.get("node_name")
+    )
+    return f"第{lecture}讲 {title}".strip()
 
 
 def _module_text(module: dict[str, Any]) -> str:
@@ -246,117 +307,72 @@ def _render_outline(course_data: dict[str, Any]) -> str:
     context = compile_formal_course_context(course_data, plan=plan)
     lines = [f"# {course_data.get('course_name') or '课程'}｜课程教学大纲", ""]
 
-    information = context["course_information"]
-    lines += ["## 一、课程基本信息", ""]
-    if information:
-        lines += ["| 项目 | 内容 |", "|---|---|"]
-        lines.extend(
-            f"| {_md_cell(label)} | {_md_cell(value)} |"
-            for label, value in information.items()
+    lines += ["## 一、课程介绍", "", "### 中文简介"]
+    lines += [
+        context["course_intro_zh"]
+        or context["positioning"]
+        or "尚未确认中文课程简介。",
+        "",
+        "### 英文简介",
+        context["course_intro_en"] or "尚未确认英文课程简介。",
+        "",
+    ]
+    coverage = _coverage_section(course_data)
+    if coverage:
+        coverage_lines = list(coverage)
+        coverage_lines[0] = coverage_lines[0].replace(
+            "## 覆盖范围说明",
+            "### 覆盖范围说明",
+            1,
         )
-    else:
-        lines.append("尚未确认课程基本信息。")
-    lines.append("")
+        lines.extend(coverage_lines)
+        lines.append("")
 
-    lines += ["## 二、中英文课程简介", ""]
-    if context["course_intro_zh"]:
-        lines += ["### 中文简介", context["course_intro_zh"], ""]
-    if context["course_intro_en"]:
-        lines += ["### English Description", context["course_intro_en"], ""]
-    if context["positioning"] and context["positioning"] != context["course_intro"]:
-        lines += ["### 课程定位", context["positioning"], ""]
-    if context["student_profile"]:
-        lines += ["### 教学对象与学情", context["student_profile"], ""]
-    if (
-        not context["course_intro_zh"]
-        and not context["course_intro_en"]
-        and not context["positioning"]
-        and not context["student_profile"]
-    ):
-        lines += ["尚未确认课程定位与简介。", ""]
-
-    lines += ["## 三、教学目标", ""]
-    objective_groups = (
+    lines += ["## 二、教学目标", ""]
+    for label, values in (
         ("学习目标", context["learning_objectives"]),
-        ("育人目标", _first_items(plan, "education_objectives", "育人目标")),
-        ("可测量成果", _first_items(plan, "measurable_outcomes", "measurable_objectives", "可测量成果")),
-    )
-    for label, values in objective_groups:
+        ("育人目标", context["education_objectives"]),
+        ("可测量结果", context["measurable_outcomes"]),
+    ):
         lines.append(f"### {label}")
         lines.extend([f"- {item}" for item in values] if values else ["尚未确认。"])
         lines.append("")
 
-    lines += ["## 四、课程要求", ""]
-    prerequisites = context["prerequisites"]
-    coverage = _coverage_section(course_data)
-    requirement_lines = []
-    if prerequisites:
-        requirement_lines.append(f"- 预修要求：{'；'.join(prerequisites)}")
-    requirement_lines.extend(
-        f"- {item}" for item in context["teaching_requirements"]
+    lines += ["## 三、课程要求", "", "### 授课方式"]
+    lines.extend(
+        [f"- {item}" for item in context["teaching_methods"]]
+        if context["teaching_methods"] else ["尚未确认。"]
     )
-    lines.extend(requirement_lines)
-    if not requirement_lines and not coverage:
-        lines.append("暂无额外课程要求。")
-    lines.append("")
-
-    if coverage:
-        # Coverage is a requirement boundary, not another parallel outline
-        # section. Keep the existing honesty verdict under the formal template.
-        coverage[0] = "### 覆盖范围说明"
-        lines += coverage
-
-    lines += ["## 五、考核与成绩构成", ""]
-    lines += (
+    lines += ["", "### 考核方式"]
+    lines.extend(
         [f"- {item}" for item in context["assessment_methods"]]
-        if context["assessment_methods"]
-        else ["尚未确认课程考核方式。"]
+        if context["assessment_methods"] else ["尚未确认。"]
     )
     lines.append("")
 
-    outline_lessons = _outline_lessons(chapters)
+    outline_lessons = _outline_lessons(chapters, course_data=course_data)
+    lines += ["## 四、教学内容及教学安排", ""]
+    for lesson in outline_lessons:
+        lines += [f"### {_lesson_title(lesson)}"]
+        lines += [str(lesson.get("content_summary") or "本讲内容尚未确认。"), ""]
+
     lines += [
-        "## 六、按周与按讲教学进度", "",
-        "| 周次 | 讲次 | 章节 | 主题 | 内容与目标 | 重难点 | 活动 | 作业 | 学时 |",
-        "|---|---|---|---|---|---|---|---|---:|",
+        "### 附件1：课程教学日历", "",
+        "| 周次 | 讲次 | 教学主题 | 学时 | 地点 |",
+        "|---|---|---|---:|---|",
     ]
+    default_location = context["course_information"].get("上课地点") or "待排课"
     for lesson in outline_lessons:
         hours = lesson.get("planned_hours") or lesson.get("credit_hours") or ""
-        key_difficult = "；".join(
-            _text_items(lesson.get("key_points"))
-            + _text_items(lesson.get("key_difficulties"))
-        )
-        activities = "；".join(_text_items(
-            lesson.get("activities") or lesson.get("student_activities")
-        ))
-        homework = "；".join(_text_items(lesson.get("homework")))
         lines.append(
             f"| {_md_cell(lesson['week'])} | {_md_cell(lesson['lecture'])} | "
-            f"{_md_cell(lesson['chapter_title'])} | {_md_cell(_lesson_title(lesson))} | "
-            f"{_md_cell(lesson.get('learning_objective'))} | {_md_cell(key_difficult)} | "
-            f"{_md_cell(activities)} | {_md_cell(homework)} | {_md_cell(hours)} |"
+            f"{_md_cell(_lesson_title(lesson))} | {_md_cell(hours)} | "
+            f"{_md_cell(lesson.get('location') or default_location)} |"
         )
     lines.append("")
 
     lines += [
-        "## 七、教学日历", "",
-        "| 周次 | 讲次 | 教学主题 | 日期/地点 | 课前准备 |",
-        "|---|---|---|---|---|",
-    ]
-    for lesson in outline_lessons:
-        schedule = " / ".join(filter(None, (
-            str(lesson.get("date") or "").strip(),
-            str(lesson.get("location") or "").strip(),
-        )))
-        lines.append(
-            f"| {_md_cell(lesson['week'])} | {_md_cell(lesson['lecture'])} | "
-            f"{_md_cell(_lesson_title(lesson))} | {_md_cell(schedule or '待排课')} | "
-            f"{_md_cell(lesson.get('pre_study') or lesson.get('preparation'))} |"
-        )
-    lines.append("")
-
-    lines += [
-        "## 八、课程思政案例", "",
+        "### 附件2：思政融合案例", "",
         "| 讲次 | 课程内容 | 育人目标 | 案例与实施方式 |",
         "|---|---|---|---|",
     ]
@@ -375,20 +391,17 @@ def _render_outline(course_data: dict[str, Any]) -> str:
         lines.append("| 待补充 | 待确认 | 待确认 | 待确认 |")
     lines.append("")
 
-    lines += ["## 九、参考书目与网站", "", "### 参考书目"]
+    lines += ["## 五、参考资料", "", "### 参考书籍"]
     books = context["reference_books"] or context["references"]
-    lines.extend(
-        [f"- {item}" for item in books]
-        if books else ["暂无已确认参考书目。"]
-    )
-    lines += ["", "### 参考网站"]
+    lines.extend([f"- {item}" for item in books] if books else ["暂无已确认参考书籍。"])
+    lines += ["", "### 网站资料"]
     lines.extend(
         [f"- {item}" for item in context["reference_websites"]]
-        if context["reference_websites"] else ["暂无已确认参考网站。"]
+        if context["reference_websites"] else ["暂无已确认网站资料。"]
     )
     lines += [
-        "", "## 十、课程网站", "",
-        context["course_website"] or "暂未确认课程网站。",
+        "", "## 六、课程教学网站", "",
+        context["course_website"] or "暂未确认课程教学网站。",
     ]
     return "\n".join(lines).rstrip() + "\n"
 

@@ -3,6 +3,7 @@
     v-if="chapters.length"
     class="outline-growth-stream"
     :data-state="reviewReady ? 'review' : 'growing'"
+    :data-structure="isLectureMode ? 'lecture' : 'legacy'"
     data-testid="outline-growth-stream"
     aria-live="polite"
   >
@@ -12,7 +13,7 @@
           ? t('courseWorkbench.outlineReady', '课程大纲已生成')
           : t('courseWorkbench.outlineGrowing', '课程结构正在形成') }}</strong>
       </div>
-      <span>{{ completedSections }} / {{ totalSections || '—' }}</span>
+      <span>{{ isLectureMode ? completedLectures : completedSections }} / {{ isLectureMode ? chapters.length : (totalSections || '—') }}</span>
     </header>
 
     <div class="growth-chapters">
@@ -33,10 +34,10 @@
             <strong>{{ chapter.title }}</strong>
             <small v-if="chapter.focus">{{ chapter.focus }}</small>
           </div>
-          <small class="chapter-count">{{ chapter.completedCount }}/{{ chapter.sectionCount || '—' }}</small>
+          <small v-if="!isLectureMode" class="chapter-count">{{ chapter.completedCount }}/{{ chapter.sectionCount || '—' }}</small>
         </header>
 
-        <ol v-if="chapter.sections.length || chapter.status === 'growing'">
+        <ol v-if="!isLectureMode && (chapter.sections.length || chapter.status === 'growing')">
           <li
             v-for="(section, sectionIndex) in chapter.sections"
             :key="section.id"
@@ -94,6 +95,18 @@ const props = withDefaults(defineProps<{
   reviewReady: false,
 })
 
+const isLectureMode = computed(() => {
+  if (props.growth?.authoring_structure_version === 'lecture_v1') return true
+  const projected = Array.isArray(props.growth?.chapters) ? props.growth!.chapters : []
+  return projected.length > 0 && projected.every((item: any) => Number(item?.section_count || 0) === 1)
+})
+
+function plainLectureTitle(value: unknown) {
+  return String(value || '')
+    .replace(/^(?:(?:第\s*)?\d+(?:\.\d+)?\s*[章节讲]\s*|\d+(?:\.\d+)+\s*)+/, '')
+    .trim()
+}
+
 const chapters = computed<GrowthChapter[]>(() => {
   const projected = Array.isArray(props.growth?.chapters)
     ? props.growth!.chapters as Record<string, any>[]
@@ -121,7 +134,9 @@ const chapters = computed<GrowthChapter[]>(() => {
       return {
         id: `chapter-${number}`,
         number,
-        title: String(chapter.title || t('courseGeneration.production.growthChapter', '第 {number} 章').replace('{number}', String(number))),
+        title: isLectureMode.value
+          ? `第${number}讲 ${plainLectureTitle(chapter.title)}`.trim()
+          : String(chapter.title || t('courseGeneration.production.growthChapter', '第 {number} 章').replace('{number}', String(number))),
         focus: String(chapter.learning_focus || ''),
         sectionCount,
         completedCount,
@@ -137,7 +152,9 @@ const chapters = computed<GrowthChapter[]>(() => {
     return {
       id: chapter.node_id,
       number: index + 1,
-      title: chapter.node_name,
+      title: isLectureMode.value
+        ? `第${index + 1}讲 ${plainLectureTitle(chapter.node_name)}`.trim()
+        : chapter.node_name,
       focus: chapter.learning_objective || '',
       sectionCount: sections.length,
       completedCount: sections.length,
@@ -158,6 +175,9 @@ const completedSections = computed(() => props.growth
 const totalSections = computed(() => props.growth
   ? Number(props.growth.total_sections || 0)
   : chapters.value.reduce((sum, chapter) => sum + chapter.sectionCount, 0))
+const completedLectures = computed(() => chapters.value.filter(
+  chapter => chapter.status === 'completed',
+).length)
 
 function nextSectionNumber(chapter: GrowthChapter) {
   return `${chapter.number}.${chapter.completedCount + 1}`

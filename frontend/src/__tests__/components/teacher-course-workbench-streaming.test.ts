@@ -51,7 +51,12 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
   },
   global: {
     stubs: {
-      CourseReferenceTray: true,
+      CourseReferenceTray: {
+        name: 'CourseReferenceTray',
+        props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowCanRetry'],
+        template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><button v-if="workflowCanRetry" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
+        emits: ['retry-workflow', 'update:modelValue'],
+      },
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
       TeacherScriptDocument: {
@@ -117,6 +122,51 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).toContain('流程控制结构')
     expect(wrapper.find('.stream-waiting').exists()).toBe(false)
     expect(wrapper.get('.generation-surface>header').text()).toContain('正在展开各章小节')
+  })
+
+  it('教师课程生成过程只显示讲次，不暴露内部 1.1 编号', () => {
+    const lectureGrowth = {
+      ...growth,
+      authoring_structure_version: 'lecture_v1',
+      completed_sections: 1,
+      total_sections: 2,
+      chapters: [
+        {
+          chapter_number: 1,
+          title: '第1章 静电场与边值问题',
+          learning_focus: '建立静电场边值问题的分析方法',
+          section_count: 1,
+          completed_section_count: 1,
+          status: 'completed',
+          sections: [
+            { node_id: 'L2-1-1', section_number: '1.1', title: '1.1 静电场基本方程', learning_objective: '能建立典型边值问题' },
+          ],
+        },
+        {
+          chapter_number: 2,
+          title: '第2章 稳恒磁场',
+          learning_focus: '分析稳恒电流产生的磁场',
+          section_count: 1,
+          completed_section_count: 0,
+          status: 'growing',
+          sections: [],
+        },
+      ],
+    }
+    const task = useGenerationStore().createTask('job-lecture', 'course-1', '电动力学')
+    task.status = 'running'
+    task.currentStep = '正在生成全课讲次大纲'
+    task.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: lectureGrowth }
+
+    const wrapper = mountWorkbench({ courseTitle: '电动力学' })
+    const stream = wrapper.get('[data-testid="outline-growth-stream"]')
+
+    expect(stream.attributes('data-structure')).toBe('lecture')
+    expect(stream.text()).toContain('第1讲 静电场与边值问题')
+    expect(stream.text()).toContain('第2讲 稳恒磁场')
+    expect(stream.text()).not.toContain('第1章')
+    expect(stream.text()).not.toContain('1.1')
+    expect(stream.text()).not.toContain('小节')
   })
 
   it('大纲失败后的重试沿用原任务检查点，不新建重复课程', async () => {
@@ -371,7 +421,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(reload).toHaveBeenCalledWith('course-1')
   })
 
-  it('页面不展示教学块编辑器并自动采用本讲编排生成教案', async () => {
+  it('把唯一的整课生成入口放在右侧资料栏，中栏保持空白', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -391,26 +441,26 @@ describe('teacher course workbench outline streaming', () => {
       script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
       plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
     }] as any
-    const confirmArrangement = vi.spyOn(lessonStore, 'confirmArrangement').mockResolvedValue(lessonStore.lessons[0]!)
-    const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'job-1' } as any)
+    const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons').mockResolvedValue({
+      parent_job: { id: 'batch-1' }, jobs: [],
+    } as any)
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
-    const generationForm = wrapper.get('[data-testid="lesson-generation-form"]')
+    const generationButton = wrapper.get('[data-testid="lesson-batch-start"]')
     expect(wrapper.find('[data-testid="lesson-arrangement-editor"]').exists()).toBe(false)
-    expect(generationForm.get('label').text()).toBe('请补充本讲的重难点、教学方法或课堂活动要求（选填）。')
-    expect(generationForm.find('.lesson-generation-copy').exists()).toBe(false)
-    expect(generationForm.get('textarea').attributes('placeholder')).toBeUndefined()
-    expect(generationForm.get('textarea').attributes('aria-label')).toBe('教案生成要求')
+    expect(wrapper.find('[data-testid="lesson-generation-form"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="lesson-arrangement-summary"]').exists()).toBe(false)
+    expect(wrapper.get('.lesson-empty-canvas').text()).toBe('教案尚未生成')
+    expect(wrapper.get('[data-testid="lesson-batch-launch"]').text()).toContain('剩余 1 讲，将按顺序逐讲生成')
+    expect(generationButton.text()).toBe('生成全部教案')
+    expect(wrapper.text()).not.toContain('生成本讲教案')
+    expect(wrapper.text()).not.toContain('统一生成要求')
+    expect(wrapper.find('.lesson-batch-panel').exists()).toBe(false)
 
-    await generationForm.trigger('submit')
+    await generationButton.trigger('click')
     await flushPromises()
 
-    expect(confirmArrangement).toHaveBeenCalledWith(
-      'course-1',
-      'L1-1',
-      expect.objectContaining({ lesson_type: 'theory', blocks: [expect.objectContaining({ block_id: 'block-1' })] }),
-    )
-    expect(generateLesson).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [])
+    expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
   })
 
   it('教案任务开始后原位显示真实进度并隐藏重复提交按钮', () => {
@@ -430,14 +480,48 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.lesson-generation-float').text()).toContain('正在确定各节教学重点')
+    expect(wrapper.get('.lesson-generation-status').text()).toContain('正在生成第一讲')
+    expect(wrapper.get('.lesson-generation-status').text()).toContain('正在确定各节教学重点')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('AI 工作稿')
     expect(wrapper.get('.lesson-stream-document').text()).toContain('学生能够解释爬虫的工作流程')
     expect(wrapper.find('.lesson-stream-document .stream-caret').exists()).toBe(true)
     expect(wrapper.find('button[type="submit"]').exists()).toBe(false)
   })
 
-  it('教案任务失败后显示真实原因并提供单一重试动作', () => {
+  it('批量任务只让当前讲显示生成中，其余讲次显示等待队列', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, source_outline_revision_id: 'outline-1', number,
+      title: `第${number}讲`, duration_minutes: 45, sections: [],
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    })) as any
+    lessonStore.jobs = [
+      {
+        id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
+        status: 'running', progress: 42, phase: 'lesson_plan_generation', message: '正在生成第一讲', warnings: [],
+        parent_job_id: 'batch-1', batch_position: 1, batch_size: 2,
+      },
+      {
+        id: 'lesson-job-2', course_id: 'course-1', lesson_unit_id: 'L1-2', type: 'teacher_lesson_plan_generation',
+        status: 'pending', progress: 0, phase: 'waiting_for_previous_lesson', message: '等待上一讲生成完成', warnings: [],
+        parent_job_id: 'batch-1', batch_position: 2, batch_size: 2,
+      },
+    ] as any
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    await wrapper.get('.lesson-title-trigger').trigger('click')
+    const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
+    expect(chapterButtons[0]!.attributes('aria-label')).toContain('生成中')
+    expect(chapterButtons[1]!.attributes('aria-label')).toContain('等待生成')
+    expect(wrapper.findAll('.lesson-outline-status .spin')).toHaveLength(1)
+
+    await chapterButtons[1]!.trigger('click')
+    expect(wrapper.get('.lesson-queue-state').text()).toContain('等待按顺序生成')
+    expect(wrapper.get('.lesson-queue-state').text()).toContain('不需要再次操作')
+    expect(wrapper.find('.lesson-queue-state button').exists()).toBe(false)
+  })
+
+  it('教案任务失败后只在右侧显示真实原因和整课重试动作', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -449,11 +533,19 @@ describe('teacher course workbench outline streaming', () => {
       status: 'failed', progress: 36, phase: 'lesson_plan_failed', message: '本讲教案生成失败', warnings: [],
       error: { code: 'lesson_plan_generation_failed', message: '知识骨架汇编失败', retryable: true },
     }] as any
+    const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons').mockResolvedValue({
+      parent_job: { id: 'batch-2' }, jobs: [],
+    } as any)
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
-    expect(wrapper.get('.lesson-generation-error').text()).toContain('知识骨架汇编失败')
-    expect(wrapper.get('button[type="submit"]').text()).toContain('重新生成本讲教案')
+    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('知识骨架汇编失败')
+    expect(wrapper.get('[data-testid="reference-tray-stub"] button').text()).toBe('重试生成')
+    expect(wrapper.get('.lesson-empty-canvas').text()).toBe('教案尚未生成')
+    await wrapper.get('[data-testid="reference-tray-stub"] button').trigger('click')
+    await flushPromises()
+    expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
+    expect(wrapper.text()).not.toContain('重新生成本讲教案')
   })
 
   it('教案未确认时仍可上传自有 PPT，但不能使用 AI 生成', async () => {
