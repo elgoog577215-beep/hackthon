@@ -54,8 +54,8 @@ const mountWorkbench = (props: Record<string, unknown> = {}) => mount(TeacherCou
       CourseReferenceTray: {
         name: 'CourseReferenceTray',
         props: ['modelValue', 'scopeTargetId', 'scopeTargetLabel', 'previousScopeTargetId', 'workflowState', 'workflowDetail', 'workflowCanRetry'],
-        template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><button v-if="workflowCanRetry" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
-        emits: ['retry-workflow', 'update:modelValue'],
+        template: '<aside data-testid="reference-tray-stub"><span>{{ workflowDetail }}</span><button data-testid="open-course-information" type="button" @click="$emit(\'open-course-information\')">课程信息</button><button v-if="workflowCanRetry" data-testid="retry-workflow" type="button" @click="$emit(\'retry-workflow\')">重试生成</button><slot name="workflow-action" /></aside>',
+        emits: ['open-course-information', 'retry-workflow', 'update:modelValue'],
       },
       CompanionDocumentStudio: true,
       QuestionBankReviewPanel: true,
@@ -102,6 +102,14 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
     expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '配套文档'])
+  })
+
+  it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
+    const wrapper = mountWorkbench()
+
+    await wrapper.get('[data-testid="open-course-information"]').trigger('click')
+
+    expect(wrapper.emitted('open-course-information')).toHaveLength(1)
   })
 
   it('能从尚未闭合的 JSON 增量中提前显示教案正文', () => {
@@ -540,9 +548,9 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
     expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('知识骨架汇编失败')
-    expect(wrapper.get('[data-testid="reference-tray-stub"] button').text()).toBe('重试生成')
+    expect(wrapper.get('[data-testid="retry-workflow"]').text()).toBe('重试生成')
     expect(wrapper.get('.lesson-empty-canvas').text()).toBe('教案尚未生成')
-    await wrapper.get('[data-testid="reference-tray-stub"] button').trigger('click')
+    await wrapper.get('[data-testid="retry-workflow"]').trigger('click')
     await flushPromises()
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
     expect(wrapper.text()).not.toContain('重新生成本讲教案')

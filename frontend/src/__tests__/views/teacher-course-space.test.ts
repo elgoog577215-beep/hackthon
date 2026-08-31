@@ -10,6 +10,7 @@ const rebuildMock = vi.hoisted(() => vi.fn(async () => ({ status: 'completed' })
 vi.mock('@/utils/http', () => ({
   default: httpMock,
   getTeacherIdentity: () => 'teacher-test',
+  teacherReadRequestConfig: (config = {}) => config,
   teacherRequestConfig: (config = {}) => config,
 }))
 vi.mock('@/utils/question-bank-rebuild', () => ({ runQuestionBankRebuild: rebuildMock }))

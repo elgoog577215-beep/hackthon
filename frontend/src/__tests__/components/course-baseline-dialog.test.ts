@@ -143,4 +143,26 @@ describe('CourseBaselineDialog', () => {
       expect.any(Object),
     )
   })
+
+  it('有预取内容时立即可看，后台刷新超时也不遮住内容', async () => {
+    vi.mocked(http.get).mockRejectedValueOnce({ code: 'ECONNABORTED' })
+    const initialEnvelope = envelope()
+    const wrapper = mount(CourseBaselineDialog, {
+      props: { modelValue: true, courseId: 'course-1', initialEnvelope: initialEnvelope as any },
+      global: { stubs: { Teleport: true } },
+    })
+
+    expect(wrapper.get('.information-view').text()).toContain('人工智能通识课')
+    expect(wrapper.find('.dialog-state').exists()).toBe(false)
+    expect(wrapper.get('.refresh-status').text()).toContain('正在确认最新课程信息')
+
+    await flushPromises()
+
+    expect(wrapper.get('.information-view').text()).toContain('人工智能通识课')
+    expect(wrapper.get('.load-warning').text()).toContain('当前仍显示上次读取的内容')
+    expect(http.get).toHaveBeenCalledWith(
+      '/api/courses/course-1/course-information',
+      expect.objectContaining({ timeout: 10000, signal: expect.any(AbortSignal) }),
+    )
+  })
 })

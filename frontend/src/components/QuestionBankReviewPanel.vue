@@ -216,13 +216,18 @@
       </button>
     </section>
 
-    <div v-if="loading" class="question-bank-panel__state">
+    <div v-if="loading && !items.length" class="question-bank-panel__state">
       <LoaderCircle :size="18" class="spin" />
       {{ t('questionBank.loading', '正在读取题库') }}
     </div>
-    <div v-else-if="errorMessage" class="question-bank-panel__state question-bank-panel__state--error">
+    <div v-else-if="errorMessage && !items.length" class="question-bank-panel__state question-bank-panel__state--error">
       <TriangleAlert :size="18" />
       <span>{{ errorMessage }}</span>
+    </div>
+    <div v-if="errorMessage && items.length" class="question-bank-panel__refresh-error" role="alert">
+      <TriangleAlert :size="15" />
+      <span>{{ errorMessage }}</span>
+      <button type="button" @click="load">{{ t('common.retry', '重试') }}</button>
     </div>
 
     <section v-else-if="workspaceMode === 'bank' && (questionBankMissing || !items.length)" class="question-bank-empty-state">
@@ -772,7 +777,7 @@ import CompactPagination from './CompactPagination.vue'
 import CourseReferenceTray, { type CourseReferenceItem } from './CourseReferenceTray.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
 import QuestionBankImportWorkspace from './QuestionBankImportWorkspace.vue'
-import http from '@/utils/http'
+import http, { teacherReadRequestConfig } from '@/utils/http'
 import { t } from '@/shared/i18n'
 import { retrievalErrorTranslationKey } from '@/utils/retrieval-errors'
 import { createUuid } from '@/utils/client-id'
@@ -1448,7 +1453,7 @@ async function load() {
   try {
     const response = await http.get(
       `/api/courses/${props.courseId}/question-bank`,
-      { silentError: true },
+      teacherReadRequestConfig({ silentError: true }),
     )
     const data = response.data || {}
     bundleRevisionId.value = String(data.bundle_revision_id || '')
@@ -1482,7 +1487,7 @@ async function loadExamPapers() {
   try {
     const response = await http.get(
       `/api/courses/${props.courseId}/question-bank/exam-papers`,
-      { silentError: true },
+      teacherReadRequestConfig({ silentError: true }),
     )
     examPapers.value = Array.isArray(response.data?.papers)
       ? response.data.papers
@@ -2156,6 +2161,8 @@ defineExpose({ requestAiCandidate, resolveAiCandidate, focusAiCandidate, focusRe
 .question-review-item__approve:hover:not(:disabled) { background:#4338ca; }
 .question-bank-panel__state, .question-bank-panel__empty { min-height: 64px; display: flex; align-items: center; justify-content: center; gap: 8px; color: var(--lz-text-muted); font-size: 12px; }
 .question-bank-panel__state--error { min-height:auto; justify-content:flex-start; padding:10px 12px; border:1px solid #fed7aa; border-radius:10px; color:#9a3412; background:#fff7ed; }
+.question-bank-panel__refresh-error { display:flex; align-items:center; gap:8px; margin:8px 0; padding:8px 10px; border-radius:8px; color:#9a3412; background:#fff7ed; font-size:12px; }
+.question-bank-panel__refresh-error button { margin-left:auto; border:0; color:#4f46e5; background:transparent; font-weight:700; cursor:pointer; }
 .question-bank-panel__empty { flex-direction: column; text-align: center; }
 .question-bank-panel__empty strong { color: var(--lz-text-strong); }
 .question-bank-panel__empty span { max-width: 420px; font-size: 11px; }

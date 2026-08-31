@@ -135,13 +135,34 @@ export const identityRequestConfig = (
   config: AxiosRequestConfig = {},
 ): AxiosRequestConfig => ({ ...config, identityScope: scope });
 
+// Ordinary workspace reads must fail quickly and recover locally.  The global
+// client keeps a long timeout for model calls, but reusing that timeout for
+// course metadata made a delayed GET look like a frozen application.
+export const INTERACTIVE_READ_TIMEOUT_MS = 10000;
+
+export const identityReadRequestConfig = (
+  scope: RequestIdentityScope,
+  config: AxiosRequestConfig = {},
+): AxiosRequestConfig => identityRequestConfig(scope, {
+  timeout: INTERACTIVE_READ_TIMEOUT_MS,
+  ...config,
+});
+
 export const teacherRequestConfig = (
   config: AxiosRequestConfig = {},
 ): AxiosRequestConfig => identityRequestConfig('teacher', config);
 
+export const teacherReadRequestConfig = (
+  config: AxiosRequestConfig = {},
+): AxiosRequestConfig => identityReadRequestConfig('teacher', config);
+
 export const learnerRequestConfig = (
   config: AxiosRequestConfig = {},
 ): AxiosRequestConfig => identityRequestConfig('learner', config);
+
+export const learnerReadRequestConfig = (
+  config: AxiosRequestConfig = {},
+): AxiosRequestConfig => identityReadRequestConfig('learner', config);
 
 export const teacherIdentityHeaders = (
   initial: HeadersInit = {},

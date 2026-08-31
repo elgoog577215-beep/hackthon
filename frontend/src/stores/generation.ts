@@ -34,7 +34,10 @@ const SERVER_BACKED_TASK_STATUSES = new Set<Task['status']>([
   'completed_with_warnings',
 ])
 const taskSurface = (task?: Task): 'student' | 'teacher' => (
-  task?.taskType === 'teacher_outline_generation' ? 'teacher' : 'student'
+  task?.taskType === 'teacher_outline_generation'
+  || getActiveRequestIdentityScope() === 'teacher'
+    ? 'teacher'
+    : 'student'
 )
 const isPublishedTask = (task: Task, backendTask?: Record<string, any>) => (
   task.taskType !== 'teacher_outline_generation'

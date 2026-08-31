@@ -173,7 +173,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { CheckCircle2, ChevronRight, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, Pause, Play, Plus, RotateCcw, Search, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
-import http, { teacherRequestConfig } from '../utils/http'
+import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 
 export type CourseReferenceItem = {
   package_id: string
@@ -343,7 +343,7 @@ function sourceRoleLabel(item: CourseReferenceItem) {
 async function resolvePackageId(value: CourseReferenceItem[]) {
   const direct = value[0]?.package_id || materials.value[0]?.package_id
   if (direct) return direct
-  const response = await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
+  const response = await http.get('/api/teacher-course-spaces', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
   return String(response.data?.[0]?.package_id || '')
 }
 
@@ -375,7 +375,7 @@ async function persistScopedSelection(value: CourseReferenceItem[], bindingMode:
 
 async function loadMaterials() {
   try {
-    const response = await http.get('/api/materials', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
+    const response = await http.get('/api/materials', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))
     const webByMaterialId = new Map([...storedWebReferences.value, ...webSources.value].map(item => [item.material_asset_id, item]))
     configuredTargetIds.value = new Set(response.data?.configured_source_target_ids || [])
     materials.value = (response.data?.assets || []).map((item: CourseReferenceItem) => ({ ...item, ...(webByMaterialId.get(item.material_asset_id) || {}), role: 'reference' }))
@@ -442,7 +442,7 @@ function mergeWebReferences(references: CourseReferenceItem[]) {
 
 async function loadWebReferences() {
   try {
-    const response = await http.get(`/api/courses/${props.courseId}/web-research`, teacherRequestConfig({ params: { stage: props.stage, lesson_id: props.lessonId }, silentError: true }))
+    const response = await http.get(`/api/courses/${props.courseId}/web-research`, teacherReadRequestConfig({ params: { stage: props.stage, lesson_id: props.lessonId }, silentError: true }))
     storedWebReferences.value = response.data?.accepted_references || []
   } catch (reason: any) { error.value = String(reason?.response?.data?.detail?.message || reason?.response?.data?.detail || reason?.message || t('courseWorkbench.webResearch.loadFailed', '调研记录读取失败')) }
 }
@@ -451,7 +451,7 @@ async function loadWebResearchCapability() {
   try {
     const response = await http.get(
       `/api/courses/${props.courseId}/web-research/capability`,
-      teacherRequestConfig({ silentError: true }),
+      teacherReadRequestConfig({ silentError: true }),
     )
     webResearchAvailable.value = response.data?.available !== false
   } catch {
@@ -465,11 +465,15 @@ async function loadAll() {
   loading.value = true; error.value = ''
   try {
     if (props.variant === 'default') {
-      await loadWebResearchCapability()
-      await loadWebReferences()
+      await Promise.all([
+        loadWebResearchCapability(),
+        loadWebReferences(),
+        loadMaterials(),
+      ])
+    } else {
+      storedWebReferences.value = []
+      await loadMaterials()
     }
-    else storedWebReferences.value = []
-    await loadMaterials()
     if (targetId && targetId === props.scopeTargetId) {
       const webByMaterialId = new Map(storedWebReferences.value.map(item => [item.material_asset_id, item]))
       const scoped = materials.value.flatMap(item => {

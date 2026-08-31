@@ -2,7 +2,7 @@
   <section class="ppt-review" :aria-busy="busy">
     <input ref="fileInput" class="sr-only" type="file" accept=".pptx" @change="handleFile" />
 
-    <div v-if="loading" class="ppt-review-state">
+    <div v-if="loading && !review" class="ppt-review-state">
       <LoaderCircle :size="22" class="spin" />
       <span>{{ t('courseWorkbench.pptReview.loading', '正在读取 PPT 审阅状态…') }}</span>
     </div>
@@ -159,7 +159,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Check, CheckCircle2, Download, FileSearch, LoaderCircle, Pencil, RefreshCw, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
-import http, { teacherIdentityHeaders, teacherRequestConfig } from '../utils/http'
+import http, { teacherIdentityHeaders, teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { postGenerationStream } from '../shared/generation-stream'
 
 type PptBlock = { block_id: string; shape_index: number; kind: 'title' | 'text' | 'table'; text: string; original_text: string; editable: boolean }
@@ -224,7 +224,7 @@ async function loadReview() {
   loading.value = true
   error.value = ''
   try {
-    const response = await http.get(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/current`, teacherRequestConfig({ silentError: true }))
+    const response = await http.get(`/api/teacher/courses/${props.courseId}/lessons/${props.lessonId}/ppt-import/reviews/current`, teacherReadRequestConfig({ silentError: true }))
     review.value = response.data?.review || null
     selectedSlideId.value = review.value?.slides[0]?.slide_id || ''
   } catch (value) {
@@ -235,7 +235,7 @@ async function loadReview() {
 }
 
 async function ensurePackage() {
-  const packages = (await http.get('/api/teacher-course-spaces', teacherRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data || []
+  const packages = (await http.get('/api/teacher-course-spaces', teacherReadRequestConfig({ params: { course_id: props.courseId }, silentError: true }))).data || []
   if (packages[0]?.package_id) return packages[0]
   const now = new Date(); const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1
   return (await http.post('/api/teacher-course-spaces', {

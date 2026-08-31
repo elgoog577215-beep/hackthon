@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http, { getTeacherIdentity, teacherIdentityHeaders, withApiBase } from '../utils/http'
+import http, { getTeacherIdentity, teacherIdentityHeaders, teacherReadRequestConfig, withApiBase } from '../utils/http'
 import { createUuid } from '../utils/client-id'
 import { postGenerationStream } from '../shared/generation-stream'
 import { t } from '../shared/i18n'
@@ -343,6 +343,7 @@ export interface TeacherLessonKnowledgeEvidence {
 }
 
 const requestConfig = () => ({ headers: { 'X-User-Id': getTeacherIdentity() } })
+const readRequestConfig = () => teacherReadRequestConfig({ headers: { 'X-User-Id': getTeacherIdentity() } })
 
 const decodeJsonStreamString = (value: string) => {
   try {
@@ -499,7 +500,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       try {
         const response = await http.get<TeacherLessonAuthoringView>(
           `/api/teacher/courses/${courseId}/lesson-authoring`,
-          { ...requestConfig(), silentError: true },
+          { ...readRequestConfig(), silentError: true },
         )
         this.courseId = courseId
         this.outlineRevisionId = response.data.outline_revision_id
@@ -610,7 +611,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     async loadKnowledgeEvidence(courseId: string, lessonUnitId: string) {
       const response = await http.get<TeacherLessonKnowledgeEvidence>(
         `/api/teacher/courses/${courseId}/knowledge-evidence`,
-        { ...requestConfig(), params: { lesson_unit_id: lessonUnitId } },
+        { ...readRequestConfig(), params: { lesson_unit_id: lessonUnitId } },
       )
       return response.data
     },
@@ -618,7 +619,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       for (let attempt = 0; attempt < 180; attempt += 1) {
         const response = await http.get<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}`,
-          requestConfig(),
+          readRequestConfig(),
         )
         const job = response.data.job
         this.jobs = [...this.jobs.filter(item => item.id !== job.id), job]

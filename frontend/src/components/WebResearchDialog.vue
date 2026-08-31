@@ -38,7 +38,7 @@
               <span v-if="session?.provider">{{ session.provider }}</span>
             </header>
 
-            <div v-if="loading" class="research-empty"><LoaderCircle :size="22" class="spin" />{{ t('courseWorkbench.webResearch.loadingHistory', '正在读取调研记录…') }}</div>
+            <div v-if="loading && !session" class="research-empty"><LoaderCircle :size="22" class="spin" />{{ t('courseWorkbench.webResearch.loadingHistory', '正在读取调研记录…') }}</div>
             <div v-else-if="!session" class="research-empty"><Search :size="24" /><strong>{{ t('courseWorkbench.webResearch.emptyTitle', '先描述这次要找的资料') }}</strong><span>{{ t('courseWorkbench.webResearch.emptyHelp', '系统会展示真实检索词，不会将结果直接写入课程。') }}</span></div>
             <div v-else-if="!session.results.length" class="research-empty"><CircleAlert :size="24" /><strong>{{ t('courseWorkbench.webResearch.noResults', '暂时没有可用来源') }}</strong><span>{{ failureMessage }}</span></div>
             <div v-else class="source-results">
@@ -74,7 +74,7 @@
 import { computed, ref, watch } from 'vue'
 import { BookOpenCheck, CalendarDays, CircleAlert, ExternalLink, Globe2, LoaderCircle, Scale, Search, ShieldCheck, TriangleAlert, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
-import http, { teacherRequestConfig } from '../utils/http'
+import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 
 type WebResearchSource = {
   source_id: string
@@ -149,7 +149,7 @@ async function loadLatest() {
   if (!props.visible || !props.courseId) return
   loading.value = true; error.value = ''
   try {
-    const response = await http.get(`/api/courses/${props.courseId}/web-research`, teacherRequestConfig({ params: { stage: props.stage, lesson_id: props.lessonId || '' }, silentError: true }))
+    const response = await http.get(`/api/courses/${props.courseId}/web-research`, teacherReadRequestConfig({ params: { stage: props.stage, lesson_id: props.lessonId || '' }, silentError: true }))
     setSession(response.data?.latest_session || null)
   } catch (reason: any) { error.value = errorText(reason, t('courseWorkbench.webResearch.loadFailed', '调研记录读取失败')) }
   finally { loading.value = false }

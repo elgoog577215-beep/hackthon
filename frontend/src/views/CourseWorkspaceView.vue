@@ -111,6 +111,8 @@
     <CourseBaselineDialog
       v-model="courseInformationOpen"
       :course-id="courseId"
+      :initial-envelope="courseInformationEnvelope"
+      @loaded="courseInformationEnvelope = $event"
       @updated="handleCourseInformationUpdated"
     />
 
@@ -152,7 +154,7 @@ import { useGenerationStore } from '../stores/generation'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
 import { coursePreparationLabel, coursePreparationState } from '../utils/course-preparation'
 import { toAppError, type AppErrorPresentation } from '../utils/app-error'
-import http, { teacherRequestConfig } from '../utils/http'
+import http, { teacherReadRequestConfig } from '../utils/http'
 
 const props = defineProps<{ courseId: string; mode?: string }>()
 const route = useRoute()
@@ -179,7 +181,9 @@ const requestedWorkbenchStage = ref<'foundation' | 'lesson' | 'question-bank' | 
 const requestedLessonId = ref('')
 const searchQuery = ref('')
 const courseGenerationOptions = ref<CourseGenerationOptions & { subject?: string }>({})
+const courseInformationEnvelope = ref<any | null>(null)
 const stableCourseTitle = ref('')
+let workspaceLoadToken = 0
 
 const courseId = computed(() => String(props.courseId || route.params.courseId || ''))
 const courseTitle = computed(() => (
@@ -196,6 +200,7 @@ const courseState = computed(() => coursePreparationState(
 const courseStateLabel = computed(() => coursePreparationLabel(courseState.value))
 
 function handleCourseInformationUpdated(payload: any) {
+  courseInformationEnvelope.value = payload
   courseGenerationOptions.value = payload.information?.generation_request || courseGenerationOptions.value
   void courseStore.fetchCourseList({ surface: 'teacher' })
 }
@@ -211,24 +216,36 @@ function backToSource() {
 
 async function loadWorkspace() {
   if (!courseId.value) return
+  const requestedCourseId = courseId.value
+  const loadToken = ++workspaceLoadToken
   if (route.query.view === 'files') workspaceView.value = 'files'
-  generationStore.observeCourse(courseId.value)
+  generationStore.observeCourse(requestedCourseId)
   loading.value = true
   loadError.value = null
+  courseInformationEnvelope.value = null
   try {
-    await Promise.all([
+    void Promise.allSettled([
       courseStore.fetchCourseList({ surface: 'teacher' }),
       generationStore.fetchGlobalTasks(),
     ])
-    const courseResponse = await http.get(
-      `/api/courses/${courseId.value}`,
-      teacherRequestConfig({ silentError: true }),
-    )
+    void lessonStore.load(requestedCourseId).catch(() => undefined)
+    void http.get(
+      `/api/courses/${requestedCourseId}/course-information`,
+      teacherReadRequestConfig({ silentError: true }),
+    ).then(response => {
+      if (courseId.value === requestedCourseId) courseInformationEnvelope.value = response.data
+    }).catch(() => undefined)
+    const [courseResponse] = await Promise.all([
+      http.get(
+        `/api/courses/${requestedCourseId}`,
+        teacherReadRequestConfig({ silentError: true }),
+      ),
+      courseStore.loadCourse(requestedCourseId, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
+    ])
+    if (courseId.value !== requestedCourseId || loadToken !== workspaceLoadToken) return
     stableCourseTitle.value = courseStore.courseList.find(
-      item => item.course_id === courseId.value,
+      item => item.course_id === requestedCourseId,
     )?.course_name || String(courseResponse.data?.course_name || stableCourseTitle.value)
-    await courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true })
-    await lessonStore.load(courseId.value).catch(() => undefined)
     courseGenerationOptions.value = courseResponse.data?.generation_request || {}
     stableCourseTitle.value = String(
       courseResponse.data?.course_name || stableCourseTitle.value,
@@ -247,12 +264,12 @@ async function loadWorkspace() {
       void router.replace({ query: { ...route.query, generate: undefined } })
     }
   } catch (error: any) {
-    loadError.value = toAppError(error, {
+    if (loadToken === workspaceLoadToken) loadError.value = toAppError(error, {
       title: t('courseFiles.loadFailed', '课程读取失败'),
       fallback: t('courseFiles.loadFailed', '课程读取失败'),
     })
   } finally {
-    loading.value = false
+    if (loadToken === workspaceLoadToken) loading.value = false
   }
 }
 

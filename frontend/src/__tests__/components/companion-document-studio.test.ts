@@ -5,6 +5,7 @@ const httpMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
 
 vi.mock('@/utils/http', () => ({
   default: httpMock,
+  teacherReadRequestConfig: (config = {}) => config,
   teacherRequestConfig: (config = {}) => config,
 }))
 

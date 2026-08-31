@@ -15,7 +15,10 @@ const {
   resumeQuestionBankRebuild: vi.fn(),
   runQuestionBankRebuild: vi.fn(),
 }))
-vi.mock('@/utils/http', () => ({ default: { get, post } }))
+vi.mock('@/utils/http', () => ({
+  default: { get, post },
+  teacherReadRequestConfig: (config = {}) => config,
+}))
 vi.mock('@/utils/question-bank-rebuild', () => ({
   resumeQuestionBankRebuild,
   runQuestionBankRebuild,

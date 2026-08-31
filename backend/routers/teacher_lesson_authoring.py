@@ -3103,6 +3103,14 @@ async def generate_lesson_plan(
                         for section in chapter.get("sections") or []:
                             if isinstance(section, dict):
                                 section["teacher_requirements"] = normalized_requirements
+            async def persist_checkpoint(checkpoint: dict[str, Any]) -> None:
+                await asyncio.to_thread(
+                    repository.update_job,
+                    course_id,
+                    str(job["id"]),
+                    checkpoint=checkpoint,
+                )
+
             return await tm.course_service.prepare_teacher_lesson_plan(
                 course_data=scoped_course,
                 lesson_unit_id=lesson_id,
@@ -3110,11 +3118,7 @@ async def generate_lesson_plan(
                 source_evidence=source_evidence,
                 lesson_arrangement=arrangement,
                 resume_checkpoint=resume_checkpoint,
-                on_checkpoint=lambda checkpoint: repository.update_job(
-                    course_id,
-                    str(job["id"]),
-                    checkpoint=checkpoint,
-                ),
+                on_checkpoint=persist_checkpoint,
             )
 
         async def run() -> None:

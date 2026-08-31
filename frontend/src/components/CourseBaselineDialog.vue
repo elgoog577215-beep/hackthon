@@ -24,7 +24,7 @@
         </header>
 
         <div class="dialog-body">
-          <section v-if="loading" class="dialog-state" role="status">
+          <section v-if="loading && !original" class="dialog-state" role="status">
             <LoaderCircle class="spin" :size="22" />
             <strong>{{ t('courseFiles.workbench.courseInformationLoading', '正在读取课程基础信息') }}</strong>
           </section>
@@ -37,6 +37,14 @@
           </section>
 
           <template v-else-if="original">
+            <p v-if="refreshing" class="refresh-status" role="status">
+              <LoaderCircle class="spin" :size="14" />{{ t('courseFiles.workbench.courseInformationRefreshing', '正在确认最新课程信息') }}
+            </p>
+            <p v-else-if="loadError" class="load-warning" role="alert">
+              <TriangleAlert :size="15" />
+              <span>{{ loadError }}</span>
+              <button type="button" @click="loadInformation">{{ t('common.retry', '重试') }}</button>
+            </p>
             <p v-if="successMessage" class="save-status" role="status"><CheckCircle2 :size="16" />{{ successMessage }}</p>
             <p v-if="saveError" class="save-error" role="alert">
               <TriangleAlert :size="16" />
@@ -112,10 +120,10 @@
 
         <footer v-if="original && !loading" class="dialog-footer">
           <template v-if="mode === 'view'">
-            <button class="secondary-button" type="button" @click="mode = 'history'"><History :size="15" />{{ t('courseFiles.workbench.courseInformationHistory', '修改记录') }}</button>
+            <button class="secondary-button" type="button" :disabled="refreshing" @click="mode = 'history'"><History :size="15" />{{ t('courseFiles.workbench.courseInformationHistory', '修改记录') }}</button>
             <span />
             <button class="secondary-button" type="button" @click="close">{{ t('common.close', '关闭') }}</button>
-            <button class="primary-button" type="button" @click="startEditing"><Pencil :size="15" />{{ t('courseFiles.workbench.editCourseInformation', '编辑课程信息') }}</button>
+            <button class="primary-button" type="button" :disabled="refreshing" @click="startEditing"><Pencil :size="15" />{{ t('courseFiles.workbench.editCourseInformation', '编辑课程信息') }}</button>
           </template>
           <template v-else-if="mode === 'edit'">
             <span /><span />
@@ -139,7 +147,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import {
   ArrowRight, BookOpen, Check, CheckCircle2, Database, FileDiff,
   Hammer, History, LoaderCircle, Pencil,
@@ -151,7 +159,7 @@ import {
   PEDAGOGY_MODE_OPTIONS,
   type LearningPurpose,
 } from '../shared/prompt-config'
-import http, { teacherRequestConfig } from '../utils/http'
+import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import ZjuCourseScheduleGrid, { type CourseScheduleSlot } from './ZjuCourseScheduleGrid.vue'
 
 type CourseProfile = {
@@ -208,9 +216,10 @@ type CourseInformationEnvelope = {
 
 type ChangeItem = { key: string; label: string; before: string; after: string }
 
-const props = defineProps<{ modelValue: boolean; courseId: string }>()
+const props = defineProps<{ modelValue: boolean; courseId: string; initialEnvelope?: CourseInformationEnvelope | null }>()
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
+  loaded: [payload: CourseInformationEnvelope]
   updated: [payload: CourseInformationEnvelope]
 }>()
 const titleId = `course-information-title-${Math.random().toString(36).slice(2)}`
@@ -220,6 +229,7 @@ const original = ref<CourseInformation | null>(null)
 const draft = ref<CourseInformation>(emptyInformation())
 const mode = ref<'view' | 'edit' | 'review' | 'history'>('view')
 const loading = ref(false)
+const refreshing = ref(false)
 const saving = ref(false)
 const loadError = ref('')
 const saveError = ref('')
@@ -227,6 +237,7 @@ const successMessage = ref('')
 const conflict = ref(false)
 const restoreRevision = ref<number | null>(null)
 let previousFocus: HTMLElement | null = null
+let loadController: AbortController | null = null
 
 const learningPurposeOptions = computed(() => ([
   { value: 'systematic' as const, icon: BookOpen, label: t('courseGeneration.courseTypes.systematic.label', '系统学习') },
@@ -428,18 +439,49 @@ function scheduleSummary(value: CourseScheduleSlot[]) {
 function stable(value: unknown) { return JSON.stringify(value ?? '') }
 function display(value: unknown) { return value === undefined || value === null || String(value).trim() === '' ? t('courseFiles.workbench.notSet', '待填写') : String(value) }
 
+function applyEnvelope(payload: CourseInformationEnvelope) {
+  envelope.value = payload
+  original.value = normalizeInformation(payload.information)
+  draft.value = clone(original.value)
+  mode.value = 'view'
+  restoreRevision.value = null
+}
+
+function loadFailureMessage(reason: any) {
+  if (reason?.code === 'ECONNABORTED') {
+    return t('courseFiles.workbench.courseInformationTimeout', '课程信息读取超时，当前仍显示上次读取的内容。')
+  }
+  return String(reason?.response?.data?.detail?.message || reason?.response?.data?.detail || reason?.message || t('courseFiles.workbench.courseInformationLoadFailed', '课程基础信息读取失败'))
+}
+
 async function loadInformation() {
   if (!props.courseId) return
-  loading.value = true; loadError.value = ''; saveError.value = ''; conflict.value = false
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
+  const initialLoad = !original.value
+  loading.value = initialLoad
+  refreshing.value = !initialLoad
+  loadError.value = ''; saveError.value = ''; conflict.value = false
   try {
-    const response = await http.get(`/api/courses/${props.courseId}/course-information`, teacherRequestConfig({ silentError: true }))
-    envelope.value = response.data as CourseInformationEnvelope
-    original.value = normalizeInformation(envelope.value.information)
-    draft.value = clone(original.value)
-    mode.value = 'view'; restoreRevision.value = null
+    const response = await http.get(
+      `/api/courses/${props.courseId}/course-information`,
+      teacherReadRequestConfig({ silentError: true, signal: controller.signal }),
+    )
+    if (controller !== loadController) return
+    applyEnvelope(response.data as CourseInformationEnvelope)
+    emit('loaded', response.data as CourseInformationEnvelope)
   } catch (reason: any) {
-    loadError.value = String(reason?.response?.data?.detail?.message || reason?.response?.data?.detail || reason?.message || t('courseFiles.workbench.courseInformationLoadFailed', '课程基础信息读取失败'))
-  } finally { loading.value = false }
+    if (reason?.code !== 'ERR_CANCELED' && controller === loadController) {
+      loadError.value = loadFailureMessage(reason)
+    }
+  } finally {
+    if (controller === loadController) {
+      loading.value = false
+      refreshing.value = false
+      loadController = null
+    }
+  }
 }
 
 function startEditing() {
@@ -497,9 +539,22 @@ function close() {
   if ((mode.value === 'edit' || mode.value === 'review') && changes.value.length) {
     if (!window.confirm(t('courseFiles.workbench.discardCourseInformationChanges', '尚有未保存的课程信息修改，确定关闭吗？'))) return
   }
+  loadController?.abort()
+  loadController = null
+  loading.value = false
+  refreshing.value = false
   emit('update:modelValue', false)
   previousFocus?.focus()
 }
+
+watch(
+  () => props.initialEnvelope,
+  value => {
+    if (!value || value.course_id !== props.courseId) return
+    if (!envelope.value || value.revision >= envelope.value.revision) applyEnvelope(value)
+  },
+  { immediate: true, deep: true },
+)
 
 watch(
   () => props.modelValue,
@@ -513,11 +568,19 @@ watch(
   },
   { immediate: true }
 )
-watch(() => props.courseId, () => { if (props.modelValue) void loadInformation() })
+watch(() => props.courseId, () => {
+  envelope.value = null
+  original.value = null
+  draft.value = emptyInformation()
+  loadError.value = ''
+  if (props.modelValue) void loadInformation()
+})
+onBeforeUnmount(() => loadController?.abort())
 </script>
 
 <style scoped>
 .course-information-layer{position:fixed;inset:0;z-index:530;display:grid;place-items:center;padding:24px}.course-information-backdrop{position:absolute;inset:0;border:0;background:rgba(30,41,59,.42)}.course-information-dialog{position:relative;width:min(980px,100%);max-height:calc(100dvh - 48px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;border:1px solid #dfe5ee;border-radius:16px;color:var(--lz-text);background:#fff;box-shadow:0 28px 76px rgba(15,23,42,.25);outline:none}.dialog-heading{min-height:76px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #e8edf4}.dialog-heading__mark{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.dialog-heading>div{min-width:0}.dialog-heading h2{margin:0;color:#202b40;font-size:20px;letter-spacing:-.015em}.dialog-heading p{margin:4px 0 0;color:#64748b;font-size:12px;line-height:1.45}.icon-button{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;color:#64748b;background:transparent;cursor:pointer}.icon-button:hover{background:#f1f5f9}.icon-button:focus-visible,.secondary-button:focus-visible,.primary-button:focus-visible,.history-panel button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.dialog-body{min-height:0;overflow:auto;padding:0 30px 30px}.dialog-state{min-height:360px;display:grid;place-items:center;align-content:center;gap:10px;color:#64748b;text-align:center}.dialog-state strong{color:#334155;font-size:14px}.dialog-state p{max-width:580px;margin:0;font-size:12px;line-height:1.6}.dialog-state button{min-height:38px;padding:0 13px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-weight:700;cursor:pointer}.dialog-state.is-error>svg{color:#dc2626}.save-status,.save-error{display:flex;align-items:flex-start;gap:8px;margin:16px 0 0;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}.save-status{color:#166534;background:#ecfdf5}.save-error{color:#991b1b;background:#fff1f2}.save-error>span{flex:1}.save-error button{padding:0;border:0;color:inherit;background:transparent;font-weight:800;text-decoration:underline;cursor:pointer}.course-identity{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding:26px 0 22px;border-bottom:1px solid #e8edf4}.course-identity>div{min-width:0;display:grid;gap:5px}.course-identity small{color:#64748b;font-size:12px}.course-identity strong{overflow-wrap:anywhere;color:#172033;font-size:22px;letter-spacing:-.02em}.course-identity span{color:#7b8798;font-size:11px}.course-identity>b{flex:none;padding:5px 8px;border-radius:7px;color:#4f46e5;background:#eef2ff;font-size:11px}.information-group,.form-section{padding:24px 0;border-bottom:1px solid #e8edf4}.information-group:last-child,.form-section:last-child{border-bottom:0}.information-group>header,.form-section>header,.review-panel>header,.history-panel>header{display:flex;align-items:flex-start;gap:9px;margin-bottom:16px}.information-group>header svg,.form-section>header svg,.review-panel>header svg,.history-panel>header svg{flex:none;margin-top:1px;color:#5b57e8}.information-group h3,.form-section h3,.review-panel h3,.history-panel h3{margin:0;color:#263147;font-size:14px}.form-section header p,.review-panel header p,.history-panel header p{margin:3px 0 0;color:#64748b;font-size:11px;line-height:1.5}.information-group dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 28px;margin:0}.information-group dl>div{min-width:0;display:grid;align-content:start;gap:5px}.information-group dl>div.wide{grid-column:1/-1}.information-group dt{color:#7b8798;font-size:11px}.information-group dd{margin:0;overflow-wrap:anywhere;color:#334155;font-size:13px;font-weight:700;line-height:1.55}.information-group dd[data-empty=true]{color:#a0a8b5;font-weight:500}.field-grid{display:grid;gap:14px}.field-grid--three{grid-template-columns:repeat(3,minmax(0,1fr))}.field-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid label,.intent-fields label{min-width:0;display:grid;align-content:start;gap:7px}.field-grid label.wide{grid-column:1/-1}.field-grid label>span,.intent-fields label>span,.course-type-field legend{color:#475569;font-size:12px;font-weight:750}.field-grid b,.intent-fields b{color:#dc2626}.information-form input,.information-form select,.information-form textarea{width:100%;border:1px solid #cfd7e3;border-radius:8px;color:#172033;background:#fff;outline:none;font:inherit;font-size:13px}.information-form input,.information-form select{min-height:42px;padding:0 10px}.information-form textarea{padding:10px 11px;resize:vertical;line-height:1.6}.information-form input:focus,.information-form select:focus,.information-form textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.course-type-field{min-width:0;margin:0 0 16px;padding:0;border:0}.course-type-field legend{margin-bottom:8px}.course-type-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.course-type-options button{min-width:0;min-height:44px;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 9px;border:1px solid #d9dfe8;border-radius:9px;color:#64748b;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.course-type-options button:hover{border-color:#aaa7f2;background:#f8f7ff}.course-type-options button.active{border-color:#7c78ec;color:#4338ca;background:#eef0ff}.course-type-options button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.intent-fields{display:grid;gap:13px;margin-top:16px}.review-panel,.history-panel{padding:28px 0}.change-list{display:grid;border-top:1px solid #e8edf4}.change-list article{display:grid;grid-template-columns:minmax(130px,190px) minmax(0,1fr);gap:18px;padding:15px 0;border-bottom:1px solid #e8edf4}.change-list article>strong{color:#475569;font-size:12px}.change-list article>div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);align-items:start;gap:10px}.change-list span,.change-list b{overflow-wrap:anywhere;font-size:12px;line-height:1.55}.change-list span{color:#7b8798;text-decoration:line-through}.change-list b{color:#263147}.change-list svg{margin-top:2px;color:#94a3b8}.history-panel ol{margin:0;padding:0;border-top:1px solid #e8edf4;list-style:none}.history-panel li{min-height:68px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;border-bottom:1px solid #e8edf4}.history-panel li>span{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;color:#5b57e8;background:#eef2ff}.history-panel li>div{min-width:0;display:grid;gap:3px}.history-panel li strong{color:#334155;font-size:13px}.history-panel li small{color:#7b8798;font-size:11px}.history-panel li>b{padding:4px 7px;border-radius:6px;color:#166534;background:#ecfdf5;font-size:10px}.history-panel li>button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.dialog-footer{min-height:68px;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;padding:10px 20px;border-top:1px solid #e8edf4;background:#fbfcfe}.primary-button,.secondary-button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:8px;font-size:12px;font-weight:750;cursor:pointer}.primary-button{border:1px solid #514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.16)}.secondary-button{border:1px solid #d7dde7;color:#475569;background:#fff}.primary-button:disabled,.secondary-button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:760px){.course-information-layer{align-items:end;padding:0}.course-information-dialog{max-height:calc(100dvh - 16px);border-radius:16px 16px 0 0}.dialog-body{padding-inline:18px}.field-grid--three,.field-grid--two,.information-group dl{grid-template-columns:1fr 1fr}.course-type-options{grid-template-columns:repeat(2,minmax(0,1fr))}.change-list article{grid-template-columns:1fr;gap:7px}.dialog-footer{grid-template-columns:1fr 1fr}.dialog-footer>span{display:none}.dialog-footer button{width:100%}.dialog-footer .secondary-button:first-child{grid-column:1/-1}.information-group dl>div.wide,.field-grid label.wide{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
+.refresh-status,.load-warning{display:flex;align-items:flex-start;gap:8px;margin:16px 0 0;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}.refresh-status{align-items:center;color:#514bdc;background:#f5f5ff}.load-warning{color:#92400e;background:#fff8e8}.load-warning>span{flex:1}.load-warning button{padding:0;border:0;color:inherit;background:transparent;font-weight:800;text-decoration:underline;cursor:pointer}
 </style>

@@ -3561,7 +3561,8 @@ class TeacherLessonAuthoringService:
         course_data: dict[str, Any],
         planner: Planner,
     ) -> dict[str, Any]:
-        self.repository.update_job(
+        await asyncio.to_thread(
+            self.repository.update_job,
             course_id,
             job_id,
             status="running",
@@ -3577,7 +3578,11 @@ class TeacherLessonAuthoringService:
             _phase_progress: int = 0,
             phase_detail: dict[str, Any] | None = None,
         ) -> None:
-            current_job = self.repository.get_job(course_id, job_id)
+            current_job = await asyncio.to_thread(
+                self.repository.get_job,
+                course_id,
+                job_id,
+            )
             if current_job.get("cancel_requested"):
                 raise asyncio.CancelledError
             current_progress = int(current_job.get("progress") or 0)
@@ -3594,7 +3599,8 @@ class TeacherLessonAuthoringService:
             stream_event = str(detail.get("stream_event") or "")
             batch_id = str(detail.get("stream_batch_id") or "")
             if stream_event in {"reset", "delta"} and batch_id:
-                self.repository.update_job_stream(
+                await asyncio.to_thread(
+                    self.repository.update_job_stream,
                     course_id,
                     job_id,
                     phase=phase,
@@ -3605,7 +3611,8 @@ class TeacherLessonAuthoringService:
                     delta=str(detail.get("stream_delta") or ""),
                 )
                 return
-            self.repository.update_job(
+            await asyncio.to_thread(
+                self.repository.update_job,
                 course_id,
                 job_id,
                 **changes,
@@ -3613,7 +3620,12 @@ class TeacherLessonAuthoringService:
 
         try:
             result = await planner(course_data, lesson_unit_id, on_progress)
-            if self.repository.get_job(course_id, job_id).get("cancel_requested"):
+            current_job = await asyncio.to_thread(
+                self.repository.get_job,
+                course_id,
+                job_id,
+            )
+            if current_job.get("cancel_requested"):
                 raise asyncio.CancelledError
             plan = result.get("plan") if isinstance(result, dict) else None
             if not isinstance(plan, dict) or not plan.get("sections"):
@@ -3621,12 +3633,12 @@ class TeacherLessonAuthoringService:
                     "lesson_plan_empty",
                     "本讲教案生成结果为空。",
                 )
-            plan = align_teacher_lesson_plan_to_arrangement(
-                plan,
-                self.repository.confirmed_arrangement(
-                    course_id, lesson_unit_id
-                ),
+            arrangement = await asyncio.to_thread(
+                self.repository.confirmed_arrangement,
+                course_id,
+                lesson_unit_id,
             )
+            plan = align_teacher_lesson_plan_to_arrangement(plan, arrangement)
             warnings = list(result.get("warnings") or [])
             generation_source = str(result.get("generation_source") or ("deterministic_local_fallback" if warnings else "model"))
             source_refs = [
@@ -3634,20 +3646,23 @@ class TeacherLessonAuthoringService:
                 for item in result.get("source_refs") or []
                 if isinstance(item, dict)
             ]
-            job_source_revision = str(
-                self.repository.get_job(course_id, job_id).get("source_outline_revision_id")
-                or ""
+            current_job = await asyncio.to_thread(
+                self.repository.get_job,
+                course_id,
+                job_id,
             )
+            job_source_revision = str(current_job.get("source_outline_revision_id") or "")
             knowledge_scope_revision = str(
                 result.get("source_outline_revision_id") or ""
             )
             outline_revision = job_source_revision or knowledge_scope_revision
+            course_view = await asyncio.to_thread(self.repository.view, course_id)
             quality_report = self._quality_report(
                 course_data,
                 lesson_unit_id,
                 plan,
                 expected_outline_revision_id=str(
-                    self.repository.view(course_id).get("outline_revision_id")
+                    course_view.get("outline_revision_id")
                     or outline_revision
                 ),
                 source_outline_revision_id=outline_revision,
@@ -3658,7 +3673,8 @@ class TeacherLessonAuthoringService:
                     "severity": "blocking",
                     "source": "standard_lesson_plan_quality",
                 } for item in quality_report.get("blocking_issues") or [])
-            lesson = self.repository.save_plan_revision(
+            lesson = await asyncio.to_thread(
+                self.repository.save_plan_revision,
                 course_id,
                 lesson_unit_id,
                 plan,
@@ -3670,8 +3686,13 @@ class TeacherLessonAuthoringService:
                 quality_report=quality_report,
             )
             status = "completed_with_warnings" if warnings else "completed"
-            current_job = self.repository.get_job(course_id, job_id)
-            return self.repository.update_job(
+            current_job = await asyncio.to_thread(
+                self.repository.get_job,
+                course_id,
+                job_id,
+            )
+            return await asyncio.to_thread(
+                self.repository.update_job,
                 course_id,
                 job_id,
                 status=status,
@@ -3692,8 +3713,13 @@ class TeacherLessonAuthoringService:
             if isinstance(exc, asyncio.CancelledError):
                 raise
             code = exc.code if isinstance(exc, TeacherLessonAuthoringError) else "lesson_plan_generation_failed"
-            current_job = self.repository.get_job(course_id, job_id)
-            return self.repository.update_job(
+            current_job = await asyncio.to_thread(
+                self.repository.get_job,
+                course_id,
+                job_id,
+            )
+            return await asyncio.to_thread(
+                self.repository.update_job,
                 course_id,
                 job_id,
                 status="failed",

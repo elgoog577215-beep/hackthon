@@ -2,12 +2,12 @@ import { taskProgressStep } from '@/utils/course-progress'
 import { createUuid } from '@/utils/client-id'
 import { defineStore } from 'pinia'
 import http, {
-    activeIdentityHeaders,
-    identityRequestConfig,
-    learnerIdentityHeaders,
-    teacherRequestConfig,
-    withApiBase,
-    type RequestIdentityScope,
+  activeIdentityHeaders,
+  identityReadRequestConfig,
+  learnerIdentityHeaders,
+  teacherRequestConfig,
+  withApiBase,
+  type RequestIdentityScope,
 } from '../utils/http'
 import { postGenerationStream } from '../shared/generation-stream'
 import { ElMessage } from 'element-plus'
@@ -250,7 +250,7 @@ export const useCourseStore = defineStore('course', {
         try {
             const surface = options.surface || 'student'
             const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
-            const res = await http.get(endpoint, identityRequestConfig(
+            const res = await http.get(endpoint, identityReadRequestConfig(
                 surface === 'teacher' ? 'teacher' : 'learner',
             ))
             this.courseList = res.data
@@ -289,9 +289,11 @@ export const useCourseStore = defineStore('course', {
                 const taskTypeQuery = options.taskType
                     ? `?task_type=${encodeURIComponent(options.taskType)}`
                     : ''
-                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, {
+                const taskRes = await http.get(`/api/courses/${courseId}/task${taskTypeQuery}`, identityReadRequestConfig(
+                    options.previewSurface === 'teacher' ? 'teacher' : 'learner', {
                     silentError: options.silentError,
-                })
+                    },
+                ))
                 const taskData = taskRes.data as Record<string, any> | null
                 if (taskData && taskData.status !== 'none') {
                     backendTask = taskData
@@ -341,9 +343,11 @@ export const useCourseStore = defineStore('course', {
                 return
             }
 
-            const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`, {
+            const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`, identityReadRequestConfig(
+                options.previewSurface === 'teacher' ? 'teacher' : 'learner', {
                 silentError: options.silentError,
-            })
+                },
+            ))
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
                 if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId, options.previewSurface)) {
@@ -426,7 +430,10 @@ export const useCourseStore = defineStore('course', {
                 const previewAvailable = await this.refreshGenerationPreview(courseId, surface)
                 if (previewAvailable) return
             }
-            const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`)
+            const res = await http.get<CourseDocumentEnvelope>(
+                `/api/courses/${courseId}/document`,
+                identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
+            )
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
             }
@@ -501,7 +508,7 @@ export const useCourseStore = defineStore('course', {
                 : `/api/courses/${courseId}/generation-preview`
             const response = await http.get<GenerationPreviewEnvelope>(
                 endpoint,
-                { silentError: true },
+                identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
             const preview = response.data
             const previousById = new Map(this.nodes.map(node => [node.node_id, node]))

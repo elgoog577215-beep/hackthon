@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading
 import time
 from copy import deepcopy
 
@@ -2186,6 +2187,70 @@ def test_plan_job_progress_never_moves_backwards(tmp_path):
 
     assert observed_progress == [36, 36]
     assert completed["progress"] == 100
+
+
+def test_plan_job_stream_persistence_does_not_block_event_loop(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    service = TeacherLessonAuthoringService(repository)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="request-responsive-progress",
+        source_outline_revision_id="outline-v1",
+    )
+    stream_write_started = threading.Event()
+    release_stream_write = threading.Event()
+    original_update_job_stream = repository.update_job_stream
+
+    def blocking_update_job_stream(*args, **kwargs):
+        stream_write_started.set()
+        release_stream_write.wait(timeout=0.5)
+        return original_update_job_stream(*args, **kwargs)
+
+    repository.update_job_stream = blocking_update_job_stream  # type: ignore[method-assign]
+    progress_elapsed: list[float] = []
+
+    async def planner(_course, _lesson_id, on_progress):
+        async def release_from_event_loop() -> None:
+            while not stream_write_started.is_set():
+                await asyncio.sleep(0)
+            await asyncio.sleep(0.01)
+            release_stream_write.set()
+
+        started_at = time.perf_counter()
+        await asyncio.gather(
+            on_progress(
+                "course_teaching_plan_batch",
+                40,
+                "正在写入流式进度",
+                40,
+                {
+                    "stream_event": "delta",
+                    "stream_batch_id": "TP-B01",
+                    "stream_delta": '{"title":"第一批"}',
+                },
+            ),
+            release_from_event_loop(),
+        )
+        progress_elapsed.append(time.perf_counter() - started_at)
+        return {
+            "plan": standard_lesson_plan(),
+            "warnings": [],
+            "generation_source": "model",
+            "source_outline_revision_id": "outline-v1",
+        }
+
+    completed = asyncio.run(service.run_plan_job(
+        course_id="course-1",
+        lesson_unit_id="L1-1",
+        job_id=job["id"],
+        course_data=course_data(),
+        planner=planner,
+    ))
+
+    assert completed["status"] in {"completed", "completed_with_warnings"}
+    assert progress_elapsed[0] < 0.2
 
 
 def test_plan_job_keeps_formal_outline_and_planner_scope_revisions_separate(tmp_path):

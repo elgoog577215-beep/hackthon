@@ -9,6 +9,7 @@ const httpMock = vi.hoisted(() => ({
 vi.mock('@/utils/http', () => ({
   default: httpMock,
   getTeacherIdentity: () => 'teacher-test',
+  teacherReadRequestConfig: (config = {}) => config,
 }))
 
 import { useTeacherLessonAuthoringStore } from '@/stores/teacherLessonAuthoring'

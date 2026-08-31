@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import http, { activeIdentityHeaders, teacherRequestConfig } from '../utils/http'
+import http, { activeIdentityHeaders, teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
 import { postGenerationStream } from '../shared/generation-stream'
 import { createUuid } from '../utils/client-id'
 import { t } from '../shared/i18n'
@@ -667,7 +667,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async loadBlueprint(courseId: string) {
       this.loading = true
       try {
-        const res = await http.get(`/api/courses/${courseId}/blueprint`)
+        const res = await http.get(`/api/courses/${courseId}/blueprint`, teacherReadRequestConfig())
         this.blueprint = res.data
         return res.data
       } finally {
@@ -689,7 +689,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async loadBlueprintDraftVersions(courseId: string) {
-      const res = await http.get(`/api/courses/${courseId}/blueprint/draft/versions`)
+      const res = await http.get(`/api/courses/${courseId}/blueprint/draft/versions`, teacherReadRequestConfig())
       this.blueprintDraftVersions = res.data.versions || []
       return this.blueprintDraftVersions
     },
@@ -739,7 +739,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async loadGenerationReview(courseId: string) {
       this.loading = true
       try {
-        const res = await http.get(`/api/courses/${courseId}/generation/review`)
+        const res = await http.get(`/api/courses/${courseId}/generation/review`, teacherReadRequestConfig())
         this.generationReview = res.data
         return res.data
       } finally {
@@ -786,7 +786,7 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
     async loadVersions(courseId: string) {
       this.loading = true
       try {
-        const res = await http.get(`/api/courses/${courseId}/versions`)
+        const res = await http.get(`/api/courses/${courseId}/versions`, teacherReadRequestConfig())
         this.versions = res.data.versions || []
         this.currentVersionId = res.data.current_version_id || ''
         return res.data
@@ -795,9 +795,9 @@ export const useCourseWorkspaceStore = defineStore('courseWorkspace', {
       }
     },
     async compareVersions(courseId: string, left: string, right: string) {
-      const res = await http.get(`/api/courses/${courseId}/versions/compare`, {
+      const res = await http.get(`/api/courses/${courseId}/versions/compare`, teacherReadRequestConfig({
         params: { left, right },
-      })
+      }))
       this.versionDiff = res.data
       return res.data
     },
