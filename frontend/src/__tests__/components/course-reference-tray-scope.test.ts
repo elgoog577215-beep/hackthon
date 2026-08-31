@@ -247,6 +247,36 @@ describe('CourseReferenceTray lesson scope', () => {
     expect(wrapper.emitted('retry-workflow')).toHaveLength(1)
   })
 
+  it('内容确认后收起上传入口，只在老师主动调整时展开', async () => {
+    const wrapper = mount(CourseReferenceTray, {
+      props: {
+        courseId: 'course-1', modelValue: [{ ...assets[2]!, role: 'primary' }], stage: 'lesson',
+        workflowState: 'confirmed',
+      },
+      global: { stubs: { WebResearchDialog: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.system-context').exists()).toBe(true)
+    expect(wrapper.get('.source-status--confirmed').text()).toContain('当前内容已确认')
+    expect(wrapper.get('.confirmed-source-summary').text()).toContain('本讲教案使用的资料')
+    expect(wrapper.get('.confirmed-source-summary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.find('.empty-drop').exists()).toBe(false)
+    expect(wrapper.find('.reference-add').exists()).toBe(false)
+    expect(wrapper.find('.web-research-open').exists()).toBe(false)
+
+    await wrapper.get('.confirmed-source-adjust').trigger('click')
+    expect(wrapper.get('.source-status--confirmed').text()).toContain('正在调整资料')
+    expect(wrapper.find('.confirmed-source-summary').exists()).toBe(false)
+    expect(wrapper.find('.empty-drop').exists()).toBe(false)
+    expect(wrapper.get('.source-group--primary').text()).toContain('第二讲主教材.docx')
+    expect(wrapper.get('.reference-add').text()).toContain('上传参考文件')
+
+    await wrapper.get('.source-status__collapse').trigger('click')
+    expect(wrapper.find('.confirmed-source-summary').exists()).toBe(true)
+    expect(wrapper.find('.reference-add').exists()).toBe(false)
+  })
+
   it('题库常驻侧栏只保留真题资料并以专用角色保存', async () => {
     const post = vi.spyOn(http, 'post').mockResolvedValue({
       data: {

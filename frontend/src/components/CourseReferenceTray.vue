@@ -51,25 +51,48 @@
       </section>
 
       <div v-else-if="variant === 'default'" key="sources" class="reference-interactive">
-        <section class="source-status" :class="`source-status--${effectiveWorkflowState}`" aria-live="polite">
+        <section class="source-status" :class="[`source-status--${effectiveWorkflowState}`, { 'is-editing': confirmedSourceEditing }]" aria-live="polite">
           <span><TriangleAlert v-if="effectiveWorkflowState === 'failed'" :size="16" /><CheckCircle2 v-else-if="['review', 'confirmed'].includes(effectiveWorkflowState)" :size="16" /><Upload v-else :size="16" /></span>
-          <div><strong>{{ workflowStatusTitle }}</strong><small>{{ workflowStatusDetail }}</small></div>
+          <div><strong>{{ displayedWorkflowStatusTitle }}</strong><small>{{ displayedWorkflowStatusDetail }}</small></div>
           <button v-if="effectiveWorkflowState === 'failed' && workflowCanRetry" type="button" class="source-status__retry" @click="emit('retry-workflow')">
             <RotateCcw :size="13" />{{ t('courseWorkbench.references.retryGeneration', '重试生成') }}
           </button>
+          <button v-else-if="confirmedSourceEditing" type="button" class="source-status__collapse" @click="sourceEditing = false">
+            <ChevronUp :size="13" />{{ t('courseWorkbench.references.finishAdjusting', '收起调整') }}
+          </button>
         </section>
 
-        <button
-          v-if="previousAvailableSources.length"
-          type="button"
-          class="reuse-previous"
-          :disabled="loading || saving"
-          @click="reusePreviousSources"
-        >
-          <CopyPlus :size="15" />
-          <span>{{ t('courseWorkbench.references.reusePrevious', '沿用上一讲资料') }}</span>
-          <small>{{ previousAvailableSources.length }}</small>
-        </button>
+        <section v-if="confirmedSnapshotVisible" class="confirmed-source-summary">
+          <div class="group-heading">
+            <strong>{{ t('courseWorkbench.references.confirmedSourcesTitle', '{stage}使用的资料').replace('{stage}', confirmedSourcesStageLabel) }}</strong>
+            <small>{{ selected.length }}</small>
+          </div>
+          <ul v-if="selected.length" class="confirmed-source-list">
+            <li v-for="item in selected" :key="item.asset_id">
+              <span><Globe2 v-if="item.origin === 'web_search'" :size="16" /><FileText v-else :size="16" /></span>
+              <div><strong>{{ item.source_label || item.filename }}</strong><small>{{ sourceRoleLabel(item) }}</small></div>
+              <Check :size="15" />
+            </li>
+          </ul>
+          <p v-else class="confirmed-source-empty">{{ t('courseWorkbench.references.confirmedWithoutSources', '本阶段未使用补充资料，系统依据课程信息和前序已确认内容生成。') }}</p>
+          <button type="button" class="confirmed-source-adjust" @click="sourceEditing = true">
+            <SlidersHorizontal :size="15" />{{ t('courseWorkbench.references.adjustSources', '调整资料') }}
+          </button>
+          <small class="confirmed-source-hint">{{ t('courseWorkbench.references.adjustSourcesHint', '只有主动进入调整后才会显示上传入口；已确认内容不会被直接改动。') }}</small>
+        </section>
+
+        <template v-else>
+          <button
+            v-if="previousAvailableSources.length"
+            type="button"
+            class="reuse-previous"
+            :disabled="loading || saving"
+            @click="reusePreviousSources"
+          >
+            <CopyPlus :size="15" />
+            <span>{{ t('courseWorkbench.references.reusePrevious', '沿用上一讲资料') }}</span>
+            <small>{{ previousAvailableSources.length }}</small>
+          </button>
 
         <section v-if="stage === 'ppt'" class="source-group ppt-smart-sources">
           <div class="group-heading"><strong>{{ t('courseWorkbench.references.pptCurrentSources', '本次使用') }}</strong><small>{{ loading || saving ? t('courseWorkbench.references.processing', '处理中…') : selected.length }}</small></div>
@@ -121,7 +144,7 @@
           </section>
         </template>
 
-        <section v-if="webResearchAvailable || webSources.length" class="source-group source-group--web">
+          <section v-if="webResearchAvailable || webSources.length" class="source-group source-group--web">
           <div class="group-heading"><strong>{{ t('courseWorkbench.references.webSources', '联网来源') }}</strong><small>{{ webSources.length }}</small></div>
           <div class="web-source-list">
             <div v-for="item in webSources" :key="item.asset_id" class="web-source-item">
@@ -131,13 +154,14 @@
             </div>
             <button v-if="webResearchAvailable" type="button" class="web-research-open" :disabled="loading || saving" @click="researchVisible = true"><Search :size="16" />{{ webSources.length ? t('courseWorkbench.references.continueWebResearch', '继续检索') : t('courseWorkbench.references.startWebResearch', '添加联网来源') }}</button>
           </div>
-        </section>
+          </section>
 
-        <section v-if="materials.length" class="material-library">
-          <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料库') }}</strong><small>{{ materials.length }}</small></div>
-          <button v-for="item in availableMaterials" :key="item.asset_id" type="button" :disabled="loading || saving" @click="addExisting(item)"><FileText :size="16" /><span>{{ item.filename }}</span><Plus :size="14" /></button>
-          <p v-if="!availableMaterials.length">{{ t('courseWorkbench.references.allSelected', '当前资料已全部引用') }}</p>
-        </section>
+          <section v-if="materials.length" class="material-library">
+            <div class="group-heading"><strong>{{ t('courseWorkbench.references.courseMaterials', '课程资料库') }}</strong><small>{{ materials.length }}</small></div>
+            <button v-for="item in availableMaterials" :key="item.asset_id" type="button" :disabled="loading || saving" @click="addExisting(item)"><FileText :size="16" /><span>{{ item.filename }}</span><Plus :size="14" /></button>
+            <p v-if="!availableMaterials.length">{{ t('courseWorkbench.references.allSelected', '当前资料已全部引用') }}</p>
+          </section>
+        </template>
 
         <div v-if="$slots['workflow-action']" class="reference-workflow-action">
           <slot name="workflow-action" />
@@ -170,7 +194,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { CheckCircle2, ChevronRight, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, Pause, Play, Plus, RotateCcw, Search, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
+import { Check, CheckCircle2, ChevronRight, ChevronUp, CopyPlus, Database, ExternalLink, FileText, Globe2, LoaderCircle, Pause, Play, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, TriangleAlert, Upload, X } from 'lucide-vue-next'
 import WebResearchDialog from './WebResearchDialog.vue'
 import { t } from '../shared/i18n'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
@@ -261,6 +285,7 @@ const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const researchVisible = ref(false)
+const sourceEditing = ref(false)
 const webResearchAvailable = ref(true)
 const dragRole = ref<'' | 'primary' | 'reference' | 'question_source'>('')
 const questionSourceInput = ref<HTMLInputElement | null>(null)
@@ -289,12 +314,20 @@ const effectiveWorkflowState = computed<Exclude<CourseReferenceWorkflowState, 'a
     : props.workflowState
 ))
 const workflowLocked = computed(() => ['generating', 'paused'].includes(effectiveWorkflowState.value))
+const confirmedSourceEditing = computed(() => effectiveWorkflowState.value === 'confirmed' && sourceEditing.value)
+const confirmedSnapshotVisible = computed(() => effectiveWorkflowState.value === 'confirmed' && !sourceEditing.value)
 const normalizedWorkflowProgress = computed(() => Math.max(0, Math.min(100, Number(props.workflowProgress || 0))))
 const workflowStageLabel = computed(() => ({
   foundation: t('courseWorkbench.stages.foundation', '课程大纲'),
   lesson: t('courseWorkbench.stages.lesson', '本讲教案'),
   script: t('courseWorkbench.stages.script', '本讲讲义'),
   ppt: t('courseWorkbench.stages.ppt', '本讲 PPT'),
+}[props.stage] || t('courseWorkbench.references.currentStage', '当前内容')))
+const confirmedSourcesStageLabel = computed(() => ({
+  foundation: t('courseWorkbench.references.confirmedStageFoundation', '课程大纲'),
+  lesson: t('courseWorkbench.references.confirmedStageLesson', '本讲教案'),
+  script: t('courseWorkbench.references.confirmedStageScript', '本讲讲义'),
+  ppt: t('courseWorkbench.references.confirmedStagePpt', '本讲 PPT'),
 }[props.stage] || t('courseWorkbench.references.currentStage', '当前内容')))
 const workflowStatusTitle = computed(() => props.workflowLabel || ({
   collecting: t('courseWorkbench.references.collectingTitle', '先准备本阶段资料'),
@@ -311,9 +344,15 @@ const workflowStatusDetail = computed(() => props.workflowDetail || ({
   generating: t('courseWorkbench.references.generatingDetail', 'AI 正在读取资料并构建内容。'),
   paused: t('courseWorkbench.references.pausedDetail', '资料与进度已经保留，可继续或取消。'),
   review: t('courseWorkbench.references.reviewDetail', '当前结果使用了以下资料；调整后需要重新生成。'),
-  confirmed: t('courseWorkbench.references.confirmedDetail', '资料关系已保存，重新生成前仍可调整。'),
+  confirmed: t('courseWorkbench.references.confirmedDetail', '本阶段内容及其资料关系已确认。'),
   failed: t('courseWorkbench.references.failedDetail', '资料仍然保留，可调整后重新生成。'),
 }[effectiveWorkflowState.value]))
+const displayedWorkflowStatusTitle = computed(() => confirmedSourceEditing.value
+  ? t('courseWorkbench.references.adjustingTitle', '正在调整资料')
+  : workflowStatusTitle.value)
+const displayedWorkflowStatusDetail = computed(() => confirmedSourceEditing.value
+  ? t('courseWorkbench.references.adjustingDetail', '新增或移除资料不会直接改动已确认内容，重新生成后才会使用。')
+  : workflowStatusDetail.value)
 const previousAvailableSources = computed(() => {
   if (!props.previousScopeTargetId) return []
   const chosen = new Set(selected.value.map(item => item.asset_id))
@@ -557,7 +596,8 @@ function reusePreviousSources() {
   if (reused.length) commit([...selected.value, ...reused])
 }
 function handleWebSaved(references: CourseReferenceItem[]) { storedWebReferences.value = references; mergeWebReferences(references); void loadMaterials() }
-watch(() => [props.courseId, props.stage, props.lessonId, props.refreshToken], () => { void loadAll() })
+watch(() => [props.courseId, props.stage, props.lessonId, props.refreshToken], () => { sourceEditing.value = false; void loadAll() })
+watch(() => props.workflowState, value => { if (value !== 'confirmed') sourceEditing.value = false })
 onMounted(loadAll)
 </script>
 
@@ -568,4 +608,5 @@ onMounted(loadAll)
 .reference-tray.is-question-bank{height:100%;overflow:auto;border-left:0;background:#fbfcfe}.reference-tray.is-question-bank .reference-tray__header{min-height:64px;background:#fbfcfe}.source-group--question-bank{gap:10px;padding:12px 14px 18px}.source-group--question-bank .reference-list{gap:0}.source-group--question-bank .reference-item{min-height:48px;padding:7px 2px;border:0;border-bottom:1px solid #e7ebf2;border-radius:0;background:transparent}.reference-tray.is-question-bank .reference-add{min-height:38px;margin-top:0;border:0;border-radius:8px;color:#5552c8;background:#f0f1ff}.reference-tray.is-question-bank .reference-item~.reference-add{margin-top:10px}.reference-tray.is-question-bank .reference-add:hover{color:#4338ca;background:#e7e8ff}
 .reference-interactive{padding-bottom:18px}.source-status{display:grid;grid-template-columns:32px minmax(0,1fr);align-items:center;gap:9px;margin:12px 16px 0;padding:10px 11px;border:1px solid #dfe5ef;border-radius:10px;background:#fff}.source-status>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#eef0ff}.source-status>div{min-width:0;display:grid;gap:3px}.source-status strong{color:#334155;font-size:12px}.source-status small{color:#738095;font-size:10.5px;line-height:1.45}.source-status--review,.source-status--confirmed{border-color:#cfe9d8;background:#f7fcf9}.source-status--review>span,.source-status--confirmed>span{color:#168044;background:#e7f7ed}.source-status--failed{border-color:#f1cdd1;background:#fff8f8}.source-status--failed>span{color:#b9404e;background:#fdebed}.reference-workflow-action{padding:12px 16px 2px}.workflow-state{display:grid;gap:14px;margin:12px 16px 18px;padding:14px;border:1px solid #dadcf6;border-radius:12px;background:linear-gradient(150deg,#fbfbff,#f4f5ff);box-shadow:0 10px 28px rgba(70,69,151,.08)}.workflow-state>header{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:10px}.workflow-state__signal{width:38px;height:38px;display:grid;place-items:center;border-radius:10px;color:#fff;background:#5955d8;box-shadow:0 7px 18px rgba(89,85,216,.22)}.workflow-state>header>div{min-width:0;display:grid;gap:4px}.workflow-state>header strong{color:#2d3650;font-size:12.5px}.workflow-state>header small{color:#6f7b90;font-size:10.5px;line-height:1.45}.workflow-state--paused{border-color:#eadfbd;background:linear-gradient(150deg,#fffdf8,#fff9e9)}.workflow-state--paused .workflow-state__signal{color:#8a5d09;background:#f6df9f;box-shadow:none}.workflow-progress{height:5px;overflow:hidden;border-radius:3px;background:#e3e5f4}.workflow-progress i{position:relative;width:100%;height:100%;display:block;transform-origin:left center;border-radius:inherit;background:#5955d8;transition:transform .25s cubic-bezier(.2,.8,.2,1)}.workflow-state--generating .workflow-progress i::after{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);animation:workflow-scan 1.6s ease-in-out infinite;content:""}.workflow-state--paused .workflow-progress i{background:#d39b2f}.workflow-source-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}.workflow-source-list li{min-height:52px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:8px;padding:7px 8px;border:1px solid rgba(213,216,239,.9);border-radius:9px;background:rgba(255,255,255,.8)}.workflow-source-pulse{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5551ce;background:#ececff}.workflow-state--generating .workflow-source-pulse{animation:source-usage-pulse 1.8s ease-in-out infinite}.workflow-source-list li>div{min-width:0;display:grid;gap:2px}.workflow-source-list strong{overflow:hidden;color:#354056;font-size:11.5px;text-overflow:ellipsis;white-space:nowrap}.workflow-source-list small{color:#7a8699;font-size:10px}.workflow-source-list em{color:#5b57c8;font-size:9.5px;font-style:normal;font-weight:750}.workflow-state--paused .workflow-source-list em{color:#956b19}.workflow-no-sources{margin:0;color:#6f7b90;font-size:11px;line-height:1.55}.workflow-state>footer{display:flex;align-items:center;gap:7px}.workflow-state>footer button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:6px;padding:0 10px;border:1px solid #d5d9e5;border-radius:8px;color:#596579;background:#fff;font-size:11px;font-weight:700;cursor:pointer}.workflow-state>footer button:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.workflow-state>footer .workflow-resume{border-color:#5651d1;color:#fff;background:#5651d1}.workflow-state>footer .workflow-resume:hover{border-color:#4742ba;color:#fff;background:#4742ba}.workflow-spinner{animation:spin 1s linear infinite}.tray-mode-enter-active,.tray-mode-leave-active{transition:opacity .2s ease,transform .2s cubic-bezier(.2,.8,.2,1),clip-path .2s ease}.tray-mode-enter-from{opacity:0;transform:translateY(8px);clip-path:inset(0 0 10% 0)}.tray-mode-leave-to{opacity:0;transform:translateY(-6px);clip-path:inset(0 0 10% 0)}.drop-zone button:disabled,.reference-add:disabled,.ppt-smart-actions button:disabled,.material-library>button:disabled,.web-research-open:disabled{opacity:.48;cursor:not-allowed}.drop-zone>button:not(.empty-drop):hover,.reference-item>button:hover,.web-source-item>button:hover{color:#334155;background:#eef1f6}.empty-drop:focus-visible,.reference-add:focus-visible,.material-library>button:focus-visible,.web-research-open:focus-visible,.workflow-state>footer button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}@keyframes workflow-scan{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}@keyframes source-usage-pulse{0%,100%{box-shadow:0 0 0 0 rgba(89,85,216,0)}50%{box-shadow:0 0 0 4px rgba(89,85,216,.1)}}@keyframes spin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.workflow-spinner,.workflow-state--generating .workflow-progress i::after,.workflow-state--generating .workflow-source-pulse{animation:none}.tray-mode-enter-active,.tray-mode-leave-active,.workflow-progress i{transition:none}}
 .source-status__retry{grid-column:2;justify-self:start;min-height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #dc9da5;border-radius:7px;color:#a73341;background:#fff;font-size:10.5px;font-weight:750;cursor:pointer}.source-status__retry:hover{border-color:#b9404e;background:#fff1f2}.source-status__retry:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}
+.source-status__collapse{grid-column:2;justify-self:start;min-height:30px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #cfd4df;border-radius:7px;color:#596579;background:#fff;font-size:10.5px;font-weight:750;cursor:pointer}.source-status__collapse:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.source-status__collapse:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.source-status--confirmed.is-editing{border-color:#dfe5ef;background:#fff}.source-status--confirmed.is-editing>span{color:#5651ce;background:#eef0ff}.confirmed-source-summary{display:grid;gap:10px;padding:16px}.confirmed-source-list{display:grid;gap:7px;margin:0;padding:0;list-style:none}.confirmed-source-list li{min-height:52px;display:grid;grid-template-columns:32px minmax(0,1fr) 18px;align-items:center;gap:8px;padding:7px 8px;border:1px solid #e2e7ef;border-radius:9px;background:#fff}.confirmed-source-list li>span{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;color:#5651ce;background:#eef0ff}.confirmed-source-list li>div{min-width:0;display:grid;gap:2px}.confirmed-source-list strong{overflow:hidden;color:#334155;font-size:11.5px;text-overflow:ellipsis;white-space:nowrap}.confirmed-source-list small{color:#738095;font-size:10px}.confirmed-source-list li>svg{color:#168044}.confirmed-source-empty{margin:0;padding:10px 0;color:#64748b;font-size:11px;line-height:1.6}.confirmed-source-adjust{min-height:38px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid #d7dbe6;border-radius:9px;color:#4d596e;background:#fff;font-size:11.5px;font-weight:700;cursor:pointer}.confirmed-source-adjust:hover{border-color:#aaa7e8;color:#37348c;background:#fafaff}.confirmed-source-adjust:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.confirmed-source-hint{color:#788497;font-size:10.5px;line-height:1.55}
 </style>
