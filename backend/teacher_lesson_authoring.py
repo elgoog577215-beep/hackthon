@@ -1495,6 +1495,7 @@ class TeacherLessonAuthoringRepository:
     def set_outline(self, course_id: str, outline_revision_id: str) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
+            original = deepcopy(value)
             value["outline_revision_id"] = outline_revision_id
             for lesson in (value.get("lessons") or {}).values():
                 if not isinstance(lesson, dict):
@@ -1547,6 +1548,8 @@ class TeacherLessonAuthoringRepository:
                 else:
                     reason = str(lesson.get("source_state_reason") or "outline_changed")
                     _mark_lesson_dependents_stale(lesson, reason=reason)
+            if value == original:
+                return deepcopy(value)
             return self._save(value)
 
     def save_arrangement_revision(
@@ -2694,6 +2697,58 @@ class TeacherLessonAuthoringRepository:
             value["jobs"][job_id] = job
             saved = self._save(value)
             return deepcopy(saved["jobs"][job_id])
+
+    def expire_stale_jobs(
+        self,
+        course_id: str,
+        *,
+        stale_after_seconds: int = LESSON_JOB_STALE_SECONDS,
+    ) -> dict[str, Any]:
+        """Expire all orphaned jobs with one repository read and at most one write."""
+        with self._lock:
+            value = self.load(course_id)
+            changed = False
+            now = datetime.now(timezone.utc)
+            for job in (value.get("jobs") or {}).values():
+                if not isinstance(job, dict) or str(job.get("status") or "") not in {"pending", "running"}:
+                    continue
+                try:
+                    updated_at = datetime.fromisoformat(
+                        str(job.get("updated_at") or "").replace("Z", "+00:00")
+                    )
+                    if updated_at.tzinfo is None:
+                        updated_at = updated_at.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    updated_at = datetime.fromtimestamp(0, tz=timezone.utc)
+                effective_stale_seconds = stale_after_seconds
+                if (
+                    stale_after_seconds == LESSON_JOB_STALE_SECONDS
+                    and str(job.get("status") or "") == "pending"
+                    and str(job.get("parent_job_id") or "")
+                ):
+                    effective_stale_seconds = LESSON_BATCH_QUEUED_STALE_SECONDS
+                if (now - updated_at).total_seconds() < max(1, int(effective_stale_seconds)):
+                    continue
+                script_job = str(job.get("type") or "") == "teacher_lesson_script_generation"
+                job.update({
+                    "status": "failed",
+                    "phase": "lesson_script_interrupted" if script_job else "lesson_plan_interrupted",
+                    "message": "讲稿生成进程已中断" if script_job else "教案生成进程已中断",
+                    "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
+                    "stream_complete": True,
+                    "error": {
+                        "code": "lesson_script_generation_interrupted" if script_job else "lesson_plan_generation_interrupted",
+                        "message": (
+                            "生成进程已中断，已完成的讲稿块仍然保留，可以继续生成。"
+                            if script_job
+                            else "生成进程已中断，请重新生成本讲教案。"
+                        ),
+                        "retryable": True,
+                    },
+                    "updated_at": _now(),
+                })
+                changed = True
+            return self._save(value) if changed else deepcopy(value)
 
     def lesson(self, course_id: str, lesson_unit_id: str) -> dict[str, Any]:
         value = self.load(course_id)

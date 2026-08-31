@@ -458,7 +458,40 @@ async function consumeLessonPlanStream(
 
 const errorMessage = (error: any, fallback: string) => {
   const detail = error?.response?.data?.detail
+  if (error?.code === 'ECONNABORTED' || /timeout/i.test(String(error?.message || ''))) {
+    return '读取时间过长，请重新尝试。已生成的内容仍然保留。'
+  }
   return String(detail?.message || detail || error?.message || fallback)
+}
+
+const lessonAuthoringViewRequests = new Map<string, Promise<TeacherLessonAuthoringView>>()
+
+const fetchLessonAuthoringView = (courseId: string) => {
+  const existing = lessonAuthoringViewRequests.get(courseId)
+  if (existing) return existing
+  const request = http.get<TeacherLessonAuthoringView>(
+    `/api/teacher/courses/${courseId}/lesson-authoring`,
+    { ...readRequestConfig(), silentError: true },
+  ).then(response => response.data)
+    .finally(() => {
+      if (lessonAuthoringViewRequests.get(courseId) === request) {
+        lessonAuthoringViewRequests.delete(courseId)
+      }
+    })
+  lessonAuthoringViewRequests.set(courseId, request)
+  return request
+}
+
+export const lessonJobsToObserve = (jobs: TeacherLessonJob[]) => {
+  const active = jobs.filter(job => ['pending', 'running'].includes(job.status))
+  const running = active.filter(job => job.status === 'running')
+  if (running.length) return running
+  return [...active]
+    .sort((left, right) => (
+      Number(left.batch_position || 0) - Number(right.batch_position || 0)
+      || String(left.id || '').localeCompare(String(right.id || ''))
+    ))
+    .slice(0, 1)
 }
 
 export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-authoring', {
@@ -468,9 +501,12 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
     lessons: [] as TeacherLessonProjection[],
     jobs: [] as TeacherLessonJob[],
     loading: false,
+    refreshing: false,
+    loadedCourseId: '',
     actionLessonId: '',
     streamingJobIds: {} as Record<string, boolean>,
     error: '',
+    refreshError: '',
   }),
   getters: {
     lessonById: state => (lessonUnitId: string) => state.lessons.find(item => item.lesson_unit_id === lessonUnitId),
@@ -488,33 +524,43 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
   },
   actions: {
     async load(courseId: string) {
+      const hasSuccessfulSnapshot = this.loadedCourseId === courseId
       if (this.courseId !== courseId) {
         this.courseId = courseId
         this.outlineRevisionId = ''
         this.lessons = []
         this.jobs = []
         this.streamingJobIds = {}
+        this.loadedCourseId = ''
       }
-      this.loading = true
-      this.error = ''
+      this.loading = !hasSuccessfulSnapshot
+      this.refreshing = hasSuccessfulSnapshot
+      if (!hasSuccessfulSnapshot) this.error = ''
+      this.refreshError = ''
       try {
-        const response = await http.get<TeacherLessonAuthoringView>(
-          `/api/teacher/courses/${courseId}/lesson-authoring`,
-          { ...readRequestConfig(), silentError: true },
-        )
+        const response = await fetchLessonAuthoringView(courseId)
+        if (this.courseId !== courseId) return response
         this.courseId = courseId
-        this.outlineRevisionId = response.data.outline_revision_id
-        this.lessons = response.data.lessons
-        this.jobs = response.data.jobs
-        response.data.jobs
-          .filter(job => ['pending', 'running'].includes(job.status))
+        this.outlineRevisionId = response.outline_revision_id
+        this.lessons = response.lessons
+        this.jobs = response.jobs
+        this.loadedCourseId = courseId
+        this.error = ''
+        lessonJobsToObserve(response.jobs)
           .forEach(job => { void this.streamJob(courseId, job.id) })
-        return response.data
+        return response
       } catch (error) {
-        this.error = errorMessage(error, '分讲教案状态读取失败')
+        if (this.courseId === courseId) {
+          const message = errorMessage(error, '分讲教案状态读取失败')
+          if (hasSuccessfulSnapshot) this.refreshError = message
+          else this.error = message
+        }
         throw error
       } finally {
-        this.loading = false
+        if (this.courseId === courseId) {
+          this.loading = false
+          this.refreshing = false
+        }
       }
     },
     async generateLesson(
@@ -576,7 +622,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         const incoming = response.data.jobs
         const incomingIds = new Set(incoming.map(job => job.id))
         this.jobs = [...this.jobs.filter(job => !incomingIds.has(job.id)), ...incoming]
-        incoming.forEach(job => { void this.streamJob(courseId, job.id) })
+        lessonJobsToObserve(incoming).forEach(job => { void this.streamJob(courseId, job.id) })
         return response.data
       } catch (error) {
         this.error = errorMessage(error, t('courseWorkbench.lessonBatch.failed'))

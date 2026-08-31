@@ -847,9 +847,10 @@ def _prompt_material_evidence(
 def _lesson_projection(
     source: dict[str, Any],
     repository: TeacherLessonAuthoringRepository,
+    authoring_state: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     course_id = str(source.get("course_id") or "")
-    assets = repository.view(course_id).get("lessons") or {}
+    assets = (authoring_state if authoring_state is not None else repository.view(course_id)).get("lessons") or {}
     nodes = [item for item in source.get("nodes") or [] if isinstance(item, dict)]
     lessons = [
         item for item in nodes
@@ -1397,21 +1398,27 @@ async def get_lesson_authoring_view(
     try:
         source = _source_course(tm, course_id, allow_empty=True)
         outline_revision = _canonical_outline_revision(source)
-        if outline_revision:
-            repository.set_outline(course_id, outline_revision)
-        jobs = repository.view(course_id).get("jobs") or {}
-        for job_id, job in list(jobs.items()):
-            if str((job or {}).get("status") or "") in {"pending", "running"}:
-                repository.expire_stale_job(course_id, str(job_id))
+        authoring_state = repository.expire_stale_jobs(course_id)
+        if outline_revision and str(authoring_state.get("outline_revision_id") or "") != outline_revision:
+            authoring_state = repository.set_outline(course_id, outline_revision)
+        outline_draft_id = str(authoring_state.get("current_outline_material_draft_id") or "")
+        outline_material_draft = next(
+            (
+                deepcopy(item)
+                for item in reversed(authoring_state.get("outline_material_drafts") or [])
+                if isinstance(item, dict) and str(item.get("revision_id") or "") == outline_draft_id
+            ),
+            None,
+        )
         return {
             "schema_version": "teacher_lesson_authoring_view_v1",
             "pipeline_version": LESSON_PLAN_PIPELINE_VERSION,
             "plan_schema_version": "course_teaching_plan_v3",
             "course_id": course_id,
             "outline_revision_id": outline_revision,
-            "outline_material_draft": repository.current_material_drafts(course_id).get("outline"),
-            "lessons": _lesson_projection(source, repository),
-            "jobs": list((repository.view(course_id).get("jobs") or {}).values()),
+            "outline_material_draft": outline_material_draft,
+            "lessons": _lesson_projection(source, repository, authoring_state),
+            "jobs": list((authoring_state.get("jobs") or {}).values()),
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
@@ -3331,16 +3338,10 @@ async def stream_lesson_job(
                 return
             try:
                 job = await run_in_threadpool(
-                    repository.get_job,
+                    repository.expire_stale_job,
                     course_id,
                     job_id,
                 )
-                if str(job.get("status") or "") in {"pending", "running"}:
-                    job = await run_in_threadpool(
-                        repository.expire_stale_job,
-                        course_id,
-                        job_id,
-                    )
             except TeacherLessonAuthoringError:
                 payload = {
                     "event": "error",
@@ -3427,7 +3428,7 @@ async def stream_lesson_job(
                 )
             if terminal:
                 return
-            await asyncio.sleep(0.35)
+            await asyncio.sleep(0.5)
 
     return StreamingResponse(
         event_stream(),

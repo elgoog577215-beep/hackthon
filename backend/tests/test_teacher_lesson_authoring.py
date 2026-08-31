@@ -3508,6 +3508,41 @@ def test_teacher_lesson_view_expires_orphaned_jobs_before_frontend_recovery(tmp_
     assert returned["error"]["code"] == "lesson_script_generation_interrupted"
 
 
+def test_teacher_lesson_view_does_not_rewrite_unchanged_authoring_state(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    repository.set_outline("course-1", "outline-v1")
+    before = repository.view("course-1")["revision"]
+
+    class FakeStorage:
+        @staticmethod
+        def load_course(_course_id):
+            return course_data()
+
+    class FakeTaskManager:
+        storage = FakeStorage()
+
+        @staticmethod
+        def get_generation_workspace_course(_course_id):
+            return None
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[get_teacher_lesson_authoring_repository] = lambda: repository
+
+    with TestClient(app) as client:
+        first = client.get("/api/teacher/courses/course-1/lesson-authoring")
+        second = client.get("/api/teacher/courses/course-1/lesson-authoring")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert repository.view("course-1")["revision"] == before
+
+
 def test_teacher_lesson_view_treats_an_empty_teacher_draft_as_ready_for_setup(tmp_path):
     repository = TeacherLessonAuthoringRepository(tmp_path)
     empty_draft = {
