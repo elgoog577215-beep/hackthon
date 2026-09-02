@@ -138,15 +138,17 @@
 
               <div v-else class="table-wrap" :class="{ 'is-empty': !editable.sessions.length }">
                 <table v-if="editable.sessions.length">
-                  <thead><tr><th class="sequence">课次</th><th>日期</th><th>教学内容</th><th>教学要求（含作业）</th><th>上课地点</th><th>教师</th><th>类型</th><th>小组</th><th>学时</th><th class="actions">操作</th></tr></thead>
+                  <thead><tr><th class="sequence">课次</th><th>日期</th><th>教学内容</th><th>教学要求（含作业）</th><th>{{ t('teacherCalendar.columns.education', '育人目标') }}</th><th>上课地点</th><th>教师</th><th>类型</th><th>{{ t('teacherCalendar.columns.externalMentor', '校外导师') }}</th><th>小组</th><th>学时</th><th class="actions">操作</th></tr></thead>
                   <tbody>
                     <tr v-for="(session, index) in editable.sessions" :key="session.session_id || index" data-testid="calendar-session-row" :class="{ highlighted: index === selectedIndex }" @click="selectSession(index)">
                       <td class="sequence"><strong>{{ index + 1 }}</strong><small v-if="session.source === 'outline'">大纲</small></td>
                       <td><input v-model="session.date" type="date" @input="schedule(session)" /><div class="time-row"><input v-model="session.start_time" type="text" inputmode="numeric" maxlength="5" placeholder="08:00" aria-label="开始时间" @input="schedule(session)" /><span>—</span><input v-model="session.end_time" type="text" inputmode="numeric" maxlength="5" placeholder="09:30" aria-label="结束时间" @input="schedule(session)" /></div></td>
-                      <td><button type="button" class="cell-editor-trigger" @click.stop="openEditor(index)"><span>{{ session.content_summary || '待补充教学内容' }}</span><PencilLine :size="13" /></button></td>
-                      <td><button type="button" class="cell-editor-trigger" @click.stop="openEditor(index)"><span>{{ session.requirements || '待补充教学要求' }}</span><PencilLine :size="13" /></button></td>
+                      <td><button type="button" class="cell-editor-trigger" @click.stop="openEditor(index)"><span>{{ session.content_summary || '待补充教学内容' }}</span><PencilLine v-if="session.source !== 'outline'" :size="13" /></button></td>
+                      <td><button type="button" class="cell-editor-trigger" @click.stop="openEditor(index)"><span>{{ session.requirements || '待补充教学要求' }}</span><PencilLine v-if="session.source !== 'outline'" :size="13" /></button></td>
+                      <td><span>{{ session.education_objective || '—' }}</span></td>
                       <td><input v-model="session.location" @input="markDirty" /></td><td><input v-model="session.teacher_name" @input="markDirty" /></td>
                       <td><select v-model="session.teaching_type" @change="markDirty"><option>理论课</option><option>讨论课</option><option>实践课</option><option>实验课</option><option>答疑</option></select></td>
+                      <td><span>{{ mentorLabel(session) || '—' }}</span></td>
                       <td><input v-model="session.group_code" @input="markDirty" /></td><td><input v-model.number="session.credit_hours" type="number" min="0" step="0.5" @input="markDirty" /></td>
                       <td class="actions"><button type="button" data-testid="delete-calendar-session" aria-label="删除课次" @click.stop="removeSession(index)"><Trash2 :size="15" /></button></td>
                     </tr>
@@ -167,12 +169,15 @@
               <template v-if="selectedSession">
                 <header><div><small>当前课次</small><strong>第 {{ selectedSession.sequence }} 讲</strong></div><span :data-state="selectedSession.status">{{ selectedSession.status === 'scheduled' ? '已排期' : '待排期' }}</span></header>
                 <div class="inspector-form">
-                  <label class="wide"><span>教学内容</span><textarea v-model="selectedSession.content_summary" rows="3" @input="markDirty"></textarea></label>
+                  <label class="wide"><span>教学内容</span><textarea v-model="selectedSession.content_summary" rows="3" :readonly="selectedSession.source === 'outline'" @input="markDirty"></textarea></label>
                   <label><span>日期</span><input v-model="selectedSession.date" type="date" @input="schedule(selectedSession)" /></label>
                   <div class="field-pair"><label><span>开始</span><input v-model="selectedSession.start_time" type="text" inputmode="numeric" maxlength="5" placeholder="08:00" @input="schedule(selectedSession)" /></label><label><span>结束</span><input v-model="selectedSession.end_time" type="text" inputmode="numeric" maxlength="5" placeholder="09:30" @input="schedule(selectedSession)" /></label></div>
                   <div class="field-pair"><label><span>地点</span><input v-model="selectedSession.location" @input="markDirty" /></label><label><span>教师</span><input v-model="selectedSession.teacher_name" @input="markDirty" /></label></div>
                   <div class="field-pair"><label><span>教学类型</span><select v-model="selectedSession.teaching_type" @change="markDirty"><option>理论课</option><option>讨论课</option><option>实践课</option><option>实验课</option><option>答疑</option></select></label><label><span>学时</span><input v-model.number="selectedSession.credit_hours" type="number" min="0" step="0.5" @input="markDirty" /></label></div>
-                  <label class="wide"><span>教学要求与作业</span><textarea v-model="selectedSession.requirements" rows="4" @input="markDirty"></textarea></label>
+                  <label class="wide"><span>教学要求与作业</span><textarea v-model="selectedSession.requirements" rows="4" :readonly="selectedSession.source === 'outline'" @input="markDirty"></textarea></label>
+                  <label class="wide"><span>{{ t('teacherCalendar.columns.education', '育人目标') }}</span><textarea v-model="selectedSession.education_objective" rows="3" :readonly="selectedSession.source === 'outline'" @input="markDirty"></textarea></label>
+                  <div class="field-pair"><label><span>{{ t('teacherCalendar.columns.externalMentor', '校外导师') }}</span><input v-model="selectedSession.external_mentor_name" :readonly="selectedSession.source === 'outline'" @input="markDirty" /></label><label><span>{{ t('teacherCalendar.mentorOrganization', '单位') }}</span><input v-model="selectedSession.external_mentor_organization" :readonly="selectedSession.source === 'outline'" @input="markDirty" /></label></div>
+                  <label class="wide"><span>{{ t('teacherCalendar.mentorRole', '导师角色') }}</span><input v-model="selectedSession.external_mentor_role" :readonly="selectedSession.source === 'outline'" @input="markDirty" /></label>
                   <label class="wide"><span>小组 / 备注</span><input v-model="selectedSession.group_code" placeholder="例如 A 组" @input="markDirty" /></label>
                 </div>
                 <footer><span>{{ selectedSession.source === 'outline' ? '来源：教学大纲' : selectedSession.source === 'import' ? '来源：CSV 交换表' : '来源：手动创建' }}</span><button type="button" class="danger-button" @click="removeSession(selectedIndex!)"><Trash2 :size="14" />删除</button></footer>
@@ -184,8 +189,9 @@
           <el-drawer v-model="editorOpen" title="编辑课次详情" size="min(420px, 92vw)" append-to-body>
             <div v-if="selectedSession" class="drawer-session-editor">
               <div class="drawer-session-meta"><strong>第 {{ selectedSession.sequence }} 讲</strong><span :data-state="selectedSession.status">{{ selectedSession.status === 'scheduled' ? '已排期' : '待排期' }}</span></div>
-              <label><span>教学内容</span><textarea v-model="selectedSession.content_summary" rows="6" @input="markDirty"></textarea></label>
-              <label><span>教学要求（含作业）</span><textarea v-model="selectedSession.requirements" rows="7" @input="markDirty"></textarea></label>
+              <label><span>教学内容</span><textarea v-model="selectedSession.content_summary" rows="6" :readonly="selectedSession.source === 'outline'" @input="markDirty"></textarea></label>
+              <label><span>教学要求（含作业）</span><textarea v-model="selectedSession.requirements" rows="7" :readonly="selectedSession.source === 'outline'" @input="markDirty"></textarea></label>
+              <label><span>{{ t('teacherCalendar.columns.education', '育人目标') }}</span><textarea v-model="selectedSession.education_objective" rows="4" :readonly="selectedSession.source === 'outline'" @input="markDirty"></textarea></label>
               <label><span>备注</span><textarea v-model="selectedSession.notes" rows="4" @input="markDirty"></textarea></label>
               <p>日期、时间、地点、教师等短字段继续在横向表格内修改。</p>
             </div>
@@ -309,6 +315,10 @@ function cloneCalendar(calendar: TeachingCalendar): TeachingCalendar {
     const complete = Boolean(session.date && startTime && endTime && endTime > startTime && session.status !== 'cancelled')
     return {
       ...session,
+      education_objective: session.education_objective || '',
+      external_mentor_name: session.external_mentor_name || '',
+      external_mentor_organization: session.external_mentor_organization || '',
+      external_mentor_role: session.external_mentor_role || '',
       start_time: startTime,
       end_time: endTime,
       status: session.status === 'cancelled' ? 'cancelled' : complete ? 'scheduled' : 'unscheduled',
@@ -320,7 +330,7 @@ function markDirty() { dirty.value = true }
 function validTime(value?: string | null) { return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(value || '')) }
 function isCompleteSession(session: ClassSession) { return Boolean(session.date && validTime(session.start_time) && validTime(session.end_time) && String(session.end_time) > String(session.start_time) && session.status !== 'cancelled') }
 function schedule(session: ClassSession) { session.status = isCompleteSession(session) ? 'scheduled' : 'unscheduled'; markDirty() }
-function blankSession(date = ''): ClassSession { return { sequence: (editable.value?.sessions.length || 0) + 1, date: date || null, start_time: null, end_time: null, content_summary: '新增课次', requirements: '', location: '', teacher_name: '', teaching_type: '理论课', group_code: '', credit_hours: 2, notes: '', status: 'unscheduled', source: 'manual' } }
+function blankSession(date = ''): ClassSession { return { sequence: (editable.value?.sessions.length || 0) + 1, date: date || null, start_time: null, end_time: null, content_summary: '新增课次', requirements: '', education_objective: '', location: '', teacher_name: '', external_mentor_name: '', external_mentor_organization: '', external_mentor_role: '', teaching_type: '理论课', group_code: '', credit_hours: 2, notes: '', status: 'unscheduled', source: 'manual' } }
 function selectSession(index: number) { selectedIndex.value = index; const date = editable.value?.sessions[index]?.date; if (date) { monthCursor.value = `${date.slice(0, 7)}-01`; weekCursor.value = date } }
 function addSession() { if (!editable.value) return; editable.value.sessions.push(blankSession()); selectSession(editable.value.sessions.length - 1); markDirty() }
 function addSessionForDate(date: string) { if (!editable.value) return; editable.value.sessions.push(blankSession(date)); selectSession(editable.value.sessions.length - 1); markDirty() }
@@ -332,6 +342,12 @@ function addSessionForPeriod(date: string, period: ZjuClassPeriod) {
 }
 function openEditor(index: number) { selectSession(index); editorOpen.value = true }
 function sessionMeta(session: ClassSession) { return session.date ? `${session.date.slice(5)} · ${session.start_time?.slice(0, 5) || '时间待定'}` : '日期待安排' }
+function mentorLabel(session: ClassSession) {
+  return [session.external_mentor_name, session.external_mentor_organization, session.external_mentor_role]
+    .map(value => String(value || '').trim())
+    .filter(Boolean)
+    .join(' · ')
+}
 function handleTransferCommand(command: 'import' | 'docx' | 'pdf' | 'xlsx' | 'csv') {
   if (command === 'import') csvInput.value?.click()
   else void downloadExport(command)

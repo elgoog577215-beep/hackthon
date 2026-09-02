@@ -201,3 +201,13 @@
 - [x] 22.2 Let manual edits and AI proposals share the reopened draft, require a second confirmation before freezing the formal outline, and keep downstream impact traceable.
 - [x] 22.3 Distinguish lifecycle conflicts from real revision conflicts in the user-facing error model.
 - [x] 22.4 Add focused backend/frontend regression tests, strict OpenSpec validation and Chinese desktop real-page verification.
+
+## 23. Formal syllabus contract and calendar projection
+
+- [x] 23.1 Introduce `formal_syllabus_v2` for new lecture-based courses and consolidate objectives into learning objectives, education objectives and measurable outcomes without a separate literacy-and-perspective group.
+- [x] 23.2 Require one flexible application anchor, one verified extension resource and one evidence-bearing learning task per lecture; require online tasks only for online and blended delivery.
+- [x] 23.3 Add editable outcome alignment, structured formative/summative assessment with a 100% total, course-module grouping, per-lecture hour breakdown, optional mentor information and teacher-template numeric constraints.
+- [x] 23.4 Keep drafts editable and saveable, recompute the editorial report after every save and block only formal confirmation on unresolved hard gaps.
+- [x] 23.5 Project education objectives, derived teaching form, total hours and confirmed external mentor information into the teaching calendar and all DOCX/PDF/XLSX/CSV exports without creating a second syllabus truth.
+- [x] 23.6 Bundle and license a CJK font for PDF export, verify the font is embedded, and cover generation, adjustment, recovery, publication, calendar and frontend editing with focused tests.
+- [ ] 23.7 Complete Chinese desktop browser acceptance, full regression, strict OpenSpec/build checks, release documentation and production verification.

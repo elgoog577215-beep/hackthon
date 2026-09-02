@@ -7,6 +7,7 @@ import pytest
 from course_outline_adjustments import (
     OutlineAdjustmentError,
     apply_outline_operations,
+    describe_outline_diff,
 )
 from course_versioning import blueprint_draft_revision_id, build_blueprint_draft
 
@@ -173,6 +174,118 @@ def test_targeted_editorial_operation_can_update_scope_and_assessment():
     ]
     updated = result["draft"]["course_plan"]["chapters"][0]["sections"][1]
     assert updated["assessment"] == node["assessment"]
+
+
+def test_formal_outline_adjustment_updates_course_and_lecture_contract_fields():
+    draft = _draft()
+    draft["authoring_structure_version"] = "lecture_v1"
+    draft["course_generation_brief"]["course_shape_constraints"] = {
+        "teacher_lecture_mode": True,
+        "chapter_count": 2,
+        "section_count": 2,
+    }
+    draft["nodes"] = [
+        draft["nodes"][0],
+        draft["nodes"][1],
+        draft["nodes"][3],
+        draft["nodes"][4],
+    ]
+    draft["nodes"][3]["prerequisite_node_ids"] = ["L2-1-1"]
+    draft["course_plan"] = {
+        "formal_syllabus_contract_version": "formal_syllabus_v2",
+        "authoring_structure_version": "lecture_v1",
+        "reference_books": ["《Unity 开发实践》，第2版"],
+    }
+
+    result = apply_outline_operations(
+        draft,
+        [
+            {
+                "op": "update_course_plan",
+                "course_intro_zh": "本课程从场景对象出发，完成可验证的交互原型。",
+                "course_intro_en": "This course builds a verifiable interactive prototype from scene objects.",
+                "learning_objectives": ["掌握场景、对象与组件的组织方法"],
+                "education_objectives": ["具备依据测试证据承担工程责任的意识"],
+                "measurable_outcomes": ["能完成原型并提交验证记录"],
+                "assessment_plan": [
+                    {
+                        "item": "讲次作品",
+                        "category": "formative",
+                        "weight_percent": 60,
+                        "criteria": "按功能完整性与验证记录评分",
+                        "outcome_numbers": [1],
+                    },
+                    {
+                        "item": "综合原型",
+                        "category": "summative",
+                        "weight_percent": 40,
+                        "criteria": "按可用性和可解释性评分",
+                        "outcome_numbers": [1],
+                    },
+                ],
+            },
+            {
+                "op": "update_node",
+                "node_ref": "L2-1-1",
+                "content_summary": "识别场景、对象与组件之间的关系。",
+                "application_anchors": ["角色移动原型"],
+                "extension_resources": [
+                    {
+                        "resource_type": "book",
+                        "title": "Unity 开发实践",
+                        "edition": "第2版",
+                        "locator": "第3章，45–68页",
+                        "source_ref": "《Unity 开发实践》，第2版",
+                        "verification_status": "verified",
+                    }
+                ],
+                "learning_tasks": [
+                    {
+                        "mode": "offline",
+                        "stage": "after_class",
+                        "task": "完成角色移动原型",
+                        "evidence": "可运行工程与测试记录",
+                        "estimated_hours": 1,
+                    }
+                ],
+                "education_objective_refs": ["育人目标1"],
+                "ideology_implementation": "用失败测试记录讨论工程责任。",
+                "external_mentor": {
+                    "name": "李工",
+                    "organization": "某游戏工作室",
+                    "role": "原型评审",
+                },
+                "hour_breakdown": {
+                    "classroom_lecture": 1,
+                    "classroom_practice": 1,
+                    "online_instruction": 0,
+                },
+            },
+        ],
+    )
+
+    plan = result["draft"]["course_plan"]
+    lecture = plan["chapters"][0]["sections"][0]
+    assert plan["course_intro_en"].startswith("This course")
+    assert [item["weight_percent"] for item in plan["assessment_plan"]] == [60, 40]
+    assert lecture["application_anchors"] == ["角色移动原型"]
+    assert lecture["extension_resources"][0]["verification_status"] == "verified"
+    assert lecture["external_mentor"]["role"] == "原型评审"
+    assert lecture["hour_breakdown"] == {
+        "classroom_lecture": 1.0,
+        "classroom_practice": 1.0,
+        "online_instruction": 0.0,
+    }
+    assert lecture["planned_hours"] == 2.0
+    diff = describe_outline_diff(draft, result["draft"], result["id_map"])
+    assert {item["field"] for item in diff["course_updated"]} >= {
+        "course_intro_zh",
+        "course_intro_en",
+        "learning_objectives",
+        "education_objectives",
+        "measurable_outcomes",
+        "assessment_plan",
+    }
 
 
 def test_section_only_adjustment_preserves_chapter_learning_focus() -> None:

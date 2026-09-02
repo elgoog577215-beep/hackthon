@@ -253,9 +253,82 @@ def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():
     assert "outline_editorial:missing_assessments" in codes
     assert "outline_editorial:missing_scope_boundaries" in codes
     assert "outline_editorial:repeated_assessment_template" not in codes
-    assert report["passed"] is True
-    assert report["non_blocking"] is True
-    assert report["summary"].startswith("大纲已生成，可继续编辑和确认")
+    assert report["passed"] is False
+    assert report["non_blocking"] is False
+    assert "outline_editorial:missing_application_anchors" in codes
+    assert "outline_editorial:missing_extension_resources" in codes
+    assert "outline_editorial:missing_learning_tasks" in codes
+    assert report["summary"].startswith("大纲草稿已生成")
+
+
+def test_extension_resource_cannot_be_verified_without_an_exact_confirmed_source():
+    skeleton = normalize_outline_skeleton(
+        {
+            "authoring_structure_version": "lecture_v1",
+            "course_title": "UI设计",
+            "course_intro_zh": "从用户任务出发建立可验证的界面设计方法。",
+            "course_intro_en": "Build verifiable interface-design methods from user tasks.",
+            "positioning": "面向初学者建立可验证的界面设计方法",
+            "learning_objectives": ["掌握信息层级设计方法"],
+            "education_objectives": ["具备根据用户证据承担设计责任的意识"],
+            "measurable_outcomes": ["能完成可评审的页面信息层级图"],
+            "outcome_alignment": [{
+                "outcome_number": 1,
+                "objective_refs": ["学习目标1", "育人目标1"],
+                "lecture_numbers": [1],
+                "assessment_evidence": ["信息层级图"],
+                "coverage_scope": "页面信息层级",
+            }],
+            "assessment_plan": [
+                {"item": "过程草图", "category": "formative", "weight_percent": 40, "criteria": "层级与用户任务一致", "outcome_numbers": [1]},
+                {"item": "完整方案", "category": "summative", "weight_percent": 60, "criteria": "关键信息可定位", "outcome_numbers": [1]},
+            ],
+            "course_modules": [{"module_id": "M1", "title": "信息组织", "lecture_numbers": [1]}],
+            "reference_books": ["《界面设计方法》第2版"],
+            "lectures": [{
+                "title": "信息层级",
+                "content_summary": "根据用户任务组织页面信息。",
+                "learning_objective": "能排列页面信息的主次关系",
+                "assessment": ["提交信息层级图，关键任务可定位"],
+                "scope_boundary": "只负责信息主次，不展开视觉风格",
+                "application_anchors": ["课程首页信息层级图"],
+                "extension_resources": [{
+                    "resource_type": "book",
+                    "title": "界面设计方法",
+                    "edition": "第2版",
+                    "locator": "第3章，45–60页",
+                    "source_ref": "《界面设计方法》第1版",
+                    "verification_status": "verified",
+                }],
+                "learning_tasks": [{
+                    "mode": "offline",
+                    "stage": "after_class",
+                    "task": "修订信息层级图",
+                    "evidence": "修订前后对比",
+                    "estimated_hours": 1,
+                }],
+                "hour_breakdown": {"classroom_lecture": 1, "classroom_practice": 0, "online_instruction": 0},
+            }],
+        },
+        topic="UI设计",
+        request_fingerprint="ui-resource-check",
+    )
+    spec = build_outline_batch_specs(skeleton, CourseOutlinePlanningBudget())[0]
+    batch = compile_teacher_lecture_outline_batch(
+        spec=spec,
+        lecture=skeleton["chapters"][0],
+        skeleton_revision_id=skeleton["revision_id"],
+    )
+    plan = assemble_course_outline(
+        skeleton=skeleton,
+        batch_specs=[spec],
+        batches={str(spec["batch_id"]): batch},
+    )
+
+    resource = plan["chapters"][0]["sections"][0]["extension_resources"][0]
+    assert resource["verification_status"] == "pending"
+    codes = {item["code"] for item in review_course_outline_document(plan)["blocking_issues"]}
+    assert "outline_editorial:unverified_extension_resources" in codes
 
 
 def test_measurable_outcomes_without_alignment_are_reported_for_review():
@@ -271,7 +344,7 @@ def test_measurable_outcomes_without_alignment_are_reported_for_review():
         item for item in report["issues"]
         if item["code"] == "outline_editorial:missing_outcome_alignment"
     )
-    assert issue["rule_version"] == "course_outline_editorial_v5"
+    assert issue["rule_version"] == "course_outline_editorial_v6"
     assert issue["evidence"]["outcome_numbers"] == [1]
 
 
@@ -298,16 +371,51 @@ def test_sixteen_lecture_ui_design_outline_keeps_distinct_evidence_and_is_ready(
         {
             "authoring_structure_version": "lecture_v1",
             "course_title": "UI设计",
+            "course_intro_zh": "本课程面向初学者，从用户任务出发，完成可测试的界面原型。",
+            "course_intro_en": "This course guides beginners from user tasks to a testable interface prototype.",
             "positioning": "面向初学者从用户任务推进到可测试的界面原型",
             "learning_objectives": ["能设计、评审并迭代一套完整界面方案"],
+            "education_objectives": ["具备尊重用户、依据证据承担设计责任的意识"],
+            "measurable_outcomes": ["能提交界面原型、测试记录与修改说明"],
+            "outcome_alignment": [{
+                "outcome_number": 1,
+                "objective_refs": ["学习目标1", "育人目标1"],
+                "lecture_numbers": list(range(1, 17)),
+                "assessment_evidence": ["原型、测试记录和修改说明"],
+                "coverage_scope": "从用户任务到综合迭代的完整设计过程",
+            }],
+            "teaching_methods": ["线下讲授与设计实践"],
+            "assessment_plan": [
+                {"item": "讲次作品", "category": "formative", "weight_percent": 60, "criteria": "按每讲产出和评审标准评分", "outcome_numbers": [1]},
+                {"item": "综合原型", "category": "summative", "weight_percent": 40, "criteria": "按可用性证据、问题修复和说明完整度评分", "outcome_numbers": [1]},
+            ],
+            "course_modules": [{"module_id": "M1", "title": "界面设计全流程", "lecture_numbers": list(range(1, 17))}],
+            "reference_books": ["已确认教材：界面设计方法"],
             "lectures": [
                 {
                     "title": title,
                     "learning_objective": f"能{action}",
                     "assessment": [f"提交{artifact}；教师检查{criterion}"],
                     "scope_boundary": f"本讲只负责{title}的核心方法，不提前替代后续综合迭代",
+                    "application_anchors": [artifact],
+                    "extension_resources": [{
+                        "resource_type": "book",
+                        "title": "已确认教材：界面设计方法",
+                        "edition": "第1版",
+                        "locator": f"第{index}章",
+                        "source_ref": "已确认教材：界面设计方法",
+                        "verification_status": "verified",
+                    }],
+                    "learning_tasks": [{
+                        "mode": "offline",
+                        "stage": "after_class",
+                        "task": f"完成{artifact}",
+                        "evidence": artifact,
+                        "estimated_hours": 1,
+                    }],
+                    "hour_breakdown": {"classroom_lecture": 1, "classroom_practice": 0, "online_instruction": 0},
                 }
-                for title, action, artifact, criterion in lecture_contracts
+                for index, (title, action, artifact, criterion) in enumerate(lecture_contracts, start=1)
             ],
         },
         topic="UI设计",
@@ -405,7 +513,7 @@ def test_whole_outline_review_locates_repeated_assessment_templates_without_bloc
         if issue["code"] == "outline_editorial:repeated_assessment_template"
     )
     assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
-    assert repeated["rule_version"] == "course_outline_editorial_v5"
+    assert repeated["rule_version"] == "course_outline_editorial_v6"
     assert "范围说明" in repeated["repair_instruction"]
     assert report["metrics"]["located_section_count"] == 4
 
@@ -468,7 +576,7 @@ def test_whole_outline_review_allows_single_section_chapters_but_flags_system_re
     codes = {issue["code"] for issue in report["issues"]}
     assert "outline_editorial:flat_chapter_structure" not in codes
     assert "outline_editorial:system_register" in codes
-    assert report["schema_version"] == "course_outline_editorial_review_v4"
+    assert report["schema_version"] == "course_outline_editorial_review_v5"
     assert report["status"] == "review_suggested"
 
 

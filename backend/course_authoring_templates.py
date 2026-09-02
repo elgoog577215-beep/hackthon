@@ -13,7 +13,7 @@ from copy import deepcopy
 from typing import Any
 
 
-FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v5"
+FORMAL_AUTHORING_TEMPLATE_VERSION = "formal_course_authoring_v6"
 
 OUTLINE_DOCUMENT_SECTIONS = (
     "课程介绍",
@@ -113,6 +113,43 @@ def _text_list(value: Any, *, limit: int = 20) -> list[str]:
         for item in values
         if (text := _text(item))
     ))[:limit]
+
+
+def _number(value: Any) -> float:
+    try:
+        return round(max(0.0, float(value or 0)), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _outline_lessons(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    lessons: list[dict[str, Any]] = []
+    for chapter in plan.get("chapters") or []:
+        if not isinstance(chapter, dict):
+            continue
+        section = next(
+            (item for item in chapter.get("sections") or [] if isinstance(item, dict)),
+            {},
+        )
+        lessons.append({**chapter, **section})
+    return lessons
+
+
+def _hour_allocation(plan: dict[str, Any]) -> dict[str, float]:
+    result = {
+        "classroom_lecture": 0.0,
+        "classroom_practice": 0.0,
+        "online_instruction": 0.0,
+        "independent_learning": 0.0,
+    }
+    for lesson in _outline_lessons(plan):
+        breakdown = lesson.get("hour_breakdown") if isinstance(lesson.get("hour_breakdown"), dict) else {}
+        for key in ("classroom_lecture", "classroom_practice", "online_instruction"):
+            result[key] += _number(breakdown.get(key))
+        for task in lesson.get("learning_tasks") or []:
+            if isinstance(task, dict):
+                result["independent_learning"] += _number(task.get("estimated_hours"))
+    return {key: round(value, 2) for key, value in result.items()}
 
 
 def snapshot_formal_course_profile(profile: Any) -> dict[str, Any]:
@@ -317,6 +354,9 @@ def compile_formal_course_context(
         ),
         "teaching_requirements": list(dict.fromkeys(requirements)),
         "assessment_methods": list(dict.fromkeys(assessment_methods)),
+        "assessment_plan": deepcopy(effective_plan.get("assessment_plan") or []),
+        "course_modules": deepcopy(effective_plan.get("course_modules") or []),
+        "hour_allocation": _hour_allocation(effective_plan),
         "references": _source_labels(course_data, effective_plan),
         "reference_books": _text_list(effective_plan.get("reference_books")),
         "reference_websites": _text_list(effective_plan.get("reference_websites")),
@@ -344,8 +384,8 @@ def compile_formal_course_context(
             ),
         },
         "reference_policy": (
-            "只列出教师上传、已绑定或已确认的来源；"
-            "没有可用来源时保持空缺，不编造书目、案例、数据或链接。"
+            "每讲必须给出一项可核验拓展资源。只列出教师上传、已绑定或已确认的来源；"
+            "来源或定位信息不足时明确标记待补充，不编造书目、版次、章节、页码、案例、数据或链接。"
         ),
     }
 
@@ -373,9 +413,23 @@ def compile_outline_prompt_contract(
         "objective_dimensions": context["outline_objective_dimensions"],
         "schedule_contract": (
             "教学内容只按第1讲至第N讲平铺，不使用章、小节或1.1式编号；"
-            "每讲用一段适中篇幅说明实际教学内容，并可附周次、目标、重难点、活动、作业与学时"
+            "每讲写明内容、应用载体、拓展资源、学习任务与分类学时；"
+            "知识模块只分组讲次，不产生新的课程层级"
         ),
-        "ideology_case_contract": "思政案例必须对应具体讲次、课程内容、育人目标和实施方式",
+        "ideology_case_contract": (
+            "课程整体体现立德树人；讲次只有在真实内容相关时才关联育人目标和实施方式，"
+            "不得为填表强行生成思政口号"
+        ),
+        "assessment_contract": (
+            "过程性与终结性评价均须出现，结构化权重合计100%，并关联可测量成果；"
+            "教师确认大纲前不把AI候选比例视为正式制度"
+        ),
+        "hours_contract": (
+            "线下讲授、线下实践和在线教学计入总学时；课外学习任务只记录负担，不计入总学时"
+        ),
+        "numeric_constraint_policy": (
+            "字数、条数、讲数、书目数和模块数只有在学校模板或教师明确指定时才作为硬规则"
+        ),
         "reference_policy": context["reference_policy"],
         "integration_rules": [
             "确认的课程信息是只读输入，不得改写、换算或猜测缺失值",

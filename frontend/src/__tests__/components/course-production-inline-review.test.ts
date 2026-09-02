@@ -186,8 +186,39 @@ describe('课程生产内联确认', () => {
       '第1周', '第1周', '第2周', '第2周', '第3周', '第3周', '第4周', '第4周',
       '第5周', '第5周', '第6周', '第6周', '第7周', '第7周', '第8周', '第8周',
     ])
-    expect(rows.every(row => row.findAll('td')[3]!.text() === '待确认')).toBe(true)
+    expect(rows.every(row => row.findAll('td')[6]!.text() === '待确认')).toBe(true)
     expect(wrapper.get('.formal-outline__attachment-heading').text()).toContain('8 个教学周')
+  })
+
+  it('教学日历从讲授实践在线分解中汇总正式学时', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-hour-breakdown',
+        course_name: '课程设计',
+        authoring_structure_version: 'lecture_v1',
+        nodes: [{
+          node_id: 'lecture-1',
+          parent_node_id: '',
+          node_level: 2,
+          node_name: '第1讲 真实项目启动',
+          learning_objective: '能完成项目问题定义',
+          hour_breakdown: {
+            classroom_lecture: 1,
+            classroom_practice: 1,
+            online_instruction: 0.5,
+          },
+        }],
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: { courseId: 'course-hour-breakdown', courseName: '课程设计' },
+    })
+    await flushPromises()
+
+    const calendar = wrapper.findAll('.formal-outline__attachments table')[0]!
+    expect(calendar.get('tbody tr').findAll('td')[6]!.text()).toBe('2.5')
   })
 
   it('shows source-backed outline changes and retrieval failure without hiding the local blueprint', async () => {

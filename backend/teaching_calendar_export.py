@@ -7,6 +7,7 @@ import math
 import unicodedata
 from copy import copy
 from io import BytesIO, StringIO
+from pathlib import Path
 from typing import Any
 
 from docx import Document
@@ -21,11 +22,11 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
@@ -34,15 +35,40 @@ COLUMNS = [
     ("日期", "date"),
     ("教学内容", "content_summary"),
     ("教学要求（含作业）", "requirements"),
+    ("育人目标", "education_objective"),
     ("上课地点", "location"),
     ("上课教师", "teacher_name"),
     ("教学类型", "teaching_type"),
+    ("校外导师", "external_mentor"),
     ("实验小组", "group_code"),
     ("教学时数", "credit_hours"),
     ("备注", "notes"),
 ]
-DOCX_WIDTHS_MM = [9, 19, 38, 43, 21, 15, 15, 12, 10, 12]
-XLSX_WIDTHS = [8, 14, 34, 40, 20, 15, 14, 12, 10, 18]
+DOCX_WIDTHS_MM = [10, 22, 40, 42, 32, 20, 17, 16, 27, 13, 12, 18]
+XLSX_WIDTHS = [8, 16, 32, 38, 28, 18, 15, 14, 25, 12, 10, 18]
+CENTERED_COLUMN_INDEXES = {0, 1, 5, 6, 7, 8, 9, 10}
+CSV_COLUMNS = [
+    ("课次", "sequence"), ("日期", "date"), ("开始时间", "start_time"),
+    ("结束时间", "end_time"), ("教学内容", "content_summary"),
+    ("教学要求（含作业）", "requirements"), ("育人目标", "education_objective"),
+    ("上课地点", "location"), ("教师", "teacher_name"), ("教学类型", "teaching_type"),
+    ("校外导师姓名", "external_mentor_name"),
+    ("校外导师单位", "external_mentor_organization"),
+    ("校外导师角色", "external_mentor_role"),
+    ("实验小组", "group_code"), ("教学时数", "credit_hours"),
+    ("备注", "notes"), ("关联教学单元", "lesson_unit_id"),
+]
+PDF_FONT_NAME = "WenQuanYiMicroHei"
+PDF_FONT_PATH = Path(__file__).resolve().parent / "assets" / "fonts" / "WenQuanYiMicroHei.ttc"
+
+
+def _ensure_pdf_font() -> str:
+    """Register the bundled CJK font so exported PDFs render without viewer fonts."""
+    if PDF_FONT_NAME not in pdfmetrics.getRegisteredFontNames():
+        if not PDF_FONT_PATH.is_file():
+            raise RuntimeError(f"PDF 中文字体缺失：{PDF_FONT_PATH.name}")
+        pdfmetrics.registerFont(TTFont(PDF_FONT_NAME, str(PDF_FONT_PATH)))
+    return PDF_FONT_NAME
 
 
 def _text(value: Any) -> str:
@@ -66,6 +92,12 @@ def _session_rows(calendar: dict[str, Any]) -> list[list[str]]:
                 end = _text(session.get("end_time"))[:5]
                 time_value = f"\n{start}—{end}" if start and end else ""
                 row.append(f"{date_value}{time_value}")
+            elif key == "external_mentor":
+                row.append("·".join(filter(None, (
+                    _text(session.get("external_mentor_name")).strip(),
+                    _text(session.get("external_mentor_organization")).strip(),
+                    _text(session.get("external_mentor_role")).strip(),
+                ))))
             else:
                 row.append(_text(session.get(key)))
         rows.append(row)
@@ -113,9 +145,9 @@ def build_docx(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
     metadata = _metadata(calendar, course)
     document = Document()
     section = document.sections[0]
-    section.page_width = Mm(210)
-    section.page_height = Mm(297)
-    section.orientation = WD_ORIENT.PORTRAIT
+    section.page_width = Mm(297)
+    section.page_height = Mm(210)
+    section.orientation = WD_ORIENT.LANDSCAPE
     section.top_margin = Mm(14)
     section.bottom_margin = Mm(14)
     section.left_margin = Mm(8)
@@ -162,7 +194,12 @@ def build_docx(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
         cells = table.add_row().cells
         for index, value in enumerate(values):
             cells[index].width = Mm(DOCX_WIDTHS_MM[index])
-            _set_cell_text(cells[index], value, size=6.2, centered=index in {0, 1, 5, 6, 7, 8})
+            _set_cell_text(
+                cells[index],
+                value,
+                size=6.2,
+                centered=index in CENTERED_COLUMN_INDEXES,
+            )
     notes_row = table.add_row().cells
     notes_label = notes_row[0].merge(notes_row[1])
     notes_value = notes_row[2].merge(notes_row[-1])
@@ -186,7 +223,7 @@ def build_xlsx(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "教学日历"
-    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=10)
+    sheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(COLUMNS))
     sheet.cell(1, 1, f"浙江大学本科教学日历（{metadata['academic_year']}{metadata['term']}学期）")
     sheet.cell(1, 1).font = Font(name="宋体", size=14, bold=True)
     sheet.cell(1, 1).alignment = Alignment(horizontal="center")
@@ -198,13 +235,13 @@ def build_xlsx(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
     sheet.cell(2, 6, "学分")
     sheet.cell(2, 7, metadata["credits"])
     sheet.cell(2, 8, "周学时")
-    sheet.merge_cells("I2:J2")
+    sheet.merge_cells("I2:L2")
     sheet.cell(2, 9, metadata["weekly_hours"])
     sheet.cell(3, 1, "主讲教师")
     sheet.merge_cells("B3:E3")
     sheet.cell(3, 2, metadata["teachers"])
     sheet.cell(3, 6, "选课课号")
-    sheet.merge_cells("G3:J3")
+    sheet.merge_cells("G3:L3")
     sheet.cell(3, 7, metadata["offering_number"])
     headers = [label for label, _ in COLUMNS]
     for column, value in enumerate(headers, start=1):
@@ -221,11 +258,13 @@ def build_xlsx(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
         wrapped_lines = max(
             _xlsx_wrapped_lines(values[2], XLSX_WIDTHS[2]),
             _xlsx_wrapped_lines(values[3], XLSX_WIDTHS[3]),
+            _xlsx_wrapped_lines(values[4], XLSX_WIDTHS[4]),
+            _xlsx_wrapped_lines(values[8], XLSX_WIDTHS[8]),
             _xlsx_wrapped_lines(values[1], XLSX_WIDTHS[1]),
         )
         sheet.row_dimensions[row_index].height = min(150, max(34, wrapped_lines * 13.5 + 8))
     thin = Side(style="thin", color="B8BECC")
-    for row in sheet.iter_rows(min_row=2, max_row=max(4, 4 + len(calendar.get("sessions") or [])), min_col=1, max_col=10):
+    for row in sheet.iter_rows(min_row=2, max_row=max(4, 4 + len(calendar.get("sessions") or [])), min_col=1, max_col=len(COLUMNS)):
         for cell in row:
             cell.border = Border(left=thin, right=thin, top=thin, bottom=thin)
             font = copy(cell.font)
@@ -260,20 +299,25 @@ def _xlsx_wrapped_lines(value: str, column_width: float) -> int:
 def build_csv(calendar: dict[str, Any]) -> bytes:
     output = StringIO(newline="")
     writer = csv.writer(output)
-    writer.writerow([label for label, _ in COLUMNS])
-    writer.writerows(_session_rows(calendar))
+    writer.writerow([label for label, _ in CSV_COLUMNS])
+    for index, session in enumerate(calendar.get("sessions") or [], start=1):
+        writer.writerow([
+            index if key == "sequence" else _text(session.get(key))
+            for _, key in CSV_COLUMNS
+        ])
     return ("\ufeff" + output.getvalue()).encode("utf-8")
 
 
 def build_pdf(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
     metadata = _metadata(calendar, course)
     output = BytesIO()
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    pdf_font = _ensure_pdf_font()
     styles = getSampleStyleSheet()
-    title_style = ParagraphStyle("CalendarTitle", parent=styles["Title"], fontName="STSong-Light", fontSize=13, leading=16, alignment=TA_CENTER, spaceAfter=6)
-    cell_style = ParagraphStyle("CalendarCell", parent=styles["BodyText"], fontName="STSong-Light", fontSize=5.8, leading=7.2, alignment=TA_LEFT)
+    title_style = ParagraphStyle("CalendarTitle", parent=styles["Title"], fontName=pdf_font, fontSize=13, leading=16, alignment=TA_CENTER, spaceAfter=6)
+    cell_style = ParagraphStyle("CalendarCell", parent=styles["BodyText"], fontName=pdf_font, fontSize=5.8, leading=7.2, alignment=TA_LEFT)
     center_style = ParagraphStyle("CalendarCenter", parent=cell_style, alignment=TA_CENTER)
-    document = SimpleDocTemplate(output, pagesize=A4, leftMargin=8 * mm, rightMargin=8 * mm, topMargin=14 * mm, bottomMargin=14 * mm, title=f"{metadata['course_name']} 教学日历", author=metadata["teachers"])
+    page_size = landscape(A4)
+    document = SimpleDocTemplate(output, pagesize=page_size, leftMargin=8 * mm, rightMargin=8 * mm, topMargin=14 * mm, bottomMargin=14 * mm, title=f"{metadata['course_name']} 教学日历", author=metadata["teachers"])
     story: list[Any] = [Paragraph(f"浙江大学本科教学日历（{metadata['academic_year']}{metadata['term']}学期）", title_style)]
     meta_data = [
         ["课程代码", metadata["course_code"], "课程名称", metadata["course_name"], "学分", metadata["credits"], "周学时", metadata["weekly_hours"]],
@@ -284,8 +328,19 @@ def build_pdf(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
     story.extend([meta_table, Spacer(1, 2 * mm)])
     data = [[Paragraph(label, center_style) for label, _ in COLUMNS]]
     for values in _session_rows(calendar):
-        data.append([Paragraph(value.replace("\n", "<br/>"), center_style if index in {0,1,5,6,7,8} else cell_style) for index, value in enumerate(values)])
-    data.append([Paragraph("备注", center_style), "", Paragraph(_text(calendar.get("notes")), cell_style), "", "", "", "", "", "", ""])
+        data.append([
+            Paragraph(
+                value.replace("\n", "<br/>"),
+                center_style if index in CENTERED_COLUMN_INDEXES else cell_style,
+            )
+            for index, value in enumerate(values)
+        ])
+    data.append([
+        Paragraph("备注", center_style),
+        "",
+        Paragraph(_text(calendar.get("notes")), cell_style),
+        *([""] * (len(COLUMNS) - 3)),
+    ])
     table = Table(data, colWidths=[width * mm for width in DOCX_WIDTHS_MM], hAlign="CENTER", repeatRows=1)
     table_style = [("GRID",(0,0),(-1,-1),0.3,colors.black),("VALIGN",(0,0),(-1,-1),"MIDDLE"),("BACKGROUND",(0,0),(-1,0),colors.HexColor("#F1F2F6")),("SPAN",(0,-1),(1,-1)),("SPAN",(2,-1),(-1,-1))]
     table.setStyle(TableStyle(table_style))
@@ -293,9 +348,9 @@ def build_pdf(calendar: dict[str, Any], course: dict[str, Any]) -> bytes:
 
     def footer(canvas, _document):
         canvas.saveState()
-        canvas.setFont("STSong-Light", 6)
+        canvas.setFont(pdf_font, 6)
         canvas.setFillColor(colors.HexColor("#8A91A3"))
-        canvas.drawRightString(A4[0] - 8 * mm, 7 * mm, metadata["offering_number"])
+        canvas.drawRightString(page_size[0] - 8 * mm, 7 * mm, metadata["offering_number"])
         canvas.restoreState()
 
     document.build(story, onFirstPage=footer, onLaterPages=footer)

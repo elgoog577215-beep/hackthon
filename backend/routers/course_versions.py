@@ -48,6 +48,7 @@ class BlueprintDraftRequest(BaseModel):
     course_intent: dict[str, Any] | None = None
     learner_starting_profile: dict[str, Any] | None = None
     course_blueprint: dict[str, Any] | None = None
+    course_plan: dict[str, Any] | None = None
     nodes: list[dict[str, Any]] | None = None
     learning_asset_plan: dict[str, Any] | None = None
     blueprint_locks: dict[str, dict[str, bool]] | None = None
@@ -123,8 +124,9 @@ async def get_blueprint(course_id: str):
     if isinstance(draft, dict):
         draft["draft_revision_id"] = blueprint_draft_revision_id(draft)
     active = draft if isinstance(draft, dict) else current
-    quality = active.get("course_outline_quality_report") or review_course_outline_document(
-        active.get("course_plan") or active.get("course_outline") or {}
+    quality = review_course_outline_document(
+        active.get("course_plan") or active.get("course_outline") or {},
+        course_context={**course, **active},
     )
     return {
         "status": "success",
@@ -233,7 +235,8 @@ async def save_blueprint_draft(
         else:
             _validate_blueprint_draft(draft)
     quality_report = review_course_outline_document(
-        draft.get("course_plan") or draft.get("course_outline") or {}
+        draft.get("course_plan") or draft.get("course_outline") or {},
+        course_context={**course, **draft},
     )
     draft["course_outline_quality_report"] = quality_report
     draft["base_blueprint_revision_id"] = current_revision

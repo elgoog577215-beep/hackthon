@@ -277,10 +277,28 @@ class CourseService(AIBase):
                         "scope_boundary",
                         "assessment",
                         "prerequisite_node_ids",
+                        "content_summary",
+                        "application_anchors",
+                        "extension_resources",
+                        "learning_tasks",
+                        "education_objective_refs",
+                        "ideology_implementation",
+                        "external_mentor",
+                        "hour_breakdown",
                     )
                 }
                 for node in draft.get("nodes") or []
             ],
+            "course_plan": {
+                key: deepcopy(plan.get(key))
+                for key in (
+                    "course_intro_zh", "course_intro_en", "positioning",
+                    "learning_objectives", "education_objectives", "measurable_outcomes",
+                    "outcome_alignment", "prerequisites", "teaching_methods",
+                    "assessment_methods", "assessment_plan", "course_modules",
+                    "reference_books", "reference_websites", "course_website",
+                )
+            },
             "immutable_course_contract": {
                 "course_type": draft.get("course_type") or "systematic",
                 "course_purpose": draft.get("course_purpose") or "systematic",
@@ -312,7 +330,7 @@ class CourseService(AIBase):
         )
         system_prompt = """
 你是课程目录结构调整器。只返回一个 JSON 对象，不要返回 Markdown 或解释。
-根对象只能包含 operations 和 summary。operations 只能使用以下四种原子操作：
+根对象只能包含 operations 和 summary。operations 只能使用以下五种原子操作：
 1. add_node: {"op":"add_node","temp_ref":"tmp-唯一值","node_level":1|2,
    "parent_ref":"root|现有章节或临时章节引用","after_ref":"同级引用或null",
    "node_name":"名称","learning_objective":"可观察目标","prerequisite_refs":[]}
@@ -321,7 +339,20 @@ class CourseService(AIBase):
    "after_ref":"同级引用或null"}
 4. update_node: {"op":"update_node","node_ref":"现有引用","node_name":"可选",
    "learning_objective":"可选","scope_boundary":"可选",
-   "assessment":["可选的达成检验"],"prerequisite_refs":["可选"]}
+   "assessment":["可选的达成检验"],"prerequisite_refs":["可选"],
+   "content_summary":"可选","application_anchors":["可选"],
+   "extension_resources":[{"resource_type":"book|article|standard|regulation|dataset|video|website|other","title":"名称","edition":"","locator":"","source_ref":"必须精确引用 course_plan 中的已确认来源","verification_status":"verified|pending"}],
+   "learning_tasks":[{"mode":"online|offline","stage":"before_class|after_class","task":"任务","evidence":"证据","estimated_hours":1}],
+   "education_objective_refs":["可选"],"ideology_implementation":"可选",
+   "external_mentor":{"name":"","organization":"","role":""},
+   "hour_breakdown":{"classroom_lecture":0,"classroom_practice":0,"online_instruction":0}}
+5. update_course_plan: {"op":"update_course_plan",
+   "course_intro_zh":"可选","course_intro_en":"可选","positioning":"可选",
+   "learning_objectives":["可选"],"education_objectives":["可选"],"measurable_outcomes":["可选"],
+   "outcome_alignment":[{"outcome_number":1,"objective_refs":["学习目标1"],"lecture_numbers":[1],"assessment_evidence":["证据"],"coverage_scope":"范围"}],
+   "teaching_methods":["可选"],"assessment_plan":[{"item":"项目","category":"formative|summative","weight_percent":50,"criteria":"标准","outcome_numbers":[1]}],
+   "course_modules":[{"module_id":"M1","title":"模块","lecture_numbers":[1]}],
+   "reference_books":["可选"],"reference_websites":["可选"]}
 拆章、并章必须组合上述操作。__STRUCTURE_POLICY__
 删除非空章节前必须显式移动或删除其小节。不要直接指定最终 L1/L2 ID。
 重构已有章节时优先复用、移动或更新原有小节；如果新增小节覆盖了原有小节的职责，必须同时合并或删除被替代的小节。
@@ -331,7 +362,9 @@ class CourseService(AIBase):
 如果用户要求修复大纲专业性，只修改被点名节点的目标、范围或达成检验；每节的检验
 必须体现该节独有的证据形态和判断标准，不能只替换主题词复用同一句式。
 达成检验只能使用当前节点或前序节点已经形成的成果，不得引用或依赖后续节点。
-不要生成课程正文、教案、course_plan、course_outline 或 course_blueprint。
+只在用户要求或质量问题明确指向课程级字段时使用 update_course_plan；不得修改 chapters。
+拓展资源只有与 course_plan.reference_books 或 reference_websites 中的字符串完全一致时才能标记 verified；否则必须标记 pending。
+不得凭空增加校外导师、课程事实或参考资料。不要生成课程正文、教案或 course_blueprint。
 """.replace("__STRUCTURE_POLICY__", structure_policy).strip()
         response = await self._call_llm(
             json.dumps(request, ensure_ascii=False),
@@ -1061,7 +1094,20 @@ class CourseService(AIBase):
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
-        outline_quality_report = review_course_outline_document(outline_plan)
+        outline_quality_report = review_course_outline_document(
+            outline_plan,
+            course_context={
+                **deepcopy(existing),
+                "course_generation_brief": deepcopy(
+                    artifacts.get("course_generation_brief") or brief
+                ),
+                "teacher_course_brief": deepcopy(
+                    (artifacts.get("course_generation_brief") or brief).get(
+                        "teacher_course_brief"
+                    ) or {}
+                ),
+            },
+        )
         outline_blueprint = build_course_blueprint_from_plan(outline_plan, artifacts)
         outline_blueprint["course_outline_constraint_report"] = plan_constraint_report
         nodes = self._merge_generation_nodes(
@@ -5701,6 +5747,13 @@ class CourseService(AIBase):
                     "key_difficulties": section.get("key_difficulties", []),
                     "activities": section.get("activities", []),
                     "homework": section.get("homework", []),
+                    "application_anchors": section.get("application_anchors", []),
+                    "extension_resources": section.get("extension_resources", []),
+                    "learning_tasks": section.get("learning_tasks", []),
+                    "education_objective_refs": section.get("education_objective_refs", []),
+                    "ideology_implementation": section.get("ideology_implementation", ""),
+                    "external_mentor": section.get("external_mentor", {}),
+                    "hour_breakdown": section.get("hour_breakdown", {}),
                     "planned_hours": section.get("planned_hours"),
                     "teaching_week": section.get("week"),
                     "prerequisite_node_ids": section.get("prerequisite_node_ids", []),

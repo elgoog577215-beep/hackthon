@@ -128,6 +128,48 @@ def _positive_int(value: Any) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _number(value: Any) -> float:
+    try:
+        return round(max(0.0, float(value or 0)), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _lesson_teaching_form(lesson: dict[str, Any]) -> str:
+    breakdown = lesson.get("hour_breakdown") if isinstance(lesson.get("hour_breakdown"), dict) else {}
+    classroom = _number(breakdown.get("classroom_lecture"))
+    practice = _number(breakdown.get("classroom_practice"))
+    online = _number(breakdown.get("online_instruction"))
+    if online and classroom + practice:
+        return "混合式教学"
+    if online:
+        return "在线教学"
+    if practice > classroom:
+        return "线下实践"
+    return "线下讲授"
+
+
+def _resource_label(resource: dict[str, Any]) -> str:
+    parts = [
+        str(resource.get("title") or "").strip(),
+        str(resource.get("edition") or "").strip(),
+        str(resource.get("locator") or "").strip(),
+    ]
+    label = " · ".join(item for item in parts if item)
+    if resource.get("verification_status") != "verified":
+        label += "（待核验）"
+    return label
+
+
+def _mentor_label(lesson: dict[str, Any]) -> str:
+    mentor = lesson.get("external_mentor") if isinstance(lesson.get("external_mentor"), dict) else {}
+    return " · ".join(
+        str(mentor.get(key) or "").strip()
+        for key in ("name", "organization", "role")
+        if str(mentor.get(key) or "").strip()
+    )
+
+
 def _first_items(source: dict[str, Any], *keys: str) -> list[str]:
     for key in keys:
         values = _text_items(source.get(key))
@@ -449,30 +491,118 @@ def _render_outline(course_data: dict[str, Any]) -> str:
         [f"- {item}" for item in context["teaching_methods"]]
         if context["teaching_methods"] else ["尚未确认。"]
     )
+    lines += ["", "### 学时分配", "", "| 教学环节 | 学时 | 计入总学时 |", "|---|---:|---|"]
+    hour_labels = {
+        "classroom_lecture": "线下讲授",
+        "classroom_practice": "线下实践",
+        "online_instruction": "在线教学",
+        "independent_learning": "课外学习负担",
+    }
+    for key, label in hour_labels.items():
+        lines.append(
+            f"| {label} | {_md_cell(context['hour_allocation'].get(key))} | "
+            f"{'否' if key == 'independent_learning' else '是'} |"
+        )
     lines += ["", "### 考核方式"]
-    lines.extend(
-        [f"- {item}" for item in context["assessment_methods"]]
-        if context["assessment_methods"] else ["尚未确认。"]
-    )
+    assessment_plan = [
+        item for item in context["assessment_plan"] if isinstance(item, dict)
+    ]
+    if assessment_plan:
+        lines += [
+            "",
+            "| 考核项目 | 性质 | 权重 | 评分标准 | 对应成果 |",
+            "|---|---|---:|---|---|",
+        ]
+        for item in assessment_plan:
+            outcomes = "、".join(
+                f"成果{number}" for number in item.get("outcome_numbers") or []
+            )
+            lines.append(
+                f"| {_md_cell(item.get('item'))} | "
+                f"{_md_cell('终结性评价' if item.get('category') == 'summative' else '过程性评价')} | "
+                f"{_md_cell(item.get('weight_percent'))}% | "
+                f"{_md_cell(item.get('criteria'))} | {_md_cell(outcomes)} |"
+            )
+    else:
+        lines.extend(
+            [f"- {item}" for item in context["assessment_methods"]]
+            if context["assessment_methods"] else ["尚未确认。"]
+        )
     lines.append("")
 
     outline_lessons = _outline_lessons(chapters, course_data=course_data)
-    lines += ["## 四、教学内容及教学安排", ""]
+    lines += [
+        "## 四、教学内容及教学安排", "",
+        "### 知识模块与讲次范围", "",
+        "| 知识模块 | 覆盖讲次 | 学时 |",
+        "|---|---|---:|",
+    ]
+    course_modules = [
+        item for item in context["course_modules"] if isinstance(item, dict)
+    ]
+    lesson_by_number = {
+        int(lesson.get("lecture") or index): lesson
+        for index, lesson in enumerate(outline_lessons, start=1)
+    }
+    if course_modules:
+        for module in course_modules:
+            lecture_numbers = [
+                number for raw in module.get("lecture_numbers") or []
+                if (number := _positive_int(raw))
+            ]
+            module_hours = sum(
+                _number((lesson_by_number.get(number) or {}).get("planned_hours"))
+                for number in lecture_numbers
+            )
+            lines.append(
+                f"| {_md_cell(module.get('title'))} | "
+                f"{_md_cell('、'.join(f'第{number}讲' for number in lecture_numbers))} | "
+                f"{_md_cell(module_hours)} |"
+            )
+    else:
+        lines.append("| 待补充 | 待确认 | 待确认 |")
+    lines.append("")
     for lesson in outline_lessons:
         lines += [f"### {_lesson_title(lesson)}"]
         lines += [str(lesson.get("content_summary") or "本讲内容尚未确认。"), ""]
+        anchors = _text_items(lesson.get("application_anchors"))
+        resources = [
+            _resource_label(item)
+            for item in lesson.get("extension_resources") or []
+            if isinstance(item, dict)
+        ]
+        tasks = [
+            f"{'线上' if item.get('mode') == 'online' else '线下'}：{item.get('task')}"
+            + (f"；提交证据：{item.get('evidence')}" if item.get("evidence") else "")
+            for item in lesson.get("learning_tasks") or []
+            if isinstance(item, dict) and item.get("task")
+        ]
+        breakdown = lesson.get("hour_breakdown") if isinstance(lesson.get("hour_breakdown"), dict) else {}
+        lines += [
+            f"- 应用载体：{'；'.join(anchors) if anchors else '待补充'}",
+            f"- 拓展资源：{'；'.join(resources) if resources else '待补充'}",
+            f"- 学习任务：{'；'.join(tasks) if tasks else '待补充'}",
+            "- 学时：线下讲授 "
+            f"{_number(breakdown.get('classroom_lecture'))}；线下实践 "
+            f"{_number(breakdown.get('classroom_practice'))}；在线教学 "
+            f"{_number(breakdown.get('online_instruction'))}",
+            "",
+        ]
 
     lines += [
         "### 附件1：课程教学日历", "",
-        "| 周次 | 讲次 | 教学主题 | 学时 | 地点 |",
-        "|---|---|---|---:|---|",
+        "| 周次 | 讲次 | 教学主题 | 育人目标 | 教学形式 | 校外导师 | 学时 | 地点 |",
+        "|---|---|---|---|---|---|---:|---|",
     ]
     default_location = context["course_information"].get("上课地点") or "待排课"
     for lesson in outline_lessons:
         hours = lesson.get("planned_hours") or lesson.get("credit_hours") or ""
         lines.append(
             f"| {_md_cell(lesson['week'])} | {_md_cell(lesson['lecture'])} | "
-            f"{_md_cell(_lesson_title(lesson))} | {_md_cell(hours)} | "
+            f"{_md_cell(_lesson_title(lesson))} | "
+            f"{_md_cell('、'.join(_text_items(lesson.get('education_objective_refs'))))} | "
+            f"{_md_cell(_lesson_teaching_form(lesson))} | "
+            f"{_md_cell(_mentor_label(lesson))} | {_md_cell(hours)} | "
             f"{_md_cell(lesson.get('location') or default_location)} |"
         )
     lines.append("")

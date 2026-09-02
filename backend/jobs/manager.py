@@ -73,6 +73,7 @@ from course_outline_adjustments import (
 )
 from course_generation.outline import (
     normalize_outline_skeleton,
+    review_course_outline_document,
     validate_outline_skeleton,
 )
 from course_quality import (
@@ -1836,6 +1837,16 @@ class TaskManager:
             impact = analyze_blueprint_impact(course_data, draft)
             if not impact.get("can_confirm", False):
                 raise CourseVersionConflict("Blueprint contains locked conflicts")
+            outline_quality = review_course_outline_document(
+                draft.get("course_plan") or draft.get("course_outline") or {},
+                course_context={**course_data, **draft},
+            )
+            if not outline_quality.get("can_confirm", True):
+                blocking = outline_quality.get("blocking_issues") or []
+                first_message = str((blocking[0] if blocking else {}).get("message") or "")
+                raise CourseVersionConflict(
+                    first_message or "课程大纲仍有正式确认条件未满足"
+                )
             confirmed = merge_blueprint_draft(course_data, draft)
             if any(
                 int(node.get("node_level") or 0) == 1
@@ -2647,6 +2658,10 @@ class TaskManager:
         artifact: dict[str, Any] = {}
         if step == "outline":
             plan = course_data.get("course_plan") or course_data.get("course_outline") or {}
+            outline_quality = review_course_outline_document(
+                plan,
+                course_context=course_data,
+            )
             artifact = {
                 "course_name": str(course_data.get("course_name") or ""),
                 "course_type": str(course_data.get("course_type") or "systematic"),
@@ -2668,6 +2683,10 @@ class TaskManager:
                     plan.get("learning_objectives")
                     or course_data.get("learning_objectives")
                     or []
+                ),
+                "quality_report": deepcopy(outline_quality),
+                "blocking_issues": deepcopy(
+                    outline_quality.get("blocking_issues") or []
                 ),
                 "sections": [
                     {
@@ -2843,6 +2862,11 @@ class TaskManager:
                 task.get("status") == "waiting_for_review"
                 and workflow.get("review_step") == step
                 and (
+                    (
+                        step != "outline"
+                        or not artifact.get("blocking_issues")
+                    )
+                    and
                     (
                         step != "teaching"
                         or (

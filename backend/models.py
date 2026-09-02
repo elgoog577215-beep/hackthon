@@ -122,6 +122,12 @@ class TeacherCourseBriefV1(BaseModel):
     chapter_count: Optional[int] = Field(default=None, ge=1, le=100)
     section_count: Optional[int] = Field(default=None, ge=1, le=1000)
     additional_requirements: str = Field(default="", max_length=10000)
+    # 只有学校模板或教师明确给出的数字才进入这里并成为确认门；
+    # 未出现的字数、条数、书目数和模块数不设全局硬限制。
+    syllabus_template_constraints: Dict[str, int] = Field(
+        default_factory=dict,
+        max_length=20,
+    )
     material_refs: List[TeacherResourceRef] = Field(default_factory=list, max_length=30)
 
     @field_validator(

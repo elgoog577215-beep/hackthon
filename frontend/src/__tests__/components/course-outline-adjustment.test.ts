@@ -347,8 +347,8 @@ describe('一句话调整课程目录', () => {
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('达成检验过于模板化')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('生命周期')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('理解生命周期')
-    expect(wrapper.findAll('.outline-quality li button')).toHaveLength(1)
-    await wrapper.get('.outline-quality li button').trigger('click')
+    expect(wrapper.findAll('.outline-quality li button')).toHaveLength(2)
+    await wrapper.findAll('.outline-quality li button')[1]!.trigger('click')
     await flushPromises()
 
     expect(wrapper.emitted('open-ai')).toHaveLength(1)

@@ -17,7 +17,9 @@ const calendar: TeachingCalendar = {
   sessions: [{
     lesson_unit_id: 'lesson-1', sequence: 1, date: '2026-03-02', start_time: '08:00', end_time: '09:35',
     content_summary: '导论，包含“设计”与创新', requirements: '阅读案例\n完成作业', location: '紫金港东2-105',
-    teacher_name: '张老师', teaching_type: '理论课', group_code: 'A组', credit_hours: 2, notes: '首讲', status: 'scheduled', source: 'outline',
+    education_objective: '依据用户证据承担设计责任', teacher_name: '张老师', teaching_type: '理论课',
+    external_mentor_name: '王工', external_mentor_organization: '某设计院', external_mentor_role: '原型评审',
+    group_code: 'A组', credit_hours: 2, notes: '首讲', status: 'scheduled', source: 'outline',
   }],
 }
 
@@ -28,6 +30,10 @@ describe('teaching calendar CSV exchange', () => {
     expect(sessions[0]).toMatchObject({
       content_summary: '导论，包含“设计”与创新',
       requirements: '阅读案例\n完成作业',
+      education_objective: '依据用户证据承担设计责任',
+      external_mentor_name: '王工',
+      external_mentor_organization: '某设计院',
+      external_mentor_role: '原型评审',
       date: '2026-03-02',
       start_time: '08:00',
       end_time: '09:35',

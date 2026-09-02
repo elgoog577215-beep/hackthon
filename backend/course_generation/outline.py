@@ -158,6 +158,156 @@ def _text_items(value: Any, *, max_chars: int, limit: int) -> list[str]:
     return result
 
 
+def _non_negative_number(value: Any) -> float:
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, number), 2)
+
+
+def _normalize_hour_breakdown(value: Any) -> dict[str, float]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "classroom_lecture": _non_negative_number(
+            source.get("classroom_lecture") or source.get("lecture")
+        ),
+        "classroom_practice": _non_negative_number(
+            source.get("classroom_practice") or source.get("practice")
+        ),
+        "online_instruction": _non_negative_number(
+            source.get("online_instruction") or source.get("online")
+        ),
+    }
+
+
+def _normalize_learning_tasks(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw in value if isinstance(value, list) else []:
+        if isinstance(raw, str):
+            raw = {"task": raw}
+        if not isinstance(raw, dict):
+            continue
+        task = _clip(raw.get("task") or raw.get("description"), 260)
+        if not task:
+            continue
+        mode = str(raw.get("mode") or "offline").strip().lower()
+        if mode not in {"online", "offline"}:
+            mode = "offline"
+        stage = str(raw.get("stage") or "after_class").strip().lower()
+        if stage not in {"before_class", "after_class"}:
+            stage = "after_class"
+        result.append({
+            "mode": mode,
+            "stage": stage,
+            "task": task,
+            "evidence": _clip(raw.get("evidence"), 220),
+            # 这是课外学习负担，不计入课程总学时。
+            "estimated_hours": _non_negative_number(raw.get("estimated_hours")),
+        })
+        if len(result) >= 6:
+            break
+    return result
+
+
+def _normalize_extension_resources(
+    value: Any,
+    *,
+    confirmed_reference_labels: set[str],
+) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for raw in value if isinstance(value, list) else []:
+        if isinstance(raw, str):
+            raw = {"title": raw}
+        if not isinstance(raw, dict):
+            continue
+        title = _clip(raw.get("title") or raw.get("name"), 240)
+        if not title:
+            continue
+        resource_type = str(raw.get("resource_type") or raw.get("type") or "book").strip().lower()
+        if resource_type not in {"book", "article", "standard", "regulation", "dataset", "video", "website", "other"}:
+            resource_type = "other"
+        source_ref = _clip(raw.get("source_ref"), 260)
+        locator = _clip(
+            raw.get("locator") or raw.get("chapter") or raw.get("section"),
+            180,
+        )
+        edition = _clip(raw.get("edition"), 120)
+        # 模型不能自行把书目宣布为已核验；只有与课程已确认来源精确匹配时才算。
+        verification_status = (
+            "verified"
+            if source_ref and source_ref in confirmed_reference_labels
+            else "pending"
+        )
+        result.append({
+            "resource_type": resource_type,
+            "title": title,
+            "edition": edition,
+            "locator": locator,
+            "source_ref": source_ref,
+            "verification_status": verification_status,
+        })
+        if len(result) >= 6:
+            break
+    return result
+
+
+def _normalize_assessment_plan(
+    value: Any,
+    *,
+    outcome_count: int,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for raw in value if isinstance(value, list) else []:
+        if not isinstance(raw, dict):
+            continue
+        item = _clip(raw.get("item") or raw.get("name"), 160)
+        criteria = _clip(raw.get("criteria") or raw.get("scoring_criteria"), 360)
+        if not item:
+            continue
+        category = str(raw.get("category") or raw.get("type") or "formative").strip().lower()
+        if category not in {"formative", "summative"}:
+            category = "formative"
+        outcome_numbers = list(dict.fromkeys(
+            number
+            for raw_number in raw.get("outcome_numbers") or []
+            if (number := _positive_int(raw_number)) and number <= outcome_count
+        ))
+        result.append({
+            "item": item,
+            "category": category,
+            "weight_percent": _non_negative_number(
+                raw.get("weight_percent") or raw.get("weight")
+            ),
+            "criteria": criteria,
+            "outcome_numbers": outcome_numbers,
+        })
+        if len(result) >= 16:
+            break
+    return result
+
+
+def _normalize_course_modules(value: Any, *, lecture_count: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for index, raw in enumerate(value if isinstance(value, list) else [], start=1):
+        if not isinstance(raw, dict):
+            continue
+        title = _clip(raw.get("title") or raw.get("name"), 160)
+        lecture_numbers = list(dict.fromkeys(
+            number
+            for raw_number in raw.get("lecture_numbers") or []
+            if (number := _positive_int(raw_number)) and number <= lecture_count
+        ))
+        if not title or not lecture_numbers:
+            continue
+        result.append({
+            "module_id": _clip(raw.get("module_id") or f"M{index}", 40),
+            "title": title,
+            "lecture_numbers": lecture_numbers,
+        })
+    return result
+
+
 @dataclass(frozen=True)
 class CourseOutlinePlanningBudget:
     """Per-unit outline execution settings, never a total-course ceiling."""
@@ -230,6 +380,13 @@ def normalize_outline_skeleton(
         if isinstance(lecture_payload, list)
         else payload.get("chapters") or []
     )
+    reference_books = _text_items(
+        payload.get("reference_books"), max_chars=260, limit=30
+    )
+    reference_websites = _text_items(
+        payload.get("reference_websites"), max_chars=260, limit=30
+    )
+    confirmed_reference_labels = set(reference_books + reference_websites)
     chapters: list[dict[str, Any]] = []
     for index, raw in enumerate(raw_units, start=1):
         if not isinstance(raw, dict):
@@ -238,6 +395,13 @@ def normalize_outline_skeleton(
         title = _plain_unit_title(
             raw.get("title"),
             f"第 {index} 讲" if lecture_mode else f"第 {index} 章",
+        )
+        hour_breakdown = _normalize_hour_breakdown(raw.get("hour_breakdown"))
+        planned_hours = round(sum(hour_breakdown.values()), 2)
+        external_mentor = (
+            raw.get("external_mentor")
+            if isinstance(raw.get("external_mentor"), dict)
+            else {}
         )
         chapters.append({
             "chapter_number": index,
@@ -282,6 +446,33 @@ def normalize_outline_skeleton(
                 for item in raw.get("homework") or []
                 if str(item or "").strip()
             ][:6],
+            "application_anchors": _text_items(
+                raw.get("application_anchors") or raw.get("cases"),
+                max_chars=240,
+                limit=6,
+            ),
+            "extension_resources": _normalize_extension_resources(
+                raw.get("extension_resources") or raw.get("readings"),
+                confirmed_reference_labels=confirmed_reference_labels,
+            ),
+            "learning_tasks": _normalize_learning_tasks(
+                raw.get("learning_tasks") or raw.get("online_learning")
+            ),
+            "education_objective_refs": _text_items(
+                raw.get("education_objective_refs"),
+                max_chars=160,
+                limit=6,
+            ),
+            "ideology_implementation": _clip(
+                raw.get("ideology_implementation"), 260
+            ),
+            "external_mentor": {
+                key: _clip(external_mentor.get(key), 160)
+                for key in ("name", "organization", "role")
+                if _clip(external_mentor.get(key), 160)
+            },
+            "hour_breakdown": hour_breakdown,
+            "planned_hours": planned_hours or None,
             "assessment": _text_items(
                 raw.get("assessment"),
                 max_chars=240,
@@ -343,8 +534,15 @@ def normalize_outline_skeleton(
         if not existing["coverage_scope"]:
             existing["coverage_scope"] = candidate["coverage_scope"]
     outcome_alignment = list(outcome_alignment_by_number.values())
+    assessment_plan = _normalize_assessment_plan(
+        payload.get("assessment_plan"),
+        outcome_count=len(measurable_outcomes),
+    )
     skeleton = {
         "schema_version": "course_outline_skeleton_v2",
+        "formal_syllabus_contract_version": (
+            "formal_syllabus_v2" if lecture_mode else ""
+        ),
         "authoring_structure_version": (
             "lecture_v1" if lecture_mode else "legacy_chapter_v1"
         ),
@@ -384,17 +582,13 @@ def normalize_outline_skeleton(
             for item in payload.get("assessment_methods") or []
             if str(item or "").strip()
         ][:12],
+        "assessment_plan": assessment_plan,
+        "course_modules": _normalize_course_modules(
+            payload.get("course_modules"), lecture_count=len(chapters)
+        ),
         "ideology_cases": deepcopy(payload.get("ideology_cases") or []),
-        "reference_books": [
-            _clip(item, 260)
-            for item in payload.get("reference_books") or []
-            if str(item or "").strip()
-        ][:30],
-        "reference_websites": [
-            _clip(item, 260)
-            for item in payload.get("reference_websites") or []
-            if str(item or "").strip()
-        ][:30],
+        "reference_books": reference_books,
+        "reference_websites": reference_websites,
         "course_website": _clip(payload.get("course_website"), 500),
         "chapters": chapters,
     }
@@ -913,6 +1107,13 @@ def compile_teacher_lecture_outline_batch(
         "key_difficulties": deepcopy(lecture.get("key_difficulties") or []),
         "activities": deepcopy(lecture.get("activities") or []),
         "homework": deepcopy(lecture.get("homework") or []),
+        "application_anchors": deepcopy(lecture.get("application_anchors") or []),
+        "extension_resources": deepcopy(lecture.get("extension_resources") or []),
+        "learning_tasks": deepcopy(lecture.get("learning_tasks") or []),
+        "education_objective_refs": deepcopy(lecture.get("education_objective_refs") or []),
+        "ideology_implementation": str(lecture.get("ideology_implementation") or ""),
+        "external_mentor": deepcopy(lecture.get("external_mentor") or {}),
+        "hour_breakdown": deepcopy(lecture.get("hour_breakdown") or {}),
         "planned_hours": lecture.get("planned_hours"),
         "week": lecture.get("week"),
     })
@@ -974,11 +1175,22 @@ def assemble_course_outline(
             "key_difficulties": deepcopy(chapter.get("key_difficulties") or []),
             "activities": deepcopy(chapter.get("activities") or []),
             "homework": deepcopy(chapter.get("homework") or []),
+            "application_anchors": deepcopy(chapter.get("application_anchors") or []),
+            "extension_resources": deepcopy(chapter.get("extension_resources") or []),
+            "learning_tasks": deepcopy(chapter.get("learning_tasks") or []),
+            "education_objective_refs": deepcopy(chapter.get("education_objective_refs") or []),
+            "ideology_implementation": str(chapter.get("ideology_implementation") or ""),
+            "external_mentor": deepcopy(chapter.get("external_mentor") or {}),
+            "hour_breakdown": deepcopy(chapter.get("hour_breakdown") or {}),
+            "planned_hours": chapter.get("planned_hours"),
             "sections": sections,
         })
     return {
         "authoring_structure_version": str(
             skeleton.get("authoring_structure_version") or "legacy_chapter_v1"
+        ),
+        "formal_syllabus_contract_version": str(
+            skeleton.get("formal_syllabus_contract_version") or ""
         ),
         "course_title": str(skeleton.get("course_title") or ""),
         "course_intro_zh": str(skeleton.get("course_intro_zh") or ""),
@@ -1001,6 +1213,8 @@ def assemble_course_outline(
         "assessment_methods": list(
             skeleton.get("assessment_methods") or []
         ),
+        "assessment_plan": deepcopy(skeleton.get("assessment_plan") or []),
+        "course_modules": deepcopy(skeleton.get("course_modules") or []),
         "ideology_cases": deepcopy(skeleton.get("ideology_cases") or []),
         "reference_books": list(skeleton.get("reference_books") or []),
         "reference_websites": list(
@@ -1011,7 +1225,7 @@ def assemble_course_outline(
     }
 
 
-_QUALITY_RULE_VERSION = "course_outline_editorial_v5"
+_QUALITY_RULE_VERSION = "course_outline_editorial_v6"
 _QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
 _NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
 _QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
@@ -1059,11 +1273,13 @@ def _editorial_issue(
     node_ids: list[str] | None = None,
     evidence: dict[str, Any] | None = None,
     repair_instruction: str = "",
+    blocking: bool = False,
 ) -> dict[str, Any]:
     return {
         "code": code,
         "rule_version": _QUALITY_RULE_VERSION,
-        "severity": "suggestion",
+        "severity": "error" if blocking else "suggestion",
+        "blocking": blocking,
         "category": category,
         "message": message,
         "node_ids": list(node_ids or []),
@@ -1072,9 +1288,42 @@ def _editorial_issue(
     }
 
 
-def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any]:
-    """Run a deterministic, non-blocking editorial review on one whole outline."""
+def _review_course_requirements(course_context: dict[str, Any] | None) -> dict[str, Any]:
+    context = course_context if isinstance(course_context, dict) else {}
+    request = context.get("generation_request") if isinstance(context.get("generation_request"), dict) else {}
+    generation_brief = context.get("course_generation_brief") if isinstance(context.get("course_generation_brief"), dict) else {}
+    profile = context.get("course_profile") if isinstance(context.get("course_profile"), dict) else {}
+    if not profile:
+        profile = generation_brief.get("formal_course_profile") if isinstance(generation_brief.get("formal_course_profile"), dict) else {}
+    teacher = request.get("teacher_course_brief") if isinstance(request.get("teacher_course_brief"), dict) else {}
+    if not teacher:
+        teacher = context.get("teacher_course_brief") if isinstance(context.get("teacher_course_brief"), dict) else {}
+    if not teacher:
+        teacher = generation_brief.get("teacher_course_brief") if isinstance(generation_brief.get("teacher_course_brief"), dict) else {}
+    total_hours = _non_negative_number(
+        profile.get("total_hours") or teacher.get("total_class_hours")
+    )
+    template_constraints = teacher.get("syllabus_template_constraints")
+    return {
+        "total_hours": total_hours,
+        "teaching_context": str(teacher.get("teaching_context") or "classroom"),
+        "template_constraints": (
+            template_constraints if isinstance(template_constraints, dict) else {}
+        ),
+    }
+
+
+def review_course_outline_document(
+    plan: dict[str, Any] | None,
+    *,
+    course_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Review a draft freely, but identify defects that block formal confirmation."""
     source = plan if isinstance(plan, dict) else {}
+    formal_contract = (
+        source.get("formal_syllabus_contract_version") == "formal_syllabus_v2"
+    )
+    requirements = _review_course_requirements(course_context)
     unit_label = (
         "讲"
         if source.get("authoring_structure_version") == "lecture_v1"
@@ -1094,6 +1343,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             "课程定位还没有说明这门课面向谁、解决什么问题以及最终形成什么能力。",
             category="document_identity",
             repair_instruction="补写课程定位：明确学习对象、课程边界与最终可观察成果，不改变章节结构。",
+            blocking=formal_contract,
         ))
     if not [item for item in source.get("learning_objectives") or [] if str(item).strip()]:
         issues.append(_editorial_issue(
@@ -1101,6 +1351,35 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             "整门课程缺少可检查的学习成果，章节安排因此没有清晰的共同终点。",
             category="document_identity",
             repair_instruction="补充 3—5 条可观察、可评价的全课学习成果，不改变章节结构。",
+            blocking=formal_contract,
+        ))
+    if formal_contract and not str(source.get("course_intro_zh") or "").strip():
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_course_intro_zh",
+            "正式大纲缺少中文课程简介。",
+            category="document_identity",
+            repair_instruction="根据现有课程定位、内容与教学方式补写中文课程简介，不新增课程事实。",
+            blocking=True,
+        ))
+    if formal_contract and not str(source.get("course_intro_en") or "").strip():
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_course_intro_en",
+            "正式大纲缺少与中文内容对应的英文课程简介。",
+            category="document_identity",
+            repair_instruction="根据中文简介形成语义对应的英文简介，不增加中文版本没有的承诺。",
+            blocking=True,
+        ))
+    education_objectives = [
+        item for item in source.get("education_objectives") or []
+        if str(item).strip()
+    ]
+    if formal_contract and not education_objectives:
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_education_objectives",
+            "课程整体还没有与真实教学内容相关的育人目标。",
+            category="education",
+            repair_instruction="从课程中的责任、规范、证据意识或社会影响提炼育人目标，不使用空泛口号。",
+            blocking=True,
         ))
     measurable_outcomes = [
         item for item in source.get("measurable_outcomes") or []
@@ -1125,6 +1404,15 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
                 "只补充课程目标与预期成果关联：为每项可测量成果指明"
                 "对应目标、覆盖讲次、评价证据和内容范围，不改变讲次结构。"
             ),
+            blocking=formal_contract,
+        ))
+    if formal_contract and not measurable_outcomes:
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_measurable_outcomes",
+            "正式大纲缺少可验证的学习成果。",
+            category="outcome_alignment",
+            repair_instruction="补充可观察、可评价的成果，并建立目标、讲次与评价证据关联。",
+            blocking=True,
         ))
 
     title_counts = Counter(
@@ -1298,6 +1586,272 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             ),
         ))
 
+    if formal_contract:
+        missing_anchor_nodes: list[str] = []
+        missing_resource_nodes: list[str] = []
+        unverified_resource_nodes: list[str] = []
+        missing_task_nodes: list[str] = []
+        missing_online_task_nodes: list[str] = []
+        missing_hour_nodes: list[str] = []
+        official_hours = 0.0
+        online_hours = 0.0
+        classroom_hours = 0.0
+        teaching_context = requirements["teaching_context"]
+        confirmed_reference_labels = {
+            str(item).strip()
+            for item in [
+                *(source.get("reference_books") or []),
+                *(source.get("reference_websites") or []),
+            ]
+            if str(item).strip()
+        }
+        for section in sections:
+            node_id = str(section.get("node_id") or "")
+            if not _text_items(section.get("application_anchors"), max_chars=240, limit=6):
+                missing_anchor_nodes.append(node_id)
+            resources = [
+                item for item in section.get("extension_resources") or []
+                if isinstance(item, dict)
+            ]
+            if not resources:
+                missing_resource_nodes.append(node_id)
+            elif any(
+                item.get("verification_status") != "verified"
+                or not str(item.get("source_ref") or "").strip()
+                or str(item.get("source_ref") or "").strip() not in confirmed_reference_labels
+                or (
+                    item.get("resource_type") == "book"
+                    and (
+                        not str(item.get("edition") or "").strip()
+                        or not str(item.get("locator") or "").strip()
+                    )
+                )
+                for item in resources
+            ):
+                unverified_resource_nodes.append(node_id)
+            tasks = [
+                item for item in section.get("learning_tasks") or []
+                if isinstance(item, dict) and str(item.get("task") or "").strip()
+            ]
+            if not tasks:
+                missing_task_nodes.append(node_id)
+            elif teaching_context in {"online", "blended"} and not any(
+                item.get("mode") == "online" for item in tasks
+            ):
+                missing_online_task_nodes.append(node_id)
+            breakdown = (
+                section.get("hour_breakdown")
+                if isinstance(section.get("hour_breakdown"), dict)
+                else {}
+            )
+            lecture_hours = _non_negative_number(breakdown.get("classroom_lecture"))
+            practice_hours = _non_negative_number(breakdown.get("classroom_practice"))
+            lecture_online_hours = _non_negative_number(breakdown.get("online_instruction"))
+            section_hours = lecture_hours + practice_hours + lecture_online_hours
+            if section_hours <= 0:
+                missing_hour_nodes.append(node_id)
+            official_hours += section_hours
+            classroom_hours += lecture_hours + practice_hours
+            online_hours += lecture_online_hours
+
+        for code, message, category, node_ids, instruction in (
+            (
+                "outline_editorial:missing_application_anchors",
+                f"有 {len(missing_anchor_nodes)} 讲缺少案例、问题、例题、实验或项目情境。",
+                "lecture_contract",
+                missing_anchor_nodes,
+                "为这些讲次各补充一个真正承载本讲内容的应用情境，不强行套用同一种案例形式。",
+            ),
+            (
+                "outline_editorial:missing_extension_resources",
+                f"有 {len(missing_resource_nodes)} 讲缺少拓展资源。",
+                "reference_quality",
+                missing_resource_nodes,
+                "从教师已确认来源中为这些讲次选择相关资源；没有来源时标记缺口，不得编造。",
+            ),
+            (
+                "outline_editorial:unverified_extension_resources",
+                f"有 {len(unverified_resource_nodes)} 讲的拓展资源尚未核验来源、版次或定位信息。",
+                "reference_quality",
+                unverified_resource_nodes,
+                "核对来源；书籍确认版次与章节后再填写页码，无法核验的内容继续标记待补充。",
+            ),
+            (
+                "outline_editorial:missing_learning_tasks",
+                f"有 {len(missing_task_nodes)} 讲缺少课前或课后学习任务。",
+                "lecture_contract",
+                missing_task_nodes,
+                "为这些讲次补充学习任务、完成方式和学生留下的证据。",
+            ),
+            (
+                "outline_editorial:missing_online_learning_tasks",
+                f"有 {len(missing_online_task_nodes)} 讲不符合当前授课模式，缺少线上学习任务。",
+                "lecture_contract",
+                missing_online_task_nodes,
+                "为这些讲次补充线上课前或课后任务；纯线下任务不能冒充线上学习。",
+            ),
+            (
+                "outline_editorial:missing_hour_breakdown",
+                f"有 {len(missing_hour_nodes)} 讲没有分配线下讲授、线下实践或在线教学学时。",
+                "hours",
+                missing_hour_nodes,
+                "按实际授课方式补充分项学时；课外任务用预计学习负担记录，不计入总学时。",
+            ),
+        ):
+            if node_ids:
+                issues.append(_editorial_issue(
+                    code,
+                    message,
+                    category=category,
+                    node_ids=node_ids,
+                    repair_instruction=instruction,
+                    blocking=True,
+                ))
+
+        expected_hours = requirements["total_hours"]
+        if expected_hours and abs(official_hours - expected_hours) > 0.01:
+            issues.append(_editorial_issue(
+                "outline_editorial:hour_total_mismatch",
+                f"各讲计入总学时的合计为 {official_hours:g}，与课程总学时 {expected_hours:g} 不一致。",
+                category="hours",
+                evidence={"actual_hours": official_hours, "expected_hours": expected_hours},
+                repair_instruction="调整各讲分项学时，使线下讲授、线下实践和在线教学合计等于课程总学时。",
+                blocking=True,
+            ))
+        mode_invalid = (
+            teaching_context == "classroom" and online_hours > 0
+        ) or (
+            teaching_context in {"online", "self_study"} and classroom_hours > 0
+        ) or (
+            teaching_context == "blended" and (classroom_hours <= 0 or online_hours <= 0)
+        )
+        if mode_invalid:
+            issues.append(_editorial_issue(
+                "outline_editorial:hour_mode_mismatch",
+                "学时分配与已确认的授课模式不一致。",
+                category="hours",
+                evidence={
+                    "teaching_context": teaching_context,
+                    "classroom_hours": classroom_hours,
+                    "online_hours": online_hours,
+                },
+                repair_instruction="按照已确认授课模式重新分配线下讲授、线下实践和在线教学学时。",
+                blocking=True,
+            ))
+
+        assessment_plan = [
+            item for item in source.get("assessment_plan") or []
+            if isinstance(item, dict)
+        ]
+        if not assessment_plan:
+            issues.append(_editorial_issue(
+                "outline_editorial:missing_assessment_plan",
+                "正式大纲缺少结构化考核权重与评分标准。",
+                category="assessment_plan",
+                repair_instruction="补充过程性与终结性评价，权重合计100%，并关联可测量成果。",
+                blocking=True,
+            ))
+        else:
+            assessment_weight = sum(
+                _non_negative_number(item.get("weight_percent"))
+                for item in assessment_plan
+            )
+            categories = {str(item.get("category") or "") for item in assessment_plan}
+            if abs(assessment_weight - 100.0) > 0.01:
+                issues.append(_editorial_issue(
+                    "outline_editorial:assessment_weight_mismatch",
+                    f"考核权重合计为 {assessment_weight:g}%，必须为100%。",
+                    category="assessment_plan",
+                    evidence={"weight_percent": assessment_weight},
+                    repair_instruction="调整各考核项目权重，使合计恰好为100%。",
+                    blocking=True,
+                ))
+            if not {"formative", "summative"}.issubset(categories):
+                issues.append(_editorial_issue(
+                    "outline_editorial:assessment_category_missing",
+                    "考核方案必须同时包含过程性评价和终结性评价。",
+                    category="assessment_plan",
+                    repair_instruction="补齐过程性或终结性评价，并重新检查权重与成果关联。",
+                    blocking=True,
+                ))
+            incomplete_assessments = [
+                index for index, item in enumerate(assessment_plan, start=1)
+                if not str(item.get("criteria") or "").strip()
+                or not list(item.get("outcome_numbers") or [])
+            ]
+            if incomplete_assessments:
+                issues.append(_editorial_issue(
+                    "outline_editorial:assessment_evidence_missing",
+                    f"有 {len(incomplete_assessments)} 项考核缺少评分标准或成果关联。",
+                    category="assessment_plan",
+                    evidence={"assessment_numbers": incomplete_assessments},
+                    repair_instruction="为每项考核写清评分标准并关联至少一项可测量成果。",
+                    blocking=True,
+                ))
+
+        modules = [
+            item for item in source.get("course_modules") or []
+            if isinstance(item, dict)
+        ]
+        module_lecture_numbers = [
+            _positive_int(number)
+            for item in modules
+            for number in item.get("lecture_numbers") or []
+            if _positive_int(number)
+        ]
+        expected_lecture_numbers = list(range(1, len(chapters) + 1))
+        if not modules:
+            issues.append(_editorial_issue(
+                "outline_editorial:missing_course_modules",
+                "讲次尚未归入知识模块。",
+                category="module_grouping",
+                repair_instruction="按内容关系给讲次分组；模块只保存讲次范围，不新增课程层级。",
+                blocking=True,
+            ))
+        elif sorted(module_lecture_numbers) != expected_lecture_numbers:
+            issues.append(_editorial_issue(
+                "outline_editorial:module_lecture_coverage",
+                "知识模块必须完整覆盖所有讲次，且每讲只能归入一个模块。",
+                category="module_grouping",
+                evidence={
+                    "actual": module_lecture_numbers,
+                    "expected": expected_lecture_numbers,
+                },
+                repair_instruction="调整模块包含的讲次，使每讲恰好出现一次；不要生成模块节点。",
+                blocking=True,
+            ))
+
+        template = requirements["template_constraints"]
+        checks = {
+            "intro_zh_chars": len(str(source.get("course_intro_zh") or "").strip()),
+            "learning_objective_count": len([item for item in source.get("learning_objectives") or [] if str(item).strip()]),
+            "education_objective_count": len(education_objectives),
+            "measurable_outcome_count": len(measurable_outcomes),
+            "reference_count": len(source.get("reference_books") or []) + len(source.get("reference_websites") or []),
+            "module_count": len(modules),
+        }
+        violations: list[str] = []
+        for key, actual in checks.items():
+            minimum = _positive_int(template.get(f"{key}_min"))
+            maximum = _positive_int(template.get(f"{key}_max"))
+            exact = _positive_int(template.get(key))
+            if exact is not None and actual != exact:
+                violations.append(f"{key} 应为 {exact}，实际为 {actual}")
+            elif minimum is not None and actual < minimum:
+                violations.append(f"{key} 至少为 {minimum}，实际为 {actual}")
+            elif maximum is not None and actual > maximum:
+                violations.append(f"{key} 至多为 {maximum}，实际为 {actual}")
+        if violations:
+            issues.append(_editorial_issue(
+                "outline_editorial:template_constraint_mismatch",
+                "大纲不符合教师或学校明确指定的模板数字要求。",
+                category="template_constraints",
+                evidence={"violations": violations},
+                repair_instruction="只按已确认模板调整对应字数或条数，未指定的数字不设全局硬限制。",
+                blocking=True,
+            ))
+
+    blocking_issues = [item for item in issues if item.get("blocking")]
     metrics = {
         "chapter_count": len(chapters),
         "section_count": len(sections),
@@ -1310,13 +1864,17 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
         }),
     }
     report = {
-        "schema_version": "course_outline_editorial_review_v4",
+        "schema_version": "course_outline_editorial_review_v5",
         "rule_version": _QUALITY_RULE_VERSION,
-        "non_blocking": True,
-        "passed": True,
-        "status": "review_suggested" if issues else "ready",
+        "non_blocking": not blocking_issues,
+        "passed": not blocking_issues,
+        "can_confirm": not blocking_issues,
+        "blocking_issues": blocking_issues,
+        "status": "confirmation_blocked" if blocking_issues else ("review_suggested" if issues else "ready"),
         "summary": (
-            f"大纲已生成，可继续编辑和确认；发现 {len(issues)} 类内容建议。"
+            f"大纲草稿已生成；仍有 {len(blocking_issues)} 类正式确认条件未满足。"
+            if blocking_issues
+            else f"大纲已生成，可继续编辑和确认；发现 {len(issues)} 类内容建议。"
             if issues
             else "整篇大纲未发现高频专业表达问题。"
         ),

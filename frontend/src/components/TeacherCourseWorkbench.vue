@@ -80,7 +80,7 @@
             class="primary-action outline-confirm-action"
             data-testid="outline-confirm-action"
             type="button"
-            :disabled="stageSwitching || outlineConfirming"
+            :disabled="stageSwitching || outlineConfirming || !outlineCanConfirm"
             @click="confirmInlineOutline"
           >
             <LoaderCircle v-if="outlineConfirming" :size="15" class="spin" />
@@ -919,6 +919,7 @@ type OutlineEditorHandle = ProductionAiDocumentHandle & {
   finishEditing: () => Promise<boolean>
   confirmOutline: () => Promise<void>
   dirty: boolean
+  canConfirm: boolean
   canUndo: boolean
   canRedo: boolean
   undoEdit: () => void
@@ -1400,6 +1401,7 @@ const scriptDocumentSaving = computed(() => Boolean(scriptDocument.value?.saving
 const scriptDocumentAiBusy = computed(() => Boolean(scriptDocument.value?.aiBusy))
 const outlineCanUndo = computed(() => Boolean(outlineEditor.value?.canUndo))
 const outlineCanRedo = computed(() => Boolean(outlineEditor.value?.canRedo))
+const outlineCanConfirm = computed(() => outlineEditor.value?.canConfirm !== false)
 const outlineDocumentDirty = computed(() => Boolean(outlineEditor.value?.dirty))
 const lessonCanUndo = computed(() => Boolean(lessonPlanDocument.value?.canUndo))
 const lessonCanRedo = computed(() => Boolean(lessonPlanDocument.value?.canRedo))

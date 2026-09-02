@@ -294,6 +294,40 @@ class TeachingCalendarRouteTests(unittest.TestCase):
             "解释AI定义；梳理AI历史",
         )
 
+    def test_derive_projects_education_format_mentor_and_hours_from_outline(self):
+        self.course["nodes"][1].update({
+            "education_objective_refs": ["育人目标1：依据证据负责"],
+            "ideology_implementation": "用用户访谈记录识别偏见。",
+            "hour_breakdown": {
+                "classroom_lecture": 1,
+                "classroom_practice": 0.5,
+                "online_instruction": 0.5,
+            },
+            "external_mentor": {
+                "name": "王老师",
+                "organization": "某设计院",
+                "role": "项目评审",
+            },
+        })
+        repository_patch, course_patch = self._patches()
+        with repository_patch, course_patch:
+            response = self.client.post(
+                "/api/courses/course-1/teaching-calendar/derive-from-outline",
+                headers={"X-User-Id": "teacher-a"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        session = response.json()["candidate"]["sessions"][0]
+        self.assertEqual(
+            session["education_objective"],
+            "育人目标1：依据证据负责；用用户访谈记录识别偏见。",
+        )
+        self.assertEqual(session["teaching_type"], "混合式教学")
+        self.assertEqual(session["credit_hours"], 2.0)
+        self.assertEqual(session["external_mentor_name"], "王老师")
+        self.assertEqual(session["external_mentor_organization"], "某设计院")
+        self.assertEqual(session["external_mentor_role"], "项目评审")
+
     def test_rejects_invalid_time_and_requires_identity(self):
         repository_patch, course_patch = self._patches()
         with repository_patch, course_patch:
@@ -384,10 +418,14 @@ class TeachingCalendarRouteTests(unittest.TestCase):
                             "lesson_unit_id": "chapter-1",
                             "content_summary": "第一讲 设计思维导论",
                             "requirements": "完成课前阅读",
+                            "education_objective": "基于用户证据承担设计责任",
                             "date": "2026-03-02",
                             "start_time": "08:00:00",
                             "end_time": "09:35:00",
                             "teacher_name": "张老师",
+                            "external_mentor_name": "王工",
+                            "external_mentor_organization": "某设计院",
+                            "external_mentor_role": "原型评审",
                             "location": "紫金港 A101",
                             "status": "scheduled",
                         }
@@ -403,6 +441,8 @@ class TeachingCalendarRouteTests(unittest.TestCase):
                 self.assertEqual(exported.status_code, 200, exported.text)
                 self.assertTrue(exported.content.startswith(magic))
                 self.assertIn("attachment", exported.headers["content-disposition"])
+                if format_name == "pdf":
+                    self.assertIn(b"/FontFile2", exported.content)
             stale = self.client.get(
                 "/api/courses/course-1/teaching-calendar/export?format=docx&revision=0",
                 headers=headers,
@@ -418,6 +458,10 @@ class TeachingCalendarRouteTests(unittest.TestCase):
             self.assertEqual(sheet["A3"].value, "主讲教师")
             self.assertEqual(sheet["F3"].value, "选课课号")
             self.assertEqual(sheet["A5"].value, "1")
+            self.assertEqual(sheet["E4"].value, "育人目标")
+            self.assertEqual(sheet["I4"].value, "校外导师")
+            self.assertEqual(sheet["E5"].value, "基于用户证据承担设计责任")
+            self.assertEqual(sheet["I5"].value, "王工·某设计院·原型评审")
             self.assertGreaterEqual(sheet.row_dimensions[5].height or 0, 34)
 
 

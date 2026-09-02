@@ -135,7 +135,7 @@ class DraftRepository:
     def load_draft(self, _course_id):
         return self.draft
 
-    def save_draft(self, _course_id, draft):
+    def save_draft(self, _course_id, draft, **_kwargs):
         self.saved.append(draft)
         self.draft = draft
         return draft
@@ -221,9 +221,104 @@ def test_apply_rejects_stale_draft_and_recompiles_instead_of_trusting_client_pla
     ]
     assert saved["course_blueprint"]["sections"] == saved["course_plan"]["chapters"]
     quality = applied.json()["quality_report"]
-    assert quality["schema_version"] == "course_outline_editorial_review_v1"
+    assert quality["schema_version"] == "course_outline_editorial_review_v5"
     assert quality["non_blocking"] is True
     assert saved["course_outline_quality_report"] == quality
+
+
+def test_manual_formal_outline_save_persists_course_plan_and_recomputes_quality(monkeypatch):
+    from course_versioning import build_blueprint_draft
+
+    course = _canonical_course()
+    course["authoring_structure_version"] = "lecture_v1"
+    course["nodes"][0].update({
+        "node_name": "第1讲 基础",
+        "learning_objective": "解释对象生命周期",
+    })
+    course["nodes"][1].update({
+        "node_name": "生命周期",
+        "content_summary": "从对象创建、更新到销毁理解基本机制。",
+        "application_anchors": ["角色生命周期日志"],
+        "extension_resources": [{
+            "resource_type": "website",
+            "title": "Unity Manual: Order of execution",
+            "edition": "",
+            "locator": "Event function execution order",
+            "source_ref": "Unity Manual: Order of execution",
+            "verification_status": "verified",
+        }],
+        "learning_tasks": [{
+            "mode": "offline",
+            "stage": "after_class",
+            "task": "标注回调日志顺序",
+            "evidence": "日志截图与解释",
+            "estimated_hours": 0.5,
+        }],
+        "education_objective_refs": ["育人目标1"],
+        "ideology_implementation": "根据可复现日志讨论工程责任。",
+        "hour_breakdown": {
+            "classroom_lecture": 1,
+            "classroom_practice": 1,
+            "online_instruction": 0,
+        },
+        "scope_boundary": "只讨论事件回调顺序，不展开协程调度。",
+        "assessment": ["根据日志解释回调顺序并标出错误。"],
+    })
+    course["course_plan"] = {
+        "formal_syllabus_contract_version": "formal_syllabus_v2",
+        "authoring_structure_version": "lecture_v1",
+        "positioning": "面向初学者建立可验证的 Unity 对象生命周期认知。",
+        "learning_objectives": ["掌握生命周期回调的适用时机"],
+        "reference_websites": ["Unity Manual: Order of execution"],
+    }
+    existing = build_blueprint_draft(course)
+    repository = DraftRepository(existing)
+
+    async def load_course(_course_id):
+        return course
+
+    monkeypatch.setattr(course_versions, "_course_for_blueprint", load_course)
+    monkeypatch.setattr(course_versions, "course_version_repository", repository)
+    app = FastAPI()
+    app.include_router(course_versions.router, prefix="/api")
+    client = TestClient(app)
+    completed_plan = {
+        **existing["course_plan"],
+        "course_intro_zh": "本课程以生命周期日志为主线，训练初学者解释和验证 Unity 回调顺序。",
+        "course_intro_en": "This course uses lifecycle logs to explain and verify Unity callback order.",
+        "education_objectives": ["具备依据可复现证据承担工程责任的意识"],
+        "measurable_outcomes": ["能解释日志中的回调顺序并完成纠错"],
+        "outcome_alignment": [{
+            "outcome_number": 1,
+            "objective_refs": ["学习目标1", "育人目标1"],
+            "lecture_numbers": [1],
+            "assessment_evidence": ["日志标注和错误解释"],
+            "coverage_scope": "Unity 对象生命周期回调顺序",
+        }],
+        "teaching_methods": ["线下讲授与日志验证"],
+        "assessment_plan": [
+            {"item": "日志标注", "category": "formative", "weight_percent": 40, "criteria": "回调顺序正确且依据完整", "outcome_numbers": [1]},
+            {"item": "综合纠错", "category": "summative", "weight_percent": 60, "criteria": "能定位错误并用日志验证修复", "outcome_numbers": [1]},
+        ],
+        "course_modules": [{"module_id": "M1", "title": "生命周期基础", "lecture_numbers": [1]}],
+    }
+
+    response = client.put(
+        "/api/courses/course-1/blueprint/draft",
+        json={
+            "base_blueprint_revision_id": existing["base_blueprint_revision_id"],
+            "expected_draft_revision_id": existing["draft_revision_id"],
+            "course_plan": completed_plan,
+            "nodes": existing["nodes"],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["draft"]["course_plan"]["course_intro_en"].startswith("This course")
+    assert payload["draft"]["course_outline"] == payload["draft"]["course_plan"]
+    assert payload["quality_report"]["passed"] is True
+    assert payload["draft"]["course_outline_quality_report"] == payload["quality_report"]
 
 
 def test_adjustment_apply_is_bound_to_previewed_operations_and_ignores_tampered_nodes(monkeypatch):
@@ -331,7 +426,7 @@ def test_blueprint_endpoint_exposes_the_coverage_verdict(monkeypatch):
     assert coverage["uncovered_count"] == 2
     assert "中值定理" in coverage["uncovered_topics"]
     quality = response.json()["quality"]
-    assert quality["schema_version"] == "course_outline_editorial_review_v1"
+    assert quality["schema_version"] == "course_outline_editorial_review_v5"
     assert quality["passed"] is True
 
 

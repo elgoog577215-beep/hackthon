@@ -268,6 +268,13 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
         section.setdefault("knowledge_structure", [])
         section.setdefault("reused_knowledge_names", [])
         section.setdefault("misconceptions", [])
+        section.setdefault("application_anchors", [])
+        section.setdefault("extension_resources", [])
+        section.setdefault("learning_tasks", [])
+        section.setdefault("education_objective_refs", [])
+        section.setdefault("ideology_implementation", "")
+        section.setdefault("external_mentor", {})
+        section.setdefault("hour_breakdown", {})
         section["scope_boundary"] = str(section.get("scope_boundary") or "").strip()
         section["learning_path_role"] = _normalize_learning_path_role(
             section.get("learning_path_role")
@@ -276,6 +283,8 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
         section.pop("complexity", None)
         earlier_ids.add(canonical)
     plan.setdefault("knowledge_relations", [])
+    plan.setdefault("assessment_plan", [])
+    plan.setdefault("course_modules", [])
     plan["outline_schema_version"] = "course_outline_v1"
     return plan
 

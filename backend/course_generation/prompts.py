@@ -265,19 +265,41 @@ class CoursePromptComposer:
 ## 写作要求
 1. 严格返回 {lecture_count} 讲，按真实教学先后排列；讲数由教师决定，不得增减。
 2. `course_intro_zh` 与 `course_intro_en` 分别写中文和英文课程简介，说明课程对象、范围与主要学习结果。
-3. 教学目标分为学习目标、育人目标和可测量成果；育人目标必须结合真实课程内容，不能写空泛套话。
+3. 教学目标只分为学习目标、育人目标和可测量成果。知识、能力与创新素养写入学习目标；
+   责任、规范与价值判断写入育人目标；可测量成果负责验证二者。不得另建“素养与视野”目标组。
+   育人目标必须由真实课程内容支撑，不得要求每讲机械填写思政口号。
 4. `outcome_alignment` 必须为每项可测量成果建立一条关联：指明它承接哪些学习或育人目标、由哪些讲次覆盖、使用什么评价证据验证，以及覆盖边界。`outcome_number` 使用从 1 开始的可测量成果序号，不得引用不存在的成果或讲次。
-5. `teaching_methods` 与 `assessment_methods` 优先沿用已确认信息；没有依据时保持空数组，不得编造比例或制度。
+5. `assessment_plan` 是唯一结构化考核分配：至少包含一项过程性评价和一项终结性评价，
+   权重合计必须为 100%，每项写清评分标准并关联可测量成果。已确认的考核方式和比例必须原样保留；
+   只有方式没有比例时，可以提出供教师确认的候选比例。`assessment_methods` 只用于兼容原有文字说明。
 6. 每讲 `content_summary` 使用二至四句自然中文，既说清实际要教的内容，又不过度展开成教案或讲义。
 7. 每讲标题只写主题，不带“第N讲”、章、节或数字编号；系统会统一加上“第N讲”。
-8. 每讲目标、重点、难点、活动和作业要与本讲内容对应；案例、讨论、实验、实践按学科需要选择，不强行套同一顺序。
+8. 每讲必须同时回答三类问题，但形式随学科变化：
+   - `application_anchors`：案例、问题情境、实验现象、例题、项目节点或真实任务，至少一项；
+   - `extension_resources`：书籍、论文、标准、法规、数据集、视频或网站，至少一项；
+   - `learning_tasks`：课前或课后任务及可提交证据，至少一项。
+   在线或混合课程每讲至少一项 `mode=online` 的任务；纯线下课程允许使用 `mode=offline`。
+   书籍只有确认版次后才能给页码；`source_ref` 必须与课程已确认参考资料完全一致，无法核验时
+   `verification_status` 写 `pending`，严禁编造书名、版次、章节或页码。
+9. 每讲 `hour_breakdown` 分别填写线下讲授、线下实践和计入总学时的在线教学；三项之和是本讲
+   `planned_hours`，全课各讲合计必须等于已确认总学时。`learning_tasks.estimated_hours` 是课外学习负担，
+   不计入课程总学时。
+10. `course_modules` 只按主题把讲次分组；每讲必须且只能进入一个模块。模块不是课程层级，
+    不得产生模块节点、小节或独立生成任务；模块学时由所含讲次自动汇总。
+11. 每讲目标、重点、难点、活动和作业要与本讲内容对应；案例、讨论、实验、实践按学科需要选择，不强行套同一顺序。
    每讲 `assessment` 必须写清学生要提交、解释、判断、设计、实作或迁移出什么具体成果，
    以及教师根据什么标准判断达成；不同讲次应随真实内容使用不同成果和判断标准，
    不得只替换讲次标题。达成检验只能使用本讲内容或前序讲次已经形成的成果，
    不得要求学生使用后续讲次才会完成的内容。`scope_boundary` 必须写清本讲负责的内容，
    以及明确不提前展开什么。
-9. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
-10. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
+12. `education_objective_refs` 和 `ideology_implementation` 只在本讲内容确有责任、规范或价值判断时填写；
+    没有真实联系时保持空白。`external_mentor` 只在教师输入已提供姓名、单位或角色时填写，不得虚构。
+13. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
+14. 中文字数、目标条数、书目数量和模块数量只有在学校模板或教师输入明确指定时才是硬约束；
+    未指定时按课程实际需要生成，不得套用固定的 300 字、5—8 条、8—12 本等数字。
+15. 教师输入的课程核心特点必须反映到现有 `positioning`、`teaching_methods`、讲次活动和
+    `assessment_plan` 中，不得另建重复字段。
+16. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
 {coverage_rules}
 {planning_rules}
 
@@ -302,6 +324,18 @@ class CoursePromptComposer:
   "prerequisites": ["先修要求"],
   "teaching_methods": ["授课方式"],
   "assessment_methods": ["考核方式"],
+  "assessment_plan": [
+    {{
+      "item": "考核项目",
+      "category": "formative|summative",
+      "weight_percent": 40,
+      "criteria": "评分内容与标准",
+      "outcome_numbers": [1]
+    }}
+  ],
+  "course_modules": [
+    {{"module_id": "M1", "title": "模块名称", "lecture_numbers": [1, 2]}}
+  ],
   "lectures": [
     {{
       "lecture_number": 1,
@@ -312,6 +346,34 @@ class CoursePromptComposer:
       "key_difficulties": ["教学难点"],
       "activities": ["按需安排的主要教学活动"],
       "homework": ["课后任务"],
+      "application_anchors": ["案例、问题、例题、实验或项目情境"],
+      "extension_resources": [
+        {{
+          "resource_type": "book|article|standard|regulation|dataset|video|website|other",
+          "title": "资源名称",
+          "edition": "已确认的版本；不适用则留空",
+          "locator": "章、节或已核验页码",
+          "source_ref": "与课程参考资料完全一致的来源",
+          "verification_status": "verified|pending"
+        }}
+      ],
+      "learning_tasks": [
+        {{
+          "mode": "online|offline",
+          "stage": "before_class|after_class",
+          "task": "学习任务",
+          "evidence": "学生提交或留下的证据",
+          "estimated_hours": 1
+        }}
+      ],
+      "hour_breakdown": {{
+        "classroom_lecture": 1,
+        "classroom_practice": 1,
+        "online_instruction": 0
+      }},
+      "education_objective_refs": [],
+      "ideology_implementation": "仅在真实相关时填写",
+      "external_mentor": {{"name": "", "organization": "", "role": ""}},
       "assessment": ["学生提交的具体成果，以及教师判断达成的标准"],
       "scope_boundary": "本讲负责的内容，以及明确不提前展开什么",
       "planning_stages": [],
@@ -374,6 +436,7 @@ class CoursePromptComposer:
 
 ## 正式教学大纲模板契约（从属于灵知结构化真源）
 {json.dumps(formal_outline_contract, ensure_ascii=False)}
+当前模型只规划课程定位、目标和目录；模板中的逐讲实施、考核和参考资料栏目由后续讲次生成与本地汇编完成。
 
 ## 约束
 0. {structure_instruction}

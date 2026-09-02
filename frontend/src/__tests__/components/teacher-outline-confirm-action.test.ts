@@ -24,6 +24,8 @@ describe('teacher outline confirmation placement', () => {
     expect(confirmAction).toBeLessThan(actionsEnd)
     expect(workbenchSource.slice(editAction, actionsEnd)).toContain('v-if="outlineAwaitingReview"')
     expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('@click="confirmInlineOutline"')
+    expect(workbenchSource.slice(editAction, confirmAction)).not.toContain('!outlineCanConfirm')
+    expect(workbenchSource.slice(confirmAction, actionsEnd)).toContain('!outlineCanConfirm')
   })
 
   it('uses the stable right-side assistant instead of a duplicate outline toolbar entry', () => {

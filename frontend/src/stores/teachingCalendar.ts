@@ -16,8 +16,12 @@ export interface ClassSession {
   end_time?: string | null
   content_summary: string
   requirements: string
+  education_objective?: string
   location: string
   teacher_name: string
+  external_mentor_name?: string
+  external_mentor_organization?: string
+  external_mentor_role?: string
   teaching_type: string
   group_code: string
   credit_hours?: number | null

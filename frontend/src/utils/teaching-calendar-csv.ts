@@ -2,7 +2,8 @@ import type { ClassSession, TeachingCalendar } from '../stores/teachingCalendar'
 
 const columns = [
   '课次', '日期', '开始时间', '结束时间', '教学内容', '教学要求（含作业）',
-  '上课地点', '教师', '教学类型', '实验小组', '教学时数', '备注', '关联教学单元',
+  '育人目标', '上课地点', '教师', '教学类型', '校外导师姓名', '校外导师单位',
+  '校外导师角色', '实验小组', '教学时数', '备注', '关联教学单元',
 ] as const
 
 const quote = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
@@ -15,9 +16,13 @@ export function teachingCalendarToCsv(calendar: TeachingCalendar) {
     session.end_time || '',
     session.content_summary,
     session.requirements,
+    session.education_objective || '',
     session.location,
     session.teacher_name,
     session.teaching_type,
+    session.external_mentor_name || '',
+    session.external_mentor_organization || '',
+    session.external_mentor_role || '',
     session.group_code,
     session.credit_hours ?? '',
     session.notes,
@@ -106,8 +111,12 @@ export function teachingCalendarFromCsv(input: string): ClassSession[] {
         end_time: endTime,
         content_summary: content,
         requirements: get(row, '教学要求（含作业）'),
+        education_objective: get(row, '育人目标'),
         location: get(row, '上课地点'),
         teacher_name: get(row, '教师'),
+        external_mentor_name: get(row, '校外导师姓名'),
+        external_mentor_organization: get(row, '校外导师单位'),
+        external_mentor_role: get(row, '校外导师角色'),
         teaching_type: get(row, '教学类型') || '理论课',
         group_code: get(row, '实验小组'),
         credit_hours: hours,

@@ -206,14 +206,14 @@ def test_outline_calendar_distributes_sixteen_lectures_across_an_eight_week_term
     outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
     calendar_rows = [
         line for line in outline.splitlines()
-        if line.startswith("| ") and len(line.split("|")) == 7
+        if line.startswith("| ") and len(line.split("|")) == 10
         and line.split("|")[1].strip().isdigit()
     ]
 
     assert [int(line.split("|")[1].strip()) for line in calendar_rows] == [
         1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8,
     ]
-    assert all(not line.split("|")[4].strip() for line in calendar_rows)
+    assert all(not line.split("|")[7].strip() for line in calendar_rows)
 
 
 def test_outline_calendar_keeps_week_pending_without_a_term_schedule_or_custom_range():

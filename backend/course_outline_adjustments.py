@@ -9,7 +9,42 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
-ALLOWED_OPERATIONS = {"add_node", "remove_node", "move_node", "update_node"}
+ALLOWED_OPERATIONS = {
+    "add_node",
+    "remove_node",
+    "move_node",
+    "update_node",
+    "update_course_plan",
+}
+
+COURSE_PLAN_EDITABLE_FIELDS = {
+    "course_intro_zh",
+    "course_intro_en",
+    "positioning",
+    "learning_objectives",
+    "education_objectives",
+    "measurable_outcomes",
+    "outcome_alignment",
+    "prerequisites",
+    "teaching_methods",
+    "assessment_methods",
+    "assessment_plan",
+    "course_modules",
+    "reference_books",
+    "reference_websites",
+    "course_website",
+}
+
+LECTURE_CONTRACT_FIELDS = {
+    "content_summary",
+    "application_anchors",
+    "extension_resources",
+    "learning_tasks",
+    "education_objective_refs",
+    "ideology_implementation",
+    "external_mentor",
+    "hour_breakdown",
+}
 
 _CHAPTER_NUMBER_PREFIX = re.compile(
     r"^\s*第\s*[0-9一二三四五六七八九十百零〇两]+\s*[章讲]\s*[:：、.．\-]?\s*"
@@ -76,7 +111,9 @@ def apply_outline_operations(
                 f"第 {index + 1} 个操作类型不受支持",
                 details={"operation_index": index, "operation_type": op},
             )
-        if op == "add_node":
+        if op == "update_course_plan":
+            _update_course_plan(source, operation)
+        elif op == "add_node":
             _add_node(state, operation)
         elif op == "remove_node":
             ref = _required_ref(operation, "node_ref")
@@ -96,6 +133,7 @@ def apply_outline_operations(
                     "learning_objective",
                     "scope_boundary",
                     "assessment",
+                    *LECTURE_CONTRACT_FIELDS,
                 )
             ):
                 categories.add("semantic")
@@ -184,6 +222,7 @@ def describe_outline_diff(
             "scope_boundary",
             "assessment",
             "prerequisite_node_ids",
+            *sorted(LECTURE_CONTRACT_FIELDS),
         ):
             old_value = old.get(field)
             if field == "prerequisite_node_ids":
@@ -204,6 +243,7 @@ def describe_outline_diff(
         "removed": removed,
         "moved": moved,
         "updated": updated,
+        "course_updated": _course_plan_diff(before, after),
         "before": _shape(before),
         "after": _shape(after),
     }
@@ -337,6 +377,7 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
         "scope_boundary",
         "assessment",
         "prerequisite_refs",
+        *LECTURE_CONTRACT_FIELDS,
     }
     unexpected = set(operation) - allowed
     if unexpected:
@@ -376,6 +417,141 @@ def _update_node(state: _OutlineState, ref: str, operation: dict[str, Any]) -> N
         node["_prerequisite_refs"] = [
             str(item) for item in operation.get("prerequisite_refs") or [] if str(item)
         ]
+    for field in (
+        "application_anchors",
+        "education_objective_refs",
+    ):
+        if field in operation:
+            raw_value = operation.get(field)
+            if not isinstance(raw_value, list):
+                raise OutlineAdjustmentError(
+                    "update_field_invalid",
+                    f"{field} 必须是文本列表",
+                    details={"field": field},
+                )
+            node[field] = [
+                str(item).strip() for item in raw_value if str(item).strip()
+            ][:8]
+    for field in ("extension_resources", "learning_tasks"):
+        if field in operation:
+            raw_value = operation.get(field)
+            if not isinstance(raw_value, list) or any(
+                not isinstance(item, dict) for item in raw_value
+            ):
+                raise OutlineAdjustmentError(
+                    "update_field_invalid",
+                    f"{field} 必须是对象列表",
+                    details={"field": field},
+                )
+            node[field] = deepcopy(raw_value[:8])
+    for field in ("content_summary", "ideology_implementation"):
+        if field in operation:
+            node[field] = str(operation.get(field) or "").strip()
+    if "external_mentor" in operation:
+        mentor = operation.get("external_mentor")
+        if not isinstance(mentor, dict) or set(mentor) - {"name", "organization", "role"}:
+            raise OutlineAdjustmentError(
+                "update_field_invalid",
+                "external_mentor 只能包含姓名、单位和角色",
+                details={"field": "external_mentor"},
+            )
+        node["external_mentor"] = {
+            key: str(mentor.get(key) or "").strip()
+            for key in ("name", "organization", "role")
+            if str(mentor.get(key) or "").strip()
+        }
+    if "hour_breakdown" in operation:
+        breakdown = operation.get("hour_breakdown")
+        allowed_hours = {"classroom_lecture", "classroom_practice", "online_instruction"}
+        if not isinstance(breakdown, dict) or set(breakdown) - allowed_hours:
+            raise OutlineAdjustmentError(
+                "update_field_invalid",
+                "hour_breakdown 只能包含讲授、实践和在线教学学时",
+                details={"field": "hour_breakdown"},
+            )
+        normalized: dict[str, float] = {}
+        for key in allowed_hours:
+            try:
+                value = float(breakdown.get(key) or 0)
+            except (TypeError, ValueError) as exc:
+                raise OutlineAdjustmentError(
+                    "update_field_invalid",
+                    "分项学时必须是非负数",
+                    details={"field": "hour_breakdown"},
+                ) from exc
+            if value < 0 or value > 24:
+                raise OutlineAdjustmentError(
+                    "update_field_invalid",
+                    "单项学时必须在 0 到 24 之间",
+                    details={"field": "hour_breakdown"},
+                )
+            normalized[key] = round(value, 2)
+        node["hour_breakdown"] = normalized
+        node["planned_hours"] = round(sum(normalized.values()), 2)
+
+
+def _update_course_plan(source: dict[str, Any], operation: dict[str, Any]) -> None:
+    unexpected = set(operation) - {"op", *COURSE_PLAN_EDITABLE_FIELDS}
+    if unexpected:
+        raise OutlineAdjustmentError(
+            "update_field_invalid",
+            "课程级大纲修改包含不受支持的字段",
+            details={"fields": sorted(unexpected)},
+        )
+    supplied = [field for field in COURSE_PLAN_EDITABLE_FIELDS if field in operation]
+    if not supplied:
+        raise OutlineAdjustmentError(
+            "operation_invalid",
+            "课程级大纲修改没有提供任何内容",
+        )
+    plan = deepcopy(source.get("course_plan") or source.get("course_outline") or {})
+    list_fields = {
+        "learning_objectives",
+        "education_objectives",
+        "measurable_outcomes",
+        "prerequisites",
+        "teaching_methods",
+        "assessment_methods",
+        "reference_books",
+        "reference_websites",
+    }
+    object_list_fields = {"outcome_alignment", "assessment_plan", "course_modules"}
+    for field in supplied:
+        value = operation.get(field)
+        if field in list_fields:
+            if not isinstance(value, list):
+                raise OutlineAdjustmentError(
+                    "update_field_invalid",
+                    f"{field} 必须是文本列表",
+                    details={"field": field},
+                )
+            plan[field] = [str(item).strip() for item in value if str(item).strip()]
+        elif field in object_list_fields:
+            if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+                raise OutlineAdjustmentError(
+                    "update_field_invalid",
+                    f"{field} 必须是对象列表",
+                    details={"field": field},
+                )
+            plan[field] = deepcopy(value)
+        else:
+            plan[field] = str(value or "").strip()
+    source["course_plan"] = plan
+    source["course_outline"] = deepcopy(plan)
+
+
+def _course_plan_diff(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
+    old_plan = before.get("course_plan") or before.get("course_outline") or {}
+    new_plan = after.get("course_plan") or after.get("course_outline") or {}
+    return [
+        {
+            "field": field,
+            "before": deepcopy(old_plan.get(field)),
+            "after": deepcopy(new_plan.get(field)),
+        }
+        for field in sorted(COURSE_PLAN_EDITABLE_FIELDS)
+        if old_plan.get(field) != new_plan.get(field)
+    ]
 
 
 def _insert_after(items: list[str], ref: str, after_ref: str | None, *, level: int) -> None:

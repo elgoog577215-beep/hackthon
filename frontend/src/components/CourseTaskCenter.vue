@@ -642,7 +642,9 @@ const currentReviewTitle = computed(() => ({
 }[currentReviewStep.value]))
 const canConfirmCurrentStep = computed(() => {
   if (selectedTask.value?.status !== 'waiting_for_review') return false
-  if (currentReviewStep.value === 'outline') return Boolean(blueprintDraft.value)
+  if (currentReviewStep.value === 'outline') {
+    return Boolean(blueprintDraft.value) && generationReview.value?.can_confirm !== false
+  }
   return Boolean(generationReview.value?.can_confirm)
 })
 const confirmCurrentStepLabel = computed(() => (

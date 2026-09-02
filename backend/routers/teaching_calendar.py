@@ -35,8 +35,12 @@ class ClassSessionInput(BaseModel):
     end_time: clock_time | None = None
     content_summary: str = Field(min_length=1, max_length=2000)
     requirements: str = Field(default="", max_length=4000)
+    education_objective: str = Field(default="", max_length=2000)
     location: str = Field(default="", max_length=240)
     teacher_name: str = Field(default="", max_length=240)
+    external_mentor_name: str = Field(default="", max_length=240)
+    external_mentor_organization: str = Field(default="", max_length=240)
+    external_mentor_role: str = Field(default="", max_length=240)
     teaching_type: str = Field(default="理论课", max_length=120)
     group_code: str = Field(default="", max_length=120)
     credit_hours: float | None = Field(default=None, ge=0, le=24)
@@ -186,6 +190,57 @@ def _unit_requirements(course: dict[str, Any], node: dict[str, Any]) -> str:
     return "；".join(value for value in objectives if value)[:4000]
 
 
+def _unit_detail(course: dict[str, Any], node: dict[str, Any], key: str, default: Any = None) -> Any:
+    direct = node.get(key)
+    if direct not in (None, "", [], {}):
+        return direct
+    node_id = str(node.get("node_id") or "")
+    return next(
+        (
+            child.get(key)
+            for child in _flatten_nodes(list(course.get("nodes") or []))
+            if str(child.get("parent_node_id") or "") == node_id
+            and child.get(key) not in (None, "", [], {})
+        ),
+        default,
+    )
+
+
+def _outline_session_fields(course: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
+    breakdown = _unit_detail(course, node, "hour_breakdown", {})
+    breakdown = breakdown if isinstance(breakdown, dict) else {}
+    classroom = float(breakdown.get("classroom_lecture") or 0)
+    practice = float(breakdown.get("classroom_practice") or 0)
+    online = float(breakdown.get("online_instruction") or 0)
+    if online and classroom + practice:
+        teaching_type = "混合式教学"
+    elif online:
+        teaching_type = "在线教学"
+    elif practice > classroom:
+        teaching_type = "实践课"
+    else:
+        teaching_type = "理论课"
+    mentor = _unit_detail(course, node, "external_mentor", {})
+    mentor = mentor if isinstance(mentor, dict) else {}
+    education_refs = _unit_detail(course, node, "education_objective_refs", [])
+    education = "；".join(
+        str(item).strip() for item in education_refs or [] if str(item).strip()
+    )
+    implementation = str(
+        _unit_detail(course, node, "ideology_implementation", "") or ""
+    ).strip()
+    if implementation:
+        education = "；".join(item for item in (education, implementation) if item)
+    return {
+        "education_objective": education,
+        "teaching_type": teaching_type,
+        "credit_hours": round(classroom + practice + online, 2) or None,
+        "external_mentor_name": str(mentor.get("name") or "").strip(),
+        "external_mentor_organization": str(mentor.get("organization") or "").strip(),
+        "external_mentor_role": str(mentor.get("role") or "").strip(),
+    }
+
+
 def _outline_source(course_id: str, course: dict[str, Any]) -> dict[str, Any]:
     """Prefer the active AI-generation projection until the course is published."""
     manager = get_task_manager_optional()
@@ -330,27 +385,27 @@ async def derive_teaching_calendar(course_id: str, request: Request):
 
         generated_content = str(unit.get("node_name") or unit.get("title") or "未命名讲次")
         generated_requirements = _unit_requirements(outline_course, unit)
+        generated_fields = _outline_session_fields(outline_course, unit)
         changes: dict[str, dict[str, Any]] = {}
         if str(item.get("source") or "") == "outline":
-            if str(item.get("content_summary") or "") != generated_content:
-                changes["content_summary"] = {
-                    "before": str(item.get("content_summary") or ""),
-                    "after": generated_content,
-                }
-                item["content_summary"] = generated_content
-            if str(item.get("requirements") or "") != generated_requirements:
-                changes["requirements"] = {
-                    "before": str(item.get("requirements") or ""),
-                    "after": generated_requirements,
-                }
-                item["requirements"] = generated_requirements
+            for key, generated_value in {
+                "content_summary": generated_content,
+                "requirements": generated_requirements,
+                **generated_fields,
+            }.items():
+                if item.get(key) != generated_value:
+                    changes[key] = {
+                        "before": item.get(key),
+                        "after": generated_value,
+                    }
+                    item[key] = generated_value
         candidate_sessions.append(item)
         diff_items.append({
             "kind": "update" if changes else "keep",
             "session_id": item.get("session_id"),
             "lesson_unit_id": lesson_unit_id,
             "title": generated_content,
-            "reason": "仅更新大纲生成的教学内容与教学要求；日期、时间、地点、教师和小组保持不变" if changes else "已与当前大纲一致",
+            "reason": "更新大纲投影的内容、要求、育人目标、教学形式、导师与学时；排课信息保持不变" if changes else "已与当前大纲一致",
             "changes": changes,
         })
 
@@ -360,6 +415,7 @@ async def derive_teaching_calendar(course_id: str, request: Request):
             continue
         content = str(node.get("node_name") or node.get("title") or f"第{index + 1}讲")
         objective = _unit_requirements(outline_course, node)
+        outline_fields = _outline_session_fields(outline_course, node)
         candidate_session = {
             "session_id": f"candidate-{hashlib.sha256(f'{course_id}:{node_id}'.encode('utf-8')).hexdigest()[:16]}",
             "lesson_unit_id": node_id,
@@ -369,11 +425,10 @@ async def derive_teaching_calendar(course_id: str, request: Request):
             "end_time": None,
             "content_summary": content,
             "requirements": objective,
+            **outline_fields,
             "location": "",
             "teacher_name": "",
-            "teaching_type": "理论课",
             "group_code": "",
-            "credit_hours": None,
             "notes": "",
             "status": "unscheduled",
             "source": "outline",
