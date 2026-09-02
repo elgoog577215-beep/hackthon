@@ -148,7 +148,7 @@
     "termFilter": "按学年学期筛选课程",
     "termLabel": "学期",
     "allTerms": "全部学期",
-    "sortBy": "课程排序方式",
+    "sortBy": "按{field}排序",
     "sortLabel": "排序",
     "sortPriority": "待处理优先",
     "sortNextSession": "最近上课优先",
@@ -181,6 +181,23 @@
       "lastEdited": "最后编辑",
       "version": "课程版本",
       "actions": "操作"
+    },
+    "management": {
+      "tableLabel": "课程管理表",
+      "selectPage": "选择本页课程",
+      "selectCourse": "选择{name}",
+      "selectedCount": "已选 {count} 门课程",
+      "clearSelection": "取消选择",
+      "deleteSelected": "删除所选",
+      "deleteCourse": "删除{name}",
+      "deleteConfirm": "确定删除{name}吗？课程、备课内容和相关任务都将删除，且无法恢复。",
+      "deleteSelectedConfirm": "确定删除已选的 {count} 门课程吗？课程、备课内容和相关任务都将删除，且无法恢复。",
+      "batchDeleted": "已删除 {count} 门课程",
+      "batchDeletePartial": "已删除 {deleted} 门，另有 {failed} 门删除失败并保持选中",
+      "batchDeleteFailed": "所选课程删除失败，请重试",
+      "loadFailed": "课程读取失败",
+      "loadFailedHelp": "请检查网络或服务状态后重试。",
+      "refreshFailed": "课程列表刷新失败，当前显示的是上次读取结果"
     },
     "actions": {
       "start": "开始备课",

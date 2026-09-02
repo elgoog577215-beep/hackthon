@@ -1,242 +1,202 @@
 <template>
-  <section
-    class="course-library glass-panel-elevated"
-    :class="{ 'course-library--paginated': totalPages > 1, 'course-library--embedded': embedded }"
-  >
-    <div class="library-toolbar">
-      <label class="library-search">
-        <Search :size="16" />
-        <input
-          v-model="query"
-          type="search"
-          :aria-label="t('teacherCourseLibrary.searchPlaceholder')"
-          :placeholder="t('teacherCourseLibrary.searchPlaceholder')"
+  <section class="course-library" :class="{ 'course-library--embedded': embedded }">
+    <div class="library-toolbar" :class="{ 'library-toolbar--selecting': selectedCount > 0 }">
+      <template v-if="selectedCount > 0">
+        <p class="selection-summary" aria-live="polite">
+          {{ t('teacherCourseLibrary.management.selectedCount').replace('{count}', String(selectedCount)) }}
+        </p>
+        <span class="toolbar-spacer" />
+        <button type="button" class="toolbar-button" :disabled="deleting" @click="clearSelection">
+          {{ t('teacherCourseLibrary.management.clearSelection') }}
+        </button>
+        <button
+          type="button"
+          class="toolbar-button toolbar-button--danger"
+          data-testid="delete-selected-courses"
+          :disabled="deleting"
+          @click="deleteSelectedCourses"
+        >
+          <LoaderCircle v-if="deleting" class="spin" :size="16" />
+          <Trash2 v-else :size="16" />
+          {{ t('teacherCourseLibrary.management.deleteSelected') }}
+        </button>
+      </template>
+
+      <template v-else>
+        <label class="library-search">
+          <Search :size="16" aria-hidden="true" />
+          <input
+            v-model="query"
+            type="search"
+            :aria-label="t('teacherCourseLibrary.searchPlaceholder')"
+            :placeholder="t('teacherCourseLibrary.searchPlaceholder')"
+          />
+        </label>
+        <UiSelectMenu
+          data-testid="course-status-filter"
+          :model-value="statusFilter"
+          :options="statusMenuOptions"
+          :label="t('teacherCourseLibrary.statusLabel')"
+          :accessibility-label="t('teacherCourseLibrary.statusFilter')"
+          @update:model-value="setStatusFilter"
         />
-      </label>
-      <UiSelectMenu
-        data-testid="course-status-filter"
-        :model-value="statusFilter"
-        :options="statusMenuOptions"
-        :label="t('teacherCourseLibrary.statusLabel')"
-        :accessibility-label="t('teacherCourseLibrary.statusFilter')"
-        @update:model-value="setStatusFilter"
-      />
-      <UiSelectMenu
-        data-testid="course-term-filter"
-        :model-value="termFilter"
-        :options="termMenuOptions"
-        :label="t('teacherCourseLibrary.termLabel')"
-        :accessibility-label="t('teacherCourseLibrary.termFilter')"
-        @update:model-value="setTermFilter"
-      />
-      <UiSegmentedControl
-        class="library-view-control"
-        :model-value="displayMode"
-        :options="viewModeOptions"
-        :accessibility-label="t('teacherCourseLibrary.viewMode')"
-        @update:model-value="setDisplayMode"
-      />
+        <UiSelectMenu
+          data-testid="course-term-filter"
+          :model-value="termFilter"
+          :options="termMenuOptions"
+          :label="t('teacherCourseLibrary.termLabel')"
+          :accessibility-label="t('teacherCourseLibrary.termFilter')"
+          @update:model-value="setTermFilter"
+        />
+        <span v-if="courseStore.loading && courseStore.courseList.length" class="toolbar-loading" role="status">
+          <LoaderCircle class="spin" :size="15" />{{ t('courseLibrary.loading', '正在读取课程') }}
+        </span>
+      </template>
     </div>
 
-    <div v-if="courseStore.loading" class="library-state">
+    <p v-if="courseStore.courseListError && courseStore.courseList.length" class="library-inline-error" role="status">
+      <span>{{ t('teacherCourseLibrary.management.refreshFailed') }}</span>
+      <button type="button" :disabled="courseStore.loading" @click="refreshCourses">
+        {{ t('common.retry', '重试') }}
+      </button>
+    </p>
+
+    <div v-if="courseStore.loading && !courseStore.courseList.length" class="library-state" role="status">
       <LoaderCircle class="spin" :size="22" />
       <span>{{ t('courseLibrary.loading', '正在读取课程') }}</span>
     </div>
 
-    <div v-else-if="!filteredCourses.length" class="library-state empty">
-      <BookOpenText :size="28" />
-      <strong>{{ hasActiveFilters ? t('courseLibrary.noMatch', '没有匹配的课程') : t('courseLibrary.emptyTitle', '还没有课程') }}</strong>
-      <span>{{ hasActiveFilters ? t('teacherCourseLibrary.noFilterMatchBody') : t('teacherCourseLibrary.emptyBody', '新建课程后，从教学大纲开始组织教学。') }}</span>
+    <div v-else-if="courseStore.courseListError && !courseStore.courseList.length" class="library-state library-state--error" role="alert">
+      <strong>{{ t('teacherCourseLibrary.management.loadFailed') }}</strong>
+      <span>{{ t('teacherCourseLibrary.management.loadFailedHelp') }}</span>
+      <button type="button" :disabled="courseStore.loading" @click="refreshCourses">
+        {{ t('common.retry', '重试') }}
+      </button>
     </div>
 
-    <section
-      v-else
-      class="course-collection"
-      :class="{ 'course-collection--list': displayMode === 'list' }"
-      :aria-label="t('teacherCourseLibrary.collectionTitle')"
-    >
-      <p class="sr-only" aria-live="polite">{{ t('teacherCourseLibrary.collectionSummary').replace('{count}', String(filteredCourses.length)) }}</p>
-      <div v-if="displayMode === 'list'" class="course-list-columns">
-        <button v-for="column in listColumns" :key="column.key" type="button" :aria-label="t('teacherCourseLibrary.sortBy').replace('{field}', column.label)" @click="toggleSort(column.key)">{{ column.label }}<component :is="sortIcon(column.key)" :size="13" /></button>
-        <span>{{ t('teacherCourseLibrary.columns.actions') }}</span>
-      </div>
-      <div ref="courseGridRef" class="course-grid-anchor">
-        <TransitionGroup name="course-result" tag="div" class="course-grid" :data-view="displayMode" data-layout="responsive-three-column">
-          <article
-          v-for="{ course, status } in courseCards"
-          :key="course.course_id"
-          class="course-item glass-panel"
-          :class="{ 'course-item--menu-open': openCourseMenuId === course.course_id }"
-          :data-state="status.tone"
-          >
-          <button
-            type="button"
-            class="course-main"
-            :title="status.active ? status.detail : formatCourseTitle(course.course_name)"
-            @click="handleCoursePrimary(course.course_id)"
-          >
-            <span class="course-identity">
-              <CourseCover :course-id="course.course_id" :title="course.course_name" variant="glyph" />
-              <span class="course-identity__copy">
-                <h2>{{ formatCourseTitle(course.course_name) }}</h2>
-                <span v-if="course.course_code" class="course-identity__meta">{{ course.course_code }}</span>
-              </span>
-            </span>
-            <span class="course-status" :class="`course-status--${status.tone}`">
-              <span class="course-status__dot" aria-hidden="true"></span>
-              <span class="course-status__copy">
-                <small>{{ t('teacherCourseLibrary.columns.status') }}</small>
-                <strong>{{ status.label }}</strong>
-              </span>
-              <strong v-if="status.inProgress">{{ Math.round(status.progress) }}%</strong>
-            </span>
-            <span class="course-time course-field" :class="{ 'course-field--muted': !course.next_session?.date }">
-              <Clock3 class="course-field__icon" :size="17" aria-hidden="true" />
-              <span class="course-field__copy">
-                <small>{{ t('teacherCourseLibrary.columns.time') }}</small>
-                <strong>{{ courseNextSessionWhen(course) }}</strong>
-              </span>
-            </span>
-            <span class="course-location course-field" :class="{ 'course-field--muted': !course.next_session?.location }">
-              <MapPin class="course-field__icon" :size="17" aria-hidden="true" />
-              <span class="course-field__copy">
-                <small>{{ t('teacherCourseLibrary.columns.location') }}</small>
-                <strong>{{ courseLocation(course) }}</strong>
-              </span>
-            </span>
-            <span
-              class="course-term course-field"
-              :class="{ 'course-field--muted': !course.academic_year && !course.term }"
-            >
-              <span class="course-field__copy">
-                <small>{{ t('teacherCourseLibrary.columns.term') }}</small>
-                <strong>{{ courseTermLabel(course) }}</strong>
-              </span>
-            </span>
-            <span class="course-updated course-field">
-              <span class="course-field__copy">
-                <small>{{ t('teacherCourseLibrary.columns.lastEdited') }}</small>
-                <strong>{{ courseUpdatedLabel(course) }}</strong>
-              </span>
-            </span>
-            <span
-                v-if="status.inProgress"
-                class="generation-progress"
-                role="progressbar"
-                :aria-label="status.detail"
-                :aria-valuenow="Math.round(status.progress)"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
-                <span class="progress-track"><span :style="{ width: `${status.progress}%` }"></span></span>
-              </span>
-          </button>
+    <div v-else-if="!filteredCourses.length" class="library-state library-state--empty">
+      <BookOpenText :size="26" aria-hidden="true" />
+      <strong>{{ hasActiveFilters ? t('courseLibrary.noMatch', '没有匹配的课程') : t('courseLibrary.emptyTitle', '还没有课程') }}</strong>
+      <span>{{ hasActiveFilters ? t('teacherCourseLibrary.noFilterMatchBody') : t('teacherCourseLibrary.emptyBody') }}</span>
+    </div>
 
-        <div
-          class="course-actions"
-          :data-course-menu-root="course.course_id"
-          @keydown.esc.stop.prevent="closeCourseMenu"
-        >
-          <button
-            type="button"
-            class="course-menu-trigger"
-            :data-testid="`course-actions-${course.course_id}`"
-            aria-haspopup="menu"
-            :aria-controls="`course-menu-${course.course_id}`"
-            :aria-expanded="openCourseMenuId === course.course_id"
-            :aria-label="t('courseLibrary.moreActions', '更多操作')"
-            :title="t('courseLibrary.moreActions', '更多操作')"
-            @click.stop="toggleCourseMenu(course.course_id)"
-          >
-            <Ellipsis :size="20" />
-          </button>
-
-          <Transition name="course-menu">
-            <div
-              v-if="openCourseMenuId === course.course_id"
-              :id="`course-menu-${course.course_id}`"
-              class="course-menu"
-              :data-testid="`course-menu-${course.course_id}`"
-              role="menu"
-              @click.stop
-            >
+    <div v-else class="course-table-region">
+      <table class="course-table">
+        <caption class="sr-only">{{ t('teacherCourseLibrary.management.tableLabel') }}</caption>
+        <thead>
+          <tr>
+            <th class="selection-column" scope="col">
+              <input
+                type="checkbox"
+                :checked="allVisibleSelected"
+                :indeterminate="someVisibleSelected"
+                :aria-label="t('teacherCourseLibrary.management.selectPage')"
+                :disabled="deleting"
+                @change="toggleVisibleSelection"
+              />
+            </th>
+            <th scope="col" :aria-sort="sortAria('name')">
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('teacherCourseLibrary.columns.course'))" @click="toggleSort('name')">
+                {{ t('teacherCourseLibrary.columns.course') }}<component :is="sortIcon('name')" :size="13" />
+              </button>
+            </th>
+            <th scope="col" :aria-sort="sortAria('status')">
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('teacherCourseLibrary.columns.status'))" @click="toggleSort('status')">
+                {{ t('teacherCourseLibrary.columns.status') }}<component :is="sortIcon('status')" :size="13" />
+              </button>
+            </th>
+            <th scope="col" :aria-sort="sortAria('nextSession')">
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('teacherCourseLibrary.columns.time'))" @click="toggleSort('nextSession')">
+                {{ t('teacherCourseLibrary.columns.time') }}<component :is="sortIcon('nextSession')" :size="13" />
+              </button>
+            </th>
+            <th scope="col" :aria-sort="sortAria('term')">
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('teacherCourseLibrary.columns.term'))" @click="toggleSort('term')">
+                {{ t('teacherCourseLibrary.columns.term') }}<component :is="sortIcon('term')" :size="13" />
+              </button>
+            </th>
+            <th scope="col" :aria-sort="sortAria('updated')">
+              <button type="button" class="column-sort" :aria-label="sortLabel(t('teacherCourseLibrary.columns.lastEdited'))" @click="toggleSort('updated')">
+                {{ t('teacherCourseLibrary.columns.lastEdited') }}<component :is="sortIcon('updated')" :size="13" />
+              </button>
+            </th>
+            <th class="actions-column" scope="col">{{ t('teacherCourseLibrary.columns.actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="{ course, status } in courseRows" :key="course.course_id" :class="{ selected: selectedCourseIds.has(course.course_id) }">
+            <td class="selection-column">
+              <input
+                type="checkbox"
+                :checked="selectedCourseIds.has(course.course_id)"
+                :aria-label="t('teacherCourseLibrary.management.selectCourse').replace('{name}', formatCourseTitle(course.course_name))"
+                :disabled="deleting"
+                @change="toggleCourseSelection(course.course_id, $event)"
+              />
+            </td>
+            <td class="course-cell">
+              <button type="button" class="course-main" @click="openCourse(course.course_id)">
+                <span class="course-identity">
+                  <strong>{{ formatCourseTitle(course.course_name) }}</strong>
+                  <small v-if="course.course_code">{{ course.course_code }}</small>
+                </span>
+              </button>
+            </td>
+            <td>
+              <span class="course-status" :data-tone="status.tone">
+                <span class="course-status__dot" aria-hidden="true" />
+                <span>{{ status.label }}</span>
+                <strong v-if="status.inProgress">{{ Math.round(status.progress) }}%</strong>
+              </span>
+            </td>
+            <td class="course-session">
+              <strong>{{ courseNextSessionWhen(course) }}</strong>
+              <small v-if="course.next_session?.location">{{ course.next_session.location }}</small>
+            </td>
+            <td class="course-term">{{ courseTermLabel(course) }}</td>
+            <td class="course-updated">{{ courseUpdatedLabel(course) }}</td>
+            <td class="actions-column">
               <button
                 type="button"
-                class="course-menu__item course-menu__item--danger"
-                role="menuitem"
+                class="delete-course-button"
                 :data-testid="`delete-course-${course.course_id}`"
+                :aria-label="t('teacherCourseLibrary.management.deleteCourse').replace('{name}', formatCourseTitle(course.course_name))"
+                :title="t('courseLibrary.delete', '删除课程')"
+                :disabled="deleting"
                 @click="deleteCourse(course.course_id, formatCourseTitle(course.course_name))"
               >
-                <Trash2 :size="15" />
-                <span>{{ t('courseLibrary.delete', '删除课程') }}</span>
+                <Trash2 :size="16" />
               </button>
-            </div>
-          </Transition>
-        </div>
-          </article>
-        </TransitionGroup>
-      </div>
-    </section>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
-    <Teleport to="body">
-      <Transition name="pagination-dock">
-        <nav
-          v-if="!courseStore.loading && totalPages > 1"
-          class="library-pagination-dock"
-          :aria-label="t('courseLibrary.pagination.label', '课程分页')"
-        >
-          <button
-            type="button"
-            class="pagination-button pagination-button--direction"
-            :disabled="currentPage === 1"
-            :aria-label="t('courseLibrary.pagination.previous', '上一页')"
-            @click="selectPage(currentPage - 1)"
-          >
-            <ChevronLeft :size="17" />
-            <span>{{ t('courseLibrary.pagination.previous', '上一页') }}</span>
-          </button>
-
-          <span class="pagination-pages" role="group" :aria-label="t('courseLibrary.pagination.pageSelection', '页面选择')">
-            <template v-for="item in paginationItems" :key="`page-${item}`">
-              <span v-if="typeof item === 'string'" class="pagination-ellipsis" aria-hidden="true">…</span>
-              <button
-                v-else
-                type="button"
-                class="pagination-button pagination-button--page"
-                :class="{ active: item === currentPage }"
-                :aria-current="item === currentPage ? 'page' : undefined"
-                :aria-label="pageNumberLabel(item)"
-                @click="selectPage(item)"
-              >
-                {{ item }}
-              </button>
-            </template>
-          </span>
-
-          <button
-            type="button"
-            class="pagination-button pagination-button--direction"
-            :disabled="currentPage === totalPages"
-            :aria-label="t('courseLibrary.pagination.next', '下一页')"
-            @click="selectPage(currentPage + 1)"
-          >
-            <span>{{ t('courseLibrary.pagination.next', '下一页') }}</span>
-            <ChevronRight :size="17" />
-          </button>
-        </nav>
-      </Transition>
-    </Teleport>
-
+      <nav v-if="totalPages > 1" class="library-pagination" :aria-label="t('courseLibrary.pagination.label', '课程分页')">
+        <button type="button" class="pagination-direction" :disabled="currentPage === 1" :aria-label="t('courseLibrary.pagination.previous', '上一页')" @click="selectPage(currentPage - 1)">
+          <ChevronLeft :size="16" />{{ t('courseLibrary.pagination.previous', '上一页') }}
+        </button>
+        <span class="pagination-pages" role="group" :aria-label="t('courseLibrary.pagination.pageSelection', '页面选择')">
+          <template v-for="item in paginationItems" :key="`page-${item}`">
+            <span v-if="typeof item === 'string'" class="pagination-ellipsis" aria-hidden="true">…</span>
+            <button v-else type="button" :class="{ active: item === currentPage }" :aria-current="item === currentPage ? 'page' : undefined" :aria-label="pageNumberLabel(item)" @click="selectPage(item)">
+              {{ item }}
+            </button>
+          </template>
+        </span>
+        <button type="button" class="pagination-direction" :disabled="currentPage === totalPages" :aria-label="t('courseLibrary.pagination.next', '下一页')" @click="selectPage(currentPage + 1)">
+          {{ t('courseLibrary.pagination.next', '下一页') }}<ChevronRight :size="16" />
+        </button>
+      </nav>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, Clock3, Ellipsis, Grid2X2, List, LoaderCircle, MapPin, Search, Trash2 } from 'lucide-vue-next'
-import CourseCover from '../components/CourseCover.vue'
-import UiSegmentedControl from '../components/UiSegmentedControl.vue'
+import { ArrowDown, ArrowUp, ArrowUpDown, BookOpenText, ChevronLeft, ChevronRight, LoaderCircle, Search, Trash2 } from 'lucide-vue-next'
 import UiSelectMenu from '../components/UiSelectMenu.vue'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import { activeLocale, t } from '../shared/i18n'
@@ -251,17 +211,17 @@ const { embedded = false } = defineProps<{ embedded?: boolean }>()
 const { course: courseStore, generation: generationStore } = useTeacherCourseRuntime()
 const COURSES_PER_PAGE = 9
 type CourseStatusFilter = 'all' | 'preparing' | 'prepared'
-type CourseSortMode = 'name' | 'status' | 'nextSession' | 'location' | 'term' | 'updated'
+type CourseSortMode = 'name' | 'status' | 'nextSession' | 'term' | 'updated'
 type CourseSortDirection = 'ascending' | 'descending'
+
 const query = ref(String(route.query.q || ''))
 const statusFilter = ref<CourseStatusFilter>(['preparing', 'prepared'].includes(String(route.query.status)) ? route.query.status as CourseStatusFilter : 'all')
 const termFilter = ref(String(route.query.term || 'all'))
-const sortMode = ref<CourseSortMode>(['name', 'status', 'nextSession', 'location', 'term', 'updated'].includes(String(route.query.sort)) ? route.query.sort as CourseSortMode : 'updated')
+const sortMode = ref<CourseSortMode>(['name', 'status', 'nextSession', 'term', 'updated'].includes(String(route.query.sort)) ? route.query.sort as CourseSortMode : 'updated')
 const sortDirection = ref<CourseSortDirection>(route.query.dir === 'ascending' ? 'ascending' : 'descending')
-const displayMode = ref<'grid' | 'list'>(route.query.display === 'list' || (!route.query.display && localStorage.getItem('teacher_course_library_view') === 'list') ? 'list' : 'grid')
 const currentPage = ref(1)
-const courseGridRef = ref<HTMLElement | null>(null)
-const openCourseMenuId = ref('')
+const selectedCourseIds = ref<Set<string>>(new Set())
+const deleting = ref(false)
 
 const termFilterOptions = computed(() => {
   const options = new Map<string, string>()
@@ -269,31 +229,17 @@ const termFilterOptions = computed(() => {
     const value = courseTermKey(course)
     if (value) options.set(value, courseTermLabel(course))
   })
-  return Array.from(options, ([value, label]) => ({ value, label }))
-    .sort((left, right) => right.label.localeCompare(left.label, localeTag()))
+  return Array.from(options, ([value, label]) => ({ value, label })).sort((left, right) => right.label.localeCompare(left.label, localeTag()))
 })
 const searchedCourses = computed(() => {
   const keyword = query.value.trim().toLocaleLowerCase()
   if (!keyword) return courseStore.courseList
-  return courseStore.courseList.filter(course => [
-    course.course_name,
-    course.course_code,
-    course.academic_year,
-    course.term,
-  ].some(value => String(value || '').toLocaleLowerCase().includes(keyword)))
+  return courseStore.courseList.filter(course => [course.course_name, course.course_code, course.academic_year, course.term].some(value => String(value || '').toLocaleLowerCase().includes(keyword)))
 })
-const termFilteredCourses = computed(() => termFilter.value === 'all'
-  ? searchedCourses.value
-  : searchedCourses.value.filter(course => courseTermKey(course) === termFilter.value))
-const filteredCourses = computed(() => sortCourses(statusFilter.value === 'all'
-  ? termFilteredCourses.value
-  : termFilteredCourses.value.filter(course => courseFilterKey(course) === statusFilter.value)))
+const termFilteredCourses = computed(() => termFilter.value === 'all' ? searchedCourses.value : searchedCourses.value.filter(course => courseTermKey(course) === termFilter.value))
+const filteredCourses = computed(() => sortCourses(statusFilter.value === 'all' ? termFilteredCourses.value : termFilteredCourses.value.filter(course => courseFilterKey(course) === statusFilter.value)))
 const statusFilterOptions = computed<Array<{ value: CourseStatusFilter; label: string; count: number }>>(() => {
-  const counts: Record<CourseStatusFilter, number> = {
-    all: termFilteredCourses.value.length,
-    preparing: 0,
-    prepared: 0,
-  }
+  const counts: Record<CourseStatusFilter, number> = { all: termFilteredCourses.value.length, preparing: 0, prepared: 0 }
   termFilteredCourses.value.forEach(course => { counts[courseFilterKey(course)] += 1 })
   return [
     { value: 'all', label: t('teacherCourseLibrary.allCourses'), count: counts.all },
@@ -301,40 +247,19 @@ const statusFilterOptions = computed<Array<{ value: CourseStatusFilter; label: s
     { value: 'prepared', label: t('teacherCourseLibrary.preparedCourses'), count: counts.prepared },
   ]
 })
-const statusMenuOptions = computed(() => statusFilterOptions.value.map(option => ({
-  value: option.value,
-  label: option.label,
-  count: option.count,
-})))
-const termMenuOptions = computed(() => [
-  { value: 'all', label: t('teacherCourseLibrary.allTerms') },
-  ...termFilterOptions.value,
-])
-const listColumns = computed<Array<{ key: CourseSortMode; label: string }>>(() => [
-  { key: 'name', label: t('teacherCourseLibrary.columns.course') },
-  { key: 'status', label: t('teacherCourseLibrary.columns.status') },
-  { key: 'nextSession', label: t('teacherCourseLibrary.columns.time') },
-  { key: 'location', label: t('teacherCourseLibrary.columns.location') },
-  { key: 'term', label: t('teacherCourseLibrary.columns.term') },
-  { key: 'updated', label: t('teacherCourseLibrary.columns.lastEdited') },
-])
-const viewModeOptions = computed(() => [
-  { value: 'grid', label: t('teacherCourseLibrary.cardView'), icon: Grid2X2 },
-  { value: 'list', label: t('teacherCourseLibrary.listView'), icon: List },
-])
+const statusMenuOptions = computed(() => statusFilterOptions.value.map(option => ({ value: option.value, label: option.label, count: option.count })))
+const termMenuOptions = computed(() => [{ value: 'all', label: t('teacherCourseLibrary.allTerms') }, ...termFilterOptions.value])
 const hasActiveFilters = computed(() => Boolean(query.value.trim()) || statusFilter.value !== 'all' || termFilter.value !== 'all')
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredCourses.value.length / COURSES_PER_PAGE)))
 const paginatedCourses = computed(() => {
   const start = (currentPage.value - 1) * COURSES_PER_PAGE
   return filteredCourses.value.slice(start, start + COURSES_PER_PAGE)
 })
-const courseCards = computed(() => paginatedCourses.value.map(course => {
-  const status = courseStatus(course)
-  return {
-    course,
-    status,
-  }
-}))
+const courseRows = computed(() => paginatedCourses.value.map(course => ({ course, status: courseStatus(course) })))
+const visibleCourseIds = computed(() => paginatedCourses.value.map(course => course.course_id))
+const selectedCount = computed(() => selectedCourseIds.value.size)
+const allVisibleSelected = computed(() => visibleCourseIds.value.length > 0 && visibleCourseIds.value.every(id => selectedCourseIds.value.has(id)))
+const someVisibleSelected = computed(() => !allVisibleSelected.value && visibleCourseIds.value.some(id => selectedCourseIds.value.has(id)))
 const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis'>>(() => {
   const pages = totalPages.value
   if (pages <= 7) return Array.from({ length: pages }, (_, index) => index + 1)
@@ -342,316 +267,144 @@ const paginationItems = computed<Array<number | 'start-ellipsis' | 'end-ellipsis
   if (currentPage.value >= pages - 3) return [1, 'start-ellipsis', pages - 4, pages - 3, pages - 2, pages - 1, pages]
   return [1, 'start-ellipsis', currentPage.value - 1, currentPage.value, currentPage.value + 1, 'end-ellipsis', pages]
 })
-watch([query, statusFilter, termFilter, sortMode, sortDirection, displayMode], () => {
+
+watch([query, statusFilter, termFilter, sortMode, sortDirection], () => {
   currentPage.value = 1
-  closeCourseMenu()
+  clearSelection()
   if (!embedded) void router.replace({ query: libraryQuery() })
 })
-
-watch(displayMode, mode => localStorage.setItem('teacher_course_library_view', mode))
-
-watch(totalPages, pages => {
-  if (currentPage.value > pages) currentPage.value = pages
-})
+watch(totalPages, pages => { if (currentPage.value > pages) currentPage.value = pages })
 
 onMounted(async () => {
-  document.addEventListener('pointerdown', closeOpenMenusOnOutsidePointer)
   courseStore.currentCourseId = ''
   courseStore.currentCourseVersionId = ''
   courseStore.currentNode = null
   generationStore.restoreGenerationState()
-  if (!embedded) {
-    await courseStore.fetchCourseList({ surface: 'teacher' })
-  }
+  if (!embedded) await refreshCourses()
 })
-
-onBeforeUnmount(() => {
-  document.removeEventListener('pointerdown', closeOpenMenusOnOutsidePointer)
-})
-
-function closeOpenMenusOnOutsidePointer(event: PointerEvent) {
-  if (!openCourseMenuId.value) return
-  const target = event.target instanceof Element ? event.target : null
-  const courseMenuRoot = target?.closest<HTMLElement>('[data-course-menu-root]')
-  if (courseMenuRoot?.dataset.courseMenuRoot !== openCourseMenuId.value) closeCourseMenu()
-}
-
-function toggleCourseMenu(courseId: string) {
-  openCourseMenuId.value = openCourseMenuId.value === courseId ? '' : courseId
-}
-
-function closeCourseMenu() {
-  openCourseMenuId.value = ''
-}
 
 function setStatusFilter(value: string) { statusFilter.value = value as CourseStatusFilter }
 function setTermFilter(value: string) { termFilter.value = value }
-function setDisplayMode(value: string) { displayMode.value = value === 'list' ? 'list' : 'grid' }
-
-function pageNumberLabel(page: number) {
-  return t('courseLibrary.pagination.pageNumber', '第 {page} 页').replace('{page}', String(page))
+function clearSelection() { selectedCourseIds.value = new Set() }
+function toggleCourseSelection(courseId: string, event: Event) {
+  const checked = (event.target as HTMLInputElement).checked
+  const next = new Set(selectedCourseIds.value)
+  if (checked) next.add(courseId)
+  else next.delete(courseId)
+  selectedCourseIds.value = next
 }
-
+function toggleVisibleSelection(event: Event) { selectedCourseIds.value = (event.target as HTMLInputElement).checked ? new Set(visibleCourseIds.value) : new Set() }
+function pageNumberLabel(page: number) { return t('courseLibrary.pagination.pageNumber', '第 {page} 页').replace('{page}', String(page)) }
 async function selectPage(page: number) {
   const nextPage = Math.max(1, Math.min(totalPages.value, page))
   if (nextPage === currentPage.value) return
   currentPage.value = nextPage
-  closeCourseMenu()
+  clearSelection()
   await nextTick()
-  courseGridRef.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  document.querySelector('.course-table-region')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
 }
-
-function localeTag() {
-  return activeLocale.value === 'zh' ? 'zh-CN' : 'en-US'
-}
-
+function localeTag() { return activeLocale.value === 'zh' ? 'zh-CN' : 'en-US' }
 function courseTermKey(course: Course) {
   const academicYear = String(course.academic_year || '').trim()
   const term = String(course.term || '').trim()
   return academicYear || term ? `${academicYear}\u0000${term}` : ''
 }
-
-function courseTermLabel(course: Course) {
-  return [course.academic_year, course.term].map(value => String(value || '').trim()).filter(Boolean).join(' ')
-    || t('teacherCourseLibrary.termUnset')
-}
-
+function courseTermLabel(course: Course) { return [course.academic_year, course.term].map(value => String(value || '').trim()).filter(Boolean).join(' ') || t('teacherCourseLibrary.termUnset') }
 function parseCourseDate(value?: string) {
   if (!value) return null
   const parsed = new Date(value.includes('T') ? value : `${value}T12:00:00`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
-
 function courseNextSessionWhen(course: Course) {
   const session = course.next_session
   if (!session?.date) return t('teacherCourseLibrary.noUpcomingSession')
   const parsed = parseCourseDate(session.date)
-  const date = parsed
-    ? new Intl.DateTimeFormat(localeTag(), { month: 'short', day: 'numeric', weekday: 'short' }).format(parsed)
-    : session.date
+  const date = parsed ? new Intl.DateTimeFormat(localeTag(), { month: 'short', day: 'numeric', weekday: 'short' }).format(parsed) : session.date
   const time = session.start_time?.slice(0, 5) || t('teacherHome.timePending')
   return t('teacherCourseLibrary.sessionWhen').replace('{date}', date).replace('{time}', time)
 }
-
-function courseLocation(course: Course) {
-  return course.next_session?.location || t('teacherCourseLibrary.locationPending')
-}
-
 function courseUpdatedLabel(course: Course) {
   if (!course.updated_at) return '—'
   const parsed = new Date(course.updated_at)
   return Number.isNaN(parsed.getTime()) ? course.updated_at : new Intl.DateTimeFormat(localeTag(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(parsed)
 }
-
-function courseNextSessionTime(course: Course) {
-  return Date.parse(`${course.next_session?.date || ''}T${course.next_session?.start_time || '23:59:59'}`) || Number.POSITIVE_INFINITY
-}
-
-function courseUpdatedTime(course: Course) {
-  return Date.parse(course.updated_at || '') || 0
-}
-
+function courseNextSessionTime(course: Course) { return Date.parse(`${course.next_session?.date || ''}T${course.next_session?.start_time || '23:59:59'}`) || Number.POSITIVE_INFINITY }
+function courseUpdatedTime(course: Course) { return Date.parse(course.updated_at || '') || 0 }
 function sortCourses(courses: Course[]) {
   return [...courses].sort((left, right) => {
     let result = 0
     if (sortMode.value === 'name') result = left.course_name.localeCompare(right.course_name, localeTag())
     else if (sortMode.value === 'status') result = coursePreparationState(left).localeCompare(coursePreparationState(right))
     else if (sortMode.value === 'term') result = courseTermLabel(left).localeCompare(courseTermLabel(right), localeTag())
-    else if (sortMode.value === 'location') result = courseLocation(left).localeCompare(courseLocation(right), localeTag())
     else if (sortMode.value === 'nextSession') result = courseNextSessionTime(left) - courseNextSessionTime(right)
     else result = courseUpdatedTime(left) - courseUpdatedTime(right)
     return result * (sortDirection.value === 'ascending' ? 1 : -1)
   })
 }
-
 function toggleSort(key: CourseSortMode) {
   if (sortMode.value === key) sortDirection.value = sortDirection.value === 'ascending' ? 'descending' : 'ascending'
   else { sortMode.value = key; sortDirection.value = key === 'updated' ? 'descending' : 'ascending' }
 }
 function sortIcon(key: CourseSortMode) { return sortMode.value !== key ? ArrowUpDown : sortDirection.value === 'ascending' ? ArrowUp : ArrowDown }
-
+function sortAria(key: CourseSortMode): 'none' | 'ascending' | 'descending' { return sortMode.value === key ? sortDirection.value : 'none' }
+function sortLabel(field: string) { return t('teacherCourseLibrary.sortBy').replace('{field}', field) }
 function courseStatus(course: Course) {
   const task = generationStore.getTask(course.course_id)
   const preparation = coursePreparationState(course, task)
   const inProgress = Boolean(task && ['pending', 'running'].includes(task.status))
-  return {
-    active: inProgress,
-    inProgress,
-    tone: preparation === 'prepared' ? 'ready' : 'processing',
-    label: coursePreparationLabel(preparation),
-    detail: courseProductionTaskDetail(task)
-      || (task?.currentPhase ? t(`courseGeneration.phases.${task.currentPhase}`, task.currentPhase) : '')
-      || t('courseLibrary.status.preparing', '正在准备课程'),
-    progress: Math.max(0, Math.min(100, task?.progress || 0)),
-  }
+  return { inProgress, tone: preparation === 'prepared' ? 'ready' : 'processing', label: coursePreparationLabel(preparation), detail: courseProductionTaskDetail(task), progress: Math.max(0, Math.min(100, task?.progress || 0)) }
 }
-
-function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> {
-  return coursePreparationState(course)
-}
-
+function courseFilterKey(course: Course): Exclude<CourseStatusFilter, 'all'> { return coursePreparationState(course) }
 function libraryQuery() {
-  return { view: 'courses', ...(query.value ? { q: query.value } : {}), ...(statusFilter.value !== 'all' ? { status: statusFilter.value } : {}), ...(termFilter.value !== 'all' ? { term: termFilter.value } : {}), sort: sortMode.value, dir: sortDirection.value, display: displayMode.value }
+  return { view: 'courses', ...(query.value ? { q: query.value } : {}), ...(statusFilter.value !== 'all' ? { status: statusFilter.value } : {}), ...(termFilter.value !== 'all' ? { term: termFilter.value } : {}), sort: sortMode.value, dir: sortDirection.value }
 }
 function returnPath() {
   const routeName = router.hasRoute('course-library') ? 'course-library' : route.name
   if (routeName) return router.resolve({ name: routeName, query: libraryQuery() }).fullPath
   return router.resolve({ path: route.path || '/courses', query: libraryQuery() }).fullPath
 }
-
-function openCourse(courseId: string) {
-  closeCourseMenu()
-  void router.push({
-    name: 'course-workspace',
-    params: { courseId, mode: 'setup' },
-    query: { returnTo: returnPath() },
-  })
-}
-
-function handleCoursePrimary(courseId: string) {
-  openCourse(courseId)
-}
-
+function openCourse(courseId: string) { void router.push({ name: 'course-workspace', params: { courseId, mode: 'setup' }, query: { returnTo: returnPath() } }) }
+async function refreshCourses() { await courseStore.fetchCourseList({ surface: 'teacher' }) }
 async function deleteCourse(courseId: string, courseName: string) {
-  closeCourseMenu()
   try {
-    await ElMessageBox.confirm(
-      t('courseLibrary.deleteConfirm', '删除课程“{name}”？').replace('{name}', courseName),
-      t('courseLibrary.delete', '删除课程'),
-      { type: 'warning', confirmButtonText: t('common.delete', '删除'), cancelButtonText: t('common.cancel', '取消') },
-    )
-    await courseStore.deleteCourse(courseId)
+    await ElMessageBox.confirm(t('teacherCourseLibrary.management.deleteConfirm').replace('{name}', courseName), t('courseLibrary.delete', '删除课程'), { type: 'warning', confirmButtonText: t('common.delete', '删除'), cancelButtonText: t('common.cancel', '取消') })
+    deleting.value = true
+    await courseStore.deleteCourse(courseId, { surface: 'teacher' })
+    const next = new Set(selectedCourseIds.value)
+    next.delete(courseId)
+    selectedCourseIds.value = next
   } catch (error) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(t('courseLibrary.deleteFailed', '删除失败'))
-  }
+  } finally { deleting.value = false }
+}
+async function deleteSelectedCourses() {
+  const ids = Array.from(selectedCourseIds.value)
+  if (!ids.length) return
+  try {
+    await ElMessageBox.confirm(t('teacherCourseLibrary.management.deleteSelectedConfirm').replace('{count}', String(ids.length)), t('teacherCourseLibrary.management.deleteSelected'), { type: 'warning', confirmButtonText: t('common.delete', '删除'), cancelButtonText: t('common.cancel', '取消') })
+    deleting.value = true
+    const result = await courseStore.deleteCourses(ids, { surface: 'teacher' })
+    selectedCourseIds.value = new Set(result.failed)
+    if (!result.failed.length) ElMessage.success(t('teacherCourseLibrary.management.batchDeleted').replace('{count}', String(result.deleted.length)))
+    else if (result.deleted.length) ElMessage.warning(t('teacherCourseLibrary.management.batchDeletePartial').replace('{deleted}', String(result.deleted.length)).replace('{failed}', String(result.failed.length)))
+    else ElMessage.error(t('teacherCourseLibrary.management.batchDeleteFailed'))
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(t('teacherCourseLibrary.management.batchDeleteFailed'))
+  } finally { deleting.value = false }
 }
 </script>
 
 <style scoped>
-.course-library { --course-content-width:1320px; --course-grid-width:1320px; --course-grid-gap:18px; --course-cover-width:52px; width:100%; height:100%; overflow:auto; padding:24px clamp(20px,3.2vw,44px) 48px; border:0; border-radius:var(--lz-radius-surface); background:#fbfcff; box-shadow:none; }
-.course-library--embedded { border:0; border-radius:0; background:var(--lz-surface); box-shadow:none; }
-.library-toolbar { position:relative; z-index:20; max-width:var(--course-content-width); margin:0 auto 22px; display:grid; grid-template-columns:minmax(320px,1fr) 156px 156px auto; align-items:center; gap:10px; }
-.library-search { width:100%; height:42px; display:flex; align-items:center; gap:9px; padding:0 14px; border:1px solid #dbe2ee; border-radius:12px; color:#64748b; background:#fff; transition:border-color .16s ease,box-shadow .16s ease; }
-.library-search:focus-within { border-color:#a5b4fc; box-shadow:0 4px 14px rgba(79,70,229,.08),0 0 0 3px rgba(99,102,241,.09); }
-.library-toolbar input { min-width:0; flex:1; border:0; outline:0; color:#334155; background:transparent; font-size:13px; }
-.library-toolbar input::placeholder { color:#64748b; }
-.library-view-control { width:154px; }
-.course-collection { width:100%; max-width:var(--course-grid-width); margin:0 auto; }
-.course-collection--list { --course-list-main-columns:minmax(260px,1.55fr) 124px 144px 130px 126px 130px; --course-list-action-column:54px; min-width:1080px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
-.course-grid-anchor { width:100%; scroll-margin-top:18px; }
-.course-grid { position:relative; width:100%; margin:0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); justify-content:start; gap:var(--course-grid-gap); }
-.course-list-columns{min-width:1120px;height:38px;display:grid;grid-template-columns:var(--course-list-main-columns) var(--course-list-action-column);align-items:center;gap:0;border-bottom:1px solid #e1e6ef;border-radius:13px 13px 0 0;color:#64748b;background:#f8fafc;font-size:11px;font-weight:750}
-.course-list-columns button,.course-list-columns span{height:100%;display:flex;align-items:center;gap:5px;padding:0 14px;border:0;color:inherit;background:transparent;font:inherit;font-weight:inherit;text-align:left}.course-list-columns button{cursor:pointer}.course-list-columns button:hover{color:#4338ca}.course-list-columns button:first-child{padding-left:16px}.course-list-columns span:last-child{padding-left:10px}
-.course-grid[data-view='list'] { --course-cover-width:34px; min-width:1120px; max-width:none; display:block; }
-.course-item { position:relative; min-width:0; min-height:198px; display:grid; grid-template-rows:minmax(0,1fr) 46px; overflow:visible; border:1px solid #e1e6ef; border-radius:15px; background:#fff; box-shadow:none; transition:border-color .18s ease,background .18s ease,transform .18s cubic-bezier(.2,.8,.2,1); }
-.course-item:hover { border-color:#bfc8f7; background:#fefeff; transform:translateY(-2px); }
-.course-item--menu-open { z-index:30; }
-.course-main { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-areas:'identity status' 'time time' 'location location' 'updated updated' 'progress progress'; align-content:start; gap:14px 12px; padding:20px 20px 16px; border:0; border-radius:15px 15px 0 0; color:inherit; background:transparent; text-align:left; cursor:pointer; }
-.course-main:focus-visible { outline:3px solid rgba(99,102,241,.18); outline-offset:-4px; }
-.course-identity{grid-area:identity;min-width:0;display:grid;grid-template-columns:var(--course-cover-width) minmax(0,1fr);align-items:center;gap:13px}
-.course-identity__copy{min-width:0;display:grid;gap:5px}.course-identity h2{margin:0;overflow:hidden;display:-webkit-box;color:#1e293b;font-size:16px;font-weight:800;line-height:1.35;-webkit-box-orient:vertical;-webkit-line-clamp:2}.course-identity__meta{display:none;overflow:hidden;color:#64748b;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
-.course-field{min-width:0;display:flex;align-items:center;gap:9px;color:#64748b}.course-field__icon{flex:0 0 auto;color:#94a3b8}.course-field__copy{min-width:0;display:grid;gap:2px}.course-field small,.course-status__copy small{color:#64748b;font-size:10px;font-weight:650}.course-field strong{overflow:hidden;color:#475569;font-size:12px;font-weight:720;text-overflow:ellipsis;white-space:nowrap}
-.course-time{grid-area:time}.course-location{grid-area:location}.course-term{grid-area:term;display:none}.course-updated{grid-area:updated}
-.course-status{grid-area:status;min-width:0;display:flex;align-items:center;align-self:start;gap:7px;padding:6px 9px;border-radius:999px;color:#166534;background:#f0fdf4}
-.course-status__copy{min-width:0;display:grid}.course-status__copy small{display:none}.course-status__copy strong{overflow:hidden;color:inherit;font-size:11px;font-weight:780;text-overflow:ellipsis;white-space:nowrap}.course-status>strong{margin-left:0;color:inherit;font-size:11px;font-weight:800}
-.course-status__dot { width:7px; height:7px; flex:0 0 auto; border-radius:50%; background:#22a45a; }
-.course-status--processing { color:#4338ca; background:#eef2ff; }
-.course-status--processing .course-status__dot { background:var(--lz-brand); }
-.course-status--danger { color:#b91c1c; background:#fef2f2; }
-.course-status--danger .course-status__dot { background:var(--lz-danger); }
-.course-status--warning { color:#a16207; background:#fffbeb; }
-.course-status--warning .course-status__dot { background:#d97706; }
-.course-status--draft { color:#64748b; background:#f1f5f9; }
-.course-status--draft .course-status__dot { background:#94a3b8; }
-.generation-progress { grid-area:progress; display:block; width:100%; }
-.progress-track { display:block; height:4px; overflow:hidden; border-radius:999px; background:var(--lz-surface-muted); }
-.progress-track > span { display:block; height:100%; border-radius:inherit; background:var(--lz-brand); }
-.course-item[data-state='danger'] .progress-track > span { background:var(--lz-danger); }
-.course-actions { position:relative; min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:6px 10px 6px 14px; border-top:1px solid #edf0f5; }
-.course-menu-trigger { width:32px; height:32px; flex:0 0 auto; display:grid; place-items:center; border:1px solid transparent; border-radius:8px; color:var(--lz-text-secondary); background:transparent; cursor:pointer; }
-.course-menu-trigger:hover,.course-menu-trigger:focus-visible,.course-menu-trigger[aria-expanded='true'] { border-color:#c7d2fe; color:var(--lz-brand-strong); background:#f5f3ff; outline:none; }
-.course-menu { position:absolute; z-index:50; right:10px; bottom:42px; width:160px; overflow:hidden; padding:4px; border:1px solid rgba(203,213,225,.82); border-radius:10px; background:#fff; box-shadow:0 12px 28px rgba(51,65,85,.16),0 3px 8px rgba(79,70,229,.07); }
-.course-menu__item { width:100%; min-height:36px; display:flex; align-items:center; gap:8px; padding:0 9px; border:0; border-radius:7px; color:var(--lz-text); background:transparent; font-size:12px; font-weight:700; text-align:left; cursor:pointer; }
-.course-menu__item:hover,.course-menu__item:focus-visible { color:var(--lz-brand-strong); background:var(--lz-brand-soft); outline:none; }
-.course-menu__item--danger { color:var(--lz-danger); }
-.course-menu__item--danger:hover,.course-menu__item--danger:focus-visible { color:var(--lz-danger); background:var(--lz-danger-soft); }
-.course-grid[data-view='list'] .course-item{min-height:66px;display:grid;grid-template-columns:minmax(0,1fr) var(--course-list-action-column);grid-template-rows:none;margin:0;border:0;border-bottom:1px solid #e8ecf3;border-radius:0;background:#fff;box-shadow:none;transform:none;transition:background .16s ease,box-shadow .16s ease}
-.course-grid[data-view='list'] .course-item:last-child{border-bottom:0;border-radius:0 0 13px 13px}
-.course-grid[data-view='list'] .course-item:hover{background:#f8faff;box-shadow:inset 0 1px 0 rgba(99,102,241,.04),inset 0 -1px 0 rgba(99,102,241,.04)}
-.course-grid[data-view='list'] .course-main{min-height:65px;grid-template-columns:var(--course-list-main-columns);grid-template-areas:'identity status time location term updated';align-items:center;gap:0;padding:0;border-radius:0}
-.course-grid[data-view='list'] .course-main:focus-visible{position:relative;z-index:1;outline:2px solid rgba(99,102,241,.34);outline-offset:-2px}
-.course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field{padding:0 14px}
-.course-grid[data-view='list'] .course-identity{grid-template-columns:var(--course-cover-width) minmax(0,1fr);gap:10px;padding-left:16px}.course-grid[data-view='list'] .course-identity__copy{gap:3px}.course-grid[data-view='list'] .course-identity h2{display:block;overflow:hidden;color:#24324a;font-size:13px;font-weight:780;text-overflow:ellipsis;white-space:nowrap}.course-grid[data-view='list'] .course-identity__meta{display:block;color:#64748b;font-size:10px}
-.course-grid[data-view='list'] .course-field{display:block}.course-grid[data-view='list'] .course-field__icon,.course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small{display:none}.course-grid[data-view='list'] .course-field strong{display:block;color:#526079;font-size:11.5px;font-weight:680;line-height:1.45;white-space:normal}.course-grid[data-view='list'] .course-field--muted strong{color:#64748b;font-weight:620}.course-grid[data-view='list'] .course-status{max-width:calc(100% - 20px);align-self:center;justify-self:start;margin:0 10px;padding:5px 8px}.course-grid[data-view='list'] .course-status__copy strong{font-size:11px}.course-grid[data-view='list'] .course-term,.course-grid[data-view='list'] .course-updated{display:block}.course-grid[data-view='list'] .generation-progress{display:none}
-.course-grid[data-view='list'] .course-actions{justify-content:flex-end;gap:2px;padding:0 10px 0 6px;border:0}.course-grid[data-view='list'] .course-menu-trigger{width:30px;height:30px}.course-grid[data-view='list'] .course-menu{right:8px;bottom:auto;top:52px}
-.course-menu-enter-active,.course-menu-leave-active { transition:opacity .14s ease,transform .14s ease; transform-origin:top right; }
-.course-menu-enter-from,.course-menu-leave-to { opacity:0; transform:translateY(-4px) scale(.98); }
-.course-result-enter-active,.course-result-leave-active { transition:opacity .18s ease-out,transform .24s cubic-bezier(.16,1,.3,1),filter .18s ease-out; }
-.course-result-enter-from,.course-result-leave-to { opacity:0; filter:blur(2px); transform:translateY(8px) scale(.985); }
-.course-result-leave-active { position:absolute; width:calc((100% - (var(--course-grid-gap) * 2)) / 3); }
-.course-grid[data-view='list'] .course-result-leave-active { width:100%; }
-.course-result-move { transition:transform .3s cubic-bezier(.16,1,.3,1); }
-.course-library--paginated { padding-bottom:118px; }
-.library-pagination-dock { position:fixed; z-index:90; left:50%; bottom:max(18px,env(safe-area-inset-bottom)); max-width:calc(100vw - 32px); min-height:54px; display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; border:1px solid rgba(203,213,225,.82); border-radius:16px; background:rgba(255,255,255,.94); box-shadow:0 18px 46px rgba(51,65,85,.2),0 4px 14px rgba(79,70,229,.1); backdrop-filter:blur(16px); transform:translateX(-50%); }
-.pagination-pages { display:flex; align-items:center; gap:5px; }
-.pagination-button { height:34px; display:inline-flex; align-items:center; justify-content:center; gap:5px; border:1px solid rgba(203,213,225,.76); border-radius:9px; color:var(--lz-text-secondary,#64748b); background:#fff; font-size:12px; font-weight:700; cursor:pointer; transition:border-color .15s ease,color .15s ease,background .15s ease,transform .15s ease; }
-.pagination-button:hover:not(:disabled),.pagination-button:focus-visible { border-color:#a5b4fc; color:var(--lz-brand-strong,#4f46e5); background:var(--lz-brand-soft,#eef2ff); outline:none; transform:translateY(-1px); }
-.pagination-button:disabled { color:var(--lz-text-muted,#94a3b8); background:var(--lz-surface-muted,#f1f5f9); cursor:not-allowed; opacity:.58; }
-.pagination-button--direction { min-width:78px; padding:0 10px; }
-.pagination-button--page { width:34px; padding:0; }
-.pagination-button--page.active { border-color:transparent; color:#fff; background:linear-gradient(135deg,#6366f1,#8b5cf6); box-shadow:0 5px 12px rgba(99,102,241,.22); }
-.pagination-ellipsis { width:22px; color:var(--lz-text-muted,#94a3b8); font-size:13px; text-align:center; }
-.pagination-dock-enter-active,.pagination-dock-leave-active { transition:opacity .16s ease,transform .16s ease; }
-.pagination-dock-enter-from,.pagination-dock-leave-to { opacity:0; transform:translate(-50%,8px); }
-.library-state { min-height: 360px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--lz-text-muted); }
-.course-library--empty .library-state { min-height:260px; }
-.library-state strong { color: var(--lz-text); font-size: 15px; }
-.library-state span { font-size: 12px; }
-.spin { animation: spin 1s linear infinite; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
-@keyframes spin { to { transform: rotate(360deg); } }
-@media (max-width:1360px) {
-  .course-grid { max-width:1040px; grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .course-grid:not([data-view='list']) .course-result-leave-active { width:calc((100% - var(--course-grid-gap)) / 2); }
-}
-@media (max-width:1100px) {
-  .library-toolbar { grid-template-columns:minmax(260px,1fr) repeat(3,minmax(132px,1fr)) auto; }
-}
-@media (max-width:860px) {
-  .course-collection { max-width:620px; }
-  .course-collection--list { min-width:0; border:0; border-radius:0; background:transparent; }
-  .course-grid:not([data-view='list']) { grid-template-columns:minmax(0,1fr); }
-  .course-grid:not([data-view='list']) .course-result-leave-active { width:100%; }
-  .library-toolbar { grid-template-columns:repeat(4,minmax(0,1fr)); }
-  .library-search { grid-column:1/-1; }
-  .library-view-control { width:100%; }
-  .course-list-columns { display:none; }
-  .course-grid[data-view='list'] { min-width:0; }
-  .course-grid[data-view='list'] .course-item { min-height:0; grid-template-columns:minmax(0,1fr); grid-template-rows:auto 44px; margin:0 0 12px; border:1px solid #e1e6ef; border-radius:14px; background:#fff; }
-  .course-grid[data-view='list'] .course-main { min-height:0; grid-template-columns:repeat(2,minmax(0,1fr)); grid-template-areas:'identity identity' 'status term' 'time location' 'updated updated'; align-items:start; gap:15px 12px; padding:16px; border-radius:14px 14px 0 0; }
-  .course-grid[data-view='list'] .course-identity,.course-grid[data-view='list'] .course-field,.course-grid[data-view='list'] .course-status { padding:0; }
-  .course-grid[data-view='list'] .course-field { display:flex; align-items:flex-start; }
-  .course-grid[data-view='list'] .course-field__copy { gap:3px; }
-  .course-grid[data-view='list'] .course-field small,.course-grid[data-view='list'] .course-status__copy small { display:block; }
-  .course-grid[data-view='list'] .course-field strong { white-space:normal; }
-  .course-grid[data-view='list'] .course-status { align-self:start; gap:7px; }
-  .course-grid[data-view='list'] .course-status__dot { margin-top:5px; }
-  .course-grid[data-view='list'] .course-actions { justify-content:flex-end; padding:5px 9px; border-top:1px solid #edf0f5; border-left:0; }
-  .course-grid[data-view='list'] .course-menu { right:8px; top:auto; bottom:40px; }
-}
-@media (max-width:700px) {
-  .course-library { --course-cover-width:48px; padding:16px 14px 40px; border:0; border-radius:0; box-shadow:none; }
-  .course-library--paginated { padding-bottom:126px; }
-  .library-toolbar { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-bottom:16px; }
-  .library-search{grid-column:1/-1}.library-view-control{grid-column:2;justify-self:end}
-  .course-main{padding:18px 16px 14px;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:'identity status' 'time time' 'location location' 'progress progress'}
-  .course-status{padding:5px 8px}.course-status__dot{width:6px;height:6px}
-  .library-pagination-dock { width:calc(100vw - 24px); max-width:none; flex-wrap:wrap; gap:6px; padding:7px 8px; border-radius:14px; }
-  .pagination-button--direction { min-width:34px; width:34px; padding:0; }
-  .pagination-button--direction > span { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; }
-}
-@media (prefers-reduced-motion:reduce) {
-  .course-item,.library-search,.course-result-enter-active,.course-result-leave-active,.course-result-move { transition:none; }
-  .course-result-enter-from,.course-result-leave-to { filter:none; transform:none; }
-}
+.course-library,.course-library *{box-sizing:border-box}.course-library{width:100%;height:100%;overflow:auto;padding:24px clamp(20px,3.2vw,44px) 40px;color:var(--lz-text);background:var(--lz-surface)}.course-library--embedded{border:0;border-radius:0;box-shadow:none}
+.library-toolbar{width:100%;max-width:1320px;min-height:42px;margin:0 auto 18px;display:flex;align-items:center;gap:10px}.library-search{height:42px;min-width:320px;flex:1 1 520px;display:flex;align-items:center;gap:9px;padding:0 13px;border:1px solid var(--lz-border);border-radius:9px;color:var(--lz-text-muted);background:var(--lz-surface)}.library-search:focus-within{border-color:var(--lz-brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--lz-brand) 12%,transparent)}.library-search input{min-width:0;flex:1;border:0;outline:0;color:var(--lz-text);background:transparent;font-size:13px}.library-search input::placeholder{color:var(--lz-text-muted)}.library-toolbar :deep(.ui-select-menu){width:164px;flex:0 0 164px}.toolbar-spacer{flex:1}.toolbar-loading{display:inline-flex;align-items:center;gap:6px;color:var(--lz-text-muted);font-size:12px;white-space:nowrap}
+.library-toolbar--selecting{padding:0 2px}.selection-summary{margin:0;color:var(--lz-text-strong);font-size:14px;font-weight:750}.toolbar-button{height:36px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--lz-border);border-radius:8px;color:var(--lz-text-secondary);background:var(--lz-surface);font-size:13px;font-weight:700;cursor:pointer}.toolbar-button:hover:not(:disabled){border-color:var(--lz-brand-border);color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.toolbar-button--danger{border-color:color-mix(in srgb,var(--lz-danger) 32%,var(--lz-border));color:var(--lz-danger)}.toolbar-button--danger:hover:not(:disabled){border-color:var(--lz-danger);color:var(--lz-danger);background:var(--lz-danger-soft)}.toolbar-button:disabled{opacity:.55;cursor:not-allowed}
+.library-inline-error{max-width:1320px;min-height:38px;margin:-8px auto 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--lz-danger) 22%,var(--lz-border));color:var(--lz-danger);font-size:12px}.library-inline-error button,.library-state button{height:32px;padding:0 11px;border:1px solid currentColor;border-radius:7px;color:inherit;background:transparent;font-size:12px;font-weight:700;cursor:pointer}
+.course-table-region{width:100%;max-width:1320px;margin:0 auto;scroll-margin-top:18px;overflow-x:auto;border-top:1px solid var(--lz-border);border-bottom:1px solid var(--lz-border);background:var(--lz-surface)}.course-table{width:100%;min-width:980px;border-collapse:collapse;table-layout:fixed;text-align:left}.course-table th{height:42px;padding:0 12px;border-bottom:1px solid var(--lz-border);color:var(--lz-text-muted);background:var(--lz-surface-subtle);font-size:11px;font-weight:750}.course-table th:nth-child(2){width:30%}.course-table th:nth-child(3){width:14%}.course-table th:nth-child(4){width:20%}.course-table th:nth-child(5){width:14%}.course-table th:nth-child(6){width:16%}.course-table th.actions-column{width:58px;text-align:center}.course-table th.selection-column{width:46px}.column-sort{height:100%;display:flex;align-items:center;gap:5px;padding:0;border:0;color:inherit;background:transparent;font:inherit;cursor:pointer}.column-sort:hover,.column-sort:focus-visible{color:var(--lz-brand-strong);outline:none}.column-sort:focus-visible{text-decoration:underline;text-underline-offset:4px}
+.course-table td{height:66px;padding:8px 12px;border-bottom:1px solid color-mix(in srgb,var(--lz-border) 84%,transparent);color:var(--lz-text-secondary);font-size:13px;vertical-align:middle}.course-table tbody tr:last-child td{border-bottom:0}.course-table tbody tr:hover,.course-table tbody tr.selected{background:var(--lz-surface-subtle)}.course-table tbody tr.selected{background:var(--lz-brand-soft)}.selection-column{text-align:center}.selection-column input{width:16px;height:16px;margin:0;accent-color:var(--lz-brand);cursor:pointer}.selection-column input:focus-visible{outline:2px solid var(--lz-brand);outline-offset:3px}.selection-column input:disabled{cursor:not-allowed}
+.course-cell{padding-top:6px!important;padding-bottom:6px!important}.course-main{width:100%;min-height:48px;display:block;padding:0;border:0;color:inherit;background:transparent;text-align:left;cursor:pointer}.course-main:focus-visible{outline:2px solid var(--lz-brand);outline-offset:3px;border-radius:6px}.course-identity{min-width:0;display:grid;gap:3px}.course-identity strong,.course-identity small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.course-identity strong{color:var(--lz-text-strong);font-size:14px;font-weight:760}.course-main:hover .course-identity strong{color:var(--lz-brand-strong)}.course-identity small{color:var(--lz-text-muted);font-size:11px}
+.course-status{display:inline-flex;align-items:center;gap:7px;color:var(--lz-text-secondary);white-space:nowrap}.course-status__dot{width:7px;height:7px;flex:0 0 auto;border-radius:50%;background:var(--lz-brand)}.course-status[data-tone='ready'] .course-status__dot{background:var(--lz-success)}.course-status strong{color:var(--lz-brand-strong);font-size:11px}.course-session{display:grid;align-content:center;gap:3px}.course-session strong{overflow:hidden;color:var(--lz-text-secondary);font-size:12px;font-weight:680;text-overflow:ellipsis;white-space:nowrap}.course-session small{overflow:hidden;color:var(--lz-text-muted);font-size:11px;text-overflow:ellipsis;white-space:nowrap}.course-term,.course-updated{color:var(--lz-text-secondary);font-size:12px!important;font-variant-numeric:tabular-nums}
+.actions-column{text-align:center}.delete-course-button{width:34px;height:34px;display:inline-grid;place-items:center;border:0;border-radius:7px;color:var(--lz-text-muted);background:transparent;cursor:pointer}.delete-course-button:hover:not(:disabled),.delete-course-button:focus-visible{color:var(--lz-danger);background:var(--lz-danger-soft);outline:none}.delete-course-button:focus-visible{box-shadow:0 0 0 2px color-mix(in srgb,var(--lz-danger) 28%,transparent)}.delete-course-button:disabled{opacity:.45;cursor:not-allowed}
+.library-pagination{min-height:54px;display:flex;align-items:center;justify-content:center;gap:8px;border-top:1px solid var(--lz-border)}.library-pagination button{height:32px;min-width:32px;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 9px;border:1px solid transparent;border-radius:7px;color:var(--lz-text-secondary);background:transparent;font-size:12px;font-weight:700;cursor:pointer}.library-pagination button:hover:not(:disabled),.library-pagination button:focus-visible{color:var(--lz-brand-strong);background:var(--lz-brand-soft);outline:none}.library-pagination button.active{color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.library-pagination button:disabled{color:var(--lz-text-muted);cursor:not-allowed;opacity:.52}.pagination-pages{display:flex;align-items:center;gap:2px}.pagination-ellipsis{width:24px;color:var(--lz-text-muted);text-align:center}.pagination-direction{min-width:78px!important}
+.library-state{min-height:360px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;color:var(--lz-text-muted);text-align:center}.library-state strong{color:var(--lz-text-strong);font-size:15px}.library-state span{max-width:420px;font-size:12px;line-height:1.55}.library-state--error{color:var(--lz-danger)}.library-state--error strong{color:var(--lz-danger)}.library-state--error button{margin-top:4px}.spin{animation:spin .85s linear infinite}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:1100px){.course-library{padding-inline:20px}.library-toolbar{align-items:stretch;flex-wrap:wrap}.library-search{min-width:100%;flex-basis:100%}.course-table-region{max-width:100%}}@media(prefers-reduced-motion:reduce){.spin{animation:none}.course-main,.delete-course-button,.toolbar-button,.library-pagination button{scroll-behavior:auto;transition:none}}
 </style>

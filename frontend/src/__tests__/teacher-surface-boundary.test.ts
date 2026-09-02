@@ -109,19 +109,18 @@ describe('calendar and course file-space boundary', () => {
     expect(workbench).toContain('initialLessonId?: string')
   })
 
-  it('keeps dense course cards and gives list mode a compact aligned comparison surface', () => {
+  it('uses one compact course management table with direct and batch deletion', () => {
     const library = source('views/TeacherCourseLibraryView.vue')
 
-    expect(library).toContain("grid-template-columns:repeat(3,minmax(0,1fr))")
-    expect(library).toContain("'course-collection--list': displayMode === 'list'")
-    expect(library).toContain('class="course-list-columns"')
-    expect(library).toContain('--course-list-main-columns:')
-    expect(library).toContain(".course-grid[data-view='list'] .course-main")
-    expect(library).toContain("max-width:none")
-    expect(library).toContain("grid-template-areas:'identity status time location term updated'")
-    expect(library).toContain(".course-grid[data-view='list'] .course-field--muted strong")
-    expect(library).toContain('min-height:66px')
-    expect(library).not.toContain('.course-grid:has(.course-item:only-child)')
+    expect(library).toContain('class="course-table"')
+    expect(library).toContain('type="checkbox"')
+    expect(library).toContain(':indeterminate="someVisibleSelected"')
+    expect(library).toContain('data-testid="delete-selected-courses"')
+    expect(library).toContain(':data-testid="`delete-course-${course.course_id}`"')
+    expect(library).toContain('courseStore.deleteCourses(ids, { surface: \'teacher\' })')
+    expect(library).not.toContain('UiSegmentedControl')
+    expect(library).not.toContain('aria-haspopup="menu"')
+    expect(library).not.toContain('course-grid')
   })
 
   it('opens both teaching calendars on the Zhejiang University weekly timetable', () => {

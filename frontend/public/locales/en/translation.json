@@ -148,7 +148,7 @@
     "termFilter": "Filter courses by academic term",
     "termLabel": "Term",
     "allTerms": "All terms",
-    "sortBy": "Course sort order",
+    "sortBy": "Sort by {field}",
     "sortLabel": "Sort",
     "sortPriority": "Needs attention first",
     "sortNextSession": "Soonest class first",
@@ -181,6 +181,23 @@
       "lastEdited": "Last edited",
       "version": "Version",
       "actions": "Actions"
+    },
+    "management": {
+      "tableLabel": "Course management table",
+      "selectPage": "Select courses on this page",
+      "selectCourse": "Select {name}",
+      "selectedCount": "{count} courses selected",
+      "clearSelection": "Clear selection",
+      "deleteSelected": "Delete selected",
+      "deleteCourse": "Delete {name}",
+      "deleteConfirm": "Delete {name}? The course, preparation content, and related tasks will be permanently deleted.",
+      "deleteSelectedConfirm": "Delete the {count} selected courses? Their preparation content and related tasks will be permanently deleted.",
+      "batchDeleted": "Deleted {count} courses",
+      "batchDeletePartial": "Deleted {deleted} courses. {failed} failed and remain selected.",
+      "batchDeleteFailed": "The selected courses could not be deleted. Try again.",
+      "loadFailed": "Courses could not be loaded",
+      "loadFailedHelp": "Check the network or service status, then try again.",
+      "refreshFailed": "The course list could not be refreshed. Showing the last loaded result."
     },
     "actions": {
       "start": "Start planning",

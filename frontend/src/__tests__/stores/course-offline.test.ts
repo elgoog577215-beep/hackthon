@@ -24,7 +24,18 @@ describe('course list offline continuity', () => {
     expect(store.courseList).toEqual([
       { course_id: 'course-1', course_name: '线性代数', node_count: 4 },
     ])
+    expect(store.courseListError).toBe('offline')
     expect(store.loading).toBe(false)
+  })
+
+  it('下一次读取成功后清除旧错误', async () => {
+    const store = useCourseStore()
+    store.courseListError = 'offline'
+    vi.spyOn(http, 'get').mockResolvedValue({ data: [] } as any)
+
+    await store.fetchCourseList({ surface: 'teacher' })
+
+    expect(store.courseListError).toBeNull()
   })
 
   it('教师首页的后台刷新继续读取教师课程摘要', async () => {
@@ -35,5 +46,27 @@ describe('course list offline continuity', () => {
     await store.fetchCourseList({ surface: 'teacher' })
 
     expect(http.get).toHaveBeenCalledWith('/api/teacher/courses', expect.any(Object))
+  })
+
+  it('批量删除并行执行、只刷新一次，并保留失败课程', async () => {
+    const store = useCourseStore()
+    store.courseList = [
+      { course_id: 'course-ok', course_name: '成功课程', node_count: 4 },
+      { course_id: 'course-failed', course_name: '失败课程', node_count: 4 },
+    ]
+    const remove = vi.spyOn(http, 'delete').mockImplementation(async (url: string) => {
+      if (url.endsWith('course-failed')) throw new Error('busy')
+      return { data: { status: 'success' } } as any
+    })
+    const refresh = vi.spyOn(store, 'fetchCourseList').mockResolvedValue(undefined)
+
+    const result = await store.deleteCourses(['course-ok', 'course-failed'], { surface: 'teacher' })
+
+    expect(remove).toHaveBeenCalledTimes(2)
+    expect(remove).toHaveBeenCalledWith('/api/courses/course-ok', expect.objectContaining({ identityScope: 'teacher' }))
+    expect(result).toEqual({ deleted: ['course-ok'], failed: ['course-failed'] })
+    expect(store.courseList.map(course => course.course_id)).toEqual(['course-failed'])
+    expect(refresh).toHaveBeenCalledOnce()
+    expect(refresh).toHaveBeenCalledWith({ surface: 'teacher' })
   })
 })

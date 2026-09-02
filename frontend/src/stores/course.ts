@@ -141,6 +141,7 @@ export const useCourseStore = defineStore('course', {
     currentGenerationQualityReport: null as Record<string, unknown> | null,
     currentTeachingPlan: null as CourseTeachingPlanProjection | null,
     loading: false,
+    courseListError: null as string | null,
 
     // --- Annotations（fetchCourseAnnotations 桥接 Notes 系统） ---
     annotations: [] as Annotation[],
@@ -248,6 +249,7 @@ export const useCourseStore = defineStore('course', {
 
     async fetchCourseList(options: { surface?: 'student' | 'teacher' } = {}) {
         this.loading = true
+        this.courseListError = null
         try {
             const surface = options.surface || 'student'
             const endpoint = surface === 'teacher' ? '/api/teacher/courses' : '/api/courses'
@@ -257,6 +259,7 @@ export const useCourseStore = defineStore('course', {
             this.courseList = res.data
         } catch (error) {
             logger.error(error)
+            this.courseListError = error instanceof Error ? error.message : String(error)
             // Keep the last successful list so offline task actions do not disappear.
         }
         finally { this.loading = false }
@@ -396,13 +399,14 @@ export const useCourseStore = defineStore('course', {
         } finally { this.loading = false }
     },
 
-    async deleteCourse(courseId: string) {
+    async deleteCourse(courseId: string, options: { surface?: 'student' | 'teacher' } = {}) {
         const genStore = this._genStore()
         try {
-            await http.delete(`/api/courses/${courseId}`)
-            ElMessage.success(t('courseLibrary.deleted', '课程已删除'))
+            const endpoint = `/api/courses/${courseId}`
+            if (options.surface === 'teacher') await http.delete(endpoint, teacherRequestConfig())
+            else await http.delete(endpoint)
             genStore.dropLocalTaskState(courseId)
-            await this.fetchCourseList()
+            this.courseList = this.courseList.filter(course => course.course_id !== courseId)
             if (this.currentCourseId === courseId) {
                 this.nodes = []; this.courseTree = []; this.currentCourseId = ''; this.currentNode = null
                 this.currentCourseVersionId = ''; this.currentDocumentRevision = ''; this.currentCourseSourceFormat = ''
@@ -412,9 +416,40 @@ export const useCourseStore = defineStore('course', {
                 this.currentTeachingPlan = null
             }
             genStore.persistGenerationState()
+            await this.fetchCourseList(options)
+            ElMessage.success(t('courseLibrary.deleted', '课程已删除'))
         } catch (error) {
             throw error
         }
+    },
+
+    async deleteCourses(courseIds: string[], options: { surface?: 'student' | 'teacher' } = {}) {
+        const ids = Array.from(new Set(courseIds.filter(Boolean)))
+        if (!ids.length) return { deleted: [] as string[], failed: [] as string[] }
+
+        const settled = await Promise.allSettled(ids.map(courseId => (
+            options.surface === 'teacher'
+                ? http.delete(`/api/courses/${courseId}`, teacherRequestConfig())
+                : http.delete(`/api/courses/${courseId}`)
+        )))
+        const deleted = ids.filter((_, index) => settled[index]?.status === 'fulfilled')
+        const failed = ids.filter((_, index) => settled[index]?.status === 'rejected')
+        const deletedIds = new Set(deleted)
+        const genStore = this._genStore()
+
+        deleted.forEach(courseId => genStore.dropLocalTaskState(courseId))
+        this.courseList = this.courseList.filter(course => !deletedIds.has(course.course_id))
+        if (deletedIds.has(this.currentCourseId)) {
+            this.nodes = []; this.courseTree = []; this.currentCourseId = ''; this.currentNode = null
+            this.currentCourseVersionId = ''; this.currentDocumentRevision = ''; this.currentCourseSourceFormat = ''
+            this.currentCourseProjection = 'published'; this.currentGenerationPreviewUpdatedAt = ''
+            this.currentPedagogyProfile = null
+            this.currentGenerationQualityReport = null
+            this.currentTeachingPlan = null
+        }
+        genStore.persistGenerationState()
+        await this.fetchCourseList(options)
+        return { deleted, failed }
     },
 
     async fetchCourseTree() {
