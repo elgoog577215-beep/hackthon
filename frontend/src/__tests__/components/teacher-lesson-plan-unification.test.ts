@@ -236,12 +236,18 @@ describe('统一教案页面', () => {
     expect(wrapper.findAll('.lesson-theme')).toHaveLength(2)
   })
 
-  it('已有教案时把正式教案放在前面，生成依据降为后置辅助面板', () => {
+  it('课型与生成操作只出现一次并始终位于正式教案之前', () => {
     const workbenchSource = readFileSync(resolve(process.cwd(), 'src/components/TeacherCourseWorkbench.vue'), 'utf8')
-    expect(workbenchSource).toContain("(!workingLessonRevision || lessonGenerationActive)")
-    expect(workbenchSource).toContain("workingLessonRevision && !lessonGenerationActive")
-    expect(workbenchSource).toContain('class="lesson-arrangement-supporting"')
-    expect(workbenchSource).toContain('supporting')
+    const arrangementIndex = workbenchSource.indexOf('<TeacherLessonArrangementSummary')
+    const lessonCommandBarIndex = workbenchSource.indexOf('<TeacherDocumentCommandBar', arrangementIndex)
+    const lessonDocumentIndex = workbenchSource.indexOf('<TeacherLessonPlanDocument', arrangementIndex)
+
+    expect(workbenchSource.match(/<TeacherLessonArrangementSummary/g)).toHaveLength(1)
+    expect(arrangementIndex).toBeGreaterThan(-1)
+    expect(lessonCommandBarIndex).toBeGreaterThan(arrangementIndex)
+    expect(lessonDocumentIndex).toBeGreaterThan(lessonCommandBarIndex)
+    expect(workbenchSource).toContain(':supporting="Boolean(workingLessonRevision && !lessonGenerationActive)"')
+    expect(workbenchSource).not.toContain('lesson-arrangement-supporting')
   })
 
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {
