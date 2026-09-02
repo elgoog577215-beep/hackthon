@@ -210,4 +210,4 @@
 - [x] 23.4 Keep drafts editable and saveable, recompute the editorial report after every save and block only formal confirmation on unresolved hard gaps.
 - [x] 23.5 Project education objectives, derived teaching form, total hours and confirmed external mentor information into the teaching calendar and all DOCX/PDF/XLSX/CSV exports without creating a second syllabus truth.
 - [x] 23.6 Bundle and license a CJK font for PDF export, verify the font is embedded, and cover generation, adjustment, recovery, publication, calendar and frontend editing with focused tests.
-- [ ] 23.7 Complete Chinese desktop browser acceptance, full regression, strict OpenSpec/build checks, release documentation and production verification.
+- [x] 23.7 Complete Chinese desktop browser acceptance, full regression, strict OpenSpec/build checks, release documentation and production verification.
