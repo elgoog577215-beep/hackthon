@@ -51,4 +51,17 @@ describe('course workbench authoring boundary', () => {
     expect(currentWriters).not.toMatch(/(?:course_type|course_purpose|composition_style)\s*:/)
     expect(currentWriters).not.toMatch(/\.(?:course_type|course_purpose|composition_style)\s*=/)
   })
+
+  it('新建课和课程基线提供相同的八种学期选择', () => {
+    const termWriters = [
+      source('views/TeacherCourseCreateView.vue'),
+      source('components/CourseBaselineDialog.vue'),
+    ]
+
+    for (const writer of termWriters) {
+      for (const term of ['春夏', '秋冬', '春', '夏', '秋', '冬', '暑期课', '寒期课']) {
+        expect(writer).toContain(`<option value="${term}">`)
+      }
+    }
+  })
 })
