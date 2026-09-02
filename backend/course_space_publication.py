@@ -120,6 +120,14 @@ def _text_items(value: Any) -> list[str]:
     ))
 
 
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 def _first_items(source: dict[str, Any], *keys: str) -> list[str]:
     for key in keys:
         values = _text_items(source.get(key))
@@ -402,6 +410,39 @@ def _render_outline(course_data: dict[str, Any]) -> str:
         lines.append(f"### {label}")
         lines.extend([f"- {item}" for item in values] if values else ["尚未确认。"])
         lines.append("")
+
+    lines += [
+        "### 课程目标与预期成果关联表", "",
+        "| 可测量成果 | 对应目标 | 覆盖讲次 | 评价证据 | 内容覆盖范围 |",
+        "|---|---|---|---|---|",
+    ]
+    outcome_alignment = [
+        item for item in context["outcome_alignment"]
+        if isinstance(item, dict)
+    ]
+    if outcome_alignment:
+        outcomes = context["measurable_outcomes"]
+        for item in outcome_alignment:
+            outcome_number = _positive_int(item.get("outcome_number")) or 0
+            outcome = (
+                outcomes[outcome_number - 1]
+                if 1 <= outcome_number <= len(outcomes)
+                else "待确认"
+            )
+            lecture_numbers = [
+                str(number) for number in item.get("lecture_numbers") or []
+                if str(number).strip()
+            ]
+            lines.append(
+                f"| {_md_cell(outcome)} | "
+                f"{_md_cell('、'.join(_text_items(item.get('objective_refs'))))} | "
+                f"{_md_cell('、'.join(f'第{number}讲' for number in lecture_numbers))} | "
+                f"{_md_cell('；'.join(_text_items(item.get('assessment_evidence'))))} | "
+                f"{_md_cell(item.get('coverage_scope'))} |"
+            )
+    else:
+        lines.append("| 待建立 | 待确认 | 待确认 | 待确认 | 待确认 |")
+    lines.append("")
 
     lines += ["## 三、课程要求", "", "### 授课方式"]
     lines.extend(

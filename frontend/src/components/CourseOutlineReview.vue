@@ -572,6 +572,32 @@
                   <ul v-if="group.items.length"><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
                   <p v-else>{{ t('courseGeneration.outlineReview.templatePending', '尚未确认。') }}</p>
                 </template>
+                <h3>{{ t('courseGeneration.outlineReview.outcomeAlignmentTitle', '课程目标与预期成果关联表') }}</h3>
+                <div class="formal-outline__table-wrap">
+                  <table data-testid="outcome-alignment-table">
+                    <thead>
+                      <tr>
+                        <th>{{ t('courseGeneration.outlineReview.outcomeAlignmentOutcome', '可测量成果') }}</th>
+                        <th>{{ t('courseGeneration.outlineReview.outcomeAlignmentObjectives', '对应目标') }}</th>
+                        <th>{{ t('courseGeneration.outlineReview.outcomeAlignmentLectures', '覆盖讲次') }}</th>
+                        <th>{{ t('courseGeneration.outlineReview.outcomeAlignmentEvidence', '评价证据') }}</th>
+                        <th>{{ t('courseGeneration.outlineReview.outcomeAlignmentScope', '内容覆盖范围') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-if="!documentOutcomeAlignment.length">
+                        <td colspan="5">{{ t('courseGeneration.outlineReview.outcomeAlignmentPending', '尚未建立目标与成果关联。') }}</td>
+                      </tr>
+                      <tr v-for="item in documentOutcomeAlignment" :key="`${item.outcomeNumber}-${item.outcome}`">
+                        <td>{{ item.outcome }}</td>
+                        <td>{{ item.objectiveRefs.join('、') || '—' }}</td>
+                        <td>{{ item.lectureLabels.join('、') || '—' }}</td>
+                        <td>{{ item.assessmentEvidence.join('；') || '—' }}</td>
+                        <td>{{ item.coverageScope || '—' }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </section>
 
               <section class="formal-outline__template-section">
@@ -1044,6 +1070,27 @@ const documentIntroZh = computed(() => String(
 const documentIntroEn = computed(() => String(documentPlan.value.course_intro_en || '').trim())
 const documentEducationObjectives = computed(() => formalList(documentPlan.value.education_objectives))
 const documentMeasurableOutcomes = computed(() => formalList(documentPlan.value.measurable_outcomes))
+const documentOutcomeAlignment = computed(() => (
+  Array.isArray(documentPlan.value.outcome_alignment)
+    ? documentPlan.value.outcome_alignment
+      .filter((item: any) => item && typeof item === 'object')
+      .map((item: any) => {
+        const outcomeNumber = Number(item.outcome_number || item.outcome_index || 0)
+        return {
+          outcomeNumber,
+          outcome: documentMeasurableOutcomes.value[outcomeNumber - 1]
+            || t('courseGeneration.outlineReview.outcomeAlignmentUnknown', '待确认成果'),
+          objectiveRefs: formalList(item.objective_refs),
+          lectureLabels: (Array.isArray(item.lecture_numbers) ? item.lecture_numbers : [])
+            .map((number: any) => Number(number))
+            .filter((number: number) => Number.isInteger(number) && number > 0)
+            .map((number: number) => t('courseGeneration.outlineReview.lectureNumber', '第{number}讲').replace('{number}', String(number))),
+          assessmentEvidence: formalList(item.assessment_evidence),
+          coverageScope: String(item.coverage_scope || '').trim(),
+        }
+      })
+    : []
+))
 const documentTeachingMethods = computed(() => {
   const explicit = formalList(documentPlan.value.teaching_methods)
   if (explicit.length) return explicit

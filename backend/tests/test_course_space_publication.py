@@ -57,6 +57,14 @@ def _course() -> dict:
         "course_outline": {
             "positioning": "在 8 课时内掌握核心推理链条",
             "learning_objectives": ["能计算导数与定积分"],
+            "measurable_outcomes": ["能独立完成典型极限判定并说明依据"],
+            "outcome_alignment": [{
+                "outcome_number": 1,
+                "objective_refs": ["学习目标1"],
+                "lecture_numbers": [1],
+                "assessment_evidence": ["课堂出口题与推导过程"],
+                "coverage_scope": "函数极限的基本判定",
+            }],
             "prerequisites": ["初等函数与代数运算"],
             "chapters": [{
                 "title": "第1章 极限",
@@ -238,6 +246,10 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
     assert "### 学习目标" in outline
     assert "### 育人目标" in outline
     assert "### 可测量结果" in outline
+    assert "### 课程目标与预期成果关联表" in outline
+    assert "能独立完成典型极限判定并说明依据" in outline
+    assert "课堂出口题与推导过程" in outline
+    assert "函数极限的基本判定" in outline
     assert "## 三、课程要求" in outline
     assert "### 授课方式" in outline
     assert "### 考核方式" in outline

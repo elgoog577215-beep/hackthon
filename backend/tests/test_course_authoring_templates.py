@@ -66,6 +66,14 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
         "course_plan": {
             "positioning": "从布尔代数进入数字系统设计",
             "learning_objectives": ["能设计并验证基本组合逻辑电路"],
+            "measurable_outcomes": ["能完成组合逻辑电路设计并提交验证记录"],
+            "outcome_alignment": [{
+                "outcome_number": 1,
+                "objective_refs": ["学习目标1"],
+                "lecture_numbers": [1, 2],
+                "assessment_evidence": ["电路作品与验证记录"],
+                "coverage_scope": "基本组合逻辑电路",
+            }],
             "chapters": [],
         },
     })
@@ -77,6 +85,7 @@ def test_formal_context_keeps_sources_empty_instead_of_inventing_references():
     assert context["course_information"]["班级规模"] == "48 人"
     assert context["student_profile"] == "学生已修完电路基础，但工程验证经验不足。"
     assert context["assessment_methods"] == ["实验与期末设计"]
+    assert context["outcome_alignment"][0]["lecture_numbers"] == [1, 2]
     assert context["teaching_requirements"] == []
     assert context["references"] == []
     assert "不编造" in context["reference_policy"]

@@ -153,6 +153,13 @@ describe('一句话调整课程目录', () => {
         learning_objectives: ['能解释并运用麦克斯韦方程组'],
         education_objectives: ['形成严谨求证的科学态度'],
         measurable_outcomes: ['能够独立完成典型边值问题'],
+        outcome_alignment: [{
+          outcome_number: 1,
+          objective_refs: ['学习目标1'],
+          lecture_numbers: [1],
+          assessment_evidence: ['边值问题推导作品'],
+          coverage_scope: '静电场边值问题',
+        }],
         teaching_methods: ['线下课堂'],
         assessment_methods: ['课堂任务与期末考核'],
         reference_books: ['郭硕鸿：《电动力学》'],
@@ -208,6 +215,9 @@ describe('一句话调整课程目录', () => {
     expect(document.text()).not.toContain('1.1')
     expect(document.text()).not.toContain('小节')
     expect(document.text()).toContain('每讲学习成果与达成标准')
+    expect(wrapper.get('[data-testid="outcome-alignment-table"]').text()).toContain('能够独立完成典型边值问题')
+    expect(wrapper.get('[data-testid="outcome-alignment-table"]').text()).toContain('第1讲')
+    expect(wrapper.get('[data-testid="outcome-alignment-table"]').text()).toContain('边值问题推导作品')
     expect(document.text()).toContain('能够解释静电场边值问题的求解条件')
     expect(document.text()).toContain('本讲只处理静电场边值问题，不提前展开电磁波')
     expect(document.text()).toContain('提交一份边值问题推导，边界条件与结论必须一致')

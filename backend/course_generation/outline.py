@@ -297,6 +297,52 @@ def normalize_outline_skeleton(
             ),
             "section_count": section_count or 0,
         })
+    measurable_outcomes = [
+        _clip(item, 220)
+        for item in payload.get("measurable_outcomes") or []
+        if str(item or "").strip()
+    ][:12]
+    outcome_alignment_by_number: dict[int, dict[str, Any]] = {}
+    for raw in payload.get("outcome_alignment") or []:
+        if not isinstance(raw, dict):
+            continue
+        outcome_number = _positive_int(
+            raw.get("outcome_number") or raw.get("outcome_index")
+        )
+        if not outcome_number or outcome_number > len(measurable_outcomes):
+            continue
+        lecture_numbers = list(dict.fromkeys(
+            number
+            for item in raw.get("lecture_numbers") or []
+            if (number := _positive_int(item)) and number <= len(chapters)
+        ))
+        candidate = {
+            "outcome_number": outcome_number,
+            "objective_refs": _text_items(
+                raw.get("objective_refs"),
+                max_chars=120,
+                limit=8,
+            ),
+            "lecture_numbers": lecture_numbers,
+            "assessment_evidence": _text_items(
+                raw.get("assessment_evidence"),
+                max_chars=180,
+                limit=8,
+            ),
+            "coverage_scope": _clip(raw.get("coverage_scope"), 260),
+        }
+        existing = outcome_alignment_by_number.get(outcome_number)
+        if existing is None:
+            outcome_alignment_by_number[outcome_number] = candidate
+            continue
+        for key in ("objective_refs", "assessment_evidence"):
+            existing[key] = list(dict.fromkeys(existing[key] + candidate[key]))[:8]
+        existing["lecture_numbers"] = list(dict.fromkeys(
+            existing["lecture_numbers"] + candidate["lecture_numbers"]
+        ))
+        if not existing["coverage_scope"]:
+            existing["coverage_scope"] = candidate["coverage_scope"]
+    outcome_alignment = list(outcome_alignment_by_number.values())
     skeleton = {
         "schema_version": "course_outline_skeleton_v2",
         "authoring_structure_version": (
@@ -326,11 +372,8 @@ def normalize_outline_skeleton(
             for item in payload.get("education_objectives") or []
             if str(item or "").strip()
         ][:12],
-        "measurable_outcomes": [
-            _clip(item, 220)
-            for item in payload.get("measurable_outcomes") or []
-            if str(item or "").strip()
-        ][:12],
+        "measurable_outcomes": measurable_outcomes,
+        "outcome_alignment": outcome_alignment,
         "teaching_methods": [
             _clip(item, 220)
             for item in payload.get("teaching_methods") or []
@@ -951,6 +994,9 @@ def assemble_course_outline(
         "measurable_outcomes": list(
             skeleton.get("measurable_outcomes") or []
         ),
+        "outcome_alignment": deepcopy(
+            skeleton.get("outcome_alignment") or []
+        ),
         "teaching_methods": list(skeleton.get("teaching_methods") or []),
         "assessment_methods": list(
             skeleton.get("assessment_methods") or []
@@ -965,7 +1011,7 @@ def assemble_course_outline(
     }
 
 
-_QUALITY_RULE_VERSION = "course_outline_editorial_v4"
+_QUALITY_RULE_VERSION = "course_outline_editorial_v5"
 _QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
 _NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
 _QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
@@ -1055,6 +1101,30 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             "整门课程缺少可检查的学习成果，章节安排因此没有清晰的共同终点。",
             category="document_identity",
             repair_instruction="补充 3—5 条可观察、可评价的全课学习成果，不改变章节结构。",
+        ))
+    measurable_outcomes = [
+        item for item in source.get("measurable_outcomes") or []
+        if str(item).strip()
+    ]
+    aligned_outcome_numbers = {
+        _positive_int(item.get("outcome_number") or item.get("outcome_index"))
+        for item in source.get("outcome_alignment") or []
+        if isinstance(item, dict)
+    }
+    missing_outcome_numbers = [
+        index for index in range(1, len(measurable_outcomes) + 1)
+        if index not in aligned_outcome_numbers
+    ]
+    if missing_outcome_numbers:
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_outcome_alignment",
+            f"有 {len(missing_outcome_numbers)} 项可测量成果尚未关联课程目标、覆盖讲次和评价证据。",
+            category="outcome_alignment",
+            evidence={"outcome_numbers": missing_outcome_numbers},
+            repair_instruction=(
+                "只补充课程目标与预期成果关联：为每项可测量成果指明"
+                "对应目标、覆盖讲次、评价证据和内容范围，不改变讲次结构。"
+            ),
         ))
 
     title_counts = Counter(

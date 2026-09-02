@@ -132,6 +132,7 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
     assert "第N讲" in prompt
     assert '"assessment"' in prompt
     assert '"scope_boundary"' in prompt
+    assert '"outcome_alignment"' in prompt
     assert "学生要提交、解释、判断、设计、实作或迁移出什么具体成果" in prompt
     assert "不得要求学生使用后续讲次才会完成的内容" in prompt
 
@@ -140,6 +141,20 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
             "course_title": "电动力学",
             "course_intro_zh": "从经典场论建立统一分析框架。",
             "learning_objectives": ["能解释麦克斯韦方程组的物理意义"],
+            "measurable_outcomes": ["能建立并求解典型电磁场问题"],
+            "outcome_alignment": [{
+                "outcome_number": 1,
+                "objective_refs": ["学习目标1"],
+                "lecture_numbers": [1, 2, 99],
+                "assessment_evidence": ["边值问题求解与磁场计算"],
+                "coverage_scope": "静电场与稳恒磁场",
+            }, {
+                "outcome_number": 1,
+                "objective_refs": ["育人目标1"],
+                "lecture_numbers": [2],
+                "assessment_evidence": ["口头答辩"],
+                "coverage_scope": "",
+            }],
             "lectures": [
                 {
                     "title": "静电场与边值问题",
@@ -191,6 +206,13 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
     assert plan["chapters"][1]["sections"][0]["scope_boundary"] == (
         "只分析稳恒电流磁场，不引入电磁感应"
     )
+    assert plan["outcome_alignment"] == [{
+        "outcome_number": 1,
+        "objective_refs": ["学习目标1", "育人目标1"],
+        "lecture_numbers": [1, 2],
+        "assessment_evidence": ["边值问题求解与磁场计算", "口头答辩"],
+        "coverage_scope": "静电场与稳恒磁场",
+    }]
 
 
 def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():
@@ -234,6 +256,23 @@ def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():
     assert report["passed"] is True
     assert report["non_blocking"] is True
     assert report["summary"].startswith("大纲已生成，可继续编辑和确认")
+
+
+def test_measurable_outcomes_without_alignment_are_reported_for_review():
+    report = review_course_outline_document({
+        "authoring_structure_version": "lecture_v1",
+        "positioning": "从真实设计任务建立可验证的方法。",
+        "learning_objectives": ["能完成可评审的设计方案"],
+        "measurable_outcomes": ["能提交原型与测试记录"],
+        "chapters": [],
+    })
+
+    issue = next(
+        item for item in report["issues"]
+        if item["code"] == "outline_editorial:missing_outcome_alignment"
+    )
+    assert issue["rule_version"] == "course_outline_editorial_v5"
+    assert issue["evidence"]["outcome_numbers"] == [1]
 
 
 def test_sixteen_lecture_ui_design_outline_keeps_distinct_evidence_and_is_ready():
@@ -366,7 +405,7 @@ def test_whole_outline_review_locates_repeated_assessment_templates_without_bloc
         if issue["code"] == "outline_editorial:repeated_assessment_template"
     )
     assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
-    assert repeated["rule_version"] == "course_outline_editorial_v4"
+    assert repeated["rule_version"] == "course_outline_editorial_v5"
     assert "范围说明" in repeated["repair_instruction"]
     assert report["metrics"]["located_section_count"] == 4
 

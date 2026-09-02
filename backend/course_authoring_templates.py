@@ -305,6 +305,9 @@ def compile_formal_course_context(
             or effective_plan.get("measurable_objectives")
             or effective_plan.get("可测量成果")
         ),
+        "outcome_alignment": deepcopy(
+            effective_plan.get("outcome_alignment") or []
+        ),
         "prerequisites": _text_list(effective_plan.get("prerequisites") or profile.get("prerequisite_courses")),
         "teaching_methods": _text_list(
             effective_plan.get("teaching_methods")
