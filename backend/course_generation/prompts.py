@@ -28,7 +28,7 @@ from teaching_design import (
     format_generation_teaching_guidance,
 )
 
-PROMPT_CONTRACT_VERSION = "course_prompt_v30"
+PROMPT_CONTRACT_VERSION = "course_prompt_v31"
 
 
 def _course_planning_rules(brief: dict[str, Any]) -> str:
@@ -270,6 +270,11 @@ class CoursePromptComposer:
 5. 每讲 `content_summary` 使用二至四句自然中文，既说清实际要教的内容，又不过度展开成教案或讲义。
 6. 每讲标题只写主题，不带“第N讲”、章、节或数字编号；系统会统一加上“第N讲”。
 7. 每讲目标、重点、难点、活动和作业要与本讲内容对应；案例、讨论、实验、实践按学科需要选择，不强行套同一顺序。
+   每讲 `assessment` 必须写清学生要提交、解释、判断、设计、实作或迁移出什么具体成果，
+   以及教师根据什么标准判断达成；不同讲次应随真实内容使用不同成果和判断标准，
+   不得只替换讲次标题。达成检验只能使用本讲内容或前序讲次已经形成的成果，
+   不得要求学生使用后续讲次才会完成的内容。`scope_boundary` 必须写清本讲负责的内容，
+   以及明确不提前展开什么。
 8. 参考书籍、网站资料与课程网站只有在教师资料或已确认输入中有依据时才填写，否则保持空数组或空字符串。
 9. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
 {coverage_rules}
@@ -297,6 +302,8 @@ class CoursePromptComposer:
       "key_difficulties": ["教学难点"],
       "activities": ["按需安排的主要教学活动"],
       "homework": ["课后任务"],
+      "assessment": ["学生提交的具体成果，以及教师判断达成的标准"],
+      "scope_boundary": "本讲负责的内容，以及明确不提前展开什么",
       "planning_stages": [],
       "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
       "path_reason": "本讲在整课中的推进作用"

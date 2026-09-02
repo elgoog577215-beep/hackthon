@@ -651,6 +651,36 @@
               </div>
             </section>
 
+            <section
+              v-if="isLectureOutline"
+              class="formal-outline__lecture-evidence"
+              data-testid="lecture-outcome-review"
+            >
+              <h3>{{ t('courseGeneration.outlineReview.lectureEvidenceTitle', '每讲学习成果与达成标准') }}</h3>
+              <ol>
+                <li v-for="(chapter, index) in documentChapters" :key="String(chapter.node_id || index)">
+                  <header>
+                    <span>{{ t('courseGeneration.outlineReview.lectureNumber', '第{number}讲').replace('{number}', String(index + 1)) }}</span>
+                    <strong>{{ plainLectureTitle(chapter.title) }}</strong>
+                  </header>
+                  <dl>
+                    <div>
+                      <dt>{{ t('courseGeneration.outlineReview.lectureObjectiveLabel', '学习目标') }}</dt>
+                      <dd>{{ lectureEvidence(chapter).objective || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('courseGeneration.outlineReview.lectureScopeLabel', '本讲范围') }}</dt>
+                      <dd>{{ lectureEvidence(chapter).scope || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                    </div>
+                    <div>
+                      <dt>{{ t('courseGeneration.outlineReview.lectureAssessmentLabel', '达成检验') }}</dt>
+                      <dd>{{ lectureEvidence(chapter).assessments.join('；') || t('courseGeneration.outlineReview.lectureEvidencePending', '尚未明确，建议补充后再确认。') }}</dd>
+                    </div>
+                  </dl>
+                </li>
+              </ol>
+            </section>
+
             <template v-if="isLectureOutline">
               <section class="formal-outline__template-section formal-outline__attachments">
                 <h3>{{ t('courseGeneration.outlineReview.templateCalendarAttachment', '附件1：课程教学日历') }}</h3>
@@ -1076,6 +1106,14 @@ const formalObjectiveGroups = computed(() => [
   { label: t('courseGeneration.outlineReview.templateEducationGoals', '育人目标'), items: documentEducationObjectives.value },
   { label: t('courseGeneration.outlineReview.templateMeasurableResults', '可测量结果'), items: documentMeasurableOutcomes.value },
 ])
+function lectureEvidence(chapter: any) {
+  const section = Array.isArray(chapter?.sections) ? chapter.sections[0] || {} : {}
+  return {
+    objective: String(section.learning_objective || chapter?.learning_objective || '').trim(),
+    scope: String(section.scope_boundary || chapter?.scope_boundary || '').trim(),
+    assessments: formalList(section.assessment || chapter?.assessment),
+  }
+}
 function proposalNodeChange(nodeId: string) {
   const diff = adjustmentProposal.value?.diff || {}
   const moved = (diff.moved || []).find((item: any) => String(item.node_id || '') === nodeId)
@@ -3171,6 +3209,18 @@ defineExpose({
 .formal-outline__assessment { display:flex; align-items:flex-start; gap:9px; margin-top:9px; }
 .formal-outline__assessment strong { flex:0 0 auto; color:#4f55b5; font-size:11px; }
 .formal-outline__assessment span { color:#566175; font-size:11px; line-height:1.6; }
+.formal-outline__lecture-evidence { margin:34px clamp(18px,4vw,44px) 0; padding-top:28px; border-top:1px solid #dfe3e9; }
+.formal-outline__lecture-evidence > h3 { margin:0 0 18px; color:#263047; font-size:19px; line-height:1.4; }
+.formal-outline__lecture-evidence > ol { margin:0; padding:0; list-style:none; }
+.formal-outline__lecture-evidence > ol > li { padding:18px 0; border-top:1px solid #edf0f4; }
+.formal-outline__lecture-evidence > ol > li:first-child { border-top:0; }
+.formal-outline__lecture-evidence header { display:grid; grid-template-columns:52px minmax(0,1fr); gap:12px; align-items:baseline; }
+.formal-outline__lecture-evidence header span { color:#6068bd; font-size:11px; font-weight:850; }
+.formal-outline__lecture-evidence header strong { color:#2c364b; font-size:14px; line-height:1.45; }
+.formal-outline__lecture-evidence dl { display:grid; gap:7px; margin:12px 0 0 64px; }
+.formal-outline__lecture-evidence dl > div { display:grid; grid-template-columns:62px minmax(0,1fr); gap:10px; }
+.formal-outline__lecture-evidence dt { color:#7b8495; font-size:11px; font-weight:750; line-height:1.65; }
+.formal-outline__lecture-evidence dd { margin:0; color:#566175; font-size:11px; line-height:1.65; }
 .outline-review__chapters {
   display:grid;
   gap:0;
@@ -3848,7 +3898,7 @@ defineExpose({
   .formal-outline__brief { grid-template-columns:1fr; padding:30px 12px; }
   .formal-outline__brief > div { padding:0; }
   .formal-outline__brief > div + div { margin-top:28px; padding:28px 0 0; border-top:1px solid #e7e9ef; border-left:0; }
-  .outline-quality,.formal-outline__schedule { margin-inline:12px; padding-inline:0; }
+  .outline-quality,.formal-outline__schedule,.formal-outline__lecture-evidence { margin-inline:12px; padding-inline:0; }
   .outline-quality > header,.formal-outline__schedule > header { align-items:flex-start; flex-direction:column; gap:8px; }
   .outline-quality > header > p,.formal-outline__schedule > header p { text-align:left; }
   .outline-quality li { grid-template-columns:1fr; gap:9px; }
@@ -3857,6 +3907,8 @@ defineExpose({
   .formal-outline__chapter-block > header small { grid-column:2; }
   .formal-outline__chapter-block > ol { margin-left:42px; }
   .formal-outline__chapter-block > ol > li { grid-template-columns:1fr; gap:5px; }
+  .formal-outline__lecture-evidence dl { margin-left:0; }
+  .formal-outline__lecture-evidence dl > div { grid-template-columns:1fr; gap:2px; }
   .outline-review__chapters { gap:16px; padding:16px 0 20px; }
   .outline-review__chapter-heading { padding:11px 10px; border-radius:8px; }
   .outline-review__chapter-heading input { font-size:16px; }

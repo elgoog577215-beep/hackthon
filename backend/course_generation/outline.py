@@ -141,6 +141,23 @@ def _planning_stages(value: Any) -> list[str]:
     return result
 
 
+def _text_items(value: Any, *, max_chars: int, limit: int) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = value
+    else:
+        values = []
+    result: list[str] = []
+    for item in values:
+        text = _clip(item, max_chars)
+        if text and text not in result:
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
 @dataclass(frozen=True)
 class CourseOutlinePlanningBudget:
     """Per-unit outline execution settings, never a total-course ceiling."""
@@ -265,6 +282,12 @@ def normalize_outline_skeleton(
                 for item in raw.get("homework") or []
                 if str(item or "").strip()
             ][:6],
+            "assessment": _text_items(
+                raw.get("assessment"),
+                max_chars=240,
+                limit=8,
+            ),
+            "scope_boundary": _clip(raw.get("scope_boundary"), 320),
             "learning_path_role": _learning_path_role(
                 raw.get("learning_path_role")
             ),
@@ -641,8 +664,7 @@ def normalize_outline_batch(
                 if str(item or "").strip()
             ][:8],
             "scope_boundary": _clip(
-                raw.get("scope_boundary")
-                or "只覆盖当前小节的学习责任，不提前展开后续内容",
+                raw.get("scope_boundary"),
                 240,
             ),
             "learning_path_role": _learning_path_role(
@@ -653,11 +675,6 @@ def normalize_outline_batch(
                 240,
             ),
         })
-    for section in sections:
-        if not section["assessment"]:
-            section["assessment"] = [
-                f"完成一项可检查的「{section['title']}」学习任务",
-            ]
     batch = {
         "schema_version": "course_outline_batch_v2",
         "batch_id": str(spec.get("batch_id") or ""),
@@ -829,12 +846,8 @@ def compile_teacher_lecture_outline_batch(
                 _clip(item, 180)
                 for item in lecture.get("assessment") or []
                 if str(item or "").strip()
-            ] or [f"通过课堂任务或课后作业检查“{title}”的目标达成情况"],
-            "scope_boundary": _clip(
-                lecture.get("scope_boundary")
-                or f"本讲只承担“{title}”对应的教学内容",
-                240,
-            ),
+            ],
+            "scope_boundary": _clip(lecture.get("scope_boundary"), 240),
             "learning_path_role": _learning_path_role(
                 lecture.get("learning_path_role")
             ),
@@ -952,7 +965,7 @@ def assemble_course_outline(
     }
 
 
-_QUALITY_RULE_VERSION = "course_outline_editorial_v3"
+_QUALITY_RULE_VERSION = "course_outline_editorial_v4"
 _QUOTED_TOPIC = re.compile(r"[“‘「『《][^”’」』》]{1,80}[”’」』》]")
 _NUMBER_TOKEN = re.compile(r"(?:第\s*)?\d+(?:\.\d+)?(?:\s*[章节项个])?")
 _QUALITY_PUNCTUATION = re.compile(r"[\s\W_]+", re.UNICODE)
@@ -1016,6 +1029,11 @@ def _editorial_issue(
 def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any]:
     """Run a deterministic, non-blocking editorial review on one whole outline."""
     source = plan if isinstance(plan, dict) else {}
+    unit_label = (
+        "讲"
+        if source.get("authoring_structure_version") == "lecture_v1"
+        else "小节"
+    )
     chapters = [item for item in source.get("chapters") or [] if isinstance(item, dict)]
     sections = [
         section
@@ -1055,7 +1073,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
     if duplicate_title_nodes:
         issues.append(_editorial_issue(
             "outline_editorial:duplicate_section_titles",
-            f"有 {len(duplicate_title_nodes)} 个小节使用了重复或近似重复的标题，课程推进层次不够清楚。",
+            f"有 {len(duplicate_title_nodes)} {unit_label}使用了重复或近似重复的标题，课程推进层次不够清楚。",
             category="progression",
             node_ids=duplicate_title_nodes,
             evidence={"duplicate_template_count": len(duplicate_titles)},
@@ -1068,6 +1086,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
     system_register_nodes: list[str] = []
     generic_assessment_nodes: list[str] = []
     missing_assessment_nodes: list[str] = []
+    missing_scope_nodes: list[str] = []
     objective_signatures: dict[str, list[str]] = {}
     assessment_signatures: dict[str, list[str]] = {}
     for section in sections:
@@ -1091,6 +1110,8 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
             objective_signatures.setdefault(objective_signature, []).append(node_id)
         if not assessments:
             missing_assessment_nodes.append(node_id)
+        if not str(section.get("scope_boundary") or "").strip():
+            missing_scope_nodes.append(node_id)
         for assessment in assessments:
             if any(pattern.search(assessment) for pattern in _GENERIC_ASSESSMENT_PATTERNS):
                 generic_assessment_nodes.append(node_id)
@@ -1101,7 +1122,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
     if overloaded_nodes:
         issues.append(_editorial_issue(
             "outline_editorial:overloaded_section_titles",
-            f"有 {len(overloaded_nodes)} 个小节标题同时塞入多个主题，建议拆清主任务或收紧命名。",
+            f"有 {len(overloaded_nodes)} {unit_label}的标题同时塞入多个主题，建议拆清主任务或收紧命名。",
             category="progression",
             node_ids=overloaded_nodes,
             repair_instruction="收紧这些小节的标题与学习目标，每节只保留一个主任务；不改变节点数量和顺序。",
@@ -1110,7 +1131,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
         unique_nodes = list(dict.fromkeys(generic_objective_nodes))
         issues.append(_editorial_issue(
             "outline_editorial:generic_objectives",
-            f"有 {len(unique_nodes)} 个小节目标仍是通用任务句，教师难以判断学生究竟要学会什么。",
+            f"有 {len(unique_nodes)} {unit_label}的目标仍是通用任务句，教师难以判断学生究竟要学会什么。",
             category="outcome_quality",
             node_ids=unique_nodes,
             repair_instruction="把这些小节目标改成“动作 + 对象 + 条件/标准”的可观察表达；保持节点、标题、章节归属和顺序不变。",
@@ -1119,7 +1140,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
         unique_nodes = list(dict.fromkeys(overlong_objective_nodes))
         issues.append(_editorial_issue(
             "outline_editorial:overlong_objectives",
-            f"有 {len(unique_nodes)} 个小节目标塞入过多动作与判断条件，读起来不像课程大纲。",
+            f"有 {len(unique_nodes)} {unit_label}的目标塞入过多动作与判断条件，读起来不像课程大纲。",
             category="outcome_quality",
             node_ids=unique_nodes,
             repair_instruction=(
@@ -1153,10 +1174,18 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
     if missing_assessment_nodes:
         issues.append(_editorial_issue(
             "outline_editorial:missing_assessments",
-            f"有 {len(missing_assessment_nodes)} 个小节没有达成检验，目标还不能被课堂验证。",
+            f"有 {len(missing_assessment_nodes)} {unit_label}没有达成检验，目标还不能被课堂验证。",
             category="assessment_quality",
             node_ids=missing_assessment_nodes,
-            repair_instruction="为这些小节各补充一项与目标直接对应的达成检验，写清学生产出与判断标准；不改变结构。",
+            repair_instruction=f"为这些{unit_label}各补充一项与目标直接对应的达成检验，写清学生产出与判断标准；不改变结构。",
+        ))
+    if missing_scope_nodes:
+        issues.append(_editorial_issue(
+            "outline_editorial:missing_scope_boundaries",
+            f"有 {len(missing_scope_nodes)} {unit_label}没有说清自己负责到哪里，与前后内容的边界还不明确。",
+            category="progression",
+            node_ids=missing_scope_nodes,
+            repair_instruction=f"为这些{unit_label}补充范围说明：写清当前{unit_label}负责的内容，以及明确不提前展开什么；不改变结构。",
         ))
 
     minimum_repetition = max(3, math.ceil(max(1, len(sections)) * 0.35))
@@ -1175,7 +1204,7 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
     if repeated_objective_nodes:
         issues.append(_editorial_issue(
             "outline_editorial:repeated_objective_template",
-            f"有 {len(repeated_objective_nodes)} 个小节沿用同一种目标句式，只替换了主题名称。",
+            f"有 {len(repeated_objective_nodes)} {unit_label}沿用同一种目标句式，只替换了主题名称。",
             category="outcome_quality",
             node_ids=repeated_objective_nodes,
             evidence={"threshold": minimum_repetition},
@@ -1188,12 +1217,12 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
     if combined_assessment_nodes:
         issues.append(_editorial_issue(
             "outline_editorial:repeated_assessment_template",
-            f"有 {len(combined_assessment_nodes)} 个小节的达成检验过于模板化，无法体现各节不同的能力要求。",
+            f"有 {len(combined_assessment_nodes)} {unit_label}的达成检验过于模板化，无法体现不同{unit_label}的能力要求。",
             category="assessment_quality",
             node_ids=combined_assessment_nodes,
             evidence={"threshold": minimum_repetition},
             repair_instruction=(
-                "只重写这些小节的 scope_boundary 与 assessment：为每节选择与目标相符的不同证据形态，"
+                f"只重写这些{unit_label}的范围说明与达成检验：为每{unit_label}选择与目标相符的不同证据形态，"
                 "如解释、推导、判错、比较、设计、实作或迁移；写清产出和判断标准，"
                 "保留节点、标题、目标、章节归属与顺序。"
             ),
@@ -1211,13 +1240,13 @@ def review_course_outline_document(plan: dict[str, Any] | None) -> dict[str, Any
         }),
     }
     report = {
-        "schema_version": "course_outline_editorial_review_v3",
+        "schema_version": "course_outline_editorial_review_v4",
         "rule_version": _QUALITY_RULE_VERSION,
         "non_blocking": True,
         "passed": True,
         "status": "review_suggested" if issues else "ready",
         "summary": (
-            f"发现 {len(issues)} 类可改进项，结构可继续使用。"
+            f"大纲已生成，可继续编辑和确认；发现 {len(issues)} 类内容建议。"
             if issues
             else "整篇大纲未发现高频专业表达问题。"
         ),

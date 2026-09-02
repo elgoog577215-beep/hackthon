@@ -164,13 +164,23 @@ describe('一句话调整课程目录', () => {
             section_number: '1.1',
             title: '1.1 静电场基本方程',
             content_summary: '介绍静电场基本方程、边界条件与典型求解方法。',
+            learning_objective: '能够解释静电场边值问题的求解条件。',
+            scope_boundary: '本讲只处理静电场边值问题，不提前展开电磁波。',
+            assessment: ['提交一份边值问题推导，边界条件与结论必须一致。'],
             planned_hours: 2,
           }],
         }],
       },
       nodes: [
         { ...currentDraft().nodes[0], node_name: '第1章 静电场与边值问题' },
-        { ...currentDraft().nodes[1], node_name: '1.1 静电场基本方程', content_summary: '介绍静电场基本方程、边界条件与典型求解方法。' },
+        {
+          ...currentDraft().nodes[1],
+          node_name: '1.1 静电场基本方程',
+          content_summary: '介绍静电场基本方程、边界条件与典型求解方法。',
+          learning_objective: '能够解释静电场边值问题的求解条件。',
+          scope_boundary: '本讲只处理静电场边值问题，不提前展开电磁波。',
+          assessment: ['提交一份边值问题推导，边界条件与结论必须一致。'],
+        },
       ],
     }
     vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: draft } as any)
@@ -197,6 +207,10 @@ describe('一句话调整课程目录', () => {
     expect(document.text()).not.toContain('第1章')
     expect(document.text()).not.toContain('1.1')
     expect(document.text()).not.toContain('小节')
+    expect(document.text()).toContain('每讲学习成果与达成标准')
+    expect(document.text()).toContain('能够解释静电场边值问题的求解条件')
+    expect(document.text()).toContain('本讲只处理静电场边值问题，不提前展开电磁波')
+    expect(document.text()).toContain('提交一份边值问题推导，边界条件与结论必须一致')
     expect(wrapper.get('[data-testid="outline-rich-editor"]').text()).toContain('介绍静电场基本方程')
     expect(wrapper.find('button[title="Markdown"]').exists()).toBe(false)
   })
@@ -319,6 +333,7 @@ describe('一句话调整课程目录', () => {
     })
     await flushPromises()
 
+    expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('可确认，有改进建议')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('达成检验过于模板化')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('生命周期')
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('理解生命周期')

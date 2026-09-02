@@ -130,6 +130,10 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
     assert '"chapters"' not in prompt
     assert "严格返回 2 讲" in prompt
     assert "第N讲" in prompt
+    assert '"assessment"' in prompt
+    assert '"scope_boundary"' in prompt
+    assert "学生要提交、解释、判断、设计、实作或迁移出什么具体成果" in prompt
+    assert "不得要求学生使用后续讲次才会完成的内容" in prompt
 
     skeleton = normalize_outline_skeleton(
         {
@@ -141,11 +145,15 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
                     "title": "静电场与边值问题",
                     "content_summary": "介绍静电场基本方程、边界条件与典型求解方法。",
                     "learning_objective": "能建立并求解典型静电边值问题",
+                    "assessment": ["提交一份边值问题求解，边界条件、推导和物理检验完整"],
+                    "scope_boundary": "只处理静电场边值问题，不展开时变场",
                 },
                 {
                     "title": "稳恒磁场",
                     "content_summary": "讨论稳恒电流产生的磁场及其基本性质。",
                     "learning_objective": "能运用安培定律分析磁场",
+                    "assessment": ["绘制对称电流的磁场并完成计算，对称性与环路选择正确"],
+                    "scope_boundary": "只分析稳恒电流磁场，不引入电磁感应",
                 },
             ],
         },
@@ -177,6 +185,116 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
         not re.match(r"^\d+\.\d+", node["node_name"])
         for node in nodes
     )
+    assert plan["chapters"][0]["sections"][0]["assessment"] == [
+        "提交一份边值问题求解，边界条件、推导和物理检验完整"
+    ]
+    assert plan["chapters"][1]["sections"][0]["scope_boundary"] == (
+        "只分析稳恒电流磁场，不引入电磁感应"
+    )
+
+
+def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():
+    skeleton = normalize_outline_skeleton(
+        {
+            "authoring_structure_version": "lecture_v1",
+            "course_title": "UI设计",
+            "positioning": "面向初学者建立界面设计能力",
+            "learning_objectives": ["能完成可评审的界面原型"],
+            "lectures": [{
+                "title": "信息层级",
+                "learning_objective": "能根据用户任务排列页面信息",
+            }],
+        },
+        topic="UI设计",
+        request_fingerprint="ui-outline-request",
+    )
+    spec = build_outline_batch_specs(
+        skeleton,
+        CourseOutlinePlanningBudget(),
+    )[0]
+    batch = compile_teacher_lecture_outline_batch(
+        spec=spec,
+        lecture=skeleton["chapters"][0],
+        skeleton_revision_id=skeleton["revision_id"],
+    )
+    plan = assemble_course_outline(
+        skeleton=skeleton,
+        batch_specs=[spec],
+        batches={str(spec["batch_id"]): batch},
+    )
+
+    section = plan["chapters"][0]["sections"][0]
+    assert section["assessment"] == []
+    assert section["scope_boundary"] == ""
+    report = review_course_outline_document(plan)
+    codes = {issue["code"] for issue in report["issues"]}
+    assert "outline_editorial:missing_assessments" in codes
+    assert "outline_editorial:missing_scope_boundaries" in codes
+    assert "outline_editorial:repeated_assessment_template" not in codes
+    assert report["passed"] is True
+    assert report["non_blocking"] is True
+    assert report["summary"].startswith("大纲已生成，可继续编辑和确认")
+
+
+def test_sixteen_lecture_ui_design_outline_keeps_distinct_evidence_and_is_ready():
+    lecture_contracts = [
+        ("用户任务", "从访谈记录提取主要任务", "用户任务清单", "任务包含对象、目标和场景"),
+        ("信息架构", "组织内容并建立导航层级", "信息架构图", "分类无重复且关键内容可定位"),
+        ("页面流程", "绘制覆盖核心任务的页面流程", "页面流程图", "入口、决策点和结果完整"),
+        ("线框图", "把内容层级转化为页面布局", "首页线框图", "主任务突出且信息层级清楚"),
+        ("布局与网格", "使用网格建立稳定的布局秩序", "响应式布局稿", "对齐、间距和缩放规则一致"),
+        ("字体层级", "根据阅读任务建立字体层级", "字体样式表", "标题、正文和辅助信息可辨"),
+        ("色彩系统", "在品牌与可读性约束下配置色彩", "色彩规范", "功能色语义稳定且对比度达标"),
+        ("图标与图形", "选择并绘制语义一致的图标", "图标集与使用说明", "图标含义可识别且线性风格一致"),
+        ("组件状态", "设计组件的完整交互状态", "按钮与输入框状态表", "默认、悬停、焦点、禁用和失败齐全"),
+        ("表单设计", "组织输入、校验与错误恢复", "注册表单原型", "标签清楚、错误可定位且不丢失输入"),
+        ("导航设计", "为多层内容选择合适的导航方式", "可点击导航原型", "用户始终知道位置与可去方向"),
+        ("空与错误状态", "为无数据和操作失败设计恢复方式", "空状态与错误页", "原因、下一步和恢复操作均可见"),
+        ("响应式适配", "根据内容与任务调整不同视口的布局", "三种视口的界面稿", "内容优先级不变且操作可完成"),
+        ("可访问性", "识别并修复关键界面的使用障碍", "可访问性检查清单", "键盘路径、焦点与语义均通过检查"),
+        ("可用性测试", "观察用户执行指定任务并定位问题", "可用性测试报告", "记录包含任务、行为证据、问题与严重度"),
+        ("综合迭代", "依据评审与测试证据修订界面", "高保真原型与变更说明", "关键问题已修复且每项修改有依据"),
+    ]
+    skeleton = normalize_outline_skeleton(
+        {
+            "authoring_structure_version": "lecture_v1",
+            "course_title": "UI设计",
+            "positioning": "面向初学者从用户任务推进到可测试的界面原型",
+            "learning_objectives": ["能设计、评审并迭代一套完整界面方案"],
+            "lectures": [
+                {
+                    "title": title,
+                    "learning_objective": f"能{action}",
+                    "assessment": [f"提交{artifact}；教师检查{criterion}"],
+                    "scope_boundary": f"本讲只负责{title}的核心方法，不提前替代后续综合迭代",
+                }
+                for title, action, artifact, criterion in lecture_contracts
+            ],
+        },
+        topic="UI设计",
+        request_fingerprint="ui-16-outline-request",
+    )
+    specs = build_outline_batch_specs(skeleton, CourseOutlinePlanningBudget())
+    batches = {
+        str(spec["batch_id"]): compile_teacher_lecture_outline_batch(
+            spec=spec,
+            lecture=skeleton["chapters"][index],
+            skeleton_revision_id=skeleton["revision_id"],
+        )
+        for index, spec in enumerate(specs)
+    }
+    plan = assemble_course_outline(
+        skeleton=skeleton,
+        batch_specs=specs,
+        batches=batches,
+    )
+
+    report = review_course_outline_document(plan)
+    sections = [chapter["sections"][0] for chapter in plan["chapters"]]
+    assert len(sections) == 16
+    assert len({section["assessment"][0] for section in sections}) == 16
+    assert report["status"] == "ready", report
+    assert report["issues"] == [], report
 
 
 def test_confirmed_outline_snapshot_is_not_replaced_by_downstream_normalization():
@@ -248,8 +366,8 @@ def test_whole_outline_review_locates_repeated_assessment_templates_without_bloc
         if issue["code"] == "outline_editorial:repeated_assessment_template"
     )
     assert repeated["node_ids"] == ["L2-1-1", "L2-1-2", "L2-1-3", "L2-1-4"]
-    assert repeated["rule_version"] == "course_outline_editorial_v3"
-    assert "scope_boundary" in repeated["repair_instruction"]
+    assert repeated["rule_version"] == "course_outline_editorial_v4"
+    assert "范围说明" in repeated["repair_instruction"]
     assert report["metrics"]["located_section_count"] == 4
 
 
@@ -266,12 +384,14 @@ def test_whole_outline_review_reports_ready_for_distinct_professional_evidence()
                     "title": "变量关系解释",
                     "learning_objective": "能用图表与统计量解释两个变量的关系",
                     "assessment": ["提交一页解释报告，结论须同时引用图表形态与统计量"],
+                    "scope_boundary": "只处理两个变量的探索性关系，不推断因果",
                 },
                 {
                     "node_id": "L2-1-2",
                     "title": "模型方案比较",
                     "learning_objective": "能依据误差与可解释性比较两种模型",
                     "assessment": ["完成模型对照表，并为目标场景给出有依据的选择"],
+                    "scope_boundary": "只比较已给模型，不展开新模型训练",
                 },
             ],
         }],
@@ -309,7 +429,7 @@ def test_whole_outline_review_allows_single_section_chapters_but_flags_system_re
     codes = {issue["code"] for issue in report["issues"]}
     assert "outline_editorial:flat_chapter_structure" not in codes
     assert "outline_editorial:system_register" in codes
-    assert report["schema_version"] == "course_outline_editorial_review_v3"
+    assert report["schema_version"] == "course_outline_editorial_review_v4"
     assert report["status"] == "review_suggested"
 
 

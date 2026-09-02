@@ -40,6 +40,7 @@ from course_pedagogy import (
 )
 from course_generation.budget import build_teaching_plan_batches
 from course_generation.service import CourseService
+from course_generation.outline import review_course_outline_document
 from course_teaching_plan_v3 import normalize_teaching_plan_skeleton_v3
 
 
@@ -504,7 +505,7 @@ def test_generation_artifacts_keep_legacy_material_as_unverified_metadata():
         }],
     )
 
-    assert artifacts["pipeline_version"] == "course_generation_v16"
+    assert artifacts["pipeline_version"] == "course_generation_v17"
     assert artifacts["course_generation_brief"]["course_shape_constraints"] == {
         "minimum_chapter_count": 6,
         "minimum_section_count": 18,
@@ -618,7 +619,8 @@ def test_plan_normalizer_converts_model_dependency_aliases_to_canonical_ids():
     assert second["section_number"] == "1.2"
     assert second["prerequisite_node_ids"] == ["L2-1-1"]
     assert first["learning_objective"]
-    assert first["assessment"]
+    assert first["assessment"] == []
+    assert first["scope_boundary"] == ""
 
 
 def test_generation_route_creates_one_persisted_job():
@@ -752,9 +754,9 @@ async def test_course_service_builds_v12_blueprint_without_profile_model_call(
         },
     )
 
-    assert data["generation_pipeline_version"] == "course_generation_v16"
-    assert data["generation_schema_version"] == "course_generation_v16"
-    assert data["prompt_contract_version"] == "course_prompt_v30"
+    assert data["generation_pipeline_version"] == "course_generation_v17"
+    assert data["generation_schema_version"] == "course_generation_v17"
+    assert data["prompt_contract_version"] == "course_prompt_v31"
     assert data["course_generation_brief"]["formal_course_profile"] == {
         "course_code": "MATH-101",
         "credits": 3,
@@ -996,9 +998,16 @@ def test_outline_validation_leaves_fillable_quality_fields_for_review():
     assert report["passed"] is True
     assert report["issues"] == []
     assert all(
-        section["learning_objective"] and section["scope_boundary"]
+        section["learning_objective"]
+        and section["assessment"] == []
+        and section["scope_boundary"] == ""
         for section in normalized["chapters"][0]["sections"]
     )
+    quality = review_course_outline_document(normalized)
+    assert {
+        "outline_editorial:missing_assessments",
+        "outline_editorial:missing_scope_boundaries",
+    }.issubset({issue["code"] for issue in quality["issues"]})
 
 
 @pytest.mark.parametrize(

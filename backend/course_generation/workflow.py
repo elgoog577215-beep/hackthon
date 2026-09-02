@@ -25,7 +25,7 @@ from teaching_design import apply_course_type_brief
 from course_versioning import stable_hash
 from material_evidence import build_evidence_catalog_summary, evidence_bundle_for_node
 
-PIPELINE_VERSION = "course_generation_v16"
+PIPELINE_VERSION = "course_generation_v17"
 
 COURSE_RELATION_TYPES = {
     "prerequisite",
@@ -255,14 +255,20 @@ def normalize_course_outline_contract(plan: dict[str, Any]) -> dict[str, Any]:
             section.get("learning_objective")
             or f"能解释并应用「{section.get('title')}」的核心内容"
         )
-        section["assessment"] = section.get("assessment") or [
-            f"完成一项可检查的「{section.get('title')}」学习任务"
-        ]
+        raw_assessment = section.get("assessment")
+        if isinstance(raw_assessment, str):
+            section["assessment"] = [raw_assessment.strip()] if raw_assessment.strip() else []
+        else:
+            section["assessment"] = [
+                str(item).strip()
+                for item in raw_assessment or []
+                if str(item or "").strip()
+            ]
         section.setdefault("key_points", [])
         section.setdefault("knowledge_structure", [])
         section.setdefault("reused_knowledge_names", [])
         section.setdefault("misconceptions", [])
-        section.setdefault("scope_boundary", f"只覆盖「{section.get('title')}」必需的知识与行动")
+        section["scope_boundary"] = str(section.get("scope_boundary") or "").strip()
         section["learning_path_role"] = _normalize_learning_path_role(
             section.get("learning_path_role")
         )

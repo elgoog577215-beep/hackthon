@@ -28,6 +28,7 @@ def test_profiles_cover_representative_college_courses():
         "中国古代史": ("humanities_social", "history_textual"),
         "学术英语写作": ("language_learning", "academic_language"),
         "公司财务管理": ("business_career", "finance_accounting"),
+        "UI设计": ("general", "visual_interaction_design"),
     }
     for hint, expected in cases.items():
         pack = resolve_subject_standard_pack("auto", discipline_hint=hint)
@@ -37,6 +38,17 @@ def test_profiles_cover_representative_college_courses():
         assert set(pack["artifact_language"]) == {
             "outline", "lesson_plan", "script", "question_bank", "ppt",
         }
+
+
+def test_ui_design_profile_provides_professional_outputs_and_review_criteria():
+    pack = resolve_subject_standard_pack("auto", discipline_hint="UI设计")
+
+    assert pack["discipline_profile_id"] == "visual_interaction_design"
+    assert "线框图" in pack["canonical_artifacts"]
+    assert "交互原型" in pack["canonical_artifacts"]
+    assert "可用性测试报告" in pack["canonical_artifacts"]
+    assert any("导航、内容、操作和状态" in item for item in pack["quality_rules"])
+    assert "可检查标准" in pack["artifact_language"]["outline"]
 
 
 def test_explicit_family_limits_profile_resolution():

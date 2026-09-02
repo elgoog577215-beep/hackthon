@@ -330,6 +330,7 @@ class CourseService(AIBase):
 不得改变 immutable_course_contract 中的教学类型、用途、难度、材料边界或锁定规则。
 如果用户要求修复大纲专业性，只修改被点名节点的目标、范围或达成检验；每节的检验
 必须体现该节独有的证据形态和判断标准，不能只替换主题词复用同一句式。
+达成检验只能使用当前节点或前序节点已经形成的成果，不得引用或依赖后续节点。
 不要生成课程正文、教案、course_plan、course_outline 或 course_blueprint。
 """.replace("__STRUCTURE_POLICY__", structure_policy).strip()
         response = await self._call_llm(
@@ -618,6 +619,7 @@ class CourseService(AIBase):
             "course_generation_v14",
             "course_generation_v15",
             "course_generation_v16",
+            "course_generation_v17",
         }
         if checkpoint_ready:
             refreshed_brief = deepcopy(existing.get("course_generation_brief") or {})
