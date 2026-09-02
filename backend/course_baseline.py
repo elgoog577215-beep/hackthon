@@ -15,7 +15,12 @@ from teaching_design import (
     resolve_course_teaching_type,
     resolve_learning_purpose,
 )
-from course_schedule import COURSE_PERIOD_MINUTES, legacy_schedule_labels, normalize_schedule_slots
+from course_schedule import (
+    COURSE_PERIOD_MINUTES,
+    legacy_schedule_labels,
+    normalize_schedule_slots,
+    resolve_active_week_range,
+)
 
 
 COURSE_TYPES = {"systematic", "project", "inquiry", "exam"}
@@ -50,6 +55,7 @@ COURSE_PROFILE_FIELDS = (
     "course_period_minutes",
     "active_week_start",
     "active_week_end",
+    "week_range_mode",
     "schedule_slots",
     "planned_lecture_count",
     "assessment_method",
@@ -177,10 +183,15 @@ def normalize_course_information(
         active_week_end = int(profile.get("active_week_end") or 16)
     except (TypeError, ValueError):
         active_week_start, active_week_end = 1, 16
-    if active_week_end < active_week_start:
-        raise ValueError("active_week_end 不能小于 active_week_start")
+    active_week_start, active_week_end, week_range_mode = resolve_active_week_range(
+        normalized["term"],
+        profile.get("week_range_mode"),
+        active_week_start,
+        active_week_end,
+    )
     profile["active_week_start"] = active_week_start
     profile["active_week_end"] = active_week_end
+    profile["week_range_mode"] = week_range_mode
     weekday, periods = legacy_schedule_labels(profile["schedule_slots"])
     if profile["schedule_slots"]:
         profile["weekday"] = weekday

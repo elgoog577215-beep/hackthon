@@ -6,6 +6,7 @@ import pytest
 from course_baseline import (
     build_ai_baseline_prompt,
     confirmed_generation_request,
+    course_information_snapshot,
     merge_ai_baseline_draft,
 )
 from models import CourseGenerationRequest
@@ -58,6 +59,24 @@ def test_confirmed_baseline_converts_legacy_inquiry_to_current_classifications()
     assert "为什么短时强降雨" in persisted["course_intent"]["learning_goal"]
     assert "course_type" not in persisted
     assert "composition_style" not in persisted
+
+
+def test_legacy_short_term_default_range_is_normalized_to_the_zju_calendar():
+    snapshot = course_information_snapshot({
+        "course_name": "C 语言程序设计",
+        "term": "秋季",
+        "course_profile": {
+            "active_week_start": 1,
+            "active_week_end": 16,
+            "planned_lecture_count": 16,
+        },
+        "generation_request": _generation_request(),
+    })
+
+    assert snapshot["course_profile"]["active_week_start"] == 1
+    assert snapshot["course_profile"]["active_week_end"] == 8
+    assert snapshot["course_profile"]["week_range_mode"] == "academic_calendar"
+    assert snapshot["generation_request"]["teacher_course_brief"]["academic_term"] == "秋季"
 
 
 @pytest.mark.asyncio

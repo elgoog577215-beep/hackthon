@@ -683,7 +683,10 @@
 
             <template v-if="isLectureOutline">
               <section class="formal-outline__template-section formal-outline__attachments">
-                <h3>{{ t('courseGeneration.outlineReview.templateCalendarAttachment', '附件1：课程教学日历') }}</h3>
+                <div class="formal-outline__attachment-heading">
+                  <h3>{{ t('courseGeneration.outlineReview.templateCalendarAttachment', '附件1：课程教学日历') }}</h3>
+                  <small v-if="documentCalendarBasis">{{ documentCalendarBasis }}</small>
+                </div>
                 <div class="formal-outline__table-wrap">
                   <table>
                     <thead><tr><th>{{ t('courseGeneration.outlineReview.calendarWeek', '周次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarLecture', '讲次') }}</th><th>{{ t('courseGeneration.outlineReview.calendarTopic', '教学主题') }}</th><th>{{ t('courseGeneration.outlineReview.calendarHours', '学时') }}</th></tr></thead>
@@ -784,6 +787,12 @@ import { t } from '../shared/i18n'
 import { renderMarkdown } from '../utils/markdown'
 import { retrievalErrorTranslationKey } from '../utils/retrieval-errors'
 import { createUuid } from '../utils/client-id'
+import {
+  inferredSessionsPerWeek,
+  projectedLectureWeek,
+  resolveTeachingWeekRange,
+  zjuTeachingWeekRange,
+} from '../utils/zju-academic-calendar'
 
 const props = withDefaults(defineProps<{
   courseId: string
@@ -1058,6 +1067,29 @@ const documentCourseWebsite = computed(() => String(documentPlan.value.course_we
 const documentIdeologyCases = computed<any[]>(() => (
   Array.isArray(documentPlan.value.ideology_cases) ? documentPlan.value.ideology_cases : []
 ))
+const documentAcademicTerm = computed(() => String(
+  courseStore.currentCourse?.term
+  || formalProfile.value.term
+  || teacherCourseBrief.value.academic_term
+  || '',
+).trim())
+const documentWeekRange = computed(() => resolveTeachingWeekRange(
+  documentAcademicTerm.value,
+  formalProfile.value.week_range_mode,
+  formalProfile.value.active_week_start,
+  formalProfile.value.active_week_end,
+))
+const documentCalendarBasis = computed(() => {
+  const calendarRange = zjuTeachingWeekRange(documentAcademicTerm.value)
+  if (!calendarRange || documentWeekRange.value.mode !== 'academic_calendar') return ''
+  const template = t(
+    'courseGeneration.outlineReview.calendarAutoBasis',
+    '{term}学期 · 按浙大校历自动排为 {weeks} 个教学周',
+  )
+  return template
+    .replace('{term}', calendarRange.term)
+    .replace('{weeks}', String(calendarRange.weeks))
+})
 const documentLectureSchedule = computed(() => {
   const slots = (Array.isArray(formalProfile.value.schedule_slots) ? formalProfile.value.schedule_slots : [])
     .map((slot: any) => ({ weekday: Number(slot?.weekday || 0), period: Number(slot?.period || 0) }))
@@ -1075,15 +1107,43 @@ const documentLectureSchedule = computed(() => {
   })
   const hasSchedule = sessions.length > 0
   const sessionPattern = hasSchedule ? sessions : [{ weekday: 0, periods: [] }]
-  const weekStart = Math.max(1, Number(formalProfile.value.active_week_start || 1))
+  const weekRange = documentWeekRange.value
+  const persistedWeekRangeMode = String(formalProfile.value.week_range_mode || '').trim()
+  const hasLegacyCustomWeekRange = (
+    !persistedWeekRangeMode
+    && formalProfile.value.active_week_start != null
+    && formalProfile.value.active_week_end != null
+    && weekRange.mode === 'custom'
+    && (weekRange.start !== 1 || weekRange.end !== 16)
+  )
+  const canProjectWeeks = (
+    hasSchedule
+    || weekRange.mode === 'academic_calendar'
+    || persistedWeekRangeMode === 'custom'
+    || hasLegacyCustomWeekRange
+  )
+  const plannedLectureCount = Math.max(
+    1,
+    Number(
+      formalProfile.value.planned_lecture_count
+      || teacherCourseBrief.value.lecture_count
+      || documentChapters.value.length,
+    ),
+  )
+  const sessionsPerWeek = hasSchedule
+    ? sessions.length
+    : inferredSessionsPerWeek(plannedLectureCount, weekRange)
   return documentChapters.value.map((chapter: any, index: number) => {
     const section = Array.isArray(chapter.sections) ? chapter.sections[0] || {} : {}
     const session = sessionPattern[index % sessionPattern.length] || { weekday: 0, periods: [] }
     const explicitWeek = Number(section.week || section.teaching_week || chapter.week || 0)
+    const projectedWeek = canProjectWeeks
+      ? projectedLectureWeek(index, weekRange, sessionsPerWeek)
+      : null
     const week = explicitWeek > 0
       ? `第${explicitWeek}周`
-      : hasSchedule
-        ? `第${weekStart + Math.floor(index / sessionPattern.length)}周`
+      : projectedWeek
+        ? `第${projectedWeek}周`
         : t('courseGeneration.outlineReview.calendarPending', '待排课')
     const explicitHours = Number(section.planned_hours || chapter.planned_hours || 0)
     const hours = explicitHours > 0
@@ -3103,6 +3163,19 @@ defineExpose({
   color:#3b4559;
   font-size:14px;
   line-height:1.5;
+}
+.formal-outline__attachment-heading {
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:16px;
+}
+.formal-outline__attachment-heading h3 { flex:none; }
+.formal-outline__attachment-heading small {
+  color:#737d8f;
+  font-size:11px;
+  line-height:1.5;
+  text-align:right;
 }
 .formal-outline__template-section p,
 .formal-outline__template-section li {

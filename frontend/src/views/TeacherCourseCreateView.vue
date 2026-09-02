@@ -40,9 +40,22 @@
               <label class="field" for="weekly-hours"><span>{{ t('teacherCourseCreate.weeklyHours') }} <b>*</b></span><input id="weekly-hours" v-model.number="form.weeklyHours" required type="number" min="0.5" max="100" step="0.5" /></label>
               <label class="field field--wide" for="prerequisites"><span>{{ t('teacherCourseCreate.prerequisiteCourses') }}</span><input id="prerequisites" v-model.trim="form.prerequisiteCourses" maxlength="1000" :placeholder="t('teacherCourseCreate.prerequisitePlaceholder')" /></label>
               <label class="field" for="academic-year"><span>{{ t('teacherCourseCreate.academicYear') }}</span><input id="academic-year" v-model.trim="form.academicYear" maxlength="30" placeholder="2026-2027" /></label>
-              <label class="field" for="term"><span>{{ t('teacherCourseCreate.term') }}</span><select id="term" v-model="form.term"><option value="">{{ t('teacherCourseCreate.notSet') }}</option><option value="春夏">{{ t('teacherCourseCreate.springSummer') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter') }}</option><option value="春">{{ t('teacherCourseCreate.spring') }}</option><option value="夏">{{ t('teacherCourseCreate.summer') }}</option><option value="秋">{{ t('teacherCourseCreate.autumn') }}</option><option value="冬">{{ t('teacherCourseCreate.winter') }}</option><option value="暑期课">{{ t('teacherCourseCreate.summerCourse') }}</option><option value="寒期课">{{ t('teacherCourseCreate.winterCourse') }}</option></select></label>
-              <label class="field" for="active-week-start"><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input id="active-week-start" v-model.number="form.activeWeekStart" type="number" min="1" max="30" /></label>
-              <label class="field" for="active-week-end"><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input id="active-week-end" v-model.number="form.activeWeekEnd" type="number" min="1" max="30" /></label>
+              <label class="field" for="term"><span>{{ t('teacherCourseCreate.term') }} <b>*</b></span><select id="term" v-model="form.term" required><option value="" disabled>{{ t('teacherCourseCreate.selectPlaceholder') }}</option><option value="春夏">{{ t('teacherCourseCreate.springSummer') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter') }}</option><option value="春">{{ t('teacherCourseCreate.spring') }}</option><option value="夏">{{ t('teacherCourseCreate.summer') }}</option><option value="秋">{{ t('teacherCourseCreate.autumn') }}</option><option value="冬">{{ t('teacherCourseCreate.winter') }}</option><option value="暑期课">{{ t('teacherCourseCreate.summerCourse') }}</option><option value="寒期课">{{ t('teacherCourseCreate.winterCourse') }}</option></select></label>
+              <div class="week-range-setting field--wide">
+                <div>
+                  <span>{{ t('teacherCourseCreate.activeWeeks', '上课周次') }}</span>
+                  <strong>{{ teachingWeekSummary }}</strong>
+                </div>
+                <button v-if="automaticWeekRange" type="button" @click="toggleWeekRangeMode">
+                  {{ form.weekRangeMode === 'custom'
+                    ? t('teacherCourseCreate.useAcademicCalendar', '恢复校历')
+                    : t('teacherCourseCreate.customizeWeeks', '特殊情况自定义') }}
+                </button>
+              </div>
+              <template v-if="form.weekRangeMode === 'custom'">
+                <label class="field" for="active-week-start"><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input id="active-week-start" v-model.number="form.activeWeekStart" type="number" min="1" max="30" /></label>
+                <label class="field" for="active-week-end"><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input id="active-week-end" v-model.number="form.activeWeekEnd" type="number" min="1" max="30" /></label>
+              </template>
               <ZjuCourseScheduleGrid v-model="form.scheduleSlots" />
               <div class="lecture-plan field--wide">
                 <div>
@@ -60,7 +73,7 @@
         <footer class="form-footer">
           <div class="form-actions">
             <button type="button" @click="closeCourseCreate">{{ t('common.cancel') }}</button>
-            <button class="primary" type="submit" :disabled="creating || !form.courseName || !form.courseCategory || !form.targetGrade || !form.credits || !form.weeklyHours || form.activeWeekEnd < form.activeWeekStart || !form.plannedLectureCount">
+            <button class="primary" type="submit" :disabled="creating || !form.courseName || !form.courseCategory || !form.targetGrade || !form.term || !form.credits || !form.weeklyHours || form.activeWeekEnd < form.activeWeekStart || !form.plannedLectureCount">
               <LoaderCircle v-if="creating" :size="16" class="spin" />
               {{ t('teacherCourseCreate.createCourse') }}
             </button>
@@ -79,6 +92,7 @@ import { LoaderCircle, X } from 'lucide-vue-next'
 import { t } from '../shared/i18n'
 import { useTeacherCourseRuntime } from '../features/teacher-course/useTeacherCourseRuntime'
 import ZjuCourseScheduleGrid, { type CourseScheduleSlot } from '../components/ZjuCourseScheduleGrid.vue'
+import { zjuTeachingWeekRange, type WeekRangeMode } from '../utils/zju-academic-calendar'
 
 const emit = defineEmits<{ (event: 'close'): void }>()
 const router = useRouter()
@@ -105,8 +119,39 @@ const form = reactive({
   courseName: '', englishName: '', targetGrade: '本科生', courseCategory: '', courseCode: '',
   credits: 2, weeklyHours: 2, totalHours: 32,
   prerequisiteCourses: '', academicYear: '', term: '', defaultLocation: '',
-  activeWeekStart: 1, activeWeekEnd: 16, scheduleSlots: [] as CourseScheduleSlot[], plannedLectureCount: 16,
+  activeWeekStart: 1, activeWeekEnd: 16, weekRangeMode: 'academic_calendar' as WeekRangeMode,
+  scheduleSlots: [] as CourseScheduleSlot[], plannedLectureCount: 16,
 })
+
+const automaticWeekRange = computed(() => zjuTeachingWeekRange(form.term))
+const teachingWeekSummary = computed(() => {
+  if (!form.term) return t('teacherCourseCreate.selectTermForWeeks', '选择学期后自动确定')
+  if (form.weekRangeMode === 'academic_calendar' && automaticWeekRange.value) {
+    return t('teacherCourseCreate.academicCalendarWeeks', '按浙大校历：第 {start}–{end} 教学周')
+      .replace('{start}', String(automaticWeekRange.value.start))
+      .replace('{end}', String(automaticWeekRange.value.end))
+  }
+  return t('teacherCourseCreate.customWeeksValue', '自定义：第 {start}–{end} 周')
+    .replace('{start}', String(form.activeWeekStart))
+    .replace('{end}', String(form.activeWeekEnd))
+})
+
+function applyAutomaticWeekRange() {
+  const range = automaticWeekRange.value
+  if (!range) return false
+  form.weekRangeMode = 'academic_calendar'
+  form.activeWeekStart = range.start
+  form.activeWeekEnd = range.end
+  return true
+}
+
+function toggleWeekRangeMode() {
+  if (form.weekRangeMode === 'custom') {
+    applyAutomaticWeekRange()
+  } else {
+    form.weekRangeMode = 'custom'
+  }
+}
 
 const weeklySessionCount = computed(() => {
   const byDay = new Map<number, number[]>()
@@ -127,6 +172,13 @@ watch(() => [form.scheduleSlots.length, form.activeWeekStart, form.activeWeekEnd
   form.weeklyHours = form.scheduleSlots.length
   form.totalHours = form.scheduleSlots.length * Math.max(0, form.activeWeekEnd - form.activeWeekStart + 1)
 })
+watch(() => form.term, () => {
+  if (!applyAutomaticWeekRange()) form.weekRangeMode = 'custom'
+})
+watch(() => [form.weeklyHours, form.activeWeekStart, form.activeWeekEnd], () => {
+  if (form.scheduleSlots.length) return
+  form.totalHours = Number(form.weeklyHours) * Math.max(0, form.activeWeekEnd - form.activeWeekStart + 1)
+})
 
 function closeCourseCreate() {
   if (creating.value) return
@@ -138,6 +190,7 @@ async function createCourse() {
   if (
     creating.value
     || !form.courseName.trim()
+    || !form.term
     || form.activeWeekEnd < form.activeWeekStart
     || Number(form.plannedLectureCount) < 1
   ) return
@@ -150,6 +203,7 @@ async function createCourse() {
       course_category: form.courseCategory, credits: Number(form.credits), weekly_hours: Number(form.weeklyHours),
       total_hours: form.totalHours, prerequisite_courses: form.prerequisiteCourses,
       active_week_start: form.activeWeekStart, active_week_end: form.activeWeekEnd,
+      week_range_mode: form.weekRangeMode,
       schedule_slots: form.scheduleSlots, planned_lecture_count: Number(form.plannedLectureCount),
       default_location: form.defaultLocation,
       generation_request: {
@@ -200,6 +254,7 @@ onBeforeUnmount(() => { if (dialogRef.value?.open) dialogRef.value.close() })
 .course-details{border-top:1px solid #e8edf4}.details-heading{min-height:56px;display:flex;align-items:center;gap:9px;padding:0 30px}.details-heading strong{color:#334155;font-size:14px}.details-heading small{padding:3px 7px;border-radius:5px;color:#64748b;background:#f1f5f9;font-size:11px;font-weight:650}
 .details-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:0 30px 30px}.field--wide{grid-column:1/-1}
 .lecture-plan{display:flex;align-items:end;justify-content:space-between;gap:24px;padding:14px 16px;border:1px solid #e3e8f0;border-radius:10px;background:#f8fafc}.lecture-plan>div{display:grid;gap:5px}.lecture-plan strong{color:#334155;font-size:13px}.lecture-plan>div span{color:#64748b;font-size:12px}.lecture-plan .field{width:150px;flex:none}.apply-suggestion{justify-self:start;padding:2px 0;border:0;color:#514bdc;background:transparent;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.apply-suggestion:focus-visible{outline:2px solid #514bdc;outline-offset:3px;border-radius:3px}
+.week-range-setting{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid #e8edf4}.week-range-setting>div{display:grid;gap:4px}.week-range-setting span{color:#64748b;font-size:11px}.week-range-setting strong{color:#334155;font-size:13px}.week-range-setting button{padding:4px 0;border:0;color:#514bdc;background:transparent;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.week-range-setting button:focus-visible{outline:2px solid #514bdc;outline-offset:3px;border-radius:3px}
 .form-footer{min-height:76px;display:flex;align-items:center;justify-content:flex-end;gap:20px;padding:14px 30px;border-top:1px solid #e8edf4;background:#fbfcfe}.form-actions{display:flex;gap:9px}.form-actions button{min-height:40px;padding:0 15px;border:1px solid #d7dde7;border-radius:8px;color:#475569;background:#fff;font-size:13px;font-weight:700;cursor:pointer}.form-actions button.primary{min-width:132px;border-color:#514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.18)}.form-actions button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:680px){.course-create-dialog{width:calc(100vw - 16px);height:calc(100dvh - 16px);border-radius:12px}.form-heading{min-height:82px;padding:18px 20px}.form-heading h2{font-size:21px}.identity-section{grid-template-columns:1fr;padding:20px}.identity-section .field--name{grid-column:auto}.details-heading{padding-inline:20px}.details-grid{grid-template-columns:1fr;padding:0 20px 24px}.field--wide{grid-column:auto}.lecture-plan{align-items:stretch;flex-direction:column}.lecture-plan .field{width:100%}.form-footer{min-height:0;align-items:stretch;flex-direction:column;padding:14px 20px}.form-actions{display:grid;grid-template-columns:auto 1fr}.form-actions button.primary{min-width:0}}
 @media(prefers-reduced-motion:reduce){.course-create-dialog,.course-create-dialog::backdrop,.spin{animation:none}}

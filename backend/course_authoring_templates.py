@@ -80,6 +80,7 @@ _PROFILE_FIELDS = (
     "course_period_minutes",
     "active_week_start",
     "active_week_end",
+    "week_range_mode",
     "schedule_slots",
     "planned_lecture_count",
     "default_location",

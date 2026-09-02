@@ -85,8 +85,21 @@
                   <label class="wide"><span>{{ t('teacherCourseCreate.prerequisiteCourses', '先修课程') }}</span><input v-model.trim="draft.course_profile.prerequisite_courses" maxlength="1000" /></label>
                   <label><span>{{ t('teacherCourseCreate.academicYear', '学年') }}</span><input v-model.trim="draft.academic_year" maxlength="30" placeholder="2026-2027" /></label>
                   <label><span>{{ t('teacherCourseCreate.term', '学期') }}</span><select v-model="draft.term"><option value="">{{ t('courseFiles.workbench.notSet', '待填写') }}</option><option value="春夏">{{ t('teacherCourseCreate.springSummer', '春夏') }}</option><option value="秋冬">{{ t('teacherCourseCreate.autumnWinter', '秋冬') }}</option><option value="春">{{ t('teacherCourseCreate.spring', '春') }}</option><option value="夏">{{ t('teacherCourseCreate.summer', '夏') }}</option><option value="秋">{{ t('teacherCourseCreate.autumn', '秋') }}</option><option value="冬">{{ t('teacherCourseCreate.winter', '冬') }}</option><option value="暑期课">{{ t('teacherCourseCreate.summerCourse', '暑期课') }}</option><option value="寒期课">{{ t('teacherCourseCreate.winterCourse', '寒期课') }}</option></select></label>
-                  <label><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input v-model.number="draft.course_profile.active_week_start" type="number" min="1" max="30" /></label>
-                  <label><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input v-model.number="draft.course_profile.active_week_end" type="number" min="1" max="30" /></label>
+                  <div class="week-range-setting wide">
+                    <div>
+                      <span>{{ t('teacherCourseCreate.activeWeeks', '上课周次') }}</span>
+                      <strong>{{ weekRangeSummary(draft) }}</strong>
+                    </div>
+                    <button v-if="automaticWeekRange" type="button" @click="toggleWeekRangeMode">
+                      {{ draft.course_profile.week_range_mode === 'custom'
+                        ? t('teacherCourseCreate.useAcademicCalendar', '恢复校历')
+                        : t('teacherCourseCreate.customizeWeeks', '特殊情况自定义') }}
+                    </button>
+                  </div>
+                  <template v-if="draft.course_profile.week_range_mode === 'custom'">
+                    <label><span>{{ t('teacherCourseCreate.activeWeekStart', '开始周') }}</span><input v-model.number="draft.course_profile.active_week_start" type="number" min="1" max="30" /></label>
+                    <label><span>{{ t('teacherCourseCreate.activeWeekEnd', '结束周') }}</span><input v-model.number="draft.course_profile.active_week_end" type="number" min="1" max="30" /></label>
+                  </template>
                   <label><span>{{ t('teacherCourseCreate.defaultLocation', '常用地点') }}</span><input v-model.trim="draft.course_profile.default_location" maxlength="200" /></label>
                   <ZjuCourseScheduleGrid v-model="draft.course_profile.schedule_slots" />
                   <label><span>{{ t('teacherCourseCreate.plannedLectures', '计划讲数') }} <b>*</b></span><input v-model.number="draft.course_profile.planned_lecture_count" type="number" min="1" max="1000" required /></label>
@@ -160,6 +173,11 @@ import {
   type LearningPurpose,
 } from '../shared/prompt-config'
 import http, { teacherReadRequestConfig, teacherRequestConfig } from '../utils/http'
+import {
+  resolveTeachingWeekRange,
+  zjuTeachingWeekRange,
+  type WeekRangeMode,
+} from '../utils/zju-academic-calendar'
 import ZjuCourseScheduleGrid, { type CourseScheduleSlot } from './ZjuCourseScheduleGrid.vue'
 
 type CourseProfile = {
@@ -179,6 +197,7 @@ type CourseProfile = {
   course_period_minutes: 45
   active_week_start: number
   active_week_end: number
+  week_range_mode: WeekRangeMode
   schedule_slots: CourseScheduleSlot[]
   planned_lecture_count: number | null
   assessment_method: string
@@ -272,6 +291,7 @@ const courseCategoryOptions = computed(() => ([
   { value: '专业选修课', label: t('teacherCourseCreate.majorElective', '专业选修课') },
   { value: '实践课', label: t('teacherCourseCreate.practicalCourse', '实践课') },
 ]))
+const automaticWeekRange = computed(() => zjuTeachingWeekRange(draft.value.term))
 const viewGroups = computed(() => {
   if (!original.value) return []
   const info = original.value
@@ -292,7 +312,7 @@ const viewGroups = computed(() => {
         item(t('teacherCourseCreate.term', '学期'), info.term),
         item(t('teacherCourseCreate.weekday', '上课星期'), profile.weekday),
         item(t('teacherCourseCreate.periods', '上课节次'), profile.periods),
-        item(t('teacherCourseCreate.activeWeeks', '上课周次'), `${profile.active_week_start || 1}–${profile.active_week_end || 16} 周`),
+        item(t('teacherCourseCreate.activeWeeks', '上课周次'), weekRangeSummary(info)),
         item(t('teacherCourseCreate.plannedLectures', '计划讲数'), profile.planned_lecture_count),
         item(t('teacherCourseCreate.defaultLocation', '常用地点'), profile.default_location),
       ],
@@ -333,7 +353,7 @@ function emptyInformation(): CourseInformation {
     course_profile: {
       english_name: '', course_code: '', course_goal: '', default_location: '', target_grade: '', course_category: '',
       target_major: '', credits: null, weekly_hours: null, total_hours: null, prerequisite_courses: '', weekday: '', periods: '', assessment_method: '', course_intro: '', teaching_goals: '',
-      course_period_minutes: 45, active_week_start: 1, active_week_end: 16, schedule_slots: [], planned_lecture_count: 16,
+      course_period_minutes: 45, active_week_start: 1, active_week_end: 16, week_range_mode: 'academic_calendar', schedule_slots: [], planned_lecture_count: 16,
     },
     generation_request: {
       subject: '', target_audience: '大学生', difficulty: 'intermediate', learning_purpose: 'systematic',
@@ -352,7 +372,26 @@ function clone<T>(value: T): T { return JSON.parse(JSON.stringify(value)) as T }
 function normalizeInformation(value: CourseInformation): CourseInformation {
   const fallback = emptyInformation()
   const info = clone(value || fallback)
+  const persistedWeekRangeMode = info.course_profile?.week_range_mode
   info.course_profile = { ...fallback.course_profile, ...(info.course_profile || {}) }
+  const calendarRange = zjuTeachingWeekRange(info.term)
+  if (!persistedWeekRangeMode) {
+    const currentStart = Number(info.course_profile.active_week_start || 1)
+    const currentEnd = Number(info.course_profile.active_week_end || 16)
+    info.course_profile.week_range_mode = calendarRange && (
+      (currentStart === 1 && currentEnd === 16)
+      || (currentStart === calendarRange.start && currentEnd === calendarRange.end)
+    ) ? 'academic_calendar' : 'custom'
+  }
+  const resolvedRange = resolveTeachingWeekRange(
+    info.term,
+    info.course_profile.week_range_mode,
+    info.course_profile.active_week_start,
+    info.course_profile.active_week_end,
+  )
+  info.course_profile.active_week_start = resolvedRange.start
+  info.course_profile.active_week_end = resolvedRange.end
+  info.course_profile.week_range_mode = resolvedRange.mode
   info.generation_request = {
     ...fallback.generation_request,
     ...canonicalizeCourseGenerationOptions(info.generation_request || {}),
@@ -370,6 +409,41 @@ function intentForPurpose(type: LearningPurpose, info: CourseInformation) {
   if (type === 'project') return { schema_version: 'course_intent_v1', type, project_goal: existingGoal, expected_deliverable: '' }
   if (type === 'exam') return { schema_version: 'course_intent_v1', type, exam_name: info.course_name, exam_date: '', exam_scope: existingGoal }
   return { schema_version: 'course_intent_v1', type, learning_goal: existingGoal }
+}
+
+function weekRangeSummary(info: CourseInformation) {
+  const profile = info.course_profile
+  const range = resolveTeachingWeekRange(
+    info.term,
+    profile.week_range_mode,
+    profile.active_week_start,
+    profile.active_week_end,
+  )
+  if (range.mode === 'academic_calendar') {
+    return t('teacherCourseCreate.academicCalendarWeeks', '按浙大校历：第 {start}–{end} 教学周')
+      .replace('{start}', String(range.start))
+      .replace('{end}', String(range.end))
+  }
+  return t('teacherCourseCreate.customWeeksValue', '自定义：第 {start}–{end} 周')
+    .replace('{start}', String(range.start))
+    .replace('{end}', String(range.end))
+}
+
+function applyAutomaticWeekRange() {
+  const range = automaticWeekRange.value
+  if (!range) return false
+  draft.value.course_profile.week_range_mode = 'academic_calendar'
+  draft.value.course_profile.active_week_start = range.start
+  draft.value.course_profile.active_week_end = range.end
+  return true
+}
+
+function toggleWeekRangeMode() {
+  if (draft.value.course_profile.week_range_mode === 'custom') {
+    applyAutomaticWeekRange()
+  } else {
+    draft.value.course_profile.week_range_mode = 'custom'
+  }
 }
 
 function item(label: string, rawValue: unknown, template?: string, wide = false) {
@@ -407,6 +481,12 @@ function comparisonDescriptors(before: CourseInformation, after: CourseInformati
     descriptor('term', t('teacherCourseCreate.term', '学期'), before.term, after.term),
     descriptor('active_week_start', t('teacherCourseCreate.activeWeekStart', '开始周'), bp.active_week_start, ap.active_week_start),
     descriptor('active_week_end', t('teacherCourseCreate.activeWeekEnd', '结束周'), bp.active_week_end, ap.active_week_end),
+    descriptor(
+      'week_range_mode',
+      t('teacherCourseCreate.weekRangeSource', '周次来源'),
+      weekRangeModeLabel(bp.week_range_mode),
+      weekRangeModeLabel(ap.week_range_mode),
+    ),
     descriptor('schedule_slots', t('teacherCourseCreate.scheduleTitle', '上课时间'), scheduleSummary(bp.schedule_slots), scheduleSummary(ap.schedule_slots)),
     descriptor('planned_lecture_count', t('teacherCourseCreate.plannedLectures', '计划讲数'), bp.planned_lecture_count, ap.planned_lecture_count),
     descriptor('default_location', t('teacherCourseCreate.defaultLocation', '常用地点'), bp.default_location, ap.default_location),
@@ -429,6 +509,11 @@ function comparisonDescriptors(before: CourseInformation, after: CourseInformati
 }
 
 function descriptor(key: string, label: string, before: unknown, after: unknown) { return { key, label, before, after } }
+function weekRangeModeLabel(value: unknown) {
+  return value === 'academic_calendar'
+    ? t('teacherCourseCreate.academicCalendarMode', '浙大校历自动确定')
+    : t('teacherCourseCreate.customWeekRangeMode', '教师自定义')
+}
 function scheduleSummary(value: CourseScheduleSlot[]) {
   const slots = Array.isArray(value) ? value : []
   const dayLabels = ['', '周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -575,12 +660,17 @@ watch(() => props.courseId, () => {
   loadError.value = ''
   if (props.modelValue) void loadInformation()
 })
+watch(() => draft.value.term, () => {
+  if (mode.value !== 'edit') return
+  if (!applyAutomaticWeekRange()) draft.value.course_profile.week_range_mode = 'custom'
+})
 onBeforeUnmount(() => loadController?.abort())
 </script>
 
 <style scoped>
 .course-information-layer{position:fixed;inset:0;z-index:530;display:grid;place-items:center;padding:24px}.course-information-backdrop{position:absolute;inset:0;border:0;background:rgba(30,41,59,.42)}.course-information-dialog{position:relative;width:min(980px,100%);max-height:calc(100dvh - 48px);display:grid;grid-template-rows:auto minmax(0,1fr) auto;overflow:hidden;border:1px solid #dfe5ee;border-radius:16px;color:var(--lz-text);background:#fff;box-shadow:0 28px 76px rgba(15,23,42,.25);outline:none}.dialog-heading{min-height:76px;display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid #e8edf4}.dialog-heading__mark{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;color:var(--lz-brand-strong);background:var(--lz-brand-soft)}.dialog-heading>div{min-width:0}.dialog-heading h2{margin:0;color:#202b40;font-size:20px;letter-spacing:-.015em}.dialog-heading p{margin:4px 0 0;color:#64748b;font-size:12px;line-height:1.45}.icon-button{width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;color:#64748b;background:transparent;cursor:pointer}.icon-button:hover{background:#f1f5f9}.icon-button:focus-visible,.secondary-button:focus-visible,.primary-button:focus-visible,.history-panel button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.dialog-body{min-height:0;overflow:auto;padding:0 30px 30px}.dialog-state{min-height:360px;display:grid;place-items:center;align-content:center;gap:10px;color:#64748b;text-align:center}.dialog-state strong{color:#334155;font-size:14px}.dialog-state p{max-width:580px;margin:0;font-size:12px;line-height:1.6}.dialog-state button{min-height:38px;padding:0 13px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-weight:700;cursor:pointer}.dialog-state.is-error>svg{color:#dc2626}.save-status,.save-error{display:flex;align-items:flex-start;gap:8px;margin:16px 0 0;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}.save-status{color:#166534;background:#ecfdf5}.save-error{color:#991b1b;background:#fff1f2}.save-error>span{flex:1}.save-error button{padding:0;border:0;color:inherit;background:transparent;font-weight:800;text-decoration:underline;cursor:pointer}.course-identity{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;padding:26px 0 22px;border-bottom:1px solid #e8edf4}.course-identity>div{min-width:0;display:grid;gap:5px}.course-identity small{color:#64748b;font-size:12px}.course-identity strong{overflow-wrap:anywhere;color:#172033;font-size:22px;letter-spacing:-.02em}.course-identity span{color:#7b8798;font-size:11px}.course-identity>b{flex:none;padding:5px 8px;border-radius:7px;color:#4f46e5;background:#eef2ff;font-size:11px}.information-group,.form-section{padding:24px 0;border-bottom:1px solid #e8edf4}.information-group:last-child,.form-section:last-child{border-bottom:0}.information-group>header,.form-section>header,.review-panel>header,.history-panel>header{display:flex;align-items:flex-start;gap:9px;margin-bottom:16px}.information-group>header svg,.form-section>header svg,.review-panel>header svg,.history-panel>header svg{flex:none;margin-top:1px;color:#5b57e8}.information-group h3,.form-section h3,.review-panel h3,.history-panel h3{margin:0;color:#263147;font-size:14px}.form-section header p,.review-panel header p,.history-panel header p{margin:3px 0 0;color:#64748b;font-size:11px;line-height:1.5}.information-group dl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px 28px;margin:0}.information-group dl>div{min-width:0;display:grid;align-content:start;gap:5px}.information-group dl>div.wide{grid-column:1/-1}.information-group dt{color:#7b8798;font-size:11px}.information-group dd{margin:0;overflow-wrap:anywhere;color:#334155;font-size:13px;font-weight:700;line-height:1.55}.information-group dd[data-empty=true]{color:#a0a8b5;font-weight:500}.field-grid{display:grid;gap:14px}.field-grid--three{grid-template-columns:repeat(3,minmax(0,1fr))}.field-grid--two{grid-template-columns:repeat(2,minmax(0,1fr))}.field-grid label,.intent-fields label{min-width:0;display:grid;align-content:start;gap:7px}.field-grid label.wide{grid-column:1/-1}.field-grid label>span,.intent-fields label>span,.course-type-field legend{color:#475569;font-size:12px;font-weight:750}.field-grid b,.intent-fields b{color:#dc2626}.information-form input,.information-form select,.information-form textarea{width:100%;border:1px solid #cfd7e3;border-radius:8px;color:#172033;background:#fff;outline:none;font:inherit;font-size:13px}.information-form input,.information-form select{min-height:42px;padding:0 10px}.information-form textarea{padding:10px 11px;resize:vertical;line-height:1.6}.information-form input:focus,.information-form select:focus,.information-form textarea:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.11)}.course-type-field{min-width:0;margin:0 0 16px;padding:0;border:0}.course-type-field legend{margin-bottom:8px}.course-type-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.course-type-options button{min-width:0;min-height:44px;display:flex;align-items:center;justify-content:center;gap:7px;padding:7px 9px;border:1px solid #d9dfe8;border-radius:9px;color:#64748b;background:#fff;font-size:12px;font-weight:750;cursor:pointer}.course-type-options button:hover{border-color:#aaa7f2;background:#f8f7ff}.course-type-options button.active{border-color:#7c78ec;color:#4338ca;background:#eef0ff}.course-type-options button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.intent-fields{display:grid;gap:13px;margin-top:16px}.review-panel,.history-panel{padding:28px 0}.change-list{display:grid;border-top:1px solid #e8edf4}.change-list article{display:grid;grid-template-columns:minmax(130px,190px) minmax(0,1fr);gap:18px;padding:15px 0;border-bottom:1px solid #e8edf4}.change-list article>strong{color:#475569;font-size:12px}.change-list article>div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) 18px minmax(0,1fr);align-items:start;gap:10px}.change-list span,.change-list b{overflow-wrap:anywhere;font-size:12px;line-height:1.55}.change-list span{color:#7b8798;text-decoration:line-through}.change-list b{color:#263147}.change-list svg{margin-top:2px;color:#94a3b8}.history-panel ol{margin:0;padding:0;border-top:1px solid #e8edf4;list-style:none}.history-panel li{min-height:68px;display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;border-bottom:1px solid #e8edf4}.history-panel li>span{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;color:#5b57e8;background:#eef2ff}.history-panel li>div{min-width:0;display:grid;gap:3px}.history-panel li strong{color:#334155;font-size:13px}.history-panel li small{color:#7b8798;font-size:11px}.history-panel li>b{padding:4px 7px;border-radius:6px;color:#166534;background:#ecfdf5;font-size:10px}.history-panel li>button{min-height:34px;display:flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d7dde7;border-radius:8px;color:#4338ca;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.dialog-footer{min-height:68px;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;padding:10px 20px;border-top:1px solid #e8edf4;background:#fbfcfe}.primary-button,.secondary-button{min-height:40px;display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:0 14px;border-radius:8px;font-size:12px;font-weight:750;cursor:pointer}.primary-button{border:1px solid #514bdc;color:#fff;background:#514bdc;box-shadow:0 7px 18px rgba(81,75,220,.16)}.secondary-button{border:1px solid #d7dde7;color:#475569;background:#fff}.primary-button:disabled,.secondary-button:disabled{opacity:.5;cursor:not-allowed}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(max-width:760px){.course-information-layer{align-items:end;padding:0}.course-information-dialog{max-height:calc(100dvh - 16px);border-radius:16px 16px 0 0}.dialog-body{padding-inline:18px}.field-grid--three,.field-grid--two,.information-group dl{grid-template-columns:1fr 1fr}.course-type-options{grid-template-columns:repeat(2,minmax(0,1fr))}.change-list article{grid-template-columns:1fr;gap:7px}.dialog-footer{grid-template-columns:1fr 1fr}.dialog-footer>span{display:none}.dialog-footer button{width:100%}.dialog-footer .secondary-button:first-child{grid-column:1/-1}.information-group dl>div.wide,.field-grid label.wide{grid-column:1/-1}}
+.week-range-setting{min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:9px 12px;border:1px solid #e3e8f0;border-radius:9px;background:#f8fafc}.week-range-setting>div{display:grid;gap:4px}.week-range-setting span{color:#64748b;font-size:11px}.week-range-setting strong{color:#334155;font-size:13px}.week-range-setting button{flex:none;padding:4px 0;border:0;color:#514bdc;background:transparent;font:inherit;font-size:12px;font-weight:750;cursor:pointer}.week-range-setting button:focus-visible{outline:2px solid #514bdc;outline-offset:3px;border-radius:3px}
+@media(max-width:760px){.course-information-layer{align-items:end;padding:0}.course-information-dialog{max-height:calc(100dvh - 16px);border-radius:16px 16px 0 0}.dialog-body{padding-inline:18px}.field-grid--three,.field-grid--two,.information-group dl{grid-template-columns:1fr 1fr}.course-type-options{grid-template-columns:repeat(2,minmax(0,1fr))}.change-list article{grid-template-columns:1fr;gap:7px}.dialog-footer{grid-template-columns:1fr 1fr}.dialog-footer>span{display:none}.dialog-footer button{width:100%}.dialog-footer .secondary-button:first-child{grid-column:1/-1}.information-group dl>div.wide,.field-grid label.wide,.week-range-setting.wide{grid-column:1/-1}}
 @media(prefers-reduced-motion:reduce){.spin{animation:none}}
 .refresh-status,.load-warning{display:flex;align-items:flex-start;gap:8px;margin:16px 0 0;padding:10px 12px;border-radius:9px;font-size:12px;line-height:1.5}.refresh-status{align-items:center;color:#514bdc;background:#f5f5ff}.load-warning{color:#92400e;background:#fff8e8}.load-warning>span{flex:1}.load-warning button{padding:0;border:0;color:inherit;background:transparent;font-weight:800;text-decoration:underline;cursor:pointer}
 </style>

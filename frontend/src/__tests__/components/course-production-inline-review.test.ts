@@ -146,6 +146,50 @@ describe('课程生产内联确认', () => {
     expect(wrapper.get('[data-testid="formal-outline-document"]').text()).toContain('小节2')
   })
 
+  it('秋学期十六讲按八个教学周自动排课且不编造学时', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({
+      current: {
+        base_blueprint_revision_id: 'bp-short-term',
+        course_name: 'C 语言程序设计',
+        authoring_structure_version: 'lecture_v1',
+        course_generation_brief: {
+          formal_course_profile: {
+            active_week_start: 1,
+            active_week_end: 16,
+            schedule_slots: [],
+          },
+          teacher_course_brief: {
+            academic_term: '2026-2027 秋季学期',
+            lecture_count: 16,
+          },
+        },
+        nodes: Array.from({ length: 16 }, (_, index) => ({
+          node_id: `lecture-${index + 1}`,
+          parent_node_id: '',
+          node_level: 2,
+          node_name: `第${index + 1}讲 主题${index + 1}`,
+          learning_objective: `完成第${index + 1}讲学习`,
+        })),
+      },
+    } as any)
+
+    const wrapper = mount(CourseOutlineReview, {
+      props: { courseId: 'course-short-term', courseName: 'C 语言程序设计' },
+    })
+    await flushPromises()
+
+    const calendar = wrapper.findAll('.formal-outline__attachments table')[0]!
+    const rows = calendar.findAll('tbody tr')
+    expect(rows).toHaveLength(16)
+    expect(rows.map(row => row.findAll('td')[0]!.text())).toEqual([
+      '第1周', '第1周', '第2周', '第2周', '第3周', '第3周', '第4周', '第4周',
+      '第5周', '第5周', '第6周', '第6周', '第7周', '第7周', '第8周', '第8周',
+    ])
+    expect(rows.every(row => row.findAll('td')[3]!.text() === '待确认')).toBe(true)
+    expect(wrapper.get('.formal-outline__attachment-heading').text()).toContain('8 个教学周')
+  })
+
   it('shows source-backed outline changes and retrieval failure without hiding the local blueprint', async () => {
     const workspace = useCourseWorkspaceStore()
     const draft = {

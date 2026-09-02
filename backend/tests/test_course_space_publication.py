@@ -156,8 +156,68 @@ def test_outline_document_carries_the_coverage_verdict():
     assert "中值定理" in outline["content"]
 
 
-def test_outline_calendar_does_not_invent_schedule_or_class_hours():
+def test_outline_calendar_uses_term_weeks_without_inventing_class_hours():
     documents = build_course_artifact_documents(_course())
+    outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
+
+    assert "| 1 | 1 | 第1讲 极限 |  |" in outline
+
+
+def test_outline_calendar_projects_term_weeks_without_inventing_class_hours():
+    course = _course()
+    course["term"] = "秋学期"
+    course["course_profile"] = {
+        "active_week_start": 1,
+        "active_week_end": 16,
+        "planned_lecture_count": 1,
+        "schedule_slots": [],
+    }
+    documents = build_course_artifact_documents(course)
+    outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
+
+    assert "| 1 | 1 | 第1讲 极限 |  |" in outline
+
+
+def test_outline_calendar_distributes_sixteen_lectures_across_an_eight_week_term():
+    course = _course()
+    course["term"] = "秋季"
+    course["course_profile"] = {
+        "active_week_start": 1,
+        "active_week_end": 16,
+        "planned_lecture_count": 16,
+        "schedule_slots": [],
+    }
+    course["course_outline"]["chapters"] = [
+        {
+            "title": f"第{index}讲 主题{index}",
+            "sections": [{"title": f"主题{index}"}],
+        }
+        for index in range(1, 17)
+    ]
+    documents = build_course_artifact_documents(course)
+    outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
+    calendar_rows = [
+        line for line in outline.splitlines()
+        if line.startswith("| ") and len(line.split("|")) == 7
+        and line.split("|")[1].strip().isdigit()
+    ]
+
+    assert [int(line.split("|")[1].strip()) for line in calendar_rows] == [
+        1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8,
+    ]
+    assert all(not line.split("|")[4].strip() for line in calendar_rows)
+
+
+def test_outline_calendar_keeps_week_pending_without_a_term_schedule_or_custom_range():
+    course = _course()
+    course["teacher_course_brief"].pop("academic_term")
+    course["course_profile"] = {
+        "active_week_start": 1,
+        "active_week_end": 16,
+        "planned_lecture_count": 1,
+        "schedule_slots": [],
+    }
+    documents = build_course_artifact_documents(course)
     outline = next(d for d in documents if d["artifact_type"] == "course_outline")["content"]
 
     assert "| 待排课 | 1 | 第1讲 极限 |  |" in outline

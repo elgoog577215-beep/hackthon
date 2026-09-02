@@ -38,6 +38,7 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "teaching_goals": "能够完成问题定义、创意与验证。",
         "active_week_start": 1,
         "active_week_end": 16,
+        "week_range_mode": "academic_calendar",
         "schedule_slots": [
             {"weekday": 2, "period": 3},
             {"weekday": 2, "period": 4},
@@ -97,6 +98,7 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "teaching_goals": "能够完成问题定义、创意与验证。",
         "active_week_start": 1,
         "active_week_end": 16,
+        "week_range_mode": "academic_calendar",
         "schedule_slots": [
                 {"weekday": 2, "period": 3},
                 {"weekday": 2, "period": 4},
@@ -105,6 +107,48 @@ async def test_create_teacher_course_persists_baseline_without_starting_generati
         "planned_lecture_count": 16,
     }
     package_repository.create_package.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_short_zju_term_derives_eight_teaching_weeks(monkeypatch):
+    repository = SimpleNamespace(create_teacher_draft=AsyncMock())
+    package_repository = SimpleNamespace(
+        create_package=MagicMock(return_value={"package_id": "tcs-course-short"}),
+        load_owned=MagicMock(),
+        register_material_reference=MagicMock(),
+    )
+    monkeypatch.setattr(courses, "get_course_document_repository", lambda: repository)
+    monkeypatch.setattr(courses, "teacher_course_space_repository", package_repository)
+    monkeypatch.setattr(courses.uuid, "uuid4", lambda: "course-short")
+
+    body = courses.TeacherCourseCreateRequest.model_validate({
+        "course_name": "C 语言程序设计",
+        "term": "秋季",
+        "target_grade": "本科生",
+        "course_category": "专业基础课",
+        "credits": 2,
+        "weekly_hours": 4,
+        "planned_lecture_count": 16,
+        "generation_request": {
+            "subject": "C 语言程序设计",
+            "teacher_course_brief": {
+                "academic_term": "",
+                "target_audience": "本科生",
+                "total_class_hours": 32,
+            },
+        },
+    })
+
+    await courses.create_teacher_course(
+        body,
+        SimpleNamespace(headers={"X-User-Id": "teacher-a"}),
+    )
+
+    metadata = repository.create_teacher_draft.await_args.kwargs["metadata"]
+    assert metadata["course_profile"]["active_week_start"] == 1
+    assert metadata["course_profile"]["active_week_end"] == 8
+    assert metadata["course_profile"]["week_range_mode"] == "academic_calendar"
+    assert metadata["generation_request"]["teacher_course_brief"]["academic_term"] == "2026-2027 秋季"
 
 
 @pytest.mark.asyncio

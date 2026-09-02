@@ -65,6 +65,7 @@ class CourseProfileInput(BaseModel):
     course_period_minutes: Literal[45] = 45
     active_week_start: int = Field(default=1, ge=1, le=30)
     active_week_end: int = Field(default=16, ge=1, le=30)
+    week_range_mode: Literal["academic_calendar", "custom"] | None = None
     schedule_slots: list[dict[str, int]] = Field(default_factory=list, max_length=91)
     planned_lecture_count: int | None = Field(default=None, ge=1, le=1000)
     assessment_method: str = Field(default="", max_length=500)

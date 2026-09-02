@@ -144,6 +144,27 @@ describe('CourseBaselineDialog', () => {
     )
   })
 
+  it('标准学期默认隐藏周次输入，特殊情况才让教师自定义', async () => {
+    const wrapper = mount(CourseBaselineDialog, {
+      props: { modelValue: true, courseId: 'course-1' },
+      global: { stubs: { Teleport: true } },
+    })
+    await flushPromises()
+
+    await wrapper.get('.primary-button').trigger('click')
+    expect(wrapper.get('.week-range-setting').text()).toContain('第 1–16 教学周')
+    expect(wrapper.findAll('label').some(label => label.text().includes('开始周'))).toBe(false)
+
+    await wrapper.get('.week-range-setting button').trigger('click')
+    expect(wrapper.get('.week-range-setting').text()).toContain('自定义')
+    expect(wrapper.findAll('label').some(label => label.text().includes('开始周'))).toBe(true)
+
+    const termField = wrapper.findAll('label').find(label => label.text().startsWith('学期'))
+    await termField!.get('select').setValue('秋')
+    expect(wrapper.get('.week-range-setting').text()).toContain('第 1–8 教学周')
+    expect(wrapper.findAll('label').some(label => label.text().includes('开始周'))).toBe(false)
+  })
+
   it('有预取内容时立即可看，后台刷新超时也不遮住内容', async () => {
     vi.mocked(http.get).mockRejectedValueOnce({ code: 'ECONNABORTED' })
     const initialEnvelope = envelope()

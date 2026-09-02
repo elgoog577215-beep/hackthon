@@ -6,7 +6,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Literal, Optional
 import sys
 import os
 import uuid
@@ -20,6 +20,7 @@ from course_schedule import (
     COURSE_PERIOD_MINUTES,
     legacy_schedule_labels,
     normalize_schedule_slots,
+    resolve_active_week_range,
     suggested_lecture_count,
 )
 from storage import storage
@@ -129,6 +130,7 @@ class TeacherCourseCreateRequest(BaseModel):
     periods: str = Field(default="", max_length=100)
     active_week_start: int = Field(default=1, ge=1, le=30)
     active_week_end: int = Field(default=16, ge=1, le=30)
+    week_range_mode: Literal["academic_calendar", "custom"] | None = None
     schedule_slots: list[dict[str, int]] = Field(default_factory=list, max_length=91)
     planned_lecture_count: int | None = Field(default=None, ge=1, le=1000)
     assessment_method: str = Field(default="", max_length=500)
@@ -410,18 +412,26 @@ async def create_teacher_course(
         if body.generation_request
         else {}
     )
-    if body.active_week_end < body.active_week_start:
-        raise HTTPException(status_code=422, detail="结束周不能早于开始周")
+    try:
+        active_week_start, active_week_end, week_range_mode = resolve_active_week_range(
+            term,
+            body.week_range_mode,
+            body.active_week_start,
+            body.active_week_end,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     schedule_slots = normalize_schedule_slots(body.schedule_slots)
     projected_weekday, projected_periods = legacy_schedule_labels(schedule_slots)
     planned_lecture_count = body.planned_lecture_count or suggested_lecture_count(
         schedule_slots,
-        body.active_week_start,
-        body.active_week_end,
+        active_week_start,
+        active_week_end,
     )
     if generation_request:
         teacher_brief = dict(generation_request.get("teacher_course_brief") or {})
         teacher_brief.update({
+            "academic_term": " ".join(item for item in (academic_year, term) if item),
             "lesson_duration_minutes": COURSE_PERIOD_MINUTES,
             "course_period_minutes": COURSE_PERIOD_MINUTES,
             "lecture_count": planned_lecture_count or teacher_brief.get("lecture_count"),
@@ -451,8 +461,9 @@ async def create_teacher_course(
                 "weekday": projected_weekday or body.weekday.strip(),
                 "periods": projected_periods or body.periods.strip(),
                 "course_period_minutes": COURSE_PERIOD_MINUTES,
-                "active_week_start": body.active_week_start,
-                "active_week_end": body.active_week_end,
+                "active_week_start": active_week_start,
+                "active_week_end": active_week_end,
+                "week_range_mode": week_range_mode,
                 "schedule_slots": schedule_slots,
                 "planned_lecture_count": planned_lecture_count,
                 "assessment_method": body.assessment_method.strip(),

@@ -34,7 +34,12 @@ from course_authoring_templates import (
     compile_formal_course_context,
     project_lesson_objective_dimensions,
 )
-from course_schedule import schedule_sessions
+from course_schedule import (
+    inferred_sessions_per_week,
+    projected_lecture_week,
+    resolve_active_week_range,
+    schedule_sessions,
+)
 from teacher_course_space import (
     MaterialStorageError,
     classify_path,
@@ -152,11 +157,64 @@ def _outline_lessons(
         or {}
     )
     sessions = schedule_sessions(profile.get("schedule_slots"))
-    sessions_per_week = max(1, len(sessions))
-    week_start = int(profile.get("active_week_start") or 1)
-    for chapter in chapters:
-        if not isinstance(chapter, dict):
-            continue
+    term = (
+        (course_data or {}).get("term")
+        or ((course_data or {}).get("generation_request") or {}).get(
+            "teacher_course_brief", {}
+        ).get("academic_term")
+        or ((course_data or {}).get("teacher_course_brief") or {}).get(
+            "academic_term"
+        )
+        or ((course_data or {}).get("course_generation_brief") or {}).get(
+            "teacher_course_brief", {}
+        ).get("academic_term")
+        or ""
+    )
+    requested_week_range_mode = str(profile.get("week_range_mode") or "").strip()
+    week_start, week_end, week_range_mode = resolve_active_week_range(
+        term,
+        requested_week_range_mode,
+        profile.get("active_week_start"),
+        profile.get("active_week_end"),
+    )
+    valid_chapters = [chapter for chapter in chapters if isinstance(chapter, dict)]
+    teacher_brief = (
+        ((course_data or {}).get("generation_request") or {}).get(
+            "teacher_course_brief", {}
+        )
+        or (course_data or {}).get("teacher_course_brief")
+        or ((course_data or {}).get("course_generation_brief") or {}).get(
+            "teacher_course_brief", {}
+        )
+        or {}
+    )
+    try:
+        lecture_count = int(
+            profile.get("planned_lecture_count")
+            or teacher_brief.get("lecture_count")
+            or len(valid_chapters)
+        )
+    except (TypeError, ValueError):
+        lecture_count = len(valid_chapters)
+    sessions_per_week = (
+        len(sessions)
+        if sessions
+        else inferred_sessions_per_week(lecture_count, week_start, week_end)
+    )
+    has_legacy_custom_week_range = (
+        not requested_week_range_mode
+        and profile.get("active_week_start") is not None
+        and profile.get("active_week_end") is not None
+        and week_range_mode == "custom"
+        and (week_start, week_end) != (1, 16)
+    )
+    can_project_weeks = (
+        bool(sessions)
+        or week_range_mode == "academic_calendar"
+        or requested_week_range_mode == "custom"
+        or has_legacy_custom_week_range
+    )
+    for chapter in valid_chapters:
         lecture += 1
         section = next(
             (
@@ -169,6 +227,16 @@ def _outline_lessons(
             chapter.get("title") or section.get("title")
         )
         session = sessions[(lecture - 1) % len(sessions)] if sessions else {}
+        projected_week = (
+            projected_lecture_week(
+                lecture - 1,
+                active_week_start=week_start,
+                active_week_end=week_end,
+                sessions_per_week=sessions_per_week,
+            )
+            if can_project_weeks
+            else None
+        )
         result.append({
             **chapter,
             **section,
@@ -191,11 +259,8 @@ def _outline_lessons(
                 section.get("week")
                 or section.get("teaching_week")
                 or chapter.get("week")
-                or (
-                    week_start + (lecture - 1) // sessions_per_week
-                    if sessions
-                    else "待排课"
-                )
+                or projected_week
+                or "待排课"
             ),
         })
     return result

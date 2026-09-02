@@ -80,6 +80,7 @@ export type TeacherCourseSpaceCreate = {
     periods?: string
     active_week_start?: number
     active_week_end?: number
+    week_range_mode?: 'academic_calendar' | 'custom'
     schedule_slots?: Array<{ weekday: number; period: number }>
     planned_lecture_count?: number
     assessment_method?: string

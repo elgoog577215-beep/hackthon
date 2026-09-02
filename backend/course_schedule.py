@@ -8,10 +8,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 
 COURSE_PERIOD_MINUTES = 45
+ZJU_ACADEMIC_CALENDAR_SOURCE_URL = "https://ugrs.zju.edu.cn/1318/list.htm"
+ZJU_TERM_TEACHING_WEEKS = {
+    "春夏": 16,
+    "秋冬": 16,
+    "春": 8,
+    "夏": 8,
+    "秋": 8,
+    "冬": 8,
+}
 WEEKDAY_LABELS = {
     1: "周一",
     2: "周二",
@@ -21,6 +30,92 @@ WEEKDAY_LABELS = {
     6: "周六",
     7: "周日",
 }
+
+
+def canonical_zju_term(value: Any) -> str:
+    """Return the Zhejiang University teaching-term label embedded in a value.
+
+    Academic years and the suffixes ``学期`` / ``季`` are presentation details.
+    Long terms must be checked before their single-term components.
+    """
+    text = "".join(str(value or "").split())
+    for term in ("春夏", "秋冬"):
+        if term in text:
+            return term
+    for term in ("春", "夏", "秋", "冬"):
+        if any(marker in text for marker in (f"{term}学期", f"{term}季")):
+            return term
+    return text if text in {"春", "夏", "秋", "冬"} else ""
+
+
+def zju_teaching_week_range(term: Any) -> tuple[int, int] | None:
+    """Resolve the stable teaching-week range for a standard ZJU term.
+
+    Zhejiang University's four short terms each contain eight teaching weeks;
+    the combined autumn-winter and spring-summer terms therefore contain
+    sixteen teaching weeks. Examination weeks are not teaching weeks here.
+    """
+    canonical = canonical_zju_term(term)
+    weeks = ZJU_TERM_TEACHING_WEEKS.get(canonical)
+    return (1, weeks) if weeks else None
+
+
+def resolve_active_week_range(
+    term: Any,
+    mode: Any,
+    active_week_start: Any,
+    active_week_end: Any,
+) -> tuple[int, int, Literal["academic_calendar", "custom"]]:
+    """Use the academic calendar by default and preserve explicit exceptions."""
+    calendar_range = zju_teaching_week_range(term)
+    normalized_mode = str(mode or "").strip()
+    if not normalized_mode:
+        try:
+            legacy_start = int(active_week_start or 1)
+            legacy_end = int(active_week_end or 16)
+        except (TypeError, ValueError):
+            legacy_start, legacy_end = 1, 16
+        normalized_mode = (
+            "academic_calendar"
+            if calendar_range and (
+                (legacy_start, legacy_end) == (1, 16)
+                or (legacy_start, legacy_end) == calendar_range
+            )
+            else "custom"
+        )
+    if normalized_mode != "custom" and calendar_range:
+        return calendar_range[0], calendar_range[1], "academic_calendar"
+    try:
+        start = int(active_week_start or 1)
+        end = int(active_week_end or (calendar_range[1] if calendar_range else 16))
+    except (TypeError, ValueError):
+        start, end = 1, calendar_range[1] if calendar_range else 16
+    if start < 1 or end < start or end > 30:
+        raise ValueError("上课周次必须在 1–30 周内，且结束周不能早于开始周")
+    return start, end, "custom"
+
+
+def inferred_sessions_per_week(
+    lecture_count: int,
+    active_week_start: int,
+    active_week_end: int,
+) -> int:
+    """Return the smallest weekly density that can fit all confirmed lectures."""
+    teaching_weeks = max(1, int(active_week_end) - int(active_week_start) + 1)
+    count = max(1, int(lecture_count))
+    return max(1, (count + teaching_weeks - 1) // teaching_weeks)
+
+
+def projected_lecture_week(
+    lecture_index: int,
+    *,
+    active_week_start: int,
+    active_week_end: int,
+    sessions_per_week: int,
+) -> int | None:
+    """Project a zero-based lecture index into the bounded teaching-week range."""
+    week = int(active_week_start) + max(0, int(lecture_index)) // max(1, int(sessions_per_week))
+    return week if week <= int(active_week_end) else None
 
 
 def normalize_schedule_slots(value: Any) -> list[dict[str, int]]:
