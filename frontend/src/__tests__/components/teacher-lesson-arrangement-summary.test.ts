@@ -38,7 +38,7 @@ const arrangement: TeacherLessonArrangement = {
 }
 
 describe('本讲教学结构摘要', () => {
-  it('已确认结构默认收起，展开后只显示教师需要确认的课堂流程', async () => {
+  it('已确认结构直接展示教师需要使用的课堂流程', () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
       props: {
         arrangement,
@@ -52,10 +52,6 @@ describe('本讲教学结构摘要', () => {
     expect(wrapper.text()).not.toContain('个内容主题')
     expect(wrapper.text()).not.toContain('个教学块')
     expect(wrapper.text()).toContain('最后可用版本会保留，不会被静默覆盖')
-    expect(wrapper.text()).not.toContain('显化对象、条件和极限过程')
-
-    expect(wrapper.get('.arrangement-disclosure').text()).toContain('教学结构确认')
-    await wrapper.get('.arrangement-disclosure').trigger('click')
     expect(wrapper.text()).toContain('环节目标')
     expect(wrapper.text()).toContain('课堂活动')
     expect(wrapper.text()).toContain('显化对象、条件和极限过程')
@@ -70,26 +66,29 @@ describe('本讲教学结构摘要', () => {
     expect(wrapper.text()).not.toContain('分组方式')
     expect(wrapper.text()).not.toContain('前后衔接')
     expect(wrapper.text()).not.toContain('专业边界')
+    expect(wrapper.find('.arrangement-disclosure').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('教学结构确认')
+    expect(wrapper.text()).not.toContain('生成依据')
   })
 
-  it('正式教案后的辅助面板明确标记为生成依据并默认收起', () => {
+  it('不再用解释性标题或展开按钮重复说明区域用途', () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
-      props: { arrangement, supporting: true },
+      props: { arrangement },
     })
 
-    expect(wrapper.get('.arrangement-disclosure').text()).toContain('生成依据')
-    expect(wrapper.get('.arrangement-disclosure').attributes('aria-expanded')).toBe('false')
-    expect(wrapper.text()).not.toContain('环节目标')
+    expect(wrapper.find('.arrangement-disclosure').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('教学结构确认')
+    expect(wrapper.text()).not.toContain('生成依据')
+    expect(wrapper.text()).toContain('环节目标')
   })
 
-  it('首次生成前自动展开待确认的课堂流程', () => {
+  it('首次生成前直接展示待确认的课堂流程', () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
       props: {
         arrangement: { ...arrangement, status: 'suggested', confirmed: false },
       },
     })
 
-    expect(wrapper.get('.arrangement-disclosure').attributes('aria-expanded')).toBe('true')
     expect(wrapper.text()).toContain('环节目标')
     expect(wrapper.text()).toContain('生成前需确认')
   })
@@ -103,10 +102,13 @@ describe('本讲教学结构摘要', () => {
     })
 
     const toolbar = wrapper.get('.arrangement-toolbar')
+    expect(toolbar.get('.arrangement-context').text()).toContain('本讲课型')
+    expect(toolbar.get('.arrangement-state').text()).toContain('已确认')
     expect(toolbar.get('[data-testid="generation-slot"]').text()).toContain('只生成本讲')
     expect(toolbar.text()).toContain('生成全部教案')
     expect(wrapper.get('[data-testid="lesson-arrangement-summary"]').classes()).toContain('has-sticky-actions')
     expect(wrapper.find('.arrangement-heading').exists()).toBe(false)
+    expect(wrapper.find('.arrangement-disclosure').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('生成范围')
   })
 })
