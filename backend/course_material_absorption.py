@@ -265,7 +265,7 @@ def compile_material_absorption_plan(
             retained.append({"asset_id": asset_id, "action": "ignore", "reason": "教师明确忽略"})
             continue
         if document_type not in ABSORBABLE_DOCUMENT_TYPES:
-            retained.append({"asset_id": asset_id, "action": "reference_only", "reason": "不属于大纲、教案、讲稿或 PPT"})
+            retained.append({"asset_id": asset_id, "action": "reference_only", "reason": "不属于大纲、教案、讲义或 PPT"})
             continue
         scope_id, scope_label, scope_origin = _resolve_scope(asset, document_type, lessons, nodes_by_id)
         if not scope_id:
@@ -283,7 +283,7 @@ def compile_material_absorption_plan(
             "target_scope_id": scope_id,
             "target_scope_label": scope_label,
             "scope_origin": scope_origin,
-            "title": "课程大纲" if target_type == "outline" else f"{scope_label}{ {'lesson_plan': '教案', 'script': '讲稿', 'ppt': 'PPT'}[target_type] }",
+            "title": "课程大纲" if target_type == "outline" else f"{scope_label}{ {'lesson_plan': '教案', 'script': '讲义', 'ppt': 'PPT'}[target_type] }",
             "sources": [],
             "status": "ready",
             "issues": [],

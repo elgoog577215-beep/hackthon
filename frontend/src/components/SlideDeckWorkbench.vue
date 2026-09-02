@@ -75,7 +75,7 @@
               v-if="planningStatus?.story_ai?.status === 'completed'"
               class="slide-workbench__manual-status"
               data-testid="ppt-story-ai-status"
-            >{{ resolvedPptManuscript ? t('pptWorkspace.manuscriptPlanningComplete', 'PPT 文书规划已完成') : t('pptWorkspace.legacyPlanningComplete', '旧版内容规划已完成') }} · {{ planningStatus.story_ai.batch_count || 0 }} {{ t('pptWorkspace.batchUnit', '批') }}</small>
+            >{{ resolvedPptManuscript ? t('pptWorkspace.manuscriptPlanningComplete', '页面内容稿规划已完成') : t('pptWorkspace.legacyPlanningComplete', '旧版内容规划已完成') }} · {{ planningStatus.story_ai.batch_count || 0 }} {{ t('pptWorkspace.batchUnit', '批') }}</small>
             <small
               v-if="planningStatus?.cost?.model_call_count"
               data-testid="ppt-planning-cost"
@@ -84,7 +84,7 @@
               v-if="resolvedPptManuscript?.page_count"
               class="slide-workbench__manual-status"
               data-testid="ppt-storyboard-status"
-            >{{ t('pptWorkspace.manuscriptLabel', 'PPT 文书') }} · {{ resolvedPptManuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ resolvedPptManuscript.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlocked', '质量未通过，不能生成 PPT') : t('pptWorkspace.manuscriptBound', '已绑定讲稿与版式') }}</small>
+            >{{ t('pptWorkspace.manuscriptLabel', '页面内容稿') }} · {{ resolvedPptManuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ resolvedPptManuscript.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlocked', '质量未通过，不能生成 PPT') : t('pptWorkspace.manuscriptBound', '已绑定讲义与版式') }}</small>
             <ul
               v-if="resolvedPptManuscript?.quality_issues?.length"
               class="slide-workbench__manuscript-issues"
@@ -103,7 +103,7 @@
               <li v-for="page in resolvedPptManuscript.pages" :key="page.page_id">
                 <b>{{ Number(page.page_number || 0) || Number(page.page_ordinal || 0) + 1 }}</b>
                 <span>{{ page.title }}</span>
-                <small>{{ page.source_script_block_ids?.length || page.source_block_count || 0 }} {{ t('pptWorkspace.scriptSourceBlockUnit', '个讲稿来源块') }}</small>
+                <small>{{ page.source_script_block_ids?.length || page.source_block_count || 0 }} {{ t('pptWorkspace.scriptSourceBlockUnit', '个讲义来源块') }}</small>
                 <div
                   v-if="page.page_goal || page.primary_claim || page.visible_copy?.length || page.composition_notes"
                   class="slide-workbench__manuscript-page"
@@ -119,6 +119,9 @@
                   <p v-if="page.reveal_steps?.length"><strong>{{ t('pptWorkspace.revealSteps', '呈现顺序') }}：</strong>{{ page.reveal_steps.join(' → ') }}</p>
                   <p v-if="page.transition"><strong>{{ t('pptWorkspace.transition', '页间过渡') }}：</strong>{{ page.transition }}</p>
                   <p v-if="page.composition_notes"><strong>{{ t('pptWorkspace.compositionNotes', '构图') }}：</strong>{{ page.composition_notes }}</p>
+                  <p v-if="page.source_script_block_ids?.length" class="slide-workbench__source-ids"><strong>{{ t('pptWorkspace.sourceScriptBlockIds', '讲义来源块') }}：</strong><code v-for="sourceId in page.source_script_block_ids" :key="sourceId">{{ sourceId }}</code></p>
+                  <p v-if="page.source_section_ids?.length" class="slide-workbench__source-ids"><strong>{{ t('pptWorkspace.sourceSectionIds', '教案小节') }}：</strong><code v-for="sourceId in page.source_section_ids" :key="sourceId">{{ sourceId }}</code></p>
+                  <p v-if="page.source_material_evidence_ids?.length" class="slide-workbench__source-ids"><strong>{{ t('pptWorkspace.sourceMaterialEvidenceIds', '资料证据') }}：</strong><code v-for="sourceId in page.source_material_evidence_ids" :key="sourceId">{{ sourceId }}</code></p>
                 </div>
               </li>
             </ol>
@@ -126,7 +129,7 @@
               v-if="resolvedLegacyStoryboard?.page_count"
               class="slide-workbench__manual-status"
               data-testid="ppt-legacy-storyboard-status"
-            >{{ t('pptWorkspace.legacyStoryboardLabel', '旧版页面规划') }} · {{ resolvedLegacyStoryboard.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ t('pptWorkspace.legacyStoryboardUpgrade', '重新生成后升级为 PPT 文书') }}</small>
+            >{{ t('pptWorkspace.legacyStoryboardLabel', '旧版页面规划') }} · {{ resolvedLegacyStoryboard.page_count }} {{ t('pptWorkspace.pageUnit', '页') }} · {{ t('pptWorkspace.legacyStoryboardUpgrade', '重新生成后升级为页面内容稿') }}</small>
             <ol
               v-if="resolvedLegacyStoryboard?.pages?.length"
               class="slide-workbench__storyboard"
@@ -194,12 +197,12 @@
           type="button"
           data-testid="ppt-confirm-manuscript"
           :disabled="building || manuscriptConfirming || resolvedPptManuscript?.quality_status === 'blocked'"
-          :title="resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlockedHint', '文书质量未通过，请重新生成或修改后再确认') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.reviewManuscriptHint', '查看或重新生成已确认的 PPT 文书') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
+          :title="resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptBlockedHint', '页面内容稿质量未通过，请重新生成或修改后再确认') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.reviewManuscriptHint', '查看或重新生成已确认的页面内容稿') : t('pptWorkspace.manuscriptConfirmHint', '确认逐页内容后才能导出正式 PPTX')"
           @click="manuscriptStatus === 'confirmed' ? emit('review-manuscript') : emit('confirm-manuscript')"
         >
           <LoaderCircle v-if="manuscriptConfirming" :size="16" class="spinning" />
           <CircleCheck v-else :size="16" />
-          <span>{{ resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptNeedsRevision', 'PPT 文书需修改') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.reviewManuscript', '查看 PPT 文书') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}</span>
+          <span>{{ resolvedPptManuscript?.quality_status === 'blocked' ? t('pptWorkspace.manuscriptNeedsRevision', '页面内容稿需修改') : manuscriptStatus === 'confirmed' ? t('pptWorkspace.reviewManuscript', '查看页面内容稿') : t('pptWorkspace.confirmManuscript', '确认页面内容稿') }}</span>
         </button>
         <button type="button" class="slide-workbench__export" :disabled="exportDisabled" :title="exportTitle" @click="downloadSlides">
           <LoaderCircle v-if="exportBusy" :size="16" class="spinning" />
@@ -488,7 +491,7 @@
           <div><small>{{ t('pptWorkspace.presenting', '正在演示') }}</small><strong>{{ deckTitle }}</strong></div>
           <div>
             <button type="button" :class="{ active: presentationBlank }" :title="t('pptWorkspace.toggleBlank', '临时黑屏')" @click="presentationBlank = !presentationBlank"><Moon :size="17" /></button>
-            <button type="button" :class="{ active: notesVisible }" :title="t('pptWorkspace.toggleNotes', '显示或隐藏讲稿')" @click="notesVisible = !notesVisible"><NotebookText :size="17" /></button>
+            <button type="button" :class="{ active: notesVisible }" :title="t('pptWorkspace.toggleNotes', '显示或隐藏讲义备注')" @click="notesVisible = !notesVisible"><NotebookText :size="17" /></button>
             <button type="button" :title="t('pptWorkspace.exitPresentation', '退出演示')" @click="closePresentation"><X :size="18" /></button>
           </div>
         </header>
@@ -507,7 +510,7 @@
           />
           <aside v-if="notesVisible">
             <small>{{ t('teachingRepresentations.slides.speakerNotes', '讲者备注') }}</small>
-            <p>{{ activeSlide.speaker_notes || t('pptWorkspace.noNotes', '这一页还没有讲稿。') }}</p>
+            <p>{{ activeSlide.speaker_notes || t('pptWorkspace.noNotes', '这一页还没有讲义备注。') }}</p>
           </aside>
         </main>
         <main v-else class="deck-presentation__blank" @click="presentationBlank = false">
@@ -518,7 +521,7 @@
           <button type="button" :disabled="activeIndex <= 0" @click="goToSlide(activeIndex - 1)"><ChevronLeft :size="20" /></button>
           <span>{{ activeIndex + 1 }} <i>/</i> {{ slides.length }}</span>
           <button type="button" :disabled="activeIndex >= slides.length - 1" @click="goToSlide(activeIndex + 1)"><ChevronRight :size="20" /></button>
-          <small>{{ t('pptWorkspace.shortcuts', '← → 翻页 · N 讲稿 · B 黑屏 · Esc 退出') }}</small>
+          <small>{{ t('pptWorkspace.shortcuts', '← → 翻页 · N 讲义备注 · B 黑屏 · Esc 退出') }}</small>
           <i class="deck-presentation__progress"><b :style="{ width: `${((activeIndex + 1) / Math.max(1, slides.length)) * 100}%` }"></b></i>
         </footer>
       </div>
@@ -807,7 +810,7 @@ const exportTitle = computed(() => (
   props.manuscriptConfirmationRequired
   && resolvedPptManuscript.value?.page_count
   && props.manuscriptStatus !== 'confirmed'
-    ? t('pptWorkspace.manuscriptExportBlocked', '请先确认 PPT 文书，再导出正式 PPTX')
+    ? t('pptWorkspace.manuscriptExportBlocked', '请先确认页面内容稿，再导出正式 PPTX')
     : previewSource.value === 'draft'
     ? t('pptWorkspace.draftExportDisabled', '问题草稿不可导出；同步成功后可导出 PPTX')
     : t('teachingRepresentations.exportPptx', '导出 PPTX')
@@ -1428,6 +1431,8 @@ function formatDuration(value: unknown) {
 .slide-workbench__manuscript-page strong { color:#344054; }
 .slide-workbench__manuscript-copy { display:grid; gap:3px; }
 .slide-workbench__manuscript-copy span { padding-left:10px; overflow:visible; color:#475467; font-weight:400; text-overflow:clip; white-space:normal; }
+.slide-workbench__source-ids { display:flex; flex-wrap:wrap; align-items:center; gap:3px; }
+.slide-workbench__source-ids code { max-width:100%; padding:1px 4px; overflow-wrap:anywhere; border-radius:3px; color:#344054; background:#eef2f6; font-size:8px; }
 .slide-workbench__secondary-actions { display:grid; grid-template-columns:1fr 1fr; gap:7px; padding-top:4px; border-top:1px solid #eef1f5; }
 .slide-workbench__commands .slide-workbench__secondary-actions button { width:100%; justify-content:center; color:#475467; background:#fff; }
 .slide-workbench__theme { display:grid; grid-template-columns:auto auto 30px; gap:2px; padding:3px; border:1px solid var(--lz-border); border-radius:9px; background:#f3f5f8; }

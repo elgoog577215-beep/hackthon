@@ -26,13 +26,17 @@ describe('four-stage course workbench boundary', () => {
     expect(questionBank).toContain('material_asset_ids: [...effectiveMaterialAssetIds.value]')
   })
 
-  it('keeps companion documents outside the numbered teaching chain', () => {
+  it('exposes each companion template directly outside the numbered teaching chain', () => {
     const workbench = source('components/TeacherCourseWorkbench.vue')
     const studio = source('components/CompanionDocumentStudio.vue')
     const fileView = source('views/TeacherCourseSpaceView.vue')
 
     expect(workbench).toContain('class="companion-entry"')
     expect(workbench).toContain('<CompanionDocumentStudio')
+    expect(workbench).toContain("'zju-grading-rubric-v1'")
+    expect(workbench).toContain("'zju-exam-course-material-checklist-v1'")
+    expect(workbench).toContain(':show-template-picker="false"')
+    expect(workbench).not.toContain("@click=\"requestStageChange('companion')\"")
     expect(workbench).not.toContain("id: 'companion' as const, step: '06'")
     expect(studio).toContain('class="template-grid"')
     expect(studio).toContain('grading_rubric')

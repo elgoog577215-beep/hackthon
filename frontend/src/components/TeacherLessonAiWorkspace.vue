@@ -387,14 +387,14 @@ const workingLabel = computed(() => {
   if (props.phase === 'accepting') {
     if (props.domain === 'outline') return '正在应用大纲修订…'
     if (props.domain === 'question-bank') return '正在创建题库任务…'
-    if (props.domain === 'script') return '正在形成新的讲稿修订…'
+    if (props.domain === 'script') return '正在形成新的讲义修订…'
     if (props.domain === 'ppt') return '正在形成新的 PPT 修订…'
     return tr('workingAccepting')
   }
   if (props.phase === 'rejecting') return tr('workingRejecting')
   if (props.domain === 'outline') return '正在生成大纲调整候选…'
   if (props.domain === 'question-bank') return '正在组织题库任务候选…'
-  if (props.domain === 'script') return '正在生成讲稿表达候选…'
+  if (props.domain === 'script') return '正在生成讲义表达候选…'
   if (props.domain === 'ppt') return '正在生成 PPT 页面候选…'
   return tr('workingGenerating')
 })

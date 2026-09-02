@@ -91,7 +91,7 @@
         type="button"
         :class="{ active: selectedNodeId === node.section_node_id }"
         :disabled="Boolean(pendingCandidate) && selectedNodeId !== node.section_node_id"
-        @click="selectedNodeId = node.section_node_id"
+        @click="activateNode(node)"
       >
         <span>{{ String(index + 1).padStart(2, '0') }}</span>
         {{ node.title }}
@@ -100,55 +100,50 @@
 
     <slot v-if="externalToolbar" name="toolbar" />
 
-    <article v-if="selectedNode" class="script-body" :data-state="lesson.script.ready ? 'ready' : 'partial'">
-      <header>
-        <span>{{ String(selectedNodeIndex + 1).padStart(2, '0') }}</span>
-        <h4>{{ selectedNode.title }}</h4>
-      </header>
-      <div v-if="editing && selectedNode.blocks?.length" class="script-block-editor">
-        <section v-for="block in selectedNode.blocks" :key="block.block_id">
-          <header>
-            <div>
-              <span>{{ blockRoleLabel(block.role) }}</span>
-              <h5>{{ block.title }}</h5>
-            </div>
-            <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
-          </header>
-          <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" @input="recordEditSnapshot" />
-        </section>
-      </div>
-      <textarea
-        v-else-if="editing"
-        v-model="drafts[selectedNode.section_node_id]"
-        rows="24"
-        :aria-label="selectedNode.title"
-        @input="recordEditSnapshot"
-      />
-      <div v-else-if="pendingCandidate && visibleContent" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
-        <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</strong><span>{{ selectedNode.title }}</span></aside>
-        <MarkdownRenderer :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="visibleContent" />
-      </div>
-      <div v-else-if="selectedNode.blocks?.length" class="script-modules">
-        <section v-for="block in selectedNode.blocks" :key="block.block_id" class="script-module">
-          <header>
-            <div>
-              <span>{{ blockRoleLabel(block.role) }}</span>
-              <h5>{{ block.title }}</h5>
-            </div>
-            <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
-          </header>
-          <MarkdownRenderer :content="block.content" />
-        </section>
-        <div v-if="!lesson.script.ready && generating" class="script-block-waiting">
-          <LoaderCircle :size="15" class="spin" />
-          {{ generationJob?.current_block_title || tr('courseWorkbench.scriptDocument.waitingForNextBlock') }}
+    <div v-if="scriptSections.length" class="script-continuous" :data-state="lesson.script.ready ? 'ready' : 'partial'">
+      <article
+        v-for="(node, nodeIndex) in scriptSections"
+        :id="sectionAnchor(node)"
+        :key="node.section_node_id"
+        class="script-body"
+        :class="{ active: selectedNodeId === node.section_node_id }"
+        @focusin="activateNode(node, false)"
+      >
+        <header>
+          <span>{{ String(nodeIndex + 1).padStart(2, '0') }}</span>
+          <h4>{{ node.title }}</h4>
+        </header>
+        <div v-if="editing && node.blocks?.length" class="script-block-editor">
+          <section v-for="block in node.blocks" :key="block.block_id">
+            <header>
+              <div><span>{{ blockRoleLabel(block.role) }}</span><h5>{{ block.title }}</h5></div>
+              <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
+            </header>
+            <textarea v-model="blockDrafts[block.block_id]" rows="10" :aria-label="block.title" @input="recordEditSnapshot" />
+          </section>
         </div>
-      </div>
-      <div v-else-if="visibleContent" class="script-content" data-state="current">
-        <MarkdownRenderer :content="visibleContent" />
-      </div>
-      <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
-    </article>
+        <textarea v-else-if="editing" v-model="drafts[node.section_node_id]" rows="24" :aria-label="node.title" @input="recordEditSnapshot" />
+        <div v-else-if="pendingCandidate?.section_node_id === node.section_node_id && contentFor(node)" ref="candidateRef" class="script-content" data-state="candidate" tabindex="-1">
+          <aside class="script-ai-change-bubble"><Sparkles :size="13" /><strong>{{ tr('courseWorkbench.lessonDocument.changeMarker') }}</strong><span>{{ node.title }}</span></aside>
+          <MarkdownRenderer :key="`candidate-${pendingCandidate.candidate_id || pendingCandidate.section_node_id}`" :content="contentFor(node)" />
+        </div>
+        <div v-else-if="node.blocks?.length" class="script-modules">
+          <section v-for="block in node.blocks" :key="block.block_id" class="script-module">
+            <header>
+              <div><span>{{ blockRoleLabel(block.role) }}</span><h5>{{ block.title }}</h5></div>
+              <small v-if="block.planned_minutes">{{ block.planned_minutes }} {{ tr('courseWorkbench.scriptDocument.minutes') }}</small>
+            </header>
+            <MarkdownRenderer :content="block.content" />
+          </section>
+          <div v-if="!lesson.script.ready && generating && nodeIndex === scriptSections.length - 1" class="script-block-waiting">
+            <LoaderCircle :size="15" class="spin" />
+            {{ generationJob?.current_block_title || tr('courseWorkbench.scriptDocument.waitingForNextBlock') }}
+          </div>
+        </div>
+        <div v-else-if="contentFor(node)" class="script-content" data-state="current"><MarkdownRenderer :content="contentFor(node)" /></div>
+        <div v-else class="script-empty">{{ tr('courseWorkbench.scriptPending') }}</div>
+      </article>
+    </div>
 
     <footer v-if="!externalToolbar && lesson.script.ready && !pendingCandidate && !editing && !confirmed" class="script-footer">
       <button
@@ -295,7 +290,7 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.statusPassed': '已通过当前检查',
   'courseWorkbench.scriptDocument.statusBlockedDetail': '当前内容尚未通过最新质量与来源检查，请继续编辑或重新生成。',
   'courseWorkbench.scriptDocument.statusPreviousFailureDetail': '最近一次 AI 生成没有完成；当前展示的是已经单独保存并通过检查的正文，不是该次失败任务的输出。',
-  'courseWorkbench.scriptDocument.statusPassedDetail': '确认后，这一修订才会成为 PPT 文书与 PPT 的唯一内容上游。',
+  'courseWorkbench.scriptDocument.statusPassedDetail': '确认后，这一修订才会成为页面内容稿与 PPT 的唯一内容上游。',
   'courseWorkbench.scriptDocument.generationRequirement': '讲义生成要求',
   'courseWorkbench.scriptDocument.generationPlaceholder': '例如：增加一个贴近学生的课堂案例，保留教案时间安排',
   'courseWorkbench.scriptDocument.generate': '生成本讲讲义',
@@ -374,12 +369,21 @@ const generationActionLabel = computed(() => {
   return tr('courseWorkbench.scriptDocument.generate')
 })
 const selectedNode = computed(() => scriptSections.value.find(node => node.section_node_id === selectedNodeId.value) || scriptSections.value[0] || null)
-const selectedNodeIndex = computed(() => Math.max(0, scriptSections.value.indexOf(selectedNode.value as ScriptSection)))
-const visibleContent = computed(() => {
-  if (!selectedNode.value) return ''
-  if (pendingCandidate.value?.section_node_id === selectedNode.value.section_node_id) return pendingCandidate.value.replacement_text
-  return selectedNode.value.content || ''
-})
+
+function contentFor(node: ScriptSection): string {
+  if (pendingCandidate.value?.section_node_id === node.section_node_id) return pendingCandidate.value.replacement_text
+  return node.content || ''
+}
+
+function sectionAnchor(node: ScriptSection): string {
+  return `script-section-${node.section_node_id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+}
+
+function activateNode(node: ScriptSection, scroll = true) {
+  if (pendingCandidate.value && pendingCandidate.value.section_node_id !== node.section_node_id) return
+  selectedNodeId.value = node.section_node_id
+  if (scroll) document.getElementById(sectionAnchor(node))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 function requestGeneration() {
   if (!props.generating && props.canGenerate) emit('generate', generationRequirement.value.trim())
@@ -576,6 +580,7 @@ defineExpose({
 .script-document{position:relative}
 .script-document>:deep(.app-error-notice){margin:12px 28px 0}
 .script-status-notice{display:grid;gap:3px;margin:14px 28px 0;padding:11px 13px;border:1px solid #d8dff0;border-radius:8px;color:#4b5870;background:#f8faff;font-size:12px;line-height:1.55}.script-status-notice strong{color:#29334a;font-size:12px}.script-status-notice[data-state="blocked"]{border-color:#efd2a8;background:#fff9ef}.script-status-notice[data-state="blocked"] strong{color:#9a4c0c}.script-status-notice[data-state="ready"]{border-color:#cce4d5;background:#f5fbf7}.script-status-notice[data-state="ready"] strong{color:#276749}
+.script-continuous{width:min(100%,940px);margin:0 auto}.script-continuous .script-body{min-height:0;scroll-margin-top:72px;border-bottom:1px solid #e4e8ef}.script-continuous .script-body:last-child{border-bottom:0}.script-continuous .script-body.active>header h4{color:#3730a3}.script-continuous .script-body.active>header span{color:#4f46e5}.script-continuous[data-state="partial"] .script-body:last-child{min-height:280px}
 @media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.script-footer{padding-inline:18px}}
 .script-content[data-state="candidate"]{border:1px solid #c8c7f2;background:#f8f8ff;outline:0}.script-content[data-state="candidate"]:focus{box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .script-ai-change-bubble{width:max-content;max-width:100%;display:flex;align-items:center;gap:6px;margin:-3px 0 14px;padding:5px 9px;border:1px solid #c8c7f2;border-radius:999px;color:#4338ca;background:#fff;box-shadow:0 4px 12px rgba(67,56,202,.08);font-size:10px}.script-ai-change-bubble strong{font-size:10px}.script-ai-change-bubble span{overflow:hidden;color:#667085;text-overflow:ellipsis;white-space:nowrap}

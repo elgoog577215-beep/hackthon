@@ -4,8 +4,8 @@
       <header>
         <div>
           <small>PPT GENERATOR</small>
-          <h2 id="deck-generator-title">{{ manuscriptFirst ? t('pptWorkspace.generateManuscript', '生成 PPT 文书') : '生成课程课件' }}</h2>
-          <p>{{ manuscriptFirst ? t('pptWorkspace.manuscriptDialogDescription', '先生成逐页内容底稿，确认后再生成可编辑 PPT。') : '课程正文将原样进入课件，AI 只负责分页、排版与审核。' }}</p>
+          <h2 id="deck-generator-title">{{ manuscriptFirst ? t('pptWorkspace.generateManuscript', '生成页面内容稿') : '生成课程课件' }}</h2>
+          <p>{{ manuscriptFirst ? t('pptWorkspace.manuscriptDialogDescription', '先生成逐页页面内容稿，确认后再生成可编辑 PPT。') : '课程正文将原样进入课件，AI 只负责分页、排版与审核。' }}</p>
         </div>
         <button v-if="closable" type="button" aria-label="关闭" @click="emit('close')"><X :size="18" /></button>
       </header>
@@ -132,7 +132,7 @@
         <button type="button" :disabled="busy" @click="confirm">
           <LoaderCircle v-if="busy" :size="17" class="spinning" />
           <Sparkles v-else :size="17" />
-          {{ busy ? t('pptWorkspace.generatingManuscript', '正在生成文书…') : manuscriptFirst ? t('pptWorkspace.generateManuscript', '生成 PPT 文书') : '开始生成课件' }}
+          {{ busy ? t('pptWorkspace.generatingManuscript', '正在生成页面内容稿…') : manuscriptFirst ? t('pptWorkspace.generateManuscript', '生成页面内容稿') : '开始生成课件' }}
         </button>
       </footer>
     </div>

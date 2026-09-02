@@ -28,7 +28,7 @@ const lesson: TeacherLessonProjection = {
   },
 }
 
-describe('统一讲稿页面', () => {
+describe('统一讲义页面', () => {
   beforeEach(async () => {
     setActivePinia(createPinia())
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => zhMessages })))
@@ -144,7 +144,12 @@ describe('统一讲稿页面', () => {
     expect((wrapper.vm as any).selectAiScope('section-2')).toBe(true)
     await flushPromises()
 
-    expect(wrapper.get('.script-content').text()).toContain('第二节讲稿内容')
+    expect(wrapper.findAll('.script-body')).toHaveLength(2)
+    expect(wrapper.findAll('.script-content').map(node => node.text())).toEqual([
+      '原始讲稿内容',
+      '第二节讲稿内容',
+    ])
+    expect(wrapper.get('.script-body.active .script-content').text()).toContain('第二节讲稿内容')
     expect(wrapper.emitted('ai-scope-change')?.at(-1)).toEqual([{ id: 'section-2', title: '1.2 HTTP 请求与响应' }])
     expect((wrapper.vm as any).selectAiScope('missing-section')).toBe(false)
   })

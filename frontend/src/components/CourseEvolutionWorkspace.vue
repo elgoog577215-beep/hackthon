@@ -47,7 +47,7 @@
               <section class="request-composer">
                 <div class="request-heading"><h3>{{ t('courseEvolution.workspace.requestTitle', '这次想让课程怎么变？') }}</h3></div>
                 <form @submit.prevent="submitRequest">
-                  <textarea ref="requestInputRef" v-model="requestText" rows="4" :placeholder="t('courseEvolution.workspace.requestPlaceholder', '例如：以后所有例子都讲得更详细一点，并同步更新讲稿和 PPT')" :disabled="store.generating || contextUnavailable" />
+                  <textarea ref="requestInputRef" v-model="requestText" rows="4" :placeholder="t('courseEvolution.workspace.requestPlaceholder', '例如：以后所有例子都讲得更详细一点，并同步更新讲义和 PPT')" :disabled="store.generating || contextUnavailable" />
                   <div class="request-suggestions" :aria-label="t('courseEvolution.workspace.requestSuggestionsLabel', '常用修改示例')"><button v-for="item in requestSuggestions" :key="item" type="button" @click="requestText = item">{{ item }}</button></div>
                   <p v-if="store.generationError || actionError" class="inline-error" role="alert"><TriangleAlert :size="15" />{{ store.generationError || actionError }}</p>
                   <footer><button type="submit" class="button-primary button-submit" :disabled="store.generating || !requestText.trim() || contextUnavailable"><Sparkles :size="16" />{{ t('courseEvolution.workspace.startAnalysis', '分析全课影响') }}</button></footer>
@@ -251,7 +251,7 @@ const receiptItems = computed<Array<{ migration_id?: string; operation_id?: stri
   const values = showingUndoReceipt.value ? domainUndoReceipt.value?.items : focusedPlan.value?.application_receipt?.items
   return Array.isArray(values) ? values : []
 })
-const requestSuggestions = computed(() => [t('courseEvolution.workspace.suggestDetailedExamples', '所有案例都补充完整推导、反例和适用边界'), t('courseEvolution.workspace.suggestRestructure', '按新的教学逻辑重构章节，并迁移可以保留的内容'), t('courseEvolution.workspace.suggestVersionUpdate', '统一更新大纲、教案、讲稿和 PPT 中过时的模型版本')])
+const requestSuggestions = computed(() => [t('courseEvolution.workspace.suggestDetailedExamples', '所有案例都补充完整推导、反例和适用边界'), t('courseEvolution.workspace.suggestRestructure', '按新的教学逻辑重构章节，并迁移可以保留的内容'), t('courseEvolution.workspace.suggestVersionUpdate', '统一更新大纲、教案、讲义和 PPT 中过时的模型版本')])
 const emptyAssets = (['outline', 'lesson_plan', 'script', 'ppt', 'question_bank'] as string[]).map(asset_type => ({ asset_type, label: asset_type, state: 'missing', count: 0, source: '', revision: '' })) as ContextAsset[]
 const listSeparator = computed(() => activeLocale.value === 'en' ? '; ' : '；')
 
@@ -274,7 +274,7 @@ watch(() => props.focusPlanId, value => {
 })
 
 function assetIcon(value: string): Component { return ({ outline: BookText, course_content: BookOpenText, lesson_plan: ClipboardList, script: ScrollText, teacher_script: ScrollText, ppt: Presentation, slide_deck: Presentation, question_bank: FileQuestion } as Record<string, Component>)[value] || BookText }
-function assetLabel(value: string) { const item = ({ outline: ['assetOutline', '课程大纲'], course_content: ['assetCourseContent', '课程正文'], lesson_plan: ['assetLessonPlan', '教案'], script: ['assetTeacherScript', '讲稿'], teacher_script: ['assetTeacherScript', '讲稿'], ppt: ['assetSlides', 'PPT'], slide_deck: ['assetSlides', 'PPT'], question_bank: ['assetQuestionBank', '题库'] } as Record<string, string[]>)[value]; return item ? t(`courseEvolution.workspace.${item[0]}`, item[1]) : value }
+function assetLabel(value: string) { const item = ({ outline: ['assetOutline', '课程大纲'], course_content: ['assetCourseContent', '课程正文'], lesson_plan: ['assetLessonPlan', '教案'], script: ['assetTeacherScript', '讲义'], teacher_script: ['assetTeacherScript', '讲义'], ppt: ['assetSlides', 'PPT'], slide_deck: ['assetSlides', 'PPT'], question_bank: ['assetQuestionBank', '题库'] } as Record<string, string[]>)[value]; return item ? t(`courseEvolution.workspace.${item[0]}`, item[1]) : value }
 function assetStateLabel(value: ContextAsset['state']) { return ({ available: t('courseEvolution.workspace.assetAvailable', '可分析'), partial: t('courseEvolution.workspace.assetPartial', '部分完成'), missing: t('courseEvolution.workspace.assetMissing', '尚未生成'), stale: t('courseEvolution.workspace.assetStale', '需要同步') } as Record<string, string>)[value] }
 function dispositionLabel(value: string) { const item = ({ reuse_exact: ['migrationReuse', '保留'], reuse_rebind: ['migrationRebind', '迁移重绑'], rewrite_partial: ['migrationRewrite', '局部改写'], regenerate: ['migrationRegenerate', '重新生成'], retire: ['migrationRetire', '停用'], blocked: ['migrationBlocked', '需判断'] } as Record<string, string[]>)[value]; return item ? t(`courseEvolution.workspace.${item[0]}`, item[1]) : value }
 function effectiveDisposition(item: AffectedUnit) { return dispositionOverrides.value[item.migration_id] || item.disposition }

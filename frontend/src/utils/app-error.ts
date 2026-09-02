@@ -97,7 +97,7 @@ function sanitizeTechnicalText(value: string): string {
 function domainName(url: string): string {
   const domains: Array<[RegExp, string]> = [
     [/\/lesson-authoring|\/lessons\/[^/]+\/plan/, t('appError.domains.lessonPlan', '教案')],
-    [/\/lessons\/[^/]+\/script/, t('appError.domains.script', '讲稿')],
+    [/\/lessons\/[^/]+\/script/, t('appError.domains.script', '讲义')],
     [/question[_-]bank|question-bank/, t('appError.domains.questionBank', '题库')],
     [/slide|ppt/i, t('appError.domains.ppt', 'PPT')],
     [/calendar|session/i, t('appError.domains.calendar', '教学日历')],

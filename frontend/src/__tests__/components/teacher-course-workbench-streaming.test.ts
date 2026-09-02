@@ -101,7 +101,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.stage-rail > header small').exists()).toBe(false)
     expect(wrapper.find('.stage-rail nav small').exists()).toBe(false)
     expect(wrapper.find('.companion-entry button small').exists()).toBe(false)
-    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '配套文档'])
+    expect(wrapper.findAll('.companion-entry button').map(button => button.text())).toEqual(['题库', '评分细则', '考试课程材料自查清单'])
   })
 
   it('把课程信息入口事件交给课程工作区打开弹窗', async () => {
@@ -471,6 +471,89 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
   })
 
+  it('确认本讲课型后可以只生成当前讲，不启动整课任务', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+      title: '第一讲', duration_minutes: 45,
+      sections: [{ section_node_id: 'L2-1-1', title: '变化率' }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: 'arrangement-1', lesson_unit_id: 'L1-1',
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory_practice', lesson_type_label: '讲练结合',
+        lesson_type_recommendation_reason: '需要把概念讲解和即时练习连续组织起来。',
+        status: 'confirmed', confirmed: true, source_state: 'current',
+        blocks: [{
+          block_id: 'block-1', module_id: 'core_explanation', section_node_id: 'L2-1-1',
+          section_title: '变化率', name: '建立概念', role: 'concept', purpose: '建立变化率概念',
+          content_summary: '从平均变化率进入瞬时变化率', planned_minutes: 45,
+          teacher_activity: '示范', student_activity: '解释', expected_output: '概念图', required: true,
+        }],
+      },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+    }] as any
+    const generateLesson = vi.spyOn(lessonStore, 'generateLesson').mockResolvedValue({ id: 'lesson-job-1' } as any)
+    const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons')
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    const singleButton = wrapper.findAll('.arrangement-actions button').find(button => button.text().includes('只生成本讲'))
+    expect(singleButton).toBeTruthy()
+    await singleButton!.trigger('click')
+    await flushPromises()
+
+    expect(generateLesson).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [], '')
+    expect(generateAllLessons).not.toHaveBeenCalled()
+  })
+
+  it('默认先定位最近失败讲次，其次定位受影响讲次', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2, 3].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      script: { current_revision_id: 'script-1', confirmed_revision_id: 'script-1', source_lesson_plan_revision_id: 'plan-1', source_state: number === 2 ? 'stale' : 'current', ready: true, confirmed: true, confirmed_at: '', sections: [] },
+      plan: { lesson_unit_id: `L1-${number}`, working_revision_id: 'plan-1', confirmed_revision_id: 'plan-1', source_state: number === 2 ? 'stale' : 'current', revisions: [], ppt_assets: [{ source_state: 'current', ppt_manuscript_status: 'confirmed' }] },
+    })) as any
+    lessonStore.jobs = [{
+      id: 'failed-job', course_id: 'course-1', lesson_unit_id: 'L1-3', type: 'teacher_lesson_plan_generation',
+      status: 'failed', progress: 30, phase: 'lesson_plan_failed', message: '生成失败', warnings: [], updated_at: '2026-09-02T09:00:00Z',
+    }] as any
+
+    const failedFirst = mountWorkbench({ initialStage: 'lesson' })
+    expect(failedFirst.get('.lesson-title-trigger').text()).toContain('第3讲')
+    failedFirst.unmount()
+
+    lessonStore.jobs = []
+    const affectedNext = mountWorkbench({ initialStage: 'lesson' })
+    expect(affectedNext.get('.lesson-title-trigger').text()).toContain('第2讲')
+  })
+
+  it('讲次目录只使用六类可行动状态', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2, 3, 4, 5, 6].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45, sections: [],
+      plan: {
+        lesson_unit_id: `L1-${number}`,
+        working_revision_id: [3, 4, 5].includes(number) ? `plan-${number}` : '',
+        confirmed_revision_id: [4, 5].includes(number) ? `plan-${number}` : '',
+        source_state: number === 5 ? 'stale' : 'current', revisions: [], ppt_assets: [],
+      },
+    })) as any
+    lessonStore.jobs = [{
+      id: 'running-job', course_id: 'course-1', lesson_unit_id: 'L1-2', type: 'teacher_lesson_plan_generation',
+      status: 'running', progress: 40, phase: 'lesson_plan_generation', message: '正在生成', warnings: [],
+    }, {
+      id: 'failed-job', course_id: 'course-1', lesson_unit_id: 'L1-6', type: 'teacher_lesson_plan_generation',
+      status: 'failed', progress: 40, phase: 'lesson_plan_failed', message: '生成失败', warnings: [],
+    }] as any
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    await wrapper.get('.lesson-title-trigger').trigger('click')
+    const labels = wrapper.findAll('.lesson-outline-chapter-button').map(button => button.attributes('aria-label'))
+    expect(labels).toEqual([
+      '第1讲，未生成', '第2讲，生成中', '第3讲，待确认',
+      '第4讲，已确认', '第5讲，需复核', '第6讲，失败',
+    ])
+  })
+
   it('教案任务开始后原位显示真实进度并隐藏重复提交按钮', () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
@@ -520,7 +603,7 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.get('.lesson-title-trigger').trigger('click')
     const chapterButtons = wrapper.findAll('.lesson-outline-chapter-button')
     expect(chapterButtons[0]!.attributes('aria-label')).toContain('生成中')
-    expect(chapterButtons[1]!.attributes('aria-label')).toContain('等待生成')
+    expect(chapterButtons[1]!.attributes('aria-label')).toContain('生成中')
     expect(wrapper.findAll('.lesson-outline-status .spin')).toHaveLength(1)
 
     await chapterButtons[1]!.trigger('click')
@@ -571,7 +654,7 @@ describe('teacher course workbench outline streaming', () => {
 
     await lessonWrapper.get('.lesson-title-trigger').trigger('click')
     expect(lessonWrapper.get('.lesson-outline-chapter-button').attributes('aria-label')).toContain('待确认')
-    expect(lessonWrapper.text()).not.toContain('1.1 程序运行过程')
+    expect(lessonWrapper.text()).toContain('1.1 程序运行过程')
     expect(lessonWrapper.text()).toContain('演示源码如何编译运行')
     expect(lessonWrapper.find('.lesson-toolbar-status').exists()).toBe(false)
     expect(lessonWrapper.get('.teacher-document-command-bar__status').text()).toContain('待确认')

@@ -79,6 +79,8 @@ describe('SlideDeckWorkbench', () => {
               layout_id: 'qizhi-classroom/content-stack',
               composition_notes: '标题在上，证据链在下。',
               source_script_block_ids: ['b1', 'b2'],
+              source_section_ids: ['section-1'],
+              source_material_evidence_ids: ['evidence-1'],
             },
             { page_id: 'page-2', page_number: 2, title: '验证结论', source_script_block_ids: ['b3', 'b4', 'b5'] },
           ],
@@ -94,13 +96,16 @@ describe('SlideDeckWorkbench', () => {
     expect(details.get('[data-testid="ppt-planning-cost"]').text()).toContain('12.5 秒')
     expect(details.get('[data-testid="ppt-storyboard-status"]').text()).toContain('2 页')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('建立问题')
-    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个讲稿来源块')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('3 个讲义来源块')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('让学生明确本讲要解决的问题')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('可靠结论必须绑定现场证据')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('concept · qizhi-classroom/content-stack')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('哪些证据能支撑这个结论？')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('先记录对象、时间与环境条件。')
     expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('question → evidence → conclusion')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('讲义来源块：b1b2')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('教案小节：section-1')
+    expect(details.get('[data-testid="ppt-storyboard-pages"]').text()).toContain('资料证据：evidence-1')
     expect(details.get('[data-testid="ppt-visual-ai-status"]').text()).toContain('1 页需检查')
     expect(details.get('[data-testid="ppt-manual-edit-status"]').text()).toContain('完整课件')
     expect(wrapper.get('.slide-workbench__identity').find('[data-testid="ppt-story-ai-status"]').exists()).toBe(false)
@@ -176,13 +181,13 @@ describe('SlideDeckWorkbench', () => {
     })
 
     const confirm = wrapper.get('[data-testid="ppt-confirm-manuscript"]')
-    expect(confirm.text()).toContain('确认 PPT 文书')
+    expect(confirm.text()).toContain('确认页面内容稿')
     expect(wrapper.get('.slide-workbench__export').attributes('disabled')).toBeDefined()
     await confirm.trigger('click')
     expect(wrapper.emitted('confirm-manuscript')).toHaveLength(1)
 
     await wrapper.setProps({ manuscriptStatus: 'confirmed' })
-    expect(confirm.text()).toContain('查看 PPT 文书')
+    expect(confirm.text()).toContain('查看页面内容稿')
     expect(confirm.attributes('disabled')).toBeUndefined()
     await confirm.trigger('click')
     expect(wrapper.emitted('review-manuscript')).toHaveLength(1)
@@ -226,7 +231,7 @@ describe('SlideDeckWorkbench', () => {
 
     const confirm = wrapper.get('[data-testid="ppt-confirm-manuscript"]')
     expect(confirm.attributes('disabled')).toBeDefined()
-    expect(confirm.text()).toContain('PPT 文书需修改')
+    expect(confirm.text()).toContain('页面内容稿需修改')
     expect(wrapper.get('[data-testid="ppt-storyboard-status"]').text()).toContain('不能生成 PPT')
     expect(wrapper.get('[data-testid="ppt-manuscript-quality-issues"]').text()).toContain('原始 LaTeX 不能作为页面标题')
   })

@@ -1165,7 +1165,7 @@ function pptCoursePlanImpacts(projection: TeacherCoursePlanProjection): string[]
     outline: t('courseWorkbench.aiCollaboration.assetOutline', '大纲'),
     course_content: t('courseWorkbench.aiCollaboration.assetCourseContent', '课程内容'),
     lesson_plan: t('courseWorkbench.aiCollaboration.assetLessonPlan', '教案'),
-    script: t('courseWorkbench.aiCollaboration.assetScript', '讲稿'),
+    script: t('courseWorkbench.aiCollaboration.assetScript', '讲义'),
     ppt: 'PPT',
     question_bank: t('courseWorkbench.aiCollaboration.assetQuestionBank', '题库'),
   }

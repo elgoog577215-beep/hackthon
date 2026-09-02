@@ -50,6 +50,33 @@ describe('PptManuscriptWorkflow', () => {
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(true)
   })
 
+  it('shows the handout, lesson-plan, and material sources for every page', () => {
+    const wrapper = mount(PptManuscriptWorkflow, {
+      props: {
+        title: '第2讲 变化率',
+        state: {
+          ...emptyState,
+          status: 'draft',
+          confirmable: true,
+          manuscript: {
+            page_count: 1,
+            pages: [{
+              page_id: 'page-1', page_number: 1, title: '从平均变化率到瞬时变化率',
+              source_script_block_ids: ['script-block-1'],
+              source_section_ids: ['section-2'],
+              source_material_evidence_ids: ['evidence-3'],
+            }],
+          },
+        },
+      },
+    })
+
+    const page = wrapper.get('.ppt-manuscript-workflow__page-copy')
+    expect(page.text()).toContain('讲义来源块script-block-1')
+    expect(page.text()).toContain('教案小节section-2')
+    expect(page.text()).toContain('资料证据evidence-3')
+  })
+
   it('explains an oversized request as a recoverable manuscript failure', async () => {
     const wrapper = mount(PptManuscriptWorkflow, {
       props: {
@@ -64,10 +91,10 @@ describe('PptManuscriptWorkflow', () => {
     })
 
     const failure = wrapper.get('[data-testid="ppt-manuscript-failure"]')
-    expect(failure.text()).toContain('文书输入已自动压缩')
-    expect(failure.text()).toContain('保留全部讲稿块')
+    expect(failure.text()).toContain('页面内容稿输入已自动压缩')
+    expect(failure.text()).toContain('保留全部讲义块')
     expect(failure.text()).toContain('story_ai_batch_request_budget_exceeded')
-    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('重新生成 PPT 文书')
+    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('重新生成页面内容稿')
 
     await wrapper.get('[data-testid="generate-ppt-manuscript"]').trigger('click')
     expect(wrapper.emitted('generate-manuscript')).toHaveLength(1)
@@ -87,7 +114,7 @@ describe('PptManuscriptWorkflow', () => {
     })
 
     expect(wrapper.text()).toContain('页面标题候选不足')
-    expect(wrapper.text()).toContain('确认文书后解锁')
+    expect(wrapper.text()).toContain('确认页面内容稿后解锁')
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
   })
 })

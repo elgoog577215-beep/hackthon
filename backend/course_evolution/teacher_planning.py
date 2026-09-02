@@ -301,7 +301,7 @@ def _authoring_units(authoring: dict[str, Any]) -> list[TeacherCourseChangeUnit]
                     unit_id=f"script:{lesson_id}:{block_id}",
                     asset_type="script",
                     unit_type="script_block",
-                    title=str(block.get("title") or block.get("name") or section.get("title") or "讲稿段落"),
+                    title=str(block.get("title") or block.get("name") or section.get("title") or "讲义段落"),
                     text=_unit_text(block),
                     section_ids=[section_id],
                     parent_id=str(lesson_id),
@@ -484,7 +484,7 @@ def build_teacher_course_change_context(
         "outline": "课程大纲",
         "course_content": "课程正文",
         "lesson_plan": "教案",
-        "script": "讲稿",
+        "script": "讲义",
         "ppt": "PPT",
         "question_bank": "题库",
     }

@@ -281,7 +281,7 @@ async def _generate_script_candidates(
             base_revision_id = str(lesson.get("working_script_revision_id") or "")
             revision = _revision(lesson.get("script_revisions") or [], base_revision_id)
             if not base_revision_id or not revision:
-                raise ValueError("当前课节没有可优化的讲稿工作稿")
+                raise ValueError("当前课节没有可优化的讲义工作稿")
             scope = lesson_scope(course_data, lesson_id)
             outline_by_id = {
                 str(item.get("node_id") or ""): item for item in scope["sections"]
@@ -341,10 +341,10 @@ async def _generate_script_candidates(
                 )
                 replacement = str(result.get("replacement_text") or "").strip()
                 if not replacement:
-                    raise ValueError("讲稿候选为空")
+                    raise ValueError("讲义候选为空")
                 replacements[section_id] = replacement
             if not replacements:
-                raise ValueError("没有找到可修改的讲稿小节")
+                raise ValueError("没有找到可修改的讲义小节")
             first_section_id = next(iter(replacements))
             candidate = repository.save_script_ai_candidate(
                 course_id,
@@ -833,7 +833,7 @@ def _apply_script_candidate(
     base_revision_id = str(candidate.get("base_revision_id") or "")
     if str(lesson.get("working_script_revision_id") or "") != base_revision_id:
         raise TeacherLessonAuthoringError(
-            "lesson_script_revision_conflict", "讲稿工作稿已变化，不能覆盖新修改。"
+            "lesson_script_revision_conflict", "讲义工作稿已变化，不能覆盖新修改。"
         )
     base = _revision(lesson.get("script_revisions") or [], base_revision_id)
     plan_revision_id = str(candidate.get("source_lesson_plan_revision_id") or "")

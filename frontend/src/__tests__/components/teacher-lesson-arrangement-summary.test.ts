@@ -27,6 +27,8 @@ const arrangement: TeacherLessonArrangement = {
     check_method: '检查符号、条件和图像是否一致。',
     feedback_strategy: '先定位用直觉替代定义的问题，再安排修正。',
     adaptation_options: ['达到：进入变式', '部分达到：补充表征', '未达到：回到极限前置'],
+    resource_refs: ['教材第 3 章'],
+    tools: ['函数图像工具'],
     safety_boundary: '不得伪造定理、证明或计算结果。',
     required: true,
   }],
@@ -46,7 +48,7 @@ describe('本讲教学结构摘要', () => {
 
     expect(wrapper.text()).toContain('讲练结合')
     expect(wrapper.text()).toContain('本讲需要把原理讲解、示范和练习组织为连续学习任务')
-    expect(wrapper.text()).toContain('已有版本会保留，不会被静默覆盖')
+    expect(wrapper.text()).toContain('最后可用版本会保留，不会被静默覆盖')
     expect(wrapper.text()).not.toContain('显化对象、条件和极限过程')
 
     await wrapper.get('button').trigger('click')
@@ -55,6 +57,7 @@ describe('本讲教学结构摘要', () => {
     expect(wrapper.text()).toContain('显化对象、条件和极限过程')
     expect(wrapper.text()).toContain('学生行动')
     expect(wrapper.text()).toContain('条件完整的导数定义')
+    expect(wrapper.text()).toContain('教材第 3 章；函数图像工具')
     expect(wrapper.text()).toContain('三档处理')
     expect(wrapper.text()).toContain('不得伪造定理、证明或计算结果')
   })

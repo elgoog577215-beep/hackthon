@@ -7,7 +7,7 @@
       <div>
         <small>{{ t('pptWorkspace.manuscriptWorkflowEyebrow', 'PPT 生成') }}</small>
         <h1>{{ title }}</h1>
-        <p>{{ t('pptWorkspace.manuscriptWorkflowDescription', '先确认逐页文书，再生成可编辑 PPT。') }}</p>
+        <p>{{ t('pptWorkspace.manuscriptWorkflowDescription', '先确认逐页页面内容稿，再生成可编辑 PPT。') }}</p>
       </div>
     </header>
 
@@ -23,7 +23,7 @@
         <li :class="stepClass(1)">
           <span>1</span>
           <div>
-            <strong>{{ t('pptWorkspace.stepGenerateManuscript', '生成 PPT 文书') }}</strong>
+            <strong>{{ t('pptWorkspace.stepGenerateManuscript', '生成页面内容稿') }}</strong>
             <small>{{ manuscriptStepStatus }}</small>
           </div>
         </li>
@@ -38,7 +38,7 @@
 
       <div v-if="state.source_state === 'stale'" class="ppt-manuscript-workflow__warning">
         <TriangleAlert :size="18" />
-        <span>{{ t('pptWorkspace.manuscriptStale', '教案、讲稿或资料已经变化，请重新生成 PPT 文书。') }}</span>
+        <span>{{ t('pptWorkspace.manuscriptStale', '教案、讲义或资料已经变化，请重新生成页面内容稿。') }}</span>
       </div>
       <div
         v-if="failureView"
@@ -57,8 +57,8 @@
       <main v-if="manuscript" class="ppt-manuscript-workflow__content">
         <div class="ppt-manuscript-workflow__summary">
           <div>
-            <small>{{ t('pptWorkspace.manuscriptLabel', 'PPT 文书') }}</small>
-            <h2>{{ t('pptWorkspace.manuscriptReviewTitle', '逐页内容底稿') }}</h2>
+            <small>{{ t('pptWorkspace.manuscriptLabel', '页面内容稿') }}</small>
+            <h2>{{ t('pptWorkspace.manuscriptReviewTitle', '逐页内容与来源') }}</h2>
           </div>
           <span>{{ manuscript.page_count }} {{ t('pptWorkspace.pageUnit', '页') }}</span>
         </div>
@@ -76,6 +76,20 @@
               <p v-if="page.transition" class="ppt-manuscript-workflow__transition">
                 <b>{{ t('pptWorkspace.pageTransition', '衔接') }}：</b>{{ page.transition }}
               </p>
+              <dl v-if="hasSourceRefs(page)" class="ppt-manuscript-workflow__sources">
+                <div v-if="sourceIds(page, 'source_script_block_ids').length">
+                  <dt>{{ t('pptWorkspace.sourceScriptBlockIds', '讲义来源块') }}</dt>
+                  <dd><code v-for="sourceId in sourceIds(page, 'source_script_block_ids')" :key="sourceId">{{ sourceId }}</code></dd>
+                </div>
+                <div v-if="sourceIds(page, 'source_section_ids').length">
+                  <dt>{{ t('pptWorkspace.sourceSectionIds', '教案小节') }}</dt>
+                  <dd><code v-for="sourceId in sourceIds(page, 'source_section_ids')" :key="sourceId">{{ sourceId }}</code></dd>
+                </div>
+                <div v-if="sourceIds(page, 'source_material_evidence_ids').length">
+                  <dt>{{ t('pptWorkspace.sourceMaterialEvidenceIds', '资料证据') }}</dt>
+                  <dd><code v-for="sourceId in sourceIds(page, 'source_material_evidence_ids')" :key="sourceId">{{ sourceId }}</code></dd>
+                </div>
+              </dl>
             </div>
           </article>
         </div>
@@ -83,7 +97,7 @@
 
       <div v-else class="ppt-manuscript-workflow__empty">
         <ScrollText :size="34" />
-        <h2>{{ t('pptWorkspace.manuscriptNotGenerated', '尚未生成 PPT 文书') }}</h2>
+        <h2>{{ t('pptWorkspace.manuscriptNotGenerated', '尚未生成页面内容稿') }}</h2>
         <p>{{ t('pptWorkspace.manuscriptNotGeneratedDescription', '系统会先形成页序、标题、核心内容、讲解衔接与版式建议，供你确认。') }}</p>
       </div>
 
@@ -96,7 +110,7 @@
           data-testid="generate-ppt-manuscript"
           @click="emit('generate-manuscript')"
         >
-          <Sparkles :size="17" />{{ busy ? t('pptWorkspace.generatingManuscript', '正在生成文书…') : retryLabel }}
+          <Sparkles :size="17" />{{ busy ? t('pptWorkspace.generatingManuscript', '正在生成页面内容稿…') : retryLabel }}
         </button>
         <template v-else-if="state.status === 'draft'">
           <button
@@ -105,7 +119,7 @@
             data-testid="regenerate-ppt-manuscript"
             @click="emit('regenerate-manuscript')"
           >
-            <Sparkles :size="17" />{{ t('pptWorkspace.regenerateManuscript', '重新生成 PPT 文书') }}
+            <Sparkles :size="17" />{{ t('pptWorkspace.regenerateManuscript', '重新生成页面内容稿') }}
           </button>
           <button
             type="button"
@@ -114,7 +128,7 @@
             data-testid="confirm-ppt-manuscript"
             @click="emit('confirm-manuscript')"
           >
-            <Check :size="17" />{{ confirming ? t('pptWorkspace.confirmingManuscript', '正在确认…') : t('pptWorkspace.confirmManuscript', '确认 PPT 文书') }}
+            <Check :size="17" />{{ confirming ? t('pptWorkspace.confirmingManuscript', '正在确认…') : t('pptWorkspace.confirmManuscript', '确认页面内容稿') }}
           </button>
         </template>
         <template v-else>
@@ -125,7 +139,7 @@
             data-testid="regenerate-ppt-manuscript"
             @click="emit('regenerate-manuscript')"
           >
-            <Sparkles :size="17" />{{ t('pptWorkspace.regenerateManuscript', '重新生成 PPT 文书') }}
+            <Sparkles :size="17" />{{ t('pptWorkspace.regenerateManuscript', '重新生成页面内容稿') }}
           </button>
           <button
             type="button"
@@ -134,7 +148,7 @@
             data-testid="generate-ppt-from-manuscript"
             @click="emit('generate-ppt')"
           >
-            <Presentation :size="17" />{{ busy ? t('pptWorkspace.generatingDeck', '正在生成 PPT…') : t('pptWorkspace.generateDeck', '根据已确认文书生成 PPT') }}
+            <Presentation :size="17" />{{ busy ? t('pptWorkspace.generatingDeck', '正在生成 PPT…') : t('pptWorkspace.generateDeck', '根据已确认页面内容稿生成 PPT') }}
           </button>
         </template>
       </footer>
@@ -171,35 +185,35 @@ const failureView = computed(() => {
   if (code === 'story_ai_batch_request_budget_exceeded') {
     return {
       code,
-      title: t('pptWorkspace.manuscriptBudgetRecoveredTitle', '文书输入已自动压缩'),
-      message: t('pptWorkspace.manuscriptBudgetRecoveredMessage', '系统已移除重复上下文并保留全部讲稿块，可直接重新生成当前 PPT 文书。'),
+      title: t('pptWorkspace.manuscriptBudgetRecoveredTitle', '页面内容稿输入已自动压缩'),
+      message: t('pptWorkspace.manuscriptBudgetRecoveredMessage', '系统已移除重复上下文并保留全部讲义块，可直接重新生成当前页面内容稿。'),
     }
   }
   if (code.startsWith('story_title_') || code === 'duplicate_slide_title') {
     return {
       code,
       title: t('pptWorkspace.manuscriptTitleRecoveryTitle', '页面标题候选不足'),
-      message: t('pptWorkspace.manuscriptTitleRecoveryMessage', '系统会优先使用已确认讲稿块标题重新规划，不会发布重复或残缺标题页。'),
+      message: t('pptWorkspace.manuscriptTitleRecoveryMessage', '系统会优先使用已确认讲义块标题重新规划，不会发布重复或残缺标题页。'),
     }
   }
   if (code.endsWith('_rate_limited')) {
     return {
       code,
-      title: t('pptWorkspace.manuscriptRateLimitedTitle', 'PPT 文书模型暂时繁忙'),
+      title: t('pptWorkspace.manuscriptRateLimitedTitle', '页面内容稿模型暂时繁忙'),
       message: t('pptWorkspace.manuscriptRateLimitedMessage', '已完成内容和旧版本均已保留，稍后可直接重试。'),
     }
   }
   if (code.endsWith('_authentication') || code.endsWith('_balance_unavailable')) {
     return {
       code,
-      title: t('pptWorkspace.manuscriptProviderBlockedTitle', 'PPT 文书模型当前不可用'),
-      message: String(failure?.message || t('pptWorkspace.manuscriptProviderBlockedMessage', '请检查模型凭证或额度后再重试；系统没有发布不完整文书。')),
+      title: t('pptWorkspace.manuscriptProviderBlockedTitle', '页面内容稿模型当前不可用'),
+      message: String(failure?.message || t('pptWorkspace.manuscriptProviderBlockedMessage', '请检查模型凭证或额度后再重试；系统没有发布不完整页面内容稿。')),
     }
   }
   if (failure) {
     return {
       code,
-      title: t('pptWorkspace.manuscriptGenerationFailedTitle', 'PPT 文书未生成'),
+      title: t('pptWorkspace.manuscriptGenerationFailedTitle', '页面内容稿未生成'),
       message: String(failure.message || t('pptWorkspace.manuscriptGenerationFailedMessage', '系统已保留现有内容，可重新生成。')),
     }
   }
@@ -214,8 +228,8 @@ const failureView = computed(() => {
 })
 const retryLabel = computed(() => (
   failureView.value
-    ? t('pptWorkspace.retryManuscript', '重新生成 PPT 文书')
-    : t('pptWorkspace.generateManuscript', '生成 PPT 文书')
+    ? t('pptWorkspace.retryManuscript', '重新生成页面内容稿')
+    : t('pptWorkspace.generateManuscript', '生成页面内容稿')
 ))
 const manuscriptStepStatus = computed(() => {
   if (props.state.source_state === 'stale') return t('pptWorkspace.stepStale', '需要重新生成')
@@ -228,8 +242,18 @@ const deckStepStatus = computed(() => (
     ? t('pptWorkspace.stepCompleted', '已生成')
     : props.state.can_generate_ppt
       ? t('pptWorkspace.stepReady', '可生成')
-      : t('pptWorkspace.stepLocked', '确认文书后解锁')
+      : t('pptWorkspace.stepLocked', '确认页面内容稿后解锁')
 ))
+
+function sourceIds(page: Record<string, any>, field: string): string[] {
+  const values = page?.[field]
+  return Array.isArray(values) ? values.map(value => String(value)).filter(Boolean) : []
+}
+
+function hasSourceRefs(page: Record<string, any>): boolean {
+  return ['source_script_block_ids', 'source_section_ids', 'source_material_evidence_ids']
+    .some(field => sourceIds(page, field).length > 0)
+}
 
 function stepClass(step: number) {
   if (step === 1) return { 'is-active': true, 'is-complete': props.state.status === 'confirmed' }
@@ -290,6 +314,11 @@ function pageTypeLabel(value: string) {
 .ppt-manuscript-workflow__page-copy p { margin:7px 0; line-height:1.65; }
 .ppt-manuscript-workflow__page-copy ul { margin:8px 0; padding-left:20px; line-height:1.7; }
 .ppt-manuscript-workflow__transition { color:#475467; }
+.ppt-manuscript-workflow__sources { display:grid; gap:8px; margin:14px 0 0; padding-top:12px; border-top:1px solid #eceff3; }
+.ppt-manuscript-workflow__sources > div { display:grid; grid-template-columns:88px minmax(0,1fr); gap:10px; align-items:start; }
+.ppt-manuscript-workflow__sources dt { color:#667085; font-size:12px; font-weight:700; }
+.ppt-manuscript-workflow__sources dd { display:flex; flex-wrap:wrap; gap:5px; min-width:0; margin:0; }
+.ppt-manuscript-workflow__sources code { max-width:100%; padding:2px 6px; overflow-wrap:anywhere; border-radius:5px; color:#344054; background:#f2f4f7; font-size:11px; }
 .ppt-manuscript-workflow__empty { padding:60px 28px; text-align:center; color:#667085; }
 .ppt-manuscript-workflow__empty h2 { color:#172033; margin:12px 0 8px; }
 .ppt-manuscript-workflow__original { padding:50px 28px; text-align:center; flex-direction:column; color:#475467; }

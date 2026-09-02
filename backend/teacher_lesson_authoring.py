@@ -315,6 +315,9 @@ def normalize_teacher_lesson_plan(plan: dict[str, Any]) -> dict[str, Any]:
                 ]
             if not str(normalized_module.get("transition") or "").strip():
                 normalized_module["transition"] = f"根据“{label}”的当堂证据决定是否进入下一教学块。"
+            if not _text_list(normalized_module.get("resource_refs")):
+                normalized_module["resource_refs"] = _text_list(next_section.get("resource_refs"))
+            normalized_module["tools"] = _text_list(normalized_module.get("tools"))
             mapping_anchor = key_points[0] if key_points else label
             if not str(normalized_module.get("handout_ppt_mapping") or "").strip():
                 normalized_module["handout_ppt_mapping"] = f"讲义对应“{mapping_anchor}”内容；PPT 对应同名教学页面。"
@@ -451,6 +454,15 @@ def align_teacher_lesson_plan_to_arrangement(
                     "部分达到时补充提示或示例后再次检查。",
                     "未达到时缩小任务、重新示范并安排复查。",
                 ],
+                "resource_refs": _text_list(
+                    source_module.get("resource_refs")
+                    or block.get("resource_refs")
+                    or section.get("resource_refs")
+                ),
+                "tools": _text_list(
+                    source_module.get("tools")
+                    or block.get("tools")
+                ),
                 "transition": str(
                     source_module.get("transition")
                     or block.get("transition")
@@ -931,7 +943,7 @@ def build_uploaded_ppt_review_report(
             add_finding(
                 "slide_alignment_unresolved",
                 "与已确认教学内容的对应关系不明确",
-                "索引未找到该页与当前教案或讲稿的明确对应，请确认是补充材料还是需要调整。",
+                "索引未找到该页与当前教案或讲义的明确对应，请确认是补充材料还是需要调整。",
                 slide_id=slide_id,
                 slide_number=slide_number,
                 evidence=[{"kind": item.get("kind"), "label": item.get("label"), "revision_id": item.get("revision_id")} for item in confirmed_sources],
@@ -945,7 +957,7 @@ def build_uploaded_ppt_review_report(
         add_finding(
             "source_unit_not_covered",
             f"未找到“{label}”的明确对应页",
-            "已确认的教案或讲稿中包含该内容，但 PPT 索引未找到足够相关的页面。",
+            "已确认的教案或讲义中包含该内容，但 PPT 索引未找到足够相关的页面。",
             evidence=[{
                 "kind": unit.get("kind"),
                 "label": label,
@@ -1163,7 +1175,7 @@ def teacher_lesson_v6_source(
     if not script_revision_id:
         raise TeacherLessonAuthoringError(
             "lesson_script_source_missing",
-            "PPT 必须使用已确认讲稿，当前讲稿修订标识缺失。",
+            "PPT 必须使用已确认讲义，当前讲义修订标识缺失。",
         )
     script_sections = {
         str(item.get("section_node_id") or ""): normalize_teacher_script_section(item)
@@ -1181,7 +1193,7 @@ def teacher_lesson_v6_source(
     if missing_sections:
         raise TeacherLessonAuthoringError(
             "lesson_script_source_incomplete",
-            "已确认讲稿没有完整覆盖本讲全部小节，不能生成 PPT。",
+            "已确认讲义没有完整覆盖本讲全部小节，不能生成 PPT。",
             details={"missing_section_node_ids": missing_sections},
         )
     lesson_node = deepcopy(scope["lesson"])
@@ -1207,7 +1219,7 @@ def teacher_lesson_v6_source(
         if not all_script_blocks:
             raise TeacherLessonAuthoringError(
                 "lesson_script_source_incomplete",
-                "已确认讲稿仍有空白小节，不能生成 PPT。",
+                "已确认讲义仍有空白小节，不能生成 PPT。",
                 details={"section_node_id": section_id},
             )
         ppt_group_index = 1
@@ -1662,7 +1674,7 @@ class TeacherLessonAuthoringRepository:
                     return deepcopy(existing)
             job_id = f"tlj-{uuid.uuid4().hex}"
             initial_message = (
-                "等待生成本讲讲稿"
+                "等待生成本讲讲义"
                 if job_type == "teacher_lesson_script_generation"
                 else "等待生成本讲教案"
             )
@@ -2122,7 +2134,7 @@ class TeacherLessonAuthoringRepository:
         template_digest: str = "",
         template_pack_id: str = "",
     ) -> dict[str, Any]:
-        """保存无原版 PPT 分支的独立文书工作稿，不提前创建 PPT 资产。"""
+        """保存无原版 PPT 分支的独立页面内容稿工作稿，不提前创建 PPT 资产。"""
         with self._lock:
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
@@ -2142,7 +2154,7 @@ class TeacherLessonAuthoringRepository:
             ):
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_source_stale",
-                    "教案或讲稿已经变化，请基于已确认的最新内容重新生成 PPT 文书。",
+                    "教案或讲义已经变化，请基于已确认的最新内容重新生成 页面内容稿。",
                 )
             state = {
                 "revision": str(manuscript.get("manuscript_revision") or ""),
@@ -2183,24 +2195,24 @@ class TeacherLessonAuthoringRepository:
         *,
         manuscript_revision: str,
     ) -> dict[str, Any]:
-        """确认独立 PPT 文书；确认后才可进入 PPT 编译。"""
+        """确认独立 页面内容稿；确认后才可进入 PPT 编译。"""
         with self._lock:
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             state = (lesson or {}).get("ppt_manuscript")
             if not isinstance(state, dict) or not state:
                 raise TeacherLessonAuthoringError(
-                    "lesson_ppt_manuscript_not_found", "请先生成 PPT 文书。"
+                    "lesson_ppt_manuscript_not_found", "请先生成 页面内容稿。"
                 )
             if state.get("source_state") != "current":
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_source_stale",
-                    "教案或讲稿已经变化，请重新生成 PPT 文书。",
+                    "教案或讲义已经变化，请重新生成 页面内容稿。",
                 )
             if str(state.get("revision") or "") != manuscript_revision:
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_manuscript_revision_conflict",
-                    "PPT 文书已更新，请刷新后再确认。",
+                    "页面内容稿已更新，请刷新后再确认。",
                 )
             state["status"] = "confirmed"
             state["confirmed_at"] = _now()
@@ -2229,7 +2241,7 @@ class TeacherLessonAuthoringRepository:
             ):
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_manuscript_not_confirmed",
-                    "PPT 文书尚未确认，不能登记生成结果。",
+                    "页面内容稿尚未确认，不能登记生成结果。",
                 )
             state["generated_representation_id"] = representation_id
             state["generated_at"] = _now()
@@ -2246,7 +2258,7 @@ class TeacherLessonAuthoringRepository:
         representation_id: str,
         manuscript_revision: str,
     ) -> dict[str, Any]:
-        """确认逐页 PPT 文书，作为正式导出的显式门。"""
+        """确认逐页 页面内容稿，作为正式导出的显式门。"""
         with self._lock:
             value = self.load(course_id)
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
@@ -2265,16 +2277,16 @@ class TeacherLessonAuthoringRepository:
             )
             if not isinstance(asset, dict):
                 raise TeacherLessonAuthoringError(
-                    "lesson_ppt_not_found", "本讲 PPT 文书不存在。"
+                    "lesson_ppt_not_found", "本讲 页面内容稿不存在。"
                 )
             if asset.get("source_state") != "current":
                 raise TeacherLessonAuthoringError(
-                    "lesson_ppt_source_stale", "讲稿或教案已更新，请先重新生成 PPT 文书。"
+                    "lesson_ppt_source_stale", "讲义或教案已更新，请先重新生成 页面内容稿。"
                 )
             if str(asset.get("ppt_manuscript_revision") or "") != manuscript_revision:
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_manuscript_revision_conflict",
-                    "PPT 文书已更新，请刷新后再确认。",
+                    "页面内容稿已更新，请刷新后再确认。",
                 )
             asset["ppt_manuscript_status"] = "confirmed"
             for revision in asset.get("v6_revisions") or []:
@@ -2673,7 +2685,7 @@ class TeacherLessonAuthoringRepository:
                     else "lesson_plan_interrupted"
                 ),
                 "message": (
-                    "讲稿生成进程已中断"
+                    "讲义生成进程已中断"
                     if script_job
                     else "教案生成进程已中断"
                 ),
@@ -2686,7 +2698,7 @@ class TeacherLessonAuthoringRepository:
                         else "lesson_plan_generation_interrupted"
                     ),
                     "message": (
-                        "生成进程已中断，已完成的讲稿块仍然保留，可以继续生成。"
+                        "生成进程已中断，已完成的讲义块仍然保留，可以继续生成。"
                         if script_job
                         else "生成进程已中断，请重新生成本讲教案。"
                     ),
@@ -2733,13 +2745,13 @@ class TeacherLessonAuthoringRepository:
                 job.update({
                     "status": "failed",
                     "phase": "lesson_script_interrupted" if script_job else "lesson_plan_interrupted",
-                    "message": "讲稿生成进程已中断" if script_job else "教案生成进程已中断",
+                    "message": "讲义生成进程已中断" if script_job else "教案生成进程已中断",
                     "stream_sequence": int(job.get("stream_sequence") or 0) + 1,
                     "stream_complete": True,
                     "error": {
                         "code": "lesson_script_generation_interrupted" if script_job else "lesson_plan_generation_interrupted",
                         "message": (
-                            "生成进程已中断，已完成的讲稿块仍然保留，可以继续生成。"
+                            "生成进程已中断，已完成的讲义块仍然保留，可以继续生成。"
                             if script_job
                             else "生成进程已中断，请重新生成本讲教案。"
                         ),
@@ -2887,7 +2899,7 @@ class TeacherLessonAuthoringRepository:
         ):
             raise TeacherLessonAuthoringError(
                 "lesson_script_incomplete",
-                "本讲仍有小节没有讲稿内容，暂时不能保存。",
+                "本讲仍有小节没有讲义内容，暂时不能保存。",
             )
         revision_quality = validate_teacher_script_revision(
             normalized_sections,
@@ -2910,12 +2922,12 @@ class TeacherLessonAuthoringRepository:
             ):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_conflict",
-                    "讲稿工作稿已经变化，请基于当前版本重新修改。",
+                    "讲义工作稿已经变化，请基于当前版本重新修改。",
                 )
             if lesson.get("confirmed_revision_id") != source_lesson_plan_revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_plan_revision_conflict",
-                    "已确认教案已经变化，请基于最新教案生成讲稿。",
+                    "已确认教案已经变化，请基于最新教案生成讲义。",
                 )
             revisions = lesson.setdefault("script_revisions", [])
             existing = next(
@@ -3007,7 +3019,7 @@ class TeacherLessonAuthoringRepository:
             if current_revision_id != expected_working_revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_conflict",
-                    "讲稿已在其他页面修改，请重新载入后再恢复。",
+                    "讲义已在其他页面修改，请重新载入后再恢复。",
                 )
             source = next(
                 (
@@ -3019,7 +3031,7 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(source, dict):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_not_found",
-                    "讲稿历史版本不存在。",
+                    "讲义历史版本不存在。",
                 )
             return self.save_script_revision(
                 course_id,
@@ -3061,7 +3073,7 @@ class TeacherLessonAuthoringRepository:
             if lesson.get("working_script_revision_id") != base_revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_conflict",
-                    "讲稿工作稿已经变化，请重新生成 AI 候选。",
+                    "讲义工作稿已经变化，请重新生成 AI 候选。",
                 )
             for item in lesson.get("script_ai_candidates") or []:
                 if isinstance(item, dict) and item.get("status") == "pending":
@@ -3109,7 +3121,7 @@ class TeacherLessonAuthoringRepository:
         if not isinstance(candidate, dict):
             raise TeacherLessonAuthoringError(
                 "lesson_script_candidate_not_found",
-                "AI 讲稿候选不存在。",
+                "AI 讲义候选不存在。",
             )
         return deepcopy(candidate)
 
@@ -3137,7 +3149,7 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(candidate, dict):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_candidate_not_found",
-                    "AI 讲稿候选不存在。",
+                    "AI 讲义候选不存在。",
                 )
             if candidate.get("status") == "pending":
                 candidate["status"] = status
@@ -3165,12 +3177,12 @@ class TeacherLessonAuthoringRepository:
             if not source_plan_revision:
                 raise TeacherLessonAuthoringError(
                     "lesson_plan_not_confirmed",
-                    "请先确认本讲教案，再确认讲稿。",
+                    "请先确认本讲教案，再确认讲义。",
                 )
             if lesson.get("working_script_revision_id") != revision_id:
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_conflict",
-                    "只能确认当前讲稿工作稿。",
+                    "只能确认当前讲义工作稿。",
                 )
             revision = next(
                 (
@@ -3182,18 +3194,18 @@ class TeacherLessonAuthoringRepository:
             if not isinstance(revision, dict):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_revision_not_found",
-                    "讲稿修订不存在。",
+                    "讲义修订不存在。",
                 )
             if revision.get("source_lesson_plan_revision_id") != source_plan_revision:
                 raise TeacherLessonAuthoringError(
                     "lesson_plan_revision_conflict",
-                    "讲稿对应的教案已经变化，请重新生成讲稿。",
+                    "讲义对应的教案已经变化，请重新生成讲义。",
                 )
             quality_report = revision.get("quality_report") or {}
             if not teacher_script_revision_is_publishable(revision):
                 raise TeacherLessonAuthoringError(
                     "lesson_script_quality_blocked",
-                    "讲稿尚未通过当前教学质量与来源检查，请修正或重新生成后再确认。",
+                    "讲义尚未通过当前教学质量与来源检查，请修正或重新生成后再确认。",
                     details={
                         "quality_report": deepcopy(quality_report),
                     },
@@ -3944,9 +3956,9 @@ class TeacherLessonAuthoringService:
             phase="lesson_script_generation",
             progress=max(5, int(90 * completed_count / max(1, total_blocks))),
             message=(
-                f"继续生成本讲讲稿，已保留 {completed_count}/{total_blocks} 个教学块"
+                f"继续生成本讲讲义，已保留 {completed_count}/{total_blocks} 个教学块"
                 if completed_count
-                else "正在按已确认教案生成本讲讲稿"
+                else "正在按已确认教案生成本讲讲义"
             ),
             total_blocks=total_blocks,
             completed_blocks=completed_count,
@@ -4067,7 +4079,7 @@ class TeacherLessonAuthoringService:
                         )
                         raise TeacherLessonAuthoringError(
                             "lesson_script_quality_blocked",
-                            issues or f"{current_block_title} 未通过讲稿质量检查。",
+                            issues or f"{current_block_title} 未通过讲义质量检查。",
                         )
                     completed.append(candidate)
                     completed.sort(
@@ -4122,7 +4134,7 @@ class TeacherLessonAuthoringService:
                     )
                     raise TeacherLessonAuthoringError(
                         "lesson_script_quality_blocked",
-                        issues or "讲稿没有完整覆盖已确认教学块。",
+                        issues or "讲义没有完整覆盖已确认教学块。",
                     )
                 final_sections.append(section)
 
@@ -4164,7 +4176,7 @@ class TeacherLessonAuthoringService:
                 )
                 raise TeacherLessonAuthoringError(
                     "lesson_script_quality_blocked",
-                    issues or "整讲讲稿未通过发布质量检查。",
+                    issues or "整讲讲义未通过发布质量检查。",
                 )
             current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(
@@ -4184,7 +4196,7 @@ class TeacherLessonAuthoringService:
                 message=(
                     "AI 生成未完整完成，已保留可编辑恢复草稿；重新生成或完整修订并通过检查后才能确认"
                     if fallback_warnings
-                    else "本讲讲稿已生成，等待确认"
+                    else "本讲讲义已生成，等待确认"
                 ),
                 completed_blocks=total_blocks,
                 result_sections=final_sections,
@@ -4213,7 +4225,7 @@ class TeacherLessonAuthoringService:
                 status="failed",
                 phase="lesson_script_failed",
                 progress=max(5, int(95 * completed_count / max(1, total_blocks))),
-                message=f"讲稿生成暂停，已保留 {completed_count}/{total_blocks} 个教学块",
+                message=f"讲义生成暂停，已保留 {completed_count}/{total_blocks} 个教学块",
                 completed_blocks=completed_count,
                 current_block_id=current_block_id,
                 current_block_title=current_block_title,

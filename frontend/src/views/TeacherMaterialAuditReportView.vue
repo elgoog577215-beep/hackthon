@@ -90,7 +90,7 @@
                 </button>
                 <button role="menuitem" type="button" @click="startNewCourseChange">
                   <GitBranchPlus :size="16" />
-                  <span><b>{{ t('courseAuditUpdates.addCourseChange', '提出全课调整') }}</b><small>{{ t('courseAuditUpdates.addCourseChangeHint', '扫描大纲、教案、讲稿与 PPT') }}</small></span>
+                  <span><b>{{ t('courseAuditUpdates.addCourseChange', '提出全课调整') }}</b><small>{{ t('courseAuditUpdates.addCourseChangeHint', '扫描大纲、教案、讲义与 PPT') }}</small></span>
                 </button>
               </div>
             </div>
@@ -217,7 +217,7 @@
 
               <section class="material-decisions">
                 <header><strong>{{ t('courseAuditUpdates.materialDecision', '材料判断') }}</strong><small>{{ t('courseAuditUpdates.savedImmediately', '修改后立即重新计算关系') }}</small></header>
-                <label><span>{{ t('courseAuditUpdates.documentType', '材料类型') }}</span><select :value="selectedMaterial.document_type" :disabled="materialBusy" @change="changeDocumentType"><option value="outline">{{ t('courseFiles.preparation.documentTypes.outline', '课程大纲') }}</option><option value="lesson_plan">{{ t('courseFiles.preparation.documentTypes.lessonPlan', '教案') }}</option><option value="script">{{ t('courseFiles.preparation.documentTypes.script', '讲稿') }}</option><option value="ppt">{{ t('courseFiles.preparation.documentTypes.ppt', 'PPT') }}</option><option value="other">{{ t('courseFiles.preparation.documentTypes.other', '其他资料') }}</option></select></label>
+                <label><span>{{ t('courseAuditUpdates.documentType', '材料类型') }}</span><select :value="selectedMaterial.document_type" :disabled="materialBusy" @change="changeDocumentType"><option value="outline">{{ t('courseFiles.preparation.documentTypes.outline', '课程大纲') }}</option><option value="lesson_plan">{{ t('courseFiles.preparation.documentTypes.lessonPlan', '教案') }}</option><option value="script">{{ t('courseFiles.preparation.documentTypes.script', '讲义') }}</option><option value="ppt">{{ t('courseFiles.preparation.documentTypes.ppt', 'PPT') }}</option><option value="other">{{ t('courseFiles.preparation.documentTypes.other', '其他资料') }}</option></select></label>
                 <label v-if="plan?.scope_options?.length"><span>{{ t('courseAuditUpdates.coursePosition', '课程位置') }}</span><select :value="selectedMaterial.absorption_decision?.target_scope_id || ''" :disabled="materialBusy" @change="changeScope"><option value="">{{ t('courseAuditUpdates.positionPending', '待确认') }}</option><option v-for="scope in plan.scope_options" :key="scope.scope_id" :value="scope.scope_id">{{ scope.label }}</option></select></label>
                 <label><span>{{ t('courseAuditUpdates.versionRole', '版本作用') }}</span><select :value="selectedMaterial.version_role || 'unknown'" :disabled="materialBusy" @change="changeVersion"><option value="current">{{ t('courseFiles.preparation.versionRoles.current', '当前版本') }}</option><option value="older">{{ t('courseFiles.preparation.versionRoles.older', '历史版本') }}</option><option value="reference">{{ t('courseFiles.preparation.versionRoles.reference', '参考资料') }}</option><option value="unknown">{{ t('courseFiles.preparation.versionRoles.unknown', '版本待确认') }}</option></select></label>
                 <label><span>{{ t('courseAuditUpdates.sourceRole', '来源作用') }}</span><select :value="selectedSourceRole" :disabled="materialBusy" @change="changeRole"><option value="primary">{{ t('courseWorkbench.materialAudit.primary', '主来源') }}</option><option value="reference">{{ t('courseWorkbench.materialAudit.reference', '参考来源') }}</option></select></label>
@@ -360,7 +360,7 @@ const materialBusy = computed(() => Boolean(selectedMaterial.value && (
   auditStore.executing || auditStore.updatingAssetIds.includes(selectedMaterial.value.asset_id)
 )))
 const relationshipGroups = computed(() => {
-  const labels: Record<string, string> = { outline: '课程大纲', lesson_plan: '教案', script: '讲稿', ppt: 'PPT' }
+  const labels: Record<string, string> = { outline: '课程大纲', lesson_plan: '教案', script: '讲义', ppt: 'PPT' }
   const groups = new Map<string, MaterialAuditTarget[]>()
   selectedMaterialTargets.value.forEach(target => groups.set(target.target_type, [...(groups.get(target.target_type) || []), target]))
   return [...groups].map(([key, items]) => ({ key, label: t(`courseAuditUpdates.type.${key}`, labels[key] || key), items }))
@@ -409,7 +409,7 @@ function targetIcon(type: MaterialAuditTarget['target_type']): Component { retur
 function materialRoleLabel(asset?: MaterialAuditAsset) { return asset?.absorption_decision?.role === 'primary' ? t('courseAuditUpdates.primary', '主来源') : t('courseAuditUpdates.reference', '参考') }
 function materialTypeLabel(asset?: MaterialAuditAsset) {
   const fallback = t('courseFiles.preparation.documentTypes.other', '其他资料')
-  return ({ outline: t('courseFiles.preparation.documentTypes.outline', '课程大纲'), lesson_plan: t('courseFiles.preparation.documentTypes.lessonPlan', '教案'), script: t('courseFiles.preparation.documentTypes.script', '讲稿'), ppt: 'PPT', question_bank: t('courseFiles.preparation.documentTypes.questionBank', '题库与试卷'), school_material: t('courseFiles.preparation.documentTypes.schoolMaterial', '教务材料'), other: fallback } as Record<string, string>)[asset?.document_type || 'other'] || fallback
+  return ({ outline: t('courseFiles.preparation.documentTypes.outline', '课程大纲'), lesson_plan: t('courseFiles.preparation.documentTypes.lessonPlan', '教案'), script: t('courseFiles.preparation.documentTypes.script', '讲义'), ppt: 'PPT', question_bank: t('courseFiles.preparation.documentTypes.questionBank', '题库与试卷'), school_material: t('courseFiles.preparation.documentTypes.schoolMaterial', '教务材料'), other: fallback } as Record<string, string>)[asset?.document_type || 'other'] || fallback
 }
 function materialSourceMeta(asset?: MaterialAuditAsset) { return `${materialTypeLabel(asset)} · ${materialRoleLabel(asset)}` }
 function parseQualityLabel(asset?: MaterialAuditAsset) {

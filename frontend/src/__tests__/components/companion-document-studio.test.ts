@@ -94,4 +94,27 @@ describe('CompanionDocumentStudio', () => {
     expect(wrapper.get('.markdown-stub').text()).toContain('课程成绩评定细则')
     expect(wrapper.emitted('saved')?.[0]?.[0]).toMatchObject({ document_id: 'compdoc-1' })
   })
+
+  it('直接进入左侧栏指定的模板，不再显示配套文档汇总层', async () => {
+    httpMock.get.mockResolvedValue({ data: { templates: [rubricTemplate, checklistTemplate], documents: [] } })
+
+    const wrapper = mount(CompanionDocumentStudio, {
+      props: {
+        courseId: 'course-1',
+        templateId: rubricTemplate.template_id,
+        showTemplatePicker: false,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('.template-grid').exists()).toBe(false)
+    expect(wrapper.find('.back-action').exists()).toBe(false)
+    expect(wrapper.get('.document-form').text()).toContain('评分细则')
+
+    await wrapper.setProps({ templateId: checklistTemplate.template_id })
+    await flushPromises()
+
+    expect(wrapper.get('.document-form').text()).toContain('考试课程材料自查清单')
+    expect(wrapper.find('.checklist-section').exists()).toBe(true)
+  })
 })

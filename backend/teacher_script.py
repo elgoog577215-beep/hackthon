@@ -1,8 +1,8 @@
-"""可直接讲授的教师讲稿结构真源与确定性质量门。
+"""可直接讲授的教师讲义结构真源与确定性质量门。
 
-讲稿不重新选择学科类型、课型或教学模板。它把已确认教案中的教学模块编译为
+讲义不重新选择学科类型、课型或教学模板。它把已确认教案中的教学模块编译为
 教师站在讲台上可以自然说出的完整讲述：既讲清知识，也写出过渡、提问、活动指令、
-可能回应和反馈。机械舞台标签仍留在教案，真实教师语言进入讲稿。
+可能回应和反馈。机械舞台标签仍留在教案，真实教师语言进入讲义。
 """
 
 from __future__ import annotations
@@ -703,7 +703,7 @@ def normalize_teacher_script_section(
                 ),
                 "module_id": "legacy_script",
                 "role": "concept",
-                "title": _text(value.get("title") or compiled.get("title") or "讲稿正文"),
+                "title": _text(value.get("title") or compiled.get("title") or "讲义正文"),
                 "content": content,
                 "required": True,
                 "knowledge_names": [],
@@ -738,28 +738,28 @@ def validate_teacher_script_section(
         target.append({"code": code, "message": message})
 
     if not normalized["section_node_id"]:
-        add(blocking, "teacher_script:section_identity", "讲稿小节缺少稳定标识。")
+        add(blocking, "teacher_script:section_identity", "讲义小节缺少稳定标识。")
     if not blocks:
-        add(blocking, "teacher_script:blocks_empty", "讲稿没有可用的教学块。")
+        add(blocking, "teacher_script:blocks_empty", "讲义没有可用的教学块。")
     if any(not _text(block.get("content")) for block in blocks):
-        add(blocking, "teacher_script:block_empty", "讲稿仍有空白教学块。")
+        add(blocking, "teacher_script:block_empty", "讲义仍有空白教学块。")
     block_ids = [_text(block.get("block_id")) for block in blocks]
     if any(not block_id for block_id in block_ids) or len(block_ids) != len(set(block_ids)):
-        add(blocking, "teacher_script:block_identity", "讲稿教学块标识缺失或重复。")
+        add(blocking, "teacher_script:block_identity", "讲义教学块标识缺失或重复。")
     expected_ids = [_text(item.get("module_id")) for item in expected]
     actual_ids = [_text(item.get("module_id")) for item in blocks]
     if expected_ids and actual_ids != expected_ids:
         add(
             blocking,
             "teacher_script:module_contract",
-            "讲稿必须按已确认教案的模块顺序完整覆盖，不能另选通用模板。",
+            "讲义必须按已确认教案的模块顺序完整覆盖，不能另选通用模板。",
         )
     expected_block_ids = [_text(item.get("block_id")) for item in expected]
     if expected_block_ids and block_ids != expected_block_ids:
         add(
             blocking,
             "teacher_script:block_contract",
-            "讲稿块身份必须沿用已确认教案模块，不能重排或替换。",
+            "讲义块身份必须沿用已确认教案模块，不能重排或替换。",
         )
     expected_titles = [_text(item.get("title")) for item in expected]
     actual_titles = [_text(item.get("title")) for item in blocks]
@@ -767,7 +767,7 @@ def validate_teacher_script_section(
         add(
             blocking,
             "teacher_script:module_heading",
-            "讲稿块标题必须与已确认教学模块一致。",
+            "讲义块标题必须与已确认教学模块一致。",
         )
     expected_roles = [_text(item.get("role")) for item in expected]
     actual_roles = [_text(item.get("role")) for item in blocks]
@@ -775,7 +775,7 @@ def validate_teacher_script_section(
         add(
             blocking,
             "teacher_script:role_contract",
-            "讲稿块角色必须沿用已确认教学模块。",
+            "讲义块角色必须沿用已确认教学模块。",
         )
     for index, block in enumerate(blocks):
         if index >= len(expected):
@@ -796,7 +796,7 @@ def validate_teacher_script_section(
                 "teacher_script:block_too_long",
                 (
                     f"“{_text(block.get('title'))}”过长（{len(content)} 字），"
-                    f"讲稿单块上限为 {max_characters} 字。"
+                    f"讲义单块上限为 {max_characters} 字。"
                 ),
             )
         artifact = expected[index].get("artifact_contract") or {}
@@ -862,7 +862,7 @@ def validate_teacher_script_section(
             add(
                 blocking,
                 "teacher_script:placeholder_content",
-                f"“{_text(block.get('title'))}”仍是恢复模板或占位文字，不是可直接授课的讲稿正文。",
+                f"“{_text(block.get('title'))}”仍是恢复模板或占位文字，不是可直接授课的讲义正文。",
             )
         canned_count = len(_CANNED_DISCOURSE_PATTERN.findall(content))
         if canned_count >= 4:
@@ -951,7 +951,7 @@ def validate_teacher_script_section(
         add(
             blocking,
             "teacher_script:not_directly_teachable",
-            "整节讲稿缺少自然讲解、提问或引导语言，仍像教材正文，不能直接站在讲台上讲。",
+            "整节讲义缺少自然讲解、提问或引导语言，仍像教材正文，不能直接站在讲台上讲。",
         )
     if len(blocks) > 1 and not any(
         _TRANSITION_PATTERN.search(_text(block.get("content")))
@@ -1032,7 +1032,7 @@ def validate_teacher_script_revision(
         ):
             blocking.append({
                 "code": "teacher_script:quality_contract_stale",
-                "message": "讲稿尚未按当前质量规则重新检查，请重新保存或生成。",
+                "message": "讲义尚未按当前质量规则重新检查，请重新保存或生成。",
                 "section_node_id": section_id,
             })
         for issue in report.get("blocking_issues") or []:
@@ -1127,7 +1127,7 @@ def validate_teacher_script_revision(
     if repeated_canned_phrases:
         blocking.append({
             "code": "teacher_script:repetitive_canned_transitions",
-            "message": "多个教学块反复使用同一套程式化连接词，讲稿需要改成随内容自然推进的课堂语言。",
+            "message": "多个教学块反复使用同一套程式化连接词，讲义需要改成随内容自然推进的课堂语言。",
             "phrase_blocks": repeated_canned_phrases,
         })
 

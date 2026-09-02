@@ -276,7 +276,7 @@ def _resolve_locked_teacher_v6_template(
                 status_code=409,
                 detail={
                     "code": "lesson_ppt_template_lock_unavailable",
-                    "message": "PPT 文书锁定的模板版本不可用，请重新生成文书。",
+                    "message": "页面内容稿锁定的模板版本不可用，请重新生成页面内容稿。",
                 },
             ) from exc
     else:
@@ -289,7 +289,7 @@ def _resolve_locked_teacher_v6_template(
                 status_code=409,
                 detail={
                     "code": "lesson_ppt_template_lock_unavailable",
-                    "message": "PPT 文书锁定的内置模板不可用，请重新生成文书。",
+                    "message": "页面内容稿锁定的内置模板不可用，请重新生成页面内容稿。",
                 },
             ) from exc
     expected = (
@@ -307,7 +307,7 @@ def _resolve_locked_teacher_v6_template(
             status_code=409,
             detail={
                 "code": "lesson_ppt_template_lock_drifted",
-                "message": "模板合同与已确认文书不一致，请重新生成文书。",
+                "message": "模板合同与已确认页面内容稿不一致，请重新生成页面内容稿。",
             },
         )
     return template
@@ -381,7 +381,7 @@ def _assert_ppt_manuscript_confirmable(manuscript: dict) -> None:
         ]
         raise TeacherLessonAuthoringError(
             "lesson_ppt_manuscript_quality_blocked",
-            "PPT 文书质量未通过，修改后才能确认并生成正式 PPT。",
+            "页面内容稿质量未通过，修改后才能确认并生成正式 PPT。",
             details={"quality_issues": issues},
         )
 
@@ -524,7 +524,7 @@ def _refresh_v6_ppt_manuscript(
     course_view: dict[str, Any],
     source_lesson_plan_revision_id: str,
 ) -> dict[str, Any]:
-    """页面文案变化后同步重建文书投影，避免最终 PPT 出现第二内容源。"""
+    """页面文案变化后同步重建页面内容稿投影，避免最终 PPT 出现第二内容源。"""
     deck = SlideDeckV6.model_validate({
         key: content[key]
         for key in SlideDeckV6.model_fields
@@ -975,7 +975,7 @@ def _lesson_projection(
             ):
                 script_quality.setdefault("blocking_issues", []).insert(0, {
                     "code": "teacher_script:quality_contract_stale",
-                    "message": "这份讲稿仍使用旧质量规则，需重新编辑保存或重新生成后才能确认。",
+                    "message": "这份讲义仍使用旧质量规则，需重新编辑保存或重新生成后才能确认。",
                 })
         script_confirmed = bool(
             script_ready
@@ -1104,7 +1104,7 @@ def _script_revision(
     if not isinstance(revision, dict):
         raise TeacherLessonAuthoringError(
             "lesson_script_revision_not_found",
-            "讲稿修订不存在。",
+            "讲义修订不存在。",
         )
     return revision
 
@@ -1176,7 +1176,7 @@ def _imported_ppt_review_context(
         revisions["script"] = confirmed_script
         sources.append({
             "kind": "script",
-            "label": "已确认讲稿",
+            "label": "已确认讲义",
             "revision_id": confirmed_script,
             "status": "confirmed",
         })
@@ -1185,7 +1185,7 @@ def _imported_ppt_review_context(
                 continue
             units.append({
                 "kind": "script",
-                "label": str(section.get("title") or section.get("section_node_id") or "讲稿小节"),
+                "label": str(section.get("title") or section.get("section_node_id") or "讲义小节"),
                 "revision_id": confirmed_script,
                 "text": str(section.get("content") or "") or json.dumps(section.get("blocks") or [], ensure_ascii=False),
             })
@@ -1334,7 +1334,7 @@ def _teacher_v6_source(
     ):
         raise TeacherLessonAuthoringError(
             "lesson_script_not_confirmed",
-            "请先确认本讲讲稿，再进入 PPT 工作台。",
+            "请先确认本讲讲义，再进入 PPT 工作台。",
         )
     revision = _plan_revision(repository, course_id, lesson_unit_id, revision_id)
     script_revision = _script_revision(
@@ -1346,7 +1346,7 @@ def _teacher_v6_source(
     if not teacher_script_revision_is_publishable(script_revision):
         raise TeacherLessonAuthoringError(
             "lesson_script_quality_blocked",
-            "当前讲稿未通过最新质量与来源检查，不能生成 PPT 文书。",
+            "当前讲义未通过最新质量与来源检查，不能生成 页面内容稿。",
             details={
                 "quality_report": deepcopy(script_revision.get("quality_report") or {}),
                 "generation_source": str(script_revision.get("generation_source") or ""),
@@ -1869,13 +1869,13 @@ async def confirm_teacher_lesson_v6_manuscript_draft(
         manuscript = state_payload.get("manuscript")
         if not isinstance(manuscript, dict):
             raise TeacherLessonAuthoringError(
-                "lesson_ppt_manuscript_not_found", "请先生成 PPT 文书。"
+                "lesson_ppt_manuscript_not_found", "请先生成 页面内容稿。"
             )
         _assert_ppt_manuscript_confirmable(manuscript)
         if state_payload.get("source_state") != "current":
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_source_stale",
-                "上游教学内容或资料已经变化，请重新生成 PPT 文书。",
+                "上游教学内容或资料已经变化，请重新生成 页面内容稿。",
             )
         confirmed = repository.confirm_v6_ppt_manuscript_draft(
             course_id,
@@ -1994,13 +1994,13 @@ async def confirm_teacher_lesson_v6_manuscript(
         )
         if not isinstance(manuscript, dict):
             raise TeacherLessonAuthoringError(
-                "lesson_ppt_manuscript_not_found", "当前 PPT 没有可确认的文书。"
+                "lesson_ppt_manuscript_not_found", "当前 PPT 没有可确认的页面内容稿。"
             )
         _assert_ppt_manuscript_confirmable(manuscript)
         if manuscript.get("manuscript_revision") != body.manuscript_revision:
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_manuscript_revision_conflict",
-                "PPT 文书已更新，请刷新后再确认。",
+                "页面内容稿已更新，请刷新后再确认。",
             )
         asset = repository.confirm_v6_ppt_manuscript(
             course_id,
@@ -2280,7 +2280,7 @@ async def build_teacher_lesson_v6_manuscript(
                 status_code=409,
                 detail={
                     "code": "lesson_ppt_manuscript_resume_checkpoint_missing",
-                    "message": "PPT 文书的恢复检查点不可用，请重新生成。",
+                    "message": "页面内容稿的恢复检查点不可用，请重新生成。",
                 },
             ) from exc
     orchestrator = SlideDeckV6Orchestrator(
@@ -2300,7 +2300,7 @@ async def build_teacher_lesson_v6_manuscript(
                 "event": "slide_build_progress_v2",
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
-                "message": "正在生成可逐页审阅的 PPT 文书",
+                "message": "正在生成可逐页审阅的 页面内容稿",
                 "slide_build_progress_v2": deepcopy(payload),
                 "target_schema": "ppt_manuscript_v1",
             })
@@ -2462,7 +2462,7 @@ async def build_teacher_lesson_v6(
         if not manuscript_state_payload.get("can_generate_ppt"):
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_manuscript_not_confirmed",
-                "请先生成并确认当前版本的 PPT 文书，再生成 PPT。",
+                "请先生成并确认当前版本的 页面内容稿，再生成 PPT。",
             )
         try:
             confirmed_manuscript = PptManuscriptV1.model_validate(
@@ -2471,7 +2471,7 @@ async def build_teacher_lesson_v6(
         except ValueError as exc:
             raise TeacherLessonAuthoringError(
                 "lesson_ppt_manuscript_invalid",
-                "PPT 文书结构无效，请重新生成文书。",
+                "页面内容稿结构无效，请重新生成页面内容稿。",
             ) from exc
         document = _attach_ppt_reference_evidence(document, material_evidence)
         teacher_source = dict(course_view.get("teacher_lesson_source") or {})
@@ -2504,7 +2504,7 @@ async def build_teacher_lesson_v6(
             status_code=409,
             detail={
                 "code": "lesson_ppt_manuscript_checkpoint_missing",
-                "message": "PPT 文书的生成检查点不可用，请重新生成文书。",
+                "message": "页面内容稿的生成检查点不可用，请重新生成页面内容稿。",
             },
         ) from exc
     orchestrator = SlideDeckV6Orchestrator(
@@ -2524,7 +2524,7 @@ async def build_teacher_lesson_v6(
                 "event": "slide_build_progress_v2",
                 "progress": int(payload.get("percent") or 0),
                 "stage": str(payload.get("stage") or "building"),
-                "message": "正在从已确认的 PPT 文书编译可编辑页面",
+                "message": "正在从已确认的 页面内容稿编译可编辑页面",
                 "slide_build_progress_v2": deepcopy(payload),
                 "target_schema": "slide_deck_v6",
             })
@@ -2687,7 +2687,7 @@ async def export_teacher_lesson_v6(
             ):
                 raise TeacherLessonAuthoringError(
                     "lesson_ppt_manuscript_not_confirmed",
-                    "请先确认 PPT 文书，再导出正式 PPTX。",
+                    "请先确认 页面内容稿，再导出正式 PPTX。",
                 )
         output = repository.root / "exports" / f"{synthetic_id}-{representation_id}-{spec.revision}.pptx"
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -3562,7 +3562,7 @@ async def confirm_lesson_script(
         if body.revision_id != current_revision:
             raise TeacherLessonAuthoringError(
                 "lesson_script_revision_conflict",
-                "讲稿内容已经变化，请基于当前版本重新确认。",
+                "讲义内容已经变化，请基于当前版本重新确认。",
                 details={"current_revision_id": current_revision},
             )
         repository.confirm_script_revision(
@@ -3601,7 +3601,7 @@ async def generate_lesson_script(
         if not plan_revision_id:
             raise TeacherLessonAuthoringError(
                 "lesson_plan_not_confirmed",
-                "请先确认本讲教案，再生成讲稿。",
+                "请先确认本讲教案，再生成讲义。",
             )
         plan_revision = _plan_revision(
             repository, course_id, lesson_unit_id, plan_revision_id
@@ -3729,7 +3729,7 @@ async def generate_lesson_script(
                 error_detail = str(generation_error).strip()
                 failure_kind = (
                     "model_output_quality_failed"
-                    if error_detail.startswith("讲稿未通过已确认教案的质量检查")
+                    if error_detail.startswith("讲义未通过已确认教案的质量检查")
                     else type(generation_error).__name__
                 )
                 fallback_warnings.append({
@@ -3785,7 +3785,7 @@ async def generate_lesson_script(
                         str(job["id"]),
                         status="failed",
                         phase="lesson_script_failed",
-                        message="本讲讲稿生成失败",
+                        message="本讲讲义生成失败",
                         stream_sequence=int(current.get("stream_sequence") or 0) + 1,
                         stream_complete=True,
                         error={
@@ -3822,7 +3822,7 @@ async def save_lesson_script_draft(
         if body.base_revision_id != current_revision:
             raise TeacherLessonAuthoringError(
                 "lesson_script_revision_conflict",
-                "讲稿工作稿已经变化，请重新载入后再保存。",
+                "讲义工作稿已经变化，请重新载入后再保存。",
             )
         # The first teacher-authored draft has no model revision to build on.
         # Treat an empty base id as the explicit empty working state so a
@@ -3845,7 +3845,7 @@ async def save_lesson_script_draft(
         if actual_ids != expected_ids:
             raise TeacherLessonAuthoringError(
                 "lesson_script_scope_conflict",
-                "讲稿小节与当前大纲不一致，请重新载入。",
+                "讲义小节与当前大纲不一致，请重新载入。",
             )
         plan_revision_id = str(lesson.get("confirmed_revision_id") or "")
         plan_revision = _plan_revision(
@@ -3939,8 +3939,8 @@ async def restore_lesson_script_revision(
 @router.post("/courses/{course_id}/lessons/{lesson_unit_id}/script/rewrite-candidate")
 @structured_generation_stream(
     stage="lesson_script_candidate",
-    started_message="已收到讲稿修改要求。",
-    waiting_message="AI 正在生成可审阅的讲稿候选。",
+    started_message="已收到讲义修改要求。",
+    waiting_message="AI 正在生成可审阅的讲义候选。",
 )
 async def rewrite_lesson_script_candidate(
     course_id: str,
@@ -3959,7 +3959,7 @@ async def rewrite_lesson_script_candidate(
         if lesson.get("working_script_revision_id") != body.base_revision_id:
             raise TeacherLessonAuthoringError(
                 "lesson_script_revision_conflict",
-                "讲稿工作稿已经变化，请重新载入后再优化。",
+                "讲义工作稿已经变化，请重新载入后再优化。",
             )
         revision = _script_revision(
             repository, course_id, lesson_unit_id, body.base_revision_id
@@ -3981,7 +3981,7 @@ async def rewrite_lesson_script_candidate(
         if not isinstance(section, dict) or not isinstance(outline_section, dict):
             raise TeacherLessonAuthoringError(
                 "lesson_script_section_not_found",
-                "当前讲稿小节不存在。",
+                "当前讲义小节不存在。",
             )
         selected_material_ids, source_evidence = _course_material_evidence(
             course_id,
@@ -4036,7 +4036,7 @@ async def rewrite_lesson_script_candidate(
         if not replacement_text:
             raise TeacherLessonAuthoringError(
                 "lesson_script_candidate_empty",
-                "AI 没有生成可审阅的讲稿修改。",
+                "AI 没有生成可审阅的讲义修改。",
             )
         candidate = repository.save_script_ai_candidate(
             course_id,
@@ -4086,7 +4086,7 @@ async def resolve_lesson_script_candidate(
         if lesson.get("working_script_revision_id") != base_revision_id:
             raise TeacherLessonAuthoringError(
                 "lesson_script_revision_conflict",
-                "讲稿工作稿已经变化，不能覆盖新修改。",
+                "讲义工作稿已经变化，不能覆盖新修改。",
             )
         if not body.accept:
             resolved = repository.mark_script_ai_candidate(

@@ -25,7 +25,7 @@
           {{ busy ? t('courseWorkbench.pptReview.analyzing', '正在解析与建立索引…') : t('courseWorkbench.pptReview.uploadReview', '上传并审阅') }}
         </button>
       </div>
-      <small v-if="!canGenerate" id="ppt-generate-disabled-hint">{{ t('courseWorkbench.pptReview.generateDisabled', '上传自有 PPT 不受限制；AI 生成需先确认教案和讲稿。') }}</small>
+      <small v-if="!canGenerate" id="ppt-generate-disabled-hint">{{ t('courseWorkbench.pptReview.generateDisabled', '上传自有 PPT 不受限制；AI 生成需先确认教案和讲义。') }}</small>
       <p v-if="error" class="ppt-review-error"><TriangleAlert :size="15" />{{ error }}</p>
     </div>
 
@@ -55,7 +55,7 @@
         </div>
       </header>
 
-      <p v-if="review.source_state !== 'current'" class="ppt-review-warning"><TriangleAlert :size="15" />{{ t('courseWorkbench.pptReview.stale', '大纲、教案或讲稿已更新，请更换原稿或重新审阅后再确认。') }}</p>
+      <p v-if="review.source_state !== 'current'" class="ppt-review-warning"><TriangleAlert :size="15" />{{ t('courseWorkbench.pptReview.stale', '大纲、教案或讲义已更新，请更换原稿或重新审阅后再确认。') }}</p>
       <p v-if="error" class="ppt-review-error"><TriangleAlert :size="15" />{{ error }}</p>
 
       <div class="ppt-review-layout">

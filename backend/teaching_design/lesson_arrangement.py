@@ -424,6 +424,8 @@ def normalize_lesson_arrangement(
             "check_method": _text(raw.get("check_method")),
             "feedback_strategy": _text(raw.get("feedback_strategy")),
             "adaptation_options": deepcopy(raw.get("adaptation_options") or []),
+            "resource_refs": deepcopy(raw.get("resource_refs") or []),
+            "tools": deepcopy(raw.get("tools") or []),
             "engagement_mode": _text(raw.get("engagement_mode")),
             "access_support": _text(raw.get("access_support")),
             "grouping": _text(raw.get("grouping")),
@@ -449,7 +451,7 @@ def normalize_lesson_arrangement(
         ),
         "classroom_constraints": deepcopy(value.get("classroom_constraints") or {}),
         "quality_rules": deepcopy(value.get("quality_rules") or []),
-        "blocks": blocks,
+        "blocks": order_teaching_blocks(blocks, lesson_type),
     }
 
 
@@ -530,6 +532,8 @@ def apply_lesson_arrangement_to_plan(
                 "check_method": _text(block.get("check_method")),
                 "feedback_strategy": _text(block.get("feedback_strategy")),
                 "adaptation_options": deepcopy(block.get("adaptation_options") or []),
+                "resource_refs": deepcopy(block.get("resource_refs") or []),
+                "tools": deepcopy(block.get("tools") or []),
                 "engagement_mode": _text(block.get("engagement_mode")),
                 "access_support": _text(block.get("access_support")),
                 "grouping": _text(block.get("grouping")),

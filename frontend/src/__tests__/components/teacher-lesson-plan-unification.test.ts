@@ -93,9 +93,10 @@ describe('统一教案页面', () => {
     expect(wrapper.find('.document-saved').exists()).toBe(false)
     for (const heading of [
       '课程名称', '知识目标', '能力目标', '育人目标',
-      '教学重点与难点', '课前准备（按需）', '课堂教学过程',
-      '课程总结', '课后作业', '拓展学习', '教学活动照片',
+      '教学重点与难点', '课堂教学过程',
+      '课程总结', '课后作业', '拓展阅读', '教学活动照片',
     ]) expect(wrapper.text()).toContain(heading)
+    expect(wrapper.text()).not.toContain('课前准备（按需）')
     expect(wrapper.text()).toContain('网络爬虫')
     expect(wrapper.find('.document-title p').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('理论型')
@@ -185,7 +186,7 @@ describe('统一教案页面', () => {
     expect(wrapper.text()).not.toContain('AI 方案')
   })
 
-  it('由工作台左侧目录直接切换小节正文，不再保留横向 Tab', async () => {
+  it('讲内主题目录只负责定位，教案始终连续展示全部主题', async () => {
     const multiSectionLesson = structuredClone(lesson)
     multiSectionLesson.sections.push({ section_node_id: 'section-2', title: '1.2 请求与响应' })
     multiSectionLesson.plan.revisions[0]!.plan.sections.push({
@@ -203,11 +204,16 @@ describe('统一教案页面', () => {
     })
 
     expect(wrapper.find('.section-tabs').exists()).toBe(false)
-    expect(wrapper.get('.section-title').text()).toBe('1.2 请求与响应')
-    expect(wrapper.get('.objective-section').text()).toContain('能判断一次请求与响应的边界')
+    expect(wrapper.findAll('.lesson-theme')).toHaveLength(2)
+    expect(wrapper.findAll('.lesson-theme-heading h4').map(node => node.text())).toEqual([
+      '1.1 爬虫的定义、原理与应用场景',
+      '1.2 请求与响应',
+    ])
+    expect(wrapper.get('.lesson-theme.active .objective-section').text()).toContain('能判断一次请求与响应的边界')
 
     await wrapper.setProps({ activeSectionId: 'section-1' })
-    expect(wrapper.get('.section-title').text()).toBe('1.1 爬虫的定义、原理与应用场景')
+    expect(wrapper.get('.lesson-theme.active .lesson-theme-heading h4').text()).toBe('1.1 爬虫的定义、原理与应用场景')
+    expect(wrapper.findAll('.lesson-theme')).toHaveLength(2)
   })
 
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {

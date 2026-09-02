@@ -6155,7 +6155,7 @@ class CourseService(AIBase):
                 if standard_pack.get("common_misconceptions") else ""
             ),
             (
-                "- 讲稿语言：" + str((standard_pack.get("artifact_language") or {}).get("script") or "")
+                "- 讲义语言：" + str((standard_pack.get("artifact_language") or {}).get("script") or "")
                 if (standard_pack.get("artifact_language") or {}).get("script") else ""
             ),
             *[
@@ -6194,7 +6194,7 @@ class CourseService(AIBase):
             item for item in contract.get("modules") or [] if isinstance(item, dict)
         ]
         if not modules:
-            raise AIProviderRequestError("已确认教案没有可编译为讲稿的教学模块")
+            raise AIProviderRequestError("已确认教案没有可编译为讲义的教学模块")
 
         generation_metadata = self._course_generation_artifacts.get(course_id) or {}
         pedagogy_context = self._pedagogy_contract(course_id, outline_section)
@@ -6277,13 +6277,13 @@ class CourseService(AIBase):
 
         archetype = contract.get("lesson_archetype") or {}
         system_prompt = "\n".join([
-            "你正在写教师站在讲台上实际说的完整讲稿。它必须专业、自然、连贯，教师拿来就能讲，不是教材正文、大纲、提词卡、字段回填或逐字录音稿。",
+            "你正在写教师站在讲台上实际说的完整讲义。它必须专业、自然、连贯，教师拿来就能讲，不是教材正文、大纲、提词卡、字段回填或逐字录音稿。",
             "使用现代、克制、清楚的教师口吻，可以自然地说“我们先看”“请大家试一下”“这里容易出现两种回答”。知识、推理、例题和边界必须完整，口语化不能牺牲专业性。",
             "把教案动作转成真实讲述：提问写出问题原话；活动写出教师怎样布置、学生可能怎样回应、教师怎样接住；反馈写出针对不同表现的回应和再次检查。不要输出机械的【提问】【板书】【巡视】【等待回应】标签。",
             "以教师是否会在真实课堂自然说出口为最终判断：优先使用短句、具体问题、常见课堂过渡和学科习惯用语，不写课程规划报告、论文摘要或系统说明。",
             "不要用“首先、其次、再次、最后、综上所述、值得注意的是”搭出整段模板；过渡要回答上一段与当前问题为什么相连，能直接进入内容就不加连接词。",
             "准确性高于口语感：定义要交代对象和成立条件，公式要说明符号与适用范围，计算要保留关键步骤并用代入、量纲、图像或本学科方法核验；不能为了顺口省掉必要条件。",
-            "讲稿结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成内容块，不能重新套用跨学科通用模板。",
+            "讲义结构已经由课程的学科模式、本节课型和已确认教案决定；你只能把这些教学模块写成内容块，不能重新套用跨学科通用模板。",
             f"本节课型：{archetype.get('label') or '沿用已确认教案'}。",
             f"课型目的：{archetype.get('purpose') or '完成本节已确认教学目标'}。",
             f"本节目标：{contract.get('learning_objective') or '见已确认教案'}。",
@@ -6298,7 +6298,7 @@ class CourseService(AIBase):
             "相邻教学块必须承担不同的知识推进责任，不得只替换标题、术语或公式后重复同一套句式。",
             "允许自然面向学生讲话，但不要每块都机械重复“同学们好”。不得写“教师应当……”“学生需要……”这类教案说明；要改写为教师当场会说的话。",
             "不要把“全课知识地图、先修链定位、学习路径角色、可观察成果证据、证据检查、输入对象、输出对象、系统策略、课程主路径、本节负责”等内部规划词说给学生听；只有当某个词本身就是该学科必须教授的概念时才可保留。",
-            "已确认教案中的教师活动、学生活动、证据和反馈用于决定讲稿实际怎样说，不能逐字段照抄，也不能从讲稿中删掉真实课堂所需的提问、活动和回应。",
+            "已确认教案中的教师活动、学生活动、证据和反馈用于决定讲义实际怎样说，不能逐字段照抄，也不能从讲义中删掉真实课堂所需的提问、活动和回应。",
             "本次只生成当前教学块。前面已完成的块只用于承接和去重：不得重新开场，不得重复定义、目标、例子或结论。",
             "除第一块外，每块开头要用一句自然语言承接上一块，说明为什么现在进入这个问题、例子、活动或反馈，避免拼接感。",
             "讲解块要把概念、推理或步骤讲透；例子块要给出具体情境和完整推演；练习块要写清题目、条件、预期结果与参考解法；辨析块要给出核对标准、典型错误和修正原因。",
@@ -6325,7 +6325,7 @@ class CourseService(AIBase):
             "课程、讲次与选定资料上下文：",
             json.dumps(lesson_context or {}, ensure_ascii=False),
         ])
-        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》中教师可以直接开口讲的讲稿。"
+        user_prompt = f"请生成《{contract.get('title') or '当前小节'}》中教师可以直接开口讲的讲义。"
         async def call_script_model(
             prompt: str,
             instructions: str,
@@ -6424,12 +6424,12 @@ class CourseService(AIBase):
             )
             compacted_response = await call_script_model(
                 (
-                    "请压缩下面的教师讲稿。保留正确事实、定义、推理、公式、例题或实验链、"
+                    "请压缩下面的教师讲义。保留正确事实、定义、推理、公式、例题或实验链、"
                     "自然过渡、关键提问、活动指令与反馈；删掉重复开场、同义反复和旁支扩写。\n\n"
                     + last_text
                 ),
                 (
-                    "你是教师讲稿编辑。只输出压缩后的 Markdown；保持教师可以直接开口讲的自然语气，"
+                    "你是教师讲义编辑。只输出压缩后的 Markdown；保持教师可以直接开口讲的自然语气，"
                     "标题、顺序、教学事实、课堂目标和检查方式不得改变，严格执行字数上限。\n"
                     + length_rules
                 ),
@@ -6464,7 +6464,7 @@ class CourseService(AIBase):
             if isinstance(item, dict)
         )
         raise AIProviderRequestError(
-            f"讲稿未通过已确认教案的质量检查：{issues or '模型没有返回完整教学块'}"
+            f"讲义未通过已确认教案的质量检查：{issues or '模型没有返回完整教学块'}"
         )
 
     async def redefine_content(
@@ -7736,7 +7736,7 @@ class CourseService(AIBase):
         response = await self._call_llm(
             prompt,
             system_prompt=(
-                "你是高校课程总编与变更影响分析师。你在课程大纲、教案、讲稿、"
+                "你是高校课程总编与变更影响分析师。你在课程大纲、教案、讲义、"
                 "PPT、题库之间追踪因果与依赖。索引负责召回，你负责最终语义判断；"
                 "保持老师原话、解释判断原因，并把结构调整与内容调整分开。"
             ),

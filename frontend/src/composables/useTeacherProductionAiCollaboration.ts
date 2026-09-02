@@ -139,7 +139,7 @@ export function teacherProductionAiBusy(phase: TeacherProductionAiPhase): boolea
 const DOMAIN_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
   outline: /(章节|小节|目录|大纲|顺序|结构|学习路径|学习目标|前置|依赖|合并|拆分)/,
   lesson: /(目标|重点|难点|知识|概念|案例|互动|活动|检查|评价|提问|练习|节奏|时间|讲授|作业|备注|教师|学生|导入|总结|迁移)/,
-  script: /(讲稿|口语|表达|讲解|案例|提问|过渡|开场|总结|节奏|时间|互动|课堂|学生|教师|重复|段落)/,
+  script: /(讲义|讲稿|口语|表达|讲解|案例|提问|过渡|开场|总结|节奏|时间|互动|课堂|学生|教师|重复|段落)/,
   'question-bank': /(题|题库|练习|选择|判断|填空|应用|难度|错因|能力|检查|测评|作答|答案|解析)/,
   ppt: /(PPT|课件|幻灯|页面|标题|副标题|结论|措辞|压缩|展示|表达|课堂)/i,
 }
@@ -147,7 +147,7 @@ const DOMAIN_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
 const EXPLICIT_ASSET_TARGETS: Record<TeacherProductionAiDomain, RegExp> = {
   outline: /(课程大纲|大纲|目录|章节|小节|课程结构|学习路径|前置依赖)/,
   lesson: /(教案|教学设计|教学目标|教学重点|教学难点|教学环节|师生活动)/,
-  script: /(讲稿|讲解稿|逐字稿|教师用语|口语表达)/,
+  script: /(讲义|讲稿|讲解稿|逐字稿|教师用语|口语表达)/,
   'question-bank': /(题库|题目|试题|练习题|选择题|判断题|填空题|应用题|答案|解析)/,
   ppt: /(PPT|课件|幻灯片|页面文案)/i,
 }
@@ -307,7 +307,7 @@ export function buildTeacherProductionAiInstruction(
 
   if (scope.domain === 'script') {
     return [
-      '任务：依据教师对话，为当前讲稿小节生成一份可审阅的表达修改候选。',
+      '任务：依据教师对话，为当前讲义小节生成一份可审阅的表达修改候选。',
       ...common,
       '修改原则：保持已确认教案的教学目标、模块身份、知识事实与时间约束；只调整教师明确提出的讲解表达。',
     ].join('\n')

@@ -47,6 +47,7 @@ from dependencies import get_teacher_lesson_authoring_repository, require_task_m
 from teaching_design.lesson_arrangement import (
     _lesson_type,
     apply_lesson_arrangement_to_plan,
+    normalize_lesson_arrangement,
     recommend_lesson_arrangement,
     validate_lesson_arrangement,
 )
@@ -234,6 +235,58 @@ def test_lesson_arrangement_projects_existing_modules_without_example_exam_colli
         ["engineering_debugging_lab", "engineering_guided_build"],
         ["core_explanation", "engineering_review", "engineering_testing"],
     ) == "theory_practice"
+
+
+def test_changed_lesson_type_reorders_blocks_and_preserves_resources_and_tools():
+    raw = {
+        "lesson_type": "theory",
+        "blocks": [
+            {
+                "block_id": "concept",
+                "section_node_id": "L2-1-1",
+                "module_id": "core_explanation",
+                "name": "概念讲解",
+                "role": "concept",
+                "planned_minutes": 20,
+                "resource_refs": ["教材第 3 章", "教材第 3 章"],
+                "tools": ["函数图像工具", "函数图像工具"],
+            },
+            {
+                "block_id": "checkpoint",
+                "section_node_id": "L2-1-1",
+                "module_id": "feedback_check",
+                "name": "达成检查",
+                "role": "checkpoint",
+                "planned_minutes": 10,
+            },
+        ],
+    }
+
+    theory = normalize_lesson_arrangement(
+        raw,
+        lesson_unit_id="L1-1",
+        source_outline_revision_id="outline-v1",
+    )
+    assessment = normalize_lesson_arrangement(
+        {**raw, "lesson_type": "review_assessment"},
+        lesson_unit_id="L1-1",
+        source_outline_revision_id="outline-v1",
+    )
+
+    assert [item["block_id"] for item in theory["blocks"]] == ["concept", "checkpoint"]
+    assert [item["block_id"] for item in assessment["blocks"]] == ["checkpoint", "concept"]
+    concept = next(item for item in assessment["blocks"] if item["block_id"] == "concept")
+    assert concept["resource_refs"] == ["教材第 3 章"]
+    assert concept["tools"] == ["函数图像工具"]
+
+    applied = apply_lesson_arrangement_to_plan(course_data()["course_plan"], assessment)
+    module = next(
+        item
+        for item in applied["chapters"][0]["sections"][0]["module_plan"]
+        if item["arrangement_block_id"] == "concept"
+    )
+    assert module["resource_refs"] == ["教材第 3 章"]
+    assert module["tools"] == ["函数图像工具"]
 
 
 def test_lesson_arrangement_adapts_legacy_node_outline_into_same_recommendation():
@@ -1162,7 +1215,7 @@ def test_teacher_script_service_generates_direct_teaching_script(monkeypatch):
     ))
 
     assert result["quality_report"]["passed"] is True
-    assert "教师站在讲台上实际说的完整讲稿" in captured["system_prompt"]
+    assert "教师站在讲台上实际说的完整讲义" in captured["system_prompt"]
     assert "本节课型：概念建构" in captured["system_prompt"]
     assert "学科类型与当前教学块策略" in captured["system_prompt"]
     assert "前后小节连贯与课程总编约束" in captured["system_prompt"]
@@ -1321,7 +1374,7 @@ def test_teacher_script_service_compacts_length_only_failure(monkeypatch):
     ))
 
     assert len(calls) == 3
-    assert "请压缩下面的教师讲稿" in calls[-1]
+    assert "请压缩下面的教师讲义" in calls[-1]
     assert result["quality_report"]["passed"] is True
 
 

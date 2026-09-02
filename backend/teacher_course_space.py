@@ -43,7 +43,7 @@ CATEGORIES = {
 DOCUMENT_TYPES = {
     "outline": "课程大纲",
     "lesson_plan": "教案",
-    "script": "讲稿",
+    "script": "讲义",
     "ppt": "PPT",
     "question_bank": "题库与试卷",
     "school_material": "教务材料",
@@ -76,7 +76,7 @@ _RULES = (
 )
 _DOCUMENT_RULES = (
     ("outline", ("教学大纲", "课程大纲", "大纲", "syllabus", "outline")),
-    ("script", ("逐字稿", "讲稿", "授课稿", "speaker note", "script")),
+    ("script", ("逐字稿", "讲义", "授课稿", "speaker note", "script")),
     ("lesson_plan", ("教案", "教学设计", "教学方案", "lesson plan")),
     ("question_bank", ("题库", "试题", "试卷", "考卷", "真题", "question bank", "exam")),
     ("school_material", ("教学日历", "成绩", "考场", "签到", "评阅", "自查", "归档")),

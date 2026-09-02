@@ -363,7 +363,7 @@ function auditCenterReturnQuery(view: 'materials' | 'changes') {
       foundation: t('courseAuditUpdates.stageFoundation', '课程大纲'),
       lesson: t('courseAuditUpdates.stageLesson', '教案'),
       'question-bank': t('courseAuditUpdates.stageQuestionBank', '题库'),
-      script: t('courseAuditUpdates.stageScript', '讲稿'),
+      script: t('courseAuditUpdates.stageScript', '讲义'),
       ppt: 'PPT',
       companion: t('courseAuditUpdates.stageCompanion', '配套文档'),
     }

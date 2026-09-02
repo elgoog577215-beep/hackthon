@@ -99,7 +99,7 @@ export const useCourseUpdateCenterStore = defineStore('course-update-center', ()
           kind: 'new_change' as const,
           sourceId: '',
           title: '提出全课调整',
-          subtitle: '系统扫描大纲、教案、讲稿与 PPT 的真实影响',
+          subtitle: '系统扫描大纲、教案、讲义与 PPT 的真实影响',
           status: 'ready' as const,
           updatedAt: '',
         }

@@ -135,7 +135,7 @@ describe('PptWorkspaceView', () => {
     expect(createCoursePlan).toHaveBeenCalledTimes(1)
     expect(createCoursePlan.mock.calls[0]![0]).toMatchObject({ courseId: 'course-1' })
     expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
-    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('PPT、讲稿')
+    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('PPT、讲义')
   })
 
   it('无原版 PPT 时先显示 PPT 文书步骤，不直接生成 PPT', async () => {
@@ -174,7 +174,7 @@ describe('PptWorkspaceView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="ppt-manuscript-workflow"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('生成 PPT 文书')
+    expect(wrapper.get('[data-testid="generate-ppt-manuscript"]').text()).toContain('生成页面内容稿')
     expect(wrapper.find('[data-testid="generate-ppt-from-manuscript"]').exists()).toBe(false)
   })
 
@@ -245,7 +245,7 @@ describe('PptWorkspaceView', () => {
       '/api/teacher/courses/course-1/lessons/L1-1/ppt-v6/manuscript/confirm',
       { manuscript_revision: 'pptman-1' },
     )
-    expect(wrapper.get('[data-testid="generate-ppt-from-manuscript"]').text()).toContain('根据已确认文书生成 PPT')
+    expect(wrapper.get('[data-testid="generate-ppt-from-manuscript"]').text()).toContain('根据已确认页面内容稿生成 PPT')
   })
 
   it('已有原版 PPT 时不进入文书两步生成链', async () => {

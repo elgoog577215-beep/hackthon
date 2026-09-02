@@ -23,8 +23,11 @@
         <button type="button" :class="{ active: activeStage === 'question-bank' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'question-bank')" @click="requestStageChange('question-bank')">
           <ListChecks :size="18" /><strong>{{ t('courseWorkbench.stages.questionBank', '题库') }}</strong><ChevronRight :size="16" />
         </button>
-        <button type="button" :class="{ active: activeStage === 'companion' }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="requestStageChange('companion')">
-          <FileCheck2 :size="18" /><strong>{{ t('courseWorkbench.supporting.title', '配套文档') }}</strong><ChevronRight :size="16" />
+        <button type="button" :class="{ active: activeStage === 'companion' && activeCompanionTemplateId === GRADING_RUBRIC_TEMPLATE_ID }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="openCompanionTemplate(GRADING_RUBRIC_TEMPLATE_ID)">
+          <ClipboardCheck :size="18" /><strong>{{ t('courseWorkbench.supporting.gradingRubric', '评分细则') }}</strong><ChevronRight :size="16" />
+        </button>
+        <button type="button" :class="{ active: activeStage === 'companion' && activeCompanionTemplateId === MATERIAL_CHECKLIST_TEMPLATE_ID }" :disabled="stageSwitching || (aiCandidatePending && activeStage !== 'companion')" @click="openCompanionTemplate(MATERIAL_CHECKLIST_TEMPLATE_ID)">
+          <CheckSquare2 :size="18" /><strong>{{ t('courseWorkbench.supporting.materialChecklist', '考试课程材料自查清单') }}</strong><ChevronRight :size="16" />
         </button>
       </section>
       <footer><span>{{ readyStageCount }}/4</span><div><i :style="{ width: `${readyStageCount / 4 * 100}%` }" /></div></footer>
@@ -38,8 +41,8 @@
         'is-lesson-workspace': !['foundation', 'companion'].includes(activeStage),
       }"
     >
-      <header v-if="!['lesson', 'question-bank', 'script', 'ppt'].includes(activeStage)" class="center-heading">
-        <div><small>{{ activeStage === 'companion' ? t('courseWorkbench.supporting.kicker', '其他课程文件') : `${activeStageDefinition.step} / 04` }}</small><h2>{{ activeStageDefinition.label }}</h2></div>
+      <header v-if="activeStage === 'foundation'" class="center-heading">
+        <div><small>{{ activeStageDefinition.step }} / 04</small><h2>{{ activeStageDefinition.label }}</h2></div>
       </header>
 
       <template v-if="showOutlineWorkspace">
@@ -243,6 +246,8 @@
       <CompanionDocumentStudio
         v-else-if="activeStage === 'companion'"
         :course-id="courseId"
+        :template-id="activeCompanionTemplateId"
+        :show-template-picker="false"
         @saved="handleCompanionSaved"
       />
 
@@ -276,7 +281,7 @@
                 v-if="lessonOutlineOpen"
                 id="lesson-outline-navigation"
                 class="lesson-outline-popover"
-                :aria-label="t('courseWorkbench.lessonOutline.title', '教案目录')"
+                :aria-label="t('courseWorkbench.lessonOutline.title', '讲次目录')"
                 @keydown.esc.stop.prevent="closeLessonOutline(true)"
               >
                 <button
@@ -297,9 +302,9 @@
                     :title="lessonGenerationStateLabel(lesson)"
                     aria-hidden="true"
                   >
-                    <LoaderCircle v-if="lessonGenerationState(lesson) === 'generating'" :size="14" class="spin" />
+                    <LoaderCircle v-if="lessonGenerationIsRunning(lesson)" :size="14" class="spin" />
                     <Check v-else-if="lessonGenerationState(lesson) === 'confirmed'" :size="14" />
-                    <TriangleAlert v-else-if="lessonGenerationState(lesson) === 'failed'" :size="14" />
+                    <TriangleAlert v-else-if="['needs_review', 'failed'].includes(lessonGenerationState(lesson))" :size="14" />
                     <i v-else />
                   </span>
                 </button>
@@ -412,9 +417,17 @@
 
         <template v-else-if="activeStage === 'lesson'">
           <TeacherLessonArrangementSummary
-            v-if="workingLessonRevision && selectedLesson?.arrangement?.blocks?.length"
+            v-if="selectedLesson?.arrangement?.blocks?.length"
             :arrangement="selectedLesson.arrangement"
             :impact-labels="lessonArrangementImpactLabels"
+            :selected-lesson-type="selectedLessonTypeDraft"
+            :busy="arrangementConfirming"
+            :generating="lessonGenerationActive"
+            :can-generate="selectedLessonCanGenerate"
+            :error="arrangementError || lessonGenerationError"
+            @update:selected-lesson-type="selectedLessonTypeDraft = $event"
+            @confirm="confirmSelectedLessonArrangement"
+            @generate="generateSelectedLessonPlan"
           />
           <template v-if="lessonGenerationRunning">
             <div class="lesson-generation-status" aria-live="polite">
@@ -719,7 +732,7 @@
 
 <script setup lang="ts">
 import { computed, markRaw, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { BookOpenText, Check, ChevronDown, ChevronLeft, ChevronRight, ClipboardList, FileCheck2, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
+import { BookOpenText, Check, CheckSquare2, ChevronDown, ChevronLeft, ChevronRight, ClipboardCheck, ClipboardList, FileText, GripVertical, Layers3, ListChecks, LoaderCircle, Pause, Pencil, Presentation, RefreshCw, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
@@ -768,6 +781,9 @@ import { createUuid } from '../utils/client-id'
 
 type CoreStageId = 'foundation' | 'lesson' | 'script' | 'ppt'
 type StageId = CoreStageId | 'question-bank' | 'companion'
+type CompanionTemplateId = typeof GRADING_RUBRIC_TEMPLATE_ID | typeof MATERIAL_CHECKLIST_TEMPLATE_ID
+const GRADING_RUBRIC_TEMPLATE_ID = 'zju-grading-rubric-v1'
+const MATERIAL_CHECKLIST_TEMPLATE_ID = 'zju-exam-course-material-checklist-v1'
 type LessonPlanDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
@@ -839,6 +855,7 @@ const emit = defineEmits<{
 }>()
 const courseStore = useCourseStore(); const courseEvolutionStore = useCourseEvolutionStore(); const courseWorkspaceStore = useCourseWorkspaceStore(); const generationStore = useGenerationStore(); const lessonStore = useTeacherLessonAuthoringStore()
 const activeStage = ref<StageId>(props.initialStage); const selectedLessonId = ref(props.initialLessonId)
+const activeCompanionTemplateId = ref<CompanionTemplateId>(GRADING_RUBRIC_TEMPLATE_ID)
 const stageSwitching = ref(false)
 const outlineConfirming = ref(false)
 const selectedLessonSectionId = ref('')
@@ -960,6 +977,9 @@ const loadedShapeRevision = ref('')
 const shapeConfirming = ref(false)
 const shapeConfirmError = ref<unknown>(null)
 const batchStarting = ref(false)
+const arrangementConfirming = ref(false)
+const arrangementError = ref('')
+const selectedLessonTypeDraft = ref('')
 const lessonConfirming = ref(false); const lessonConfirmError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptConfirming = ref(false); const scriptConfirmError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
 const questionBankReady = ref(false)
@@ -974,8 +994,14 @@ const stages = computed(() => [
 const activeStageDefinition = computed(() => stages.value.find(item => item.id === activeStage.value) || {
   id: activeStage.value === 'question-bank' ? 'question-bank' as const : 'companion' as const,
   step: '',
-  label: activeStage.value === 'question-bank' ? t('courseWorkbench.stages.questionBank', '题库') : t('courseWorkbench.supporting.title', '配套文档'),
-  icon: markRaw(activeStage.value === 'question-bank' ? ListChecks : FileCheck2),
+  label: activeStage.value === 'question-bank'
+    ? t('courseWorkbench.stages.questionBank', '题库')
+    : activeCompanionTemplateId.value === GRADING_RUBRIC_TEMPLATE_ID
+      ? t('courseWorkbench.supporting.gradingRubric', '评分细则')
+      : t('courseWorkbench.supporting.materialChecklist', '考试课程材料自查清单'),
+  icon: markRaw(activeStage.value === 'question-bank'
+    ? ListChecks
+    : activeCompanionTemplateId.value === GRADING_RUBRIC_TEMPLATE_ID ? ClipboardCheck : CheckSquare2),
 })
 const selectedLesson = computed(() => lessonStore.lessons.find(item => item.lesson_unit_id === selectedLessonId.value))
 const selectedLessonPosition = computed(() => {
@@ -1235,13 +1261,25 @@ const aiCandidateImpacts = computed(() => {
 const lessonPlanConfirmed = computed(() => Boolean(workingLessonRevision.value?.revision_id && workingLessonRevision.value.revision_id === selectedLesson.value?.plan.confirmed_revision_id))
 const lessonArrangementImpactLabels = computed(() => {
   const lesson = selectedLesson.value
-  if (!lesson) return []
+  if (!lesson?.arrangement) return []
+  const pendingChange = selectedLessonTypeDraft.value && selectedLessonTypeDraft.value !== lesson.arrangement.lesson_type
+  const alreadyAffected = lesson.plan.source_state === 'stale'
+  if (!pendingChange && !alreadyAffected) return []
   const labels: string[] = []
   if (lesson.plan.working_revision_id) labels.push(t('courseWorkbench.arrangement.impactLessonPlan', '当前教案需要重新核对'))
   if (lesson.script?.ready) labels.push(t('courseWorkbench.arrangement.impactScript', '讲义需要更新'))
   if (lesson.plan.ppt_assets?.length) labels.push(t('courseWorkbench.arrangement.impactPpt', 'PPT 需要更新'))
   return labels
 })
+const selectedLessonCanGenerate = computed(() => Boolean(
+  selectedLesson.value?.arrangement?.confirmed
+  && !lessonGenerationActive.value
+  && (
+    !workingLessonRevision.value
+    || selectedLesson.value?.plan.source_state === 'stale'
+    || ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || ''))
+  )
+))
 const lessonToolbarVisible = computed(() => activeStage.value === 'lesson' && Boolean(workingLessonRevision.value && selectedLesson.value) && !lessonGenerationActive.value)
 const lessonPageHeaderVisible = computed(() => ['lesson', 'script', 'ppt'].includes(activeStage.value) && Boolean(selectedLesson.value))
 const lessonDocumentEditing = computed(() => Boolean(lessonPlanDocument.value?.editing))
@@ -1366,10 +1404,12 @@ const lessonHeaderStatusLabel = computed(() => {
   if (activeStage.value === 'script' && scriptGenerationBusy.value) return t('courseWorkbench.scriptDocument.generating', '正在生成…')
   if (activeStage.value === 'script' && scriptConfirming.value) return t('courseWorkbench.scriptDocument.confirming', '正在确认…')
   if (activeStage.value === 'lesson' && lessonConfirming.value) return t('courseWorkbench.confirmingLessonPlan', '正在确认…')
+  if (activeStage.value === 'lesson' && String(lessonJob.value?.status || '') === 'failed') return t('courseWorkbench.lessonOutline.status.failed', '失败')
   if (aiCandidatePending.value) return t('courseWorkbench.lessonDocument.aiCandidatePending', 'AI 方案待处理')
   if (activeStage.value === 'script' && scriptDocumentEditing.value) return t('courseWorkbench.scriptDocument.editing', '编辑中')
   if (activeStage.value === 'lesson' && lessonDocumentEditing.value) return t('courseWorkbench.lessonDocument.editing', '编辑中')
   if (activeStage.value === 'script' && scriptConfirmed.value) return t('courseWorkbench.scriptDocument.confirmed', '已确认')
+  if (activeStage.value === 'lesson' && selectedLesson.value?.plan.source_state === 'stale') return t('courseWorkbench.lessonOutline.status.needsReview', '需复核')
   if (activeStage.value === 'lesson' && lessonPlanConfirmed.value) return t('courseWorkbench.lessonPlanConfirmed', '已确认')
   if (activeStage.value === 'script' && !selectedLesson.value?.script.ready) return t('courseWorkbench.scriptPending', '待生成')
   return t('courseWorkbench.lessonPlanPendingReview', '待确认')
@@ -2175,6 +2215,49 @@ function activeLessonGenerationSource() {
   const primary = activeReferences.value.find(item => item.role === 'primary')
   return primary ? { packageId: primary.package_id, assetId: primary.asset_id } : undefined
 }
+async function confirmSelectedLessonArrangement() {
+  const lesson = selectedLesson.value
+  if (!lesson?.arrangement || arrangementConfirming.value || lessonGenerationActive.value) return
+  arrangementConfirming.value = true
+  arrangementError.value = ''
+  try {
+    const updated = await lessonStore.confirmArrangement(
+      props.courseId,
+      lesson.lesson_unit_id,
+      {
+        lesson_type: (selectedLessonTypeDraft.value || lesson.arrangement.lesson_type) as typeof lesson.arrangement.lesson_type,
+        blocks: lesson.arrangement.blocks,
+      },
+    )
+    selectedLessonTypeDraft.value = updated.arrangement.lesson_type
+  } catch {
+    arrangementError.value = lessonStore.error || t('courseWorkbench.arrangement.confirmFailed', '本讲课型与教学结构确认失败，请重试。')
+  } finally {
+    arrangementConfirming.value = false
+  }
+}
+async function generateSelectedLessonPlan() {
+  const lesson = selectedLesson.value
+  if (!lesson || lessonGenerationActive.value) return
+  if (!lesson.arrangement?.confirmed) {
+    arrangementError.value = t('courseWorkbench.arrangement.confirmBeforeGenerate', '请先确认本讲课型与教学结构。')
+    return
+  }
+  arrangementError.value = ''
+  lessonConfirmError.value = ''
+  try {
+    await lessonStore.generateLesson(
+      props.courseId,
+      lesson.lesson_unit_id,
+      activeLessonGenerationSource(),
+      '',
+      activeReferences.value.map(item => item.material_asset_id),
+      ['failed', 'cancelled', 'paused'].includes(String(lessonJob.value?.status || '')) ? lessonJob.value?.id || '' : '',
+    )
+  } catch {
+    arrangementError.value = lessonStore.error || t('courseWorkbench.arrangement.generateFailed', '本讲教案生成失败，请重试。')
+  }
+}
 async function generateAllLessonPlans() {
   if (batchStarting.value || batchRunning.value || !batchEligibleCount.value) return
   batchStarting.value = true
@@ -2255,6 +2338,27 @@ function selectLesson(lessonId?: string) {
     selectedLessonSectionId.value = lesson?.sections[0]?.section_node_id || ''
   }
 }
+function preferredLessonId(lessons: typeof lessonStore.lessons): string {
+  if (!lessons.length) return ''
+  if (props.initialLessonId && lessons.some(item => item.lesson_unit_id === props.initialLessonId)) return props.initialLessonId
+  const latestFailed = lessons
+    .map(lesson => ({ lesson, job: lessonStore.latestJobByLesson(lesson.lesson_unit_id) }))
+    .filter(item => ['failed', 'cancelled'].includes(String(item.job?.status || '')))
+    .sort((left, right) => String(right.job?.updated_at || '').localeCompare(String(left.job?.updated_at || '')))[0]?.lesson
+  if (latestFailed) return latestFailed.lesson_unit_id
+  const affected = lessons.find(lesson => (
+    lesson.plan.source_state === 'stale'
+    || lesson.script?.source_state === 'stale'
+    || lesson.plan.ppt_assets?.some(asset => asset.source_state === 'stale')
+  ))
+  if (affected) return affected.lesson_unit_id
+  const unfinished = lessons.find(lesson => (
+    !lesson.plan.confirmed_revision_id
+    || !lesson.script?.confirmed
+    || !lesson.plan.ppt_assets?.some(asset => asset.source_state === 'current' && asset.ppt_manuscript_status === 'confirmed')
+  ))
+  return unfinished?.lesson_unit_id || lessons[0]?.lesson_unit_id || ''
+}
 function selectLessonFromOutline(lessonId: string) {
   selectLesson(lessonId)
   if (selectedLessonId.value === lessonId) closeLessonOutline()
@@ -2276,26 +2380,28 @@ function selectLessonSection(lessonId: string, sectionId: string) {
   selectedLessonId.value = lessonId
   selectedLessonSectionId.value = sectionId
 }
-function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'review' | 'confirmed' | 'failed' {
+function lessonGenerationState(lesson: any): 'pending' | 'generating' | 'review' | 'confirmed' | 'needs_review' | 'failed' {
   const jobStatus = String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '')
   if (jobStatus === 'running') return 'generating'
-  if (jobStatus === 'pending') return 'pending'
-  if (jobStatus === 'failed') return 'failed'
+  if (['pending', 'paused'].includes(jobStatus)) return 'generating'
+  if (['failed', 'cancelled'].includes(jobStatus)) return 'failed'
+  if (lesson.plan?.source_state === 'stale' || jobStatus === 'completed_with_warnings') return 'needs_review'
   if (lesson.plan?.confirmed_revision_id) return 'confirmed'
   if (lesson.plan?.working_revision_id || ['completed', 'completed_with_warnings'].includes(jobStatus)) return 'review'
   return 'pending'
 }
+function lessonGenerationIsRunning(lesson: any): boolean {
+  return String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '') === 'running'
+}
 function lessonGenerationStateLabel(lesson: any): string {
   const state = lessonGenerationState(lesson)
-  const jobStatus = String(lessonStore.latestJobByLesson(lesson.lesson_unit_id)?.status || '')
-  if (jobStatus === 'pending') return t('courseWorkbench.lessonOutline.status.queued', '等待生成')
-  if (jobStatus === 'paused') return t('courseWorkbench.lessonOutline.status.paused', '已暂停')
   const labels = {
     pending: t('courseWorkbench.lessonOutline.status.pending', '未生成'),
     generating: t('courseWorkbench.lessonOutline.status.generating', '生成中'),
     review: t('courseWorkbench.lessonOutline.status.review', '待确认'),
     confirmed: t('courseWorkbench.lessonOutline.status.confirmed', '已确认'),
-    failed: t('courseWorkbench.lessonOutline.status.failed', '生成失败'),
+    needs_review: t('courseWorkbench.lessonOutline.status.needsReview', '需复核'),
+    failed: t('courseWorkbench.lessonOutline.status.failed', '失败'),
   }
   return labels[state]
 }
@@ -2395,6 +2501,17 @@ async function requestStageChange(stage: StageId) {
     stageSwitching.value = false
   }
 }
+async function openCompanionTemplate(templateId: CompanionTemplateId) {
+  activeCompanionTemplateId.value = templateId
+  if (activeStage.value === 'companion') {
+    closeAiCollaboration()
+    closeLessonOutline()
+    closeDocumentHistory()
+    if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
+    return
+  }
+  await requestStageChange('companion')
+}
 async function loadQuestionBankStatus() { if (!props.courseId) return; try { const response = await http.get(`/api/courses/${props.courseId}/question-bank`, teacherReadRequestConfig({ silentError: true })); questionBankReady.value = Number(response.data?.total || 0) > 0; questionBankRevisionId.value = String(response.data?.bundle_revision_id || '') } catch { questionBankReady.value = false; questionBankRevisionId.value = '' } }
 
 watch(() => props.generationOptions, options => {
@@ -2448,13 +2565,14 @@ watch(lessonOutlineRoot, (root, _previousRoot, onCleanup) => {
   onCleanup(() => document.removeEventListener('pointerdown', closeLessonOutlineOnOutsidePointer))
 }, { flush: 'post' })
 watch(() => lessonStore.lessons, lessons => {
-  if (props.initialLessonId && lessons.some(item => item.lesson_unit_id === props.initialLessonId)) {
-    selectedLessonId.value = props.initialLessonId
-  } else if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) {
-    selectedLessonId.value = lessons[0]?.lesson_unit_id || ''
+  if (!lessons.some(item => item.lesson_unit_id === selectedLessonId.value)) {
+    selectedLessonId.value = preferredLessonId(lessons)
   }
   const lesson = lessons.find(item => item.lesson_unit_id === selectedLessonId.value)
   if (!lesson) return
+  if (!selectedLessonTypeDraft.value || selectedLessonTypeDraft.value === selectedLesson.value?.arrangement?.lesson_type) {
+    selectedLessonTypeDraft.value = lesson.arrangement?.lesson_type || ''
+  }
   if (!lesson.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {
     selectedLessonSectionId.value = lesson.sections[0]?.section_node_id || ''
   }
@@ -2463,13 +2581,16 @@ watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
   if (previousLessonId && lessonId !== previousLessonId) closeDocumentHistory()
   lessonConfirmError.value = ''
+  arrangementError.value = ''
   scriptGenerationError.value = ''
   scriptConfirmError.value = ''
   const lesson = lessonStore.lessons.find(item => item.lesson_unit_id === lessonId)
   if (!lesson) {
     selectedLessonSectionId.value = ''
+    selectedLessonTypeDraft.value = ''
     return
   }
+  selectedLessonTypeDraft.value = lesson.arrangement?.lesson_type || ''
   if (previousLessonId !== lessonId || !lesson.sections.some(section => section.section_node_id === selectedLessonSectionId.value)) {
     selectedLessonSectionId.value = lesson.sections[0]?.section_node_id || ''
   }

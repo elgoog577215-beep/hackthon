@@ -112,7 +112,13 @@ def test_lesson_compiler_turns_type_and_constraints_into_a_classroom_contract():
 
 def test_teaching_block_contract_closes_action_evidence_feedback_and_adaptation():
     block = compile_teaching_block_contract(
-        {"block_id": "b1", "role": "activity", "purpose": "完成实验"},
+        {
+            "block_id": "b1",
+            "role": "activity",
+            "purpose": "完成实验",
+            "resource_refs": ["实验指导书", "实验指导书", " 现场数据 "],
+            "tools": ["传感器", "传感器", "Python"],
+        },
         lesson_type="experiment_inquiry",
     )
 
@@ -120,6 +126,8 @@ def test_teaching_block_contract_closes_action_evidence_feedback_and_adaptation(
     assert block["student_activity"] == "操作、讨论、制作或协作解决"
     assert block["expected_output"] == "过程记录、作品或协作结论"
     assert len(block["adaptation_options"]) == 3
+    assert block["resource_refs"] == ["实验指导书", "现场数据"]
+    assert block["tools"] == ["传感器", "Python"]
     assert block["block_contract_version"] == "teaching_semantics_v3"
 
 

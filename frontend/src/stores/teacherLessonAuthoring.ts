@@ -83,6 +83,8 @@ export interface TeacherLessonArrangementBlock {
   check_method?: string
   feedback_strategy?: string
   adaptation_options?: string[]
+  resource_refs?: string[]
+  tools?: string[]
   engagement_mode?: 'passive' | 'active' | 'constructive' | 'interactive' | string
   access_support?: string
   grouping?: string
@@ -792,7 +794,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '本讲讲稿确认失败')
+        this.error = errorMessage(error, '本讲讲义确认失败')
         throw error
       } finally {
         this.actionLessonId = ''
@@ -823,7 +825,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         void this.streamJob(courseId, job.id)
         return job
       } catch (error) {
-        this.error = errorMessage(error, '本讲讲稿生成失败')
+        this.error = errorMessage(error, '本讲讲义生成失败')
         throw error
       } finally {
         this.actionLessonId = ''
@@ -846,7 +848,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         if (index >= 0) this.lessons[index] = response.data.lesson
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '讲稿保存失败')
+        this.error = errorMessage(error, '讲义保存失败')
         throw error
       }
     },
@@ -863,7 +865,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '讲稿历史版本恢复失败')
+        this.error = errorMessage(error, '讲义历史版本恢复失败')
         throw error
       } finally {
         this.actionLessonId = ''
@@ -891,7 +893,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         )
         return data.candidate
       } catch (error) {
-        this.error = errorMessage(error, 'AI 优化讲稿失败')
+        this.error = errorMessage(error, 'AI 优化讲义失败')
         throw error
       }
     },

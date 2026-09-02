@@ -484,7 +484,7 @@ def compile_lesson_semantics(
         "teaching_block_contract_fields": [
             "purpose", "planned_minutes", "teacher_activity", "student_activity",
             "expected_output", "check_method", "feedback_strategy", "adaptation_options",
-            "engagement_mode", "access_support", "grouping", "transition",
+            "resource_refs", "tools", "engagement_mode", "access_support", "grouping", "transition",
         ],
         "quality_rules": [
             "每个关键目标都有学习者可观察行动和就近证据",
@@ -580,6 +580,16 @@ def compile_teaching_block_contract(
             f"未达到：缩小任务，回到“{prerequisite_focus}”所需前置并重新取得同类证据",
         ]
     )
+    result["resource_refs"] = list(dict.fromkeys(
+        str(item).strip()
+        for item in result.get("resource_refs") or []
+        if str(item).strip()
+    ))
+    result["tools"] = list(dict.fromkeys(
+        str(item).strip()
+        for item in result.get("tools") or []
+        if str(item).strip()
+    ))
     result["access_support"] = str(
         result.get("access_support")
         or discipline_recipe.get("access_support")

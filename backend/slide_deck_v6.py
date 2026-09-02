@@ -478,7 +478,7 @@ PptManuscriptPageType = Literal[
 
 
 class PptManuscriptPageV1(_StrictModel):
-    """一页可审阅的 PPT 文书：拥有台上可见内容，不拥有新知识。"""
+    """一页可审阅的 页面内容稿：拥有台上可见内容，不拥有新知识。"""
 
     page_id: str
     page_number: int = Field(ge=1)
@@ -525,7 +525,7 @@ class PptManuscriptMaterialBindingV1(_StrictModel):
 
 
 class PptManuscriptV1(_StrictModel):
-    """讲稿与模板渲染之间的唯一逐页内容合同。"""
+    """讲义与模板渲染之间的唯一逐页内容合同。"""
 
     schema_version: Literal["ppt_manuscript_v1"] = "ppt_manuscript_v1"
     manuscript_revision: str
@@ -643,21 +643,21 @@ def _ppt_manuscript_quality_issues(
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_lesson_opening_missing",
-                message="课堂 PPT 文书必须从本讲封面开始，而不是直接进入局部知识点。",
+                message="课堂 页面内容稿必须从本讲封面开始，而不是直接进入局部知识点。",
                 page_id=pages[0].page_id,
             ))
         if not any(page.layout_id.endswith("/agenda-path") for page in pages[:3]):
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_lesson_path_missing",
-                message="课堂 PPT 文书必须在开头规划本讲学习路径。",
+                message="课堂 页面内容稿必须在开头规划本讲学习路径。",
                 page_id=pages[0].page_id,
             ))
         if not pages[-1].layout_id.endswith("/chapter-recap"):
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_lesson_closure_missing",
-                message="课堂 PPT 文书必须以本讲回顾收束，不能停在局部定义或注意事项。",
+                message="课堂 页面内容稿必须以本讲回顾收束，不能停在局部定义或注意事项。",
                 page_id=pages[-1].page_id,
             ))
     seen_claims: dict[str, str] = {}
@@ -666,21 +666,21 @@ def _ppt_manuscript_quality_issues(
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_narrative_job_missing",
-                message="PPT 文书每页都必须写明教学任务和主要结论。",
+                message="页面内容稿每页都必须写明教学任务和主要结论。",
                 page_id=page.page_id,
             ))
         if not page.visible_copy:
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_visible_copy_missing",
-                message="PPT 文书每页都必须包含台上可见文案。",
+                message="页面内容稿每页都必须包含台上可见文案。",
                 page_id=page.page_id,
             ))
         elif _PPT_VISIBLE_DELIVERY_PATTERN.search("\n".join(page.visible_copy)):
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_delivery_cue_visible",
-                message="PPT 文书的台上文案不得混入板书、巡视或口头组织语。",
+                message="页面内容稿的台上文案不得混入板书、巡视或口头组织语。",
                 page_id=page.page_id,
             ))
         if (
@@ -693,7 +693,7 @@ def _ppt_manuscript_quality_issues(
                 stage="manuscript",
                 code="ppt_manuscript_title_not_audience_ready",
                 message=(
-                    "PPT 文书标题必须是完整、面向学习者的教学结论，不能保留"
+                    "页面内容稿标题必须是完整、面向学习者的教学结论，不能保留"
                     "生产指令、结构标签、截断短语或原始 LaTeX。"
                 ),
                 page_id=page.page_id,
@@ -707,7 +707,7 @@ def _ppt_manuscript_quality_issues(
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_title_not_audience_ready",
-                message="已有讲稿支持的教学结论，不能继续用原始 LaTeX 作为页面标题。",
+                message="已有讲义支持的教学结论，不能继续用原始 LaTeX 作为页面标题。",
                 page_id=page.page_id,
             ))
         claim_key = re.sub(r"\W+", "", page.primary_claim).casefold()
@@ -726,7 +726,7 @@ def _ppt_manuscript_quality_issues(
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_duplicate_primary_claim",
-                message="两页 PPT 文书重复了同一个主要结论。",
+                message="两页 页面内容稿重复了同一个主要结论。",
                 page_id=page.page_id,
             ))
         elif claim_key and not prior_page_id:
@@ -821,7 +821,7 @@ def _ppt_manuscript_quality_issues(
             issues.append(V6Failure(
                 stage="manuscript",
                 code="ppt_manuscript_adjacent_content_repeated",
-                message="相邻两页 PPT 文书大量重复同一批台上可见内容。",
+                message="相邻两页 页面内容稿大量重复同一批台上可见内容。",
                 page_id=current.page_id,
             ))
     return issues
@@ -8350,7 +8350,7 @@ def _slide_pages_from_ppt_manuscript_v1(
             raise V6BuildError(
                 stage="manuscript",
                 code="ppt_manuscript_page_spec_incomplete",
-                message="已确认的 PPT 文书页缺少 Web/PPTX 共用渲染合同。",
+                message="已确认的 页面内容稿页缺少 Web/PPTX 共用渲染合同。",
                 page_id=page.page_id,
             )
         pages.append(SlidePageV6(
@@ -8568,7 +8568,7 @@ def compile_slide_deck_v6_from_manuscript(
             code=(first_issue.code if first_issue else "ppt_manuscript_quality_blocked"),
             message=(
                 first_issue.message
-                if first_issue else "PPT 文书通过质量检查后才能编译 deck。"
+                if first_issue else "页面内容稿通过质量检查后才能编译 deck。"
             ),
             retryable=(first_issue.retryable if first_issue else False),
             page_id=first_issue.page_id if first_issue else "",
@@ -8578,7 +8578,7 @@ def compile_slide_deck_v6_from_manuscript(
         raise V6BuildError(
             stage="manuscript",
             code="ppt_manuscript_source_revision_mismatch",
-            message="PPT 文书未绑定当前已确认讲稿。",
+            message="页面内容稿未绑定当前已确认讲义。",
         )
     if (
         manuscript.template_id != template.template_id
@@ -8588,7 +8588,7 @@ def compile_slide_deck_v6_from_manuscript(
         raise V6BuildError(
             stage="manuscript",
             code="ppt_manuscript_template_mismatch",
-            message="PPT 文书未绑定当前选中的模板修订。",
+            message="页面内容稿未绑定当前选中的模板修订。",
         )
     revision_payload = manuscript.model_dump(
         mode="json",
@@ -8598,7 +8598,7 @@ def compile_slide_deck_v6_from_manuscript(
         raise V6BuildError(
             stage="manuscript",
             code="ppt_manuscript_revision_mismatch",
-            message="PPT 文书确认后发生了未授权改动。",
+            message="页面内容稿确认后发生了未授权改动。",
         )
     pages = _slide_pages_from_ppt_manuscript_v1(manuscript)
     quality = _compile_slide_deck_quality_from_manuscript(

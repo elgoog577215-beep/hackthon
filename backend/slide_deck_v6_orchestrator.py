@@ -78,7 +78,7 @@ def _manuscript_planning_quality_issues(
         code="ppt_manuscript_ai_story_unavailable",
         message=(
             "AI 故事规划未成功运行；确定性安全分页只是恢复证据，"
-            "不能冒充完成的 PPT 文书。"
+            "不能冒充完成的 页面内容稿。"
         ),
         retryable=True,
         batch_id=fallback_batches[0].batch_id,
@@ -142,7 +142,7 @@ class SlideDeckV6CandidateRepository:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def clone_checkpoint(self, source_task_id: str, target_task_id: str) -> dict[str, Any]:
-        """为确认后的 PPT 编译创建新任务，同时复用已确认的文书规划依据。"""
+        """为确认后的 PPT 编译创建新任务，同时复用已确认的页面内容稿规划依据。"""
         payload = self.load_checkpoint(source_task_id)
         cloned = {
             **payload,
@@ -953,7 +953,7 @@ class SlideDeckV6Orchestrator:
                     )
 
             tracker.add_work([
-                SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译 PPT 文书与课程忠实型页面"),
+                SlideWorkItemV2(item_id="materialize", kind="local", stage="materialize", label="编译 页面内容稿与课程忠实型页面"),
                 SlideWorkItemV2(item_id="quality", kind="local", stage="quality", label="执行忠实度与渲染门禁"),
                 SlideWorkItemV2(
                     item_id=finalize_item_id,
@@ -963,7 +963,7 @@ class SlideDeckV6Orchestrator:
                         else "publish" if publish_result else "shadow_finalize"
                     ),
                     label=(
-                        "保存可审阅 PPT 文书"
+                        "保存可审阅 页面内容稿"
                         if manuscript_only
                         else "原子发布正式课件" if publish_result
                         else "完成只读影子候选"
@@ -1024,7 +1024,7 @@ class SlideDeckV6Orchestrator:
                     message=(
                         first_issue.message
                         if first_issue
-                        else "PPT 文书修改并通过质量检查后才能编译 deck。"
+                        else "页面内容稿修改并通过质量检查后才能编译 deck。"
                     ),
                     retryable=(first_issue.retryable if first_issue else False),
                     page_id=first_issue.page_id if first_issue else "",
@@ -1043,7 +1043,7 @@ class SlideDeckV6Orchestrator:
                     raise V6BuildError(
                         stage="manuscript",
                         code="source_revision_changed",
-                        message="课程源在 PPT 文书生成期间发生变化。",
+                        message="课程源在 页面内容稿生成期间发生变化。",
                         retryable=True,
                     )
                 current_template_digest = (
@@ -1055,7 +1055,7 @@ class SlideDeckV6Orchestrator:
                     raise V6BuildError(
                         stage="manuscript",
                         code="template_revision_changed",
-                        message="模板在 PPT 文书生成期间发生变化。",
+                        message="模板在 页面内容稿生成期间发生变化。",
                         retryable=True,
                     )
                 candidate_payload = {
