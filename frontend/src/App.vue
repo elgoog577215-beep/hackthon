@@ -305,7 +305,7 @@ function changeLocale(locale: string) {
 }
 
 .header-search:focus-within { border-color: var(--lz-brand); background: #fff; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.09); }
-.header-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--lz-text); font-size: 12px; }
+.header-search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; color: var(--lz-text); font-size:14px; }
 .header-search button { width: 22px; height: 22px; display: grid; place-items: center; color: var(--lz-text-muted); background: transparent; }
 
 .app-main { min-width: 0; min-height: 0; overflow: hidden; border-radius: var(--lz-radius-surface); }
@@ -319,7 +319,7 @@ function changeLocale(locale: string) {
 .route-surface-enter-from { opacity:0; transform:translateY(7px); }
 .route-surface-leave-to { opacity:0; transform:translateY(-3px); }
 
-.reading-settings { display: grid; gap: 14px; color: var(--lz-text-secondary); font-size: 12px; }
+.reading-settings { display: grid; gap: 14px; color: var(--lz-text-secondary); font-size:14px; }
 .reading-settings label { display: grid; grid-template-columns: auto 1fr 24px; align-items: center; gap: 8px; }
 .reading-settings input { accent-color: var(--lz-brand); }
 .reading-setting-control { margin-top:6px; }

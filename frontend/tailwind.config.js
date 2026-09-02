@@ -44,7 +44,9 @@ export default {
         '5xl': '2.5rem',
       },
       fontSize: {
-        'xxs': '0.625rem',
+        'xxs': '0.8125rem',
+        'xs': '0.875rem',
+        'sm': '0.9375rem',
       },
     },
   },

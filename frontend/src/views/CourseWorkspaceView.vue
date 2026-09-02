@@ -460,13 +460,13 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-load-leave-to,.workspace-surface-leave-to { opacity:0; transform:translateY(-3px); }
 .workspace-route-context { min-width:0; display:flex; align-items:center; gap:9px; }
 .workspace-route-context>svg { flex:none; color:var(--lz-brand); }
-.workspace-route-context>h1 { min-width:0; margin:0; overflow:hidden; color:var(--lz-text-strong); font-family:inherit; font-size:18px; font-weight:800; letter-spacing:-.012em; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
-.back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:13px; font-weight:700; cursor:pointer; }
+.workspace-route-context>h1 { min-width:0; margin:0; overflow:hidden; color:var(--lz-text-strong); font-family:inherit; font-size:22px; font-weight:800; letter-spacing:-.012em; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
+.back-button,.workspace-route-actions button { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; background:transparent; color:var(--lz-text-secondary); font-size:14px; font-weight:700; cursor:pointer; }
 .back-button { width:34px; height:34px; flex:none; border-radius:8px; }
 .back-button:hover { color:var(--lz-brand-strong); background:var(--lz-brand-soft); }
 .back-button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
 .workspace-view-switch { display:flex; align-items:center; justify-content:center; gap:3px; width:max-content; margin:auto; padding:3px; border:1px solid var(--lz-border); border-radius:10px; background:#f5f6fa; }
-.workspace-view-switch button { height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:12px; font-weight:700; cursor:pointer; }
+.workspace-view-switch button { height:32px; display:inline-flex; align-items:center; gap:6px; padding:0 11px; border:0; border-radius:7px; color:var(--lz-text-secondary); background:transparent; font-size:14px; font-weight:700; cursor:pointer; }
 .workspace-view-switch button:hover { color:var(--lz-text-strong); }
 .workspace-view-switch button.active { color:var(--lz-brand-strong); background:#fff; box-shadow:0 2px 7px rgba(15,23,42,.08); }
 .workspace-view-switch button:focus-visible { outline:2px solid var(--lz-brand); outline-offset:2px; }
@@ -476,13 +476,13 @@ onBeforeUnmount(() => { if (courseId.value) generationStore.unobserveCourse(cour
 .workspace-search--inline { width:clamp(160px,16vw,240px); }
 .workspace-search--popover { width:100%; }
 .workspace-search:focus-within { border-color:var(--lz-brand); background:#fff; box-shadow:0 0 0 3px var(--lz-brand-soft); }
-.workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:12px; }
+.workspace-search input { min-width:0; flex:1; border:0; outline:0; color:var(--lz-text-strong); background:transparent; font-size:14px; }
 .workspace-search button { width:24px; min-height:24px; padding:0; border:0; background:transparent; }
 .workspace-route-actions .search-action { display:none; width:38px; padding:0; }
 .workspace-route-actions .audit-action { border-color:#dfe3ea; color:#475569; background:#fff; }
 .workspace-route-actions .audit-action:hover { border-color:#aaa7f2; color:#5148dc; background:#f8f8ff; }
 .workspace-route-actions .preview-action { color:var(--lz-brand-strong); border-color:var(--lz-brand-border); }
-.workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:12px; font-weight:700; white-space:nowrap; }
+.workspace-state { flex:none; padding:4px 7px; border-radius:6px; background:#f1f5f9; color:#64748b; font-size:14px; font-weight:700; white-space:nowrap; }
 .workspace-state[data-state="prepared"] { background:#ecfdf5; color:#047857; }
 .workspace-state[data-state="preparing"] { background:#eef2ff; color:#4f46e5; }
 .workspace-loading { min-height:360px; display:flex; align-items:center; justify-content:center; gap:10px; color:var(--lz-text-secondary); }

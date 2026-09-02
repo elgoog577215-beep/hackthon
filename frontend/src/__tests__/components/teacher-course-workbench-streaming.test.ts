@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TeacherCourseWorkbench from '@/components/TeacherCourseWorkbench.vue'
 import { useCourseStore } from '@/stores/course'
 import { useGenerationStore } from '@/stores/generation'
@@ -92,6 +92,10 @@ describe('teacher course workbench outline streaming', () => {
     outlineFinishEditing.mockResolvedValue(true)
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
     vi.spyOn(http, 'post').mockResolvedValue({ data: { status: 'resumed' } })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('侧栏只保留标题和导航名称，不再展示描述文本', () => {
@@ -413,7 +417,7 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.get('.center-heading h2').text()).toBe('大纲')
   })
 
-  it('课次投影读取失败时显示真实错误并复用现有重载动作', async () => {
+  it('系统无法自动恢复时显示真实错误，只保留普通重试动作', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.courseId = 'course-1'
     lessonStore.error = '分讲教案状态读取失败'
@@ -422,14 +426,47 @@ describe('teacher course workbench outline streaming', () => {
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
 
     const notice = wrapper.get('.prerequisite-error')
-    expect(notice.text()).toContain('课次读取失败')
+    expect(notice.text()).toContain('教案读取失败')
     expect(notice.text()).toContain('分讲教案状态读取失败')
     expect(notice.get('details code').text()).toContain('原始反馈')
+    expect(notice.get('button').text()).toBe('重试')
     await notice.get('button').trigger('click')
     expect(reload).toHaveBeenCalledWith('course-1')
   })
 
-  it('把唯一的整课生成入口放在右侧资料栏，中栏保持空白', async () => {
+  it('大纲已经存在时自动重试同步课次，不要求教师重复操作', async () => {
+    vi.useFakeTimers()
+    useCourseStore().nodes = [{
+      node_id: 'L1-1', node_level: 1, node_name: '第一讲', node_content: '基础概念',
+    }] as any
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.courseId = 'course-1'
+    lessonStore.error = '分讲教案状态读取失败'
+    const reload = vi.spyOn(lessonStore, 'load').mockImplementation(async () => {
+      if (reload.mock.calls.length < 3) throw new Error('暂时读取失败')
+      lessonStore.error = ''
+      lessonStore.lessons = [{
+        lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
+        title: '第一讲', duration_minutes: 45, sections: [],
+        plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      }] as any
+      return {} as any
+    })
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+    expect(wrapper.get('.prerequisite').text()).toContain('正在准备教案')
+    expect(wrapper.get('.prerequisite').text()).toContain('无需重复操作')
+    expect(wrapper.find('.prerequisite button').exists()).toBe(false)
+
+    await vi.runAllTimersAsync()
+    await flushPromises()
+
+    expect(reload).toHaveBeenCalledTimes(3)
+    expect(wrapper.get('.lesson-title-trigger').text()).toContain('第一讲')
+    expect(wrapper.text()).not.toContain('重新读取课次')
+  })
+
+  it('把当前讲和整课生成按钮放在同一个操作区', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
@@ -455,13 +492,15 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
     const generationButton = wrapper.get('[data-testid="lesson-batch-start"]')
+    const singleButton = wrapper.get('[data-testid="lesson-single-start"]')
     expect(wrapper.find('[data-testid="lesson-arrangement-editor"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="lesson-generation-form"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="lesson-arrangement-summary"]').exists()).toBe(false)
-    expect(wrapper.get('.lesson-empty-canvas').text()).toBe('教案尚未生成')
-    expect(wrapper.get('[data-testid="lesson-batch-launch"]').text()).toContain('剩余 1 讲，将按顺序逐讲生成')
-    expect(generationButton.text()).toBe('生成全部教案')
-    expect(wrapper.text()).not.toContain('生成本讲教案')
+    expect(wrapper.find('[data-testid="lesson-arrangement-summary"]').exists()).toBe(true)
+    expect(wrapper.find('.lesson-empty-canvas').exists()).toBe(false)
+    expect(wrapper.get('.arrangement-toolbar [data-testid="lesson-generation-actions"]').text()).not.toContain('生成范围')
+    expect(singleButton.text()).toBe('只生成本讲')
+    expect(singleButton.attributes('disabled')).toBeDefined()
+    expect(generationButton.text()).toBe('生成全部教案（1讲）')
     expect(wrapper.text()).not.toContain('统一生成要求')
     expect(wrapper.find('.lesson-batch-panel').exists()).toBe(false)
 
@@ -496,9 +535,9 @@ describe('teacher course workbench outline streaming', () => {
     const generateAllLessons = vi.spyOn(lessonStore, 'generateAllLessons')
 
     const wrapper = mountWorkbench({ initialStage: 'lesson' })
-    const singleButton = wrapper.findAll('.arrangement-actions button').find(button => button.text().includes('只生成本讲'))
-    expect(singleButton).toBeTruthy()
-    await singleButton!.trigger('click')
+    const singleButton = wrapper.get('[data-testid="lesson-single-start"]')
+    expect(singleButton.text()).toBe('只生成本讲')
+    await singleButton.trigger('click')
     await flushPromises()
 
     expect(generateLesson).toHaveBeenCalledWith('course-1', 'L1-1', undefined, '', [], '')
