@@ -257,10 +257,14 @@ def test_formal_templates_are_projected_from_the_existing_course_truth():
     assert "#### 能力目标" in teaching_plan
     assert "#### 育人目标" in teaching_plan
     assert "#### 教学重点与难点" in teaching_plan
-    assert "#### 课前准备（按需）" in teaching_plan
+    assert "#### 课前准备（按需）" not in teaching_plan
     assert "#### 课堂教学过程" in teaching_plan
     assert "#### 教学资料与活动记录｜教学活动照片" in teaching_plan
-    assert "| 教学块 | 时间 | 本块目标与内容 | 教师活动 | 学生活动 | 课堂产出与达成检查 | 反馈与调整 | 衔接 | 讲义与 PPT 对应 |" in teaching_plan
+    assert "| 教学环节 | 时间 | 环节目标与内容 | 课堂活动 | 达成判断 |" in teaching_plan
+    assert "教师：展示数表与图像并追问趋势" in teaching_plan
+    assert "学生：比较数值变化并口述判断" in teaching_plan
+    assert "反馈与调整" not in teaching_plan
+    assert "讲义与 PPT 对应" not in teaching_plan
     assert "展示数表与图像并追问趋势" in teaching_plan
     assert "微积分教材.pdf" in teaching_plan
 

@@ -593,12 +593,12 @@ def compile_teaching_block_contract(
     result["access_support"] = str(
         result.get("access_support")
         or discipline_recipe.get("access_support")
-        or "提供适合当前学科的文字、图示、口头或操作入口；核心成果标准保持一致"
+        or ""
     ).strip()
     result["grouping"] = str(
         result.get("grouping")
         or discipline_recipe.get("grouping")
-        or "根据班额与任务采用个人、同伴或小组"
+        or ""
     ).strip()
     result["transition"] = str(
         result.get("transition")

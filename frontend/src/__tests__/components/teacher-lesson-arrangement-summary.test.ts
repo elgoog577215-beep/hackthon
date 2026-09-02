@@ -38,7 +38,7 @@ const arrangement: TeacherLessonArrangement = {
 }
 
 describe('本讲教学结构摘要', () => {
-  it('默认展开师生行动、证据和调整预案，并允许教师主动收起', async () => {
+  it('已确认结构默认收起，展开后只显示教师需要确认的课堂流程', async () => {
     const wrapper = mount(TeacherLessonArrangementSummary, {
       props: {
         arrangement,
@@ -52,18 +52,46 @@ describe('本讲教学结构摘要', () => {
     expect(wrapper.text()).not.toContain('个内容主题')
     expect(wrapper.text()).not.toContain('个教学块')
     expect(wrapper.text()).toContain('最后可用版本会保留，不会被静默覆盖')
-    expect(wrapper.text()).toContain('教师动作')
-    expect(wrapper.text()).toContain('显化对象、条件和极限过程')
-    expect(wrapper.text()).toContain('学生行动')
-    expect(wrapper.text()).toContain('条件完整的导数定义')
-    expect(wrapper.text()).toContain('教材第 3 章；函数图像工具')
-    expect(wrapper.text()).toContain('三档处理')
-    expect(wrapper.text()).toContain('不得伪造定理、证明或计算结果')
-
-    expect(wrapper.get('button').text()).toContain('收起教学块')
-    await wrapper.get('button').trigger('click')
     expect(wrapper.text()).not.toContain('显化对象、条件和极限过程')
-    expect(wrapper.get('button').text()).toContain('展开教学块')
+
+    expect(wrapper.get('.arrangement-disclosure').text()).toContain('教学结构确认')
+    await wrapper.get('.arrangement-disclosure').trigger('click')
+    expect(wrapper.text()).toContain('环节目标')
+    expect(wrapper.text()).toContain('课堂活动')
+    expect(wrapper.text()).toContain('显化对象、条件和极限过程')
+    expect(wrapper.text()).toContain('补全定义并解释每个符号')
+    expect(wrapper.text()).toContain('达成判断')
+    expect(wrapper.text()).toContain('条件完整的导数定义')
+    expect(wrapper.text()).not.toContain('教师动作')
+    expect(wrapper.text()).not.toContain('学生行动')
+    expect(wrapper.text()).not.toContain('教材第 3 章')
+    expect(wrapper.text()).not.toContain('三档处理')
+    expect(wrapper.text()).not.toContain('进入支持')
+    expect(wrapper.text()).not.toContain('分组方式')
+    expect(wrapper.text()).not.toContain('前后衔接')
+    expect(wrapper.text()).not.toContain('专业边界')
+  })
+
+  it('正式教案后的辅助面板明确标记为生成依据并默认收起', () => {
+    const wrapper = mount(TeacherLessonArrangementSummary, {
+      props: { arrangement, supporting: true },
+    })
+
+    expect(wrapper.get('.arrangement-disclosure').text()).toContain('生成依据')
+    expect(wrapper.get('.arrangement-disclosure').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.text()).not.toContain('环节目标')
+  })
+
+  it('首次生成前自动展开待确认的课堂流程', () => {
+    const wrapper = mount(TeacherLessonArrangementSummary, {
+      props: {
+        arrangement: { ...arrangement, status: 'suggested', confirmed: false },
+      },
+    })
+
+    expect(wrapper.get('.arrangement-disclosure').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.text()).toContain('环节目标')
+    expect(wrapper.text()).toContain('生成前需确认')
   })
 
   it('把生成操作放在置顶操作栏内，不再另设统计条和生成范围标题', () => {

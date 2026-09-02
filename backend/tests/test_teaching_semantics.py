@@ -131,6 +131,16 @@ def test_teaching_block_contract_closes_action_evidence_feedback_and_adaptation(
     assert block["block_contract_version"] == "teaching_semantics_v3"
 
 
+def test_teaching_block_contract_does_not_invent_generic_access_or_grouping():
+    block = compile_teaching_block_contract(
+        {"block_id": "b1", "role": "activity", "purpose": "完成实验"},
+        lesson_type="experiment_inquiry",
+    )
+
+    assert block["access_support"] == ""
+    assert block["grouping"] == ""
+
+
 def test_subject_standard_pack_resolves_discipline_and_drives_block_language():
     semantics = compile_lesson_semantics(
         learning_purpose="systematic",

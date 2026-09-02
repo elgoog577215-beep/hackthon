@@ -573,17 +573,18 @@ def _render_teaching_plan(course_data: dict[str, Any]) -> str:
         lines.append(f"- 教学难点：{'；'.join(difficulties) or '尚未确认'}")
         lines.append("")
 
+        pre_class_items = _lesson_flow_items(section, "课前预习")
+        if pre_class_items:
+            lines += [
+                "#### 课前准备（按需）",
+                *(f"- {item}" for item in pre_class_items),
+                "",
+            ]
         lines += [
-            "#### 课前准备（按需）",
-            *(
-                [f"- {item}" for item in _lesson_flow_items(section, "课前预习")]
-                or ["尚未确认。"]
-            ),
-            "",
             "#### 课堂教学过程",
             "",
-            "| 教学块 | 时间 | 本块目标与内容 | 教师活动 | 学生活动 | 课堂产出与达成检查 | 反馈与调整 | 衔接 | 讲义与 PPT 对应 |",
-            "|---|---:|---|---|---|---|---|---|---|",
+            "| 教学环节 | 时间 | 环节目标与内容 | 课堂活动 | 达成判断 |",
+            "|---|---:|---|---|---|",
         ]
         modules = [
             item for item in section.get("teaching_modules") or []
@@ -592,16 +593,21 @@ def _render_teaching_plan(course_data: dict[str, Any]) -> str:
         for module in modules:
             minutes = module.get("planned_minutes")
             time_label = f"{minutes} 分钟" if minutes not in (None, "") else ""
+            classroom_activity = "；".join(filter(None, (
+                f"教师：{str(module.get('teacher_activity') or '').strip()}" if module.get("teacher_activity") else "",
+                f"学生：{str(module.get('student_activity') or '').strip()}" if module.get("student_activity") else "",
+            )))
+            attainment = "；".join(filter(None, (
+                f"课堂产出：{str(module.get('expected_output') or '').strip()}" if module.get("expected_output") else "",
+                f"判断方法：{str(module.get('check_method') or '').strip()}" if module.get("check_method") else "",
+            )))
             lines.append(
                 f"| {_md_cell(module.get('label') or module.get('module_id'))} | {_md_cell(time_label)} | "
                 f"{_md_cell(module.get('teaching_purpose') or module.get('teaching_guidance'))} | "
-                f"{_md_cell(module.get('teacher_activity'))} | {_md_cell(module.get('student_activity'))} | "
-                f"{_md_cell('；'.join(filter(None, (str(module.get('expected_output') or ''), str(module.get('check_method') or '')))))} | "
-                f"{_md_cell('；'.join([str(module.get('feedback_strategy') or ''), *_text_items(module.get('adaptation_options'))]))} | "
-                f"{_md_cell(module.get('transition'))} | {_md_cell(module.get('handout_ppt_mapping'))} |"
+                f"{_md_cell(classroom_activity)} | {_md_cell(attainment)} |"
             )
         if not modules:
-            lines.append("| 待完善 |  | 尚未确认可执行教学流程 |  |  |  |  |  |  |")
+            lines.append("| 待完善 |  | 尚未确认可执行教学流程 |  |  |")
         lines.append("")
 
         for flow in (

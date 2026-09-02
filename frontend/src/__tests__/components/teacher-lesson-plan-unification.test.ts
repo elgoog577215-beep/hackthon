@@ -54,6 +54,14 @@ const lesson: TeacherLessonProjection = {
             planned_minutes: 15,
             teacher_activity: '绘制爬虫工作流程图',
             student_activity: '记录并复述流程',
+            expected_output: '一张完整流程图',
+            check_method: '能说明四步之间的输入输出关系',
+            feedback_strategy: '指出遗漏环节后重新说明',
+            adaptation_options: ['达到后迁移', '部分达到时补提示', '未达到时回到示例'],
+            access_support: '提供流程图模板',
+            grouping: '同伴互查',
+            transition: '转入边界判断',
+            handout_ppt_mapping: '讲义第 2 页与 PPT 第 3 页',
           }, {
             module_id: 'feedback_check',
             teaching_purpose: '检查学习结果',
@@ -101,10 +109,22 @@ describe('统一教案页面', () => {
     expect(wrapper.find('.document-title p').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('理论型')
     expect(wrapper.text()).not.toContain('实战型')
+    expect(wrapper.get('.lesson-block-summary').text()).toContain('课堂活动')
+    expect(wrapper.get('.lesson-block-summary').text()).toContain('教师活动：绘制爬虫工作流程图')
+    expect(wrapper.get('.lesson-block-summary').text()).toContain('学生活动：记录并复述流程')
+    expect(wrapper.get('.lesson-block-summary').text()).toContain('达成判断')
+    expect(wrapper.get('.lesson-block-summary').text()).toContain('课堂产出：一张完整流程图')
+    expect(wrapper.get('.lesson-block-summary').text()).toContain('达成检查：能说明四步之间的输入输出关系')
+    expect(wrapper.find('.block-contingency').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('进入支持')
+    expect(wrapper.text()).not.toContain('分组方式')
+    expect(wrapper.text()).not.toContain('讲义与 PPT 对应关系')
 
     await wrapper.findAll('.document-actions button').find(button => button.text().includes('编辑教案'))!.trigger('click')
     expect(wrapper.find('.lesson-document').exists()).toBe(true)
     expect(wrapper.findAll('.teaching-block')).toHaveLength(2)
+    expect(wrapper.find('.lesson-block-summary').exists()).toBe(false)
+    expect(wrapper.find('.block-contingency').exists()).toBe(true)
     await wrapper.get('.objective-section textarea').setValue('能独立说明爬虫的四步流程')
     await wrapper.findAll('.document-actions button').find(button => button.text().includes('完成编辑'))!.trigger('click')
     await flushPromises()
@@ -214,6 +234,14 @@ describe('统一教案页面', () => {
     await wrapper.setProps({ activeSectionId: 'section-1' })
     expect(wrapper.get('.lesson-theme.active .lesson-theme-heading h4').text()).toBe('1.1 爬虫的定义、原理与应用场景')
     expect(wrapper.findAll('.lesson-theme')).toHaveLength(2)
+  })
+
+  it('已有教案时把正式教案放在前面，生成依据降为后置辅助面板', () => {
+    const workbenchSource = readFileSync(resolve(process.cwd(), 'src/components/TeacherCourseWorkbench.vue'), 'utf8')
+    expect(workbenchSource).toContain("(!workingLessonRevision || lessonGenerationActive)")
+    expect(workbenchSource).toContain("workingLessonRevision && !lessonGenerationActive")
+    expect(workbenchSource).toContain('class="lesson-arrangement-supporting"')
+    expect(workbenchSource).toContain('supporting')
   })
 
   it('课程文件入口回到同一教案工作区，不再打开第二套抽屉', () => {
