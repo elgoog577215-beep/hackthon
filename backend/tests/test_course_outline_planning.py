@@ -24,6 +24,7 @@ from course_generation.outline import (
     compile_teacher_lecture_outline_batch,
     normalize_outline_skeleton,
     outline_request_fingerprint,
+    project_streamed_teacher_outline_growth,
     review_course_outline_document,
     validate_outline_batch,
     validate_outline_skeleton,
@@ -133,6 +134,8 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
     assert '"assessment"' in prompt
     assert '"scope_boundary"' in prompt
     assert '"outcome_alignment"' in prompt
+    assert prompt.index('"lectures"') < prompt.index('"course_intro_zh"')
+    assert "完成一讲对象后再开始下一讲" in prompt
     assert "学生要提交、解释、判断、设计、实作或迁移出什么具体成果" in prompt
     assert "不得要求学生使用后续讲次才会完成的内容" in prompt
 
@@ -213,6 +216,85 @@ def test_teacher_course_is_generated_as_one_level_lectures_from_the_first_model_
         "assessment_evidence": ["边值问题求解与磁场计算", "口头答辩"],
         "coverage_scope": "静电场与稳恒磁场",
     }]
+
+
+def test_streamed_teacher_outline_projects_only_complete_lecture_objects():
+    partial_json = (
+        '{"course_title":"统计学","lectures":['
+        '{"lecture_number":1,"title":"统计数据与研究问题",'
+        '"learning_objective":"能把研究问题转成可观察变量",'
+        '"content_summary":"从真实研究问题建立数据意识。"},'
+        '{"lecture_number":2,"title":"描述统计",'
+        '"learning_objective":"能用图表与统计量描述数据{而不误导}"},'
+        '{"lecture_number":3,"title":"概率基础"'
+    )
+
+    growth = project_streamed_teacher_outline_growth(
+        partial_json,
+        topic="统计学",
+        lecture_count=4,
+    )
+
+    assert growth["completed_sections"] == 2
+    assert growth["total_sections"] == 4
+    assert growth["active_chapter_number"] == 3
+    assert [item["status"] for item in growth["chapters"]] == [
+        "completed",
+        "completed",
+        "growing",
+        "waiting",
+    ]
+    assert growth["chapters"][0]["title"] == "统计数据与研究问题"
+    assert growth["chapters"][1]["learning_focus"] == (
+        "能用图表与统计量描述数据{而不误导}"
+    )
+    assert growth["chapters"][2]["title"] == "正在生成本讲主题…"
+
+
+def test_teacher_outline_request_timeout_is_bounded_and_configurable(
+    monkeypatch,
+):
+    monkeypatch.delenv(
+        "COURSE_TEACHER_OUTLINE_REQUEST_TIMEOUT_SECONDS",
+        raising=False,
+    )
+    assert (
+        CourseOutlinePlanningBudget.from_env()
+        .teacher_lecture_request_timeout_seconds
+        == 600
+    )
+
+    monkeypatch.setenv(
+        "COURSE_TEACHER_OUTLINE_REQUEST_TIMEOUT_SECONDS",
+        "240",
+    )
+    assert (
+        CourseOutlinePlanningBudget.from_env()
+        .teacher_lecture_request_timeout_seconds
+        == 240
+    )
+
+
+def test_teacher_outline_starts_with_enough_output_headroom(monkeypatch):
+    monkeypatch.delenv(
+        "COURSE_TEACHER_OUTLINE_MAX_OUTPUT_TOKENS",
+        raising=False,
+    )
+    assert (
+        CourseOutlinePlanningBudget.from_env()
+        .teacher_lecture_max_output_tokens
+        == 16_384
+    )
+
+    monkeypatch.setenv(
+        "COURSE_TEACHER_OUTLINE_MAX_OUTPUT_TOKENS",
+        "24576",
+    )
+    assert (
+        CourseOutlinePlanningBudget.from_env()
+        .teacher_lecture_max_output_tokens
+        == 24_576
+    )
 
 
 def test_teacher_lecture_missing_evidence_is_reported_instead_of_fabricated():

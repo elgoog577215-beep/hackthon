@@ -4124,7 +4124,10 @@ class TaskManager:
             task["last_recovery_reason"] = "service_restart"
             task["updated_at"] = datetime.now().isoformat()
             return True
-        if task.get("type") != "course_generation":
+        if task.get("type") not in {
+            "course_generation",
+            "teacher_outline_generation",
+        }:
             return False
         if await self._restart_legacy_compact_review_on_complete_pipeline(
             task_id,

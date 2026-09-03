@@ -118,6 +118,7 @@ from course_generation.outline import (
     normalize_outline_skeleton,
     outline_neighbor_chapters,
     outline_request_fingerprint,
+    project_streamed_teacher_outline_growth,
     review_course_outline_document,
     select_chapter_evidence_hints,
     validate_outline_batch,
@@ -4240,6 +4241,7 @@ class CourseService(AIBase):
         base_progress: int,
         heartbeat_seconds: float = 15.0,
         stage_timeout_seconds: float | None = None,
+        wall_timeout_seconds: float | None = None,
         heartbeat_message: str = "仍在等待 AI 返回当前生成产物",
         phase_detail: dict[str, Any] | None = None,
         max_input_tokens: int | None = None,
@@ -4260,11 +4262,30 @@ class CourseService(AIBase):
         )
         activity_event = asyncio.Event()
         last_activity = time.monotonic()
+        visible_content_chars = 0
 
         def _mark_activity() -> None:
             nonlocal last_activity
             last_activity = time.monotonic()
             activity_event.set()
+
+        async def _handle_content_delta(chunk: str) -> None:
+            nonlocal visible_content_chars
+            visible_content_chars += len(chunk)
+            if not on_content_delta:
+                return
+            result = on_content_delta(chunk)
+            if inspect.isawaitable(result):
+                await result
+
+        async def _handle_content_reset() -> None:
+            nonlocal visible_content_chars
+            visible_content_chars = 0
+            if not on_content_reset:
+                return
+            result = on_content_reset()
+            if inspect.isawaitable(result):
+                await result
 
         call_task = asyncio.create_task(self._call_llm(
             user_prompt,
@@ -4283,11 +4304,16 @@ class CourseService(AIBase):
             raise_on_failure=True,
             json_mode=True,
             on_stream_activity=_mark_activity,
-            on_content_delta=on_content_delta,
-            on_content_reset=on_content_reset,
+            on_content_delta=_handle_content_delta,
+            on_content_reset=_handle_content_reset,
         ))
         started_at = time.monotonic()
         last_heartbeat = started_at
+        effective_wall_timeout = (
+            max(1.0, float(wall_timeout_seconds))
+            if wall_timeout_seconds is not None
+            else None
+        )
         try:
             while not call_task.done():
                 now = time.monotonic()
@@ -4300,6 +4326,11 @@ class CourseService(AIBase):
                     remaining,
                     max(0.05, heartbeat_seconds),
                 )
+                if effective_wall_timeout is not None:
+                    wait_for = min(
+                        wait_for,
+                        max(0.01, effective_wall_timeout - (now - started_at)),
+                    )
                 activity_task = asyncio.create_task(activity_event.wait())
                 done, _pending = await asyncio.wait(
                     {call_task, activity_task},
@@ -4319,6 +4350,38 @@ class CourseService(AIBase):
 
                 now = time.monotonic()
                 inactive_for = now - last_activity
+                elapsed_for = now - started_at
+                if (
+                    effective_wall_timeout is not None
+                    and elapsed_for >= effective_wall_timeout
+                ):
+                    call_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await call_task
+                    if on_phase:
+                        await self._notify_phase(
+                            on_phase,
+                            phase,
+                            base_progress,
+                            (
+                                f"{heartbeat_message}超过单次请求上限，"
+                                "已保留最近检查点"
+                            ),
+                            phase_progress=100,
+                            phase_detail={
+                                **(phase_detail or {}),
+                                "timed_out": True,
+                                "timeout_policy": "request_wall_clock",
+                                "wall_timeout_seconds": effective_wall_timeout,
+                                "elapsed_seconds": int(elapsed_for),
+                                "received_content_chars": visible_content_chars,
+                            },
+                        )
+                    raise CourseGenerationDeadlineExceeded(
+                        f"{phase} 阶段单次请求超过 "
+                        f"{int(effective_wall_timeout)} 秒，已停止当前最小生成单元，"
+                        "可从最近检查点继续"
+                    )
                 if inactive_for >= inactivity_timeout_seconds:
                     call_task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
@@ -4337,6 +4400,7 @@ class CourseService(AIBase):
                                 "inactivity_timeout_seconds": (
                                     inactivity_timeout_seconds
                                 ),
+                                "received_content_chars": visible_content_chars,
                             },
                         )
                     raise CourseGenerationDeadlineExceeded(
@@ -4346,11 +4410,19 @@ class CourseService(AIBase):
 
                 if on_phase and now - last_heartbeat >= heartbeat_seconds:
                     last_heartbeat = now
+                    visible_status = (
+                        f"已收到 {visible_content_chars} 字可见正文，正在继续生成"
+                        if visible_content_chars
+                        else "模型连接仍活跃，尚未返回可见正文"
+                    )
                     await self._notify_phase(
                         on_phase,
                         phase,
                         base_progress,
-                        f"{heartbeat_message}（已等待约 {int(now - started_at)} 秒）",
+                        (
+                            f"{heartbeat_message}（{visible_status}，"
+                            f"已等待约 {int(now - started_at)} 秒）"
+                        ),
                         phase_progress=100,
                         phase_detail={
                             **(phase_detail or {}),
@@ -4358,6 +4430,12 @@ class CourseService(AIBase):
                             "elapsed_seconds": int(now - started_at),
                             "inactive_seconds": int(inactive_for),
                             "timeout_policy": "stream_inactivity",
+                            "received_content_chars": visible_content_chars,
+                            "stream_state": (
+                                "visible_content"
+                                if visible_content_chars
+                                else "reasoning_or_queue"
+                            ),
                         },
                     )
             try:
@@ -4566,6 +4644,16 @@ class CourseService(AIBase):
             "inactivity_timeout_seconds": (
                 self._outline_budget.batch_timeout_seconds
             ),
+            "request_wall_timeout_seconds": (
+                self._outline_budget.teacher_lecture_request_timeout_seconds
+                if teacher_lecture_mode
+                else None
+            ),
+            "request_max_output_tokens": (
+                self._outline_budget.teacher_lecture_max_output_tokens
+                if teacher_lecture_mode
+                else self._generation_budget.outline_max_output_tokens
+            ),
             "completion_policy": "all_units_settled",
         })
 
@@ -4618,6 +4706,12 @@ class CourseService(AIBase):
             message: str,
             phase_detail: dict[str, Any],
             enable_thinking: bool = False,
+            on_content_delta: (
+                Callable[[str], Awaitable[None] | None] | None
+            ) = None,
+            on_content_reset: (
+                Callable[[], Awaitable[None] | None] | None
+            ) = None,
         ) -> str:
             input_tokens = self.estimate_request_tokens(
                 user_prompt,
@@ -4635,6 +4729,12 @@ class CourseService(AIBase):
                         stage_timeout_seconds=(
                             self._outline_budget.batch_timeout_seconds
                         ),
+                        wall_timeout_seconds=(
+                            self._outline_budget
+                            .teacher_lecture_request_timeout_seconds
+                            if teacher_lecture_mode
+                            else None
+                        ),
                         heartbeat_message=message,
                         phase_detail=phase_detail,
                         max_input_tokens=(
@@ -4644,11 +4744,15 @@ class CourseService(AIBase):
                             self._generation_budget.max_input_chars
                         ),
                         max_output_tokens=(
-                            self._generation_budget.outline_max_output_tokens
+                            self._outline_budget.teacher_lecture_max_output_tokens
+                            if teacher_lecture_mode
+                            else self._generation_budget.outline_max_output_tokens
                         ),
                         max_attempts=(
                             self._generation_budget.provider_max_attempts
                         ),
+                        on_content_delta=on_content_delta,
+                        on_content_reset=on_content_reset,
                     )
             finally:
                 async with counter_lock:
@@ -4737,6 +4841,76 @@ class CourseService(AIBase):
                 prompt_detail_levels.append(
                     selected_skeleton.detail_level
                 )
+                lecture_count = max(
+                    1,
+                    int(shape_constraints.get("chapter_count") or 0),
+                )
+                streamed_outline_parts: list[str] = []
+                streamed_outline_chars = 0
+                last_stream_push_at = 0.0
+                last_stream_push_chars = 0
+                last_stream_completed = 0
+
+                async def on_teacher_outline_delta(chunk: str) -> None:
+                    nonlocal streamed_outline_chars
+                    nonlocal last_stream_push_at
+                    nonlocal last_stream_push_chars
+                    nonlocal last_stream_completed
+                    streamed_outline_parts.append(chunk)
+                    streamed_outline_chars += len(chunk)
+                    now = time.monotonic()
+                    if (
+                        last_stream_push_at
+                        and now - last_stream_push_at < 1.0
+                        and streamed_outline_chars - last_stream_push_chars < 128
+                    ):
+                        return
+                    growth = project_streamed_teacher_outline_growth(
+                        "".join(streamed_outline_parts),
+                        topic=topic,
+                        lecture_count=lecture_count,
+                    )
+                    completed = int(growth.get("completed_sections") or 0)
+                    if (
+                        last_stream_push_at
+                        and completed == last_stream_completed
+                        and now - last_stream_push_at < 1.0
+                    ):
+                        return
+                    last_stream_push_at = now
+                    last_stream_push_chars = streamed_outline_chars
+                    last_stream_completed = completed
+                    await self._notify_phase(
+                        on_phase,
+                        "outline_generation",
+                        32,
+                        (
+                            f"已接收第 {completed}/{lecture_count} 讲，正在继续生成"
+                            if completed
+                            else "AI 已开始返回大纲，正在形成第 1 讲"
+                        ),
+                        phase_progress=int(
+                            100 * completed / max(1, lecture_count)
+                        ),
+                        phase_detail={
+                            "artifact_type": "course_outline_growth",
+                            "received_content_chars": streamed_outline_chars,
+                            "stream_state": "visible_content",
+                            "outline_growth": growth,
+                        },
+                    )
+
+                async def reset_teacher_outline_stream() -> None:
+                    nonlocal streamed_outline_chars
+                    nonlocal last_stream_push_at
+                    nonlocal last_stream_push_chars
+                    nonlocal last_stream_completed
+                    streamed_outline_parts.clear()
+                    streamed_outline_chars = 0
+                    last_stream_push_at = 0.0
+                    last_stream_push_chars = 0
+                    last_stream_completed = 0
+
                 await self._notify_phase(
                     on_phase,
                     "outline_generation",
@@ -4764,7 +4938,21 @@ class CourseService(AIBase):
                         phase_detail={
                             "artifact_type": "course_outline_skeleton",
                         },
-                        enable_thinking=True,
+                        # This request already has a strict JSON contract.
+                        # Hidden reasoning can consume minutes without a single
+                        # teacher-visible character, so formal outlines use the
+                        # model's direct structured-output mode.
+                        enable_thinking=not teacher_lecture_mode,
+                        on_content_delta=(
+                            on_teacher_outline_delta
+                            if teacher_lecture_mode
+                            else None
+                        ),
+                        on_content_reset=(
+                            reset_teacher_outline_stream
+                            if teacher_lecture_mode
+                            else None
+                        ),
                     )
                 except (
                     AIProviderRequestError,

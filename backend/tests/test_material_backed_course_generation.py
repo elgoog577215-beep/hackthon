@@ -1362,6 +1362,60 @@ async def test_structured_call_can_outlive_wall_clock_while_stream_is_active(
 
 
 @pytest.mark.asyncio
+async def test_formal_outline_request_has_an_explicit_wall_clock_boundary(
+    monkeypatch,
+):
+    service = CourseService()
+    phases = []
+
+    async def productive_but_never_finishing(
+        *_args,
+        on_stream_activity=None,
+        **_kwargs,
+    ):
+        while True:
+            await asyncio.sleep(0.01)
+            on_stream_activity()
+
+    async def capture_phase(
+        phase,
+        progress,
+        message,
+        phase_progress,
+        phase_detail,
+    ):
+        phases.append({
+            "phase": phase,
+            "progress": progress,
+            "message": message,
+            "phase_progress": phase_progress,
+            "phase_detail": phase_detail,
+        })
+
+    monkeypatch.setattr(service, "_call_llm", productive_but_never_finishing)
+    with pytest.raises(
+        CourseGenerationDeadlineExceeded,
+        match="单次请求超过",
+    ):
+        await service._call_llm_with_heartbeat(
+            "生成正式课程大纲",
+            "只输出 JSON",
+            enable_thinking=False,
+            on_phase=capture_phase,
+            phase="outline_generation",
+            base_progress=32,
+            heartbeat_seconds=0.01,
+            stage_timeout_seconds=1,
+            wall_timeout_seconds=0.05,
+        )
+
+    assert phases[-1]["phase_detail"]["timeout_policy"] == (
+        "request_wall_clock"
+    )
+    assert phases[-1]["phase_detail"]["received_content_chars"] == 0
+
+
+@pytest.mark.asyncio
 async def test_active_structured_call_still_persists_job_heartbeats(monkeypatch):
     service = CourseService()
     phases = []

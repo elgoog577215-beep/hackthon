@@ -256,6 +256,28 @@ async def test_service_restart_recovers_same_job_and_preserves_checkpoint(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_service_restart_requeues_teacher_outline_generation(tmp_path, monkeypatch):
+    manager, storage, workspaces, _versions, _documents = await _workspace_manager(
+        tmp_path, monkeypatch
+    )
+    manager.tasks["job-recovery"]["type"] = "teacher_outline_generation"
+    manager.tasks["job-recovery"]["phase"] = "outline_generation"
+
+    should_queue = await manager._reconcile_task_after_restart("job-recovery")
+
+    assert should_queue is True
+    task = manager.tasks["job-recovery"]
+    assert task["status"] == "pending"
+    assert task["type"] == "teacher_outline_generation"
+    assert task["restart_recovery_count"] == 1
+    assert task["last_recovery_reason"] == "service_restart"
+    assert storage.load_course("course-recovery")["generation_status"] == "resuming"
+    history = workspaces.load("job-recovery")["recovery_history"]
+    assert history[-1]["reason"] == "service_restart"
+    assert history[-1]["automatic"] is True
+
+
+@pytest.mark.asyncio
 async def test_fresh_active_job_is_not_described_as_recovery(tmp_path, monkeypatch):
     manager, _storage, _workspaces, _versions, _documents = await _workspace_manager(
         tmp_path, monkeypatch

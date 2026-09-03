@@ -299,43 +299,15 @@ class CoursePromptComposer:
     未指定时按课程实际需要生成，不得套用固定的 300 字、5—8 条、8—12 本等数字。
 15. 教师输入的课程核心特点必须反映到现有 `positioning`、`teaching_methods`、讲次活动和
     `assessment_plan` 中，不得另建重复字段。
-16. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
+16. 为了让教师逐讲看到生成过程，JSON 字段顺序必须以 `course_title`、`lectures` 开头；
+    `lectures` 必须严格按讲次顺序输出，完成一讲对象后再开始下一讲。
+17. 只输出有效 JSON，不输出 Markdown、解释、知识点树、教案、讲义或题目。
 {coverage_rules}
 {planning_rules}
 
 ## JSON Schema
 {{
   "course_title": "课程名称",
-  "course_intro_zh": "中文简介",
-  "course_intro_en": "English description",
-  "positioning": "课程定位",
-  "learning_objectives": ["学习目标"],
-  "education_objectives": ["育人目标"],
-  "measurable_outcomes": ["可测量成果"],
-  "outcome_alignment": [
-    {{
-      "outcome_number": 1,
-      "objective_refs": ["学习目标1"],
-      "lecture_numbers": [1],
-      "assessment_evidence": ["可观察的作品、操作或评价证据"],
-      "coverage_scope": "该成果覆盖的内容与边界"
-    }}
-  ],
-  "prerequisites": ["先修要求"],
-  "teaching_methods": ["授课方式"],
-  "assessment_methods": ["考核方式"],
-  "assessment_plan": [
-    {{
-      "item": "考核项目",
-      "category": "formative|summative",
-      "weight_percent": 40,
-      "criteria": "评分内容与标准",
-      "outcome_numbers": [1]
-    }}
-  ],
-  "course_modules": [
-    {{"module_id": "M1", "title": "模块名称", "lecture_numbers": [1, 2]}}
-  ],
   "lectures": [
     {{
       "lecture_number": 1,
@@ -380,6 +352,36 @@ class CoursePromptComposer:
       "learning_path_role": "focus|standard|compressed|verify_in_project|milestone",
       "path_reason": "本讲在整课中的推进作用"
     }}
+  ],
+  "course_intro_zh": "中文简介",
+  "course_intro_en": "English description",
+  "positioning": "课程定位",
+  "learning_objectives": ["学习目标"],
+  "education_objectives": ["育人目标"],
+  "measurable_outcomes": ["可测量成果"],
+  "outcome_alignment": [
+    {{
+      "outcome_number": 1,
+      "objective_refs": ["学习目标1"],
+      "lecture_numbers": [1],
+      "assessment_evidence": ["可观察的作品、操作或评价证据"],
+      "coverage_scope": "该成果覆盖的内容与边界"
+    }}
+  ],
+  "prerequisites": ["先修要求"],
+  "teaching_methods": ["授课方式"],
+  "assessment_methods": ["考核方式"],
+  "assessment_plan": [
+    {{
+      "item": "考核项目",
+      "category": "formative|summative",
+      "weight_percent": 40,
+      "criteria": "评分内容与标准",
+      "outcome_numbers": [1]
+    }}
+  ],
+  "course_modules": [
+    {{"module_id": "M1", "title": "模块名称", "lecture_numbers": [1, 2]}}
   ],
   "ideology_cases": [],
   "reference_books": [],

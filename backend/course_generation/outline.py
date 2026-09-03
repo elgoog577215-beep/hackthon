@@ -14,6 +14,7 @@ limit; only the amount of work assigned to one model request is bounded.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -317,6 +318,16 @@ class CourseOutlinePlanningBudget:
     # the per-unit value means continuous stream inactivity.
     batch_timeout_seconds: int = 90
     total_timeout_seconds: int = 0
+    # A formal teacher syllabus is currently returned by one model request.
+    # Bound that individual request even while hidden reasoning keeps emitting
+    # activity, otherwise an overloaded reasoning model can occupy the job
+    # forever without producing teacher-visible outline text.
+    teacher_lecture_request_timeout_seconds: int = 600
+    # Sixteen formal lectures plus the course-level alignment fields exceed
+    # the generic 8K outline ceiling in real provider runs. Start the teacher
+    # request with enough room instead of predictably truncating once and
+    # repeating the whole outline at double headroom.
+    teacher_lecture_max_output_tokens: int = 16_384
 
     @classmethod
     def from_env(cls) -> CourseOutlinePlanningBudget:
@@ -334,6 +345,18 @@ class CourseOutlinePlanningBudget:
                 maximum=600,
             ),
             total_timeout_seconds=0,
+            teacher_lecture_request_timeout_seconds=_env_int(
+                "COURSE_TEACHER_OUTLINE_REQUEST_TIMEOUT_SECONDS",
+                600,
+                minimum=120,
+                maximum=1800,
+            ),
+            teacher_lecture_max_output_tokens=_env_int(
+                "COURSE_TEACHER_OUTLINE_MAX_OUTPUT_TOKENS",
+                16_384,
+                minimum=8192,
+                maximum=32_768,
+            ),
         )
 
 
@@ -601,6 +624,109 @@ def normalize_outline_skeleton(
         prefix="outline_skeleton_",
     )
     return skeleton
+
+
+def _completed_stream_array_items(
+    content: str,
+    *,
+    field: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Decode only complete objects already received from a streamed JSON array."""
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*\[', content)
+    if not match:
+        return []
+    decoder = json.JSONDecoder()
+    cursor = match.end()
+    items: list[dict[str, Any]] = []
+    while cursor < len(content) and len(items) < limit:
+        while cursor < len(content) and (
+            content[cursor].isspace() or content[cursor] == ","
+        ):
+            cursor += 1
+        if cursor >= len(content) or content[cursor] == "]":
+            break
+        try:
+            value, cursor = decoder.raw_decode(content, cursor)
+        except json.JSONDecodeError:
+            break
+        if isinstance(value, dict):
+            items.append(value)
+    return items
+
+
+def project_streamed_teacher_outline_growth(
+    content: str,
+    *,
+    topic: str,
+    lecture_count: int,
+) -> dict[str, Any]:
+    """Project complete streamed lecture objects without accepting partial JSON.
+
+    The projection is display-only. The formal outline is still accepted only
+    after the provider response closes, parses and passes the full validator.
+    """
+    expected_count = max(1, int(lecture_count or 0))
+    raw_lectures = _completed_stream_array_items(
+        content,
+        field="lectures",
+        limit=expected_count,
+    )
+    partial = normalize_outline_skeleton(
+        {
+            "authoring_structure_version": "lecture_v1",
+            "course_title": topic,
+            "lectures": raw_lectures,
+        },
+        topic=topic,
+        request_fingerprint="streaming_preview",
+    )
+    completed = min(expected_count, len(partial.get("chapters") or []))
+    chapters: list[dict[str, Any]] = []
+    for index in range(1, expected_count + 1):
+        generated = (
+            partial["chapters"][index - 1]
+            if index <= completed
+            else {}
+        )
+        chapters.append({
+            "chapter_number": index,
+            "title": str(generated.get("title") or "正在生成本讲主题…"),
+            "learning_focus": str(
+                generated.get("learning_focus")
+                or generated.get("learning_objective")
+                or ""
+            ),
+            "section_count": 1,
+            "completed_section_count": 1 if index <= completed else 0,
+            "status": (
+                "completed"
+                if index <= completed
+                else "growing"
+                if index == completed + 1
+                else "waiting"
+            ),
+            "sections": [],
+        })
+    return {
+        "schema_version": "course_outline_growth_v1",
+        "authoring_structure_version": "lecture_v1",
+        "state": "growing",
+        "course_title": topic,
+        "positioning": "",
+        "active_batch_id": "",
+        "active_chapter_number": (
+            min(expected_count, completed + 1)
+            if completed < expected_count
+            else 0
+        ),
+        "completed_batches": completed,
+        "total_batches": expected_count,
+        "completed_sections": completed,
+        "total_sections": expected_count,
+        "streamed_content_chars": len(content),
+        "chapters": chapters,
+    }
 
 
 def validate_outline_skeleton(
