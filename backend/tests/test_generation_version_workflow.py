@@ -12,6 +12,7 @@ from course_versions import CourseVersionRepository
 from generation_workspace import GenerationWorkspaceRepository
 from guided_generation import step_state as guided_step_state
 from jobs.manager import TaskManager
+from jobs.manager import _teacher_outline_result_ready
 
 
 class MemoryStorage:
@@ -326,6 +327,8 @@ class SkeletonGateService(BlueprintService):
         outline_stage.update({
             "status": "completed",
             "strategy": "teacher_framework_then_lecture_tasks",
+            "course_contract_status": "completed",
+            "course_contract": {"positioning": "当前课程级合同"},
             "detail_batches": {
                 f"OUT-TD-{number:03d}": {
                     "status": "completed",
@@ -738,6 +741,17 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
 
     # The explicit command reads the current editor draft, not the stale model
     # framework that existed before the teacher made changes.
+    stale_course = restored.get_generation_workspace_course(job["course_id"])
+    stale_stage = stale_course["generation_stage_artifacts"]["outline"]
+    stale_stage.update({
+        "course_contract_status": "completed",
+        "course_contract": {"positioning": "旧课程级合同"},
+        "course_contract_validation_report": {"passed": True},
+        "course_contract_duration_ms": 100,
+        "course_contract_failure_reason": None,
+        "detail_batches": {"OUT-TD-001": {"status": "completed"}},
+    })
+    await restored._save_task_course(job["job_id"], stale_course)
     edited = restored._version_repository.load_draft(job["course_id"])
     edited["nodes"][0]["node_name"] = "教师修改后的第一讲"
     restored._version_repository.save_draft(job["course_id"], edited)
@@ -751,6 +765,11 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert compiled["generation_stage_artifacts"]["outline"]["skeleton"][
         "chapters"
     ][0]["title"] == "教师修改后的第一讲"
+    compiled_stage = compiled["generation_stage_artifacts"]["outline"]
+    assert compiled_stage["detail_batches"] == {}
+    assert "course_contract_status" not in compiled_stage
+    assert "course_contract" not in compiled_stage
+    assert "course_contract_validation_report" not in compiled_stage
 
     duplicate = await restored.continue_teacher_outline_details(job["course_id"])
     assert duplicate["status"] == "already_running"
@@ -772,6 +791,30 @@ async def test_teacher_outline_waits_through_restart_and_explicit_continue_reuse
     assert completed_course["outline_lifecycle_status"] == "current"
     assert "course_teaching_plan" not in completed_course
     assert restored._version_repository.load_draft(job["course_id"]) is None
+
+
+def test_teacher_outline_result_requires_completed_course_contract():
+    course = {
+        "outline_framework_only": False,
+        "generation_stage_artifacts": {
+            "outline": {
+                "strategy": "teacher_framework_then_lecture_tasks",
+                "status": "completed",
+                "course_contract_status": "retry_required",
+                "detail_batches": {
+                    "OUT-TD-001": {"status": "completed"},
+                },
+            },
+        },
+        "nodes": [{"node_id": "L1-1", "node_name": "第1讲"}],
+    }
+
+    assert _teacher_outline_result_ready(course) is False
+
+    course["generation_stage_artifacts"]["outline"][
+        "course_contract_status"
+    ] = "completed"
+    assert _teacher_outline_result_ready(course) is True
 
 
 @pytest.mark.asyncio
@@ -816,7 +859,7 @@ async def test_teacher_outline_framework_is_editable_and_has_no_review_report(
     assert waiting["status"] == "waiting_for_input"
     assert waiting["phase"] == "outline_framework_ready"
     assert waiting["guided_workflow"]["review_step"] is None
-    assert "轻量课程方案已生成" in waiting["message"]
+    assert "轻量讲次方案已生成" in waiting["message"]
     teacher_course = manager.get_generation_workspace_course(job["course_id"])
     assert teacher_course["generation_status"] == "outline_framework_ready"
     assert teacher_course["outline_framework_only"] is True

@@ -1333,10 +1333,33 @@ class TaskManager:
             raise AIProviderUnavailable("outline_adjustment_not_configured")
 
         instruction = str(payload.get("instruction") or "").strip()
+        target_quality_issue_code = str(
+            payload.get("target_quality_issue_code") or ""
+        ).strip()
+        source_quality_report: dict[str, Any] = {}
+        source_quality_issue: dict[str, Any] | None = None
+        if target_quality_issue_code:
+            source_quality_report = review_course_outline_document(
+                source_draft.get("course_plan")
+                or source_draft.get("course_outline")
+                or {},
+                course_context={**course_data, **source_draft},
+            )
+            source_quality_issue = next(
+                (
+                    deepcopy(issue)
+                    for issue in source_quality_report.get("issues") or []
+                    if str(issue.get("code") or "")
+                    == target_quality_issue_code
+                ),
+                None,
+            )
         last_operations: list[dict[str, Any]] = []
         last_error: OutlineAdjustmentError | None = None
         result: dict[str, Any] | None = None
         correction: dict[str, Any] | None = None
+        candidate_quality_report: dict[str, Any] = {}
+        unresolved_quality_issue: dict[str, Any] | None = None
         for attempt in range(2):
             model_result = await self.course_service.propose_outline_adjustment(
                 draft=source_draft,
@@ -1362,6 +1385,35 @@ class TaskManager:
                     }
                 continue
 
+            if target_quality_issue_code and source_quality_issue:
+                candidate_draft = result["draft"]
+                candidate_quality_report = review_course_outline_document(
+                    candidate_draft.get("course_plan")
+                    or candidate_draft.get("course_outline")
+                    or {},
+                    course_context={**course_data, **candidate_draft},
+                )
+                unresolved_quality_issue = next(
+                    (
+                        deepcopy(issue)
+                        for issue in candidate_quality_report.get("issues") or []
+                        if str(issue.get("code") or "")
+                        == target_quality_issue_code
+                    ),
+                    None,
+                )
+                if unresolved_quality_issue and attempt == 0:
+                    correction = {
+                        "message": (
+                            "上一版候选没有解决指定的大纲审阅问题。"
+                            "请重新生成操作，确保复审后该问题代码消失。"
+                        ),
+                        "target_quality_issue": source_quality_issue,
+                        "validation_issue": unresolved_quality_issue,
+                        "previous_operations": last_operations,
+                    }
+                    result = None
+                    continue
             break
 
         proposal_id = outline_adjustment_proposal_id(
@@ -1418,6 +1470,24 @@ class TaskManager:
             }
             for item in impact.get("lock_conflicts") or []
         ]
+        if target_quality_issue_code and not source_quality_issue:
+            blocking_issues.append({
+                "code": "outline_quality_issue_stale",
+                "message": (
+                    "这项审阅建议已不属于当前大纲，"
+                    "请放弃候选并刷新后再试。"
+                ),
+            })
+        elif unresolved_quality_issue:
+            blocking_issues.append({
+                "code": "outline_quality_issue_unresolved",
+                "message": (
+                    "这版 AI 候选仍未解决目标审阅问题，"
+                    "已暂停采用；可以重试或放弃，不影响直接确认当前大纲。"
+                ),
+                "target_issue_code": target_quality_issue_code,
+                "details": deepcopy(unresolved_quality_issue),
+            })
         can_apply = bool(impact.get("can_confirm", False)) and not blocking_issues
         diff = describe_outline_diff(
             source_draft,
@@ -1465,6 +1535,8 @@ class TaskManager:
             "draft": proposed_draft,
             "impact_report": impact,
             "constraint_report": result["constraint_report"],
+            "quality_report": candidate_quality_report,
+            "target_quality_issue_code": target_quality_issue_code or None,
             "can_apply": can_apply,
             "blocking_issues": blocking_issues,
             "warnings": [],

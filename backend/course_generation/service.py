@@ -1015,6 +1015,85 @@ class CourseService(AIBase):
             and plan_constraint_report.get("skeleton_only")
         ):
             skeleton = existing_outline_stage.get("skeleton") or {}
+            teacher_lecture_mode = bool(
+                (
+                    artifacts["course_generation_brief"].get(
+                        "course_shape_constraints"
+                    )
+                    or {}
+                ).get("teacher_lecture_mode")
+            )
+            if not teacher_lecture_mode:
+                skeleton_course_data = {
+                    **deepcopy(existing),
+                    "course_id": course_id,
+                    "course_name": str(
+                        existing.get("course_name")
+                        or skeleton.get("course_title")
+                        or topic
+                    ),
+                    "generation_schema_version": artifacts["pipeline_version"],
+                    "prompt_contract_version": PROMPT_CONTRACT_VERSION,
+                    "generation_pipeline_version": artifacts["pipeline_version"],
+                    "generation_request": generation_request_payload,
+                    "difficulty": difficulty,
+                    "course_type": resolved_course_type,
+                    "course_intent": deepcopy(
+                        artifacts["course_generation_brief"].get("course_intent")
+                        or {}
+                    ),
+                    "learner_starting_profile": deepcopy(
+                        artifacts["course_generation_brief"].get(
+                            "learner_starting_profile"
+                        )
+                        or {}
+                    ),
+                    "composition_style": composition_profile["style"],
+                    "style": style,
+                    "requirements": requirements,
+                    "target_audience": audience,
+                    "generation_mode": generation_mode,
+                    "course_purpose": course_purpose,
+                    "subject_pedagogy_profile": profile.to_dict(),
+                    "difficulty_profile": difficulty_profile.to_dict(),
+                    "difficulty_gap_assessment": gap_assessment.to_dict(),
+                    "adaptation_decision": adaptation_decision.to_dict(),
+                    "course_composition_profile": composition_profile,
+                    "generation_runtime_budget": deepcopy(
+                        artifacts["generation_runtime_budget"]
+                    ),
+                    "material_cards": artifacts["material_cards"],
+                    "course_generation_brief": artifacts[
+                        "course_generation_brief"
+                    ],
+                    "teacher_course_brief": deepcopy(
+                        artifacts["course_generation_brief"].get(
+                            "teacher_course_brief"
+                        )
+                        or {}
+                    ),
+                    "material_assets": artifacts.get("material_assets", []),
+                    "material_bindings": artifacts.get("material_bindings", []),
+                    "parsed_documents": artifacts.get("parsed_documents", []),
+                    "evidence_index": _compact_evidence_index(
+                        artifacts.get("evidence_catalog", [])
+                    ),
+                    "web_material_search": artifacts.get(
+                        "web_material_search", {"enabled": False}
+                    ),
+                    "generation_status": "outline_shape_ready",
+                    "generation_stage_artifacts": {
+                        **deepcopy(
+                            existing.get("generation_stage_artifacts") or {}
+                        ),
+                        "outline": deepcopy(existing_outline_stage),
+                    },
+                }
+                await self._notify_checkpoint(
+                    on_checkpoint,
+                    skeleton_course_data,
+                )
+                return skeleton_course_data
             framework_specs = build_outline_batch_specs(
                 skeleton,
                 self._outline_budget,
@@ -1180,19 +1259,6 @@ class CourseService(AIBase):
         if existing.get("nodes"):
             plan = self._merge_outline_node_edits(plan, existing.get("nodes") or [])
         outline_plan = self._outline_only_plan(plan)
-        is_teacher_outline = bool(
-            outline_plan.get("authoring_structure_version") == "lecture_v1"
-            or (
-                (artifacts.get("course_generation_brief") or {}).get(
-                    "course_shape_constraints"
-                )
-                or {}
-            ).get("teacher_lecture_mode")
-            or str(existing_outline_stage.get("strategy") or "") in {
-                "teacher_framework_then_detail_batches",
-                "teacher_framework_then_lecture_tasks",
-            }
-        )
         outline_quality_report = review_course_outline_document(
             outline_plan,
             course_context={
