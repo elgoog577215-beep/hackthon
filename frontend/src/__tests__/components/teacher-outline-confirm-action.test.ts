@@ -8,7 +8,7 @@ const workbenchSource = readFileSync(
 )
 
 describe('teacher outline direct workflow', () => {
-  it('keeps editing as the only outline document action and removes the confirmation gate', () => {
+  it('keeps editing and embedded AI as outline document actions while removing the confirmation gate', () => {
     const actionsStart = workbenchSource.indexOf('<TeacherDocumentCommandBar')
     const editAction = workbenchSource.indexOf('data-testid="outline-manual-action"', actionsStart)
     const actionsEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', actionsStart)
@@ -19,11 +19,13 @@ describe('teacher outline direct workflow', () => {
     expect(editAction).toBeLessThan(actionsEnd)
     expect(outlineActions).not.toContain('outline-confirm-action')
     expect(outlineActions).not.toContain('confirmInlineOutline')
+    expect(outlineActions).toContain('@click="openOutlineInlineAi"')
+    expect(workbenchSource).toContain('function openOutlineInlineAi() { outlineEditor.value?.openInlineAi?.() }')
     expect(workbenchSource).not.toContain("(event: 'outlineConfirmed')")
     expect(workbenchSource).not.toContain('@confirmed="handleInlineOutlineConfirmed"')
   })
 
-  it('hides the right-side assistant and does not add a duplicate outline toolbar entry', () => {
+  it('replaces the right-side assistant with the embedded outline AI entry', () => {
     const actionsStart = workbenchSource.indexOf('<TeacherDocumentCommandBar')
     const actionsEnd = workbenchSource.indexOf('</TeacherDocumentCommandBar>', actionsStart)
     const outlineActions = workbenchSource.slice(actionsStart, actionsEnd)
@@ -31,7 +33,8 @@ describe('teacher outline direct workflow', () => {
     expect(outlineActions).not.toContain("openAiCollaboration('outline')")
     expect(workbenchSource).not.toContain('@click="openContextAiTab"')
     expect(workbenchSource).not.toContain("t('courseWorkbench.contextPane.ai', 'AI 助手')")
-    expect(workbenchSource).toContain('data-testid="teacher-ai-dialog"')
+    expect(workbenchSource).not.toContain('data-testid="teacher-ai-dialog"')
+    expect(workbenchSource).toContain('@open-ai-selection="openAiFromSelection(\'outline\', $event)"')
   })
 
   it('keeps outline review available as a quiet, non-blocking reference action', () => {

@@ -1,7 +1,10 @@
 <template>
   <section
+    ref="workbenchRoot"
     class="teacher-workbench"
+    :style="{ '--ai-pane-width': `${aiPaneWidth}px` }"
     :class="{
+      'is-ai-collaboration': aiCollaborationOpen && activeStage === 'question-bank',
       'is-question-bank-workspace': activeStage === 'question-bank',
       'is-ppt-stage': activeStage === 'ppt',
       'is-context-collapsed': contextPaneCollapsed && activeStage !== 'question-bank',
@@ -104,7 +107,7 @@
           :editing="editingOutline"
           :can-undo="outlineCanUndo"
           :can-redo="outlineCanRedo"
-          :disabled="stageSwitching || aiCollaborationBusy"
+          :disabled="stageSwitching || aiCollaborationBusy || outlineWorkspaceHydrating"
           :history-open="historyOpen && historyDomain === 'outline'"
           :history-count="outlineHistoryCount"
           :status-label="outlineDocumentStatusLabel"
@@ -114,11 +117,21 @@
           @history="toggleDocumentHistory('outline')"
         >
           <button
+            v-if="!editingOutline"
+            type="button"
+            :disabled="stageSwitching || aiCollaborationBusy || outlineWorkspaceHydrating"
+            @click="openOutlineInlineAi"
+          >
+            <Sparkles :size="15" />{{ aiCandidatePending
+              ? t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整')
+              : t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}
+          </button>
+          <button
             v-if="outlineWaitingForInput"
             class="primary-action"
             data-testid="outline-continue-action"
             type="button"
-            :disabled="outlineContinuing || stageSwitching"
+            :disabled="outlineContinuing || stageSwitching || outlineWorkspaceHydrating"
             @click="continueOutlineDetails"
           >
             <LoaderCircle v-if="outlineContinuing" :size="15" class="spin" />
@@ -132,7 +145,7 @@
             data-testid="outline-manual-action"
             type="button"
             :aria-pressed="editingOutline"
-            :disabled="stageSwitching"
+            :disabled="stageSwitching || outlineWorkspaceHydrating"
             @click="toggleOutlineEditing"
           >
             <Check v-if="editingOutline" :size="15" />
@@ -217,17 +230,28 @@
         :class="{ 'is-outline-editing': editingOutline }"
         data-testid="outline-workspace"
       >
+        <div
+          v-if="outlineWorkspaceHydrating"
+          class="stream-waiting"
+          data-testid="outline-workspace-loading"
+          aria-live="polite"
+        >
+          <LoaderCircle :size="20" class="spin" />
+          {{ t('courseWorkbench.outlineFlow.loadingEditablePlan', '正在载入可编辑讲次方案…') }}
+        </div>
         <CourseOutlineReview
+          v-else
           ref="outlineEditor"
           class="inline-outline-review"
           :course-id="courseId"
           :course-name="courseTitle"
           :nodes="courseStore.nodes"
           :task="generationTask"
-          :editable="editingOutline"
+          :editable="editingOutline && hasOutline"
           :requires-confirmation="false"
           confirmation-placement="external"
           :assistant-open="aiCollaborationOpen && aiDomain === 'outline'"
+          :request-busy="aiCollaborationBusy"
           :lesson-types="outlineLessonTypeControls"
           :lesson-type-options="lessonTypeOptions"
           :lesson-type-saving-id="outlineLessonTypeSavingId"
@@ -236,6 +260,7 @@
           variant="inline"
           surface="teacher"
           @open-ai="openAiCollaboration('outline')"
+          @open-ai-selection="openAiFromSelection('outline', $event)"
           @ai-candidate-change="handleAiCandidateChange"
           @ai-resolving="handleAiResolving"
           @ai-resolved="handleAiResolved"
@@ -434,7 +459,7 @@
           @redo="lessonPlanDocument?.redoEdit()"
         >
             <template v-if="aiCandidatePending">
-              <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('lesson')"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiCandidate', 'AI 方案') }}</button>
+              <button type="button" :disabled="aiCollaborationBusy" @click="lessonPlanDocument?.openInlineAi()"><Sparkles :size="15" />{{ t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整') }}</button>
               <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.lessonDocument.discardAi', '放弃') }}</button>
               <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
                 <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
@@ -451,6 +476,7 @@
               </button>
             </template>
             <template v-else>
+              <button type="button" :disabled="aiCollaborationBusy" @click="lessonPlanDocument?.openInlineAi()"><Sparkles :size="15" />{{ t('courseWorkbench.lessonDocument.aiImprove', 'AI 修改') }}</button>
               <button type="button" @click="beginLessonPlanEditing"><Pencil :size="15" />{{ t('courseWorkbench.lessonDocument.edit', '编辑教案') }}</button>
               <i v-if="lessonGenerationActionsVisible" class="lesson-action-divider" aria-hidden="true" />
               <button
@@ -512,6 +538,12 @@
         </template>
 
         <template v-else-if="activeStage === 'lesson'">
+          <AppErrorNotice
+            v-if="lessonBatchStartErrorPresentation"
+            class="workbench-error"
+            :presentation="lessonBatchStartErrorPresentation"
+            compact
+          />
           <section
             v-if="lessonCoursePreviewVisible"
             class="lesson-course-preview"
@@ -534,7 +566,9 @@
                 <Sparkles v-else :size="16" />
                 {{ batchStarting
                   ? t('courseWorkbench.lessonBatch.starting', '正在开始…')
-                  : t('courseWorkbench.lessonBatch.generateAll', '生成全部教案') }}
+                  : batchEligibleCount === lessonStore.lessons.length
+                    ? t('courseWorkbench.lessonBatch.generateAll', '生成全部教案')
+                    : t('courseWorkbench.lessonBatch.generateReady', '生成已具备教学结构的教案（{count}讲）').replace('{count}', String(batchEligibleCount)) }}
               </button>
             </header>
             <article>
@@ -639,7 +673,7 @@
             :active-section-id="selectedLessonSectionId"
             :material-asset-ids="activeReferences.map(item => item.material_asset_id)"
             external-toolbar
-            :selection-ai-enabled="false"
+            :request-busy="aiCollaborationBusy"
             @update:active-section-id="selectLessonSection(selectedLesson.lesson_unit_id, $event)"
             @open-ai="openAiCollaboration('lesson')"
             @ai-candidate-change="handleAiCandidateChange"
@@ -651,6 +685,12 @@
         </template>
 
         <template v-else-if="activeStage === 'script'">
+          <AppErrorNotice
+            v-if="scriptBatchStartErrorPresentation"
+            class="workbench-error"
+            :presentation="scriptBatchStartErrorPresentation"
+            compact
+          />
           <section
             v-if="scriptCoursePreviewVisible"
             class="lesson-course-preview script-course-preview"
@@ -670,25 +710,29 @@
                 </ol>
                 <div>
                   <strong>{{ t('courseWorkbench.scriptBatch.previewTitle', '整门课程教案映射') }}</strong>
-                  <span>{{ t('courseWorkbench.scriptBatch.previewDetail', '讲义直接承接教案中的教学块；核对后即可开始生成，无需再填一遍要求。') }}</span>
+                  <span>{{ t('courseWorkbench.scriptBatch.previewDetail', '系统只生成教案已映射的讲次；教案待生成的讲次会自动跳过。') }}</span>
                 </div>
               </div>
               <button
                 class="primary-action"
                 data-testid="script-course-preview-generate"
                 type="button"
-                :disabled="scriptBatchStarting || !scriptBatchEligibleCount"
-                :title="scriptBatchEligibleCount ? '' : t('courseWorkbench.scriptBatch.planRequired', '请先完成可用教案')"
+                :disabled="scriptBatchStarting || !scriptBatchEligibleCount || referenceGenerationBlocked"
+                :title="referenceGenerationBlocked
+                  ? referenceGenerationBlockReason
+                  : scriptBatchEligibleCount
+                    ? ''
+                    : t('courseWorkbench.scriptBatch.planRequired', '请先完成可用教案')"
                 @click="generateAllScripts"
               >
                 <LoaderCircle v-if="scriptBatchStarting" :size="16" class="spin" />
                 <Sparkles v-else :size="16" />
                 {{ scriptBatchStarting
                   ? t('courseWorkbench.scriptBatch.starting', '正在开始…')
-                  : scriptBatchEligibleCount === lessonStore.lessons.length
-                    ? t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义')
+                    : scriptBatchEligibleCount === lessonStore.lessons.length
+                      ? t('courseWorkbench.scriptBatch.generateAll', '生成全部讲义')
                     : scriptBatchEligibleCount
-                      ? t('courseWorkbench.scriptBatch.generateReady', '生成可用讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount))
+                      ? t('courseWorkbench.scriptBatch.generateReady', '生成已具备教案的讲义（{count}讲）').replace('{count}', String(scriptBatchEligibleCount))
                       : t('courseWorkbench.scriptBatch.planRequiredAction', '请先完成教案') }}
               </button>
             </header>
@@ -732,11 +776,12 @@
             :lesson="selectedLesson"
             :external-error="scriptDocumentError"
             :assistant-open="aiCollaborationOpen && aiDomain === 'script'"
+            :request-busy="aiCollaborationBusy"
             :material-asset-ids="activeReferences.map(item => item.asset_id)"
             :generating="scriptGenerationBusy"
             :generation-job="scriptJob"
             :generation-error="effectiveScriptGenerationError"
-            :can-generate="currentLessonPlanReady && !referenceGenerationBlocked"
+            :can-generate="currentScriptCanGenerate && !referenceGenerationBlocked"
             :generation-blocked-reason="referenceGenerationBlocked ? referenceGenerationBlockReason : ''"
             external-toolbar
             @generate="generateScript"
@@ -768,7 +813,7 @@
                 @history="toggleDocumentHistory('script')"
               >
                   <template v-if="aiCandidatePending">
-                    <button type="button" :disabled="aiCollaborationBusy" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiCandidate', 'AI 方案') }}</button>
+                    <button type="button" :disabled="aiCollaborationBusy" @click="openScriptInlineAi"><Sparkles :size="15" />{{ t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整') }}</button>
                     <button type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(false)"><X :size="15" />{{ t('courseWorkbench.scriptDocument.discardAi', '放弃') }}</button>
                     <button class="primary-action" type="button" :disabled="aiCollaborationBusy" @click="resolveAiCandidate(true)">
                       <LoaderCircle v-if="aiCollaborationBusy" :size="15" class="spin" />
@@ -785,7 +830,7 @@
                     </button>
                   </template>
                   <template v-else>
-                    <button type="button" :disabled="scriptDocumentAiBusy" @click="openAiCollaboration('script')"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
+                    <button type="button" :disabled="scriptDocumentAiBusy || aiCollaborationBusy" @click="openScriptInlineAi"><Sparkles :size="15" />{{ t('courseWorkbench.scriptDocument.aiImprove', 'AI 修改') }}</button>
                     <button type="button" @click="beginScriptEditing"><Pencil :size="15" />{{ t('courseWorkbench.scriptDocument.edit', '编辑讲义') }}</button>
                     <i v-if="scriptBatchLaunchVisible" class="lesson-action-divider" aria-hidden="true" />
                     <button
@@ -952,53 +997,6 @@
     />
 
     <el-dialog
-      v-if="activeStage !== 'question-bank'"
-      v-model="aiCollaborationOpen"
-      class="teacher-ai-dialog"
-      data-testid="teacher-ai-dialog"
-      :title="t('courseWorkbench.aiCollaboration.dialogTitle', 'AI 修改')"
-      width="min(780px, 92vw)"
-      append-to-body
-      destroy-on-close
-      @closed="closeAiCollaboration"
-    >
-      <TeacherLessonAiWorkspace
-        class="teacher-ai-dialog__workspace"
-        :domain="aiDomain"
-        :scope-title="aiScopeTitle"
-        :scope-detail="aiScopeDetail"
-        :scope-options="aiScopeOptions"
-        :scope-value="currentAiScopeId"
-        :reference-count="aiActiveReferences.length"
-        :reference-labels="aiActiveReferences.map(item => item.source_label || item.filename)"
-        :messages="aiMessages"
-        :phase="aiPhase"
-        :busy="aiCollaborationBusy"
-        :candidate-pending="aiCandidatePending"
-        :candidate-can-apply="aiCandidateCanApply"
-        :candidate-block-reason="aiCandidateBlockReason"
-        :candidate-fields="aiCandidateFieldLabels"
-        :candidate-impacts="aiCandidateImpacts"
-        :clarification-options="aiClarificationOptions"
-        :quick-actions="aiQuickActions"
-        :placeholder="aiPlaceholder"
-        :selection-text="aiSelectionContext"
-        :can-retry="Boolean(lastAiOperation)"
-        @close="closeAiCollaboration"
-        @change-scope="changeAiScope"
-        @open-sources="closeAiCollaboration"
-        @clear-selection="aiSelectionContext = ''"
-        @send="handleAiRequest"
-        @clarify="handleAiClarification"
-        @retry="retryAiAction"
-        @accept="resolveAiCandidate(true)"
-        @reject="resolveAiCandidate(false)"
-        @focus-candidate="focusAiCandidate"
-        @open-course-plan="planId => emit('open-course-adjustment', { planId })"
-      />
-    </el-dialog>
-
-    <el-dialog
       v-model="outlineQualityReviewDialogOpen"
       class="outline-quality-review-dialog"
       data-testid="outline-quality-review-dialog"
@@ -1074,8 +1072,10 @@ import {
 } from '../composables/useTeacherProductionAiCollaboration'
 import { t } from '../shared/i18n'
 import {
+  teacherLessonPlanCanGenerate,
   teacherLessonPlanIsReady,
   teacherLessonPptIsReady,
+  teacherLessonScriptCanGenerate,
   teacherLessonScriptIsReady,
 } from '../shared/teacher-asset-readiness'
 import {
@@ -1105,6 +1105,7 @@ type LessonPlanDocumentHandle = {
   requestAiCandidate: (instruction: string) => Promise<TeacherLessonPlanCandidate | null>
   resolveAiCandidate: (accept: boolean) => Promise<boolean>
   focusCandidate: () => void
+  openInlineAi: () => void
   editing: boolean
   saving: boolean
   aiBusy: boolean
@@ -1123,6 +1124,7 @@ type ProductionAiDocumentHandle = {
   focusCandidate?: () => void
   focusReferenceSources?: () => void
   selectAiScope?: (scopeId: string) => boolean
+  openInlineAi?: () => void
 }
 type ScriptDocumentHandle = ProductionAiDocumentHandle & {
   editing: boolean
@@ -1325,7 +1327,7 @@ const arrangementError = ref('')
 const outlineLessonTypeSavingId = ref('')
 const outlineLessonTypeError = ref('')
 const outlineLessonTypeErrorId = ref('')
-const lessonGenerationRequestError = ref(''); const lessonDocumentError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptDocumentError = ref(''); const generationRequested = ref(false)
+const lessonGenerationRequestError = ref(''); const lessonDocumentError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptBatchStartError = ref(''); const scriptDocumentError = ref(''); const generationRequested = ref(false)
 const retainedOutlineGrowth = ref<{
   courseId: string
   taskId: string
@@ -1533,6 +1535,7 @@ const previousLessonReferenceTargetId = computed(() => (
 const nextLesson = computed(() => selectedLessonIndex.value >= 0 && selectedLessonIndex.value < lessonStore.lessons.length - 1 ? lessonStore.lessons[selectedLessonIndex.value + 1] : undefined)
 const workingLessonRevision = computed(() => selectedLesson.value?.plan.revisions.find(item => item.revision_id === selectedLesson.value?.plan.working_revision_id))
 const currentLessonPlanReady = computed(() => lessonPlanIsReady(selectedLesson.value))
+const currentScriptCanGenerate = computed(() => teacherLessonScriptCanGenerate(selectedLesson.value))
 const currentScriptReady = computed(() => lessonScriptIsReady(selectedLesson.value))
 const currentAiBaseRevision = computed(() => {
   if (aiDomain.value === 'lesson') return String(workingLessonRevision.value?.revision_id || '')
@@ -1660,8 +1663,7 @@ const selectedLessonTypeLabel = computed(() => {
     || ''
 })
 const selectedLessonCanGenerate = computed(() => Boolean(
-  selectedLesson.value?.arrangement?.blocks?.length
-  && selectedLesson.value.arrangement.source_state === 'current'
+  teacherLessonPlanCanGenerate(selectedLesson.value)
   && !lessonGenerationActive.value
   && (
     !workingLessonRevision.value
@@ -1866,10 +1868,15 @@ const outlineLessonStatuses = computed<OutlineLessonStatus[]>(() => {
 const outlineCompletedLessonCount = computed(() => outlineLessonStatuses.value.filter(item => (
   outlineLessonStatusState(item) === 'completed'
 )).length)
+const outlineWaitingForInput = computed(() => taskStatus.value === 'waiting_for_input')
+const outlineFrameworkReady = computed(() => (
+  outlineWaitingForInput.value
+  || String(generationTask.value?.currentPhase || '') === 'outline_framework_ready'
+))
 const showOutlineWorkspace = computed(() => activeStage.value === 'foundation'
   && !showStreaming.value
-  && (hasOutline.value || editingOutline.value))
-const outlineWaitingForInput = computed(() => taskStatus.value === 'waiting_for_input')
+  && (hasOutline.value || editingOutline.value || outlineFrameworkReady.value))
+const outlineWorkspaceHydrating = computed(() => outlineFrameworkReady.value && !hasOutline.value)
 const outlineDetailsGenerating = computed(() => taskInFlight.value && (
   /outline[_-]?details|detailed[_-]?outline/.test(String(generationTask.value?.currentPhase || '').toLowerCase())
   || ['outline_details', 'outline_detail_generation'].includes(String(generationTask.value?.phaseDetail?.generation_step || ''))
@@ -1905,7 +1912,8 @@ const lessonGenerationActive = computed(() => ['pending', 'running'].includes(St
 const lessonGenerationRunning = computed(() => lessonJob.value?.status === 'running')
 const lessonGenerationQueued = computed(() => lessonJob.value?.status === 'pending' && Boolean(lessonJob.value?.parent_job_id))
 const batchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => (
-  !lessonPlanIsReady(lesson)
+  teacherLessonPlanCanGenerate(lesson)
+  && !lessonPlanIsReady(lesson)
 )).length)
 const latestBatchParentId = computed(() => [...lessonStore.jobs]
   .filter(job => job.type === 'teacher_lesson_plan_generation' && job.parent_job_id)
@@ -1977,12 +1985,12 @@ const batchError = computed(() => String(
 const lessonGenerationProgress = computed(() => Math.max(3, Number(lessonJob.value?.progress || 0)))
 const lessonGenerationError = computed(() => lessonJob.value?.status === 'cancelled'
   ? ''
-  : String(lessonJob.value?.error?.message || lessonGenerationRequestError.value || lessonStore.error || ''))
+  : String(lessonJob.value?.error?.message || lessonStore.error || ''))
 const lessonStreamSegments = computed(() => lessonPlanStreamSegments(lessonJob.value?.stream_batches))
 const scriptJob = computed(() => selectedLessonId.value ? lessonStore.latestScriptJobByLesson(selectedLessonId.value) : undefined)
 const scriptGenerationActive = computed(() => ['pending', 'running'].includes(String(scriptJob.value?.status || '')))
 const scriptBatchEligibleCount = computed(() => lessonStore.lessons.filter(lesson => (
-  lessonPlanIsReady(lesson)
+  teacherLessonScriptCanGenerate(lesson)
   && !lessonScriptIsReady(lesson)
 )).length)
 const latestScriptBatchParentId = computed(() => [...lessonStore.jobs]
@@ -2001,7 +2009,10 @@ const scriptBatchJobs = computed(() => {
 const scriptBatchRunning = computed(() => scriptBatchJobs.value.some(job => ['pending', 'running'].includes(job.status)))
 const scriptBatchPaused = computed(() => scriptBatchJobs.value.some(job => job.status === 'paused') && !scriptBatchRunning.value)
 const scriptBatchFailed = computed(() => scriptBatchJobs.value.some(job => ['failed', 'cancelled'].includes(job.status)))
-const scriptBatchRecoveryAvailable = computed(() => scriptBatchPaused.value || scriptBatchFailed.value)
+const scriptBatchRecoveryAvailable = computed(() => (
+  scriptBatchEligibleCount.value > 0
+  && (scriptBatchPaused.value || scriptBatchFailed.value)
+))
 const scriptBatchTotalCount = computed(() => Math.max(
   ...scriptBatchJobs.value.map(job => Number(job.batch_size || 0)),
   scriptBatchJobs.value.length,
@@ -2056,6 +2067,22 @@ const effectiveScriptGenerationError = computed(() => String(
     ? scriptJob.value.error?.message || scriptGenerationError.value
     : scriptGenerationError.value,
 ))
+const lessonBatchStartErrorPresentation = computed(() => (
+  lessonGenerationRequestError.value
+    ? toAppError(lessonGenerationRequestError.value, {
+        title: t('courseWorkbench.lessonBatch.failedTitle', '教案生成未开始'),
+        fallback: lessonGenerationRequestError.value,
+      })
+    : null
+))
+const scriptBatchStartErrorPresentation = computed(() => (
+  scriptBatchStartError.value
+    ? toAppError(scriptBatchStartError.value, {
+        title: t('courseWorkbench.scriptBatch.failedTitle', '讲义生成未开始'),
+        fallback: scriptBatchStartError.value,
+      })
+    : null
+))
 const pptBuildMatchesSelection = computed(() => Boolean(
   selectedLessonId.value
   && teachingRepresentationsStore.courseId === props.courseId
@@ -2072,14 +2099,14 @@ const referenceWorkflowState = computed<CourseReferenceWorkflowState>(() => {
   if (activeStage.value === 'lesson') {
     if (batchRunning.value || batchStarting.value || lessonGenerationActive.value) return 'generating'
     if (batchPaused.value || lessonJob.value?.status === 'paused') return 'paused'
-    if (batchRecoveryAvailable.value && batchEligibleCount.value) return batchPaused.value ? 'paused' : 'failed'
+    if ((batchRecoveryAvailable.value && batchEligibleCount.value) || lessonGenerationRequestError.value) return batchPaused.value ? 'paused' : 'failed'
     if (currentLessonPlanReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
   if (activeStage.value === 'script') {
     if (scriptBatchRunning.value || scriptBatchStarting.value || scriptGenerationBusy.value) return 'generating'
     if (scriptBatchPaused.value || scriptJob.value?.status === 'paused') return 'paused'
-    if (scriptBatchRecoveryAvailable.value || ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || effectiveScriptGenerationError.value) return 'failed'
+    if (scriptBatchRecoveryAvailable.value || ['failed', 'cancelled'].includes(String(scriptJob.value?.status || '')) || scriptBatchStartError.value || effectiveScriptGenerationError.value) return 'failed'
     if (currentScriptReady.value) return 'review'
     return activeReferences.value.length ? 'ready' : 'collecting'
   }
@@ -2118,8 +2145,8 @@ const referenceWorkflowDetail = computed(() => {
   }
   if (referenceWorkflowState.value === 'failed') {
     if (activeStage.value === 'foundation') return generationError.value
-    if (activeStage.value === 'lesson') return batchError.value || lessonGenerationError.value
-    if (activeStage.value === 'script') return scriptBatchError.value || effectiveScriptGenerationError.value
+    if (activeStage.value === 'lesson') return batchError.value || lessonGenerationRequestError.value || lessonGenerationError.value
+    if (activeStage.value === 'script') return scriptBatchError.value || scriptBatchStartError.value || effectiveScriptGenerationError.value
     if (activeStage.value === 'ppt') {
       return teachingRepresentationsStore.buildFailure?.message
         || teachingRepresentationsStore.buildError
@@ -2156,7 +2183,16 @@ const referenceWorkflowCanResume = computed(() => (
         : false
 ))
 const referenceWorkflowCanCancel = computed(() => referenceWorkflowCanPause.value || referenceWorkflowCanResume.value)
-const referenceWorkflowCanRetry = computed(() => referenceWorkflowState.value === 'failed')
+const referenceWorkflowCanRetry = computed(() => {
+  if (referenceWorkflowState.value !== 'failed') return false
+  if (activeStage.value === 'lesson') {
+    return batchEligibleCount.value > 0 || selectedLessonCanGenerate.value
+  }
+  if (activeStage.value === 'script') {
+    return scriptBatchEligibleCount.value > 0 || currentScriptCanGenerate.value
+  }
+  return true
+})
 const contextPhase = computed<'before' | 'during' | 'after' | 'failed'>(() => {
   if (referenceWorkflowState.value === 'failed') return 'failed'
   if (['generating', 'paused'].includes(referenceWorkflowState.value)) return 'during'
@@ -2283,7 +2319,7 @@ function stageProgressLabel(stage: CoreStageId): string {
   const progress = stageProgress(stage)
   if (progress === 100) return t('courseWorkbench.stageStatus.complete', '已生成')
   if (progress === 0) return t('courseWorkbench.stageStatus.pending', '未生成')
-  return t('courseWorkbench.stageStatus.progress', '生成进度 {progress}%').replace('{progress}', String(progress))
+  return t('courseWorkbench.stageStatus.progress', '已生成 {progress}%').replace('{progress}', String(progress))
 }
 function teacherOutlineGenerationLabel(value: unknown) {
   const fallback = t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…')
@@ -2511,8 +2547,12 @@ function closeAiCollaboration() {
   aiSourcesOpen.value = false
   aiSelectionContext.value = ''
 }
-function openAiFromSelection(domain: TeacherProductionAiDomain, selection: { text: string }) {
+async function openAiFromSelection(
+  domain: TeacherProductionAiDomain,
+  selection: { text: string; instruction: string; source: 'selection' | 'block' | 'document' },
+) {
   openAiCollaboration(domain, selection.text)
+  await handleAiRequest(selection.instruction, { inline: true, openCoursePlan: true })
 }
 function handleAiSourcesOpen() {
   if (aiDomain.value === 'question-bank') {
@@ -2630,8 +2670,8 @@ function coursePlanImpacts(projection: TeacherCoursePlanProjection): string[] {
     assets.length ? assets.join('、') : '',
   ].filter(Boolean)
 }
-async function createCourseChangePlanFromConversation() {
-  if (aiCollaborationBusy.value) return
+async function createCourseChangePlanFromConversation(): Promise<string> {
+  if (aiCollaborationBusy.value) return ''
   const requestId = lastAiCoursePlanRequestId.value || `teacher-workbench-${createUuid()}`
   lastAiCoursePlanRequestId.value = requestId
   lastAiOperation.value = 'course_plan'
@@ -2657,6 +2697,7 @@ async function createCourseChangePlanFromConversation() {
     })
     lastAiOperation.value = ''
     transitionAi({ type: 'COURSE_PLAN_READY' })
+    return projection.planId
   } catch (error: any) {
     handleAiError(String(
       error?.response?.data?.detail?.message
@@ -2664,14 +2705,22 @@ async function createCourseChangePlanFromConversation() {
       || error?.message
       || t('courseWorkbench.aiCollaboration.coursePlanFailed', '课程修改方案生成失败，请重试。'),
     ))
+    return ''
   }
 }
-async function handleAiRequest(instruction: string) {
+async function handleAiRequest(
+  instruction: string,
+  options: { inline?: boolean; openCoursePlan?: boolean } = {},
+) {
   const request = instruction.trim()
   if (!request || aiCollaborationBusy.value || !activeAiDocument.value) return
   appendAiMessage('user', 'text', request)
   const route = routeTeacherProductionRequest(aiDomain.value, request)
   if (route.capability === 'clarify_request') {
+    if (options.inline) {
+      await generateAiCandidateFromConversation(request)
+      return
+    }
     aiClarificationOptions.value = aiQuickActions.value.slice(0, 3).map(action => action.prompt)
     appendAiMessage(
       'assistant',
@@ -2690,7 +2739,11 @@ async function handleAiRequest(instruction: string) {
   }
   if (route.capability === 'plan_course_change') {
     lastAiCoursePlanRequestId.value = ''
-    await createCourseChangePlanFromConversation()
+    const planId = await createCourseChangePlanFromConversation()
+    if (planId && options.openCoursePlan) {
+      closeAiCollaboration()
+      emit('open-course-adjustment', { planId })
+    }
     return
   }
   await generateAiCandidateFromConversation()
@@ -2999,12 +3052,11 @@ async function updateOutlineLessonType(payload: { lessonUnitId: string; lessonTy
 async function generateSelectedLessonPlan() {
   const lesson = selectedLesson.value
   if (!lesson || lessonGenerationActive.value || referenceGenerationBlocked.value) return
-  if (!lesson.arrangement?.blocks?.length || lesson.arrangement.source_state !== 'current') {
+  if (!teacherLessonPlanCanGenerate(lesson)) {
     arrangementError.value = t('courseWorkbench.arrangement.structureRequired', '本讲教学结构尚未生成，请稍后重试。')
     return
   }
   arrangementError.value = ''
-  lessonGenerationRequestError.value = ''
   try {
     await saveRelationships(`lesson-plan:${lesson.lesson_unit_id}`, 'lesson_plan', `${lesson.title} 教案`)
     await lessonStore.generateLesson(
@@ -3054,6 +3106,8 @@ async function saveLessonPlanDraft() { await lessonPlanDocument.value?.saveDraft
 function beginScriptEditing() { scriptDocument.value?.beginEditing() }
 function cancelScriptEditing() { scriptDocument.value?.cancelEditing() }
 async function saveScriptDraft() { await scriptDocument.value?.saveDraft() }
+function openOutlineInlineAi() { outlineEditor.value?.openInlineAi?.() }
+function openScriptInlineAi() { scriptDocument.value?.openInlineAi?.() }
 async function toggleDocumentHistory(domain: TeacherHistoryDomain) {
   if (historyOpen.value && historyDomain.value === domain) {
     closeDocumentHistory()
@@ -3252,7 +3306,7 @@ function lessonGenerationStateLabel(lesson: any): string {
 }
 async function handleScriptSaved() { scriptDocumentError.value = ''; await lessonStore.load(props.courseId) }
 async function generateScript(requirements = '') {
-  if (!selectedLesson.value || !currentLessonPlanReady.value || scriptGenerationBusy.value || referenceGenerationBlocked.value) return
+  if (!selectedLesson.value || !currentScriptCanGenerate.value || scriptGenerationBusy.value || referenceGenerationBlocked.value) return
   scriptGenerating.value = true
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
@@ -3274,6 +3328,7 @@ async function generateScript(requirements = '') {
 async function generateAllScripts() {
   if (scriptBatchStarting.value || scriptBatchRunning.value || !scriptBatchEligibleCount.value || referenceGenerationBlocked.value) return
   scriptBatchStarting.value = true
+  scriptBatchStartError.value = ''
   scriptGenerationError.value = ''
   scriptDocumentError.value = ''
   try {
@@ -3282,7 +3337,7 @@ async function generateAllScripts() {
       '',
     )
   } catch {
-    scriptGenerationError.value = lessonStore.error || t('courseWorkbench.scriptBatch.failed', '全部讲义任务创建失败，请重试。')
+    scriptBatchStartError.value = lessonStore.error || t('courseWorkbench.scriptBatch.failed', '全部讲义任务创建失败，请重试。')
   } finally {
     scriptBatchStarting.value = false
   }
@@ -3333,7 +3388,7 @@ async function preparePptSources() {
 }
 async function handleCompanionSaved(document: { document_id: string; title: string; revision_id: string }) { await saveRelationships(`companion-document:${document.document_id}`, 'companion_document', document.title) }
 async function toggleOutlineEditing() {
-  if (stageSwitching.value) return
+  if (stageSwitching.value || outlineWorkspaceHydrating.value) return
   if (!editingOutline.value) {
     editingOutline.value = true
     return
@@ -3348,7 +3403,12 @@ async function toggleOutlineEditing() {
   }
 }
 async function continueOutlineDetails() {
-  if (!outlineWaitingForInput.value || outlineContinuing.value || stageSwitching.value) return
+  if (
+    !outlineWaitingForInput.value
+    || outlineContinuing.value
+    || stageSwitching.value
+    || outlineWorkspaceHydrating.value
+  ) return
   outlineContinuing.value = true
   stageSwitching.value = true
   try {
@@ -3454,7 +3514,7 @@ watch([
   }
   scheduleLessonSyncRetry()
 }, { immediate: true })
-watch(activeStage, () => { closeAiCollaboration(); closeDocumentHistory(); aiCandidate.value = null; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
+watch(activeStage, () => { closeAiCollaboration(); closeDocumentHistory(); aiCandidate.value = null; lessonGenerationRequestError.value = ''; scriptBatchStartError.value = ''; if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0 }, { flush: 'post' })
 watch(aiCollaborationOpen, open => {
   if (!open) aiSourcesOpen.value = false
 })
@@ -3479,7 +3539,6 @@ watch(() => lessonStore.lessons, lessons => {
 watch(selectedLessonId, (lessonId, previousLessonId) => {
   if (previousLessonId && lessonId !== previousLessonId) closeAiCollaboration()
   if (previousLessonId && lessonId !== previousLessonId) closeDocumentHistory()
-  lessonGenerationRequestError.value = ''
   lessonDocumentError.value = ''
   arrangementError.value = ''
   scriptGenerationError.value = ''

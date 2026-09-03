@@ -71,6 +71,23 @@ describe('FeedbackReviewBlock', () => {
     expect(renderer.props('content')).toBe('比较 $N^2$ 与 $log_2(N)$，运行 `npm test`。')
   })
 
+  it('折叠摘要保留代码文本但不泄漏 LaTeX texttt 外壳', () => {
+    const content = [
+      '### 解析器与初始化报错',
+      String.raw`核对标准：$\texttt{BeautifulSoup(html, "html.parser")}$ 能否成功初始化？`,
+      '',
+      '### find 结果当列表用',
+      String.raw`典型错误：$\texttt{if result:\} result.get\_text()$ 后继续遍历。`,
+    ].join('\n')
+
+    const wrapper = mount(FeedbackReviewBlock, { props: { content }, global })
+    const summaries = wrapper.findAll('.feedback-review__copy small').map(node => node.text())
+
+    expect(summaries.join(' ')).not.toContain('texttt')
+    expect(summaries[0]).toContain('BeautifulSoup(html, "html.parser")')
+    expect(summaries[1]).toContain('if result: result.get_text()')
+  })
+
   it('保留搜索高亮契约，并在英文模式下不泄露中文或原始 key', async () => {
     await setLocale('en')
     const wrapper = mount(FeedbackReviewBlock, {

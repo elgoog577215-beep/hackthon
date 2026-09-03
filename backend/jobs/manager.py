@@ -380,6 +380,14 @@ TERMINAL_TASK_STATUSES = frozenset({
     "error",
     "failed",
 })
+BACKGROUND_ACTIVE_TASK_STATUSES = frozenset({"pending", "running"})
+BACKGROUND_FROZEN_TASK_STATUSES = frozenset({
+    *TERMINAL_TASK_STATUSES,
+    "paused",
+    "waiting_for_input",
+    "waiting_for_review",
+    "conflict",
+})
 MAX_TERMINAL_TASK_HISTORY = max(
     1,
     int(os.getenv("GENERATION_JOB_HISTORY_LIMIT", "100")),
@@ -4523,7 +4531,14 @@ class TaskManager:
                 # completion so _complete_task cannot reuse the stale report.
                 course_data["generation_quality_report"] = quality_report
                 await self._save_task_course(task_id, course_data)
-                await self._complete_task(task_id, course_data)
+                reactivated = await self._update_task_status(
+                    task_id,
+                    "running",
+                    message="正在重新核对历史质量阻断并完成发布",
+                    allow_reactivation=True,
+                )
+                if reactivated:
+                    await self._complete_task(task_id, course_data)
             return False
         if task.get("status") not in {"pending", "running"}:
             return False
@@ -5412,7 +5427,10 @@ class TaskManager:
         # / failed). Transition it back to running so the task status reflects that content
         # is being silently rewritten in the background, instead of staying on a stale value.
         await self._update_task_status(
-            task_id, "running", message=f"正在重试节点 {node_id}..."
+            task_id,
+            "running",
+            message=f"正在重试节点 {node_id}...",
+            allow_reactivation=True,
         )
 
         async def _run_and_finalize() -> None:
@@ -5520,7 +5538,10 @@ class TaskManager:
         # / failed). Transition it back to running so the task status reflects that content
         # is being silently rewritten in the background, instead of staying on a stale value.
         await self._update_task_status(
-            task_id, "running", message="正在重试失败节点..."
+            task_id,
+            "running",
+            message="正在重试失败节点...",
+            allow_reactivation=True,
         )
 
         # Schedule all failed nodes and wait for them to finish.
@@ -5874,7 +5895,7 @@ class TaskManager:
         )
         async with self._lock:
             current = self.tasks.get(task_id)
-            if not current or current.get("status") in {"paused", "cancelled"}:
+            if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             current["result"] = public_result
             current["completed_representation_types"] = (
@@ -5908,7 +5929,7 @@ class TaskManager:
     async def _process_slide_deck_variant_task(self, task_id: str) -> None:
         """Build one mode/theme PPT variant without rebuilding sibling artifacts."""
         task = self.tasks.get(task_id)
-        if not task or task.get("status") == "paused":
+        if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
         request = _slide_build_task_request(task)
         course_id = str(task["course_id"])
@@ -5917,11 +5938,12 @@ class TaskManager:
         variant_key = str(
             request.get("variant_key") or slide_deck_variant_key(mode, theme)
         )
-        await self._update_task_status(
+        if not await self._update_task_status(
             task_id,
             "running",
             message=f"正在生成 {variant_key} 课程课件",
-        )
+        ):
+            return
         document, canonical = await asyncio.to_thread(
             self._course_document_repository.load_document, course_id,
         )
@@ -6282,7 +6304,7 @@ class TaskManager:
         ):
             async with self._lock:
                 current = self.tasks.get(task_id)
-                if not current or current.get("status") in {"paused", "cancelled"}:
+                if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                     return
                 current["representation_source_document_revision"] = source_revision
                 current["representation_variant_key"] = variant_key
@@ -6315,7 +6337,7 @@ class TaskManager:
                 return
             async with self._lock:
                 current = self.tasks.get(task_id)
-                if not current:
+                if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                     return
                 fingerprints = dict(current.get("representation_asset_fingerprints") or {})
                 seeds = dict(current.get("representation_generation_seeds") or {})
@@ -6333,7 +6355,7 @@ class TaskManager:
 
         def progress(payload: dict[str, Any]) -> None:
             current = self.tasks.get(task_id) or {}
-            if current.get("status") in {"paused", "cancelled"}:
+            if str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 raise RuntimeError("slide_deck_variant_build_interrupted")
             future = asyncio.run_coroutine_threadsafe(
                 record_progress(payload),
@@ -6348,7 +6370,7 @@ class TaskManager:
         ) -> None:
             async with self._lock:
                 current = self.tasks.get(task_id)
-                if not current or current.get("status") in {"paused", "cancelled"}:
+                if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                     return
                 current["representation_deck_plan_v3"] = (
                     fallback_allocation.model_dump(mode="json")
@@ -6424,7 +6446,7 @@ class TaskManager:
         }
         async with self._lock:
             current = self.tasks.get(task_id)
-            if not current or current.get("status") in {"paused", "cancelled"}:
+            if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             current["result"] = result
             current["completed_representation_types"] = [f"slide_deck:{variant_key}"]
@@ -6446,12 +6468,13 @@ class TaskManager:
     async def _process_teaching_representation_task(self, task_id: str) -> None:
         """Build same-source artifacts as a durable, resumable generation job."""
         task = self.tasks.get(task_id)
-        if not task or task.get("status") == "paused":
+        if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
         course_id = str(task["course_id"])
-        await self._update_task_status(
+        if not await self._update_task_status(
             task_id, "running", message="正在更新同源教案、讲义、练习与图解",
-        )
+        ):
+            return
         document, canonical = await asyncio.to_thread(
             self._course_document_repository.load_document, course_id,
         )
@@ -6463,7 +6486,7 @@ class TaskManager:
         source_revision = str(document.document_revision or "")
         async with self._lock:
             current = self.tasks.get(task_id)
-            if not current or current.get("status") in {"paused", "cancelled"}:
+            if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             current["representation_source_document_revision"] = source_revision
             current.pop("representation_deck_plan", None)
@@ -6479,7 +6502,7 @@ class TaskManager:
 
         def progress(payload: dict[str, Any]) -> None:
             current = self.tasks.get(task_id) or {}
-            if current.get("status") in {"paused", "cancelled"}:
+            if str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 raise RuntimeError("teaching_representation_build_interrupted")
             future = asyncio.run_coroutine_threadsafe(
                 self._record_representation_event(task_id, payload), loop,
@@ -6508,7 +6531,7 @@ class TaskManager:
         }
         async with self._lock:
             task = self.tasks.get(task_id)
-            if not task or task.get("status") in {"paused", "cancelled"}:
+            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             task["result"] = result
             task["completed_representation_types"] = [
@@ -6534,7 +6557,7 @@ class TaskManager:
     ) -> None:
         async with self._lock:
             task = self.tasks.get(task_id)
-            if not task:
+            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             sequence = int(task.get("event_sequence") or 0) + 1
             event = {**deepcopy(payload), "sequence": sequence}
@@ -6590,7 +6613,7 @@ class TaskManager:
     ) -> None:
         async with self._lock:
             task = self.tasks.get(task_id)
-            if not task:
+            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             task["error_code"] = code
             task["error_user_message"] = message
@@ -6602,7 +6625,7 @@ class TaskManager:
 
     async def _process_course_import_task(self, task_id: str) -> None:
         task = self.tasks.get(task_id)
-        if not task:
+        if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
         source_path = self.import_source_path(task_id)
         checkpoint_path = self.import_checkpoint_path(task_id)
@@ -6615,7 +6638,8 @@ class TaskManager:
             )
             return
 
-        await self._update_task_status(task_id, "running", message="正在解析导入资料")
+        if not await self._update_task_status(task_id, "running", message="正在解析导入资料"):
+            return
         parsed_checkpoint: dict[str, Any] | None = None
         if checkpoint_path.is_file():
             try:
@@ -6809,10 +6833,13 @@ class TaskManager:
             task_id: 任务 ID
         """
         task = self.tasks.get(task_id)
-        if not task:
+        if (
+            not task
+            or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES
+        ):
             return
 
-        if task["status"] == "paused":
+        if str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
             return
 
         if task.get("type") == "course_import":
@@ -6827,7 +6854,8 @@ class TaskManager:
 
         course_id = task["course_id"]
         handoff_phase, handoff_message = self._processing_handoff(task)
-        await self._update_task_status(task_id, "running")
+        if not await self._update_task_status(task_id, "running"):
+            return
         await self._update_phase(
             task_id,
             handoff_phase,
@@ -6866,6 +6894,9 @@ class TaskManager:
             await self._save_task_course(task_id, course_data)
             self._version_repository.delete_draft(course_id)
             async with self._lock:
+                task = self.tasks.get(task_id)
+                if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                    return
                 task["status"] = "completed"
                 task["phase"] = "teacher_outline_ready"
                 task["current_phase"] = "teacher_outline_ready"
@@ -6886,6 +6917,9 @@ class TaskManager:
             )
             mark_guided_step_running(guided_workflow, current_guided_step)
             async with self._lock:
+                task = self.tasks.get(task_id)
+                if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                    return
                 task["updated_at"] = datetime.now().isoformat()
                 self.save_tasks()
         is_teacher_outline = task.get("type") == "teacher_outline_generation"
@@ -6929,6 +6963,9 @@ class TaskManager:
                 )
 
             async def on_checkpoint(checkpoint: dict[str, Any]) -> None:
+                current = self.tasks.get(task_id)
+                if not current or str(current.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                    raise asyncio.CancelledError
                 fresh = self._load_task_course(task_id) or course_data
                 fresh.update(checkpoint)
                 await self._save_task_course(task_id, fresh)
@@ -7080,6 +7117,9 @@ class TaskManager:
                 self._version_repository.save_draft(course_id, draft)
                 await self._save_task_course(task_id, course_data)
                 async with self._lock:
+                    task = self.tasks.get(task_id)
+                    if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                        return
                     task["status"] = "waiting_for_input"
                     task["phase"] = "outline_framework_ready"
                     task["current_phase"] = "outline_framework_ready"
@@ -7133,6 +7173,9 @@ class TaskManager:
             await self._save_task_course(task_id, course_data)
             self._version_repository.delete_draft(course_id)
             async with self._lock:
+                task = self.tasks.get(task_id)
+                if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                    return
                 task["status"] = "completed"
                 task["phase"] = "teacher_outline_ready"
                 task["current_phase"] = "teacher_outline_ready"
@@ -8449,12 +8492,12 @@ class TaskManager:
         *,
         phase_progress: int | None = None,
         phase_detail: dict[str, Any] | None = None,
-    ) -> None:
+    ) -> bool:
         """Persist one backend-owned generation phase and broadcast it."""
         async with self._lock:
             task = self.tasks.get(task_id)
-            if not task:
-                return
+            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                return False
             bounded_progress = max(0, min(int(progress), 100))
             previous_phase = str(task.get("current_phase") or task.get("phase") or "")
             previous_detail = task.get("phase_detail")
@@ -8546,6 +8589,7 @@ class TaskManager:
             )
             self.save_tasks()
         await self._push_progress(task_id)
+        return True
 
     async def _update_task_status(
         self,
@@ -8556,12 +8600,19 @@ class TaskManager:
         error_detail: dict[str, Any] | None = None,
         completed_nodes: int | None = None,
         total_nodes: int | None = None,
-    ) -> None:
-        """更新任务状态。"""
+        allow_reactivation: bool = False,
+    ) -> bool:
+        """更新任务状态，并阻止迟到后台协程覆盖人工或终态决定。"""
         async with self._lock:
             task = self.tasks.get(task_id)
             if not task:
-                return
+                return False
+            current_status = str(task.get("status") or "")
+            if (
+                current_status in BACKGROUND_FROZEN_TASK_STATUSES
+                and not allow_reactivation
+            ):
+                return False
             task["status"] = status
             if status in {
                 "pending",
@@ -8608,6 +8659,7 @@ class TaskManager:
                     timestamp=now,
                 )
             self.save_tasks()
+            return True
 
     async def _update_progress(
         self, task_id: str, course_data: dict | None = None
@@ -8646,6 +8698,9 @@ class TaskManager:
             progress = int(completed / max(1, total) * 100) if total > 0 else 0
 
         async with self._lock:
+            task = self.tasks.get(task_id)
+            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
+                return
             task["completed_nodes"] = completed
             task["total_nodes"] = total
             if task.get("type") == "course_generation" and task.get("phase") == "content_generation":
@@ -8719,7 +8774,7 @@ class TaskManager:
         """Record visible streaming work for the active node."""
         async with self._lock:
             task = self.tasks.get(task_id)
-            if not task:
+            if not task or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES:
                 return
             for active_node in task.get("current_nodes", []):
                 if active_node.get("node_id") == node_id:
@@ -9438,7 +9493,10 @@ class TaskManager:
         **Validates: Requirements 13.2**
         """
         task = self.tasks.get(task_id)
-        if not task:
+        if (
+            not task
+            or str(task.get("status") or "") not in BACKGROUND_ACTIVE_TASK_STATUSES
+        ):
             return
         guided_workflow = task.get("guided_workflow")
         content_stage = (
@@ -9492,13 +9550,14 @@ class TaskManager:
                 course_data,
             )
         nodes = fresh_course.get("nodes", [])
-        await self._update_phase(
+        if not await self._update_phase(
             task_id,
             "finalizing",
             98,
             "正在保存最终课程",
             phase_progress=90,
-        )
+        ):
+            return
 
         if isinstance(guided_workflow, dict):
             # The reviewed content candidate stays immutable after step three,
@@ -9676,8 +9735,9 @@ class TaskManager:
         except Exception as exc:  # noqa: BLE001 - 入库失败不得回滚课程
             logger.warning("课程产物入教师文件空间失败：%s", exc)
 
+        status_updated = False
         if promotion_conflict:
-            await self._update_task_status(
+            status_updated = await self._update_task_status(
                 task_id,
                 "conflict",
                 message="候选课程基于旧版本，未覆盖当前课程",
@@ -9704,7 +9764,7 @@ class TaskManager:
                 node for node in nodes if int(node.get("node_level") or 1) == 2
             ])
             all_learning_nodes_failed = bool(learning_node_count) and len(failed_nodes) >= learning_node_count
-            await self._update_task_status(
+            status_updated = await self._update_task_status(
                 task_id,
                 "failed" if all_learning_nodes_failed else "completed_with_warnings",
                 message=(
@@ -9714,28 +9774,34 @@ class TaskManager:
                 ),
             )
         elif candidate_id and not publication_allowed:
-            await self._update_task_status(
+            status_updated = await self._update_task_status(
                 task_id,
                 "completed_with_warnings",
                 message="候选课程存在阻断性质量问题，当前版本保持不变",
             )
         elif not publication_allowed:
-            await self._update_task_status(
+            status_updated = await self._update_task_status(
                 task_id,
                 "completed_with_warnings",
                 message="课程存在阻断性质量问题，未发布当前版本",
             )
         elif not strict_quality_passed:
-            await self._update_task_status(
+            status_updated = await self._update_task_status(
                 task_id,
                 "completed_with_warnings",
                 message="课程已生成并发布，仍有非阻断性优化建议",
             )
         else:
-            await self._update_task_status(
+            status_updated = await self._update_task_status(
                 task_id, "completed",
                 message="课程生成完成",
             )
+
+        # The user may pause or cancel while finalization is doing its last
+        # file-space work. If that decision won the race, keep its progress and
+        # phase intact instead of painting a completed projection over it.
+        if not status_updated:
+            return
 
         task = self.tasks.get(task_id)
         async with self._lock:

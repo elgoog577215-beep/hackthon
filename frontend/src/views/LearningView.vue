@@ -26,6 +26,7 @@
       <ContentArea
         ref="contentAreaRef"
         :side-ai-panel-visible="aiVisible"
+        :teacher-preview="isTeacherPreview"
         class="learning-content"
         @quote-ask="openAi"
         @start-practice="openTask"
@@ -208,7 +209,14 @@ let courseGrowthSettleTimer: ReturnType<typeof setTimeout> | undefined
 
 const isNarrow = computed(() => windowWidth.value < 1024)
 const isTeacherPreview = computed(() => String(route.query.teacherPreview || '') === '1')
-const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+// 教师学生预览虽然读取当前教师课程投影，但它仍是完整学习现场。
+// 只有普通生成预览需要关闭记录、练习和 AI 等会写入学习事实的能力。
+const isGenerationPreview = computed(() => (
+  courseStore.currentCourseProjection === 'generation_preview' && !isTeacherPreview.value
+))
+const isTeacherCurrentProjection = computed(() => (
+  courseStore.currentCourseProjection === 'generation_preview' && isTeacherPreview.value
+))
 const generationTask = computed(() => courseStore.currentCourseId ? generationStore.tasks.get(courseStore.currentCourseId) : undefined)
 const activeGenerationNodeId = computed(() => generationTask.value?.currentNodes?.[0]?.node_id || generationStore.currentGeneratingNodeId || '')
 const navigatorVisible = computed(() => (
@@ -309,11 +317,11 @@ watch(() => route.params.courseId, async value => {
     } : {}),
   ])
   generationStore.observeCourse(courseId)
-  if (isGenerationPreview.value || isTeacherPreview.value) {
+  if (isGenerationPreview.value) {
     selectInitialNode()
     return
   }
-  await loadPublishedLearningContext(courseId)
+  await loadLearningContext(courseId)
   selectInitialNode()
   if (['practice', 'question-book'].includes(String(route.query.workspace || ''))) {
     await nextTick()
@@ -326,8 +334,11 @@ watch(() => courseStore.showKnowledgeLibrary, visible => {
   else if (activeDomain.value === 'knowledge-library') activeDomain.value = 'course'
 })
 
-async function loadPublishedLearningContext(courseId: string) {
-  if (courseStore.currentCourseProjection !== 'published' || loadedLearningCourseId.value === courseId) return
+async function loadLearningContext(courseId: string) {
+  if (
+    (!isTeacherPreview.value && courseStore.currentCourseProjection !== 'published')
+    || loadedLearningCourseId.value === courseId
+  ) return
   await Promise.all([
     workspaceStore.loadAssets(courseId),
     noteStore.loadCourseRecords(courseId),
@@ -347,7 +358,7 @@ async function loadPublishedLearningContext(courseId: string) {
 watch(() => courseStore.currentCourseProjection, async (projection, previous) => {
   if (isTeacherPreview.value || projection !== 'published' || previous !== 'generation_preview' || !courseStore.currentCourseId) return
   autoFollowGeneration.value = false
-  await loadPublishedLearningContext(courseStore.currentCourseId)
+  await loadLearningContext(courseStore.currentCourseId)
   selectInitialNode()
 })
 
@@ -364,7 +375,12 @@ watch(() => route.params.nodeId, value => {
 })
 
 watch(() => courseStore.currentNode, async node => {
-  if (!node || !courseStore.currentCourseId || isGenerationPreview.value) return
+  if (
+    !node
+    || !courseStore.currentCourseId
+    || isGenerationPreview.value
+    || (isTeacherCurrentProjection.value && !node.objective_id)
+  ) return
   if (isStartableLearningObjective(node)) {
     await learningProgressStore.startNode(courseStore.currentCourseId, node.node_id)
       .catch(() => learningProgressStore.loadRuntime(courseStore.currentCourseId, node.node_id))

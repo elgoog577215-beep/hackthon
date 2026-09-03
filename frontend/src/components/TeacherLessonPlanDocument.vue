@@ -6,8 +6,8 @@
       </div>
       <div v-if="!pendingCandidate || !assistantOpen" class="document-actions">
         <template v-if="pendingCandidate">
-          <button type="button" :disabled="aiBusy" @click="emit('open-ai')">
-            <Sparkles :size="15" />{{ tr('courseWorkbench.lessonDocument.aiCandidate') }}
+          <button type="button" :disabled="aiBusy || requestBusy" @click="openInlineAi">
+            <Sparkles :size="15" />{{ tr('courseWorkbench.aiCollaboration.iterateCandidate') }}
           </button>
           <button type="button" :disabled="aiBusy" @click="resolveAiCandidate(false)">
             <X :size="15" />{{ tr('courseWorkbench.lessonDocument.discardAi') }}
@@ -29,7 +29,7 @@
           </button>
         </template>
         <template v-else>
-          <button type="button" :disabled="aiBusy" @click="emit('open-ai')">
+          <button type="button" :disabled="aiBusy || requestBusy" @click="openInlineAi">
             <Sparkles :size="15" />{{ tr('courseWorkbench.lessonDocument.aiImprove') }}
           </button>
           <button type="button" @click="beginEditing">
@@ -40,19 +40,45 @@
     </header>
 
     <div v-if="pendingCandidate" class="candidate-canvas-notice" role="status">
-      <Sparkles :size="16" />
-      <span>
-        <strong>{{ tr('courseWorkbench.lessonDocument.candidateCanvasTitle') }}</strong>
-      </span>
+      <div>
+        <Sparkles :size="16" />
+        <span>
+          <strong>{{ tr('courseWorkbench.lessonDocument.candidateCanvasTitle') }}</strong>
+          <small>{{ tr('courseWorkbench.aiCollaboration.inlineCandidateBoundary') }}</small>
+        </span>
+      </div>
+      <nav :aria-label="tr('courseWorkbench.aiCollaboration.inlineCandidateActions')">
+        <button type="button" :disabled="aiBusy || requestBusy" @click="openInlineAi">
+          <Sparkles :size="14" />{{ tr('courseWorkbench.aiCollaboration.iterateCandidate') }}
+        </button>
+        <button type="button" :disabled="aiBusy || requestBusy" @click="resolveAiCandidate(false)">
+          <X :size="14" />{{ tr('courseWorkbench.aiCollaboration.keepOriginal') }}
+        </button>
+        <button class="primary" type="button" :disabled="aiBusy || requestBusy" @click="resolveAiCandidate(true)">
+          <LoaderCircle v-if="aiBusy || requestBusy" :size="14" class="spin" />
+          <Check v-else :size="14" />{{ tr('courseWorkbench.aiCollaboration.applyCandidate') }}
+        </button>
+      </nav>
     </div>
 
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
     <TextSelectionAiAction
       v-if="selectionAiEnabled"
+      ref="inlineAiAction"
       :container="documentRoot"
-      :disabled="editing || aiBusy || Boolean(pendingCandidate)"
+      :disabled="editing"
+      :busy="aiBusy || requestBusy"
       :label="tr('courseWorkbench.aiCollaboration.selectionModify')"
+      :composer-title="tr('courseWorkbench.aiCollaboration.inlineComposerTitle')"
+      :placeholder="tr('courseWorkbench.aiCollaboration.selectionPlaceholder')"
+      :submit-label="tr('courseWorkbench.aiCollaboration.inlineGenerate')"
+      :cancel-label="tr('common.cancel')"
+      :working-label="tr('courseWorkbench.aiCollaboration.inlineWorking')"
+      :selection-label="tr('courseWorkbench.aiCollaboration.inlineSelectionScope')"
+      :block-label="tr('courseWorkbench.aiCollaboration.inlineBlockScope')"
+      :document-label="tr('courseWorkbench.aiCollaboration.inlineDocumentScope')"
+      :boundary-label="tr('courseWorkbench.aiCollaboration.inlineBoundary')"
       @invoke="emit('open-ai-selection', $event)"
     />
 
@@ -188,7 +214,7 @@
 import { computed, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
-import TextSelectionAiAction from './TextSelectionAiAction.vue'
+import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import {
@@ -208,6 +234,7 @@ const props = withDefaults(defineProps<{
   materialAssetIds?: string[]
   externalToolbar?: boolean
   selectionAiEnabled?: boolean
+  requestBusy?: boolean
 }>(), {
   assistantOpen: false,
   externalError: '',
@@ -215,13 +242,14 @@ const props = withDefaults(defineProps<{
   materialAssetIds: () => [],
   externalToolbar: false,
   selectionAiEnabled: true,
+  requestBusy: false,
   courseTitle: '',
 })
 
 const emit = defineEmits<{
   (event: 'saved'): void
   (event: 'open-ai'): void
-  (event: 'open-ai-selection', value: { text: string }): void
+  (event: 'open-ai-selection', value: TeacherInlineAiRequest): void
   (event: 'ai-candidate-change', value: TeacherLessonPlanCandidate | null): void
   (event: 'ai-busy-change', value: boolean): void
   (event: 'ai-resolving', value: { accept: boolean }): void
@@ -233,6 +261,7 @@ const emit = defineEmits<{
 const lessonStore = useTeacherLessonAuthoringStore()
 const editing = ref(false)
 const saving = ref(false)
+const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
 const saveError = ref<unknown>(null)
 const draftPlan = ref<Record<string, any> | null>(null)
 const localSectionId = ref('')
@@ -248,6 +277,10 @@ const documentError = computed(() => {
   if (saveError.value) return toAppError(saveError.value, {
     title: tr('courseWorkbench.lessonDocument.saveFailed').replace(/，?请重试。?$/, ''),
     fallback: tr('courseWorkbench.lessonDocument.saveFailed'),
+  })
+  if (aiError.value) return toAppError(aiError.value, {
+    title: tr('courseWorkbench.lessonDocument.aiFailed').replace(/，?请重试。?$/, ''),
+    fallback: tr('courseWorkbench.lessonDocument.aiFailed'),
   })
   if (props.externalError) return toAppError(props.externalError, {
     title: tr('courseWorkbench.lessonDocument.operationFailed'),
@@ -270,9 +303,21 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.lessonDocument.applyAi': '采用',
   'courseWorkbench.lessonDocument.applyingAi': '正在采用…',
   'courseWorkbench.lessonDocument.aiFailed': 'AI 优化失败，请重试。',
-  'courseWorkbench.lessonDocument.candidateCanvasTitle': 'AI 候选正在左侧画布预览',
+  'courseWorkbench.lessonDocument.candidateCanvasTitle': 'AI 候选已嵌入教案正文',
   'courseWorkbench.lessonDocument.changeMarker': 'AI 修改',
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
+  'courseWorkbench.aiCollaboration.inlineComposerTitle': '告诉 AI 怎么改',
+  'courseWorkbench.aiCollaboration.inlineGenerate': '生成修改',
+  'courseWorkbench.aiCollaboration.inlineWorking': '正在生成候选…',
+  'courseWorkbench.aiCollaboration.inlineSelectionScope': '修改选中内容',
+  'courseWorkbench.aiCollaboration.inlineBlockScope': '修改当前段落',
+  'courseWorkbench.aiCollaboration.inlineDocumentScope': '修改当前教案',
+  'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只生成候选，采用后才会写入正式教案。',
+  'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后候选才会写入正式教案。',
+  'courseWorkbench.aiCollaboration.inlineCandidateActions': 'AI 候选操作',
+  'courseWorkbench.aiCollaboration.iterateCandidate': '继续调整',
+  'courseWorkbench.aiCollaboration.keepOriginal': '保留原文',
+  'courseWorkbench.aiCollaboration.applyCandidate': '采用修改',
   'courseWorkbench.lessonDocument.objective': '教学目标',
   'courseWorkbench.lessonDocument.courseName': '课程名称',
   'courseWorkbench.lessonDocument.lessonName': '课次',
@@ -619,6 +664,10 @@ function focusCandidate() {
   }
 }
 
+function openInlineAi() {
+  inlineAiAction.value?.openForDocument()
+}
+
 function cancelEditing() {
   draftPlan.value = null
   editHistory.clear()
@@ -683,6 +732,7 @@ defineExpose({
   requestAiCandidate,
   resolveAiCandidate,
   focusCandidate,
+  openInlineAi,
   editing,
   saving,
   aiBusy,
@@ -701,7 +751,7 @@ defineExpose({
 .document-header{min-height:92px;display:flex;align-items:center;justify-content:space-between;gap:24px;padding:20px 28px;border-bottom:1px solid #e8ecf2}
 .document-title{min-width:0;display:flex;align-items:center}.document-title h3{margin:0;overflow:hidden;color:#172033;font-size:20px;letter-spacing:-.015em;text-overflow:ellipsis;white-space:nowrap}
 .document-actions{flex:none;display:flex;align-items:center;gap:2px}.document-actions button{min-height:34px;display:flex;align-items:center;justify-content:center;gap:7px;padding:0 10px;border:1px solid transparent;border-radius:7px;color:#526077;background:transparent;font-size:15px;font-weight:750;cursor:pointer}.document-actions button:hover{color:#3730a3;background:#f2f3fa}.document-actions button:focus-visible{outline:2px solid #5b57e8;outline-offset:2px}.document-actions button:disabled{opacity:.5;cursor:not-allowed}.document-actions .primary-action{margin-left:4px;border-color:#d7ddea;color:#3730a3;background:#fff}.document-actions .primary-action:hover{border-color:#c6cbe0;background:#f7f7ff}
-.candidate-canvas-notice{display:flex;align-items:center;gap:10px;padding:11px 28px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.candidate-canvas-notice strong{font-size:15px}.lesson-document>:deep(.app-error-notice){margin:12px 28px 0}
+.candidate-canvas-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 28px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.candidate-canvas-notice>div{min-width:0;display:flex;align-items:center;gap:9px}.candidate-canvas-notice>div>span{display:grid;gap:2px}.candidate-canvas-notice strong{font-size:15px}.candidate-canvas-notice small{color:#676aa0;font-size:11px}.candidate-canvas-notice nav{flex:none;display:flex;align-items:center;gap:6px}.candidate-canvas-notice button{min-height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d0d1ee;border-radius:7px;color:#4f55a9;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.candidate-canvas-notice button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.candidate-canvas-notice button:hover:not(:disabled){border-color:#9692e8;color:#4338ca;background:#f8f7ff}.candidate-canvas-notice button.primary:hover:not(:disabled){border-color:#433bc4;color:#fff;background:#433bc4}.candidate-canvas-notice button:focus-visible{outline:3px solid rgba(91,84,232,.22);outline-offset:2px}.candidate-canvas-notice button:disabled{opacity:.5;cursor:not-allowed}.lesson-document>:deep(.app-error-notice){margin:12px 28px 0}
 .document-body{min-width:0;display:grid;padding:12px 28px 38px}.section-title{display:flex;align-items:center;gap:10px;padding:20px 0 3px}.section-title span{color:#6366f1;font-size:15px;font-weight:850}.section-title h4{margin:0;color:#172033;font-size:17px}.document-section{min-width:0;padding:24px 0;border-bottom:1px solid #e8ecf2}.document-section:last-child{border-bottom:0}.document-section h4{margin:0 0 13px;color:#263147;font-size:17px}.document-section p{margin:0;color:#536176;font-size:16px;line-height:1.8}.document-section ul,.document-section ol{display:grid;gap:8px;margin:0;padding-left:19px;color:#536176;font-size:16px;line-height:1.75}.document-section textarea,.flow-row input,.assignment-contract input{width:100%;box-sizing:border-box;border:1px solid #cbd4e1;border-radius:7px;outline:0;color:#263147;background:#fff;font:inherit;font-size:15px;line-height:1.6}.document-section textarea{min-height:78px;padding:10px 11px;font-size:16px;resize:vertical}.assignment-contract input{min-height:38px;padding:7px 9px}.document-section textarea:focus,.flow-row input:focus,.assignment-contract input:focus{border-color:#5b57e8;box-shadow:0 0 0 3px rgba(91,87,232,.1)}
 .lesson-identity{display:grid;grid-template-columns:1fr 1fr;gap:28px}.lesson-identity div{display:grid;gap:7px}.lesson-identity span{color:#7a8699;font-size:15px}.lesson-identity strong{color:#263147;font-size:16px}.objective-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.objective-grid>div{min-width:0}.objective-grid h5{margin:0 0 9px;color:#4a5568;font-size:15px}.objective-section p{font-size:16px}.focus-grid,.closing-grid{display:grid;grid-template-columns:1fr 1fr;gap:0}.focus-grid>div,.closing-grid>div{min-width:0;padding-right:26px}.focus-grid>div+div,.closing-grid>div+div{padding-right:0;padding-left:26px;border-left:1px solid #e8ecf2}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px}.section-heading span{color:#7a8699;font-size:15px}
 .teaching-block-list{display:grid;gap:16px}.teaching-block{overflow:hidden;border:1px solid #dde3ec;border-radius:10px;background:#fff}.teaching-block>header{min-height:50px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:8px 14px;border-bottom:1px solid #e5eaf1;background:#f7f9fc}.teaching-block>header>strong{color:#334155;font-size:16px}.block-duration{display:flex;align-items:center;gap:8px;color:#718096;font-size:15px}.block-duration input{width:64px;height:34px;padding:5px;border:1px solid #cbd4e1;border-radius:7px;text-align:center}.block-duration b{color:#475569;font-size:15px}.block-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0}.block-fields>label{min-width:0;display:grid;align-content:start;gap:8px;padding:15px;border-right:1px solid #e8ecf2;border-bottom:1px solid #e8ecf2}.block-fields>label:nth-child(2n){border-right:0}.block-fields>label.wide{grid-column:1/-1;border-right:0}.block-fields>label>span{color:#64748b;font-size:15px;font-weight:750}.block-fields textarea{min-height:80px;font-size:16px}.block-fields p{font-size:16px;line-height:1.75}.block-fields ul{font-size:16px}.materials-record>h4{margin-bottom:18px}

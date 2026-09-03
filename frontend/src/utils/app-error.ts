@@ -96,8 +96,8 @@ function sanitizeTechnicalText(value: string): string {
 
 function domainName(url: string): string {
   const domains: Array<[RegExp, string]> = [
-    [/\/lesson-authoring|\/lessons\/[^/]+\/plan/, t('appError.domains.lessonPlan', '教案')],
-    [/\/lessons\/[^/]+\/script/, t('appError.domains.script', '讲义')],
+    [/\/lesson-authoring|\/lesson-plans?(?:\/|$)|\/lessons\/[^/]+\/plan/, t('appError.domains.lessonPlan', '教案')],
+    [/\/lesson-scripts?(?:\/|$)|\/lessons\/[^/]+\/script/, t('appError.domains.script', '讲义')],
     [/question[_-]bank|question-bank/, t('appError.domains.questionBank', '题库')],
     [/slide|ppt/i, t('appError.domains.ppt', 'PPT')],
     [/calendar|session/i, t('appError.domains.calendar', '教学日历')],
@@ -146,7 +146,7 @@ function titleFor(code: string, status: number | null, method: string, url: stri
     return t('appError.names.validation', '信息校验失败')
   }
   if (status === 429) return t('appError.names.rateLimit', '请求频率受限')
-  if (status && status >= 500) return t('appError.names.service', '服务处理失败')
+  if (status && status >= 500 && !url) return t('appError.names.service', '服务处理失败')
   const template = t('appError.names.operation', '{domain}{operation}失败')
   return template
     .replace('{domain}', domainName(url))

@@ -38,6 +38,27 @@ describe('course generation lifecycle reconciliation', () => {
     expect(restoredGeneration.getTask('course-project')?.courseType).toBe('project')
   })
 
+  it('刷新恢复后保留任务类型、心跳和更新时间', () => {
+    const generation = useGenerationStore()
+    const task = generation.createTask('job-persisted', 'course-persisted', '数据结构')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'waiting_for_input'
+    task.heartbeatAt = '2026-09-04T10:00:04Z'
+    task.updatedAt = '2026-09-04T10:00:05Z'
+    generation.persistGenerationState()
+
+    setActivePinia(createPinia())
+    const restored = useGenerationStore()
+    restored.restoreGenerationState()
+
+    expect(restored.getTask('course-persisted')).toMatchObject({
+      taskType: 'teacher_outline_generation',
+      status: 'waiting_for_input',
+      heartbeatAt: '2026-09-04T10:00:04Z',
+      updatedAt: '2026-09-04T10:00:05Z',
+    })
+  })
+
   it('目标草稿所有者不一致时退出生成态并保留唯一真实原因', async () => {
     const generation = useGenerationStore()
     const courses = useCourseStore()
@@ -239,6 +260,32 @@ describe('course generation lifecycle reconciliation', () => {
     expect(localTask.status).toBe('completed')
     expect(generation.isGenerating).toBe(false)
     expect(generation.generationStatus).toBe('idle')
+  })
+
+  it('WebSocket 首次进入轻量方案等待态时立即读取教师投影', () => {
+    const generation = useGenerationStore()
+    const courses = useCourseStore()
+    courses.currentCourseId = 'course-outline-waiting-ws'
+    const task = generation.createTask('job-outline-waiting-ws', 'course-outline-waiting-ws', 'UI 设计')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'running'
+    task.updatedAt = '2026-09-04T10:00:01Z'
+    const refresh = vi.spyOn(courses, 'refreshGenerationPreview').mockResolvedValue(true)
+
+    generation.handleWSProgressUpdate({
+      type: 'progress_update',
+      course_id: 'course-outline-waiting-ws',
+      task_id: 'job-outline-waiting-ws',
+      payload: {
+        status: 'waiting_for_input',
+        current_phase: 'outline_framework_ready',
+        progress: 32,
+        updated_at: '2026-09-04T10:00:05Z',
+      },
+    } as any)
+
+    expect(task.status).toBe('waiting_for_input')
+    expect(refresh).toHaveBeenCalledWith('course-outline-waiting-ws', 'teacher')
   })
 
   it('忽略同一课程旧任务迟到的 WebSocket 状态', () => {
@@ -497,6 +544,83 @@ describe('course generation lifecycle reconciliation', () => {
 
     expect(courses.nodes[0]?.node_name).toBe('第1讲 最新讲次方案')
     expect(task).toMatchObject({ status: 'waiting_for_input', progress: 35 })
+  })
+
+  it('切换课程后忽略上一门课迟到的预览响应', async () => {
+    const courses = useCourseStore()
+    let resolveFirst!: (value: any) => void
+    let resolveSecond!: (value: any) => void
+    vi.spyOn(http, 'get').mockImplementation((url: string) => {
+      if (url.includes('course-first')) return new Promise(resolve => { resolveFirst = resolve }) as never
+      if (url.includes('course-second')) return new Promise(resolve => { resolveSecond = resolve }) as never
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    courses.currentCourseId = 'course-first'
+    const first = courses.refreshGenerationPreview('course-first', 'teacher')
+    courses.currentCourseId = 'course-second'
+    const second = courses.refreshGenerationPreview('course-second', 'teacher')
+    resolveSecond({ data: {
+      schema_version: 'generation_preview_v2', projection: 'generation_workspace',
+      course_id: 'course-second', course_name: '第二门课', workspace_id: 'job-second', workspace_status: 'active',
+      updated_at: '2026-09-04T10:00:05Z',
+      task: { id: 'job-second', status: 'running', progress: 20, updated_at: '2026-09-04T10:00:05Z' },
+      nodes: [{ node_id: 'second-node', parent_node_id: 'root', node_name: '第二门课讲次', node_level: 1 }],
+    } })
+    await second
+    resolveFirst({ data: {
+      schema_version: 'generation_preview_v2', projection: 'generation_workspace',
+      course_id: 'course-first', course_name: '第一门课', workspace_id: 'job-first', workspace_status: 'active',
+      updated_at: '2026-09-04T10:00:06Z',
+      task: { id: 'job-first', status: 'running', progress: 30, updated_at: '2026-09-04T10:00:06Z' },
+      nodes: [{ node_id: 'first-node', parent_node_id: 'root', node_name: '迟到的第一门课', node_level: 1 }],
+    } })
+    await first
+
+    expect(courses.currentCourseId).toBe('course-second')
+    expect(courses.nodes.map(node => node.node_id)).toEqual(['second-node'])
+    expect(courses.generationPreviewLoading).toBe(false)
+  })
+
+  it('切换课程后忽略上一门课迟到的正式文档', async () => {
+    const courses = useCourseStore()
+    let resolveFirstDocument!: (value: any) => void
+    vi.spyOn(http, 'get').mockImplementation((url: string) => {
+      if (url === '/api/courses/course-first/task') return Promise.resolve({ data: { status: 'none' } }) as never
+      if (url === '/api/courses/course-first/document') {
+        return new Promise(resolve => { resolveFirstDocument = resolve }) as never
+      }
+      if (url === '/api/courses/course-second/task') return Promise.resolve({ data: { status: 'none' } }) as never
+      if (url === '/api/courses/course-second/document') return Promise.resolve({ data: {
+        course_id: 'course-second', course_name: '第二门课', current_course_version_id: 'v2', source_format: 'canonical',
+        document: {
+          schema_version: 'course_document_v1', course_id: 'course-second', title: '第二门课', document_revision: 'r2',
+          sections: [{
+            section_id: 'second-node', parent_section_id: null, title: '第二门课讲次',
+            position: 0, level: 1, learning_objective: '', objective_id: '', objective_revision_id: '', attributes: {},
+          }],
+          blocks: [],
+        },
+      } }) as never
+      throw new Error(`unexpected request: ${url}`)
+    })
+
+    const first = courses.loadCourse('course-first', { includeLearningRecords: false })
+    await vi.waitFor(() => expect(http.get).toHaveBeenCalledWith(
+      '/api/courses/course-first/document',
+      expect.anything(),
+    ))
+    const second = courses.loadCourse('course-second', { includeLearningRecords: false })
+    await second
+    resolveFirstDocument({ data: {
+      course_id: 'course-first', course_name: '第一门课', current_course_version_id: 'v1', source_format: 'canonical',
+      document: { schema_version: 'course_document_v1', course_id: 'course-first', title: '第一门课', document_revision: 'r1', sections: [], blocks: [] },
+    } })
+    await first
+
+    expect(courses.currentCourseId).toBe('course-second')
+    expect(courses.currentCourseVersionId).toBe('v2')
+    expect(courses.currentDocumentRevision).toBe('r2')
   })
 
   it('带质量建议发布后也从草稿投影切换到正式课程', async () => {

@@ -233,6 +233,9 @@ describe('LearningView 正文任务覆盖层', () => {
     const progress = useLearningProgressStore()
     const ai = useAITeacherStore()
     const workspace = useCourseWorkspaceStore()
+    vi.mocked(course.loadCourse).mockImplementation(async () => {
+      course.currentCourseProjection = 'generation_preview'
+    })
 
     const wrapper = mount(LearningView, {
       attachTo: document.body,
@@ -267,10 +270,14 @@ describe('LearningView 正文任务覆盖层', () => {
       silentError: true,
       taskType: 'teacher_outline_generation',
     })
-    expect(notes.loadCourseRecords).not.toHaveBeenCalled()
-    expect(progress.load).not.toHaveBeenCalled()
-    expect(ai.load).not.toHaveBeenCalled()
-    expect(workspace.loadMistakeBook).not.toHaveBeenCalled()
+    expect(notes.loadCourseRecords).toHaveBeenCalledWith('c1')
+    expect(progress.load).toHaveBeenCalledWith('c1', 'n1')
+    expect(ai.load).toHaveBeenCalledWith('c1', 'n1')
+    expect(workspace.loadMistakeBook).toHaveBeenCalledWith('c1')
+
+    course.currentNode = { ...node, node_id: 'teacher-draft-node' }
+    await flushPromises()
+    expect(progress.startNode).not.toHaveBeenCalledWith('c1', 'teacher-draft-node')
 
     await wrapper.get('[data-domain="notebook"]').trigger('click')
     expect(wrapper.find('.notebook-side-panel').exists()).toBe(true)

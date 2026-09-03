@@ -1,12 +1,13 @@
 <template>
   <section
+    ref="outlineRoot"
     class="outline-review"
-    :class="{ 'is-editing': editable }"
+    :class="{ 'is-editing': editable, 'is-ai-candidate': adjustmentProposal }"
     :data-mode="editable ? 'edit' : 'view'"
     :data-variant="variant"
     :aria-label="t('courseGeneration.outlineReview.ariaLabel', '课程大纲')"
   >
-    <article class="outline-review__sheet">
+    <article class="outline-review__sheet" :class="{ 'has-ai-candidate': surface === 'teacher' && adjustmentProposal }">
       <div v-if="loading" class="outline-review__loading" aria-live="polite">
         <LoaderCircle :size="18" />
         <span>{{ t('courseGeneration.outlineReview.loading', '正在载入可编辑目录') }}</span>
@@ -22,6 +23,48 @@
       </div>
 
       <template v-else>
+        <div v-if="surface === 'teacher' && adjustmentProposal" class="outline-candidate-notice" role="status">
+          <div>
+            <Sparkles :size="16" />
+            <span>
+              <strong>{{ t('courseWorkbench.aiCollaboration.outlineCandidateTitle', 'AI 候选已嵌入大纲正文') }}</strong>
+              <small>{{ t('courseWorkbench.aiCollaboration.inlineCandidateBoundary', '原文仍然保留，只有采用后候选才会写入正式大纲。') }}</small>
+            </span>
+          </div>
+          <nav :aria-label="t('courseWorkbench.aiCollaboration.inlineCandidateActions', 'AI 候选操作')">
+            <button type="button" :disabled="adjustmentBusy || requestBusy" @click="openInlineAi">
+              <Sparkles :size="14" />{{ t('courseWorkbench.aiCollaboration.iterateCandidate', '继续调整') }}
+            </button>
+            <button type="button" :disabled="adjustmentBusy || requestBusy" @click="resolveAiCandidate(false)">
+              <X :size="14" />{{ t('courseWorkbench.aiCollaboration.keepOriginal', '保留原文') }}
+            </button>
+            <button class="primary" type="button" :disabled="adjustmentBusy || requestBusy || !adjustmentProposal.can_apply" @click="resolveAiCandidate(true)">
+              <LoaderCircle v-if="adjustmentBusy || requestBusy" :size="14" />
+              <CircleCheck v-else :size="14" />{{ t('courseWorkbench.aiCollaboration.applyCandidate', '采用修改') }}
+            </button>
+          </nav>
+        </div>
+
+        <TextSelectionAiAction
+          v-if="surface === 'teacher'"
+          ref="inlineAiAction"
+          :container="outlineRoot"
+          :disabled="editable"
+          :busy="adjustmentBusy || requestBusy"
+          :label="t('courseWorkbench.aiCollaboration.selectionModify', 'AI 修改')"
+          :composer-title="t('courseWorkbench.aiCollaboration.inlineComposerTitle', '告诉 AI 怎么改')"
+          :placeholder="t('courseWorkbench.aiCollaboration.selectionPlaceholder', '说明你想怎样修改选中内容…')"
+          :submit-label="t('courseWorkbench.aiCollaboration.inlineGenerate', '生成修改')"
+          :cancel-label="t('common.cancel', '取消')"
+          :working-label="t('courseWorkbench.aiCollaboration.inlineWorking', '正在生成候选…')"
+          :selection-label="t('courseWorkbench.aiCollaboration.inlineSelectionScope', '修改选中内容')"
+          :block-label="t('courseWorkbench.aiCollaboration.inlineBlockScope', '修改当前段落')"
+          :document-label="t('courseWorkbench.aiCollaboration.inlineOutlineScope', '修改当前大纲')"
+          :boundary-label="t('courseWorkbench.aiCollaboration.inlineBoundary', 'AI 只生成候选，采用后才会写入正式内容。')"
+          target-selector="h2[data-node-id], h3[data-node-id], [data-node-body], p, li, blockquote"
+          @invoke="emit('open-ai-selection', $event)"
+        />
+
         <div class="outline-review__body">
           <div class="outline-review__setup" v-if="inlineSetupVisible">
           <section
@@ -311,7 +354,7 @@
           </div>
 
           <div
-            v-if="editable"
+            v-if="editable && (!isLectureOutline || isLightOutline)"
             class="outline-document-toolbar"
             :class="{ 'is-locked': Boolean(adjustmentProposal) }"
             role="toolbar"
@@ -319,7 +362,6 @@
           >
             <div class="outline-editor-modes" :aria-label="t('courseGeneration.outlineReview.editorMode', '编辑方式')">
               <button
-                v-if="!isLectureOutline"
                 type="button"
                 :class="{ 'is-active': editorMode === 'visual' }"
                 :aria-pressed="editorMode === 'visual'"
@@ -536,7 +578,10 @@
             v-if="blueprintNodes.length"
             ref="chaptersRef"
             class="formal-outline"
-            :class="{ 'formal-outline--light': isLightOutline }"
+            :class="{
+              'formal-outline--light': isLightOutline,
+              'formal-outline--editing': editable,
+            }"
             :data-outline-stage="isLightOutline ? 'light' : 'full'"
             data-testid="formal-outline-document"
           >
@@ -672,32 +717,37 @@
                 </div>
               </section>
 
-              <details
+              <section
                 v-if="editable"
                 ref="formalContractEditorRef"
                 class="formal-contract-editor"
                 data-testid="formal-syllabus-contract-editor"
               >
-                <summary>
+                <header class="formal-contract-editor__heading">
                   <span>
-                    <strong>{{ t('courseGeneration.outlineReview.contractEditorTitle', '补充课程大纲信息') }}</strong>
-                    <small>{{ t('courseGeneration.outlineReview.contractEditorHint', '人工修改后保存，系统会重新审读学时、考核、模块和每讲内容。') }}</small>
+                    <strong>{{ t('courseGeneration.outlineReview.contractEditorTitle', '编辑完整课程大纲') }}</strong>
+                    <small>{{ t('courseGeneration.outlineReview.contractEditorHint', '以下内容就是正式大纲，保存后系统会重新审读学时、考核、模块和每讲内容。') }}</small>
                   </span>
-                </summary>
+                </header>
 
                 <div class="formal-contract-editor__body">
                   <section>
                     <h3>{{ t('courseGeneration.outlineReview.contractCourseFields', '课程级内容') }}</h3>
                     <div class="formal-contract-editor__grid">
+                      <label class="wide" data-outline-field="course_title"><span>{{ t('courseGeneration.outlineReview.courseTitle', '课程标题') }}</span><input :value="documentPlan.course_title || documentTitle" @input="setPlanScalar('course_title', $event)" /></label>
                       <label data-outline-field="course_intro_zh"><span>{{ t('courseGeneration.outlineReview.templateChineseIntro', '中文简介') }}</span><textarea :value="documentPlan.course_intro_zh || ''" rows="4" @input="setPlanScalar('course_intro_zh', $event)" /></label>
                       <label data-outline-field="course_intro_en"><span>{{ t('courseGeneration.outlineReview.templateEnglishIntro', '英文简介') }}</span><textarea :value="documentPlan.course_intro_en || ''" rows="4" @input="setPlanScalar('course_intro_en', $event)" /></label>
                       <label class="wide" data-outline-field="positioning"><span>{{ t('courseGeneration.outlineReview.positioning', '课程定位') }}</span><textarea :value="documentPlan.positioning || ''" rows="3" @input="setPlanScalar('positioning', $event)" /></label>
                       <label data-outline-field="learning_objectives"><span>{{ t('courseGeneration.outlineReview.templateLearningGoals', '学习目标') }}</span><textarea :value="planListText('learning_objectives')" rows="5" @input="setPlanList('learning_objectives', $event)" /></label>
+                      <label data-outline-field="prerequisites"><span>{{ t('courseGeneration.outlineReview.prerequisites', '先修要求') }}</span><textarea :value="planListText('prerequisites')" rows="5" @input="setPlanList('prerequisites', $event)" /></label>
                       <label data-outline-field="education_objectives"><span>{{ t('courseGeneration.outlineReview.templateEducationGoals', '育人目标') }}</span><textarea :value="planListText('education_objectives')" rows="5" @input="setPlanList('education_objectives', $event)" /></label>
                       <label data-outline-field="measurable_outcomes"><span>{{ t('courseGeneration.outlineReview.templateMeasurableResults', '可测量结果') }}</span><textarea :value="planListText('measurable_outcomes')" rows="5" @input="setPlanList('measurable_outcomes', $event)" /></label>
                       <label data-outline-field="teaching_methods"><span>{{ t('courseGeneration.outlineReview.templateTeachingMethods', '授课方式') }}</span><textarea :value="planListText('teaching_methods')" rows="5" @input="setPlanList('teaching_methods', $event)" /></label>
+                      <label data-outline-field="assessment_methods"><span>{{ t('courseGeneration.outlineReview.templateAssessmentMethods', '考核方式') }}</span><textarea :value="planListText('assessment_methods')" rows="5" @input="setPlanList('assessment_methods', $event)" /></label>
                       <label data-outline-field="reference_books"><span>{{ t('courseGeneration.outlineReview.referenceBooks', '已确认参考书籍') }}</span><textarea :value="planListText('reference_books')" rows="5" @input="setPlanList('reference_books', $event)" /></label>
                       <label data-outline-field="reference_websites"><span>{{ t('courseGeneration.outlineReview.referenceWebsites', '已确认网络资源') }}</span><textarea :value="planListText('reference_websites')" rows="5" @input="setPlanList('reference_websites', $event)" /></label>
+                      <label class="wide" data-outline-field="ideology_cases"><span>{{ t('courseGeneration.outlineReview.templateIdeologyAttachment', '思政融合案例') }}</span><textarea :value="ideologyCasesText()" rows="4" @input="setIdeologyCases($event)" /></label>
+                      <label class="wide" data-outline-field="course_website"><span>{{ t('courseGeneration.outlineReview.templateCourseWebsite', '课程教学网站') }}</span><input :value="documentPlan.course_website || ''" @input="setPlanScalar('course_website', $event)" /></label>
                     </div>
                   </section>
 
@@ -747,10 +797,19 @@
 
                   <section>
                     <h3>{{ t('courseGeneration.outlineReview.contractLectureFields', '每讲必备内容') }}</h3>
-                    <details v-for="(chapter, lectureIndex) in documentChapters" :key="`contract-${chapter.node_id || lectureIndex}`" class="formal-contract-editor__lecture" :data-outline-node-id="chapter.node_id || ''">
+                    <details v-for="(chapter, lectureIndex) in documentChapters" :key="`contract-${chapter.node_id || lectureIndex}`" class="formal-contract-editor__lecture" :data-outline-node-id="chapter.sections?.[0]?.node_id || chapter.node_id || ''" :open="lectureIndex === 0">
                       <summary><strong>{{ t('courseGeneration.outlineReview.lectureNumber', '第{number}讲').replace('{number}', String(lectureIndex + 1)) }} · {{ plainLectureTitle(chapter.title) }}</strong></summary>
                       <div>
-                        <label class="wide"><span>{{ t('courseGeneration.outlineReview.applicationAnchorLabel', '应用载体') }}</span><textarea :value="lectureListText(lectureIndex, 'application_anchors')" rows="3" @input="setLectureList(lectureIndex, 'application_anchors', $event)" /></label>
+                        <label class="wide" data-outline-field="node_name"><span>{{ t('courseGeneration.outlineReview.lectureHeading', '讲次标题') }}</span><input :value="plainLectureTitle(chapter.title)" @input="setLectureTitle(lectureIndex, $event)" /></label>
+                        <label class="wide" data-outline-field="content_summary"><span>{{ t('courseGeneration.outlineReview.lectureSummaryLabel', '内容简介') }}</span><textarea :value="lectureScalar(lectureIndex, 'content_summary')" rows="4" @input="setLectureScalar(lectureIndex, 'content_summary', $event)" /></label>
+                        <label class="wide" data-outline-field="learning_objective"><span>{{ t('courseGeneration.outlineReview.lectureObjectiveLabel', '学习目标') }}</span><textarea :value="lectureScalar(lectureIndex, 'learning_objective')" rows="3" @input="setLectureScalar(lectureIndex, 'learning_objective', $event)" /></label>
+                        <label class="wide" data-outline-field="scope_boundary"><span>{{ t('courseGeneration.outlineReview.lectureScopeLabel', '本讲范围') }}</span><textarea :value="lectureScalar(lectureIndex, 'scope_boundary')" rows="3" @input="setLectureScalar(lectureIndex, 'scope_boundary', $event)" /></label>
+                        <label data-outline-field="key_points"><span>{{ t('courseGeneration.outlineReview.keyPoints', '教学重点') }}</span><textarea :value="lectureListText(lectureIndex, 'key_points')" rows="4" @input="setLectureList(lectureIndex, 'key_points', $event)" /></label>
+                        <label data-outline-field="key_difficulties"><span>{{ t('courseGeneration.outlineReview.keyDifficulties', '教学难点') }}</span><textarea :value="lectureListText(lectureIndex, 'key_difficulties')" rows="4" @input="setLectureList(lectureIndex, 'key_difficulties', $event)" /></label>
+                        <label class="wide" data-outline-field="assessment"><span>{{ t('courseGeneration.outlineReview.lectureAssessmentLabel', '达成检验') }}</span><textarea :value="lectureListText(lectureIndex, 'assessment')" rows="4" @input="setLectureList(lectureIndex, 'assessment', $event)" /></label>
+                        <label data-outline-field="activities"><span>{{ t('courseGeneration.outlineReview.learningActivities', '教学活动') }}</span><textarea :value="lectureListText(lectureIndex, 'activities')" rows="5" @input="setLectureList(lectureIndex, 'activities', $event)" /></label>
+                        <label data-outline-field="homework"><span>{{ t('courseGeneration.outlineReview.homework', '课后作业') }}</span><textarea :value="lectureListText(lectureIndex, 'homework')" rows="5" @input="setLectureList(lectureIndex, 'homework', $event)" /></label>
+                        <label class="wide" data-outline-field="application_anchors"><span>{{ t('courseGeneration.outlineReview.applicationAnchorLabel', '应用载体') }}</span><textarea :value="lectureListText(lectureIndex, 'application_anchors')" rows="3" @input="setLectureList(lectureIndex, 'application_anchors', $event)" /></label>
                         <label class="wide"><span>{{ t('courseGeneration.outlineReview.learningTaskLabel', '学习任务') }}</span></label>
                         <div class="formal-contract-editor__rows wide" data-outline-field="learning_tasks">
                           <div v-for="(task, taskIndex) in lectureTasks(lectureIndex)" :key="`task-${taskIndex}`" class="formal-contract-editor__row formal-contract-editor__row--task">
@@ -790,12 +849,12 @@
                     </details>
                   </section>
                 </div>
-              </details>
+              </section>
               </template>
             </template>
 
             <section
-              v-if="editorMode === 'visual'"
+              v-if="editorMode === 'visual' && (!editable || !isLectureOutline || isLightOutline)"
               ref="richEditorRef"
               class="formal-outline__schedule outline-rich-editor"
               :class="{ 'is-editable': editable }"
@@ -811,7 +870,7 @@
               @paste="handleRichEditorPaste"
               @keydown="handleEditorKeydown"
             />
-            <section v-else class="outline-markdown-workspace" data-testid="outline-markdown-editor">
+            <section v-else-if="!isLectureOutline || isLightOutline" class="outline-markdown-workspace" data-testid="outline-markdown-editor">
               <label class="outline-markdown-pane outline-markdown-pane--source">
                 <span>{{ t('courseGeneration.outlineReview.markdownSource', 'Markdown 源码') }}</span>
                 <textarea
@@ -967,9 +1026,10 @@
 <script setup lang="ts">
 import DOMPurify from 'dompurify'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowRight, Bold, Braces, ChartNoAxesCombined, ChevronDown, ChevronUp, CircleCheck, Code2, FileText, FileType2, Heading2, Heading3, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, LoaderCircle, Minus, MoreHorizontal, Plus, Quote, Redo2, RemoveFormatting, Replace, Save, Search, Sigma, Sparkles, Strikethrough, Subscript, Superscript, Table2, TriangleAlert, Underline, Undo2 } from 'lucide-vue-next'
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowRight, Bold, Braces, ChartNoAxesCombined, ChevronDown, ChevronUp, CircleCheck, Code2, FileText, FileType2, Heading2, Heading3, Highlighter, ImagePlus, IndentDecrease, IndentIncrease, Italic, Link2, List, ListOrdered, LoaderCircle, Minus, MoreHorizontal, Plus, Quote, Redo2, RemoveFormatting, Replace, Save, Search, Sigma, Sparkles, Strikethrough, Subscript, Superscript, Table2, TriangleAlert, Underline, Undo2, X } from 'lucide-vue-next'
 import { ElMessage } from 'element-plus'
 import MarkdownRenderer from './MarkdownRenderer.vue'
+import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import type { Node, Task } from '../stores/types'
 import { useCourseStore } from '../stores/course'
 import { useCourseWorkspaceStore } from '../stores/courseWorkspace'
@@ -1007,6 +1067,7 @@ const props = withDefaults(defineProps<{
   requiresConfirmation?: boolean
   confirmationPlacement?: 'internal' | 'external'
   assistantOpen?: boolean
+  requestBusy?: boolean
   lessonTypes?: OutlineLessonType[]
   lessonTypeOptions?: OutlineLessonTypeOption[]
   lessonTypeSavingId?: string
@@ -1022,6 +1083,7 @@ const props = withDefaults(defineProps<{
   requiresConfirmation: true,
   confirmationPlacement: 'internal',
   assistantOpen: false,
+  requestBusy: false,
   lessonTypes: () => [],
   lessonTypeOptions: () => [],
   lessonTypeSavingId: '',
@@ -1032,6 +1094,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (event: 'confirmed'): void
   (event: 'open-ai'): void
+  (event: 'open-ai-selection', value: TeacherInlineAiRequest): void
   (event: 'ai-candidate-change', candidate: Record<string, any> | null): void
   (event: 'ai-resolving', result: { accept: boolean }): void
   (event: 'ai-resolved', result: { accept: boolean }): void
@@ -1044,6 +1107,8 @@ const courseStore = useCourseStore()
 const workspace = useCourseWorkspaceStore()
 const generationStore = useGenerationStore()
 const blueprintDraft = ref<Record<string, any>>({})
+const outlineRoot = ref<HTMLElement | null>(null)
+const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
 const retrievalArtifact = ref<Record<string, any>>({})
 // D-1：课程规格与覆盖度判定。只在后端真的给出判定时展示——没有判定时保持沉默，
 // 而不是显示"完整"，因为"沉默被当成完整"正是这个问题的由来。
@@ -1092,7 +1157,7 @@ const retryingRetrieval = ref(false)
 const proposalNotice = ref('')
 const liveStatus = ref('')
 const proposalSummaryRef = ref<HTMLElement | null>(null)
-const formalContractEditorRef = ref<HTMLDetailsElement | null>(null)
+const formalContractEditorRef = ref<HTMLElement | null>(null)
 const chaptersRef = ref<HTMLElement | null>(null)
 const richEditorRef = ref<HTMLElement | null>(null)
 const insertControlRef = ref<HTMLElement | null>(null)
@@ -1169,11 +1234,12 @@ const retrievalDiffGroups = computed(() => {
   ]
 })
 const acting = computed(() => saving.value || confirming.value || adjustmentBusy.value)
+const presentationDraft = computed<Record<string, any>>(() => adjustmentProposal.value?.draft || blueprintDraft.value)
 const blueprintNodes = computed<any[]>(() => (
-  Array.isArray(blueprintDraft.value?.nodes)
-    ? blueprintDraft.value.nodes
-    : Array.isArray(blueprintDraft.value?.course_blueprint?.nodes)
-      ? blueprintDraft.value.course_blueprint.nodes
+  Array.isArray(presentationDraft.value?.nodes)
+    ? presentationDraft.value.nodes
+    : Array.isArray(presentationDraft.value?.course_blueprint?.nodes)
+      ? presentationDraft.value.course_blueprint.nodes
       : []
 ))
 const canUndo = computed(() => editHistoryIndex.value > 0)
@@ -1203,8 +1269,8 @@ const outlineGroups = computed(() => {
   return ungrouped.sections.length ? [...chapters, ungrouped] : chapters
 })
 const documentPlan = computed<Record<string, any>>(() => (
-  blueprintDraft.value?.course_plan
-  || blueprintDraft.value?.course_outline
+  presentationDraft.value?.course_plan
+  || presentationDraft.value?.course_outline
   || {}
 ))
 const isLectureOutline = computed(() => {
@@ -1336,7 +1402,9 @@ const confirmedReferenceOptions = computed(() => [
 ])
 const documentCourseWebsite = computed(() => String(documentPlan.value.course_website || '').trim())
 const documentIdeologyCases = computed<any[]>(() => (
-  Array.isArray(documentPlan.value.ideology_cases) ? documentPlan.value.ideology_cases : []
+  (Array.isArray(documentPlan.value.ideology_cases) ? documentPlan.value.ideology_cases : [])
+    .map((item: any) => typeof item === 'string' ? { implementation: item } : item)
+    .filter((item: any) => item && typeof item === 'object')
 ))
 const documentAcademicTerm = computed(() => String(
   courseStore.currentCourse?.term
@@ -1644,6 +1712,34 @@ function setPlanList(field: string, event: Event) {
   markFormalChange()
 }
 
+function ideologyCasesText() {
+  const cases = Array.isArray(documentPlan.value.ideology_cases) ? documentPlan.value.ideology_cases : []
+  return cases.map((item: any) => {
+    if (typeof item === 'string') return item.trim()
+    if (!item || typeof item !== 'object') return ''
+    return [
+      item.lecture || item.lesson,
+      item.course_content || item.content,
+      item.education_objective || item.objective,
+      item.case || item.implementation,
+    ].map(value => String(value || '').trim()).join(' ｜ ')
+  }).filter(Boolean).join('\n')
+}
+
+function setIdeologyCases(event: Event) {
+  ensureCoursePlan().ideology_cases = inputValue(event).split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => {
+    const parts = line.split(/\s*[｜|]\s*/)
+    if (parts.length < 4) return line
+    return {
+      lecture: parts[0],
+      course_content: parts[1],
+      education_objective: parts[2],
+      implementation: parts.slice(3).join(' ｜ '),
+    }
+  })
+  markFormalChange()
+}
+
 function numberList(value: unknown) {
   return Array.from(new Set(
     String(value || '').split(/[,\s，、;\uff1b]+/)
@@ -1730,6 +1826,20 @@ function lectureNode(index: number) {
   const chapter = documentChapters.value[index]
   const section = Array.isArray(chapter?.sections) ? chapter.sections[0] : null
   return section?._node || section || chapter?._node || chapter || null
+}
+
+function lectureChapterNode(index: number) {
+  const chapter = documentChapters.value[index]
+  return chapter?._node || chapter || null
+}
+
+function setLectureTitle(index: number, event: Event) {
+  const title = plainLectureTitle(inputValue(event))
+  const chapterNode = lectureChapterNode(index)
+  const sectionNode = lectureNode(index)
+  if (chapterNode) chapterNode.node_name = `第${index + 1}讲 ${title}`.trim()
+  if (sectionNode) sectionNode.node_name = title
+  markFormalChange()
 }
 
 function lectureListText(index: number, field: string) {
@@ -1974,6 +2084,10 @@ const draftSignature = computed(() => JSON.stringify({
     scope_boundary: node.scope_boundary || '',
     assessment: node.assessment || [],
     content_summary: node.content_summary || '',
+    key_points: node.key_points || [],
+    key_difficulties: node.key_difficulties || [],
+    activities: node.activities || [],
+    homework: node.homework || [],
     application_anchors: node.application_anchors || [],
     extension_resources: node.extension_resources || [],
     learning_tasks: node.learning_tasks || [],
@@ -2184,6 +2298,19 @@ function htmlToMarkdown(value: unknown) {
 }
 
 function outlineNodesToMarkdown() {
+  if (isLectureOutline.value) {
+    return documentChapters.value.map((chapter: any, chapterIndex: number) => {
+      const section = Array.isArray(chapter.sections) ? chapter.sections[0] || {} : {}
+      const sectionNode = section._node || section
+      const title = String(chapter.title || `第${chapterIndex + 1}讲`).replace(/\s+/g, ' ').trim()
+      const cachedMarkdown = String(sectionNode?.outline_editor_html?.body_markdown || '').trim()
+      const body = cachedMarkdown || htmlToMarkdown(editorBodyHtml(
+        sectionNode,
+        sectionNode.content_summary || section.content_summary || sectionNode.learning_objective,
+      ))
+      return `## ${title}${body ? `\n\n${body}` : ''}`
+    }).join('\n\n').trim()
+  }
   return blueprintNodes.value.map(node => {
     const level = Number(node.node_level || 2) === 1 ? '##' : '###'
     const title = String(node.node_name || '').replace(/\s+/g, ' ').trim()
@@ -2244,6 +2371,68 @@ function syncMarkdownToNodes() {
     actionError.value = t('courseGeneration.outlineReview.chapterRequiredMarkdown', 'Markdown 中至少需要一个 ## 章标题。')
     return false
   }
+  if (isLectureOutline.value) {
+    if (segments.some(segment => segment.level !== 1)) {
+      actionError.value = t(
+        'courseGeneration.outlineReview.lectureMarkdownHeadings',
+        '讲次式大纲只使用 ## 讲次标题，每个标题下直接编辑讲次简介。',
+      )
+      return false
+    }
+    const currentChapters = documentChapters.value
+    const usedChapterIds = new Set<string>()
+    const parsed = segments.flatMap((segment, index) => {
+      const normalizedTitle = normalizedEditorText(plainLectureTitle(segment.title))
+      const matched = currentChapters.find((chapter: any) => (
+        !usedChapterIds.has(String(chapter.node_id || ''))
+        && normalizedEditorText(plainLectureTitle(chapter.title)) === normalizedTitle
+      )) || currentChapters[index]
+      const chapterNode = matched?._node || {}
+      const matchedSection = Array.isArray(matched?.sections) ? matched.sections[0] || {} : {}
+      const sectionNode = matchedSection._node || matchedSection
+      const chapterId = String(chapterNode.node_id || outlineNodeId('chapter'))
+      const sectionId = String(sectionNode.node_id || outlineNodeId('section'))
+      const lectureTitle = `第${index + 1}讲 ${plainLectureTitle(segment.title)}`.trim()
+      const sectionTitle = plainLectureTitle(segment.title)
+      const bodyHtml = markdownToEditorHtml(segment.body)
+      usedChapterIds.add(chapterId)
+      return [{
+        ...clone(chapterNode),
+        node_id: chapterId,
+        parent_node_id: String(chapterNode.parent_node_id || 'root'),
+        node_name: lectureTitle,
+        node_level: 1,
+        prerequisite_node_ids: Array.isArray(chapterNode.prerequisite_node_ids) ? chapterNode.prerequisite_node_ids : [],
+        outline_editor_html: {
+          ...(chapterNode.outline_editor_html || {}),
+          title_html: escapeEditorText(lectureTitle),
+        },
+      }, {
+        ...clone(sectionNode),
+        node_id: sectionId,
+        parent_node_id: chapterId,
+        node_name: sectionTitle,
+        node_level: 2,
+        content_summary: editorPlainText(bodyHtml).trim(),
+        prerequisite_node_ids: Array.isArray(sectionNode.prerequisite_node_ids) ? sectionNode.prerequisite_node_ids : [],
+        outline_editor_html: {
+          ...(sectionNode.outline_editor_html || {}),
+          title_html: escapeEditorText(sectionTitle),
+          body_html: bodyHtml,
+          body_markdown: segment.body,
+        },
+      }]
+    })
+    const keptIds = new Set(parsed.map(node => String(node.node_id || '')))
+    parsed.forEach(node => {
+      node.prerequisite_node_ids = node.prerequisite_node_ids.filter((id: string) => keptIds.has(String(id)))
+    })
+    replaceBlueprintNodes(parsed)
+    recordEditHistory()
+    richEditorDirty.value = false
+    actionError.value = ''
+    return true
+  }
   const existing = blueprintNodes.value
   const usedIds = new Set<string>()
   let currentChapterId = ''
@@ -2293,7 +2482,7 @@ async function setEditorMode(mode: 'visual' | 'markdown') {
   if (mode === 'markdown') {
     if (!syncRichEditorToNodes()) return
     markdownDraft.value = outlineNodesToMarkdown()
-  } else if (!syncMarkdownToNodes()) {
+  } else if (richEditorDirty.value && !syncMarkdownToNodes()) {
     return
   }
   editorMode.value = mode
@@ -2915,7 +3104,9 @@ function syncRichEditorToNodes() {
 }
 
 function syncActiveEditorToNodes() {
-  return editorMode.value === 'markdown' ? syncMarkdownToNodes() : syncRichEditorToNodes()
+  return editorMode.value === 'markdown'
+    ? (!richEditorDirty.value || syncMarkdownToNodes())
+    : syncRichEditorToNodes()
 }
 
 function currentNodeSnapshot() {
@@ -3054,8 +3245,8 @@ async function persistDraft(showMessage = true) {
   if (!syncActiveEditorToNodes()) throw new Error('invalid-outline-editor-document')
   const result = await workspace.saveBlueprint(props.courseId, draftPayload())
   if (result?.draft) blueprintDraft.value = clone(result.draft)
-  richEditorDirty.value = false
   setQualityReview(result?.quality_report || result?.draft?.course_outline_quality_report || {})
+  richEditorDirty.value = false
   syncNavigationFromDraft()
   baseline.value = draftSignature.value
   if (showMessage) ElMessage.success(t('courseGeneration.outlineReview.savedMessage', '目录修改已保存'))
@@ -3292,6 +3483,10 @@ async function requestAiCandidate(instruction: string, qualityIssueCode = '') {
   return generateAdjustmentProposal()
 }
 
+function openInlineAi() {
+  inlineAiAction.value?.openForDocument()
+}
+
 function requestQualityRepair(issue: Record<string, any>) {
   targetQualityIssueCode.value = String(issue.code || '').trim()
   const baseInstruction = String(issue.repair_instruction || '').trim()
@@ -3305,20 +3500,27 @@ function requestQualityRepair(issue: Record<string, any>) {
 
 function qualityIssueField(issue: Record<string, any>) {
   const code = String(issue.code || '')
+  const hasNodeTarget = Array.isArray(issue.node_ids) && issue.node_ids.length > 0
   if (code.includes('course_intro_zh')) return 'course_intro_zh'
   if (code.includes('course_intro_en')) return 'course_intro_en'
   if (code.includes('positioning')) return 'positioning'
   if (code.includes('education_objective')) return 'education_objectives'
   if (code.includes('measurable_outcome')) return 'measurable_outcomes'
   if (code.includes('outcome_alignment')) return 'outcome_alignment'
-  if (code.includes('assessment')) return 'assessment_plan'
+  if (code.includes('content_summary')) return 'content_summary'
+  if (code.includes('scope')) return 'scope_boundary'
+  if (code.includes('key_difficult')) return 'key_difficulties'
+  if (code.includes('key_point')) return 'key_points'
+  if (code.includes('activit')) return 'activities'
+  if (code.includes('homework')) return 'homework'
+  if (code.includes('assessment')) return hasNodeTarget ? 'assessment' : 'assessment_plan'
   if (code.includes('module')) return 'course_modules'
   if (code.includes('learning_task') || code.includes('online_task')) return 'learning_tasks'
   if (code.includes('extension_resource')) return 'extension_resources'
   if (code.includes('hour')) return 'hour_breakdown'
   if (code.includes('reference_website')) return 'reference_websites'
   if (code.includes('reference')) return 'reference_books'
-  if (code.includes('course_outcome') || code.includes('learning_objective')) return 'learning_objectives'
+  if (code.includes('course_outcome') || code.includes('learning_objective')) return hasNodeTarget ? 'learning_objective' : 'learning_objectives'
   return ''
 }
 
@@ -3327,8 +3529,6 @@ async function focusQualityIssueEditor(issue: Record<string, any>) {
   await nextTick()
   const contractEditor = formalContractEditorRef.value
   if (!contractEditor) return false
-  contractEditor.open = true
-  await nextTick()
   const nodeIds = new Set(
     (Array.isArray(issue.node_ids) ? issue.node_ids : [])
       .map((item: unknown) => String(item || '').trim())
@@ -3454,6 +3654,7 @@ defineExpose({
   focusQualityIssueEditor,
   resolveAiCandidate,
   focusAiCandidate,
+  openInlineAi,
   canConfirm: computed(() => Boolean(blueprintNodes.value.length)),
   qualityReview: qualityArtifact,
   dirty,
@@ -3467,6 +3668,7 @@ defineExpose({
 
 <style scoped>
 .outline-review {
+  position:relative;
   box-sizing:border-box;
   height:100%;
   min-height:0;
@@ -3486,6 +3688,8 @@ defineExpose({
   overflow:hidden;
   background:#fff;
 }
+.outline-review__sheet.has-ai-candidate{grid-template-rows:auto minmax(0,1fr) auto}
+.outline-candidate-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 18px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.outline-candidate-notice>div{min-width:0;display:flex;align-items:center;gap:9px}.outline-candidate-notice>div>span{display:grid;gap:2px}.outline-candidate-notice strong{font-size:14px}.outline-candidate-notice small{color:#676aa0;font-size:11px}.outline-candidate-notice nav{flex:none;display:flex;align-items:center;gap:6px}.outline-candidate-notice button{min-height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d0d1ee;border-radius:7px;color:#4f55a9;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.outline-candidate-notice button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.outline-candidate-notice button:hover:not(:disabled){border-color:#9692e8;color:#4338ca;background:#f8f7ff}.outline-candidate-notice button.primary:hover:not(:disabled){border-color:#433bc4;color:#fff;background:#433bc4}.outline-candidate-notice button:focus-visible{outline:3px solid rgba(91,84,232,.22);outline-offset:2px}.outline-candidate-notice button:disabled{opacity:.5;cursor:not-allowed}
 .outline-review__loading,
 .outline-review__load-error {
   grid-row:1;
@@ -3802,6 +4006,16 @@ defineExpose({
   color:#20293a;
   animation:formal-outline-reveal .42s cubic-bezier(.16,1,.3,1) both;
 }
+.formal-outline--editing {
+  display:flex;
+  flex-direction:column;
+}
+.formal-outline--editing > :not(.outline-rich-editor):not(.outline-markdown-workspace):not(.formal-contract-editor) {
+  display:none;
+}
+.formal-outline--editing > .outline-rich-editor,
+.formal-outline--editing > .outline-markdown-workspace,
+.formal-outline--editing > .formal-contract-editor { order:1; }
 .formal-outline__masthead {
   position:relative;
   overflow:hidden;
@@ -3941,20 +4155,17 @@ defineExpose({
   border-top:1px solid #dfe3e9;
   border-bottom:1px solid #dfe3e9;
 }
-.formal-contract-editor > summary {
+.formal-contract-editor__heading {
   display:flex;
   align-items:center;
   justify-content:space-between;
   gap:20px;
   padding:20px 0;
-  cursor:pointer;
-  list-style:none;
 }
-.formal-contract-editor > summary::-webkit-details-marker { display:none; }
-.formal-contract-editor > summary span { display:grid; gap:4px; }
-.formal-contract-editor > summary strong { color:#263047; font-size:17px; }
-.formal-contract-editor > summary small { color:#737d8f; font-size:13px; line-height:1.55; }
-.formal-contract-editor > summary em {
+.formal-contract-editor__heading span { display:grid; gap:4px; }
+.formal-contract-editor__heading strong { color:#263047; font-size:17px; }
+.formal-contract-editor__heading small { color:#737d8f; font-size:13px; line-height:1.55; }
+.formal-contract-editor__heading em {
   min-width:28px;
   height:28px;
   display:grid;
@@ -4643,7 +4854,6 @@ defineExpose({
   border-bottom:1px solid #e7e9ef;
 }
 .outline-review[data-variant="inline"] .formal-outline__brief { padding-inline:64px; }
-.outline-review[data-variant="inline"] .outline-quality,
 .outline-review[data-variant="inline"] .formal-outline__schedule { margin-inline:64px; padding-inline:0; }
 .outline-review[data-variant="inline"] .formal-outline__schedule { padding-top:28px; }
 .outline-review[data-variant="inline"] .outline-markdown-workspace { margin:28px 64px 0; }
@@ -4826,11 +5036,9 @@ defineExpose({
   .formal-outline__brief { grid-template-columns:1fr; padding:30px 12px; }
   .formal-outline__brief > div { padding:0; }
   .formal-outline__brief > div + div { margin-top:28px; padding:28px 0 0; border-top:1px solid #e7e9ef; border-left:0; }
-  .outline-quality,.formal-outline__schedule,.formal-outline__lecture-evidence { margin-inline:12px; padding-inline:0; }
-  .outline-quality > header,.formal-outline__schedule > header { align-items:flex-start; flex-direction:column; gap:8px; }
-  .outline-quality > header > p,.formal-outline__schedule > header p { text-align:left; }
-  .outline-quality li { grid-template-columns:1fr; gap:9px; }
-  .outline-quality li button { justify-self:start; }
+  .formal-outline__schedule,.formal-outline__lecture-evidence { margin-inline:12px; padding-inline:0; }
+  .formal-outline__schedule > header { align-items:flex-start; flex-direction:column; gap:8px; }
+  .formal-outline__schedule > header p { text-align:left; }
   .formal-outline__chapter-block > header { grid-template-columns:32px minmax(0,1fr); gap:10px; }
   .formal-outline__chapter-block > header small { grid-column:2; }
   .formal-outline__chapter-block > ol { margin-left:42px; }
@@ -4851,7 +5059,6 @@ defineExpose({
 @media (prefers-reduced-motion:reduce) {
   .outline-review__loading svg,
   .outline-review__actions svg,
-  .formal-outline,
-  .outline-quality svg { animation:none!important; }
+  .formal-outline { animation:none!important; }
 }
 </style>

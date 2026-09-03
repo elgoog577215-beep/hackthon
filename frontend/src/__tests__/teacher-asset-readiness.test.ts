@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  teacherLessonPlanCanGenerate,
   teacherLessonPlanIsReady,
   teacherLessonPptAssetIsReady,
   teacherLessonPptIsReady,
+  teacherLessonScriptCanGenerate,
   teacherLessonScriptIsReady,
 } from '../shared/teacher-asset-readiness'
 import type { TeacherLessonProjection } from '../stores/teacherLessonAuthoring'
@@ -77,5 +79,24 @@ describe('teacher asset readiness contract', () => {
     expect(teacherLessonPlanIsReady(lesson)).toBe(true)
     expect(teacherLessonScriptIsReady(lesson)).toBe(true)
     expect(teacherLessonPptIsReady(lesson)).toBe(true)
+  })
+
+  it('uses backend generation eligibility instead of inferring it from visible content', () => {
+    const lesson = lessonWith()
+    lesson.arrangement = {
+      source_state: 'current',
+      blocks: [{ block_id: 'block-1' }],
+    } as TeacherLessonProjection['arrangement']
+    lesson.plan.ready = true
+    lesson.plan.can_generate = false
+    lesson.script.can_generate = false
+
+    expect(teacherLessonPlanCanGenerate(lesson)).toBe(false)
+    expect(teacherLessonScriptCanGenerate(lesson)).toBe(false)
+
+    delete lesson.plan.can_generate
+    delete lesson.script.can_generate
+    expect(teacherLessonPlanCanGenerate(lesson)).toBe(true)
+    expect(teacherLessonScriptCanGenerate(lesson)).toBe(true)
   })
 })

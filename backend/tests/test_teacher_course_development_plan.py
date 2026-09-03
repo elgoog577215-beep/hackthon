@@ -95,6 +95,72 @@ def test_course_preparation_status_requires_every_current_complete_asset():
     assert courses._teacher_preparation_projection(course, repository)["preparation_state"] == "preparing"
 
 
+def test_course_preparation_projects_the_latest_active_lesson_batch():
+    repository = SimpleNamespace(view=lambda _course_id: {
+        "outline_revision_id": "outline-1",
+        "lessons": {},
+        "jobs": {
+            "old": {
+                "id": "old",
+                "type": "teacher_lesson_plan_generation",
+                "status": "completed",
+                "updated_at": "2026-09-01T09:00:00+00:00",
+            },
+            "lesson-1": {
+                "id": "lesson-1",
+                "parent_job_id": "batch-1",
+                "type": "teacher_lesson_plan_generation",
+                "lesson_unit_id": "lecture-1",
+                "status": "completed",
+                "progress": 100,
+                "batch_position": 1,
+                "batch_size": 3,
+                "updated_at": "2026-09-02T09:00:00+00:00",
+            },
+            "lesson-2": {
+                "id": "lesson-2",
+                "parent_job_id": "batch-1",
+                "type": "teacher_lesson_plan_generation",
+                "lesson_unit_id": "lecture-2",
+                "status": "running",
+                "progress": 50,
+                "message": "正在生成第 2 讲教案",
+                "batch_position": 2,
+                "batch_size": 3,
+                "updated_at": "2026-09-02T09:01:00+00:00",
+            },
+            "lesson-3": {
+                "id": "lesson-3",
+                "parent_job_id": "batch-1",
+                "type": "teacher_lesson_plan_generation",
+                "lesson_unit_id": "lecture-3",
+                "status": "pending",
+                "progress": 0,
+                "batch_position": 3,
+                "batch_size": 3,
+                "updated_at": "2026-09-02T09:00:30+00:00",
+            },
+        },
+    })
+
+    result = courses._teacher_preparation_projection(
+        {"course_id": "course-1"},
+        repository,
+    )["preparation_summary"]["current_production"]
+
+    assert result == {
+        "target": "lesson_plan",
+        "status": "running",
+        "completed": 1,
+        "total": 3,
+        "failed": 0,
+        "progress": 50,
+        "current_lesson_ids": ["lecture-2", "lecture-3"],
+        "message": "正在生成第 2 讲教案",
+        "updated_at": "2026-09-02T09:01:00+00:00",
+    }
+
+
 def test_outline_review_findings_do_not_block_lesson_plan_entry():
     source = {
         "outline_framework_only": False,
@@ -154,13 +220,13 @@ async def test_generate_all_lesson_plans_returns_parent_and_independent_queue_me
             "lesson_unit_id": "lesson-1",
             "title": "第一讲",
             "arrangement": {"confirmed": True, "blocks": [{"block_id": "b1"}]},
-            "plan": {},
+            "plan": {"can_generate": True},
         },
         {
             "lesson_unit_id": "lesson-2",
             "title": "第二讲",
             "arrangement": {"confirmed": True, "blocks": [{"block_id": "b2"}]},
-            "plan": {},
+            "plan": {"can_generate": True},
         },
     ]
     monkeypatch.setattr(lesson_router, "_source_course", lambda _tm, _course_id: source)

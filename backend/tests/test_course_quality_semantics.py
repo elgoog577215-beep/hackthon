@@ -137,6 +137,69 @@ def test_stream_finalizer_does_not_count_dollars_inside_code_fence():
     assert fix_latex_content(content).rstrip().endswith("```")
 
 
+def test_stream_finalizer_converts_latex_code_macro_before_persistence():
+    content = _content(
+        '\n\n可验证行为：\\texttt{find("span", class\\_="price")} '
+        "是从根开始第几个子节点被命中。"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert '`find("span", class_="price")`' in cleaned
+    assert "\\texttt" not in cleaned
+
+
+def test_stream_finalizer_preserves_texttt_inside_math_and_code_fences():
+    content = _content(
+        "\n\n数学记号 $\\texttt{token\\_id}$ 保持公式语义。"
+        "\n\n$$\\texttt{build()}$$"
+        "\n\n$$\n\\texttt{render()}\n$$"
+        "\n\n```latex\n\\texttt{literal\\_source}\n```\n"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert "$\\texttt{token\\_id}$" in cleaned
+    assert "$$\\texttt{build()}$$" in cleaned
+    assert "$$\n\\texttt{render()}\n$$" in cleaned
+    assert "```latex\n\\texttt{literal\\_source}\n```" in cleaned
+
+
+def test_stream_finalizer_repairs_malformed_math_wrapped_code_and_inline_code():
+    content = _content(
+        "\n\n| 检查项 | 正确做法 | 常见错误 |"
+        "\n| --- | --- | --- |"
+        "\n| None 处理 | 用 $\\texttt{if result:\\} result.get\\_text()$ | 跳过判空 |"
+        '\n\n已有 `\\texttt{find("span", class\\_="price")}` 代码。'
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert "`if result: result.get_text()`" in cleaned
+    assert '`find("span", class_="price")`' in cleaned
+    assert "\\texttt{if result:" not in cleaned
+
+
+def test_stream_finalizer_repairs_split_markdown_table_row_and_orphan_dollars():
+    content = _content(
+        "\n\n| 检查项 | 正确做法 | 常见错误 |"
+        "\n| --- | --- | --- |"
+        "\n| 文本提取 | 用 $\\texttt{.get\\_text()}$"
+        "\n$ 或 $\\texttt{.string}$（仅无子节点时） | "
+        "对含子标签的 Tag 直接用 $\\texttt{.string}$，得到 None |$"
+        "\n\n$。判断：确认返回结果。$"
+    )
+
+    cleaned = fix_latex_content(content)
+
+    assert (
+        "| 文本提取 | 用 `.get_text()` 或 `.string`（仅无子节点时） | "
+        "对含子标签的 Tag 直接用 `.string`，得到 None |"
+    ) in cleaned
+    assert cleaned.endswith("\n\n。判断：确认返回结果。")
+    assert "|$" not in cleaned
+
+
 def test_duplicate_node_heading_is_rejected_before_it_becomes_an_empty_intro_block():
     report = evaluate_node_content(
         "## 二叉搜索树\n\n## 本节任务\n\n请分析树高。\n\n## 检查与反馈\n\n检查退化条件。",

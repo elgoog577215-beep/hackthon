@@ -1670,6 +1670,16 @@ def project_confirmed_teacher_scripts(
     return project_current_teacher_scripts(preview, authoring_state)
 
 
+TEACHER_JOB_ACTIVE_STATUSES = frozenset({"pending", "running"})
+TEACHER_JOB_FROZEN_STATUSES = frozenset({
+    "paused",
+    "failed",
+    "cancelled",
+    "completed_with_warnings",
+    "completed",
+})
+
+
 class TeacherLessonAuthoringRepository:
     def __init__(self, root: str | Path | None = None):
         self.root = Path(root) if root is not None else _default_root()
@@ -1721,7 +1731,6 @@ class TeacherLessonAuthoringRepository:
             if not live_jobs:
                 self._live_stream_jobs.pop(course_id, None)
         self._live_stream_touched_at.pop((course_id, job_id), None)
-
     def load(self, course_id: str) -> dict[str, Any]:
         with self._lock:
             path = self._path(course_id)
@@ -2036,11 +2045,12 @@ class TeacherLessonAuthoringRepository:
             job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
-            value["jobs"][job_id] = self._apply_job_changes_locked(job, changes)
+            if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
+                return deepcopy(job)
+            job = self._apply_job_changes_locked(job, changes)
+            value["jobs"][job_id] = job
             saved = self._save(value)
-            if str(job.get("status") or "") in {
-                "completed", "completed_with_warnings", "failed", "cancelled", "paused"
-            }:
+            if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
                 self._drop_live_stream_job_locked(course_id, job_id)
             elif job_id in (self._live_stream_jobs.get(course_id) or {}):
                 # A validated checkpoint must not erase token streams that are
@@ -2063,6 +2073,8 @@ class TeacherLessonAuthoringRepository:
                 job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
+            if str(job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+                return deepcopy(job)
             job = self._apply_job_changes_locked(job, changes)
             live_jobs[job_id] = job
             self._live_stream_touched_at[(course_id, job_id)] = time.monotonic()
@@ -2093,6 +2105,8 @@ class TeacherLessonAuthoringRepository:
                 job = (value.get("jobs") or {}).get(job_id)
             if not isinstance(job, dict):
                 raise TeacherLessonAuthoringError("teacher_job_not_found", "教师讲次任务不存在。")
+            if str(job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+                return deepcopy(job)
             batches = deepcopy(job.get("stream_batches") or {})
             if event == "reset":
                 batches[batch_id] = ""
@@ -2146,9 +2160,7 @@ class TeacherLessonAuthoringRepository:
                     "teacher_job_not_found",
                     "教师讲次任务不存在。",
                 )
-            if str(job.get("status") or "") in {
-                "completed", "completed_with_warnings", "failed", "cancelled"
-            }:
+            if str(job.get("status") or "") in TEACHER_JOB_FROZEN_STATUSES:
                 return deepcopy(job)
             timestamp = _now()
             job.update({
@@ -2216,9 +2228,20 @@ class TeacherLessonAuthoringRepository:
         quality_report: dict[str, Any] | None = None,
         actor: str = "teacher",
         restored_from_revision_id: str = "",
+        active_job_id: str = "",
     ) -> dict[str, Any]:
         with self._lock:
             value = self.load(course_id)
+            if active_job_id:
+                active_job = (value.get("jobs") or {}).get(active_job_id)
+                if (
+                    not isinstance(active_job, dict)
+                    or str(active_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES
+                ):
+                    raise TeacherLessonAuthoringError(
+                        "teacher_job_not_active",
+                        "任务已停止，迟到的教案结果未保存。",
+                    )
             normalized_plan = normalize_teacher_lesson_plan(plan)
             effective_quality = deepcopy(
                 quality_report or validate_teacher_lesson_plan(normalized_plan)
@@ -3229,6 +3252,7 @@ class TeacherLessonAuthoringRepository:
         expected_working_revision_id: str | None = None,
         revision_id_override: str = "",
         restored_from_revision_id: str = "",
+        active_job_id: str = "",
     ) -> dict[str, Any]:
         normalized_sections = []
         for item in sections:
@@ -3280,6 +3304,16 @@ class TeacherLessonAuthoringRepository:
         revision_id = revision_id_override or teacher_lesson_script_sections_revision(normalized_sections)
         with self._lock:
             value = self.load(course_id)
+            if active_job_id:
+                active_job = (value.get("jobs") or {}).get(active_job_id)
+                if (
+                    not isinstance(active_job, dict)
+                    or str(active_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES
+                ):
+                    raise TeacherLessonAuthoringError(
+                        "teacher_job_not_active",
+                        "任务已停止，迟到的讲义结果未保存。",
+                    )
             lesson = (value.get("lessons") or {}).get(lesson_unit_id)
             if not isinstance(lesson, dict):
                 raise TeacherLessonAuthoringError(
@@ -4006,7 +4040,7 @@ class TeacherLessonAuthoringService:
         course_data: dict[str, Any],
         planner: Planner,
     ) -> dict[str, Any]:
-        await asyncio.to_thread(
+        started_job = await asyncio.to_thread(
             self.repository.update_job,
             course_id,
             job_id,
@@ -4015,6 +4049,8 @@ class TeacherLessonAuthoringService:
             progress=5,
             message="正在生成本讲全部小节教案",
         )
+        if str(started_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+            return started_job
 
         async def on_progress(
             phase: str,
@@ -4152,6 +4188,7 @@ class TeacherLessonAuthoringService:
                 warnings=warnings,
                 source_refs=source_refs,
                 quality_report=quality_report,
+                active_job_id=job_id,
             )
             current_job = await asyncio.to_thread(
                 self.repository.get_job,
@@ -4343,7 +4380,7 @@ class TeacherLessonAuthoringService:
         completed_count = sum(
             1 for state in block_states.values() if state == "completed"
         )
-        self.repository.update_job(
+        started_job = self.repository.update_job(
             course_id,
             job_id,
             status="running",
@@ -4362,6 +4399,8 @@ class TeacherLessonAuthoringService:
             stream_complete=False,
             error=None,
         )
+        if str(started_job.get("status") or "") not in TEACHER_JOB_ACTIVE_STATUSES:
+            return started_job
 
         current_block_id = ""
         current_block_title = ""
@@ -4794,6 +4833,7 @@ class TeacherLessonAuthoringService:
                 requirements=requirements,
                 material_asset_ids=material_asset_ids or [],
                 actor=actor,
+                active_job_id=job_id,
             )
             current_job = self.repository.get_job(course_id, job_id)
             return self.repository.update_job(

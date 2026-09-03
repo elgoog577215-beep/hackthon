@@ -36,6 +36,36 @@ function currentDraft() {
   }
 }
 
+function lectureDraft() {
+  return {
+    ...currentDraft(),
+    authoring_structure_version: 'lecture_v1',
+    course_plan: {
+      authoring_structure_version: 'lecture_v1',
+      course_title: '网络爬虫',
+      chapters: [{
+        chapter_number: 1,
+        title: '第1讲 网络爬虫概述',
+        sections: [{
+          node_id: 'L2-1-1',
+          section_number: '1',
+          title: '网络爬虫概述',
+          content_summary: '介绍爬虫工作流程与合规边界。',
+        }],
+      }],
+    },
+    nodes: [{
+      ...currentDraft().nodes[0],
+      node_name: '第1讲 网络爬虫概述',
+    }, {
+      ...currentDraft().nodes[1],
+      node_name: '网络爬虫概述',
+      learning_objective: '能解释爬虫的基本工作流程。',
+      content_summary: '介绍爬虫工作流程与合规边界。',
+    }],
+  }
+}
+
 function proposal() {
   const draft = currentDraft()
   draft.draft_revision_id = 'draft-proposed'
@@ -525,6 +555,126 @@ describe('一句话调整课程目录', () => {
           body_markdown: expect.stringContaining('```mermaid'),
         }),
       })]),
+    }))
+  })
+
+  it('讲次式大纲可在文档与 Markdown 之间往返，切换本身不改写讲次简介', async () => {
+    const workspace = useCourseWorkspaceStore()
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: lectureDraft() } as any)
+    const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({ draft: payload }) as any)
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-lecture-markdown',
+        courseName: '网络爬虫',
+        editable: true,
+        variant: 'inline',
+        requiresConfirmation: false,
+        surface: 'teacher',
+        task: {
+          status: 'waiting_for_input',
+          currentPhase: 'outline_framework_ready',
+        } as any,
+      },
+    })
+    await flushPromises()
+
+    const modeButtons = wrapper.findAll('.outline-editor-modes button')
+    expect(modeButtons.map(button => button.text())).toEqual(['文档', 'Markdown'])
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').text()).toContain('介绍爬虫工作流程与合规边界。')
+
+    await modeButtons[1]!.trigger('click')
+    const source = wrapper.get<HTMLTextAreaElement>('[data-testid="outline-markdown-editor"] textarea')
+    expect(source.element.value).toBe('## 第1讲 网络爬虫概述\n\n介绍爬虫工作流程与合规边界。')
+    await modeButtons[0]!.trigger('click')
+    expect((wrapper.vm as any).dirty).toBe(false)
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').text()).toContain('介绍爬虫工作流程与合规边界。')
+
+    await modeButtons[1]!.trigger('click')
+    await wrapper.get<HTMLTextAreaElement>('[data-testid="outline-markdown-editor"] textarea').setValue(
+      '## 第1讲 网络爬虫入门\n\n改为先讲清请求、解析与合规边界。',
+    )
+    await modeButtons[0]!.trigger('click')
+    expect((wrapper.vm as any).dirty).toBe(true)
+    expect(wrapper.get('[data-testid="outline-rich-editor"] h2').text()).toContain('第1讲 网络爬虫入门')
+    expect(wrapper.get('[data-testid="outline-rich-editor"]').text()).toContain('改为先讲清请求、解析与合规边界。')
+
+    await (wrapper.vm as any).finishEditing()
+    expect(save).toHaveBeenCalledWith('course-lecture-markdown', expect.objectContaining({
+      nodes: expect.arrayContaining([expect.objectContaining({
+        node_id: 'L2-1-1',
+        content_summary: '改为先讲清请求、解析与合规边界。',
+      })]),
+    }))
+  })
+
+  it('完整大纲编辑直接开放课程级和每讲全部正式字段', async () => {
+    const workspace = useCourseWorkspaceStore()
+    const draft: any = lectureDraft()
+    draft.course_plan = {
+      ...draft.course_plan,
+      course_intro_zh: '原课程简介',
+      prerequisites: ['Python 基础'],
+      assessment_methods: ['平时作业'],
+      ideology_cases: ['第1讲：讨论数据合规边界'],
+      course_website: 'https://example.com/course',
+    }
+    draft.nodes = draft.nodes.map((node: any) => node.node_id === 'L2-1-1' ? {
+      ...node,
+      scope_boundary: '不涉及反爬对抗。',
+      assessment: ['提交合规分析。'],
+      key_points: ['请求与解析流程'],
+      key_difficulties: ['数据合规边界'],
+      activities: ['案例研讨'],
+      homework: ['完成 robots.txt 分析'],
+    } : node)
+    vi.spyOn(workspace, 'loadBlueprint').mockResolvedValue({ current: draft } as any)
+    const save = vi.spyOn(workspace, 'saveBlueprint').mockImplementation(async (_courseId, payload) => ({ draft: payload }) as any)
+    const wrapper = mount(CourseOutlineReview, {
+      props: {
+        courseId: 'course-full-outline-edit',
+        courseName: '网络爬虫',
+        editable: true,
+        variant: 'inline',
+        requiresConfirmation: false,
+        surface: 'teacher',
+        task: { status: 'completed', currentPhase: 'teacher_outline_ready' } as any,
+      },
+    })
+    await flushPromises()
+
+    const editor = wrapper.get('[data-testid="formal-syllabus-contract-editor"]')
+    expect(editor.text()).toContain('编辑完整课程大纲')
+    expect(wrapper.find('.outline-document-toolbar').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="outline-rich-editor"]').exists()).toBe(false)
+    expect(editor.find('[data-outline-field="course_intro_zh"] textarea').exists()).toBe(true)
+    expect(editor.find('[data-outline-field="prerequisites"] textarea').exists()).toBe(true)
+    expect(editor.find('[data-outline-field="course_website"] input').exists()).toBe(true)
+    const lecture = editor.get('.formal-contract-editor__lecture')
+    expect(lecture.attributes()).toHaveProperty('open')
+    for (const field of ['node_name', 'content_summary', 'learning_objective', 'scope_boundary', 'key_points', 'key_difficulties', 'assessment', 'activities', 'homework', 'application_anchors']) {
+      expect(lecture.find(`[data-outline-field="${field}"]`).exists()).toBe(true)
+    }
+
+    await editor.get('[data-outline-field="course_intro_zh"] textarea').setValue('新课程简介')
+    await lecture.get('[data-outline-field="node_name"] input').setValue('爬虫入门与合规')
+    await lecture.get('[data-outline-field="scope_boundary"] textarea').setValue('仅建立请求、解析与合规认知。')
+    await lecture.get('[data-outline-field="assessment"] textarea').setValue('提交一份可检查的 robots.txt 分析。')
+    await lecture.get('[data-outline-field="activities"] textarea').setValue('分组判断三个抓取案例是否合规。')
+    expect((wrapper.vm as any).dirty).toBe(true)
+
+    await (wrapper.vm as any).finishEditing()
+    expect(save).toHaveBeenCalledWith('course-full-outline-edit', expect.objectContaining({
+      course_plan: expect.objectContaining({ course_intro_zh: '新课程简介' }),
+      nodes: expect.arrayContaining([
+        expect.objectContaining({ node_id: 'L1-1', node_name: '第1讲 爬虫入门与合规' }),
+        expect.objectContaining({
+          node_id: 'L2-1-1',
+          node_name: '爬虫入门与合规',
+          scope_boundary: '仅建立请求、解析与合规认知。',
+          assessment: ['提交一份可检查的 robots.txt 分析。'],
+          activities: ['分组判断三个抓取案例是否合规。'],
+        }),
+      ]),
     }))
   })
 

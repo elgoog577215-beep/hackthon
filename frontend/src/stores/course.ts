@@ -121,6 +121,8 @@ export const useCourseStore = defineStore('course', {
     currentCourseProjection: 'published' as CourseProjection,
     currentGenerationPreviewUpdatedAt: '' as string,
     generationPreviewLoading: false,
+    courseLoadVersion: 0,
+    generationPreviewRequestVersion: 0,
     courseTree: [] as Node[],
     nodes: [] as Node[],
     currentNode: null as Node | null,
@@ -268,6 +270,7 @@ export const useCourseStore = defineStore('course', {
         previewSurface?: 'student' | 'teacher'
         silentError?: boolean
     } = {}) {
+        const loadVersion = ++this.courseLoadVersion
         this.loading = true
         this.currentCourseId = courseId
         this.currentCourseProjection = 'published'
@@ -294,6 +297,7 @@ export const useCourseStore = defineStore('course', {
                     silentError: options.silentError,
                     },
                 ))
+                if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
                 const taskData = taskRes.data as Record<string, any> | null
                 if (taskData && taskData.status !== 'none') {
                     backendTask = taskData
@@ -328,23 +332,24 @@ export const useCourseStore = defineStore('course', {
             } catch (_ignore) { /* no task is fine */ }
 
             if (
-                (
-                    options.previewSurface === 'teacher'
-                    || (
-                        backendTask
-                        && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
-                    )
+                options.previewSurface === 'teacher'
+                || (
+                    backendTask
+                    && GENERATION_PREVIEW_STATUSES.has(String(backendTask.status || ''))
                 )
-                && await this.refreshGenerationPreview(courseId, options.previewSurface)
             ) {
-                const reconciledTask = genStore.tasks.get(courseId)
-                genStore.syncCurrentCourseGenerationState(
-                    courseId,
-                    reconciledTask?.status || normalizeTaskStatus(String(backendTask?.status || 'pending')),
-                    Number(reconciledTask?.progress ?? backendTask?.progress ?? 0),
-                    reconciledTask?.currentStep || taskProgressStep(backendTask || {}),
-                )
-                return
+                const previewAvailable = await this.refreshGenerationPreview(courseId, options.previewSurface)
+                if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
+                if (previewAvailable) {
+                    const reconciledTask = genStore.tasks.get(courseId)
+                    genStore.syncCurrentCourseGenerationState(
+                        courseId,
+                        reconciledTask?.status || normalizeTaskStatus(String(backendTask?.status || 'pending')),
+                        Number(reconciledTask?.progress ?? backendTask?.progress ?? 0),
+                        reconciledTask?.currentStep || taskProgressStep(backendTask || {}),
+                    )
+                    return
+                }
             }
 
             const res = await http.get<CourseDocumentEnvelope>(`/api/courses/${courseId}/document`, identityReadRequestConfig(
@@ -352,10 +357,13 @@ export const useCourseStore = defineStore('course', {
                 silentError: options.silentError,
                 },
             ))
+            if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
             if (res.data?.document) {
                 this.applyCourseDocumentEnvelope(res.data)
-                if (this.nodes.length === 0 && await this.refreshGenerationPreview(courseId, options.previewSurface)) {
-                    return
+                if (this.nodes.length === 0) {
+                    const previewAvailable = await this.refreshGenerationPreview(courseId, options.previewSurface)
+                    if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
+                    if (previewAvailable) return
                 }
                 if (options.includeLearningRecords !== false) {
                     void this.fetchCourseAnnotations(courseId)
@@ -379,6 +387,7 @@ export const useCourseStore = defineStore('course', {
                 throw new Error('课程数据为空')
             }
         } catch (error) {
+            if (this.currentCourseId !== courseId || this.courseLoadVersion !== loadVersion) return
             logger.error(error)
             if (!options.silentError) ElMessage.error('加载课程失败')
             this.currentCourseId = ''
@@ -396,7 +405,11 @@ export const useCourseStore = defineStore('course', {
             genStore.isGenerating = false
             genStore.generationStatus = 'idle'
             genStore.generationProgress = 0
-        } finally { this.loading = false }
+        } finally {
+            if (this.currentCourseId === courseId && this.courseLoadVersion === loadVersion) {
+                this.loading = false
+            }
+        }
     },
 
     async deleteCourse(courseId: string, options: { surface?: 'student' | 'teacher' } = {}) {
@@ -461,16 +474,23 @@ export const useCourseStore = defineStore('course', {
 
     async refreshCourseData(courseId: string, surface: 'student' | 'teacher' = 'student') {
         if (this.currentCourseId !== courseId) return
+        const loadVersion = this.courseLoadVersion
         try {
             if (this.currentCourseProjection === 'generation_preview') {
                 const previewAvailable = await this.refreshGenerationPreview(courseId, surface)
                 if (previewAvailable) return
             }
+            const previewVersion = this.generationPreviewRequestVersion
             const res = await http.get<CourseDocumentEnvelope>(
                 `/api/courses/${courseId}/document`,
                 identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
-            if (res.data?.document) {
+            if (
+                this.currentCourseId === courseId
+                && this.courseLoadVersion === loadVersion
+                && this.generationPreviewRequestVersion === previewVersion
+                && res.data?.document
+            ) {
                 this.applyCourseDocumentEnvelope(res.data)
             }
         } catch (e) { logger.error('Failed to refresh course data', e) }
@@ -534,9 +554,8 @@ export const useCourseStore = defineStore('course', {
     },
 
     async refreshGenerationPreview(courseId: string, surface: 'student' | 'teacher' = 'student'): Promise<boolean> {
-        if (this.currentCourseId !== courseId || this.generationPreviewLoading) {
-            return this.currentCourseProjection === 'generation_preview'
-        }
+        if (this.currentCourseId !== courseId) return false
+        const requestVersion = ++this.generationPreviewRequestVersion
         this.generationPreviewLoading = true
         try {
             const endpoint = surface === 'teacher'
@@ -547,6 +566,16 @@ export const useCourseStore = defineStore('course', {
                 identityReadRequestConfig(surface === 'teacher' ? 'teacher' : 'learner', { silentError: true }),
             )
             const preview = response.data
+            if (
+                this.currentCourseId !== courseId
+                || this.generationPreviewRequestVersion !== requestVersion
+            ) {
+                return this.currentCourseId === courseId
+            }
+            if (preview.course_id && String(preview.course_id) !== courseId) {
+                logger.warn('Ignored generation preview for a different course', preview.course_id)
+                return false
+            }
             const currentPreviewTimestamp = Date.parse(this.currentGenerationPreviewUpdatedAt) || 0
             const incomingPreviewTimestamp = Date.parse(String(preview.updated_at || '')) || 0
             if (
@@ -623,10 +652,16 @@ export const useCourseStore = defineStore('course', {
             }
             return true
         } catch (error: any) {
-            if (error?.response?.status !== 404) logger.warn('Failed to refresh generation preview', error)
+            if (
+                this.currentCourseId === courseId
+                && this.generationPreviewRequestVersion === requestVersion
+                && error?.response?.status !== 404
+            ) logger.warn('Failed to refresh generation preview', error)
             return false
         } finally {
-            this.generationPreviewLoading = false
+            if (this.generationPreviewRequestVersion === requestVersion) {
+                this.generationPreviewLoading = false
+            }
         }
     },
 

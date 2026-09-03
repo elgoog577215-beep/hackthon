@@ -192,6 +192,19 @@ def test_content_prompt_exposes_stable_module_heading_and_role_contract():
     assert "必需模块 `## 本节任务` [角色=objective]" in user_prompt
     assert "当前节点名称已经由页面显示" in system_prompt
     assert "`###` 及更深标题只用于模块内部" in system_prompt
+    assert "完整代码使用带语言标记的代码块" in system_prompt
+    assert "Markdown 表格的每一行必须在同一行内完成" in system_prompt
+    assert "\\texttt" in system_prompt
+
+    _minimal_user, minimal_system_prompt = CoursePromptComposer().build_content_prompt(
+        course_data=course,
+        node=node,
+        context="无资料",
+        detail_level="minimal",
+    )
+    assert "代码标识、函数调用和命令使用反引号" in minimal_system_prompt
+    assert "Markdown 表格的每一行必须在同一行内完成" in minimal_system_prompt
+    assert "\\texttt" in minimal_system_prompt
 
 
 def test_forward_prerequisite_is_a_blocking_contract_error():

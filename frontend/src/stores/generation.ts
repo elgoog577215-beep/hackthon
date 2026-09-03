@@ -321,6 +321,7 @@ export const useGenerationStore = defineStore('generation', {
       const localTask = this.tasks.get(course_id)
       if (localTask?.id && task_id && localTask.id !== task_id) return
       if (localTask) {
+        const previousStatus = localTask.status
         if (!shouldApplyTaskSnapshot(
           { status: localTask.status, updated_at: localTask.updatedAt },
           { status: payload.status || localTask.status, updated_at: payload.updated_at },
@@ -361,7 +362,7 @@ export const useGenerationStore = defineStore('generation', {
           localTask.currentStep = generatingNodeLabel(currentNodeName)
         } else if (backendMessage) {
           localTask.currentStep = backendMessage
-        } else if (status === 'pending') {
+        } else if (localTask.status === 'pending') {
           localTask.currentStep = t('courseGeneration.workspace.queued', '等待中…')
         }
         if (payload.current_nodes) {
@@ -377,6 +378,16 @@ export const useGenerationStore = defineStore('generation', {
         if (payload.course_type === 'systematic' || payload.course_type === 'project'
           || payload.course_type === 'inquiry' || payload.course_type === 'exam') {
           localTask.courseType = payload.course_type
+        }
+        if (
+          previousStatus !== 'waiting_for_input'
+          && localTask.status === 'waiting_for_input'
+          && localTask.taskType === 'teacher_outline_generation'
+        ) {
+          const cs = this._courseStore()
+          if (cs.currentCourseId === course_id) {
+            void cs.refreshGenerationPreview(course_id, 'teacher')
+          }
         }
       }
       this.taskProgress[course_id] = projectTaskProgress(this.taskProgress[course_id], {
@@ -947,6 +958,7 @@ export const useGenerationStore = defineStore('generation', {
         const tasks = Array.from(this.tasks.values()).map(task => ({
           id: task.id, courseId: task.courseId, courseName: task.courseName, status: task.status,
           progress: task.progress, currentStep: task.currentStep,
+          taskType: task.taskType, updatedAt: task.updatedAt, heartbeatAt: task.heartbeatAt,
           currentPhase: task.currentPhase, phaseProgress: task.phaseProgress, phaseDetail: task.phaseDetail,
           difficulty: task.difficulty, compositionStyle: task.compositionStyle, courseType: task.courseType,
           style: task.style, requirements: task.requirements,

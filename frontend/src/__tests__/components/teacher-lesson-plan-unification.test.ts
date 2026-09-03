@@ -190,8 +190,10 @@ describe('统一教案页面', () => {
       props: { courseId: 'course-1', lesson, confirmed: true },
     })
 
+    await flushPromises()
     await wrapper.findAll('.document-actions button').find(button => button.text().includes('AI 修改'))!.trigger('click')
-    expect(wrapper.emitted('open-ai')).toHaveLength(1)
+    await flushPromises()
+    expect(wrapper.find('.text-selection-ai__composer').exists()).toBe(true)
 
     await (wrapper.vm as unknown as {
       requestAiCandidate: (instruction: string) => Promise<unknown>
@@ -199,8 +201,7 @@ describe('统一教案页面', () => {
     }).requestAiCandidate('增加可观察目标')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('AI 方案')
-    expect(wrapper.text()).toContain('AI 候选正在左侧画布预览')
+    expect(wrapper.text()).toContain('AI 候选已嵌入教案正文')
     expect(wrapper.text()).toContain('AI 优化后的可观察目标')
     expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
     await (wrapper.vm as unknown as { resolveAiCandidate: (accept: boolean) => Promise<boolean> }).resolveAiCandidate(true)
@@ -252,7 +253,8 @@ describe('统一教案页面', () => {
     expect(workbenchSource).toContain('@lesson-type-change="updateOutlineLessonType"')
     expect(workbenchSource).not.toContain('class="outline-lesson-type-plan"')
     expect(workbenchSource).toContain(':show-history="false"')
-    expect(workbenchSource).toContain(':selection-ai-enabled="false"')
+    expect(workbenchSource).not.toContain(':selection-ai-enabled="false"')
+    expect(workbenchSource).toContain('@open-ai-selection="openAiFromSelection(\'lesson\', $event)"')
     expect(workbenchSource).not.toContain('class="lesson-command-context"')
   })
 

@@ -30,6 +30,76 @@ const katexText = (html: string) => {
 }
 
 describe('renderMarkdown – 真实 KaTeX 兼容', () => {
+  it('把裸露的 LaTeX 打字机代码恢复为 Markdown 行内代码', () => {
+    const html = renderMarkdown(String.raw`可验证行为：\texttt{find("span", class\_="price")} 是从根开始第几个子节点被命中。`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelector('code')?.textContent).toBe('find("span", class_="price")')
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+    expect(renderedText(html)).not.toContain('\\texttt')
+  })
+
+  it('保留显式数学区和代码块里的 texttt 原语义', () => {
+    const html = renderMarkdown([
+      String.raw`数学记号 $\texttt{token\_id}$ 应继续交给 KaTeX。`,
+      String.raw`$$\texttt{build()}$$`,
+      '',
+      '```latex',
+      String.raw`\texttt{literal\_source}`,
+      '```',
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelectorAll('.katex').length).toBeGreaterThanOrEqual(2)
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+    expect(box.querySelector('pre code')?.textContent).toContain(String.raw`\texttt{literal\_source}`)
+  })
+
+  it('修复公式外壳中误转义的 texttt 右花括号', () => {
+    const html = renderMarkdown(String.raw`| 检查项 | 正确做法 | 常见错误 |
+| --- | --- | --- |
+| None 处理 | 用 $\texttt{if result:\} result.get\_text()$ | 跳过判空 |`)
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelector('tbody code')?.textContent).toBe('if result: result.get_text()')
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+    expect(renderedText(html)).not.toContain('\\texttt')
+  })
+
+  it('合并被模型换行拆开的 Markdown 表格行并清理孤立美元符', () => {
+    const html = renderMarkdown([
+      '| 检查项 | 正确做法 | 常见错误 |',
+      '| --- | --- | --- |',
+      String.raw`| 文本提取 | 用 $\texttt{.get\_text()}$`,
+      String.raw`$ 或 $\texttt{.string}$（仅无子节点时） | 对含子标签的 Tag 直接用 $\texttt{.string}$，得到 None |$`,
+    ].join('\n'))
+    const box = document.createElement('div')
+    box.innerHTML = html
+    const rows = Array.from(box.querySelectorAll('tbody tr'))
+    const cells = Array.from(rows[0]?.querySelectorAll('td') || []).map(cell => cell.textContent?.trim())
+
+    expect(rows).toHaveLength(1)
+    expect(cells).toEqual([
+      '文本提取',
+      '用 .get_text() 或 .string（仅无子节点时）',
+      '对含子标签的 Tag 直接用 .string，得到 None',
+    ])
+    expect(renderedText(html)).not.toContain('$')
+    expect(box.querySelectorAll('.math-fallback')).toHaveLength(0)
+  })
+
+  it('剥离已放入 Markdown 代码跨度的冗余 LaTeX 外壳', () => {
+    const html = renderMarkdown('已有 `\\texttt{find("span", class\\_="price")}` 需保留代码语义。')
+    const box = document.createElement('div')
+    box.innerHTML = html
+
+    expect(box.querySelector('code')?.textContent).toBe('find("span", class_="price")')
+    expect(renderedText(html)).not.toContain('\\texttt')
+  })
+
   it('渲染模型输出中的脏 display 分隔符时不产生 KaTeX 红错', () => {
     const html = renderMarkdown('$$$$\\begin{pmatrix}\n\\cos m\\omega_j & -\\sin m\\omega_j \\\\ \\sin m\\omega_j & \\cos m\\omega_j\n\\end{pmatrix}$$$$在复数域中，这等价于$x^{\\prime} = x \\cdot e^{i m \\omega_j}$。')
     expect(katexErrors(html)).toEqual([])

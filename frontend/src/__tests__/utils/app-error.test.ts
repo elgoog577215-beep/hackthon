@@ -47,6 +47,20 @@ describe('application error presentation', () => {
     expect(result.summary).not.toBe('Request failed')
   })
 
+  it('批量教案和讲义接口不会被误报为课程生成', () => {
+    const lessonPlan = toAppError(axiosError({
+      config: { method: 'post', url: '/api/teacher/courses/course-1/lesson-plans/generate-all' },
+      response: { status: 500, headers: {}, data: {} },
+    }))
+    const script = toAppError(axiosError({
+      config: { method: 'post', url: '/api/teacher/courses/course-1/lesson-scripts/generate-all' },
+      response: { status: 500, headers: {}, data: {} },
+    }))
+
+    expect(lessonPlan.title).toBe('教案生成失败')
+    expect(script.title).toBe('讲义生成失败')
+  })
+
   it('技术详情会隐藏密钥和服务器绝对路径', () => {
     const result = toAppError(axiosError({
       response: {

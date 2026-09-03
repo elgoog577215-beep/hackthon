@@ -371,6 +371,35 @@ describe('teacher course workbench outline streaming', () => {
     expect(wrapper.find('.spin').exists()).toBe(false)
   })
 
+  it('等待继续状态先于讲次投影到达时不回退课程表单', async () => {
+    const courses = useCourseStore()
+    courses.nodes = []
+    const task = useGenerationStore().createTask('job-waiting-race', 'course-1', 'UI 设计')
+    task.taskType = 'teacher_outline_generation'
+    task.status = 'waiting_for_input'
+    task.currentPhase = 'outline_framework_ready'
+    task.progress = 32
+
+    const wrapper = mountWorkbench({ courseTitle: 'UI 设计' })
+
+    expect(wrapper.find('form.stage-form').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="outline-workspace"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="outline-workspace-loading"]').text()).toContain('正在载入可编辑讲次方案')
+    expect(wrapper.get('[data-testid="outline-continue-action"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="outline-manual-action"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(false)
+
+    courses.nodes = [{
+      node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 设计导论', node_level: 1,
+      node_content: '', node_type: 'original', generation_status: 'completed', generated_chars: 0,
+    }] as any
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="outline-workspace-loading"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="inline-outline-editor"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="outline-continue-action"]').attributes('disabled')).toBeUndefined()
+  })
+
   it('正式大纲隐藏右栏 AI 助手，保留三步导航和生成后状态', async () => {
     useCourseStore().nodes = [
       {
@@ -471,20 +500,19 @@ describe('teacher course workbench outline streaming', () => {
     )
     expect(wrapper.find('[data-testid="outline-quality-review-dialog"]').exists()).toBe(false)
     expect(wrapper.find('.ai-workspace-panel').exists()).toBe(false)
-    expect(wrapper.find('.teacher-ai-dialog__workspace').exists()).toBe(true)
-    expect(wrapper.text()).toContain('课程目标与预期成果关联表')
+    expect(wrapper.find('.teacher-ai-dialog__workspace').exists()).toBe(false)
+    expect(wrapper.find('.lesson-ai-review').exists()).toBe(false)
 
-    await wrapper.get('.lesson-ai-review button.primary').trigger('click')
+    await (wrapper.getComponent({ name: 'CourseOutlineReview' }).vm as any).resolveAiCandidate(true)
     await flushPromises()
     expect(outlineResolveAiCandidate).toHaveBeenCalledWith(true)
     const resolvedReview = wrapper.get('[data-testid="outline-quality-review"]')
     expect(resolvedReview.find('small').exists()).toBe(false)
     await resolvedReview.get('[data-testid="outline-quality-review-open"]').trigger('click')
     expect(wrapper.get('[data-testid="outline-quality-review-dialog"]').text()).toContain('暂无改进建议')
-    expect(wrapper.text()).toContain('已应用并重新审读，解决 2 项，剩余 0 项')
   })
 
-  it('目标问题未解决时禁止采用候选，但保留重试和放弃', async () => {
+  it('目标问题未解决时保留阻断候选，且不再打开旧 AI 弹窗', async () => {
     useCourseStore().nodes = [
       {
         node_id: 'L1-1', parent_node_id: 'root', node_name: '第1讲 统计思维', node_level: 1,
@@ -521,12 +549,12 @@ describe('teacher course workbench outline streaming', () => {
     await wrapper.get('.outline-quality-review-dialog__body li button').trigger('click')
     await flushPromises()
 
-    expect(wrapper.get('.lesson-ai-review-block').text()).toContain('目标问题仍未解决')
-    expect(wrapper.get('.lesson-ai-review-block').text()).toContain('已暂停采用')
-    const apply = wrapper.findAll('.lesson-ai-review button').find(button => button.text().includes('采用'))
-    expect(apply?.attributes('disabled')).toBeDefined()
-    expect(wrapper.findAll('.lesson-ai-review button').some(button => button.text().includes('重试'))).toBe(true)
-    expect(wrapper.findAll('.lesson-ai-review button').some(button => button.text().includes('放弃'))).toBe(true)
+    const candidate = await outlineRequestAiCandidate.mock.results[0]!.value
+    expect(candidate?.can_apply).toBe(false)
+    expect(candidate?.blocking_issues?.[0]?.message).toContain('仍未解决目标审阅问题')
+    expect(candidate?.blocking_issues?.[0]?.message).toContain('已暂停采用')
+    expect(wrapper.find('.teacher-ai-dialog__workspace').exists()).toBe(false)
+    expect(wrapper.find('.lesson-ai-review').exists()).toBe(false)
     expect(outlineResolveAiCandidate).not.toHaveBeenCalledWith(true)
   })
 
@@ -848,6 +876,31 @@ describe('teacher course workbench outline streaming', () => {
     expect(generateAllLessons).toHaveBeenCalledWith('course-1', undefined, '', [])
   })
 
+  it('教案批量生成只承诺教学结构已就绪的讲次', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 核心内容` }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: '', lesson_unit_id: `L1-${number}`,
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'suggested', confirmed: false, source_state: 'current',
+        blocks: number === 1 ? [{ block_id: 'block-1', name: '概念讲解' }] : [],
+      },
+      script: { current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '', source_state: 'current', ready: false, confirmed: false, confirmed_at: '', sections: [] },
+      plan: {
+        lesson_unit_id: `L1-${number}`, working_revision_id: '', confirmed_revision_id: '', source_state: 'current',
+        ready: false, can_generate: number === 1,
+        generation_unavailable_reason: number === 1 ? '' : 'lesson_arrangement:blocks_empty',
+        revisions: [], ppt_assets: [],
+      },
+    })) as any
+
+    const wrapper = mountWorkbench({ initialStage: 'lesson' })
+
+    expect(wrapper.get('[data-testid="lesson-course-preview-generate"]').text()).toBe('生成已具备教学结构的教案（1讲）')
+  })
+
   it('已有部分教案时仍可只生成当前讲，课型在标题中显示', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [{
@@ -1025,7 +1078,7 @@ describe('teacher course workbench outline streaming', () => {
     lessonStore.lessons = [{
       lesson_unit_id: 'L1-1', source_outline_revision_id: 'outline-1', number: 1,
       title: '第一讲', duration_minutes: 45, sections: [],
-      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', revisions: [], ppt_assets: [] },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', can_generate: true, revisions: [], ppt_assets: [] },
     }] as any
     lessonStore.jobs = [{
       id: 'lesson-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_plan_generation',
@@ -1150,6 +1203,116 @@ describe('teacher course workbench outline streaming', () => {
     await flushPromises()
 
     expect(generateAll).toHaveBeenCalledWith('course-1', '')
+  })
+
+  it('讲义批量生成只承诺有当前教案的讲次', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [1, 2].map(number => ({
+      lesson_unit_id: `L1-${number}`, number, title: `第${number}讲`, duration_minutes: 45,
+      sections: [{ section_node_id: `L2-${number}-1`, title: `${number}.1 核心内容` }],
+      arrangement: {
+        schema_version: 'teacher_lesson_arrangement_v1', revision_id: `arrangement-${number}`, lesson_unit_id: `L1-${number}`,
+        source_outline_revision_id: 'outline-1', lesson_type: 'theory', lesson_type_label: '理论讲授',
+        status: 'confirmed', confirmed: true, source_state: 'current', blocks: [],
+      },
+      script: {
+        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: number === 1 ? 'plan-1' : '',
+        source_state: 'current', ready: false, can_generate: number === 1,
+        generation_unavailable_reason: number === 1 ? '' : 'revision_missing',
+        confirmed: false, confirmed_at: '', sections: [],
+      },
+      plan: {
+        lesson_unit_id: `L1-${number}`, working_revision_id: number === 1 ? 'plan-1' : '', confirmed_revision_id: '',
+        source_state: 'current', ready: number === 1, revisions: [], ppt_assets: [],
+      },
+    })) as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts').mockResolvedValue({
+      parent_job: { id: 'script-batch-1' }, jobs: [],
+    } as any)
+
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    const preview = wrapper.get('[data-testid="script-course-preview"]')
+    const button = wrapper.get('[data-testid="script-course-preview-generate"]')
+
+    expect(preview.text()).toContain('教案待生成的讲次会自动跳过')
+    expect(button.text()).toBe('生成已具备教案的讲义（1讲）')
+
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(generateAll).toHaveBeenCalledWith('course-1', '')
+  })
+
+  it('讲义批量启动失败在当前预览内反馈', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      script: {
+        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: false, can_generate: true, confirmed: false, confirmed_at: '', sections: [],
+      },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+    }] as any
+    vi.spyOn(lessonStore, 'generateAllScripts').mockImplementation(async () => {
+      lessonStore.error = '生成条件已变化，请重试。'
+      throw new Error('conflict')
+    })
+
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    await wrapper.get('[data-testid="script-course-preview-generate"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('.workbench-error').text()).toContain('讲义生成未开始')
+    expect(wrapper.get('.workbench-error').text()).toContain('生成条件已变化')
+  })
+
+  it('资料未就绪时讲义批量按钮显示禁用原因且不发起请求', async () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      script: {
+        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: 'plan-1',
+        source_state: 'current', ready: false, can_generate: true, confirmed: false, confirmed_at: '', sections: [],
+      },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: 'plan-1', confirmed_revision_id: '', source_state: 'current', ready: true, revisions: [], ppt_assets: [] },
+    }] as any
+    const generateAll = vi.spyOn(lessonStore, 'generateAllScripts')
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+    wrapper.findComponent({ name: 'CourseReferenceTray' }).vm.$emit('source-state-change', {
+      busy: false, blocked: true, reason: '资料正在解析，完成后即可生成。',
+    })
+    await flushPromises()
+
+    const button = wrapper.get('[data-testid="script-course-preview-generate"]')
+    expect(button.attributes('disabled')).toBeDefined()
+    expect(button.attributes('title')).toContain('资料正在解析')
+    await button.trigger('click')
+    expect(generateAll).not.toHaveBeenCalled()
+  })
+
+  it('旧讲义批次失败但当前无可生成讲次时不显示无效重试', () => {
+    const lessonStore = useTeacherLessonAuthoringStore()
+    lessonStore.lessons = [{
+      lesson_unit_id: 'L1-1', number: 1, title: '第一讲', duration_minutes: 45, sections: [],
+      arrangement: { source_state: 'current', blocks: [] },
+      script: {
+        current_revision_id: '', confirmed_revision_id: '', source_lesson_plan_revision_id: '',
+        source_state: 'current', ready: false, can_generate: false, confirmed: false, confirmed_at: '', sections: [],
+      },
+      plan: { lesson_unit_id: 'L1-1', working_revision_id: '', confirmed_revision_id: '', source_state: 'current', ready: false, revisions: [], ppt_assets: [] },
+    }] as any
+    lessonStore.jobs = [{
+      id: 'script-job-1', course_id: 'course-1', lesson_unit_id: 'L1-1', type: 'teacher_lesson_script_generation',
+      status: 'failed', progress: 20, phase: 'lesson_script_failed', message: '本讲讲义生成失败', warnings: [],
+      parent_job_id: 'script-batch-1', error: { code: 'lesson_script_generation_failed', message: '上游教案已变化', retryable: true },
+    }] as any
+
+    const wrapper = mountWorkbench({ initialStage: 'script' })
+
+    expect(wrapper.get('[data-testid="reference-tray-stub"]').text()).toContain('上游教案已变化')
+    expect(wrapper.find('[data-testid="retry-workflow"]').exists()).toBe(false)
   })
 
   it('仅把真实可用的讲义计入完成，遗留修订标识不再显示勾选', () => {

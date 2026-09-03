@@ -1,5 +1,5 @@
 <template>
-  <section ref="documentRoot" class="script-document">
+  <section ref="documentRoot" class="script-document" :class="{ 'is-ai-candidate': pendingCandidate }">
     <header v-if="!externalToolbar" class="script-header">
       <div class="script-title">
         <h3>{{ lesson.title }}</h3>
@@ -7,13 +7,16 @@
       <div class="script-actions">
         <template v-if="pendingCandidate">
           <template v-if="!assistantOpen">
-            <button type="button" :disabled="aiBusy" @click="resolveAiCandidate(false)">
+            <button type="button" :disabled="aiBusy || requestBusy" @click="openInlineAi">
+              <Sparkles :size="15" />{{ tr('courseWorkbench.aiCollaboration.iterateCandidate') }}
+            </button>
+            <button type="button" :disabled="aiBusy || requestBusy" @click="resolveAiCandidate(false)">
               <X :size="15" />{{ tr('courseWorkbench.scriptDocument.discardAi') }}
             </button>
-            <button class="resolved-action" type="button" :disabled="aiBusy" @click="resolveAiCandidate(true)">
-              <LoaderCircle v-if="aiBusy" :size="15" class="spin" />
+            <button class="resolved-action" type="button" :disabled="aiBusy || requestBusy" @click="resolveAiCandidate(true)">
+              <LoaderCircle v-if="aiBusy || requestBusy" :size="15" class="spin" />
               <Check v-else :size="15" />
-              {{ aiBusy ? tr('courseWorkbench.scriptDocument.applyingAi') : tr('courseWorkbench.scriptDocument.applyAi') }}
+              {{ aiBusy || requestBusy ? tr('courseWorkbench.scriptDocument.applyingAi') : tr('courseWorkbench.scriptDocument.applyAi') }}
             </button>
           </template>
         </template>
@@ -28,7 +31,7 @@
           </button>
         </template>
         <template v-else>
-          <button type="button" :aria-pressed="assistantOpen" :disabled="!lesson.script.ready || !selectedNode || aiBusy" @click="emit('open-ai')">
+          <button type="button" :disabled="!lesson.script.ready || !selectedNode || aiBusy || requestBusy" @click="openInlineAi">
             <Sparkles :size="15" />{{ tr('courseWorkbench.scriptDocument.aiImprove') }}
           </button>
           <button type="button" :disabled="!lesson.script.ready || !scriptSections.length" @click="beginEditing">
@@ -40,10 +43,43 @@
 
     <AppErrorNotice v-if="documentError" :presentation="documentError" compact />
 
+    <div v-if="pendingCandidate" class="candidate-canvas-notice" role="status">
+      <div>
+        <Sparkles :size="16" />
+        <span>
+          <strong>{{ tr('courseWorkbench.scriptDocument.candidateCanvasTitle') }}</strong>
+          <small>{{ tr('courseWorkbench.aiCollaboration.inlineCandidateBoundary') }}</small>
+        </span>
+      </div>
+      <nav :aria-label="tr('courseWorkbench.aiCollaboration.inlineCandidateActions')">
+        <button type="button" :disabled="aiBusy || requestBusy" @click="openInlineAi">
+          <Sparkles :size="14" />{{ tr('courseWorkbench.aiCollaboration.iterateCandidate') }}
+        </button>
+        <button type="button" :disabled="aiBusy || requestBusy" @click="resolveAiCandidate(false)">
+          <X :size="14" />{{ tr('courseWorkbench.aiCollaboration.keepOriginal') }}
+        </button>
+        <button class="primary" type="button" :disabled="aiBusy || requestBusy" @click="resolveAiCandidate(true)">
+          <LoaderCircle v-if="aiBusy || requestBusy" :size="14" class="spin" />
+          <Check v-else :size="14" />{{ tr('courseWorkbench.aiCollaboration.applyCandidate') }}
+        </button>
+      </nav>
+    </div>
+
     <TextSelectionAiAction
+      ref="inlineAiAction"
       :container="documentRoot"
-      :disabled="editing || aiBusy || Boolean(pendingCandidate) || !lesson.script.ready"
+      :disabled="editing || !lesson.script.ready"
+      :busy="aiBusy || requestBusy"
       :label="tr('courseWorkbench.aiCollaboration.selectionModify')"
+      :composer-title="tr('courseWorkbench.aiCollaboration.inlineComposerTitle')"
+      :placeholder="tr('courseWorkbench.aiCollaboration.selectionPlaceholder')"
+      :submit-label="tr('courseWorkbench.aiCollaboration.inlineGenerate')"
+      :cancel-label="tr('common.cancel')"
+      :working-label="tr('courseWorkbench.aiCollaboration.inlineWorking')"
+      :selection-label="tr('courseWorkbench.aiCollaboration.inlineSelectionScope')"
+      :block-label="tr('courseWorkbench.aiCollaboration.inlineBlockScope')"
+      :document-label="tr('courseWorkbench.aiCollaboration.inlineDocumentScope')"
+      :boundary-label="tr('courseWorkbench.aiCollaboration.inlineBoundary')"
       @invoke="emit('open-ai-selection', $event)"
     />
 
@@ -190,7 +226,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Check, LoaderCircle, Pencil, Sparkles, TriangleAlert, X } from 'lucide-vue-next'
 import AppErrorNotice from './AppErrorNotice.vue'
 import MarkdownRenderer from './MarkdownRenderer.vue'
-import TextSelectionAiAction from './TextSelectionAiAction.vue'
+import TextSelectionAiAction, { type TeacherInlineAiRequest } from './TextSelectionAiAction.vue'
 import { useDocumentEditHistory } from '../composables/useDocumentEditHistory'
 import { t } from '../shared/i18n'
 import { useTeacherLessonAuthoringStore } from '../stores/teacherLessonAuthoring'
@@ -209,6 +245,7 @@ const props = withDefaults(defineProps<{
   assistantOpen?: boolean
   materialAssetIds?: string[]
   externalToolbar?: boolean
+  requestBusy?: boolean
 }>(), {
   generating: false,
   externalError: '',
@@ -219,6 +256,7 @@ const props = withDefaults(defineProps<{
   assistantOpen: false,
   materialAssetIds: () => [],
   externalToolbar: false,
+  requestBusy: false,
 })
 
 const emit = defineEmits<{
@@ -227,7 +265,7 @@ const emit = defineEmits<{
   (event: 'pause-generation'): void
   (event: 'cancel-generation'): void
   (event: 'open-ai'): void
-  (event: 'open-ai-selection', value: { text: string }): void
+  (event: 'open-ai-selection', value: TeacherInlineAiRequest): void
   (event: 'ai-candidate-change', candidate: TeacherLessonScriptCandidate | null): void
   (event: 'ai-resolving', result: { accept: boolean }): void
   (event: 'ai-resolved', result: { accept: boolean }): void
@@ -247,6 +285,7 @@ const aiError = ref<unknown>(null)
 const pendingCandidate = ref<TeacherLessonScriptCandidate | null>(null)
 const candidateRef = ref<HTMLElement | null>(null)
 const documentRoot = ref<HTMLElement | null>(null)
+const inlineAiAction = ref<{ openForDocument: (text?: string) => void } | null>(null)
 type ScriptEditSnapshot = { drafts: Record<string, string>; blockDrafts: Record<string, string> }
 const editHistory = useDocumentEditHistory<ScriptEditSnapshot>(snapshot => {
   Object.keys(drafts).forEach(key => { delete drafts[key] })
@@ -285,10 +324,23 @@ const fallbackMessages: Record<string, string> = {
   'courseWorkbench.scriptDocument.operationFailed': '讲义操作失败',
   'courseWorkbench.scriptDocument.aiImprove': 'AI 优化',
   'courseWorkbench.aiCollaboration.selectionModify': 'AI 修改',
+  'courseWorkbench.aiCollaboration.inlineComposerTitle': '告诉 AI 怎么改',
+  'courseWorkbench.aiCollaboration.inlineGenerate': '生成修改',
+  'courseWorkbench.aiCollaboration.inlineWorking': '正在生成候选…',
+  'courseWorkbench.aiCollaboration.inlineSelectionScope': '修改选中内容',
+  'courseWorkbench.aiCollaboration.inlineBlockScope': '修改当前段落',
+  'courseWorkbench.aiCollaboration.inlineDocumentScope': '修改当前讲义',
+  'courseWorkbench.aiCollaboration.inlineBoundary': 'AI 只生成候选，采用后才会写入正式讲义。',
+  'courseWorkbench.aiCollaboration.inlineCandidateBoundary': '原文仍然保留，只有采用后候选才会写入正式讲义。',
+  'courseWorkbench.aiCollaboration.inlineCandidateActions': 'AI 候选操作',
+  'courseWorkbench.aiCollaboration.iterateCandidate': '继续调整',
+  'courseWorkbench.aiCollaboration.keepOriginal': '保留原文',
+  'courseWorkbench.aiCollaboration.applyCandidate': '采用修改',
   'courseWorkbench.scriptDocument.aiPlaceholder': '输入你想调整的内容…',
   'courseWorkbench.scriptDocument.generateAi': '生成方案',
   'courseWorkbench.scriptDocument.aiGenerating': '生成中…',
   'courseWorkbench.scriptDocument.aiCandidate': 'AI 方案',
+  'courseWorkbench.scriptDocument.candidateCanvasTitle': 'AI 候选已嵌入讲义正文',
   'courseWorkbench.scriptDocument.discardAi': '放弃',
   'courseWorkbench.scriptDocument.applyAi': '采用',
   'courseWorkbench.scriptDocument.applyingAi': '正在采用…',
@@ -599,6 +651,10 @@ function focusAiCandidate() {
   candidateRef.value?.focus({ preventScroll: true })
 }
 
+function openInlineAi() {
+  inlineAiAction.value?.openForDocument(selectedNode.value?.content || '')
+}
+
 function selectAiScope(scopeId: string) {
   if (pendingCandidate.value || aiBusy.value || !scriptSections.value.some(node => node.section_node_id === scopeId)) return false
   selectedNodeId.value = scopeId
@@ -651,6 +707,7 @@ defineExpose({
   resolveAiCandidate,
   focusAiCandidate,
   selectAiScope,
+  openInlineAi,
   editing,
   saving,
   aiBusy,
@@ -669,9 +726,10 @@ defineExpose({
 .script-generation-progress__actions{display:flex;align-items:center;gap:10px}.script-generation-progress__actions button{min-height:28px;padding:0 10px;border:1px solid #d7ddea;border-radius:7px;color:#526077;background:#fff;font-size:14px;font-weight:750;cursor:pointer}.script-generation-progress__actions button:hover{color:#3730a3;border-color:#b9b9f4;background:#f7f7ff}.script-generation-progress[data-status="cancelled"]>i span{background:#e08a2e}
 .script-document{position:relative}
 .script-document>:deep(.app-error-notice){margin:12px 28px 0}
+.candidate-canvas-notice{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 28px;border-bottom:1px solid #d9ddf5;color:#4338ca;background:#f5f5ff}.candidate-canvas-notice>div{min-width:0;display:flex;align-items:center;gap:9px}.candidate-canvas-notice>div>span{display:grid;gap:2px}.candidate-canvas-notice strong{font-size:15px}.candidate-canvas-notice small{color:#676aa0;font-size:11px}.candidate-canvas-notice nav{flex:none;display:flex;align-items:center;gap:6px}.candidate-canvas-notice button{min-height:32px;display:inline-flex;align-items:center;gap:5px;padding:0 9px;border:1px solid #d0d1ee;border-radius:7px;color:#4f55a9;background:#fff;font-size:11px;font-weight:750;cursor:pointer}.candidate-canvas-notice button.primary{border-color:#5148dc;color:#fff;background:#5148dc}.candidate-canvas-notice button:hover:not(:disabled){border-color:#9692e8;color:#4338ca;background:#f8f7ff}.candidate-canvas-notice button.primary:hover:not(:disabled){border-color:#433bc4;color:#fff;background:#433bc4}.candidate-canvas-notice button:focus-visible{outline:3px solid rgba(91,84,232,.22);outline-offset:2px}.candidate-canvas-notice button:disabled{opacity:.5;cursor:not-allowed}
 .script-status-notice{display:grid;gap:3px;margin:14px 28px 0;padding:11px 13px;border:1px solid #d8dff0;border-radius:8px;color:#4b5870;background:#f8faff;font-size:14px;line-height:1.55}.script-status-notice strong{color:#29334a;font-size:14px}.script-status-notice[data-state="suggestion"]{border-color:#efd2a8;background:#fff9ef}.script-status-notice[data-state="suggestion"] strong{color:#9a4c0c}.script-status-notice[data-state="ready"]{border-color:#cce4d5;background:#f5fbf7}.script-status-notice[data-state="ready"] strong{color:#276749}
 .script-continuous{width:min(100%,940px);margin:0 auto}.script-continuous .script-body{min-height:0;scroll-margin-top:72px;border-bottom:1px solid #e4e8ef}.script-continuous .script-body:last-child{border-bottom:0}.script-continuous .script-body.active>header h4{color:#3730a3}.script-continuous .script-body.active>header span{color:#4f46e5}.script-continuous[data-state="partial"] .script-body:last-child{min-height:280px}
-@media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}}
+@media(max-width:760px){.script-header{align-items:flex-start;flex-direction:column;padding-inline:18px}.script-actions{width:100%;justify-content:flex-end}.script-ai,.script-generate{grid-template-columns:1fr;padding-inline:18px}.script-ai button,.script-generate button{min-height:38px}.script-tabs{padding-inline:18px}.script-body{padding:22px 18px}.candidate-canvas-notice{align-items:flex-start;flex-direction:column;padding-inline:18px}.candidate-canvas-notice nav{width:100%;justify-content:flex-end;flex-wrap:wrap}}
 .script-content[data-state="candidate"]{border:1px solid #c8c7f2;background:#f8f8ff;outline:0}.script-content[data-state="candidate"]:focus{box-shadow:0 0 0 3px rgba(91,87,232,.1)}.script-tabs button:disabled{opacity:.45;cursor:not-allowed}
 .script-ai-change-bubble{width:max-content;max-width:100%;display:flex;align-items:center;gap:6px;margin:-3px 0 14px;padding:5px 9px;border:1px solid #c8c7f2;border-radius:999px;color:#4338ca;background:#fff;box-shadow:0 4px 12px rgba(67,56,202,.08);font-size:14px}.script-ai-change-bubble strong{font-size:14px}.script-ai-change-bubble span{overflow:hidden;color:#667085;text-overflow:ellipsis;white-space:nowrap}
 .script-document,.script-generation-panel{background:var(--teacher-component-surface,#fff)}

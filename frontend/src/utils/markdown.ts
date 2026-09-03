@@ -10,6 +10,396 @@ import { recordRenderFailure } from './render-diagnostics';
 
 initializeMermaid();
 
+const MATH_TEXT_COMMANDS = new Set([
+    'text',
+    'texttt',
+    'textrm',
+    'textsf',
+    'textnormal',
+    'textbf',
+    'textit',
+    'textup',
+    'operatorname',
+    'mbox',
+]);
+
+/**
+ * Old course content often escapes every underscore as `\_`. In math mode
+ * that usually means a subscript and should become `_`, but inside KaTeX text
+ * commands the escape is required: changing `\texttt{token\_id}` to
+ * `\texttt{token_id}` makes an otherwise valid expression fail to parse.
+ *
+ * Track balanced command groups instead of applying a global replacement so
+ * nested text groups and future text commands keep their own syntax rules.
+ */
+const normalizeMathSubscripts = (source: string) => {
+    const groupStack: boolean[] = [];
+    let result = '';
+    let cursor = 0;
+
+    const inTextGroup = () => groupStack[groupStack.length - 1] === true;
+
+    while (cursor < source.length) {
+        if (source.startsWith('\\_', cursor)) {
+            result += inTextGroup() ? '\\_' : '_';
+            cursor += 2;
+            continue;
+        }
+
+        if (source[cursor] === '\\') {
+            const command = source.slice(cursor).match(/^\\([A-Za-z]+)\*?\s*\{/);
+            if (command?.[0] && command[1]) {
+                result += command[0];
+                groupStack.push(inTextGroup() || MATH_TEXT_COMMANDS.has(command[1]));
+                cursor += command[0].length;
+                continue;
+            }
+        }
+
+        const char = source[cursor] || '';
+        if (char === '{') {
+            groupStack.push(inTextGroup());
+            result += char;
+            cursor += 1;
+            continue;
+        }
+        if (char === '}') {
+            if (groupStack.length) groupStack.pop();
+            result += char;
+            cursor += 1;
+            continue;
+        }
+        if (char === '_' && inTextGroup()) {
+            result += '\\_';
+            cursor += 1;
+            continue;
+        }
+
+        result += char;
+        cursor += 1;
+    }
+
+    return result;
+};
+
+const readBalancedLatexGroup = (source: string, openIndex: number) => {
+    if (source[openIndex] !== '{') return null;
+    let depth = 1;
+    let cursor = openIndex + 1;
+
+    while (cursor < source.length) {
+        const char = source[cursor];
+        if (char === '\\' && cursor + 1 < source.length) {
+            cursor += 2;
+            continue;
+        }
+        if (char === '{') depth += 1;
+        if (char === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return {
+                    content: source.slice(openIndex + 1, cursor),
+                    end: cursor + 1,
+                };
+            }
+        }
+        cursor += 1;
+    }
+
+    return null;
+};
+
+const decodeLatexCodeText = (source: string) => source
+    .replace(/\\textbackslash(?:\{\})?/g, '\\')
+    .replace(/\\([_{}#$%&"])/g, '$1');
+
+/** Plain-text projections (for example collapsed summaries) must not leak a
+ * LaTeX presentation macro just because they intentionally skip rich HTML. */
+export const normalizeLatexCodeForPlainText = (source: string) => {
+    const input = String(source || '');
+    const marker = '\\texttt{';
+    let normalized = '';
+    let cursor = 0;
+
+    while (cursor < input.length) {
+        const start = input.indexOf(marker, cursor);
+        if (start < 0) {
+            normalized += input.slice(cursor);
+            break;
+        }
+        normalized += input.slice(cursor, start);
+        const openIndex = start + marker.length - 1;
+        const group = readBalancedLatexGroup(input, openIndex);
+        if (group) {
+            normalized += decodeLatexCodeText(group.content);
+            cursor = group.end;
+            continue;
+        }
+
+        const escapedClose = input.indexOf('\\}', openIndex + 1);
+        if (escapedClose < 0) {
+            normalized += decodeLatexCodeText(input.slice(openIndex + 1));
+            break;
+        }
+        normalized += decodeLatexCodeText(input.slice(openIndex + 1, escapedClose));
+        cursor = escapedClose + 2;
+    }
+
+    return decodeLatexCodeText(normalized);
+};
+
+type DecodedLatexCodeExpression = {
+    value: string;
+    macroCount: number;
+    recoveredMalformedGroup: boolean;
+};
+
+/**
+ * Decode a fragment made from LaTeX code-presentation macros without treating
+ * arbitrary math as program text. A provider occasionally emits `\}` where it
+ * meant to close `\texttt{...}`; that recovery is allowed only inside a
+ * dollar-delimited candidate and never inside a real LaTeX/code teaching
+ * fence.
+ */
+const decodeLatexCodeExpression = (source: string): DecodedLatexCodeExpression | null => {
+    let value = '';
+    let cursor = 0;
+    let macroCount = 0;
+    let recoveredMalformedGroup = false;
+
+    while (cursor < source.length) {
+        if (source.startsWith('\\texttt{', cursor)) {
+            const openIndex = cursor + '\\texttt'.length;
+            const group = readBalancedLatexGroup(source, openIndex);
+            macroCount += 1;
+            if (group) {
+                value += decodeLatexCodeText(group.content);
+                cursor = group.end;
+                continue;
+            }
+
+            // Real failed sample: `\texttt{if result:\} result.get\_text()`.
+            // If the normal balanced parse failed, the first escaped closing
+            // brace is overwhelmingly likely to be the intended macro end.
+            const escapedClose = source.indexOf('\\}', openIndex + 1);
+            if (escapedClose < 0) return null;
+            value += decodeLatexCodeText(source.slice(openIndex + 1, escapedClose));
+            cursor = escapedClose + 2;
+            recoveredMalformedGroup = true;
+            continue;
+        }
+
+        if (source.startsWith('\\dots', cursor)) {
+            value += '...';
+            cursor += '\\dots'.length;
+            continue;
+        }
+
+        if (source[cursor] === '\\') {
+            const escaped = source[cursor + 1];
+            if (escaped && '_{}#$%&"'.includes(escaped)) {
+                value += escaped;
+                cursor += 2;
+                continue;
+            }
+            // A remaining LaTeX command means this is a genuine formula, not
+            // a high-confidence code wrapper.
+            if (escaped && /[A-Za-z]/.test(escaped)) return null;
+        }
+
+        value += source[cursor] || '';
+        cursor += 1;
+    }
+
+    if (!macroCount) return null;
+    return {
+        value: value.replace(/\s+/g, ' ').trim(),
+        macroCount,
+        recoveredMalformedGroup,
+    };
+};
+
+const isHighConfidenceCodeExpression = (decoded: DecodedLatexCodeExpression) => (
+    decoded.recoveredMalformedGroup
+    || decoded.macroCount > 1
+    || /[().:=<>"'\[\]]/.test(decoded.value)
+    || /\b(?:if|else|for|while|from|import|class|def|return|print)\b/.test(decoded.value)
+);
+
+const markdownCodeSpan = (source: string) => {
+    const longestTicks = Math.max(
+        0,
+        ...Array.from(source.matchAll(/`+/g), match => match[0]?.length || 0),
+    );
+    const fence = '`'.repeat(longestTicks + 1);
+    const padding = source.startsWith('`') || source.endsWith('`') ? ' ' : '';
+    return `${fence}${padding}${source}${padding}${fence}`;
+};
+
+/**
+ * Recover inline math that is actually program text. Search specifically for
+ * `$ \texttt{...} $` starts instead of pairing every dollar greedily: broken
+ * streamed rows can contain an outer stray `$` before the real code wrapper.
+ */
+const normalizeMathWrappedLatexCode = (
+    source: string,
+    reserveCode: (markdown: string) => string,
+) => {
+    let result = '';
+    let cursor = 0;
+
+    while (cursor < source.length) {
+        const start = source.indexOf('$', cursor);
+        if (start < 0) {
+            result += source.slice(cursor);
+            break;
+        }
+        if (source[start - 1] === '\\' || source[start - 1] === '$' || source[start + 1] === '$') {
+            result += source.slice(cursor, start + 1);
+            cursor = start + 1;
+            continue;
+        }
+
+        const bodyStart = start + 1 + (source.slice(start + 1).match(/^[\t ]*/)?.[0].length || 0);
+        if (!source.startsWith('\\texttt{', bodyStart)) {
+            result += source.slice(cursor, start + 1);
+            cursor = start + 1;
+            continue;
+        }
+
+        const close = source.indexOf('$', bodyStart);
+        if (close < 0 || source[close + 1] === '$') {
+            result += source.slice(cursor, start + 1);
+            cursor = start + 1;
+            continue;
+        }
+
+        const decoded = decodeLatexCodeExpression(source.slice(bodyStart, close).trim());
+        if (!decoded || !isHighConfidenceCodeExpression(decoded)) {
+            result += source.slice(cursor, start + 1);
+            cursor = start + 1;
+            continue;
+        }
+
+        result += source.slice(cursor, start);
+        result += reserveCode(markdownCodeSpan(decoded.value));
+        cursor = close + 1;
+    }
+
+    return result;
+};
+
+const unwrapClearlyProseDollarLines = (source: string) => source
+    .split('\n')
+    .map((line) => {
+        const match = line.match(/^(\s*)\$(?!\$)(.*?)(?<!\\)\$(\s*)$/);
+        if (!match) return line;
+        const inner = match[2] || '';
+        const first = inner.trimStart()[0] || '';
+        if (!/[\u3400-\u9fff，。；：！？、]/.test(first)) return line;
+        return `${match[1] || ''}${inner}${match[3] || ''}`;
+    })
+    .join('\n');
+
+const countUnescapedTablePipes = (line: string) => {
+    let count = 0;
+    for (let index = 0; index < line.length; index += 1) {
+        if (line[index] !== '|') continue;
+        let slashCount = 0;
+        for (let cursor = index - 1; cursor >= 0 && line[cursor] === '\\'; cursor -= 1) {
+            slashCount += 1;
+        }
+        if (slashCount % 2 === 0) count += 1;
+    }
+    return count;
+};
+
+const isMarkdownTableDelimiter = (line: string) => {
+    const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '');
+    const cells = trimmed.split('|').map(cell => cell.trim());
+    return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+};
+
+/** Join only a proven GFM table row whose expected pipe count is split. */
+const repairBrokenMarkdownTableRows = (source: string) => {
+    const lines = source.split('\n');
+    const repaired: string[] = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const header = lines[index] || '';
+        const delimiter = lines[index + 1] || '';
+        if (!header.trimStart().startsWith('|') || !isMarkdownTableDelimiter(delimiter)) {
+            repaired.push(header);
+            continue;
+        }
+
+        const expectedPipes = countUnescapedTablePipes(header);
+        repaired.push(header, delimiter);
+        index += 2;
+
+        while (index < lines.length) {
+            let row = lines[index] || '';
+            if (!row.trimStart().startsWith('|')) {
+                index -= 1;
+                break;
+            }
+
+            let pipeCount = countUnescapedTablePipes(row);
+            while (pipeCount < expectedPipes && index + 1 < lines.length) {
+                const continuation = lines[index + 1] || '';
+                const continuationPipes = countUnescapedTablePipes(continuation);
+                if (!continuation.trim() || !continuationPipes || pipeCount + continuationPipes > expectedPipes) break;
+                row = `${row.trimEnd()} ${continuation.trim()}`;
+                pipeCount += continuationPipes;
+                index += 1;
+            }
+            repaired.push(row);
+            index += 1;
+        }
+
+        if (index >= lines.length) break;
+    }
+
+    return repaired.join('\n');
+};
+
+/**
+ * Some models use the LaTeX presentation command `\texttt{...}` for program
+ * identifiers in otherwise ordinary Markdown. Convert only macros that remain
+ * in prose after fenced code, inline code, and explicit math have been masked.
+ * This keeps code as code without rewriting a legitimate command inside
+ * `$...$` or a teaching example inside a code fence.
+ */
+const normalizeLegacyLatexCodeMacros = (
+    source: string,
+    reserveCode: (markdown: string) => string,
+) => {
+    const marker = '\\texttt{';
+    let result = '';
+    let cursor = 0;
+
+    while (cursor < source.length) {
+        const start = source.indexOf(marker, cursor);
+        if (start < 0) {
+            result += source.slice(cursor);
+            break;
+        }
+
+        result += source.slice(cursor, start);
+        const group = readBalancedLatexGroup(source, start + marker.length - 1);
+        if (!group) {
+            result += marker;
+            cursor = start + marker.length;
+            continue;
+        }
+
+        result += reserveCode(markdownCodeSpan(decodeLatexCodeText(group.content)));
+        cursor = group.end;
+    }
+
+    return result;
+};
+
 // Markdown Configuration
 const md = new MarkdownIt({
     html: true,
@@ -38,20 +428,14 @@ const renderMathContent = (content: string, displayMode: boolean) => {
     try {
         let cleanedContent = content.trim();
 
-        // Older model output sometimes escapes subscripts as `\_`. Normalize
-        // only that known case; broad backslash stripping corrupts matrix row
-        // separators (`\\`) and valid LaTeX spacing commands.
-        cleanedContent = cleanedContent.replace(/\\_/g, '_');
         // JSON/prompt pipelines sometimes double-escape a command (`\\vec`,
         // `\\mathbf`) even though the surrounding `$...$` delimiters survive.
         // Restrict normalization to known commands: a generic "two slashes
         // before a letter" rule also matches a matrix row break followed by a
         // value (for example `a \\\\ b`) and corrupts valid environments.
-        const doubledCommandRe = /(?<!\\)\\\\(?=(?:vec|mathbf|mathrm|mathit|mathbb|mathcal|mathsf|mathtt|text|frac|dfrac|tfrac|sqrt|left|right|begin|end|operatorname|overline|underline|hat|bar|dot|ddot|sum|prod|int|lim|log|ln|sin|cos|tan|exp|partial|nabla|infty|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|rho|sigma|tau|phi|psi|omega|Gamma|Delta|Theta|Lambda|Pi|Sigma|Phi|Psi|Omega)\b)/g;
+        const doubledCommandRe = /(?<!\\)\\\\(?=(?:vec|mathbf|mathrm|mathit|mathbb|mathcal|mathsf|mathtt|text|texttt|textrm|textsf|textnormal|textbf|textit|textup|frac|dfrac|tfrac|sqrt|left|right|begin|end|operatorname|overline|underline|hat|bar|dot|ddot|sum|prod|int|lim|log|ln|sin|cos|tan|exp|partial|nabla|infty|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|rho|sigma|tau|phi|psi|omega|Gamma|Delta|Theta|Lambda|Pi|Sigma|Phi|Psi|Omega)\b)/g;
         cleanedContent = cleanedContent.replace(doubledCommandRe, '\\');
-        cleanedContent = cleanedContent.replace(/\\text\{([^{}]*)\}/g, (_match, text) => {
-            return `\\text{${String(text).replace(/(^|[^\\])_/g, '$1\\_')}}`;
-        });
+        cleanedContent = normalizeMathSubscripts(cleanedContent);
 
         return katex.renderToString(cleanedContent, {
             throwOnError: true,
@@ -838,9 +1222,19 @@ export const renderMarkdown = (content: string) => {
         // heuristics and turned Markdown such as `**t=0** ... \`θ(0)\`` into
         // one malformed formula.
         const id = `__CODE_INLINE_${codeBlockId++}__`;
-        codeBlockMap.set(id, match);
+        const decoded = decodeLatexCodeExpression(match.slice(1, -1));
+        codeBlockMap.set(id, decoded ? markdownCodeSpan(decoded.value) : match);
         return id;
     });
+
+    // Some stored lessons wrap code in `$\texttt{...}$`. Recover only
+    // high-confidence program fragments before normal math is protected.
+    normalized = normalizeMathWrappedLatexCode(normalized, (markdown) => {
+        const id = `__CODE_INLINE_${codeBlockId++}__`;
+        codeBlockMap.set(id, markdown);
+        return id;
+    });
+    normalized = unwrapClearlyProseDollarLines(normalized);
 
     // Protection: Mask Existing Math to prevent double wrapping or corrupting valid math
     // We mask $$...$$, \[...\], \(...\), and $...$
@@ -878,6 +1272,20 @@ export const renderMarkdown = (content: string) => {
         
         const id = `__MATH_INLINE_${mathMaskId++}__`;
         mathMaskMap.set(id, match);
+        return id;
+    });
+
+    // A streamed table row can be split after a code fragment. At this point
+    // code and math are placeholders, so pipe counting cannot be confused by
+    // syntax inside either region.
+    normalized = repairBrokenMarkdownTableRows(normalized);
+
+    // Convert legacy LaTeX code macros only after every explicit code/math
+    // region is protected. The returned placeholder also keeps the recovered
+    // code out of the naked-math heuristics that run next.
+    normalized = normalizeLegacyLatexCodeMacros(normalized, (markdown) => {
+        const id = `__CODE_INLINE_${codeBlockId++}__`;
+        codeBlockMap.set(id, markdown);
         return id;
     });
 

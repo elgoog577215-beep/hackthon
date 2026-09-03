@@ -59,6 +59,7 @@ function mountWorkbench() {
     },
     global: {
       stubs: {
+        'el-dialog': true,
         CourseReferenceTray: true,
         CompanionDocumentStudio: true,
         QuestionBankReviewPanel: true,
@@ -70,12 +71,11 @@ function mountWorkbench() {
   })
 }
 
-async function openLessonAi(wrapper: ReturnType<typeof mountWorkbench>, label = 'AI 修改') {
-  const trigger = label === 'AI 方案'
-    ? wrapper.findAll('.lesson-toolbar-actions button').find(button => button.text().includes(label))
-    : wrapper.findAll('.context-pane-tabs button').find(button => button.text().includes('AI 助手'))
-  if (!trigger) throw new Error(`未找到${label === 'AI 方案' ? '待确认方案' : '右侧 AI 助手'}入口`)
-  await trigger.trigger('click')
+async function openInlineLessonAi(wrapper: ReturnType<typeof mountWorkbench>) {
+  await flushPromises()
+  ;(wrapper.getComponent(TeacherLessonPlanDocument).vm as any).openInlineAi()
+  await flushPromises()
+  return wrapper.get('.text-selection-ai__composer')
 }
 
 function mountQuestionBankWorkbench(focusReferenceSources: () => void) {
@@ -109,6 +109,7 @@ function mountQuestionBankWorkbench(focusReferenceSources: () => void) {
     },
     global: {
       stubs: {
+        'el-dialog': true,
         CourseReferenceTray: true,
         CompanionDocumentStudio: true,
         QuestionBankReviewPanel,
@@ -130,6 +131,7 @@ function mountActualQuestionBankWorkbench() {
     },
     global: {
       stubs: {
+        'el-dialog': true,
         CourseReferenceTray: true,
         CompanionDocumentStudio: true,
         TeacherScriptDocument: true,
@@ -148,29 +150,34 @@ describe('教案 AI 协作编辑模式', () => {
     vi.spyOn(http, 'get').mockResolvedValue({ data: { total: 0 } })
   })
 
-  it('按当前小节缺口优先排列六项快捷修改，并把完整要求送入教案候选链', async () => {
+  it('教师从教案正文原位输入要求，候选直接嵌入同一篇正文', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
+    const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
+    candidatePlan.sections[0].learning_objective = '能用流程图准确解释爬虫四步流程'
     const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
-      candidate_id: 'candidate-quick-action', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
-      instruction: '', section_node_id: 'section-1', plan: structuredClone(lesson.plan.revisions[0]!.plan), status: 'pending', created_at: '',
+      candidate_id: 'candidate-inline', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
+      instruction: '把教学目标改成可观察行为', section_node_id: 'section-1', plan: candidatePlan, status: 'pending', created_at: '',
     })
     vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
     const wrapper = mountWorkbench()
 
-    await openLessonAi(wrapper)
+    const composer = await openInlineLessonAi(wrapper)
 
-    const actions = wrapper.findAll('.lesson-ai-quick-grid button')
-    expect(actions).toHaveLength(6)
-    expect(actions.map(action => action.text())).toEqual([
-      '补充检查点', '突出重点难点', '调整时间节奏', '加入课堂案例', '让目标可观察', '增加课堂互动',
-    ])
-
-    await actions[0]!.trigger('click')
+    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
+    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(false)
+    expect(composer.text()).toContain('AI 只生成候选，采用后才会写入正式教案')
+    await composer.get('textarea').setValue('把教学目标改成可观察行为')
+    await composer.trigger('submit')
     await flushPromises()
 
-    expect(createCandidate).toHaveBeenCalledTimes(1)
-    expect(createCandidate.mock.calls[0]![3]).toContain('补充能判断学生是否达成目标的课堂检查点')
+    expect(createCandidate.mock.calls[0]![3]).toContain('把教学目标改成可观察行为')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('AI 候选已嵌入教案正文')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('继续调整')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('保留原文')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('采用修改')
+    expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
+    expect(wrapper.text()).toContain('能用流程图准确解释爬虫四步流程')
   })
 
   it('题库 AI 固定使用整门课程范围和题库内部资料', async () => {
@@ -235,7 +242,7 @@ describe('教案 AI 协作编辑模式', () => {
     expect(window.localStorage.getItem('teacher-course-workbench:ai-pane-width')).toBe('384')
   })
 
-  it('在稳定右栏多轮修改左侧候选并保留确认边界', async () => {
+  it('继续调整会替换上一版候选，采用后才形成教案工作修订', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
     const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
@@ -253,101 +260,55 @@ describe('教案 AI 协作编辑模式', () => {
     const resolveCandidate = vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
     const wrapper = mountWorkbench()
 
-    await openLessonAi(wrapper)
-
-    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
-    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(true)
-    expect(wrapper.get('.stage-rail').attributes('style')).toBeUndefined()
-    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
-    expect(wrapper.text()).toContain('AI 助手')
-    expect(wrapper.text()).toContain('1.1 爬虫的定义与流程')
-    expect(wrapper.text()).not.toContain('从哪里开始修改')
-    expect(wrapper.text()).not.toContain('点击后生成可审阅候选')
-
-    await wrapper.get('.lesson-ai-sources').trigger('click')
-    expect(wrapper.classes()).not.toContain('is-ai-collaboration')
-    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
-    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(false)
-    await wrapper.findAll('.context-pane-tabs button')[0]!.trigger('click')
-    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
-    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(true)
-
-    await wrapper.get('.lesson-ai-composer textarea').setValue('把教学目标改成可观察行为')
-    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    let composer = await openInlineLessonAi(wrapper)
+    await composer.get('textarea').setValue('把教学目标改成可观察行为')
+    await composer.trigger('submit')
     await flushPromises()
 
     expect(createCandidate).toHaveBeenCalledTimes(1)
-    expect(wrapper.text()).toContain('能用流程图准确解释爬虫四步流程')
-    expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
-    expect(wrapper.text()).toContain('修改候选')
-    expect(wrapper.text()).toContain('1 处修改')
-    expect(wrapper.text()).toContain('教学目标')
-
-    await wrapper.get('.lesson-ai-composer textarea').setValue('同时增加课堂检查')
-    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    await wrapper.findAll('.candidate-canvas-notice button')[0]!.trigger('click')
+    await flushPromises()
+    composer = wrapper.get('.text-selection-ai__composer')
+    await composer.get('textarea').setValue('同时增加课堂检查')
+    await composer.trigger('submit')
     await flushPromises()
 
     expect(resolveCandidate).toHaveBeenCalledWith('course-1', 'lesson-1', 'candidate-1', false)
     expect(createCandidate).toHaveBeenCalledTimes(2)
     expect(createCandidate.mock.calls[1]![3]).toContain('把教学目标改成可观察行为')
     expect(createCandidate.mock.calls[1]![3]).toContain('同时增加课堂检查')
-    expect(wrapper.text()).toContain('上一版候选已由本轮要求替换')
 
-    await wrapper.get('.lesson-ai-review button.primary').trigger('click')
+    await wrapper.get('.candidate-canvas-notice button.primary').trigger('click')
     await flushPromises()
 
     expect(resolveCandidate).toHaveBeenLastCalledWith('course-1', 'lesson-1', 'candidate-2', true)
-    expect(wrapper.text()).toContain('候选已采用，并形成新的教案工作修订')
+    expect(wrapper.find('.candidate-canvas-notice').exists()).toBe(false)
   })
 
-  it('文中选区调用 AI 时自动切到助手并保留选中内容', async () => {
+  it('文中选区把选中内容与局部要求直接送入当前教案候选链', async () => {
     const store = useTeacherLessonAuthoringStore()
     store.lessons = [structuredClone(lesson)]
+    const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
+      candidate_id: 'candidate-selection', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
+      instruction: '改成可测量的表述', section_node_id: 'section-1', plan: structuredClone(lesson.plan.revisions[0]!.plan), status: 'pending', created_at: '',
+    })
     const wrapper = mountWorkbench()
 
-    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(true)
     wrapper.getComponent(TeacherLessonPlanDocument).vm.$emit('open-ai-selection', {
       text: '能解释爬虫的工作流程',
+      instruction: '改成可测量的表述',
+      source: 'selection',
     })
     await flushPromises()
 
     expect(wrapper.classes()).not.toContain('is-ai-collaboration')
-    expect(wrapper.findComponent({ name: 'CourseReferenceTray' }).exists()).toBe(false)
-    expect(wrapper.findAll('.context-pane-tabs button')[0]!.attributes('aria-selected')).toBe('true')
-    expect(wrapper.get('.lesson-ai-selection').text()).toContain('能解释爬虫的工作流程')
-    expect(wrapper.get('.lesson-ai-composer textarea').attributes('placeholder')).toContain('如何修改这段内容')
-  })
-
-  it('模糊要求先向教师澄清，再按所选方向生成候选', async () => {
-    const store = useTeacherLessonAuthoringStore()
-    store.lessons = [structuredClone(lesson)]
-    const candidatePlan = structuredClone(lesson.plan.revisions[0]!.plan)
-    candidatePlan.sections[0].learning_objective = '能复述并说明爬虫四步流程'
-    const createCandidate = vi.spyOn(store, 'createAiCandidate').mockResolvedValue({
-      candidate_id: 'candidate-clarified', lesson_unit_id: 'lesson-1', base_revision_id: 'revision-1',
-      instruction: '', section_node_id: 'section-1', plan: candidatePlan, status: 'pending', created_at: '',
-    })
-    vi.spyOn(store, 'resolveAiCandidate').mockResolvedValue(lesson.plan)
-    const wrapper = mountWorkbench()
-
-    await openLessonAi(wrapper)
-    await wrapper.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
-    await wrapper.get('.lesson-ai-composer').trigger('submit')
-    await flushPromises()
-
-    expect(createCandidate).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('你希望优先调整哪一部分')
-    expect(wrapper.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
-
-    await wrapper.findAll('.lesson-ai-clarification button')[0]!.trigger('click')
-    await flushPromises()
-
+    expect(wrapper.find('.lesson-ai-workspace').exists()).toBe(false)
     expect(createCandidate).toHaveBeenCalledTimes(1)
-    expect(createCandidate.mock.calls[0]![3]).toContain('帮我改好一点')
-    expect(createCandidate.mock.calls[0]![3]).toContain('补充能判断学生是否达成目标的课堂检查点')
+    expect(createCandidate.mock.calls[0]![3]).toContain('改成可测量的表述')
+    expect(createCandidate.mock.calls[0]![3]).toContain('能解释爬虫的工作流程')
   })
 
-  it('结构和跨资产要求复用整课修改方案，并在原助手中交给教师确认', async () => {
+  it('结构和跨资产要求复用整课修改方案，并直接打开审计弹窗', async () => {
     const lessonStore = useTeacherLessonAuthoringStore()
     lessonStore.lessons = [structuredClone(lesson)]
     const localCandidate = vi.spyOn(lessonStore, 'createAiCandidate')
@@ -390,57 +351,20 @@ describe('教案 AI 协作编辑模式', () => {
     } as any))
     const wrapper = mountWorkbench()
 
-    await openLessonAi(wrapper)
-    await wrapper.get('.lesson-ai-composer textarea').setValue('把第二章和第三章合并，并同步更新教案和讲稿')
-    await wrapper.get('.lesson-ai-composer').trigger('submit')
+    const composer = await openInlineLessonAi(wrapper)
+    await composer.get('textarea').setValue('把第二章和第三章合并，并同步更新教案和讲稿')
+    await composer.trigger('submit')
     await flushPromises()
 
     expect(localCandidate).not.toHaveBeenCalled()
     expect(createCoursePlan).toHaveBeenCalledTimes(1)
     expect(createCoursePlan.mock.calls[0]![0]).toMatchObject({ courseId: 'course-1' })
     expect(createCoursePlan.mock.calls[0]![0].instruction).toContain('把第二章和第三章合并')
-    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
-    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('3 个受影响单元')
-    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('大纲、教案、讲义')
-
-    await wrapper.get('.lesson-ai-course-plan button').trigger('click')
     expect(wrapper.emitted('open-course-adjustment')?.[0]).toEqual([{ planId: 'course-change-1' }])
+    expect(wrapper.find('.lesson-ai-course-plan').exists()).toBe(false)
   })
 
-  it('整课方案失败后保留原要求，并用同一个请求标识重试', async () => {
-    const lessonStore = useTeacherLessonAuthoringStore()
-    lessonStore.lessons = [structuredClone(lesson)]
-    const courseEvolutionStore = useCourseEvolutionStore()
-    const createCoursePlan = vi.spyOn(courseEvolutionStore, 'createCoursePlan')
-      .mockRejectedValueOnce(new Error('模型暂时不可用'))
-      .mockImplementationOnce(async input => ({
-        course_evolution_plans: [{
-          change_set_id: 'course-change-retry',
-          impact_summary: { request_id: input.requestId, affected_units: [{ asset_type: 'lesson_plan' }] },
-          teacher_change_planning: {
-            status: 'candidate_ready', structural_operations: [], intent: { blocking_questions: [] },
-          },
-        }],
-      } as any))
-    const wrapper = mountWorkbench()
-
-    await openLessonAi(wrapper)
-    await wrapper.get('.lesson-ai-composer textarea').setValue('把 A 这个名词永远都替换成 B')
-    await wrapper.get('.lesson-ai-composer').trigger('submit')
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('模型暂时不可用')
-    const firstRequestId = createCoursePlan.mock.calls[0]![0].requestId
-    await wrapper.get('.lesson-ai-assistant-line.is-error button').trigger('click')
-    await flushPromises()
-
-    expect(createCoursePlan).toHaveBeenCalledTimes(2)
-    expect(createCoursePlan.mock.calls[1]![0].requestId).toBe(firstRequestId)
-    expect(wrapper.get('.lesson-ai-course-plan').text()).toContain('整课修改方案')
-    expect(wrapper.text()).toContain('把 A 这个名词永远都替换成 B')
-  })
-
-  it('刷新后恢复当前修订尚未处理的候选', async () => {
+  it('刷新后把当前修订尚未处理的候选恢复到正文，并允许保留原文', async () => {
     const store = useTeacherLessonAuthoringStore()
     const restoredLesson = structuredClone(lesson)
     const restoredPlan = structuredClone(lesson.plan.revisions[0]!.plan)
@@ -455,77 +379,10 @@ describe('教案 AI 协作编辑模式', () => {
     await flushPromises()
 
     expect(wrapper.get('.objective-section').classes()).toContain('ai-change-target')
-    await openLessonAi(wrapper, 'AI 方案')
-    expect(wrapper.text()).toContain('已恢复上次未处理的修改候选')
-    expect(wrapper.get('.lesson-ai-workspace').attributes('data-phase')).toBe('review')
-    await wrapper.findAll('.lesson-ai-review button').find(button => button.text().includes('放弃'))!.trigger('click')
+    expect(wrapper.get('.candidate-canvas-notice').text()).toContain('AI 候选已嵌入教案正文')
+    await wrapper.findAll('.candidate-canvas-notice button').find(button => button.text().includes('保留原文'))!.trigger('click')
     await flushPromises()
 
     expect(store.resolveAiCandidate).toHaveBeenCalledWith('course-1', 'lesson-1', 'candidate-restored', false)
-  })
-
-  it('按课程、课次与稳定小节恢复未结束的对话', async () => {
-    const store = useTeacherLessonAuthoringStore()
-    store.lessons = [structuredClone(lesson)]
-    const first = mountWorkbench()
-
-    await openLessonAi(first)
-    await first.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
-    await first.get('.lesson-ai-composer').trigger('submit')
-    await flushPromises()
-
-    expect(first.text()).toContain('帮我改好一点')
-    expect([...Array(window.localStorage.length)].map((_, index) => window.localStorage.key(index)))
-      .toContain('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:section-1')
-    first.unmount()
-
-    const second = mountWorkbench()
-    await openLessonAi(second)
-    await flushPromises()
-
-    expect(second.text()).toContain('帮我改好一点')
-    expect(second.text()).toContain('你希望优先调整哪一部分')
-    expect(second.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
-  })
-
-  it('AI 范围切换只改变讲内当前内容，不恢复教师端小节 Tab', async () => {
-    const scopedLesson = structuredClone(lesson)
-    scopedLesson.sections.push({ section_node_id: 'section-2', title: '1.2 HTTP 请求与响应' })
-    scopedLesson.plan.revisions[0]!.plan.sections.push({
-      node_id: 'section-2', learning_objective: '能区分请求与响应', key_points: ['请求结构'],
-      key_difficulties: ['状态码'], in_class_checks: [], homework: [], teaching_notes: [],
-      teaching_modules: [{
-        module_id: 'core_explanation', planned_minutes: 25,
-        teacher_activity: '对比请求与响应', student_activity: '分析报文',
-      }],
-    })
-    const store = useTeacherLessonAuthoringStore()
-    store.lessons = [scopedLesson]
-    const wrapper = mountWorkbench()
-
-    await openLessonAi(wrapper)
-    await wrapper.get('.lesson-ai-composer textarea').setValue('帮我改好一点')
-    await wrapper.get('.lesson-ai-composer').trigger('submit')
-    await flushPromises()
-
-    const scopeSelect = wrapper.get('.lesson-ai-scope-select select')
-    expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-1')
-    await scopeSelect.setValue('section-2')
-    await flushPromises()
-
-    expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-2')
-    expect(wrapper.text()).toContain('1.2 HTTP 请求与响应')
-    expect(wrapper.text()).not.toContain('帮我改好一点')
-    expect(wrapper.find('.lesson-ai-quick-grid').exists()).toBe(true)
-    expect(wrapper.find('.lesson-section-tabs').exists()).toBe(false)
-    expect(window.localStorage.getItem('teacher-course-workbench:ai-session:course-1:lesson:lesson-1:section-1')).toContain('帮我改好一点')
-
-    await scopeSelect.setValue('section-1')
-    await flushPromises()
-
-    expect((scopeSelect.element as HTMLSelectElement).value).toBe('section-1')
-    expect(wrapper.text()).toContain('帮我改好一点')
-    expect(wrapper.text()).toContain('你希望优先调整哪一部分')
-    expect(wrapper.get('.lesson-ai-workspace').attributes('data-phase')).toBe('clarifying')
   })
 })

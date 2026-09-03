@@ -56,6 +56,8 @@ export interface TeacherLessonPlanAsset {
   source_state: 'current' | 'stale'
   ready?: boolean
   unavailable_reason?: string
+  can_generate?: boolean
+  generation_unavailable_reason?: string
   revisions: TeacherLessonPlanRevision[]
   ai_candidates?: TeacherLessonPlanCandidate[]
   script_confirmation?: {
@@ -124,6 +126,8 @@ export interface TeacherLessonScriptState {
   source_state: 'current' | 'stale'
   ready: boolean
   unavailable_reason?: string
+  can_generate?: boolean
+  generation_unavailable_reason?: string
   confirmed: boolean
   publication_eligible?: boolean
   generation_source?: string
@@ -329,6 +333,7 @@ export interface TeacherLessonJob {
   streamed_delta_chunks?: Record<string, Record<string, string>>
   streamed_sequence_by_shard?: Record<string, number>
   streamed_reset_sequence_by_shard?: Record<string, number>
+  created_at?: string
   updated_at?: string
 }
 
@@ -560,8 +565,11 @@ export function mergeLessonJobSnapshots(
   incoming: TeacherLessonJob[],
 ): TeacherLessonJob[] {
   return incoming.reduce((jobs, job) => {
-    const merged = mergeLessonJobSnapshot(jobs.find(item => item.id === job.id), job)
-    return [...jobs.filter(item => item.id !== job.id), merged]
+    const index = jobs.findIndex(item => item.id === job.id)
+    if (index < 0) return [...jobs, job]
+    const next = [...jobs]
+    next[index] = mergeLessonJobSnapshot(jobs[index], job)
+    return next
   }, [...current])
 }
 
@@ -727,6 +735,7 @@ export function mergeLessonJobStreamEvent(
   previous: TeacherLessonJob | undefined,
   event: TeacherLessonJobStreamEvent,
 ): TeacherLessonJob | undefined {
+  if (previous && TERMINAL_LESSON_JOB_STATUSES.has(previous.status)) return previous
   const jobId = String(event.job?.id || event.job_id || '')
   let merged = mergeSingleLessonJobStreamEvent(previous, {
     ...event,
@@ -777,12 +786,22 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       && item.type === 'teacher_lesson_plan_generation'
       && ['pending', 'running'].includes(item.status)
     )),
-    latestJobByLesson: state => (lessonUnitId: string) => [...state.jobs]
-      .reverse()
-      .find(item => item.lesson_unit_id === lessonUnitId && item.type === 'teacher_lesson_plan_generation'),
-    latestScriptJobByLesson: state => (lessonUnitId: string) => [...state.jobs]
-      .reverse()
-      .find(item => item.lesson_unit_id === lessonUnitId && item.type === 'teacher_lesson_script_generation'),
+    latestJobByLesson: state => (lessonUnitId: string) => state.jobs
+      .map((job, index) => ({ job, index }))
+      .filter(({ job }) => job.lesson_unit_id === lessonUnitId && job.type === 'teacher_lesson_plan_generation')
+      .sort((left, right) => (
+        (Date.parse(String(right.job.created_at || '')) || 0) - (Date.parse(String(left.job.created_at || '')) || 0)
+        || right.index - left.index
+        || String(right.job.id || '').localeCompare(String(left.job.id || ''))
+      ))[0]?.job,
+    latestScriptJobByLesson: state => (lessonUnitId: string) => state.jobs
+      .map((job, index) => ({ job, index }))
+      .filter(({ job }) => job.lesson_unit_id === lessonUnitId && job.type === 'teacher_lesson_script_generation')
+      .sort((left, right) => (
+        (Date.parse(String(right.job.created_at || '')) || 0) - (Date.parse(String(left.job.created_at || '')) || 0)
+        || right.index - left.index
+        || String(right.job.id || '').localeCompare(String(left.job.id || ''))
+      ))[0]?.job,
   },
   actions: {
     async load(courseId: string, options: { afterCurrent?: boolean } = {}) {
@@ -794,6 +813,9 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         this.jobs = []
         this.streamingJobIds = {}
         this.loadedCourseId = ''
+        this.actionLessonId = ''
+        this.error = ''
+        this.refreshError = ''
       }
       this.loading = !hasSuccessfulSnapshot
       this.refreshing = hasSuccessfulSnapshot
@@ -833,6 +855,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       materialAssetIds: string[] = [],
       resumeJobId = '',
     ) {
+      if (!this.courseId) this.courseId = courseId
       this.actionLessonId = lessonUnitId
       this.error = ''
       try {
@@ -846,17 +869,19 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             requirements,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
-          requestConfig(),
+          { ...requestConfig(), silentError: true },
         )
         const job = response.data.job
-        this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
-        void this.streamJob(courseId, job.id)
+        if (this.courseId === courseId) {
+          this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
+          void this.streamJob(courseId, job.id)
+        }
         return job
       } catch (error) {
-        this.error = errorMessage(error, '本讲教案生成失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '本讲教案生成失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async generateAllLessons(
@@ -865,6 +890,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       requirements = '',
       materialAssetIds: string[] = [],
     ) {
+      if (!this.courseId) this.courseId = courseId
       this.error = ''
       try {
         const response = await http.post<{
@@ -879,14 +905,16 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             requirements,
             material_asset_ids: Array.from(new Set(materialAssetIds.filter(Boolean))),
           },
-          requestConfig(),
+          { ...requestConfig(), silentError: true },
         )
         const incoming = response.data.jobs
-        this.jobs = mergeLessonJobSnapshots(this.jobs, incoming)
-        lessonJobsToObserve(incoming).forEach(job => { void this.streamJob(courseId, job.id) })
+        if (this.courseId === courseId) {
+          this.jobs = mergeLessonJobSnapshots(this.jobs, incoming)
+          lessonJobsToObserve(incoming).forEach(job => { void this.streamJob(courseId, job.id) })
+        }
         return response.data
       } catch (error) {
-        this.error = errorMessage(error, t('courseWorkbench.lessonBatch.failed'))
+        if (this.courseId === courseId) this.error = errorMessage(error, t('courseWorkbench.lessonBatch.failed'))
         throw error
       }
     },
@@ -906,13 +934,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           },
           requestConfig(),
         )
-        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '本讲课型与教学块确认失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '本讲课型与教学块确认失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async updateLessonType(
@@ -928,13 +956,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           { lesson_type: lessonType },
           requestConfig(),
         )
-        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '课型保存失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '课型保存失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async loadKnowledgeEvidence(courseId: string, lessonUnitId: string) {
@@ -945,11 +973,14 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       return response.data
     },
     async pollJob(courseId: string, jobId: string) {
+      if (!this.courseId) this.courseId = courseId
       for (let attempt = 0; attempt < 180; attempt += 1) {
+        if (this.courseId !== courseId) return undefined
         const response = await http.get<{ job: TeacherLessonJob }>(
           `/api/teacher/courses/${courseId}/lesson-jobs/${jobId}`,
           readRequestConfig(),
         )
+        if (this.courseId !== courseId) return undefined
         const job = response.data.job
         this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
         const current = this.jobs.find(item => item.id === job.id) || job
@@ -962,6 +993,8 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       return this.jobs.find(item => item.id === jobId)
     },
     async streamJob(courseId: string, jobId: string) {
+      if (!this.courseId) this.courseId = courseId
+      if (this.courseId !== courseId) return undefined
       if (this.streamingJobIds[jobId]) return this.jobs.find(item => item.id === jobId)
       this.streamingJobIds = { ...this.streamingJobIds, [jobId]: true }
       let terminal = false
@@ -976,6 +1009,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           },
         )
         await consumeLessonPlanStream(response, event => {
+          if (this.courseId !== courseId) return
           const eventJobId = String(event.job?.id || event.job_id || jobId)
           const previous = this.jobs.find(item => item.id === eventJobId)
           const job = mergeLessonJobStreamEvent(previous, { ...event, job_id: eventJobId })
@@ -988,18 +1022,21 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             (this.jobs.find(item => item.id === job.id) || job).status,
           )
         })
-        if (terminal) await this.load(courseId, { afterCurrent: true })
+        if (terminal && this.courseId === courseId) await this.load(courseId, { afterCurrent: true })
         return this.jobs.find(item => item.id === jobId)
       } catch {
+        if (this.courseId !== courseId) return undefined
         const current = this.jobs.find(item => item.id === jobId)
         if (current && !TERMINAL_LESSON_JOB_STATUSES.has(current.status)) {
           return this.pollJob(courseId, jobId)
         }
         return current
       } finally {
-        const next = { ...this.streamingJobIds }
-        delete next[jobId]
-        this.streamingJobIds = next
+        if (this.courseId === courseId) {
+          const next = { ...this.streamingJobIds }
+          delete next[jobId]
+          this.streamingJobIds = next
+        }
       }
     },
     async cancelJob(courseId: string, jobId: string) {
@@ -1008,7 +1045,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         requestConfig(),
       )
       const job = response.data.job
-      this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
+      if (this.courseId === courseId) this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
       return job
     },
     async pauseJob(courseId: string, jobId: string) {
@@ -1018,7 +1055,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         requestConfig(),
       )
       const job = response.data.job
-      this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
+      if (this.courseId === courseId) this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
       return job
     },
     async saveDraft(courseId: string, lessonUnitId: string, plan: Record<string, any>) {
@@ -1027,7 +1064,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         { plan, source_outline_revision_id: this.outlineRevisionId },
         requestConfig(),
       )
-      this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+      if (this.courseId === courseId) this.replaceLessonAsset(lessonUnitId, response.data.lesson)
       return response.data.lesson
     },
     async confirm(courseId: string, lessonUnitId: string, revisionId: string) {
@@ -1039,14 +1076,16 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           { revision_id: revisionId },
           requestConfig(),
         )
-        this.replaceLessonAsset(lessonUnitId, response.data.lesson)
-        await this.load(courseId)
+        if (this.courseId === courseId) {
+          this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+          await this.load(courseId)
+        }
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '本讲教案确认失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '本讲教案确认失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async restorePlanRevision(courseId: string, lessonUnitId: string, revisionId: string) {
@@ -1059,13 +1098,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           { expected_current_revision_id: current },
           requestConfig(),
         )
-        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '教案历史版本恢复失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '教案历史版本恢复失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async confirmScript(courseId: string, lessonUnitId: string, revisionId: string) {
@@ -1077,13 +1116,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           { revision_id: revisionId },
           requestConfig(),
         )
-        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '本讲讲义确认失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '本讲讲义确认失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async generateScript(
@@ -1093,6 +1132,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
       materialAssetIds: string[] = [],
       resumeJobId = '',
     ) {
+      if (!this.courseId) this.courseId = courseId
       this.actionLessonId = lessonUnitId
       this.error = ''
       try {
@@ -1104,23 +1144,26 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             requirements,
             material_asset_ids: materialAssetIds,
           },
-          requestConfig(),
+          { ...requestConfig(), silentError: true },
         )
         const job = response.data.job
-        this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
-        void this.streamJob(courseId, job.id)
+        if (this.courseId === courseId) {
+          this.jobs = mergeLessonJobSnapshots(this.jobs, [job])
+          void this.streamJob(courseId, job.id)
+        }
         return job
       } catch (error) {
-        this.error = errorMessage(error, '本讲讲义生成失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '本讲讲义生成失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async generateAllScripts(
       courseId: string,
       requirements = '',
     ) {
+      if (!this.courseId) this.courseId = courseId
       this.error = ''
       try {
         const response = await http.post<{
@@ -1132,16 +1175,18 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
             request_id: createUuid(),
             requirements,
           },
-          requestConfig(),
+          { ...requestConfig(), silentError: true },
         )
         const incoming = response.data.jobs
-        this.jobs = mergeLessonJobSnapshots(this.jobs, incoming)
-        incoming
-          .filter(job => ['pending', 'running'].includes(job.status))
-          .forEach(job => { void this.streamJob(courseId, job.id) })
+        if (this.courseId === courseId) {
+          this.jobs = mergeLessonJobSnapshots(this.jobs, incoming)
+          incoming
+            .filter(job => ['pending', 'running'].includes(job.status))
+            .forEach(job => { void this.streamJob(courseId, job.id) })
+        }
         return response.data
       } catch (error) {
-        this.error = errorMessage(error, '全部讲义任务创建失败，请重试。')
+        if (this.courseId === courseId) this.error = errorMessage(error, '全部讲义任务创建失败，请重试。')
         throw error
       }
     },
@@ -1158,11 +1203,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           { base_revision_id: baseRevisionId, sections },
           requestConfig(),
         )
-        const index = this.lessons.findIndex(item => item.lesson_unit_id === lessonUnitId)
-        if (index >= 0) this.lessons[index] = response.data.lesson
+        if (this.courseId === courseId) {
+          const index = this.lessons.findIndex(item => item.lesson_unit_id === lessonUnitId)
+          if (index >= 0) this.lessons[index] = response.data.lesson
+        }
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '讲义保存失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '讲义保存失败')
         throw error
       }
     },
@@ -1176,13 +1223,13 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
           { expected_current_revision_id: current },
           requestConfig(),
         )
-        this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+        if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
         return response.data.lesson
       } catch (error) {
-        this.error = errorMessage(error, '讲义历史版本恢复失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, '讲义历史版本恢复失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async rewriteScriptSection(
@@ -1207,7 +1254,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         )
         return data.candidate
       } catch (error) {
-        this.error = errorMessage(error, 'AI 优化讲义失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, 'AI 优化讲义失败')
         throw error
       }
     },
@@ -1225,7 +1272,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         { accept },
         requestConfig(),
       )
-      this.replaceLessonProjection(lessonUnitId, response.data.lesson)
+      if (this.courseId === courseId) this.replaceLessonProjection(lessonUnitId, response.data.lesson)
       return response.data
     },
     async createAiCandidate(
@@ -1251,10 +1298,10 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         )
         return data.candidate
       } catch (error) {
-        this.error = errorMessage(error, 'AI 教案优化失败')
+        if (this.courseId === courseId) this.error = errorMessage(error, 'AI 教案优化失败')
         throw error
       } finally {
-        this.actionLessonId = ''
+        if (this.courseId === courseId) this.actionLessonId = ''
       }
     },
     async resolveAiCandidate(
@@ -1268,7 +1315,7 @@ export const useTeacherLessonAuthoringStore = defineStore('teacher-lesson-author
         { accept },
         requestConfig(),
       )
-      this.replaceLessonAsset(lessonUnitId, response.data.lesson)
+      if (this.courseId === courseId) this.replaceLessonAsset(lessonUnitId, response.data.lesson)
       return response.data.lesson
     },
     replaceLessonAsset(lessonUnitId: string, plan: TeacherLessonPlanAsset) {

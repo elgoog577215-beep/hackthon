@@ -268,6 +268,86 @@ def _teacher_course_library_projection(owner_id: str, known_task_ids: set[str]) 
     return courses
 
 
+def _teacher_current_production(jobs: object) -> dict | None:
+    """Project the newest actionable lesson batch into the course library."""
+    supported_types = {
+        "teacher_lesson_plan_generation": "lesson_plan",
+        "teacher_lesson_script_generation": "script",
+    }
+    values = [
+        job for job in (jobs.values() if isinstance(jobs, dict) else jobs or [])
+        if isinstance(job, dict) and str(job.get("type") or "") in supported_types
+    ]
+    if not values:
+        return None
+
+    groups: dict[str, list[dict]] = {}
+    for job in values:
+        group_id = str(job.get("parent_job_id") or job.get("id") or "")
+        if group_id:
+            groups.setdefault(group_id, []).append(job)
+    if not groups:
+        return None
+
+    latest = max(
+        groups.values(),
+        key=lambda group: max(
+            str(item.get("updated_at") or item.get("created_at") or "")
+            for item in group
+        ),
+    )
+    statuses = [str(item.get("status") or "pending") for item in latest]
+    if any(status == "running" for status in statuses):
+        status = "running"
+    elif any(status == "pending" for status in statuses):
+        status = "pending"
+    elif any(status == "paused" for status in statuses):
+        status = "paused"
+    elif any(status == "failed" for status in statuses):
+        status = "failed"
+    else:
+        return None
+
+    completed_statuses = {"completed", "completed_with_warnings"}
+    completed = sum(status in completed_statuses for status in statuses)
+    failed = sum(status == "failed" for status in statuses)
+    total = max(
+        [int(item.get("batch_size") or 0) for item in latest] + [len(latest)],
+    )
+    progress_total = sum(
+        100 if item_status in completed_statuses
+        else max(0, min(100, int(item.get("progress") or 0)))
+        for item, item_status in zip(latest, statuses)
+    )
+    priority = {"running": 0, "failed": 1, "paused": 2, "pending": 3}
+    current = min(
+        latest,
+        key=lambda item: (
+            priority.get(str(item.get("status") or "pending"), 4),
+            -int(item.get("batch_position") or 0),
+        ),
+    )
+    active_lesson_ids = [
+        str(item.get("lesson_unit_id") or item.get("lesson_id") or "")
+        for item in sorted(latest, key=lambda item: int(item.get("batch_position") or 0))
+        if str(item.get("status") or "") in {"pending", "running"}
+    ]
+    return {
+        "target": supported_types[str(current.get("type") or "")],
+        "status": status,
+        "completed": completed,
+        "total": total,
+        "failed": failed,
+        "progress": round(progress_total / total) if total else 0,
+        "current_lesson_ids": [item for item in active_lesson_ids if item][:4],
+        "message": str(current.get("message") or ""),
+        "updated_at": max(
+            str(item.get("updated_at") or item.get("created_at") or "")
+            for item in latest
+        ),
+    }
+
+
 def _teacher_preparation_projection(course: dict, repository) -> dict:
     """Derive preparation from current usable assets, never confirmation flags."""
     course_id = str(course.get("course_id") or "")
@@ -319,21 +399,25 @@ def _teacher_preparation_projection(course: dict, repository) -> dict:
         and ready_handouts >= planned
         and ready_ppts >= planned
     )
+    summary = {
+        "planned_lessons": planned,
+        "outline_ready": outline_ready,
+        "ready_lesson_plans": ready_plans,
+        "ready_handouts": ready_handouts,
+        "ready_ppts": ready_ppts,
+        # Compatibility aliases for older clients. Their values now mean
+        # current and structurally usable, not manually confirmed.
+        "outline_confirmed": outline_ready,
+        "confirmed_lesson_plans": ready_plans,
+        "confirmed_handouts": ready_handouts,
+        "confirmed_ppts": ready_ppts,
+    }
+    current_production = _teacher_current_production(authoring.get("jobs"))
+    if current_production:
+        summary["current_production"] = current_production
     return {
         "preparation_state": "prepared" if prepared else "preparing",
-        "preparation_summary": {
-            "planned_lessons": planned,
-            "outline_ready": outline_ready,
-            "ready_lesson_plans": ready_plans,
-            "ready_handouts": ready_handouts,
-            "ready_ppts": ready_ppts,
-            # Compatibility aliases for older clients. Their values now mean
-            # current and structurally usable, not manually confirmed.
-            "outline_confirmed": outline_ready,
-            "confirmed_lesson_plans": ready_plans,
-            "confirmed_handouts": ready_handouts,
-            "confirmed_ppts": ready_ppts,
-        },
+        "preparation_summary": summary,
     }
 
 

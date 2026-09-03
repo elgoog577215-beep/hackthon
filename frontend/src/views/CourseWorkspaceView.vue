@@ -93,7 +93,6 @@
             @create-outline="prepareOutlineGeneration"
             @open-teaching-calendar="calendarOpen = true"
             @open-teaching-plan="openLessonPlan"
-            @open-tasks="openTasks"
             @open-practice="openPractice"
             @open-script="openScript"
             @open-ppt="openPpt"
@@ -125,10 +124,12 @@
       <TeacherCourseCalendarView embedded />
     </el-drawer>
 
-    <CourseWorkbench
-      v-model="workbenchOpen"
+    <CourseEvolutionWorkspace
+      v-model="courseAdjustmentOpen"
       :course-id="courseId"
-      surface="teacher"
+      :course-title="courseTitle"
+      :focus-plan-id="courseAdjustmentPlanId"
+      @course-applied="handleCourseAdjustmentApplied"
     />
 
   </main>
@@ -141,7 +142,7 @@ import { ArrowLeft, Eye, FolderOpen, FolderTree, LayoutGrid, LoaderCircle, ScanS
 import AppErrorNotice from '../components/AppErrorNotice.vue'
 import CourseBaselineDialog from '../components/CourseBaselineDialog.vue'
 import CoursePreparationDialog from '../components/CoursePreparationDialog.vue'
-import CourseWorkbench from '../components/CourseWorkbench.vue'
+import CourseEvolutionWorkspace from '../components/CourseEvolutionWorkspace.vue'
 import TeacherCourseWorkbench from '../components/TeacherCourseWorkbench.vue'
 import TeacherCourseCalendarView from './TeacherCourseCalendarView.vue'
 import TeacherCourseSpaceView from './TeacherCourseSpaceView.vue'
@@ -164,8 +165,9 @@ const loading = ref(true)
 const loadError = ref<AppErrorPresentation | null>(null)
 const outlineEditing = ref(false)
 const calendarOpen = ref(false)
-const workbenchOpen = ref(false)
 const courseInformationOpen = ref(false)
+const courseAdjustmentOpen = ref(false)
+const courseAdjustmentPlanId = ref('')
 const generationStarting = ref(false)
 const materialRefreshToken = ref(0)
 const selectedContext = ref({ lessonId: '', nodeId: '', label: '', type: '', path: '' })
@@ -322,19 +324,17 @@ function openScript(lessonId: string) {
   workspaceView.value = 'categories'
 }
 
-function openTasks() {
-  workbenchOpen.value = true
+function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
+  courseAdjustmentPlanId.value = payload?.planId || ''
+  courseAdjustmentOpen.value = true
 }
 
-function openCourseAdjustment(payload?: { planId?: string; sectionId?: string }) {
-  void router.push({
-    name: 'course-audit-updates',
-    params: {
-      courseId: courseId.value,
-      ...(payload?.planId ? { planId: payload.planId } : {}),
-    },
-    query: auditCenterReturnQuery('changes'),
-  })
+function handleCourseAdjustmentApplied() {
+  materialRefreshToken.value += 1
+  void Promise.allSettled([
+    courseStore.loadCourse(courseId.value, { includeLearningRecords: false, previewSurface: 'teacher', silentError: true }),
+    lessonStore.load(courseId.value),
+  ])
 }
 
 function openMaterialAudit() {

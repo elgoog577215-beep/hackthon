@@ -15,6 +15,7 @@ vi.mock('@/utils/http', () => ({
 import {
   lessonJobsToObserve,
   mergeLessonJobSnapshot,
+  mergeLessonJobSnapshots,
   mergeLessonJobStreamEvent,
   useTeacherLessonAuthoringStore,
 } from '@/stores/teacherLessonAuthoring'
@@ -76,6 +77,49 @@ describe('teacher lesson authoring store', () => {
     } as any
 
     expect(mergeLessonJobSnapshot(paused, resumed)).toMatchObject({ status: 'running', progress: 73 })
+  })
+
+  it('旧任务迟到更新不会被移到队尾并抢占新任务', () => {
+    const store = useTeacherLessonAuthoringStore()
+    store.jobs = [
+      {
+        id: 'job-old', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+        type: 'teacher_lesson_plan_generation', status: 'running', progress: 40,
+        phase: 'generation', message: '旧任务', warnings: [],
+        created_at: '2026-09-04T10:00:00Z', updated_at: '2026-09-04T10:00:01Z',
+      },
+      {
+        id: 'job-new', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+        type: 'teacher_lesson_plan_generation', status: 'running', progress: 20,
+        phase: 'generation', message: '新任务', warnings: [],
+        created_at: '2026-09-04T10:00:05Z', updated_at: '2026-09-04T10:00:06Z',
+      },
+    ]
+
+    store.jobs = mergeLessonJobSnapshots(store.jobs, [{
+      ...store.jobs[0]!, status: 'completed', progress: 100, updated_at: '2026-09-04T10:00:10Z',
+    }])
+
+    expect(store.jobs.map(job => job.id)).toEqual(['job-old', 'job-new'])
+    expect(store.latestJobByLesson('lesson-1')?.id).toBe('job-new')
+  })
+
+  it('任务进入暂停或终态后忽略迟到的流式增量', () => {
+    const paused = {
+      id: 'job-paused', course_id: 'course-1', lesson_unit_id: 'lesson-1',
+      type: 'teacher_lesson_script_generation', status: 'paused', progress: 40,
+      phase: 'teacher_asset_job_paused', message: '已暂停', warnings: [],
+      updated_at: '2026-09-04T10:00:05Z',
+    } as any
+
+    const merged = mergeLessonJobStreamEvent(paused, {
+      event: 'lesson_script_stream', job_id: 'job-paused', lesson_unit_id: 'lesson-1',
+      block_id: 'block-1', shard_id: 'shard-1', sequence: 9, delta: '迟到内容', stream_event: 'delta',
+      job: { ...paused, status: 'running', progress: 80, updated_at: '2026-09-04T10:00:06Z' },
+    })
+
+    expect(merged).toBe(paused)
+    expect(merged?.streamed_block_content).toBeUndefined()
   })
 
   it('轮询收到较旧运行快照时使用合并后终态结束观察', async () => {
@@ -242,6 +286,35 @@ describe('teacher lesson authoring store', () => {
     expect(store.error).toBe('')
   })
 
+  it('切换课程后旧课程轮询结果不能写入新课程', async () => {
+    let resolveOldJob!: (value: any) => void
+    httpMock.get.mockReturnValue(new Promise(resolve => { resolveOldJob = resolve }))
+    const store = useTeacherLessonAuthoringStore()
+    store.courseId = 'course-old'
+    store.jobs = [{
+      id: 'job-old', course_id: 'course-old', lesson_unit_id: 'lesson-old',
+      type: 'teacher_lesson_plan_generation', status: 'running', progress: 20,
+      phase: 'generation', message: '旧课程生成中', warnings: [],
+    }] as any
+
+    const polling = store.pollJob('course-old', 'job-old')
+    store.courseId = 'course-new'
+    store.jobs = [{
+      id: 'job-new', course_id: 'course-new', lesson_unit_id: 'lesson-new',
+      type: 'teacher_lesson_plan_generation', status: 'running', progress: 30,
+      phase: 'generation', message: '新课程生成中', warnings: [],
+    }] as any
+    resolveOldJob({ data: { job: {
+      id: 'job-old', course_id: 'course-old', lesson_unit_id: 'lesson-old',
+      type: 'teacher_lesson_plan_generation', status: 'completed', progress: 100,
+      phase: 'ready', message: '旧课程已完成', warnings: [],
+    } } })
+    await polling
+
+    expect(store.courseId).toBe('course-new')
+    expect(store.jobs.map(job => job.id)).toEqual(['job-new'])
+  })
+
   it('coalesces concurrent reads for the same course into one request', async () => {
     let resolveRequest!: (value: any) => void
     httpMock.get.mockReturnValue(new Promise(resolve => { resolveRequest = resolve }))
@@ -354,7 +427,7 @@ describe('teacher lesson authoring store', () => {
       expect.objectContaining({
         request_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
       }),
-      { headers: { 'X-User-Id': 'teacher-test' } },
+      { headers: { 'X-User-Id': 'teacher-test' }, silentError: true },
     )
     expect(store.error).toBe('')
   })
@@ -382,7 +455,7 @@ describe('teacher lesson authoring store', () => {
         request_id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
         requirements: '',
       },
-      { headers: { 'X-User-Id': 'teacher-test' } },
+      { headers: { 'X-User-Id': 'teacher-test' }, silentError: true },
     )
     expect(stream.mock.calls.map(call => call.slice(0, 2))).toEqual([
       ['course-1', 'script-job-1'],

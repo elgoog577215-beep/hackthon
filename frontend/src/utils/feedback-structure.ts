@@ -1,3 +1,5 @@
+import { normalizeLatexCodeForPlainText } from './markdown'
+
 export type FeedbackSectionKind = 'reference_answer' | 'task_review' | 'rubric' | 'common_errors' | 'guidance'
 
 export interface FeedbackSection {
@@ -58,7 +60,7 @@ function normalizeSection(raw: PersistedFeedbackSection, index: number): Feedbac
     title,
     kind: normalizeKind(raw.kind, title),
     markdown,
-    summary: String(raw.summary || summarize(markdown)),
+    summary: summarize(String(raw.summary || markdown)),
     collapsedByDefault: raw.collapsed_by_default !== false,
   }
 }
@@ -126,9 +128,9 @@ function cleanBody(value: string): string {
 }
 
 function summarize(markdown: string): string {
-  return String(markdown || '')
+  return normalizeLatexCodeForPlainText(String(markdown || ''))
     .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/[#>*_`$\\-]+/g, ' ')
+    .replace(/[#>*`$\\]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 96)

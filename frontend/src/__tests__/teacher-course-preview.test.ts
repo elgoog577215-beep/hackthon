@@ -13,11 +13,14 @@ describe('teacher course preview', () => {
     expect(workbench).not.toContain('/lesson-authoring/publish')
   })
 
-  it('loads the teacher current projection in student-view preview', () => {
+  it('loads the teacher current projection as a complete student learning surface', () => {
     const learningView = source('src/views/LearningView.vue')
+    const contentArea = source('src/components/ContentArea.vue')
 
     expect(learningView).toContain("previewSurface: 'teacher'")
     expect(learningView).toContain("taskType: 'teacher_outline_generation'")
-    expect(learningView).toContain('isGenerationPreview.value || isTeacherPreview.value')
+    expect(learningView).toContain(':teacher-preview="isTeacherPreview"')
+    expect(learningView).toContain("courseStore.currentCourseProjection === 'generation_preview' && !isTeacherPreview.value")
+    expect(contentArea).toContain("courseStore.currentCourseProjection === 'generation_preview' && !props.teacherPreview")
   })
 })

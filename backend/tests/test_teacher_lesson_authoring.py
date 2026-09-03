@@ -56,6 +56,59 @@ from routers import teacher_lesson_authoring as teacher_lesson_router
 from routers import courses as courses_router
 
 
+@pytest.mark.parametrize(
+    ("asset_status", "parse_status", "expected_code"),
+    [
+        ("parsing", "", "lesson_material_source_processing"),
+        ("failed", "failed", "lesson_material_source_parse_failed"),
+    ],
+)
+def test_selected_material_must_finish_parsing_before_generation(
+    monkeypatch,
+    asset_status,
+    parse_status,
+    expected_code,
+):
+    class FakeCourseSpace:
+        @staticmethod
+        def list_owned(actor, course_id):
+            assert (actor, course_id) == ("teacher-1", "course-1")
+            return [{"package_id": "package-1"}]
+
+        @staticmethod
+        def load_owned(package_id, actor):
+            assert (package_id, actor) == ("package-1", "teacher-1")
+            return {"assets": [{"material_asset_id": "material-1"}]}
+
+    class FakeMaterials:
+        @staticmethod
+        def get_asset(asset_id):
+            return type("Asset", (), {"status": asset_status})()
+
+        @staticmethod
+        def load_parsed_document(asset_id):
+            return type("Parsed", (), {"parse_status": parse_status})() if parse_status else None
+
+        @staticmethod
+        def load_evidence(asset_id):
+            return []
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "teacher_course_space_repository",
+        FakeCourseSpace(),
+    )
+    monkeypatch.setattr(teacher_lesson_router, "material_repository", FakeMaterials())
+
+    with pytest.raises(TeacherLessonAuthoringError) as raised:
+        teacher_lesson_router._course_material_evidence(
+            "course-1", "teacher-1", ["material-1"]
+        )
+
+    assert raised.value.code == expected_code
+    assert raised.value.details == {"material_asset_ids": ["material-1"]}
+
+
 def course_data():
     return {
         "course_id": "course-1",
@@ -1804,10 +1857,10 @@ def test_script_job_runs_blocks_concurrently_and_streams_real_token_shards(tmp_p
     )
     stream_payload = json.loads(data_line)
     assert stream_payload["lesson_unit_id"] == "L1-1"
-    assert stream_payload["block_id"]
-    assert stream_payload["shard_id"]
-    assert stream_payload["sequence"] > 0
-    assert stream_payload["delta"]
+    assert stream_payload["event"] == "lesson_script_complete"
+    assert stream_payload["job"]["status"] == "completed"
+    assert stream_payload["job"]["stream_complete"] is True
+    assert stream_payload["job"]["result_sections"]
 
 
 def test_script_job_runs_bounded_shards_concurrently_and_retries_only_failed_shard(
@@ -3014,6 +3067,89 @@ def test_teacher_job_contract_preserves_checkpoint_when_cancelled(tmp_path):
     assert cancelled["checkpoint"]["completed_blocks"] == 1
     assert cancelled["checkpoint"]["result_sections"][0]["content"] == "已完成内容"
     assert cancelled["error"]["retryable"] is True
+
+
+@pytest.mark.parametrize(
+    "frozen_status",
+    ["paused", "failed", "cancelled", "completed_with_warnings", "completed"],
+)
+def test_teacher_job_rejects_late_status_progress_and_stream_updates(
+    tmp_path,
+    frozen_status,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        job_type="teacher_lesson_script_generation",
+        request_id=f"frozen-{frozen_status}",
+    )
+    repository.update_job(
+        "course-1",
+        job["id"],
+        status="running",
+        phase="lesson_script_generation",
+        progress=40,
+    )
+    frozen = repository.update_job(
+        "course-1",
+        job["id"],
+        status=frozen_status,
+        phase="frozen_phase",
+        progress=45,
+        message="用户或终态已确立",
+    )
+
+    late_status = repository.update_job(
+        "course-1",
+        job["id"],
+        status="completed",
+        phase="late_complete",
+        progress=100,
+        message="迟到完成",
+    )
+    late_stream = repository.update_job_stream(
+        "course-1",
+        job["id"],
+        phase="late_stream",
+        progress=90,
+        message="迟到增量",
+        batch_id="block-1",
+        event="delta",
+        delta="不应写入",
+        lesson_unit_id="L1-1",
+        block_id="block-1",
+    )
+
+    assert late_status == frozen
+    assert late_stream == frozen
+    assert late_status["status"] == frozen_status
+    assert late_status["phase"] == "frozen_phase"
+    assert late_status["progress"] == 45
+    assert late_status.get("stream_batches") == {}
+
+
+def test_teacher_job_cannot_save_a_plan_revision_after_pause(tmp_path):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    job = repository.create_job(
+        "course-1",
+        "L1-1",
+        request_id="paused-before-save",
+    )
+    repository.update_job("course-1", job["id"], status="running")
+    repository.pause_job("course-1", job["id"])
+
+    with pytest.raises(TeacherLessonAuthoringError) as exc_info:
+        repository.save_plan_revision(
+            "course-1",
+            "L1-1",
+            standard_lesson_plan(),
+            source_outline_revision_id="outline-v1",
+            active_job_id=job["id"],
+        )
+
+    assert exc_info.value.code == "teacher_job_not_active"
+    assert repository.view("course-1")["lessons"] == {}
 
 
 def test_teacher_only_course_is_hidden_from_student_list(monkeypatch):
@@ -4436,17 +4572,99 @@ def test_generate_all_lesson_plans_queues_lecture_v1_lessons(
     assert repository.current_arrangement("course-1", "L1-2")["blocks"]
 
 
+def test_generate_all_lesson_plans_skips_lessons_without_teaching_structure(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    source = lecture_course_data()
+    source["course_plan"]["chapters"] = source["course_plan"]["chapters"][:1]
+
+    class FakeTaskManager:
+        storage = None
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return {**source, "blueprint_revision_id": "outline-v1"}
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    requested_children = []
+
+    async def fake_generate_lesson_plan(
+        course_id,
+        lesson_unit_id,
+        body,
+        _request,
+        _tm,
+        child_repository,
+    ):
+        requested_children.append((lesson_unit_id, body))
+        job = child_repository.create_job(
+            course_id,
+            lesson_unit_id,
+            request_id=body.request_id,
+            source_outline_revision_id="outline-v1",
+        )
+        return {"job": job}
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "generate_lesson_plan",
+        fake_generate_lesson_plan,
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_plan_material_scope",
+        lambda _course_id, _actor, _lesson_unit_id: {
+            "source_package_id": "",
+            "source_asset_id": "",
+            "material_asset_ids": [],
+        },
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/teacher/courses/course-1/lesson-plans/generate-all",
+            json={"request_id": "ready-plans-only"},
+        )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert len(payload["parent_job"]["child_job_ids"]) == 1
+    assert payload["skipped_lesson_ids"] == ["L1-2"]
+    assert payload["skipped_lessons"] == [{
+        "lesson_unit_id": "L1-2",
+        "reason": "lesson_arrangement:blocks_empty",
+    }]
+    assert [item[0] for item in requested_children] == ["L1-1"]
+    assert requested_children[0][1].batch_size == 1
+
+
 def test_generate_all_lesson_scripts_queues_every_lesson_with_one_parent(
     tmp_path,
     monkeypatch,
 ):
     repository = TeacherLessonAuthoringRepository(tmp_path)
-    for lesson_unit_id, section_node_id in (
-        ("L1-1", "L2-1-1"),
-        ("L1-2", "L2-2-1"),
+    for lesson_unit_id, section_node_ids in (
+        ("L1-1", ["L2-1-1", "L2-1-2"]),
+        ("L1-2", ["L2-2-1"]),
     ):
         plan = standard_lesson_plan()
-        plan["sections"][0]["node_id"] = section_node_id
+        template_section = plan["sections"][0]
+        plan["sections"] = [
+            {**deepcopy(template_section), "node_id": section_node_id}
+            for section_node_id in section_node_ids
+        ]
         repository.save_plan_revision(
             "course-1",
             lesson_unit_id,
@@ -4531,3 +4749,99 @@ def test_generate_all_lesson_scripts_queues_every_lesson_with_one_parent(
     assert [item[1].batch_position for item in requested_children] == [1, 2]
     assert all(item[1].batch_size == 2 for item in requested_children)
     assert requested_children[0][1].material_asset_ids == ["material-L1-1"]
+
+
+def test_generate_all_lesson_scripts_skips_lessons_without_ready_plan(
+    tmp_path,
+    monkeypatch,
+):
+    repository = TeacherLessonAuthoringRepository(tmp_path)
+    plan = standard_lesson_plan()
+    template_section = plan["sections"][0]
+    plan["sections"] = [
+        {**deepcopy(template_section), "node_id": section_node_id}
+        for section_node_id in ("L2-1-1", "L2-1-2")
+    ]
+    repository.save_plan_revision(
+        "course-1",
+        "L1-1",
+        plan,
+        source_outline_revision_id="outline-v1",
+    )
+
+    class FakeTaskManager:
+        storage = None
+        course_service = object()
+
+        @staticmethod
+        def get_generation_workspace_course(course_id):
+            assert course_id == "course-1"
+            return {**course_data(), "blueprint_revision_id": "outline-v1"}
+
+        @staticmethod
+        def get_generation_preview(_course_id):
+            return None
+
+    requested_children = []
+
+    async def fake_generate_lesson_script(
+        course_id,
+        lesson_unit_id,
+        body,
+        _request,
+        _tm,
+        _repository,
+    ):
+        requested_children.append((lesson_unit_id, body))
+        return {
+            "job": {
+                "id": f"job-{lesson_unit_id}",
+                "course_id": course_id,
+                "lesson_unit_id": lesson_unit_id,
+                "lesson_id": lesson_unit_id,
+                "status": "pending",
+                "phase": "queued",
+                "message": "已入队",
+                "parent_job_id": body.batch_parent_job_id,
+                "batch_position": body.batch_position,
+                "batch_size": body.batch_size,
+            }
+        }
+
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "generate_lesson_script",
+        fake_generate_lesson_script,
+    )
+    monkeypatch.setattr(
+        teacher_lesson_router,
+        "_lesson_script_material_scope",
+        lambda _course_id, _actor, _lesson_unit_id: {
+            "source_package_id": "",
+            "source_asset_id": "",
+            "material_asset_ids": [],
+        },
+    )
+    app = FastAPI()
+    app.include_router(teacher_lesson_router.router, prefix="/api")
+    app.dependency_overrides[require_task_manager] = lambda: FakeTaskManager()
+    app.dependency_overrides[
+        get_teacher_lesson_authoring_repository
+    ] = lambda: repository
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/teacher/courses/course-1/lesson-scripts/generate-all",
+            json={"request_id": "ready-scripts-only"},
+        )
+
+    assert response.status_code == 202
+    payload = response.json()
+    assert payload["child_job_ids"] == ["job-L1-1"]
+    assert payload["skipped_lesson_ids"] == ["L1-2"]
+    assert payload["skipped_lessons"] == [{
+        "lesson_unit_id": "L1-2",
+        "reason": "revision_missing",
+    }]
+    assert [item[0] for item in requested_children] == ["L1-1"]
+    assert requested_children[0][1].batch_size == 1

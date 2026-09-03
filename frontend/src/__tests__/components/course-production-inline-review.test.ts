@@ -277,19 +277,19 @@ describe('课程生产内联确认', () => {
     })
     await flushPromises()
 
-    const editor = wrapper.get('[data-testid="outline-rich-editor"]')
-    const heading = editor.get('h2')
-    heading.element.firstChild!.textContent = '第1讲 调整后的标题'
-    await heading.trigger('input')
+    const titleInput = wrapper.get<HTMLInputElement>(
+      '[data-outline-node-id="lecture-1"] [data-outline-field="node_name"] input',
+    )
+    await titleInput.setValue('调整后的标题')
     await wrapper.get('.outline-review__actions .secondary').trigger('click')
     await flushPromises()
 
     expect(save).toHaveBeenCalledWith('course-lesson-type-title', expect.objectContaining({
-      nodes: [expect.objectContaining({ node_name: '第1讲 调整后的标题' })],
+      nodes: [expect.objectContaining({ node_name: '调整后的标题' })],
     }))
     const payload = save.mock.calls[0]![1] as any
-    expect(payload.nodes[0].outline_editor_html.title_html).not.toContain('理论讲授')
-    expect(payload.nodes[0].outline_editor_html.title_html).not.toContain('项目工作坊')
+    expect(JSON.stringify(payload.nodes[0])).not.toContain('理论讲授')
+    expect(JSON.stringify(payload.nodes[0])).not.toContain('项目工作坊')
   })
 
   it('秋学期十六讲按八个教学周自动排课且不编造学时', async () => {

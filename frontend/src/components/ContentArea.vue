@@ -429,6 +429,7 @@ dayjs.locale('zh-cn')
 const props = defineProps<{
   sideAiPanelVisible?: boolean
   readOnly?: boolean
+  teacherPreview?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -478,7 +479,11 @@ const courseStore = useCourseStore()
 const noteStore = useNoteStore()
 const workspaceStore = useCourseWorkspaceStore()
 const learningSessionStore = useLearningSessionStore()
-const isGenerationPreview = computed(() => courseStore.currentCourseProjection === 'generation_preview')
+// 教师学生预览复用当前教师课程投影，但交互语义仍是完整学生学习现场。
+// 普通生成预览继续只读，避免草稿产生正式学习事实。
+const isGenerationPreview = computed(() => (
+    courseStore.currentCourseProjection === 'generation_preview' && !props.teacherPreview
+))
 const learningSyncLabel = computed(() => t(
     `courseWorkspace.learningSession.${learningSessionStore.status}`,
     learningSessionStore.status,

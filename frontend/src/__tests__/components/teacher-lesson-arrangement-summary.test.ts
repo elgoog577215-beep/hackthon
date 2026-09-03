@@ -34,6 +34,7 @@ const arrangement: TeacherLessonArrangement = {
   }],
   status: 'confirmed',
   confirmed: true,
+  ready: true,
   source_state: 'current',
 }
 

@@ -41,4 +41,22 @@ describe('course outline review layout', () => {
     expect(componentSource).not.toContain('class="outline-review__header"')
     expect(componentSource).not.toContain('class="outline-review__course-name"')
   })
+
+  it('puts the active editor before read-only formal content and keeps both edit modes reachable', () => {
+    expect(componentSource).toContain("'formal-outline--editing': editable")
+    expect(cssDeclarations('.formal-outline--editing')).toContain('display:flex')
+    expect(cssDeclarations('.formal-outline--editing')).toContain('flex-direction:column')
+    expect(componentSource).toContain(
+      '.formal-outline--editing > :not(.outline-rich-editor):not(.outline-markdown-workspace):not(.formal-contract-editor)',
+    )
+    expect(componentSource).toContain(
+      '.formal-outline--editing > .formal-contract-editor { order:1; }',
+    )
+
+    const visualModeButton = componentSource.slice(
+      componentSource.indexOf(':aria-pressed="editorMode === \'visual\'"') - 160,
+      componentSource.indexOf(':aria-pressed="editorMode === \'visual\'"') + 160,
+    )
+    expect(visualModeButton).not.toContain('v-if="!isLectureOutline"')
+  })
 })

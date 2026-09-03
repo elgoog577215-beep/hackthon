@@ -563,7 +563,6 @@ const emit = defineEmits<{
   (event: 'createOutline'): void
   (event: 'openTeachingCalendar'): void
   (event: 'openTeachingPlan', lessonId: string): void
-  (event: 'openTasks'): void
   (event: 'openPractice', lessonId: string): void
   (event: 'openScript', lessonId: string): void
   (event: 'openPpt', lessonId: string): void
@@ -1681,9 +1680,7 @@ async function primaryAction(node: WorkspaceNode) {
   if (node.type === 'teaching_calendar') { emit('openTeachingCalendar'); return }
   if (node.type === 'lesson_plan') { node.status === 'missing' ? openCreateDialog('lesson_plan', node.lessonId) : emit('openTeachingPlan', node.lessonId || ''); return }
   if (node.type === 'content') {
-    node.status === 'missing'
-      ? emit('openTasks')
-      : emit('openScript', node.lessonId || '')
+    emit('openScript', node.lessonId || '')
     return
   }
   if (node.type === 'ppt') {

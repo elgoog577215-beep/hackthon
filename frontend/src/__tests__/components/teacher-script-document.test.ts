@@ -57,6 +57,22 @@ describe('统一讲义页面', () => {
     expect(wrapper.find('.script-document').exists()).toBe(true)
   })
 
+  it('取消讲义编辑会丢弃临时输入并恢复已保存正文', async () => {
+    const store = useTeacherLessonAuthoringStore()
+    const save = vi.spyOn(store, 'saveScriptDraft')
+    const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
+
+    await wrapper.findAll('.script-actions button').find(button => button.text().includes('编辑讲义'))!.trigger('click')
+    await wrapper.get('.script-body textarea').setValue('这是只存在于本次编辑的临时内容')
+    await wrapper.findAll('.script-actions button').find(button => button.text().includes('取消'))!.trigger('click')
+    await flushPromises()
+
+    expect(save).not.toHaveBeenCalled()
+    expect(wrapper.find('.script-body textarea').exists()).toBe(false)
+    expect(wrapper.get('.script-content').text()).toContain('原始讲稿内容')
+    expect(wrapper.text()).not.toContain('这是只存在于本次编辑的临时内容')
+  })
+
   it('讲稿跨教学块编辑时可以撤销和重做', async () => {
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
     ;(wrapper.vm as any).beginEditing()
@@ -117,8 +133,6 @@ describe('统一讲义页面', () => {
     const resolve = vi.spyOn(store, 'resolveScriptAiCandidate').mockResolvedValue(lesson as any)
     const wrapper = mount(TeacherScriptDocument, { props: { courseId: 'course-1', lesson } })
 
-    await wrapper.findAll('.script-actions button').find(button => button.text().includes('AI 优化'))!.trigger('click')
-    expect(wrapper.emitted('open-ai')).toHaveLength(1)
     await (wrapper.vm as any).requestAiCandidate('增加一个真实课堂案例')
     await flushPromises()
 

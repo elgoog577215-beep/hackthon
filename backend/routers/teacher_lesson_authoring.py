@@ -704,6 +704,30 @@ def _course_material_evidence(
             details={"material_asset_ids": unknown_material_ids},
         )
 
+    parsing_material_ids: list[str] = []
+    failed_material_ids: list[str] = []
+    for material_asset_id in selected_ids:
+        asset = material_repository.get_asset(material_asset_id)
+        parsed = material_repository.load_parsed_document(material_asset_id)
+        status = str(getattr(asset, "status", "") or "")
+        parse_status = str(getattr(parsed, "parse_status", "") or "")
+        if status == "failed" or parse_status == "failed":
+            failed_material_ids.append(material_asset_id)
+        elif status in {"uploaded", "pending", "parsing"} and parse_status not in {"parsed", "degraded"}:
+            parsing_material_ids.append(material_asset_id)
+    if parsing_material_ids:
+        raise TeacherLessonAuthoringError(
+            "lesson_material_source_processing",
+            "资料正在解析，完成后即可生成。",
+            details={"material_asset_ids": parsing_material_ids},
+        )
+    if failed_material_ids:
+        raise TeacherLessonAuthoringError(
+            "lesson_material_source_parse_failed",
+            "部分资料解析失败，请移除或重新上传后再生成。",
+            details={"material_asset_ids": failed_material_ids},
+        )
+
     evidence: list[dict[str, Any]] = []
     for material_asset_id in selected_ids:
         for item in material_repository.load_evidence(material_asset_id):
@@ -715,6 +739,27 @@ def _course_material_evidence(
                 "source_kind": "course_material",
             })
     return selected_ids, evidence
+
+
+def _capture_generation_source_snapshot(
+    *,
+    course_id: str,
+    actor: str,
+    target_id: str,
+    target_type: str,
+    target_label: str,
+    target_revision: str = "",
+    task_id: str = "",
+) -> None:
+    teacher_course_space_repository.capture_owned_generation_source_snapshot(
+        actor,
+        course_id,
+        target_id=target_id,
+        target_type=target_type,
+        target_label=target_label,
+        target_revision=target_revision,
+        task_id=task_id,
+    )
 
 
 def _lesson_plan_material_scope(
@@ -943,6 +988,20 @@ def _prompt_material_evidence(
     return result
 
 
+def _plan_revision_covers_sections(
+    revision: object,
+    expected_section_ids: list[str],
+) -> bool:
+    if not isinstance(revision, dict):
+        return False
+    actual_section_ids = [
+        str(item.get("node_id") or "")
+        for item in (revision.get("plan") or {}).get("sections") or []
+        if isinstance(item, dict)
+    ]
+    return actual_section_ids == expected_section_ids
+
+
 def _lesson_projection(
     source: dict[str, Any],
     repository: TeacherLessonAuthoringRepository,
@@ -1015,6 +1074,14 @@ def _lesson_projection(
         arrangement["source_state"] = "current" if not arrangement_is_current else str(
             arrangement_state.get("source_state") or "current"
         )
+        expected_section_ids = [
+            str(section.get("node_id") or "") for section in sections
+        ]
+        arrangement_issues = validate_lesson_arrangement(
+            arrangement,
+            expected_section_ids=expected_section_ids,
+        )
+        plan_can_generate = not arrangement_issues
         working_script_revision_id = str(plan_asset.get("working_script_revision_id") or "")
         script_revision = next(
             (
@@ -1047,6 +1114,21 @@ def _lesson_projection(
         )
         plan_ready = bool(plan_readiness["ready"])
         script_ready = bool(script_readiness["ready"])
+        plan_revision = next(
+            (
+                item for item in plan_asset.get("revisions") or []
+                if isinstance(item, dict)
+                and str(item.get("revision_id") or "") == plan_revision_id
+            ),
+            None,
+        )
+        script_can_generate = bool(
+            plan_ready
+            and _plan_revision_covers_sections(
+                plan_revision,
+                expected_section_ids,
+            )
+        )
         script_source_state = (
             "stale"
             if (
@@ -1073,6 +1155,15 @@ def _lesson_projection(
             )
             ppt_asset.update(ppt_readiness)
         plan_asset.update(plan_readiness)
+        plan_asset["can_generate"] = plan_can_generate
+        plan_asset["generation_unavailable_reason"] = (
+            ""
+            if plan_can_generate
+            else str(
+                (arrangement_issues[0] if arrangement_issues else {}).get("code")
+                or "lesson_arrangement_unavailable"
+            )
+        )
         # Compatibility fields now mirror readiness. The repository may still
         # retain historical confirmation metadata, but the read model never
         # uses it to decide whether the teacher can continue.
@@ -1104,6 +1195,17 @@ def _lesson_projection(
                 "source_state": script_source_state,
                 "ready": script_ready,
                 "unavailable_reason": script_readiness["unavailable_reason"],
+                "can_generate": script_can_generate,
+                "generation_unavailable_reason": (
+                    ""
+                    if script_can_generate
+                    else "lesson_plan_scope_stale"
+                    if plan_ready
+                    else str(
+                        plan_readiness["unavailable_reason"]
+                        or "lesson_plan_not_ready"
+                    )
+                ),
                 "confirmed": script_ready,
                 "publication_eligible": script_ready,
                 "generation_source": str(
@@ -2478,6 +2580,15 @@ async def build_teacher_lesson_v6_manuscript(
     )
     source_material_revision = stable_hash(material_bindings, prefix="pptrefs_")
     task_id = f"teacher-v6-manuscript-{uuid.uuid4().hex}"
+    _capture_generation_source_snapshot(
+        course_id=course_id,
+        actor=actor,
+        target_id=f"ppt-v6:{lesson_unit_id}",
+        target_type="ppt",
+        target_label=f"{lesson.get('node_name') or lesson_unit_id} PPT",
+        target_revision=source_script_revision or source_plan_revision,
+        task_id=task_id,
+    )
     candidate_repository = SlideDeckV6CandidateRepository(
         repository.root / "v6_candidates"
     )
@@ -2702,6 +2813,15 @@ async def build_teacher_lesson_v6(
         manuscript_state.get("theme") or "academic-editorial"
     )
     task_id = f"teacher-v6-{uuid.uuid4().hex}"
+    _capture_generation_source_snapshot(
+        course_id=course_id,
+        actor=actor,
+        target_id=f"ppt-v6:{lesson_unit_id}",
+        target_type="ppt",
+        target_label=f"{lesson.get('node_name') or lesson_unit_id} PPT",
+        target_revision=source_script_revision or source_plan_revision,
+        task_id=task_id,
+    )
     template = _resolve_locked_teacher_v6_template(manuscript_state, actor)
     candidate_repository = SlideDeckV6CandidateRepository(
         repository.root / "v6_candidates"
@@ -3307,6 +3427,16 @@ async def generate_lesson_plan(
         if job.get("status") in {"running", "completed", "completed_with_warnings"}:
             return {"job": job}
 
+        _capture_generation_source_snapshot(
+            course_id=course_id,
+            actor=actor,
+            target_id=f"lesson-plan:{lesson_unit_id}",
+            target_type="lesson_plan",
+            target_label=f"{scope['lesson'].get('node_name') or lesson_unit_id} 教案",
+            target_revision=outline_revision,
+            task_id=str(job.get("id") or ""),
+        )
+
         service = TeacherLessonAuthoringService(repository)
 
         async def planner(
@@ -3402,20 +3532,32 @@ async def generate_all_lesson_plans(
                 "课程大纲中还没有可生成教案的讲次。",
             )
         actor = resolve_user_id(request.headers.get("X-User-Id"))
+        skipped_lessons: list[dict[str, str]] = []
+        target_lessons: list[dict[str, Any]] = []
+        for lesson in lessons:
+            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            plan = lesson.get("plan") or {}
+            if not body.regenerate_confirmed and bool(plan.get("ready")):
+                skipped_lessons.append({
+                    "lesson_unit_id": lesson_unit_id,
+                    "reason": "already_ready",
+                })
+            elif bool(plan.get("can_generate")):
+                target_lessons.append(lesson)
+            else:
+                skipped_lessons.append({
+                    "lesson_unit_id": lesson_unit_id,
+                    "reason": str(
+                        plan.get("generation_unavailable_reason")
+                        or "lesson_arrangement_unavailable"
+                    ),
+                })
+        skipped_lesson_ids = [
+            item["lesson_unit_id"] for item in skipped_lessons
+        ]
         parent_job_id = f"tlj-batch-{uuid.uuid4().hex}"
         request_prefix = body.request_id.strip() or parent_job_id
         jobs: list[dict[str, Any]] = []
-        skipped_lesson_ids = [
-            str(lesson.get("lesson_unit_id") or "")
-            for lesson in lessons
-            if not body.regenerate_confirmed
-            and isinstance(lesson.get("plan"), dict)
-            and bool(lesson["plan"].get("ready"))
-        ]
-        target_lessons = [
-            lesson for lesson in lessons
-            if str(lesson.get("lesson_unit_id") or "") not in skipped_lesson_ids
-        ]
         prior_jobs = list((repository.view(course_id).get("jobs") or {}).values())
         for batch_position, lesson in enumerate(target_lessons, start=1):
             lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
@@ -3497,6 +3639,7 @@ async def generate_all_lesson_plans(
             "status": "running" if jobs else "completed",
             "child_job_ids": [str(item.get("id") or "") for item in jobs],
             "skipped_lesson_ids": skipped_lesson_ids,
+            "skipped_lessons": skipped_lessons,
             "total": len(lessons),
             "started": len(jobs),
             "lesson_statuses": [
@@ -3511,7 +3654,12 @@ async def generate_all_lesson_plans(
             ],
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        return {"parent_job": parent_job, "jobs": jobs}
+        return {
+            "parent_job": parent_job,
+            "jobs": jobs,
+            "skipped_lesson_ids": skipped_lesson_ids,
+            "skipped_lessons": skipped_lessons,
+        }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
 
@@ -3880,12 +4028,10 @@ async def generate_lesson_script(
         expected_plan_section_ids = [
             str(item.get("node_id") or "") for item in scope["sections"]
         ]
-        actual_plan_section_ids = [
-            str(item.get("node_id") or "")
-            for item in (plan_revision.get("plan") or {}).get("sections") or []
-            if isinstance(item, dict)
-        ]
-        if actual_plan_section_ids != expected_plan_section_ids:
+        if not _plan_revision_covers_sections(
+            plan_revision,
+            expected_plan_section_ids,
+        ):
             raise TeacherLessonAuthoringError(
                 "lesson_plan_scope_stale",
                 "当前教案没有完整对应本讲大纲，请重新生成或编辑保存。",
@@ -3950,6 +4096,16 @@ async def generate_lesson_script(
         )
         if job.get("status") in {"running", "completed", "completed_with_warnings"}:
             return {"job": job}
+
+        _capture_generation_source_snapshot(
+            course_id=course_id,
+            actor=actor,
+            target_id=f"script:{lesson_unit_id}",
+            target_type="script",
+            target_label=f"{scope['lesson'].get('node_name') or lesson_unit_id} 讲义",
+            target_revision=plan_revision_id,
+            task_id=str(job.get("id") or ""),
+        )
 
         lesson_title = str(scope["lesson"].get("node_name") or "")
         lesson_section_titles = [
@@ -4268,15 +4424,28 @@ async def generate_all_lesson_scripts(
                 "课程大纲中还没有可生成讲义的讲次。",
             )
         actor = resolve_user_id(request.headers.get("X-User-Id"))
+        skipped_lessons: list[dict[str, str]] = []
+        target_lessons: list[dict[str, Any]] = []
+        for lesson in lessons:
+            lesson_unit_id = str(lesson.get("lesson_unit_id") or "")
+            script = lesson.get("script") or {}
+            if not body.regenerate_confirmed and bool(script.get("ready")):
+                skipped_lessons.append({
+                    "lesson_unit_id": lesson_unit_id,
+                    "reason": "already_ready",
+                })
+            elif bool(script.get("can_generate")):
+                target_lessons.append(lesson)
+            else:
+                skipped_lessons.append({
+                    "lesson_unit_id": lesson_unit_id,
+                    "reason": str(
+                        script.get("generation_unavailable_reason")
+                        or "lesson_plan_not_ready"
+                    ),
+                })
         skipped_lesson_ids = [
-            str(lesson.get("lesson_unit_id") or "")
-            for lesson in lessons
-            if not body.regenerate_confirmed
-            and bool((lesson.get("script") or {}).get("ready"))
-        ]
-        target_lessons = [
-            lesson for lesson in lessons
-            if str(lesson.get("lesson_unit_id") or "") not in skipped_lesson_ids
+            item["lesson_unit_id"] for item in skipped_lessons
         ]
 
         # Validate the entire launch set before creating any child.  A stale
@@ -4345,6 +4514,7 @@ async def generate_all_lesson_scripts(
             "status": parent_status,
             "child_job_ids": child_job_ids,
             "skipped_lesson_ids": skipped_lesson_ids,
+            "skipped_lessons": skipped_lessons,
             "total": len(lessons),
             "started": len(jobs),
             "lesson_statuses": [
@@ -4366,6 +4536,7 @@ async def generate_all_lesson_scripts(
             "jobs": jobs,
             "child_job_ids": child_job_ids,
             "skipped_lesson_ids": skipped_lesson_ids,
+            "skipped_lessons": skipped_lessons,
         }
     except TeacherLessonAuthoringError as exc:
         _raise(exc)
