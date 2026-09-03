@@ -559,8 +559,8 @@ function moduleTitle(module: Record<string, any>, index: number): string {
   const rawLabel = String(module.label || '').trim()
   const placeholder = /^(?:环节|教学块|模块)\s*\d*$/u.test(rawLabel)
     || rawLabel === moduleId
-  const purpose = String(module.teaching_purpose || module.teaching_guidance || '')
-    .split(/[，。；：]/u)[0]
+  const purpose = (String(module.teaching_purpose || module.teaching_guidance || '')
+    .split(/[，。；：]/u)[0] || '')
     .trim()
     .slice(0, 24)
   const name = (!placeholder && rawLabel)
