@@ -146,7 +146,7 @@ describe('teacher course workbench outline streaming', () => {
     })).toContain('学生能够解释爬虫的工作流程')
   })
 
-  it('用后端大纲检查点持续吐出已形成的章节文字', () => {
+  it('旧检查点也只投影为讲次，不再回显章节与小节', () => {
     const task = useGenerationStore().createTask('job-1', 'course-1', 'C 语言程序设计')
     task.status = 'running'
     task.currentStep = '正在展开各章小节'
@@ -154,10 +154,16 @@ describe('teacher course workbench outline streaming', () => {
 
     const wrapper = mountWorkbench()
 
-    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).toContain('Hello World 与编译过程')
-    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).toContain('流程控制结构')
+    expect(wrapper.get('[data-testid="outline-growth-stream"]').attributes('data-structure')).toBe('lecture')
+    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).toContain('第1讲 程序环境与基础语法')
+    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).toContain('第2讲 流程控制结构')
+    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).not.toContain('Hello World 与编译过程')
+    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).not.toContain('1.1')
+    expect(wrapper.get('[data-testid="outline-growth-stream"]').text()).not.toContain('小节')
     expect(wrapper.find('.stream-waiting').exists()).toBe(false)
-    expect(wrapper.get('.generation-surface>header').text()).toContain('正在展开各章小节')
+    expect(wrapper.get('.generation-surface>header').text()).toContain('正在生成讲次方案')
+    expect(wrapper.get('.generation-surface>header').text()).not.toContain('章')
+    expect(wrapper.get('.generation-surface>header').text()).not.toContain('小节')
   })
 
   it('教师课程生成过程只显示讲次，不暴露内部 1.1 编号', () => {
@@ -231,11 +237,49 @@ describe('teacher course workbench outline streaming', () => {
     const detail = wrapper.get('[data-testid="outline-detail-stream"]')
 
     expect(wrapper.findAll('[data-testid="outline-flow-steps"] button')[2]!.classes()).toContain('active')
+    expect(wrapper.find('[data-testid="outline-growth-stream"]').exists()).toBe(false)
     expect(detail.text()).toContain('已完成 1/2 讲')
     expect(detail.text()).toContain('第1讲 静电场')
     expect(detail.text()).toContain('第2讲 稳恒磁场')
     expect(detail.text()).toContain('正在建立稳恒磁场分析方法')
     expect(detail.find('article[data-state="running"] .stream-caret').exists()).toBe(true)
+  })
+
+  it('新生成任务启动时不回显上一个任务的旧结构', async () => {
+    const task = useGenerationStore().createTask('job-old', 'course-1', 'C 语言程序设计')
+    task.status = 'completed'
+    task.currentPhase = 'teacher_outline_ready'
+    task.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: growth }
+    const wrapper = mountWorkbench()
+
+    await wrapper.get('form.stage-form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.emitted('generateOutline')).toHaveLength(1)
+    expect(wrapper.find('.generation-surface').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="outline-growth-stream"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Hello World 与编译过程')
+    expect(wrapper.text()).not.toContain('1.1')
+    expect(wrapper.get('.stream-waiting').text()).toContain('AI 正在建立课程结构')
+  })
+
+  it('切换课程或任务时不复用其他任务的大纲快照', async () => {
+    const generation = useGenerationStore()
+    const firstTask = generation.createTask('job-first', 'course-1', 'C 语言程序设计')
+    firstTask.status = 'running'
+    firstTask.phaseDetail = { artifact_type: 'course_outline_growth', outline_growth: growth }
+    const wrapper = mountWorkbench()
+    expect(wrapper.find('[data-testid="outline-growth-stream"]').exists()).toBe(true)
+
+    const secondTask = generation.createTask('job-second', 'course-2', '电动力学')
+    secondTask.status = 'running'
+    secondTask.phaseDetail = {}
+    await wrapper.setProps({ courseId: 'course-2', courseTitle: '电动力学' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="outline-growth-stream"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('程序环境与基础语法')
+    expect(wrapper.find('.stream-waiting').exists()).toBe(true)
   })
 
   it('大纲失败后的重试沿用原任务检查点，不新建重复课程', async () => {

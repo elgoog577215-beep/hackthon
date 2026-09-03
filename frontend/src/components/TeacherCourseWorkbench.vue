@@ -157,9 +157,8 @@
         <div class="generation-progress"><i :style="{ transform: `scaleX(${generationProgress / 100})` }" /></div>
         <article class="stream-content">
           <OutlineGrowthStream
-            v-if="outlineGrowth || (hasOutline && !hasStreamedBody)"
+            v-if="outlineGrowth && !outlineLessonStatuses.length"
             :growth="outlineGrowth"
-            :nodes="outlinePreviewNodes"
           />
           <section
             v-if="outlineLessonStatuses.length"
@@ -197,15 +196,8 @@
               <pre v-if="lessonStatus.stream_preview" class="outline-detail-stream__preview">{{ lessonStatus.stream_preview }}<span v-if="outlineLessonStatusState(lessonStatus) === 'running'" class="stream-caret" /></pre>
             </article>
           </section>
-          <template v-if="!outlineLessonStatuses.length">
-            <section v-for="node in visibleStreamNodes" :key="node.node_id">
-              <h3>{{ node.node_name }}</h3>
-              <MarkdownRenderer :content="nodeContent(node)" />
-              <span v-if="node.node_id === generationStore.currentGeneratingNodeId" class="stream-caret" />
-            </section>
-          </template>
-          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !visibleStreamNodes.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
-          <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && !visibleStreamNodes.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
+          <div v-if="!outlineGrowth && !outlineLessonStatuses.length && !generationFailed" class="stream-waiting"><LoaderCircle :size="20" class="spin" />{{ t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…') }}</div>
+          <div v-else-if="!outlineGrowth && !outlineLessonStatuses.length && generationFailed" class="stream-waiting stream-failed"><TriangleAlert :size="22" />{{ t('courseWorkbench.noContentGenerated', '本次没有生成课程内容，请检查提示后重试。') }}</div>
         </article>
         <AppErrorNotice v-if="generationErrorPresentation" class="workbench-error" :presentation="generationErrorPresentation" compact>
           <template #action><button type="button" @click="submitFoundation">{{ t('common.retry', '重试') }}</button></template>
@@ -1001,7 +993,6 @@ import AppErrorNotice from './AppErrorNotice.vue'
 import CompanionDocumentStudio from './CompanionDocumentStudio.vue'
 import CourseOutlineReview from './CourseOutlineReview.vue'
 import CourseReferenceTray, { type CourseReferenceItem, type CourseReferenceWorkflowState } from './CourseReferenceTray.vue'
-import MarkdownRenderer from './MarkdownRenderer.vue'
 import OutlineGrowthStream from './OutlineGrowthStream.vue'
 import QuestionBankReviewPanel from './QuestionBankReviewPanel.vue'
 import TeacherLessonAiWorkspace, { type TeacherAiQuickAction, type TeacherAiScopeOption } from './TeacherLessonAiWorkspace.vue'
@@ -1258,7 +1249,11 @@ const outlineLessonTypeSavingId = ref('')
 const outlineLessonTypeError = ref('')
 const outlineLessonTypeErrorId = ref('')
 const lessonGenerationRequestError = ref(''); const lessonDocumentError = ref(''); const scriptGenerating = ref(false); const scriptGenerationError = ref(''); const scriptDocumentError = ref(''); const generationRequested = ref(false)
-const retainedOutlineGrowth = ref<Record<string, any> | null>(null)
+const retainedOutlineGrowth = ref<{
+  courseId: string
+  taskId: string
+  value: Record<string, any>
+} | null>(null)
 const questionBankReady = ref(false)
 const questionBankImportMode = ref(false)
 const questionBankRevisionId = ref('')
@@ -1762,14 +1757,23 @@ const generationRunning = computed(() => taskInFlight.value)
 const showStreaming = computed(() => activeStage.value === 'foundation'
   && (generationRequested.value || taskInFlight.value || taskPaused.value || generationFailed.value))
 const hasOutline = computed(() => courseStore.nodes.some(node => Number(node.node_level || 0) <= 2))
-const outlinePreviewNodes = computed(() => courseStore.nodes.filter(node => Number(node.node_level || 0) <= 2).slice(0, 24))
-const visibleStreamNodes = computed(() => courseStore.nodes.filter(node => node.node_content || generationStore.streamingContent[node.node_id]).slice(0, 20))
-const hasStreamedBody = computed(() => visibleStreamNodes.value.length > 0)
+const freshOutlineGenerationStarting = computed(() => generationRequested.value
+  && !taskInFlight.value
+  && !taskPaused.value
+  && !generationFailed.value)
 const outlineGrowth = computed<Record<string, any> | null>(() => {
+  if (freshOutlineGenerationStarting.value) return null
   const value = generationTask.value?.phaseDetail?.outline_growth
-  return value && typeof value === 'object' ? value as Record<string, any> : retainedOutlineGrowth.value
+  if (value && typeof value === 'object') return value as Record<string, any>
+  const retained = retainedOutlineGrowth.value
+  return retained
+    && retained.courseId === props.courseId
+    && retained.taskId === String(generationTask.value?.id || '')
+    ? retained.value
+    : null
 })
 const outlineLessonStatuses = computed<OutlineLessonStatus[]>(() => {
+  if (freshOutlineGenerationStarting.value) return []
   const raw = generationTask.value?.phaseDetail?.lesson_statuses
   const values = Array.isArray(raw)
     ? raw
@@ -1812,8 +1816,12 @@ const outlineFlowStep = computed<1 | 2 | 3>(() => {
   if (hasOutline.value || taskInFlight.value || outlineWaitingForInput.value) return 2
   return 1
 })
-const generationProgress = computed(() => Math.max(2, Number(generationTask.value?.progress || generationStore.generationProgress || 0)))
-const currentGenerationLabel = computed(() => generationTask.value?.currentStep || generationStore.currentGeneratingNode || t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…'))
+const generationProgress = computed(() => freshOutlineGenerationStarting.value
+  ? 2
+  : Math.max(2, Number(generationTask.value?.progress || 0)))
+const currentGenerationLabel = computed(() => teacherOutlineGenerationLabel(
+  freshOutlineGenerationStarting.value ? '' : generationTask.value?.currentStep,
+))
 const generationError = computed(() => generationFailed.value ? String(generationTask.value?.error || generationStore.failureReport?.failed_nodes?.[0]?.error || t('courseWorkbench.generationFailed', '生成中断，可以从当前结果重试。')) : '')
 const generationErrorPresentation = computed(() => generationError.value ? toAppError(generationError.value, {
   title: t('courseWorkbench.outlineGenerationFailed', '课程大纲生成失败'),
@@ -2151,7 +2159,16 @@ function stageReady(stage: CoreStageId) {
   if (stage === 'script') return lessonStore.lessons.every(item => Boolean(item.script?.ready && item.script.current_revision_id && item.script.source_state === 'current'))
   return lessonStore.lessons.every(item => item.plan.ppt_assets.some(asset => asset.source_state === 'current'))
 }
-function nodeContent(node: any) { return generationStore.streamingContent[node.node_id] || node.node_content || '' }
+function teacherOutlineGenerationLabel(value: unknown) {
+  const fallback = t('courseWorkbench.waitingForContent', 'AI 正在建立课程结构…')
+  const label = String(value || '').trim()
+  if (!label) return fallback
+  return label
+    .replace(/正在展开各章小节[^\uff0c\u3002]*/g, '正在生成讲次方案')
+    .replace(/第\s*([0-9一二三四五六七八九十百]+)\s*[章节]/gu, '第 $1 讲')
+    .replace(/(^|[：:，,\s])\d+(?:\.\d+)+\s*/g, '$1')
+    .replace(/章节|小节/g, '讲次')
+}
 function scrollOutlineIntoView() {
   if (workbenchCenter.value) workbenchCenter.value.scrollTop = 0
 }
@@ -3203,7 +3220,24 @@ watch(() => props.generationOptions, options => {
   foundation.lectureCount = Number(brief?.lecture_count || brief?.section_count || 16)
   foundation.requirements = String(canonical.requirements || '')
 }, { immediate: true, deep: true })
-watch(() => generationTask.value?.phaseDetail?.outline_growth, value => { if (value && typeof value === 'object') retainedOutlineGrowth.value = JSON.parse(JSON.stringify(value)) as Record<string, any> }, { immediate: true, deep: true })
+watch([
+  () => props.courseId,
+  () => generationTask.value?.id,
+  () => generationTask.value?.phaseDetail?.outline_growth,
+], ([courseId, taskId, value]) => {
+  if (value && typeof value === 'object') {
+    retainedOutlineGrowth.value = {
+      courseId,
+      taskId: String(taskId || ''),
+      value: JSON.parse(JSON.stringify(value)) as Record<string, any>,
+    }
+    return
+  }
+  const retained = retainedOutlineGrowth.value
+  if (retained && (retained.courseId !== courseId || retained.taskId !== String(taskId || ''))) {
+    retainedOutlineGrowth.value = null
+  }
+}, { immediate: true, deep: true })
 watch(() => props.initialStage, stage => { void requestStageChange(stage) })
 watch(() => props.initialLessonId, lessonId => { if (lessonId) selectedLessonId.value = lessonId })
 watch([() => props.courseId, () => lessonStore.outlineRevisionId], () => {
